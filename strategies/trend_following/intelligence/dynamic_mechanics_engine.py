@@ -65,8 +65,6 @@ class DynamicMechanicsEngine:
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
         bottom_context_score = 1 - price_position_in_range
         top_context_score = price_position_in_range
-        
-
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         metrics = [
@@ -110,6 +108,7 @@ class DynamicMechanicsEngine:
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美动态力学健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
+        bearish_health = {}
         price_static_arr = price_static.values
         volume_static_arr = volume_static.values
         volatility_static_arr = volatility_static.values
@@ -129,17 +128,18 @@ class DynamicMechanicsEngine:
             kinetic_energy_health_arr = (kinetic_energy_static_arr * kinetic_energy_mom[p].values * kinetic_energy_accel[p].values)**(1/3)
             inertia_health_arr = (inertia_static_arr * inertia_mom[p].values * inertia_accel[p].values)**(1/3)
             health_components_arr = np.stack([
-                price_health_arr,
-                volume_health_arr,
-                volatility_health_arr,
-                efficiency_health_arr,
-                force_quality_health_arr,
-                kinetic_energy_health_arr,
-                inertia_health_arr
+                price_health_arr, volume_health_arr, volatility_health_arr, efficiency_health_arr,
+                force_quality_health_arr, kinetic_energy_health_arr, inertia_health_arr
             ], axis=0)
             final_health_arr = np.prod(health_components_arr, axis=0)**(1/7)
             bullish_health[p] = pd.Series(final_health_arr, index=df.index, dtype=np.float32)
-        bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            bearish_health_components_arr = np.stack([
+                1 - price_health_arr, 1 - volume_health_arr, 1 - volatility_health_arr, 1 - efficiency_health_arr,
+                1 - force_quality_health_arr, 1 - kinetic_energy_health_arr, 1 - inertia_health_arr
+            ], axis=0)
+            final_bearish_health_arr = np.prod(bearish_health_components_arr, axis=0)**(1/7)
+            bearish_health[p] = pd.Series(final_bearish_health_arr, index=df.index, dtype=np.float32)
         # --- 4. 定义信号组件 (此部分逻辑不变) ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
         bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5

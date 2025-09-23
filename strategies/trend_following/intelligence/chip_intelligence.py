@@ -269,6 +269,7 @@ class ChipIntelligence:
         else:
             pillar_overall_health_d['mtf_synergy'] = pd.Series(0.5, index=df.index)
         # --- 5. 融合生成“全局共识健康度” (Global Overall Health) ---
+        overall_bearish_health = {}
         overall_bullish_health = {}
         for p in periods:
             # 直接创建NumPy数组列表
@@ -278,7 +279,14 @@ class ChipIntelligence:
             stacked_scores = np.stack(health_arrays_for_period, axis=0)
             geo_mean_values = np.prod(stacked_scores, axis=0)**(1/len(health_arrays_for_period))
             overall_bullish_health[p] = pd.Series(geo_mean_values, index=df.index)
-        overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            # 计算每个支柱的看跌健康度 (1 - 看涨健康度)
+            bearish_health_arrays_for_period = [(1 - pillar_period_health_d[key][p].values) for key in pillars]
+            bearish_health_arrays_for_period.append((1 - pillar_overall_health_d['mtf_synergy'].values))
+            # 堆叠并计算看跌共振分
+            stacked_bearish_scores = np.stack(bearish_health_arrays_for_period, axis=0)
+            geo_mean_bearish_values = np.prod(stacked_bearish_scores, axis=0)**(1/len(bearish_health_arrays_for_period))
+            overall_bearish_health[p] = pd.Series(geo_mean_bearish_values, index=df.index)
         # --- 6. 交叉协同剧本诊断 ---
         ph = pillar_overall_health_d
         playbook_scores = {}

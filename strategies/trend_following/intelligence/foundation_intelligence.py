@@ -68,7 +68,6 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 定义“位置上下文”分数 ---
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -76,8 +75,6 @@ class FoundationIntelligence:
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
         bottom_context_score = 1 - price_position_in_range
         top_context_score = price_position_in_range
-        
-
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         required_cols = set()
@@ -106,6 +103,7 @@ class FoundationIntelligence:
         cmf_slope_scores = {p: self._normalize_score(df[f'SLOPE_{p}_CMF_21_D']) for p in periods}
         cmf_accel_scores = {p: self._normalize_score(df[f'ACCEL_{p}_CMF_21_D']) for p in periods}
         # --- 3. 融合生成“全面共识健康度” ---
+        overall_bearish_health = {}
         overall_bullish_health = {}
         for p in periods:
             ema_health_arr = ema_static_scores[p].values * ema_slope_scores[p].values * ema_accel_scores[p].values
@@ -114,7 +112,13 @@ class FoundationIntelligence:
             cmf_health_arr = cmf_static_score_arr * cmf_slope_scores[p].values * cmf_accel_scores[p].values
             overall_health_arr = (ema_health_arr * rsi_health_arr * macd_health_arr * cmf_health_arr)**0.25
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            bearish_ema_health_arr = (1 - ema_static_scores[p].values) * (1 - ema_slope_scores[p].values) * (1 - ema_accel_scores[p].values)
+            bearish_rsi_health_arr = (1 - rsi_static_score_arr) * (1 - rsi_slope_scores[p].values) * (1 - rsi_accel_scores[p].values)
+            bearish_macd_health_arr = (1 - macd_static_score_arr) * (1 - macd_slope_scores[p].values) * (1 - macd_accel_scores[p].values)
+            bearish_cmf_health_arr = (1 - cmf_static_score_arr) * (1 - cmf_slope_scores[p].values) * (1 - cmf_accel_scores[p].values)
+            overall_bearish_health_arr = (bearish_ema_health_arr * bearish_rsi_health_arr * bearish_macd_health_arr * bearish_cmf_health_arr)**0.25
+            overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
@@ -131,9 +135,7 @@ class FoundationIntelligence:
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_FOUNDATION_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        
         # --- 6. 反转信号合成 ---
-        # --- 重构反转信号逻辑 ---
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_FOUNDATION_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)

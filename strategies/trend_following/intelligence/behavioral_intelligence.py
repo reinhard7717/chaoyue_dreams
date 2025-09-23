@@ -109,9 +109,11 @@ class BehavioralIntelligence:
         vol_accel = {p: self._normalize_series(df.get(f'ACCEL_{p}_volume_D'), norm_window, min_periods) for p in periods}
         # --- 3. 计算每个周期的“完美健康度” (Intra-Timeframe Validation) ---
         bullish_health = {}
+        bearish_health = {}
         for p in periods:
             bullish_health[p] = (price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p])
-        bearish_health = {p: 1.0 - bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            bearish_health[p] = ((1-price_static[p]) * (1-price_mom[p]) * (1-price_accel[p]) * (1-vol_static[p]) * (1-vol_mom[p]) * (1-vol_accel[p]))
         # --- 4. 定义信号组件 ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
         bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5

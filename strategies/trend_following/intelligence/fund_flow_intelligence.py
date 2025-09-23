@@ -75,7 +75,6 @@ class FundFlowIntelligence:
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 定义“位置上下文”分数 ---
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -83,7 +82,6 @@ class FundFlowIntelligence:
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
         bottom_context_score = 1 - price_position_in_range
         top_context_score = price_position_in_range
-        
 
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
@@ -146,8 +144,11 @@ class FundFlowIntelligence:
         }
         # --- 3. 融合生成“全面共识健康度” (NumPy原生计算) ---
         overall_bullish_health = {}
+        overall_bearish_health = {}
         for p in periods:
             pillar_health_arrays = []
+            # 新增 bearish_pillar_health_arrays 列表
+            bearish_pillar_health_arrays = []
             for pillar_key, pillar_prefix in pillars.items():
                 if p > 1 and pillar_key in pillar_types['uses_sum']:
                     static_col = f"{pillar_prefix}_sum_{p}d_D"
@@ -161,11 +162,17 @@ class FundFlowIntelligence:
                 accel_score_arr = normalized_scores[accel_col].values
                 pillar_health_arr = static_score_arr * slope_score_arr * accel_score_arr
                 pillar_health_arrays.append(pillar_health_arr)
+                # 计算看跌健康度
+                bearish_pillar_health_arr = (1 - static_score_arr) * (1 - slope_score_arr) * (1 - accel_score_arr)
+                bearish_pillar_health_arrays.append(bearish_pillar_health_arr)
             stacked_health_arrays = np.stack(pillar_health_arrays, axis=0)
             num_pillars = len(pillars)
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            stacked_bearish_health_arrays = np.stack(bearish_pillar_health_arrays, axis=0)
+            overall_bearish_health_arr = np.prod(stacked_bearish_health_arrays, axis=0)**(1/num_pillars)
+            overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5

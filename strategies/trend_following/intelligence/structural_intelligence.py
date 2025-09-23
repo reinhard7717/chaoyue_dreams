@@ -59,7 +59,6 @@ class StructuralIntelligence:
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-            
         # --- 定义“位置上下文”分数 ---
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -67,8 +66,6 @@ class StructuralIntelligence:
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
         bottom_context_score = 1 - price_position_in_range
         top_context_score = price_position_in_range
-        
-
         # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
@@ -80,13 +77,18 @@ class StructuralIntelligence:
         pillar_health['pattern'] = self._calculate_pattern_health(df, periods, norm_window)
         # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
+        overall_bearish_health = {}
         for p in periods:
             health_scores_series = [pillar_health[key][p] for key in pillar_health]
             stacked_health_arrays = np.stack([s.values for s in health_scores_series], axis=0)
             num_pillars = len(pillar_health)
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-        overall_bearish_health = {p: 1.0 - overall_bullish_health[p] for p in periods}
+            # 采用新的“看跌共振”计算逻辑
+            bearish_health_scores_series = [(1 - pillar_health[key][p]) for key in pillar_health]
+            stacked_bearish_health_arrays = np.stack([s.values for s in bearish_health_scores_series], axis=0)
+            overall_bearish_health_arr = np.prod(stacked_bearish_health_arrays, axis=0)**(1/num_pillars)
+            overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
         # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
@@ -103,9 +105,7 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        
         # --- 6. 反转信号合成 ---
-        # --- 重构反转信号逻辑 ---
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
@@ -115,8 +115,7 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
-        
-        
+
         return states
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Dict[int, pd.Series]:
