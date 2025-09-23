@@ -61,11 +61,19 @@ class MicroBehaviorEngine:
         """
         print("      -> [微观行为诊断引擎] 启动...")
         all_states = {}
+        early_momentum_states = self.synthesize_early_momentum_ignition(df)
+        all_states.update(early_momentum_states)
+        # [新增行] 从刚刚计算的结果中提取出下游方法需要的信号
+        early_ignition_score = early_momentum_states.get(
+            'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', 
+            pd.Series(0.0, index=df.index, dtype=np.float32)
+        )
         all_states.update(self.synthesize_early_momentum_ignition(df))
         all_states.update(self.diagnose_deceptive_retail_flow(df))
         all_states.update(self.synthesize_microstructure_dynamics(df))
         all_states.update(self.synthesize_euphoric_acceleration_risk(df))
-        all_states.update(self.synthesize_reversal_reliability_score(df))
+        reversal_states = self.synthesize_reversal_reliability_score(df, early_ignition_score=early_ignition_score)
+        all_states.update(reversal_states)
         print(f"      -> [微观行为诊断引擎] 分析完毕，共生成 {len(all_states)} 个微观行为信号。")
         return all_states
 
@@ -249,16 +257,15 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
         return states
 
-    def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V4.1 探针适配版】高质量战备可靠性诊断引擎
-        - 核心升级 (本次修改):
-          - [信号发布] 将内部计算的 `deep_bottom_context_score`, `rsi_w_oversold_score`, `downtrend_stabilizing_score`
-                        等关键组件分数，正式发布到 `atomic_states` 中，以供“首席法医官探针”直接消费。
-        - 收益: 为探针提供了无需重计算的、100%真实的原始数据源，确保了调试信息的绝对准确性。
+        【V4.2 依赖修复版】高质量战备可靠性诊断引擎
+        - 核心修复 (本次修改):
+          - [依赖注入] 修改了方法签名，不再从全局状态库中获取 `early_ignition_score`，而是通过参数直接接收由上游实时计算出的值。
+        - 收益: 彻底根除了因读取过时数据而导致信号计算错误的系统性缺陷。
         """
-        # [修改行] 更新版本号和说明
-        print("        -> [高质量战备可靠性诊断引擎 V4.1 探针适配版] 启动...")
+        # [修改行] 更新版本号和说明，并修改方法签名以接收依赖注入的信号
+        print("        -> [高质量战备可靠性诊断引擎 V4.2 依赖修复版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -269,12 +276,11 @@ class MicroBehaviorEngine:
         # --- 第一幕：背景设定 (The Setup) - 深度价值区 ---
         price_pos_yearly = self._normalize_score(df['close_D'], window=250, ascending=True, default=0.5)
         deep_bottom_context_score = 1.0 - price_pos_yearly
+        states['INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT'] = deep_bottom_context_score.astype(np.float32)
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
+        states['INTERNAL_SCORE_RSI_W_OVERSOLD'] = rsi_w_oversold_score.astype(np.float32)
         background_score = (deep_bottom_context_score * rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
-        # [新增行] 将内部组件发布到 states，供探针消费
-        states['INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT'] = deep_bottom_context_score.astype(np.float32)
-        states['INTERNAL_SCORE_RSI_W_OVERSOLD'] = rsi_w_oversold_score.astype(np.float32)
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
         shareholder_turnover_score = np.maximum.reduce([
             atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).values,
@@ -285,12 +291,12 @@ class MicroBehaviorEngine:
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
         # --- 第三幕：转折点火 (The Ignition) - 共振初起 ---
         downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
-        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        # [新增行] 将内部组件发布到 states，供探针消费
         states['INTERNAL_SCORE_DOWNTREND_STABILIZING'] = downtrend_stabilizing_score.astype(np.float32)
+        vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        # [修改行] 不再从全局状态库获取，而是直接使用传入的参数
+        # early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
         # [算法升级 1] 将“企稳点火分”的计算从乘法升级为加权平均
-        ignition_weights = {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2}
+        ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2})
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
             vol_compression_score * ignition_weights['vol'] +
@@ -299,7 +305,7 @@ class MicroBehaviorEngine:
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
         # --- 最终剧本触发逻辑 (全新加权共识范式) ---
         # [算法升级 2] 将最终可靠性分的计算也从乘法升级为加权平均
-        reliability_weights = {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2}
+        reliability_weights = get_param_value(p.get('reliability_weights'), {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2})
         final_reliability_score = (
             shareholder_quality_score * reliability_weights['shareholder'] +
             ignition_confirmation_score * reliability_weights['ignition'] +
@@ -312,19 +318,31 @@ class MicroBehaviorEngine:
         if probe_date_str:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
+                # [新增行] 在探针中打印验算过程，以供调试
+                probe_ignition_score = (
+                    early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
+                    vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +
+                    downtrend_stabilizing_score.get(probe_ts, -1) * ignition_weights['stabilizing']
+                )
+                probe_final_score = (
+                    shareholder_quality_score.get(probe_ts, -1) * reliability_weights['shareholder'] +
+                    ignition_confirmation_score.get(probe_ts, -1) * reliability_weights['ignition'] +
+                    background_score.get(probe_ts, -1) * reliability_weights['context']
+                )
                 print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
                 print(f"          --- 企稳点火分 (内部计算) ---")
                 print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
                 print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
                 print(f"            - 趋势企稳分: {downtrend_stabilizing_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['stabilizing']})")
+                print(f"            - [探针验算] 企稳点火分: {probe_ignition_score:.4f} vs 实际值: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
                 print(f"          --- 王牌信号分 (最终计算) ---")
                 print(f"          - 要素1 (股东换血) 得分: {shareholder_quality_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['shareholder']})")
                 print(f"          - 要素2 (企稳点火) 得分: {ignition_confirmation_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['ignition']})")
                 print(f"          - 要素3 (深度价值区) 得分: {background_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['context']})")
+                print(f"          - [探针验算] 最终可靠性分: {probe_final_score:.4f} vs 实际值: {final_reliability_score.get(probe_ts, -1):.4f}")
                 print(f"          - 最终可靠性分 (加权平均): {final_reliability_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
         return states
-
 
 
 
