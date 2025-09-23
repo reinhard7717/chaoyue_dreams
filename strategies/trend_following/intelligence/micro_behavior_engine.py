@@ -218,16 +218,26 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】亢奋加速风险诊断引擎 (Euphoric Acceleration Risk)
-        - 核心目标: 识别趋势末端的“高潮式”加速上涨，这是最危险的诱多陷阱。
-        - 核心逻辑: 风险 = 高乖离度 * 天量成交 * 巨幅振动 * 冲高回落
-        - 产出信号: COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION - 一个S级的顶层风险信号。
+        【V1.1 上下文净化版】亢奋加速风险诊断引擎 (Euphoric Acceleration Risk)
+        - 核心升级 (本次修改):
+          - [上下文净化] 引入了“顶部位置上下文”过滤器。现在，最终风险分 = 原始风险分 * 顶部位置分。
+        - 收益: 从根本上解决了该信号在底部区域被错误激活的问题。确保了这个为“顶部”量身定制的风险信号，只在价格处于高位时才生效，避免了对底部反转机会的“乌龙”惩罚。
         """
+        # 更新版本号和说明
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
             return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
+
+        # 新增“顶部位置上下文分”作为过滤器
+        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
+        # 价格在55日区间内的位置分 (0=最低点, 1=最高点)
+        top_context_score = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+
+        # --- 计算原始风险的四个维度 (逻辑不变) ---
         bias_score = self._normalize_score(df['BIAS_21_D'].abs(), norm_window, ascending=True)
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = self._normalize_score(volume_ratio, norm_window, ascending=True)
@@ -237,10 +247,16 @@ class MicroBehaviorEngine:
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
         upper_shadow_ratio = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
         upthrust_score = upper_shadow_ratio
-        final_risk_score = (
+        
+        # 计算原始风险分
+        raw_risk_score = (
             bias_score * volume_spike_score * volatility_score * upthrust_score
         )**(1/4)
-        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
+
+        # 将原始风险分与位置上下文过滤器相乘
+        final_risk_score = (raw_risk_score * top_context_score).astype(np.float32)
+        
+        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
