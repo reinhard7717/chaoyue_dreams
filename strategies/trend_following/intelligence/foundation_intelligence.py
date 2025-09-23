@@ -402,10 +402,11 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.3 健壮性修复版】波动率统一情报中心
-        - 核心修复 (本次修改):
-          - [BUG修复] 修正了对 `create_persistent_state` 函数的调用，补全了所有必需的位置参数，
-                        彻底解决了因参数缺失而导致的潜在 TypeError 崩溃风险。
+        【V6.4 状态诊断升级版】波动率统一情报中心
+        - 核心升级 (本次修改):
+          - [逻辑重构] 将“波动率拐点”的判断逻辑从一个严苛的、事件驱动的“斜率过零”模型，升级为一个更鲁棒的、状态驱动的“状态x加速度”模型。
+          - [新范式] 新的“波动率拐点分” = “S级波动率压缩分” * “波动率加速分”。
+        - 收益: 解决了因“斜率未过零”导致信号得分为零的顽固问题，使信号能更早、更稳定地捕捉到波动率从压缩到扩张的转折状态。
         """
         # 更新版本号和说明
         states = {}
@@ -430,6 +431,10 @@ class FoundationIntelligence:
         score_expansion_daily = 1 - score_squeeze_daily
         score_expansion_weekly = 1 - score_squeeze_weekly
         score_expansion_momentum = 1 - score_squeeze_momentum
+        
+        # 计算波动率的加速分，用于新的拐点模型
+        score_vol_accel_up = self._normalize_score(df['ACCEL_5_BBW_21_2.0_D'], ascending=True)
+        score_vol_accel_down = self._normalize_score(df['ACCEL_5_BBW_21_2.0_D'], ascending=False)
 
         # --- 3. 生成B/A/S三级压缩信号 ---
         states['SCORE_VOL_COMPRESSION_B'] = score_squeeze_daily
@@ -442,17 +447,21 @@ class FoundationIntelligence:
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
 
         # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
-        is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
-        # [修改行] 修复TypeError：根据函数定义补全所有必需的位置参数
-        persistent_bottom_state = create_persistent_state(df, is_tipping_point_bottom_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_BOTTOM')
-        states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
+        # 废弃旧的事件驱动逻辑
+        # is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
+        # persistent_bottom_state = create_persistent_state(df, is_tipping_point_bottom_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_BOTTOM')
+        # states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
         
-        is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
-        # [修改行] 修复TypeError：根据函数定义补全所有必需的位置参数
-        persistent_top_state = create_persistent_state(df, is_tipping_point_top_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_TOP')
-        states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
+        # 采用新的状态驱动逻辑: 拐点分 = 压缩状态分 * 加速分
+        states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * score_vol_accel_up).astype(np.float32)
         
-        # ... (探针代码保持不变) ...
+        # 对称地更新顶部拐点逻辑
+        # is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
+        # persistent_top_state = create_persistent_state(df, is_tipping_point_top_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_TOP')
+        # states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
+        states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * score_vol_accel_down).astype(np.float32)
+        
+        # 更新探针逻辑以反映新的计算方式
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:
@@ -461,12 +470,9 @@ class FoundationIntelligence:
                 probe_ts = probe_ts.tz_localize(df.index.tz)
             if probe_ts in df.index:
                 print(f"\n          --- [一线探针: 波动率拐点活检 @ {probe_date_str}] ---")
-                print(f"          - BBW斜率(今日): {df['SLOPE_5_BBW_21_2.0_D'].get(probe_ts, np.nan):.6f}")
-                print(f"          - BBW斜率(昨日): {df['SLOPE_5_BBW_21_2.0_D'].shift(1).get(probe_ts, np.nan):.6f}")
-                print(f"          - 拐点事件是否触发: {is_tipping_point_bottom_event.get(probe_ts, False)}")
-                print(f"          - 持久化状态(0或1): {persistent_bottom_state.get(probe_ts, 0)}")
-                print(f"          - 环境分(S级压缩分): {states['SCORE_VOL_COMPRESSION_S'].get(probe_ts, -1):.4f}")
-                print(f"          - 最终信号分(状态*环境): {states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'].get(probe_ts, -1):.4f}")
+                print(f"          - 因子1 (S级压缩分): {states['SCORE_VOL_COMPRESSION_S'].get(probe_ts, -1):.4f}")
+                print(f"          - 因子2 (波动率加速分): {score_vol_accel_up.get(probe_ts, -1):.4f}")
+                print(f"          - 最终信号分 (因子1 * 因子2): {states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'].get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
 
         # --- 6. 市场政权与数值化评分 ---

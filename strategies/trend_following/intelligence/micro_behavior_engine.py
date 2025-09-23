@@ -63,7 +63,7 @@ class MicroBehaviorEngine:
         all_states = {}
         early_momentum_states = self.synthesize_early_momentum_ignition(df)
         all_states.update(early_momentum_states)
-        # [新增行] 从刚刚计算的结果中提取出下游方法需要的信号
+        # 从刚刚计算的结果中提取出下游方法需要的信号
         early_ignition_score = early_momentum_states.get(
             'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', 
             pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -85,13 +85,13 @@ class MicroBehaviorEngine:
                         错误地惩罚了底部缩量反转的健康形态。新的“帐篷”算法围绕1.5倍均量给最高分，对0.8-2.5倍均量的“温和”区间都能给出合理分数。
         - 收益: 解决了因成交量不满足苛刻条件而导致因子得分为零的问题，显著提升了“早期动能点火”信号在真实底部反转情境下的稳定性和有效性。
         """
-        # [代码修改] 更新版本号和说明
+        # 更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         # --- 1. 计算所有原始因子 ---
         vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
-        # [代码修改] 修正了 fuse_multi_level_scores 的调用方式，使其更符合新版工具函数
+        # 修正了 fuse_multi_level_scores 的调用方式，使其更符合新版工具函数
         macd_reversal_score = self._fuse_multi_level_scores(
             df,
             base_name='MACD_BOTTOM_REVERSAL',
@@ -100,7 +100,7 @@ class MicroBehaviorEngine:
         pct_change = df['pct_change_D']
         gentle_rally_score_arr = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
         gentle_rally_score = pd.Series(gentle_rally_score_arr, index=df.index)
-        # [代码修改] 将“温和放量”的“斜坡”算法升级为“帐篷”算法
+        # 将“温和放量”的“斜坡”算法升级为“帐篷”算法
         volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
         # 新逻辑：成交量在1.5倍均量附近得分最高，在0.5倍到2.5倍之间平滑过渡，更能捕捉“温和”的量能状态。
         gentle_volume_score = np.maximum(0, 1 - np.abs(volume_ratio - 1.5) / 1.0).fillna(0.0)
@@ -133,7 +133,7 @@ class MicroBehaviorEngine:
                 print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f} (权重: {weights['vol']})")
                 print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f} (权重: {weights['macd']})")
                 print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f} (权重: {weights['rally']})")
-                # [代码修改] 探针将输出新算法的分数
+                # 探针将输出新算法的分数
                 print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f} (权重: {weights['volume']})")
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f} (权重: {weights['accel']})")
                 print(f"          - 最终融合分 (加权平均): {final_score.get(probe_ts, -1):.4f}")
@@ -255,7 +255,7 @@ class MicroBehaviorEngine:
           - [新范式] “趋势潜力分”基于FFT趋势度分数的斜率计算，旨在捕捉市场从“震荡”到“趋势”的早期转变，更符合A股实战。
         - 收益: 解决了因过度依赖长周期均线企稳而导致信号滞后的问题，显著提升了“企稳点火”信号的灵敏度和前瞻性。
         """
-        # [代码修改] 更新版本号和说明
+        # 更新版本号和说明
         print("        -> [高质量战备可靠性诊断引擎 V4.4 A股逻辑优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
@@ -286,7 +286,7 @@ class MicroBehaviorEngine:
         trend_potential_score = self._normalize_score(fft_trend_slope.clip(lower=0), window=norm_window, ascending=True, default=0.0)
         states['INTERNAL_SCORE_TREND_POTENTIAL'] = trend_potential_score.astype(np.float32)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # [代码修改] 更新权重，并使用新的“趋势潜力分”
+        # 更新权重，并使用新的“趋势潜力分”
         ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
@@ -309,7 +309,7 @@ class MicroBehaviorEngine:
         if probe_date_str:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
-                # [代码修改] 更新探针逻辑以反映新的计算方式
+                # 更新探针逻辑以反映新的计算方式
                 probe_ignition_score = (
                     early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
                     vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +
@@ -324,7 +324,7 @@ class MicroBehaviorEngine:
                 print(f"          --- 企稳点火分 (内部计算) ---")
                 print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
                 print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
-                # [代码修改] 打印新的“趋势潜力分”
+                # 打印新的“趋势潜力分”
                 print(f"            - 趋势潜力分: {trend_potential_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['potential']})")
                 print(f"            - [探针验算] 企稳点火分: {probe_ignition_score:.4f} vs 实际值: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
                 print(f"          --- 王牌信号分 (最终计算) ---")

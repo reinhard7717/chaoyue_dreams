@@ -609,7 +609,7 @@ class MultiTimeframeTrendStrategy:
                         修正为读取最新的`INTERNAL_SCORE_TREND_POTENTIAL`信号，与`micro_behavior_engine` V4.4版的算法完全保持一致。
         - 收益: 修复了因信号不同步导致的探针报错，确保了探针报告100%准确地反映了最新的、更符合实战的算法逻辑。
         """
-        # [代码修改] 更新版本号和说明
+        # 更新版本号和说明
         print("\n" + "="*35 + f" [首席法医官探针 V1.7 · 趋势潜力逻辑同步版] 正在解剖 {probe_date} " + "="*35)
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
@@ -635,13 +635,13 @@ class MultiTimeframeTrendStrategy:
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
             p_reversal = get_params_block(self.tactical_engine, 'reversal_reliability_params', {})
-            # [代码修改] 确保探针读取的权重与计算引擎一致
+            # 确保探针读取的权重与计算引擎一致
             main_reliability_weights = get_param_value(p_reversal.get('main_reliability_weights'), {'shareholder': 0.5, 'ignition': 0.5})
             ignition_weights = get_param_value(p_reversal.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
             bonus_factor = get_param_value(p_reversal.get('reversal_reliability_bonus_factor'), 0.5)
             print("\n--- [第一层解剖]: 王牌信号 (COGNITIVE_SCORE_REVERSAL_RELIABILITY) ---")
             probe_signal("COGNITIVE_SCORE_REVERSAL_RELIABILITY", indent=2)
-            # [代码修改] 更新公式描述
+            # 更新公式描述
             print("  -> 它的分数由 [核心分 * (1 + 价值区奖励分 * 奖励系数)] 得到:")
             print("\n--- [第二层解剖]: 核心构成 ---")
             print(f"  [要素1: 股东换血 (SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT)] (核心分权重: {main_reliability_weights.get('shareholder', 'N/A')})")
@@ -657,7 +657,7 @@ class MultiTimeframeTrendStrategy:
             probe_signal("COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A", indent=8)
             print(f"      - 波动压缩分 (COGNITIVE_SCORE_VOL_COMPRESSION_FUSED) (权重: {ignition_weights.get('vol', 'N/A')})")
             probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=8)
-            # [代码修改] 将读取旧信号改为读取新信号，并更新描述
+            # 将读取旧信号改为读取新信号，并更新描述
             print(f"      - 趋势潜力分 (INTERNAL_SCORE_TREND_POTENTIAL) (权重: {ignition_weights.get('potential', 'N/A')})")
             probe_signal("INTERNAL_SCORE_TREND_POTENTIAL", indent=8)
             print(f"\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)] (奖励系数: {bonus_factor})")

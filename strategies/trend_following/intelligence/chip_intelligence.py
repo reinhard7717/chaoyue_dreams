@@ -98,7 +98,7 @@ class ChipIntelligence:
           - [新范式] 新的“拉升吸筹分” = “成本抬升分” * “获利盘稳定分”，移除了不合理的“筹码集中改善分”因子，使其更专注于健康拉升的核心特征。
         - 收益: 大幅提升了“真实吸筹”信号在上涨行情中的捕捉能力和准确性。
         """
-        # [代码修改] 更新版本号和说明
+        # 更新版本号和说明
         print("        -> [主力吸筹与风险诊断引擎 V4.4 拉升吸筹逻辑修复版] 启动...")
         states = {}
         norm_window = 120
@@ -119,14 +119,14 @@ class ChipIntelligence:
         cost_falling_score = self._normalize_score(df['SLOPE_5_peak_cost_D'], norm_window, ascending=False)
         winner_holding_score = self._normalize_score(df['SLOPE_5_turnover_from_winners_ratio_D'], norm_window, ascending=False)
         loser_capitulating_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
-        # [新增行] 将所有内部因子发布到 states，供探针消费
+        # 将所有内部因子发布到 states，供探针消费
         states['INTERNAL_SCORE_CONCENTRATION_IMPROVING'] = concentration_improving_score.astype(np.float32)
         states['INTERNAL_SCORE_COST_RISING'] = cost_rising_score.astype(np.float32)
         states['INTERNAL_SCORE_WINNER_HOLDING'] = winner_holding_score.astype(np.float32)
         states['INTERNAL_SCORE_COST_FALLING'] = cost_falling_score.astype(np.float32)
         states['INTERNAL_SCORE_LOSER_CAPITULATING'] = loser_capitulating_score.astype(np.float32)
         # --- 3. 剧本与风险合成 ---
-        # [代码修改] 移除 concentration_improving_score 因子，使其更符合拉升时的市场行为
+        # 移除 concentration_improving_score 因子，使其更符合拉升时的市场行为
         rally_accumulation_score = (cost_rising_score * winner_holding_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
         suppress_accumulation_score = (concentration_improving_score * cost_falling_score * loser_capitulating_score).astype(np.float32)
@@ -152,7 +152,7 @@ class ChipIntelligence:
                 print(f"            - 成本下降分: {cost_falling_score.get(probe_ts, -1):.4f}")
                 print(f"            - 恐慌盘涌出分: {loser_capitulating_score.get(probe_ts, -1):.4f}")
                 print(f"          - 最终剧本分:")
-                # [代码修改] 更新探针日志，明确显示新的计算逻辑
+                # 更新探针日志，明确显示新的计算逻辑
                 print(f"            - 拉升吸筹剧本分 (成本*稳定): {rally_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"            - 打压吸筹剧本分 (集中*成本*恐慌): {suppress_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"            - 真实吸筹分(最大值): {true_accumulation_score.get(probe_ts, -1):.4f}")
