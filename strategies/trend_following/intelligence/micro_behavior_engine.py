@@ -249,14 +249,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V4.3 A股逻辑优化版】高质量战备可靠性诊断引擎
+        【V4.4 A股逻辑优化版】高质量战备可靠性诊断引擎
         - 核心升级 (本次修改):
-          - [逻辑重构] 彻底重构了最终可靠性分的融合逻辑，以更贴合A股市场特点。
-          - [新范式] 最终分 = (核心分) * (1 + 价值区奖励分)。其中，核心分由“股东换血”和“企稳点火”加权构成，“深度价值区”作为一个奖励项而非必需项。
-        - 收益: 解决了强势趋势中继信号被“非深度价值区”不合理惩罚的问题，使信号能同时兼顾“趋势确认”和“价值反转”两类机会。
+          - [逻辑重构] 将“企稳点火分”中的滞后指标“趋势企稳分”(基于55日EMA斜率)，替换为更具前瞻性的“趋势潜力分”。
+          - [新范式] “趋势潜力分”基于FFT趋势度分数的斜率计算，旨在捕捉市场从“震荡”到“趋势”的早期转变，更符合A股实战。
+        - 收益: 解决了因过度依赖长周期均线企稳而导致信号滞后的问题，显著提升了“企稳点火”信号的灵敏度和前瞻性。
         """
         # [代码修改] 更新版本号和说明
-        print("        -> [高质量战备可靠性诊断引擎 V4.3 A股逻辑优化版] 启动...")
+        print("        -> [高质量战备可靠性诊断引擎 V4.4 A股逻辑优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -281,24 +281,25 @@ class MicroBehaviorEngine:
         shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
         # --- 第三幕：转折点火 (The Ignition) - 共振初起 ---
-        downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
-        states['INTERNAL_SCORE_DOWNTREND_STABILIZING'] = downtrend_stabilizing_score.astype(np.float32)
+        fft_trend_score = atomic.get('SCORE_TRENDING_REGIME_FFT', default_score)
+        fft_trend_slope = fft_trend_score.diff(5).fillna(0)
+        trend_potential_score = self._normalize_score(fft_trend_slope.clip(lower=0), window=norm_window, ascending=True, default=0.0)
+        states['INTERNAL_SCORE_TREND_POTENTIAL'] = trend_potential_score.astype(np.float32)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2})
+        # [代码修改] 更新权重，并使用新的“趋势潜力分”
+        ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
             vol_compression_score * ignition_weights['vol'] +
-            downtrend_stabilizing_score * ignition_weights['stabilizing']
+            trend_potential_score * ignition_weights['potential']
         ).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
-        # --- [代码修改] 最终剧本触发逻辑 (核心分 + 奖励分) ---
-        # 1. 计算核心分
+        # --- 最终剧本触发逻辑 (核心分 + 奖励分) ---
         main_reliability_weights = get_param_value(p.get('main_reliability_weights'), {'shareholder': 0.5, 'ignition': 0.5})
         main_score = (
             shareholder_quality_score * main_reliability_weights['shareholder'] +
             ignition_confirmation_score * main_reliability_weights['ignition']
         )
-        # 2. 应用价值区奖励
         bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
         final_reliability_score = (main_score * (1 + background_score * bonus_factor)).astype(np.float32)
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
@@ -309,16 +310,23 @@ class MicroBehaviorEngine:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
                 # [代码修改] 更新探针逻辑以反映新的计算方式
+                probe_ignition_score = (
+                    early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
+                    vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +
+                    trend_potential_score.get(probe_ts, -1) * ignition_weights['potential']
+                )
                 probe_main_score = (
                     shareholder_quality_score.get(probe_ts, -1) * main_reliability_weights['shareholder'] +
                     ignition_confirmation_score.get(probe_ts, -1) * main_reliability_weights['ignition']
                 )
                 probe_final_score = probe_main_score * (1 + background_score.get(probe_ts, -1) * bonus_factor)
                 print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
-                print(f"          --- 核心可靠性分 (内部计算) ---")
-                print(f"            - 股东换血分: {shareholder_quality_score.get(probe_ts, -1):.4f} (权重: {main_reliability_weights['shareholder']})")
-                print(f"            - 企稳点火分: {ignition_confirmation_score.get(probe_ts, -1):.4f} (权重: {main_reliability_weights['ignition']})")
-                print(f"            - [探针验算] 核心分: {probe_main_score:.4f}")
+                print(f"          --- 企稳点火分 (内部计算) ---")
+                print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
+                print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
+                # [代码修改] 打印新的“趋势潜力分”
+                print(f"            - 趋势潜力分: {trend_potential_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['potential']})")
+                print(f"            - [探针验算] 企稳点火分: {probe_ignition_score:.4f} vs 实际值: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
                 print(f"          --- 王牌信号分 (最终计算) ---")
                 print(f"          - 核心分: {main_score.get(probe_ts, -1):.4f}")
                 print(f"          - 价值区奖励分: {background_score.get(probe_ts, -1):.4f} (奖励系数: {bonus_factor})")
