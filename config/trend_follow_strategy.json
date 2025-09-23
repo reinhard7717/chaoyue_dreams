@@ -342,7 +342,8 @@
         "verbose_logging": { "value": true },
         "probe_start_date": "2025-08-01",
         "probe_date": "2025-09-05",
-        "enable_pullback_decision_log": { "value": false, "description": "是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"}
+        "enable_pullback_decision_log": { "value": false, "description": "是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"},
+        "enable_ultimate_reversal_probe": { "value": true, "description": "【新增】是否启用“终极反转信号探针”"}
       },
       "strategy_info": {
         "name": { "value": "救援飞哥版_V238", "说明": "策略唯一标识名称" },
@@ -509,7 +510,11 @@
         "enabled": true,
         "description": "【V1.0 新增】终极结构层信号引擎参数",
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
+        "norm_window": 120,
+        "final_score_exponent": {
+          "value": 0.5,
+          "description": "【信号缩放】对所有终极结构信号应用指数缩放，解决量纲压缩问题。"
+        }
       },
       "smart_money_params": {
         "enabled": true,
@@ -888,6 +893,14 @@
           ]
       },
       "dynamic_mechanics_params": {
+        "enabled": true,
+        "description": "【V3.1 信号缩放版】终极动态力学引擎参数",
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 120,
+        "final_score_exponent": {
+          "value": 0.5,
+          "description": "【信号缩放】对所有终极动态力学信号应用指数缩放，解决量纲压缩问题。"
+        },
         "tactical_matrix_rules": {
           "enabled": true,
           "说明": "【A股实战版】决策矩阵。引入地基分门槛和硬性否决规则。",

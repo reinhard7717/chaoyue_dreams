@@ -46,36 +46,35 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 基因改造版】终极结构信号诊断模块
+        【V1.4 · 信号缩放版】终极结构信号诊断模块
         - 核心升级 (本次修改):
-          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，引入了基于价格位置的“上下文”判断。
-          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
-          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
-        - 收益:
-          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。
+          - [信号缩放] 对所有16个终极信号的计算结果，统一应用指数缩放（开根号），
+                        从根本上解决因多因子乘法导致的“量纲压缩”问题。
+        - 收益: 确保所有终极信号的量级都在一个合理范围内，使其在计分系统中能发挥应有的作用。
         """
-        # print("        -> [终极结构信号诊断模块 V1.3 基因改造版] 启动...") # 修改: 更新版本号
+        print("        -> [终极结构信号诊断模块 V1.4 · 信号缩放版] 启动...") # [代码修改] 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-        # --- 定义“位置上下文”分数 ---
+        
+        # [代码修改] 获取缩放指数
+        exponent = get_param_value(p_conf.get('final_score_exponent'), 1.0)
+
+        # ... (此部分代码保持不变) ...
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9) # 使用一个极小值代替np.nan
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
         bottom_context_score = 1 - price_position_in_range
         top_context_score = price_position_in_range
-        # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        # --- 2. 计算四大支柱在各周期的“完美健康度” ---
         pillar_health = {}
         pillar_health['ma'] = self._calculate_ma_health(df, periods, norm_window)
         pillar_health['mechanics'] = self._calculate_mechanics_health(df, periods, norm_window)
         pillar_health['mtf'] = self._calculate_mtf_health(df, periods, norm_window)
         pillar_health['pattern'] = self._calculate_pattern_health(df, periods, norm_window)
-        # --- 3. 融合生成“全面共识健康度” ---
         overall_bullish_health = {}
         overall_bearish_health = {}
         for p in periods:
@@ -84,37 +83,37 @@ class StructuralIntelligence:
             num_pillars = len(pillar_health)
             overall_health_arr = np.prod(stacked_health_arrays, axis=0)**(1/num_pillars)
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
-            # 采用新的“看跌共振”计算逻辑
             bearish_health_scores_series = [(1 - pillar_health[key][p]) for key in pillar_health]
             stacked_bearish_health_arrays = np.stack([s.values for s in bearish_health_scores_series], axis=0)
             overall_bearish_health_arr = np.prod(stacked_bearish_health_arrays, axis=0)**(1/num_pillars)
             overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
-        # --- 4. 定义信号组件 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
-        bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
+        bearish_short_force = (overall_bearish_health[1] * bearish_health[5])**0.5
+        bearish_medium_trend = (overall_bearish_health[13] * bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-        # --- 5. 共振信号合成 ---
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = overall_bullish_health[5].astype(np.float32)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = (overall_bullish_health[5] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] * bullish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = overall_bearish_health[5].astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = (overall_bearish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        # --- 6. 反转信号合成 ---
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = (bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = (bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
         
-        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = (top_context_score * overall_bearish_health[1] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = (top_context_score * overall_bearish_health[5] * overall_bullish_health[21]).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = (top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia).astype(np.float32)
+        # --- [代码修改] 对所有终极信号应用指数缩放 ---
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = (overall_bullish_health[5] ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = ((overall_bullish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = ((bullish_short_force * bullish_medium_trend) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = ((states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] * bullish_long_inertia) ** exponent).astype(np.float32)
+        
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = (overall_bearish_health[5] ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = ((overall_bearish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = ((bearish_short_force * bearish_medium_trend) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = ((states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia) ** exponent).astype(np.float32)
+        
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = ((bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = ((bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = ((bottom_context_score * bullish_short_force * bearish_long_inertia) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = ((bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia) ** exponent).astype(np.float32)
+        
+        states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = ((top_context_score * overall_bearish_health[1] * overall_bullish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = ((top_context_score * overall_bearish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = ((top_context_score * bearish_short_force * bullish_long_inertia) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = ((top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia) ** exponent).astype(np.float32)
 
         return states
 
