@@ -1041,19 +1041,17 @@ class ChipIntelligence:
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 逻辑升维版】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
+        【V1.2 绝对强度增强版】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
         - 核心升级 (本次修改):
-          - [逻辑升维] 废除了旧的“三者相乘”逻辑，该逻辑会因“套牢盘不够多”而错误地压制信号。
-          - [新范式] 最终分 = (行为分 * 加速分) * (1 + 上下文分 * 奖励系数)。
-                      现在，“套牢盘比例”(上下文) 从一个“否决项”变为一个“奖励项”，
-                      使得信号的核心由“恐慌盘加速割肉”这一行为主导，更符合实战。
-        - 收益: 大幅提升了信号在真实恐慌抛售行情中的得分能力和准确性。
+          - [绝对强度] 为核心的“行为分”(当日割肉盘占比)引入了基于Logistic函数的“绝对分”计算。
+          - [融合优化] 最终行为分 = MAX(相对分, 绝对分)。这确保了无论是“相对异常高”还是“绝对数值高”
+                        的恐慌割肉行为都能被捕捉，解决了单纯依赖相对排名导致信号被压制的问题。
+        - 收益: 信号对真实恐慌的识别能力和评分强度得到进一步飞跃。
         """
         states = {}
-        # 从配置中读取参数
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
-        bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5) # 新增奖励系数
+        bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5)
 
         # --- 1. 军备检查 ---
         required_cols = [
@@ -1067,20 +1065,25 @@ class ChipIntelligence:
             return states
 
         # --- 2. 核心要素数值化 ---
-        # 上下文：市场整体套牢比例越高，分数越高
+        # 上下文分 (逻辑不变)
         capitulation_context_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
 
-        # 行为：当日割肉盘占比越高，分数越高
-        loser_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        # [代码修改] 行为分：融合相对与绝对强度
+        # 相对分：捕捉与近期相比的异常飙升
+        relative_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        # 绝对分：使用Logistic函数，捕捉绝对数值上的恐慌程度
+        # k=0.1, x0=50. 当割肉盘占比达到50%时，得分为0.5
+        k = get_param_value(p.get('logistic_k', 0.1))
+        x0 = get_param_value(p.get('logistic_x0', 50.0))
+        absolute_turnover_score = 1 / (1 + np.exp(-k * (df['turnover_from_losers_ratio_D'] - x0)))
+        # 融合：取两者最大值，确保任何一种恐慌模式都能被识别
+        loser_turnover_score = np.maximum(relative_turnover_score, absolute_turnover_score)
 
-        # 加速：割肉盘占比的加速度越大，分数越高
+        # 加速分 (逻辑不变)
         loser_turnover_accel_score = self._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, ascending=True)
 
-        # --- 3. 最终裁决 (逻辑升维) ---
-        # 采用新的“核心+奖励”范式
-        # 核心分由“行为”和“加速”决定
+        # --- 3. 最终裁决 (逻辑不变) ---
         core_score = loser_turnover_score * loser_turnover_accel_score
-        # 最终分 = 核心分 * (1 + 上下文奖励)
         final_score = (
             core_score * (1 + capitulation_context_score * bonus_factor)
         ).astype(np.float32)
