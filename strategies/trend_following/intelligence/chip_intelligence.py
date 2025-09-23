@@ -465,75 +465,76 @@ class ChipIntelligence:
 
     def diagnose_composite_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 逻辑增强版】复合筹码评分模块
-        - 核心职责: 融合来自多个基础诊断模块的原子评分，生成更高维度的、用于最终信号决策的复合评分。
-                      此模块专门计算 MASTER_SIGNAL_CONFIG 中定义的、但未在其他模块中计算的原子评分。
-        - A股实战考量:
-          - “点火”与“崩溃”等关键行为在A股中往往是多因素共振的结果，而非单一指标触发。
-            因此，本模块的评分设计广泛采用“乘法”融合（代表“与”逻辑，要求多条件共存）
-            和“取最大值”融合（代表“或”逻辑，捕捉多种可能性），避免理想化的单一模型，
-            更贴近A股复杂多变的实战环境。
-        - 核心升级 (V1.1): 优化 `CHIP_SCORE_RISK_WORSENING_TURN` 评分逻辑，增加“短期趋势已向下”
-                             的前置条件，使信号判断更严格，更能捕捉真实的加速恶化风险。
+        【V1.2 核心+奖励范式升级版】复合筹码评分模块
+        - 核心升级 (本次修改):
+          - [范式升级] 将 `CHIP_SCORE_TRIGGER_IGNITION` (筹码点火触发分) 的计算逻辑，
+                        从脆弱的“上下文 * 核心行为”乘法模型，升级为鲁棒的“核心行为 * (1 + 上下文 * 奖励系数)”新范式。
+        - 收益: 解决了因“筹码结构不够完美”而压制“趋势启动”强信号的问题，能更灵敏地捕捉各类启动机会。
         """
-        # print("        -> [复合筹码评分模块 V1.1 逻辑增强版] 启动，正在合成顶层原子评分...") 
+        print("        -> [复合筹码评分模块 V1.2 核心+奖励范式升级版] 启动...") # [代码修改] 更新版本号和日志
         new_scores = {}
         atomic = self.strategy.atomic_states
-        # 将默认值从0.5改为0.0，因为在乘法融合中，缺失信号应视为中性(不贡献分数)，而非平均水平。
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 定义归一化辅助函数 ---
+        
+        # --- 1. 定义归一化辅助函数与参数 ---
         p = get_params_block(self.strategy, 'chip_feature_params')
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
+        # [代码修改] 新增点火奖励系数参数
+        ignition_bonus_factor = get_param_value(p.get('ignition_context_bonus_factor'), 0.8)
+
         def normalize(series, ascending=True):
-            # 增加对空Series的健壮性处理
             if series.empty:
                 return pd.Series(0.0, index=df.index, dtype=np.float32)
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-        # --- 2. 计算 CHIP_SCORE_GATHERING_INTENSITY (筹码集中强度分) ---
-        # 逻辑: 短期内，筹码集中速度越快、成本抬升越快、健康度改善越快，则集中强度越高。
+            
+        # --- 2. 计算 CHIP_SCORE_GATHERING_INTENSITY (逻辑不变) ---
         conc_slope_score = normalize(df.get('SLOPE_5_concentration_90pct_D', default_score), ascending=False)
         cost_slope_score = normalize(df.get('SLOPE_5_peak_cost_D', default_score), ascending=True)
         health_slope_score = normalize(df.get('SLOPE_5_chip_health_score_D', default_score), ascending=True)
         new_scores['CHIP_SCORE_GATHERING_INTENSITY'] = (conc_slope_score * cost_slope_score * health_slope_score).astype(np.float32)
-        # --- 3. 计算 CHIP_SCORE_TRIGGER_IGNITION (筹码点火触发分) ---
-        # 逻辑: 结构健康(黄金机会) 与 上升共振(趋势确认) 同时发生，构成最强点火信号。
-        prime_opp_score = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score)
+        
+        # --- 3. 计算 CHIP_SCORE_TRIGGER_IGNITION (逻辑升级) ---
+        # [代码修改] 拆分为“核心行为”和“上下文”
+        # 核心行为：上升共振分，代表趋势确认
         bullish_resonance_score = atomic.get('SCORE_CHIP_BULLISH_RESONANCE_S', default_score)
-        new_scores['CHIP_SCORE_TRIGGER_IGNITION'] = (prime_opp_score * bullish_resonance_score).astype(np.float32)
-        # --- 4. 计算 CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION (长线派发风险分) ---
-        # 逻辑: 市场处于下跌共振状态，同时获利盘不稳定且有强烈的兑现意愿。
+        # 上下文：黄金机会分，代表完美的静态结构
+        prime_opp_context_score = atomic.get('CHIP_SCORE_PRIME_OPPORTUNITY_S', default_score)
+        # 应用新范式
+        ignition_score = bullish_resonance_score * (1 + prime_opp_context_score * ignition_bonus_factor)
+        new_scores['CHIP_SCORE_TRIGGER_IGNITION'] = ignition_score.astype(np.float32)
+
+        # --- 4. 计算 CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION (逻辑不变) ---
         bearish_resonance_score = atomic.get('SCORE_CHIP_BEARISH_RESONANCE_S', default_score)
         profit_taking_score = atomic.get('SCORE_PROFIT_TAKING_TOP_REVERSAL_S', default_score)
         instability_score = atomic.get('SCORE_LONG_TERM_INSTABILITY_TOP_REVERSAL_A', default_score)
         new_scores['CHIP_SCORE_RISK_LONG_TERM_DISTRIBUTION'] = (bearish_resonance_score * self._max_of_series(profit_taking_score, instability_score)).astype(np.float32)
-        # --- 5. 计算 CHIP_SCORE_RISK_WORSENING_TURN (集中度加速恶化拐点风险分) ---
-        # 逻辑增强：要求短期趋势已向下(斜率为负)，且短期和中期加速度同时为负。
-        # 条件1: 短期趋势已向下
+        
+        # --- 5. 计算 CHIP_SCORE_RISK_WORSENING_TURN (逻辑不变) ---
         conc_slope_5_negative_score = normalize(df.get('SLOPE_5_concentration_90pct_D', default_score), ascending=False)
-        # 条件2 & 3: 短期和中期加速度为负
         conc_accel_5 = normalize(df.get('ACCEL_5_concentration_90pct_D', default_score), ascending=False)
         conc_accel_21 = normalize(df.get('ACCEL_21_concentration_90pct_D', default_score), ascending=False)
-        # 融合三个条件，形成更严格的风险评分
         new_scores['CHIP_SCORE_RISK_WORSENING_TURN'] = (conc_slope_5_negative_score * conc_accel_5 * conc_accel_21).astype(np.float32)
-        # --- 6. 计算 CHIP_SCORE_OPP_BREAKTHROUGH (突破机会分) ---
-        # 逻辑: 具备黄金机会的结构基础，同时价格开始向上突破关键成本区。
+        
+        # --- 6. 计算 CHIP_SCORE_OPP_BREAKTHROUGH (逻辑不变) ---
+        # 注意：这里的 prime_opp_score 是作为突破机会的核心，而非上下文，因此乘法合理
         price_deviation_score = normalize(df.get('price_to_peak_ratio_D', default_score), ascending=True)
-        new_scores['CHIP_SCORE_OPP_BREAKTHROUGH'] = (prime_opp_score * price_deviation_score).astype(np.float32)
-        # --- 7. 计算 CHIP_SCORE_RISK_COLLAPSE (崩溃风险分) ---
-        # 逻辑: 多个S级顶部/看跌风险信号共振，形成完美风暴。
+        new_scores['CHIP_SCORE_OPP_BREAKTHROUGH'] = (prime_opp_context_score * price_deviation_score).astype(np.float32)
+        
+        # --- 7. 计算 CHIP_SCORE_RISK_COLLAPSE (逻辑不变) ---
         top_reversal_score = atomic.get('SCORE_CHIP_TOP_REVERSAL_S', default_score)
         fault_risk_score = atomic.get('SCORE_FAULT_RISK_TOP_REVERSAL_S', default_score)
         new_scores['CHIP_SCORE_RISK_COLLAPSE'] = (self._max_of_series(bearish_resonance_score, top_reversal_score, fault_risk_score)).astype(np.float32)
-        # --- 8. 计算 CHIP_SCORE_OPP_INFLECTION (拐点机会分) ---
-        # 逻辑: 多个S级底部反转信号共振，形成抄底机会。
+        
+        # --- 8. 计算 CHIP_SCORE_OPP_INFLECTION (逻辑不变) ---
         bottom_reversal_score = atomic.get('SCORE_CHIP_BOTTOM_REVERSAL_S', default_score)
-        capitulation_score = atomic.get('SCORE_CAPITULATION_BOTTOM_RESONANCE_S', default_score) # 修正笔误，使用S级信号
+        capitulation_score = atomic.get('SCORE_CAPITULATION_BOTTOM_RESONANCE_S', default_score)
         long_term_capitulation_score = atomic.get('SCORE_LONG_TERM_CAPITULATION_BOTTOM_REVERSAL_S', default_score)
         new_scores['CHIP_SCORE_OPP_INFLECTION'] = (self._max_of_series(bottom_reversal_score, capitulation_score, long_term_capitulation_score)).astype(np.float32)
+        
         # --- 9. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print(f"        -> [复合筹码评分模块 V1.1] 计算完毕，新增 {len(new_scores)} 个顶层原子评分。") 
+        print(f"        -> [复合筹码评分模块 V1.2] 计算完毕，新增 {len(new_scores)} 个顶层原子评分。") 
         return df
 
     def diagnose_strategic_context_scores(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -929,25 +930,21 @@ class ChipIntelligence:
         print("        -> [持仓者行为评分模块 V4.0 终极共振统一版] 计算完毕。") 
         return df
 
-# 文件: strategies/trend_following/intelligence/chip_intelligence.py
-
     def diagnose_fused_behavioral_chip_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.1 鲁棒性增强版】行为与筹码融合评分模块
-        - 核心重构 (V2.1): 将所有动态指标的计算周期从1日提升至5日，以过滤市场噪音，使对“洗盘吸筹”和
-                          “诱多派发”两大核心战术场景的判断基于更稳健的短期趋势，而非单日异动，更符合A股实战。
-        - 核心修复 (本次修改): 修复了 `drop_score` 计算中未处理 `pct_change_D` 首日 NaN 值的问题，从根源上防止了 NaN 信号污染。
-        - 核心逻辑:
-          - 洗盘吸筹: 融合价格下跌、恐慌盘涌出、获利盘稳定、5日筹码集中趋势及加速度。
-          - 诱多派发: 融合价格上涨与5日筹码集中度、健康度的趋势及加速度，捕捉“价涨质跌”的核心背离。
+        【V2.2 核心+奖励范式重构版】行为与筹码融合评分模块
+        - 核心重构 (本次修改):
+          - [范式升级] 废除了旧的、脆弱的“多因子相乘”逻辑。
+          - [新范式] 全面采用“核心行为 * (1 + 上下文 * 奖励系数)”的新范式，将“价格波动”
+                      这个上下文环境从“否决项”升级为“奖励项”，使信号由核心的量价背离行为主导。
+        - 收益: 极大提升了“洗盘吸筹”和“诱多派发”两大核心战术场景识别的准确性和鲁棒性。
         """
-        # print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 启动...")
+        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 启动...") # [代码修改] 更新版本号和日志
         new_scores = {}
         p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
         if not get_param_value(p.get('enabled'), True):
             return df
         # --- 1. 军备检查 ---
-        # 将所有动态指标周期从1日提升至5日，增强鲁棒性
         required_cols = [
             'pct_change_D', 'turnover_from_losers_ratio_D',
             'turnover_from_winners_ratio_D',
@@ -958,46 +955,58 @@ class ChipIntelligence:
         if missing_cols:
             print(f"          -> [警告] 行为-筹码融合模块缺少关键数据: {missing_cols}。模块已跳过。")
             return df
-        # --- 2. 定义归一化辅助函数 ---
+        # --- 2. 定义归一化辅助函数与参数 ---
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
+        
+        # [代码修改] 新增奖励系数参数
+        washout_bonus = get_param_value(p.get('washout_context_bonus_factor'), 0.5)
+        deceptive_bonus = get_param_value(p.get('deceptive_rally_context_bonus_factor'), 0.5)
+
         # --- 3. 计算“洗盘吸筹”融合分 (Washout Absorption Opportunity) ---
-        # 3.1 核心要素 (使用5日动态指标)
-        # 对 pct_change_D 增加 .fillna(0.0) 以处理首日NaN，并在链式操作末尾增加 .fillna(0.0) 保证鲁棒性。
-        drop_score = (1 - (df['pct_change_D'].fillna(0.0) - (-0.045)).abs() / 0.025).clip(0, 1).fillna(0.0)
+        # 3.1 定义核心行为分
         losers_capitulating_score = normalize(df['turnover_from_losers_ratio_D'], ascending=True)
         winners_holding_score = normalize(df['turnover_from_winners_ratio_D'], ascending=False)
         chip_improving_momentum = normalize(df['SLOPE_5_concentration_90pct_D'], ascending=False)
         chip_improving_accel = normalize(df['ACCEL_5_concentration_90pct_D'], ascending=False)
-        # 3.2 融合生成S/A/B三级机会信号
-        score_b_washout = drop_score * losers_capitulating_score
-        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_B'] = score_b_washout.astype(np.float32)
-        score_a_washout = score_b_washout * winners_holding_score * chip_improving_momentum
-        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_A'] = score_a_washout.astype(np.float32)
-        score_s_washout = score_a_washout * chip_improving_accel
-        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_S'] = score_s_washout.astype(np.float32)
+        core_absorption_score = losers_capitulating_score * winners_holding_score * chip_improving_momentum * chip_improving_accel
+
+        # 3.2 定义上下文分 (价格下跌)
+        drop_context_score = (1 - (df['pct_change_D'].fillna(0.0) - (-0.045)).abs() / 0.025).clip(0, 1).fillna(0.0)
+
+        # 3.3 [代码修改] 应用新范式融合生成S/A/B三级机会信号
+        final_washout_score = core_absorption_score * (1 + drop_context_score * washout_bonus)
+        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_S'] = final_washout_score.astype(np.float32)
+        # 为了兼容，A/B级可以设为S级的不同折扣
+        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_A'] = (final_washout_score * 0.7).astype(np.float32)
+        new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_B'] = (final_washout_score * 0.4).astype(np.float32)
+
         # --- 4. 计算“诱多派发”融合分 (Deceptive Rally Risk) ---
-        # 4.1 核心要素 (使用5日动态指标)
-        rally_score = normalize(df['pct_change_D'], ascending=True)
+        # 4.1 定义核心风险分 (价涨质跌的“质跌”部分)
         chip_worsening_momentum = normalize(df['SLOPE_5_concentration_90pct_D'], ascending=True)
         health_worsening_momentum = normalize(df['SLOPE_5_chip_health_score_D'], ascending=False)
         chip_worsening_accel = normalize(df['ACCEL_5_concentration_90pct_D'], ascending=True)
         health_worsening_accel = normalize(df['ACCEL_5_chip_health_score_D'], ascending=False)
-        # 4.2 融合生成S/A/B三级风险信号
-        score_b_deceptive = rally_score * chip_worsening_momentum
-        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_B'] = score_b_deceptive.astype(np.float32)
-        score_a_deceptive = score_b_deceptive * health_worsening_momentum
-        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_A'] = score_a_deceptive.astype(np.float32)
-        score_s_deceptive = score_a_deceptive * chip_worsening_accel * health_worsening_accel
-        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_S'] = score_s_deceptive.astype(np.float32)
+        core_divergence_risk = chip_worsening_momentum * health_worsening_momentum * chip_worsening_accel * health_worsening_accel
+
+        # 4.2 定义上下文分 (价格上涨)
+        rally_context_score = normalize(df['pct_change_D'], ascending=True)
+
+        # 4.3 [代码修改] 应用新范式融合生成S/A/B三级风险信号
+        final_deceptive_score = core_divergence_risk * (1 + rally_context_score * deceptive_bonus)
+        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_S'] = final_deceptive_score.astype(np.float32)
+        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_A'] = (final_deceptive_score * 0.7).astype(np.float32)
+        new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_B'] = (final_deceptive_score * 0.4).astype(np.float32)
+
         # --- 5. 为了兼容旧版，保留一个综合分数 ---
         new_scores['CHIP_SCORE_FUSED_WASHOUT_ABSORPTION'] = new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_A']
         new_scores['CHIP_SCORE_FUSED_DECEPTIVE_RALLY'] = new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_A']
+        
         # --- 6. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [行为-筹码融合评分模块 V2.1 鲁棒性增强版] 计算完毕。")
+        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 计算完毕。") # [代码修改] 更新版本号
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
