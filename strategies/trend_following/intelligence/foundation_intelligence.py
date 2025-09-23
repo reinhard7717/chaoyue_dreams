@@ -389,13 +389,15 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 交叉验证版】波动率统一情报中心
-        - 核心逻辑:
-          - B级 (日线压缩): 基于日线BBW的归一化评分。
-          - A级 (跨周期压缩): B级信号与周线BBW评分交叉验证。
-          - S级 (静态压缩): A级信号与BBW斜率为负（仍在压缩）交叉验证。
-        - 收益: 能够更精确地量化波动率状态，区分“初步压缩”和“极致压缩”。
+        【V6.1 信号持久化版】波动率统一情报中心
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了“波动率拐点”信号的生成逻辑，从一个脆弱的、仅持续一天的“事件”信号，
+                        升级为一个可以持续数天的“状态”信号。
+          - [新工具] 引入了 `create_persistent_state` 工具函数，当拐点事件发生后，
+                     将 `SCORE_VOL_TIPPING_POINT_BOTTOM_OPP` 信号置为1，并持续3天。
+        - 收益: 极大提升了波动率拐点信号的健壮性和可用性，使其能更可靠地参与下游的共振计算。
         """
+        # 代码修改：更新版本号和说明
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -429,14 +431,19 @@ class FoundationIntelligence:
         states['SCORE_VOL_EXPANSION_A'] = (score_expansion_daily * score_expansion_weekly).astype(np.float32)
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
 
-        # --- 5. 波动率反转临界点 (逻辑优化) ---
-        is_tipping_point_bottom = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
-        # 使用最高置信度的S级压缩分作为环境判断
-        states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * is_tipping_point_bottom).astype(np.float32)
+        # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
+        # 代码修改：重构整个拐点信号逻辑
+        # 步骤1: 识别拐点“事件”
+        is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
+        # 步骤2: 将“事件”转换为持续3天的“状态”
+        persistent_bottom_state = create_persistent_state(is_tipping_point_bottom_event, duration=3)
+        # 步骤3: 最终信号 = 状态 * 环境确认 (S级压缩分)
+        states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
         
-        is_tipping_point_top = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
-        # 使用最高置信度的S级扩张分作为环境判断
-        states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * is_tipping_point_top).astype(np.float32)
+        # 对称的顶部风险信号逻辑
+        is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
+        persistent_top_state = create_persistent_state(is_tipping_point_top_event, duration=3)
+        states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
 
         # --- 6. 市场政权与数值化评分 ---
         hurst_score = self._normalize_score(df['hurst_120d_D'])

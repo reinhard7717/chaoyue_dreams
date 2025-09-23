@@ -71,11 +71,10 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 探针健壮性修复版】早期动能点火诊断模块 (东风初起)
+        【V1.6 探针数据源校准版】早期动能点火诊断模块 (东风初起)
         - 核心修复 (本次修改):
-          - [健壮性修复] 修复了当MACD等指标列不存在时，探针因获取到字符串默认值('N/A')
-                         而导致字符串格式化错误的ValueError。现在统一使用 `np.nan` 作为
-                         数值型默认值，确保探针在任何情况下都能稳定运行。
+          - [数据校准] 修正了探针中获取MACD相关值的列名，从错误的 '12_26_9' 参数
+                        校准为数据层实际提供的 '13_34_8' 参数，确保探针能正确读取数据。
         """
         # 代码修改：更新版本号和说明
         states = {}
@@ -129,10 +128,10 @@ class MicroBehaviorEngine:
                 print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
                 print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f}  <-- [活检] 上游信号 SCORE_VOL_TIPPING_POINT_BOTTOM_OPP 的原始值")
                 
-                # 代码修改：将默认值从 'N/A' 改为 np.nan
-                macd_val = df.get('MACD_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
-                signal_val = df.get('MACD_signal_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
-                hist_val = df.get('MACD_hist_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
+                # 代码修改：使用数据层提供的正确列名 'MACD_13_34_8_D', 'MACDs_13_34_8_D', 'MACDh_13_34_8_D'
+                macd_val = df.get('MACD_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
+                signal_val = df.get('MACDs_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
+                hist_val = df.get('MACDh_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
                 print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f}  <-- [活检] MACD({macd_val:.2f}), Signal({signal_val:.2f}), Hist({hist_val:.2f})")
 
                 pct_val = df.get('pct_change_D', pd.Series()).get(probe_ts, np.nan) * 100
@@ -140,7 +139,6 @@ class MicroBehaviorEngine:
                 
                 print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}  <-- [活检] 当日成交量/21日均量 = {volume_ratio.get(probe_ts, -1):.2f} (黄金区间: 1.2-3.0)")
                 
-                # 代码修改：将默认值从 -99 改为 np.nan
                 accel_val = df.get('ACCEL_1_close_D', pd.Series()).get(probe_ts, np.nan)
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}  <-- [活检] 价格加速度 = {accel_val:.4f}")
                 
