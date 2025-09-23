@@ -1051,28 +1051,44 @@ class ChipIntelligence:
 
     def _diagnose_setup_capitulation_ready(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 原子状态】诊断“恐慌已弥漫”的战备(Setup)状态
-        - 核心职责: 生产 `SCORE_SETUP_CAPITULATION_READY` 原子状态分。
-        - 逻辑: 市场深度套牢 + 股价处于长期低位。
-        - 收益: 成为一个可被全系统复用的、描述市场背景的“乐高积木”。
+        【V1.1 · 双引擎位置分】诊断“恐慌已弥漫”的战备(Setup)状态
+        - 核心升级 (本次修改):
+          - [双引擎位置分] 升级了“长期低位”的评分逻辑。最终位置分 = MAX(历史排名分, 区间位置分)。
+          - [鲁棒性] 新逻辑既能识别“绝对历史低位”，也能识别“从近期高点大幅回落”的相对低位，解决了单一排名分无法覆盖所有场景的问题。
+        - 收益: 大幅提升了“战备状态”识别的准确性和鲁棒性。
         """
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
         
         # 军备检查
-        required_cols = ['total_loser_rate_D', 'close_D']
+        required_cols = ['total_loser_rate_D', 'close_D', 'high_D', 'low_D'] # 增加 high_D, low_D
         if not all(col in df.columns for col in required_cols):
-            print(f"          -> [警告] 恐慌战备(Setup)诊断缺少关键数据: {required_cols}，模块已跳过！")
+            print(f"          -> [警告] 恐慌战备(Setup)诊断V1.1缺少关键数据: {required_cols}，模块已跳过！")
             return states
             
-        # 因子1: 市场深度套牢
+        # 因子1: 市场深度套牢 (逻辑不变)
         deep_capitulation_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
-        # 因子2: 股价处于长期低位
-        price_pos_yearly_score = self._normalize_score(df['close_D'], window=250, ascending=False)
+        
+        # 因子2: 长期低位 (采用双引擎逻辑)
+        long_term_window = 250
+        min_periods_long = long_term_window // 4
+        
+        # 引擎A: 历史排名分 (捕捉绝对历史低位)
+        rank_score = self._normalize_score(df['close_D'], window=long_term_window, ascending=False)
+        
+        # 引擎B: 区间位置分 (捕捉相对近期高点的巨大跌幅)
+        rolling_low = df['low_D'].rolling(window=long_term_window, min_periods=min_periods_long).min()
+        rolling_high = df['high_D'].rolling(window=long_term_window, min_periods=min_periods_long).max()
+        price_range = (rolling_high - rolling_low).replace(0, 1e-9) # 防止除以零
+        position_in_range = (df['close_D'] - rolling_low) / price_range
+        range_score = 1.0 - position_in_range.clip(0, 1)
+        
+        # 融合: 取双引擎中的最大值，确保任何一种“低位”都能被识别
+        price_pos_score = np.maximum(rank_score, range_score.fillna(0.5))
         
         # 融合生成战备分
-        setup_score = (deep_capitulation_score * price_pos_yearly_score).astype(np.float32)
+        setup_score = (deep_capitulation_score * price_pos_score).astype(np.float32)
         states['SCORE_SETUP_CAPITULATION_READY'] = setup_score
         return states
 

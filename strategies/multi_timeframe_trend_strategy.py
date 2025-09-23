@@ -693,7 +693,7 @@ class MultiTimeframeTrendStrategy:
           - [闭环验证] 最终验算环节采用 `昨日战备分 * 今日点火分` 的新公式，确保与信号生成逻辑一致。
         - 收益: 实现了对“战备-点火”模型全链路、跨时间的透明化诊断。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.0 · 战术剧本解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.0 · 战术剧本解剖版] 正在解剖 {probe_date} " + "="*35) # 更新探针版本
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -713,7 +713,7 @@ class MultiTimeframeTrendStrategy:
             p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
             norm_window = get_param_value(p.get('norm_window'), 120)
             
-            # [代码修改] 探针逻辑完全重构，以匹配“战备-点火”模型
+            # 探针逻辑完全重构，以匹配“战备-点火”模型
             
             # 辅助函数：安全获取原子分
             def get_atomic_score(signal_name, date, default=0.0):
