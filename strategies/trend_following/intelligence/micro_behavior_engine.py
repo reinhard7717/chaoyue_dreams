@@ -71,14 +71,14 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 算法升级版】早期动能点火诊断模块 (东风初起)
+        【V2.1 温和放量算法升级版】早期动能点火诊断模块 (东风初起)
         - 核心升级 (本次修改):
-          - [算法升级] 彻底废除了过于严苛的“几何平均数”融合算法（一票否决制），
-                        升级为更具鲁棒性和实战意义的“加权算术平均数”算法（加权共识制）。
-        - 收益: 极大提升了信号的触发能力和稳定性，使其能更好地反映多因子的“共识”强度，
-                而不是在个别因子缺失时直接归零。
+          - [算法升级] 将“温和放量”的“帐篷”算法，升级为更鲁棒的“斜坡”算法，
+                        使其能更好地捕捉“价涨量增”的健康模式。
+        - 收益: 解决了因成交量不满足苛刻条件而导致因子得分为零的问题，显著提升了
+                “早期动能点火”信号的稳定性和有效性。
         """
-        # 更新版本号和说明
+        # 代码修改：更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -97,16 +97,14 @@ class MicroBehaviorEngine:
         gentle_rally_score_arr = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
         gentle_rally_score = pd.Series(gentle_rally_score_arr, index=df.index)
 
+        # 代码修改：将“温和放量”的“帐篷”算法升级为“斜坡”算法
         volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
-        vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2)
-        vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8)
-        gentle_volume_score_arr = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
-        gentle_volume_score = pd.Series(gentle_volume_score_arr, index=df.index)
+        # 新逻辑：成交量是21日均量的1.1倍时开始得分，到3.5倍时得满分
+        gentle_volume_score = ((volume_ratio - 1.1) / (3.5 - 1.1)).clip(0, 1).fillna(0.0)
         
         price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
         
-        # --- 2. 融合计算最终分数 (算法升级) ---
-        # 从几何平均升级为加权算术平均
+        # --- 2. 融合计算最终分数 (加权算术平均) ---
         weights = {
             'vol': 0.1,
             'macd': 0.3,
@@ -138,7 +136,7 @@ class MicroBehaviorEngine:
                 print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f} (权重: {weights['vol']})")
                 print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f} (权重: {weights['macd']})")
                 print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f} (权重: {weights['rally']})")
-                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f} (权重: {weights['volume']})")
+                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f} (权重: {weights['volume']})") # 探针将输出新算法的分数
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f} (权重: {weights['accel']})")
                 print(f"          - 最终融合分 (加权平均): {final_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
@@ -261,7 +259,7 @@ class MicroBehaviorEngine:
         - 收益: 彻底根除了信号在传递过程中被指数级削弱的系统性缺陷，使得最终的王牌信号
                 能够更真实、更稳定地反映多维度的市场共识强度。
         """
-        # 代码修改：更新版本号和说明
+        # 代码修改：确保此方法使用最新的双重加权算法
         print("        -> [高质量战备可靠性诊断引擎 V4.0 双重算法革命版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
@@ -311,8 +309,6 @@ class MicroBehaviorEngine:
         ).astype(np.float32)
         
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
-        # 代码修改：删除对被废弃信号的赋值
-        # states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
         # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
@@ -321,7 +317,6 @@ class MicroBehaviorEngine:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
                 print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
-                # 代码修改：更新探针输出以匹配新的双重加权算法
                 print(f"          --- 企稳点火分 (内部计算) ---")
                 print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
                 print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
@@ -334,7 +329,6 @@ class MicroBehaviorEngine:
                 print(f"          ----------------------------------------------------------\n")
         
         return states
-
 
 
 
