@@ -249,13 +249,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V4.2 依赖修复版】高质量战备可靠性诊断引擎
-        - 核心修复 (本次修改):
-          - [依赖注入] 修改了方法签名，不再从全局状态库中获取 `early_ignition_score`，而是通过参数直接接收由上游实时计算出的值。
-        - 收益: 彻底根除了因读取过时数据而导致信号计算错误的系统性缺陷。
+        【V4.3 A股逻辑优化版】高质量战备可靠性诊断引擎
+        - 核心升级 (本次修改):
+          - [逻辑重构] 彻底重构了最终可靠性分的融合逻辑，以更贴合A股市场特点。
+          - [新范式] 最终分 = (核心分) * (1 + 价值区奖励分)。其中，核心分由“股东换血”和“企稳点火”加权构成，“深度价值区”作为一个奖励项而非必需项。
+        - 收益: 解决了强势趋势中继信号被“非深度价值区”不合理惩罚的问题，使信号能同时兼顾“趋势确认”和“价值反转”两类机会。
         """
-        # [修改行] 更新版本号和说明，并修改方法签名以接收依赖注入的信号
-        print("        -> [高质量战备可靠性诊断引擎 V4.2 依赖修复版] 启动...")
+        # [代码修改] 更新版本号和说明
+        print("        -> [高质量战备可靠性诊断引擎 V4.3 A股逻辑优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -283,9 +284,6 @@ class MicroBehaviorEngine:
         downtrend_stabilizing_score = self._normalize_score(df['SLOPE_55_EMA_55_D'].abs(), norm_window, ascending=False, default=0.0)
         states['INTERNAL_SCORE_DOWNTREND_STABILIZING'] = downtrend_stabilizing_score.astype(np.float32)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # [修改行] 不再从全局状态库获取，而是直接使用传入的参数
-        # early_ignition_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        # [算法升级 1] 将“企稳点火分”的计算从乘法升级为加权平均
         ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2})
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
@@ -293,14 +291,16 @@ class MicroBehaviorEngine:
             downtrend_stabilizing_score * ignition_weights['stabilizing']
         ).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
-        # --- 最终剧本触发逻辑 (全新加权共识范式) ---
-        # [算法升级 2] 将最终可靠性分的计算也从乘法升级为加权平均
-        reliability_weights = get_param_value(p.get('reliability_weights'), {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2})
-        final_reliability_score = (
-            shareholder_quality_score * reliability_weights['shareholder'] +
-            ignition_confirmation_score * reliability_weights['ignition'] +
-            background_score * reliability_weights['context']
-        ).astype(np.float32)
+        # --- [代码修改] 最终剧本触发逻辑 (核心分 + 奖励分) ---
+        # 1. 计算核心分
+        main_reliability_weights = get_param_value(p.get('main_reliability_weights'), {'shareholder': 0.5, 'ignition': 0.5})
+        main_score = (
+            shareholder_quality_score * main_reliability_weights['shareholder'] +
+            ignition_confirmation_score * main_reliability_weights['ignition']
+        )
+        # 2. 应用价值区奖励
+        bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
+        final_reliability_score = (main_score * (1 + background_score * bonus_factor)).astype(np.float32)
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
         # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
@@ -308,29 +308,22 @@ class MicroBehaviorEngine:
         if probe_date_str:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
-                # [新增行] 在探针中打印验算过程，以供调试
-                probe_ignition_score = (
-                    early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
-                    vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +
-                    downtrend_stabilizing_score.get(probe_ts, -1) * ignition_weights['stabilizing']
+                # [代码修改] 更新探针逻辑以反映新的计算方式
+                probe_main_score = (
+                    shareholder_quality_score.get(probe_ts, -1) * main_reliability_weights['shareholder'] +
+                    ignition_confirmation_score.get(probe_ts, -1) * main_reliability_weights['ignition']
                 )
-                probe_final_score = (
-                    shareholder_quality_score.get(probe_ts, -1) * reliability_weights['shareholder'] +
-                    ignition_confirmation_score.get(probe_ts, -1) * reliability_weights['ignition'] +
-                    background_score.get(probe_ts, -1) * reliability_weights['context']
-                )
+                probe_final_score = probe_main_score * (1 + background_score.get(probe_ts, -1) * bonus_factor)
                 print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
-                print(f"          --- 企稳点火分 (内部计算) ---")
-                print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
-                print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
-                print(f"            - 趋势企稳分: {downtrend_stabilizing_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['stabilizing']})")
-                print(f"            - [探针验算] 企稳点火分: {probe_ignition_score:.4f} vs 实际值: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
+                print(f"          --- 核心可靠性分 (内部计算) ---")
+                print(f"            - 股东换血分: {shareholder_quality_score.get(probe_ts, -1):.4f} (权重: {main_reliability_weights['shareholder']})")
+                print(f"            - 企稳点火分: {ignition_confirmation_score.get(probe_ts, -1):.4f} (权重: {main_reliability_weights['ignition']})")
+                print(f"            - [探针验算] 核心分: {probe_main_score:.4f}")
                 print(f"          --- 王牌信号分 (最终计算) ---")
-                print(f"          - 要素1 (股东换血) 得分: {shareholder_quality_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['shareholder']})")
-                print(f"          - 要素2 (企稳点火) 得分: {ignition_confirmation_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['ignition']})")
-                print(f"          - 要素3 (深度价值区) 得分: {background_score.get(probe_ts, -1):.4f} (权重: {reliability_weights['context']})")
+                print(f"          - 核心分: {main_score.get(probe_ts, -1):.4f}")
+                print(f"          - 价值区奖励分: {background_score.get(probe_ts, -1):.4f} (奖励系数: {bonus_factor})")
+                print(f"          - 决策公式: 核心分 * (1 + 价值区奖励分 * 奖励系数)")
                 print(f"          - [探针验算] 最终可靠性分: {probe_final_score:.4f} vs 实际值: {final_reliability_score.get(probe_ts, -1):.4f}")
-                print(f"          - 最终可靠性分 (加权平均): {final_reliability_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
         return states
 
