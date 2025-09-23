@@ -389,13 +389,11 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.1 信号持久化版】波动率统一情报中心
+        【V6.2 深度活检版】波动率统一情报中心
         - 核心升级 (本次修改):
-          - [逻辑重构] 彻底重构了“波动率拐点”信号的生成逻辑，从一个脆弱的、仅持续一天的“事件”信号，
-                        升级为一个可以持续数天的“状态”信号。
-          - [新工具] 引入了 `create_persistent_state` 工具函数，当拐点事件发生后，
-                     将 `SCORE_VOL_TIPPING_POINT_BOTTOM_OPP` 信号置为1，并持续3天。
-        - 收益: 极大提升了波动率拐点信号的健壮性和可用性，使其能更可靠地参与下游的共振计算。
+          - [深度活检] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
+                        当指定日期时，它会打印出计算“波动率拐点分”的所有原始变量，
+                        包括：BBW斜率、拐点事件、持久化状态和环境分，实现对信号生成的完全透视。
         """
         # 代码修改：更新版本号和说明
         states = {}
@@ -432,18 +430,30 @@ class FoundationIntelligence:
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
 
         # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
-        # 代码修改：重构整个拐点信号逻辑
-        # 步骤1: 识别拐点“事件”
         is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
-        # 步骤2: 将“事件”转换为持续3天的“状态”
         persistent_bottom_state = create_persistent_state(is_tipping_point_bottom_event, duration=3)
-        # 步骤3: 最终信号 = 状态 * 环境确认 (S级压缩分)
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
         
-        # 对称的顶部风险信号逻辑
         is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
         persistent_top_state = create_persistent_state(is_tipping_point_top_event, duration=3)
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
+
+        # 代码新增：植入“波动率活检探针”
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if df.index.tz is not None:
+                probe_ts = probe_ts.tz_localize(df.index.tz)
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: 波动率拐点活检 @ {probe_date_str}] ---")
+                print(f"          - BBW斜率(今日): {df['SLOPE_5_BBW_21_2.0_D'].get(probe_ts, np.nan):.6f}")
+                print(f"          - BBW斜率(昨日): {df['SLOPE_5_BBW_21_2.0_D'].shift(1).get(probe_ts, np.nan):.6f}")
+                print(f"          - 拐点事件是否触发: {is_tipping_point_bottom_event.get(probe_ts, False)}")
+                print(f"          - 持久化状态(0或1): {persistent_bottom_state.get(probe_ts, 0)}")
+                print(f"          - 环境分(S级压缩分): {states['SCORE_VOL_COMPRESSION_S'].get(probe_ts, -1):.4f}")
+                print(f"          - 最终信号分(状态*环境): {states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'].get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------------\n")
 
         # --- 6. 市场政权与数值化评分 ---
         hurst_score = self._normalize_score(df['hurst_120d_D'])
@@ -598,12 +608,13 @@ class FoundationIntelligence:
 
     def diagnose_classic_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 交叉验证版】经典指标统一情报中心
-        - 核心重构 (本次修改):
-          - [交叉验证] 引入MACD“静态(柱值) x 动态(斜率) x 加速”三维交叉验证。
-          - [信号升级] 生成全新的B/A/S三级MACD共振与反转信号。
-        - 收益: 极大提升了MACD信号的可靠性，能有效过滤假金叉/死叉。
+        【V6.1 深度活检版】经典指标统一情报中心
+        - 核心升级 (本次修改):
+          - [深度活检] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
+                        当指定日期时，它会打印出计算“MACD底部反转分”的所有三维共振因子：
+                        环境分(Z-score)、动能分(斜率)、加速度分，实现对信号生成的完全透视。
         """
+        # 代码修改：更新版本号和说明
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
@@ -617,7 +628,6 @@ class FoundationIntelligence:
         if not all(c in df.columns for c in required_cols):
             missing = [c for c in required_cols if c not in df.columns]
             print(f"          -> [警告] 经典指标情报中心缺少必需列: {missing}，模块已跳过。")
-            # 增加对数据层缺失的提示
             print(f"          -> [数据需求] 请确保数据工程层已为 MACDh_13_34_8_D 计算了 1日和5日的斜率与加速度。")
             return states
 
@@ -659,6 +669,20 @@ class FoundationIntelligence:
         states['SCORE_MACD_TOP_REVERSAL_A'] = top_trigger_a
         states['SCORE_MACD_TOP_REVERSAL_S'] = (top_trigger_a * (1 - score_mom_short)).astype(np.float32)
 
+        # 代码新增：植入“MACD活检探针”
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if df.index.tz is not None:
+                probe_ts = probe_ts.tz_localize(df.index.tz)
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: MACD底部反转活检 @ {probe_date_str}] ---")
+                print(f"          - B级信号 (加速度分): {states['SCORE_MACD_BOTTOM_REVERSAL_B'].get(probe_ts, -1):.4f}  <-- [活检] 原始加速度分 = {score_accel_short.get(probe_ts, -1):.4f}")
+                print(f"          - A级信号 (B级*环境分): {states['SCORE_MACD_BOTTOM_REVERSAL_A'].get(probe_ts, -1):.4f}  <-- [活检] 环境分(Z-score) = {score_macdh_zscore_low.get(probe_ts, -1):.4f}")
+                print(f"          - S级信号 (A级*动能分): {states['SCORE_MACD_BOTTOM_REVERSAL_S'].get(probe_ts, -1):.4f}  <-- [活检] 动能分(斜率) = {score_mom_short.get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------------\n")
+
         # --- 3. 成交量动态分析 ---
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
@@ -670,7 +694,6 @@ class FoundationIntelligence:
         states['SCORE_VOL_PRICE_IGNITION_UP'] = score_price_up_strength * score_volume_igniting
         states['SCORE_VOL_PRICE_PANIC_DOWN_RISK'] = score_price_down_strength * score_volume_igniting
         return states
-
 
 
 
