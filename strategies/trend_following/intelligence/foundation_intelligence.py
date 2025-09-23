@@ -410,11 +410,9 @@ class FoundationIntelligence:
           - [新范式] 新的“波动率拐点分” = “S级波动率压缩分” * “波动率加速分”。
         - 收益: 解决了因“斜率未过零”导致信号得分为零的顽固问题，使信号能更早、更稳定地捕捉到波动率从压缩到扩张的转折状态。
         """
-        
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
-        
         # --- 1. 军备检查 (Arsenal Check) ---
         required_cols = [
             'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D', 
@@ -424,65 +422,34 @@ class FoundationIntelligence:
             missing = [c for c in required_cols if c not in df.columns]
             print(f"          -> [警告] 波动率情报中心缺少必需列: {missing}，模块已跳过。")
             return states
-
         # --- 2. 核心要素数值化 ---
         score_squeeze_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=False)
         score_squeeze_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=False)
         score_squeeze_momentum = self._normalize_score(df['SLOPE_5_BBW_21_2.0_D'], ascending=False)
-        
         score_expansion_daily = 1 - score_squeeze_daily
         score_expansion_weekly = 1 - score_squeeze_weekly
         score_expansion_momentum = 1 - score_squeeze_momentum
-        
         # 计算波动率的加速分，用于新的拐点模型
         score_vol_accel_up = self._normalize_score(df['ACCEL_5_BBW_21_2.0_D'], ascending=True)
         score_vol_accel_down = self._normalize_score(df['ACCEL_5_BBW_21_2.0_D'], ascending=False)
-
         # --- 3. 生成B/A/S三级压缩信号 ---
         states['SCORE_VOL_COMPRESSION_B'] = score_squeeze_daily
         states['SCORE_VOL_COMPRESSION_A'] = (score_squeeze_daily * score_squeeze_weekly).astype(np.float32)
         states['SCORE_VOL_COMPRESSION_S'] = (states['SCORE_VOL_COMPRESSION_A'] * score_squeeze_momentum).astype(np.float32)
-
         # --- 4. 生成B/A/S三级扩张信号 (对称逻辑) ---
         states['SCORE_VOL_EXPANSION_B'] = score_expansion_daily
         states['SCORE_VOL_EXPANSION_A'] = (score_expansion_daily * score_expansion_weekly).astype(np.float32)
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
-
         # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
-        # 废弃旧的事件驱动逻辑
-        # is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
-        # persistent_bottom_state = create_persistent_state(df, is_tipping_point_bottom_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_BOTTOM')
-        # states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
-        
         # 采用新的状态驱动逻辑: 拐点分 = 压缩状态分 * 加速分
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * score_vol_accel_up).astype(np.float32)
-        
         # 对称地更新顶部拐点逻辑
-        # is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
-        # persistent_top_state = create_persistent_state(df, is_tipping_point_top_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_TOP')
-        # states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * score_vol_accel_down).astype(np.float32)
-        
-        # 更新探针逻辑以反映新的计算方式
-        debug_params = get_params_block(self.strategy, 'debug_params')
-        probe_date_str = get_param_value(debug_params.get('probe_date'))
-        if probe_date_str:
-            probe_ts = pd.to_datetime(probe_date_str)
-            if df.index.tz is not None:
-                probe_ts = probe_ts.tz_localize(df.index.tz)
-            if probe_ts in df.index:
-                print(f"\n          --- [一线探针: 波动率拐点活检 @ {probe_date_str}] ---")
-                print(f"          - 因子1 (S级压缩分): {states['SCORE_VOL_COMPRESSION_S'].get(probe_ts, -1):.4f}")
-                print(f"          - 因子2 (波动率加速分): {score_vol_accel_up.get(probe_ts, -1):.4f}")
-                print(f"          - 最终信号分 (因子1 * 因子2): {states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'].get(probe_ts, -1):.4f}")
-                print(f"          ----------------------------------------------------------\n")
-
         # --- 6. 市场政权与数值化评分 ---
         hurst_score = self._normalize_score(df['hurst_120d_D'])
         states['SCORE_TRENDING_REGIME'] = hurst_score
         states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = states['SCORE_VOL_COMPRESSION_S'] * hurst_score
         states['SCORE_VOL_BREAKDOWN_RISK_S'] = states['SCORE_VOL_EXPANSION_S'] * (1 - hurst_score)
-        
         return states
 
     def diagnose_market_character_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -636,11 +603,9 @@ class FoundationIntelligence:
                         当指定日期时，它会打印出计算“MACD底部反转分”的所有三维共振因子：
                         环境分(Z-score)、动能分(斜率)、加速度分，实现对信号生成的完全透视。
         """
-        
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
-        
         # --- 1. 军备检查 (Arsenal Check) ---
         required_cols = [
             'MACDh_13_34_8_D', 'MACD_HIST_ZSCORE_D', 'SLOPE_1_MACDh_13_34_8_D', 
@@ -652,7 +617,6 @@ class FoundationIntelligence:
             print(f"          -> [警告] 经典指标情报中心缺少必需列: {missing}，模块已跳过。")
             print(f"          -> [数据需求] 请确保数据工程层已为 MACDh_13_34_8_D 计算了 1日和5日的斜率与加速度。")
             return states
-
         # --- 2. MACD协同诊断单元 ---
         # 2.1 核心要素数值化
         score_macdh_static_bull = self._normalize_score(df['MACDh_13_34_8_D'].clip(lower=0))
@@ -662,49 +626,30 @@ class FoundationIntelligence:
         score_mom_short = self._normalize_score(df['SLOPE_1_MACDh_13_34_8_D'])
         score_mom_mid = self._normalize_score(df['SLOPE_5_MACDh_13_34_8_D'])
         score_accel_short = self._normalize_score(df['ACCEL_1_MACDh_13_34_8_D'])
-
         # 2.2 上升共振 (多头动能)
         bullish_momentum_b = (score_mom_short * score_mom_mid).astype(np.float32)
         states['SCORE_MACD_BULLISH_RESONANCE_B'] = bullish_momentum_b
         bullish_momentum_a = (bullish_momentum_b * score_macdh_static_bull).astype(np.float32)
         states['SCORE_MACD_BULLISH_RESONANCE_A'] = bullish_momentum_a
         states['SCORE_MACD_BULLISH_RESONANCE_S'] = (bullish_momentum_a * score_accel_short).astype(np.float32)
-
         # 2.3 下跌共振 (空头动能)
         bearish_momentum_b = ((1 - score_mom_short) * (1 - score_mom_mid)).astype(np.float32)
         states['SCORE_MACD_BEARISH_RESONANCE_B'] = bearish_momentum_b
         bearish_momentum_a = (bearish_momentum_b * score_macdh_static_bear).astype(np.float32)
         states['SCORE_MACD_BEARISH_RESONANCE_A'] = bearish_momentum_a
         states['SCORE_MACD_BEARISH_RESONANCE_S'] = (bearish_momentum_a * (1 - score_accel_short)).astype(np.float32)
-
         # 2.4 底部反转 (金叉)
         bottom_trigger_b = score_accel_short
         states['SCORE_MACD_BOTTOM_REVERSAL_B'] = bottom_trigger_b.astype(np.float32)
         bottom_trigger_a = (bottom_trigger_b * score_macdh_zscore_low).astype(np.float32)
         states['SCORE_MACD_BOTTOM_REVERSAL_A'] = bottom_trigger_a
         states['SCORE_MACD_BOTTOM_REVERSAL_S'] = (bottom_trigger_a * score_mom_short).astype(np.float32)
-
         # 2.5 顶部反转 (死叉)
         top_trigger_b = (1 - score_accel_short)
         states['SCORE_MACD_TOP_REVERSAL_B'] = top_trigger_b.astype(np.float32)
         top_trigger_a = (top_trigger_b * score_macdh_zscore_high).astype(np.float32)
         states['SCORE_MACD_TOP_REVERSAL_A'] = top_trigger_a
         states['SCORE_MACD_TOP_REVERSAL_S'] = (top_trigger_a * (1 - score_mom_short)).astype(np.float32)
-
-        # 植入“MACD活检探针”
-        debug_params = get_params_block(self.strategy, 'debug_params')
-        probe_date_str = get_param_value(debug_params.get('probe_date'))
-        if probe_date_str:
-            probe_ts = pd.to_datetime(probe_date_str)
-            if df.index.tz is not None:
-                probe_ts = probe_ts.tz_localize(df.index.tz)
-            if probe_ts in df.index:
-                print(f"\n          --- [一线探针: MACD底部反转活检 @ {probe_date_str}] ---")
-                print(f"          - B级信号 (加速度分): {states['SCORE_MACD_BOTTOM_REVERSAL_B'].get(probe_ts, -1):.4f}  <-- [活检] 原始加速度分 = {score_accel_short.get(probe_ts, -1):.4f}")
-                print(f"          - A级信号 (B级*环境分): {states['SCORE_MACD_BOTTOM_REVERSAL_A'].get(probe_ts, -1):.4f}  <-- [活检] 环境分(Z-score) = {score_macdh_zscore_low.get(probe_ts, -1):.4f}")
-                print(f"          - S级信号 (A级*动能分): {states['SCORE_MACD_BOTTOM_REVERSAL_S'].get(probe_ts, -1):.4f}  <-- [活检] 动能分(斜率) = {score_mom_short.get(probe_ts, -1):.4f}")
-                print(f"          ----------------------------------------------------------\n")
-
         # --- 3. 成交量动态分析 ---
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)

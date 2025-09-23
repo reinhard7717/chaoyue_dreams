@@ -87,54 +87,25 @@ class MicroBehaviorEngine:
             - 买盘突袭剧本 = 点火K线分 * S级波动率扩张分 (捕捉“放量大阳线”的暴力启动)。
         - 收益: 解决了原模型因子间逻辑矛盾、无法对特定剧本给出高分的问题，使信号能更精准、更强力地捕捉两种核心的底部启动形态。
         """
-        
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         # --- 1. 提取上游核心信号 ---
         vol_compression_score = atomic.get('SCORE_VOL_COMPRESSION_S', default_score)
         vol_expansion_score = atomic.get('SCORE_VOL_EXPANSION_S', default_score)
-
         # --- 2. 计算“点火K线”强度分 ---
         # 核心逻辑：一个阳线实体占据整个K线振幅的比例，代表了当日买方的控制力。
         candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         ignition_candle_score = ((df['close_D'] - df['open_D']) / candle_range).clip(0, 1).fillna(0.0)
-
         # --- 3. 计算两大反转剧本得分 ---
         # 剧本一：卖盘衰竭式反转 (缩量 + 决定性阳线)
         seller_exhaustion_score = (ignition_candle_score * vol_compression_score).astype(np.float32)
-        
         # 剧本二：买盘突袭式反转 (放量 + 决定性阳线)
         buyer_assault_score = (ignition_candle_score * vol_expansion_score).astype(np.float32)
-
         # --- 4. 融合生成最终信号 ---
         # 取两种剧本中的最高分，代表当日最符合的启动模式
         final_score = np.maximum(seller_exhaustion_score, buyer_assault_score)
         states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score.astype(np.float32)
-        
-        # --- 探针部分 (深度活检集群) ---
-        debug_params = get_params_block(self.strategy, 'debug_params')
-        probe_date_str = get_param_value(debug_params.get('probe_date'))
-        if probe_date_str:
-            probe_ts = pd.to_datetime(probe_date_str)
-            if df.index.tz is not None:
-                probe_ts = probe_ts.tz_localize(df.index.tz)
-            if probe_ts in df.index:
-                # 更新探针以反映新的剧本化诊断逻辑
-                print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
-                print(f"          - 核心因子 (点火K线分): {ignition_candle_score.get(probe_ts, -1):.4f}")
-                print(f"          ---")
-                print(f"          - 剧本1: 卖盘衰竭 (点火K线 * 波动压缩分)")
-                print(f"            - 波动压缩分 (S级): {vol_compression_score.get(probe_ts, -1):.4f}")
-                print(f"            - 剧本1得分: {seller_exhaustion_score.get(probe_ts, -1):.4f}")
-                print(f"          ---")
-                print(f"          - 剧本2: 买盘突袭 (点火K线 * 波动扩张分)")
-                print(f"            - 波动扩张分 (S级): {vol_expansion_score.get(probe_ts, -1):.4f}")
-                print(f"            - 剧本2得分: {buyer_assault_score.get(probe_ts, -1):.4f}")
-                print(f"          ---")
-                print(f"          - 最终融合分 (MAX(剧本1, 剧本2)): {final_score.get(probe_ts, -1):.4f}")
-                print(f"          ----------------------------------------------------------\n")
         return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
