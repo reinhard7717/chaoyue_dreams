@@ -71,11 +71,10 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.7 信号链路升级版】早期动能点火诊断模块 (东风初起)
-        - 核心升级 (本次修改):
-          - [信号消费升级] 不再手动选择MACD的B级或A级信号，而是调用 `fuse_multi_level_scores`
-                           辅助函数，消费一个融合了S/A/B所有等级的、加权平均后的高质量MACD反转分。
-        - 收益: 确保了最高质量的S级信号能够被有效利用，极大提升了“早期动能点火”的信号质量。
+        【V1.9 返回值修复版】早期动能点火诊断模块 (东风初起)
+        - 核心修复 (本次修改):
+          - [BUG修复] 补全了方法末尾缺失的 `return states` 语句，解决了因函数返回 None
+                       而导致的 `TypeError` 崩溃问题。
         """
         # 代码修改：更新版本号和说明
         states = {}
@@ -85,7 +84,6 @@ class MicroBehaviorEngine:
         # --- 1. 计算所有原始因子 ---
         vol_tipping_point_score = atomic.get('SCORE_VOL_TIPPING_POINT_BOTTOM_OPP', default_score)
         
-        # 代码修改：调用辅助函数，消费融合后的高质量MACD反转分
         macd_reversal_score = fuse_multi_level_scores(
             atomic_states=atomic,
             df_index=df.index,
@@ -97,7 +95,58 @@ class MicroBehaviorEngine:
         gentle_rally_score_arr = np.maximum(0, 1 - np.abs(pct_change - 0.025) / 0.025).fillna(0)
         gentle_rally_score = pd.Series(gentle_rally_score_arr, index=df.index)
 
-        # ... (后续代码保持不变) ...
+        volume_ratio = df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']).replace(0, np.nan)
+        vol_score1 = (volume_ratio - 1.2) / (1.8 - 1.2)
+        vol_score2 = (3.0 - volume_ratio) / (3.0 - 1.8)
+        gentle_volume_score_arr = np.minimum(vol_score1, vol_score2).clip(0, 1).fillna(0)
+        gentle_volume_score = pd.Series(gentle_volume_score_arr, index=df.index)
+        
+        price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
+        
+        # --- 2. 融合计算最终分数 ---
+        score_components = [
+            vol_tipping_point_score.values,
+            macd_reversal_score.values,
+            gentle_rally_score.values,
+            gentle_volume_score.values,
+            price_accel_score.values
+        ]
+        epsilon = 1e-9
+        prod_scores = np.prod([arr + epsilon for arr in score_components], axis=0)
+        final_score_arr = prod_scores**(1.0 / len(score_components))
+        final_score = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
+        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
+
+        # --- 探针部分 (深度活检集群) ---
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if df.index.tz is not None:
+                probe_ts = probe_ts.tz_localize(df.index.tz)
+
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
+                print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f}  <-- [活检] 上游信号 SCORE_VOL_TIPPING_POINT_BOTTOM_OPP 的原始值")
+                
+                macd_val = df.get('MACD_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
+                signal_val = df.get('MACDs_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
+                hist_val = df.get('MACDh_13_34_8_D', pd.Series()).get(probe_ts, np.nan)
+                print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f}  <-- [活检] MACD({macd_val:.2f}), Signal({signal_val:.2f}), Hist({hist_val:.2f})")
+
+                pct_val = df.get('pct_change_D', pd.Series()).get(probe_ts, np.nan) * 100
+                print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f}  <-- [活检] 当日涨跌幅 = {pct_val:.2f}% (黄金区间: 0% ~ 5%)")
+                
+                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}  <-- [活检] 当日成交量/21日均量 = {volume_ratio.get(probe_ts, -1):.2f} (黄金区间: 1.2-3.0)")
+                
+                accel_val = df.get('ACCEL_1_close_D', pd.Series()).get(probe_ts, np.nan)
+                print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}  <-- [活检] 价格加速度 = {accel_val:.4f}")
+                
+                print(f"          - 最终融合分 (几何平均): {final_score.get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------------\n")
+
+        # 代码修改：补全缺失的 return 语句
+        return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
