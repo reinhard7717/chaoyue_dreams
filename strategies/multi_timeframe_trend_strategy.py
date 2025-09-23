@@ -686,14 +686,13 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_capitulation_probe(self, probe_date: str):
         """
-        【V2.0 战术剧本解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
+        【V2.1 · 双引擎解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
         - 核心重构 (本次修改):
-          - [范式同步] 探针逻辑与 `chip_intelligence` V2.0 版完全同步，从解剖“融合公式”升级为解剖“战备-点火”战术剧本。
-          - [时序解剖] 探针现在能分别解剖“今日的点火分”和“昨日的战备分”，并展示各自的构成因子。
-          - [闭环验证] 最终验算环节采用 `昨日战备分 * 今日点火分` 的新公式，确保与信号生成逻辑一致。
-        - 收益: 实现了对“战备-点火”模型全链路、跨时间的透明化诊断。
+          - [探针升级] 升级了对“战备分”的解剖逻辑，使其能够完全复现“双引擎位置分”的计算过程。
+          - [透明化] 探针现在能分别展示“历史排名分”和“区间位置分”，并清晰地显示MAX函数的选择结果。
+        - 收益: 实现了对“战备-点火”模型全链路、全细节的透明化诊断，探针与信号逻辑完全同步。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.0 · 战术剧本解剖版] 正在解剖 {probe_date} " + "="*35) # 更新探针版本
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.1 · 双引擎解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -713,9 +712,6 @@ class MultiTimeframeTrendStrategy:
             p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
             norm_window = get_param_value(p.get('norm_window'), 120)
             
-            # 探针逻辑完全重构，以匹配“战备-点火”模型
-            
-            # 辅助函数：安全获取原子分
             def get_atomic_score(signal_name, date, default=0.0):
                 if signal_name not in atomic: return default
                 return atomic[signal_name].get(date, default)
@@ -731,7 +727,6 @@ class MultiTimeframeTrendStrategy:
             trigger_score_today = get_atomic_score("SCORE_TRIGGER_CAPITULATION_FIRE", probe_ts)
             print(f"  ✅ SCORE_TRIGGER_CAPITULATION_FIRE @ {probe_date} = {trigger_score_today:.4f}")
             
-            # 解剖点火分的构成
             turnover_raw = df.at[probe_ts, 'turnover_from_losers_ratio_D']
             k = get_param_value(p.get('logistic_k', 0.1))
             x0 = get_param_value(p.get('logistic_x0', 50.0))
@@ -758,15 +753,36 @@ class MultiTimeframeTrendStrategy:
                 setup_score_yesterday = get_atomic_score("SCORE_SETUP_CAPITULATION_READY", yesterday_ts)
                 print(f"  ✅ SCORE_SETUP_CAPITULATION_READY @ {yesterday_str} = {setup_score_yesterday:.4f}")
 
-                # 解剖战备分的构成
+                # [代码修改] 升级对“战备分”的解剖，以匹配V1.1的双引擎逻辑
+                # 因子1: 深度套牢
                 loser_rate_raw = df.at[yesterday_ts, 'total_loser_rate_D']
                 loser_rate_score_calc = chip_intel._normalize_score(df['total_loser_rate_D'], norm_window, True).get(yesterday_ts, 0.0)
-                
-                price_raw = df.at[yesterday_ts, 'close_D']
-                price_pos_score_calc = chip_intel._normalize_score(df['close_D'], 250, False).get(yesterday_ts, 0.0)
-
                 print(f"    - 因子1: 深度套牢 (原始值={loser_rate_raw:.2f}%) -> 套牢分 = {loser_rate_score_calc:.4f}")
-                print(f"    - 因子2: 长期低位 (原始值={price_raw:.2f}) -> 位置分 = {price_pos_score_calc:.4f}")
+
+                # 因子2: 长期低位 (双引擎解剖)
+                price_raw = df.at[yesterday_ts, 'close_D']
+                long_term_window = 250
+                min_periods_long = long_term_window // 4
+                
+                # 引擎A: 历史排名分
+                rank_score_calc = chip_intel._normalize_score(df['close_D'], window=long_term_window, ascending=False).get(yesterday_ts, 0.0)
+                
+                # 引擎B: 区间位置分
+                rolling_low = df['low_D'].rolling(window=long_term_window, min_periods=min_periods_long).min()
+                rolling_high = df['high_D'].rolling(window=long_term_window, min_periods=min_periods_long).max()
+                price_range = (rolling_high.at[yesterday_ts] - rolling_low.at[yesterday_ts])
+                price_range = price_range if price_range > 1e-9 else 1e-9
+                position_in_range = (price_raw - rolling_low.at[yesterday_ts]) / price_range
+                range_score_calc = 1.0 - np.clip(position_in_range, 0, 1)
+                
+                print(f"    - 因子2: 长期低位 (原始值={price_raw:.2f})")
+                print(f"      - 引擎A (历史排名分): {rank_score_calc:.4f}")
+                print(f"      - 引擎B (区间位置分): {range_score_calc:.4f}")
+                
+                price_pos_score_calc = np.maximum(rank_score_calc, range_score_calc)
+                print(f"      - 最终位置分 = MAX(引擎A, 引擎B) = {price_pos_score_calc:.4f}")
+
+                # 最终验算
                 setup_score_calc = loser_rate_score_calc * price_pos_score_calc
                 print(f"    - [验算] 战备分 = {loser_rate_score_calc:.4f} * {price_pos_score_calc:.4f} = {setup_score_calc:.4f} ({'一致' if np.isclose(setup_score_calc, setup_score_yesterday) else '不一致'})")
 
