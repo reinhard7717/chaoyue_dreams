@@ -1335,13 +1335,13 @@ class CognitiveIntelligence:
         # --- 步骤 1: 调用微观行为引擎，生成深层行为模式信号 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         states.update(micro_behavior_states)
-        self.strategy.atomic_states.update(micro_behavior_states) # 关键：立即更新原子状态库，供后续模块使用
+        self.strategy.atomic_states.update(micro_behavior_states) # 立即更新原子状态库，供后续模块使用
 
         # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
         # 将 pullback_enhancements 传递给战术引擎
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         states.update(tactic_states)
-        self.strategy.atomic_states.update(tactic_states) # 关键：再次更新原子状态库
+        self.strategy.atomic_states.update(tactic_states) # 再次更新原子状态库
         # 将战术引擎产出的剧本状态也更新到策略实例中
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
 
@@ -1365,7 +1365,7 @@ class CognitiveIntelligence:
             states.get('COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S', default_score).values,
             states.get('COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE', default_score).values,
             states.get('COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING', default_score).values,
-            states.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score).values,
+            states.get('COGNITIVE_SCORE_REVERSAL_RELIABILITY', default_score).values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
