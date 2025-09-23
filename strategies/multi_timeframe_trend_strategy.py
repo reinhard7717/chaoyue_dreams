@@ -710,8 +710,8 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # 实例化 ChipIntelligence 以调用其内部方法
-            chip_intel = self.tactical_engine.intelligence_layer.chip_intelligence
+            # [代码修改] 修复了对 chip_intelligence 的错误引用，应为 chip_intel
+            chip_intel = self.tactical_engine.intelligence_layer.chip_intel
             p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
             norm_window = get_param_value(p.get('norm_window'), 120)
             bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5)
@@ -763,6 +763,7 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 核心分 (行为分 * 加速分) = {turnover_score:.4f} * {accel_score:.4f} = {core_score_calc:.4f}")
             print(f"  - 最终分 (核心分 * (1 + 上下文分 * 奖励系数)) = {core_score_calc:.4f} * (1 + {context_score:.4f} * {bonus_factor}) = {final_score_calc:.4f}")
             print(f"  - [结论] 验算结果 ({final_score_calc:.4f}) 与实际信号值 ({final_score:.4f}) {'一致' if np.isclose(final_score_calc, final_score) else '不一致'}")
+
 
             print("\n" + "="*35 + " [恐慌盘投降探针] 解剖完毕 " + "="*35 + "\n")
 
