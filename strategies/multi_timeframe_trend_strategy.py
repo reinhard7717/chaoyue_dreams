@@ -710,7 +710,7 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # [代码修改] 修复了对 chip_intelligence 的错误引用，应为 chip_intel
+            # 修复了对 chip_intelligence 的错误引用，应为 chip_intel
             chip_intel = self.tactical_engine.intelligence_layer.chip_intel
             p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
             norm_window = get_param_value(p.get('norm_window'), 120)

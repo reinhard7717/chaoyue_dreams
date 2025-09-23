@@ -45,20 +45,20 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
-        【V406.0 架构净化版】筹码情报最高司令部
+        【V406.1 架构重构版】筹码情报最高司令部
         - 核心重构 (本次修改):
-          - [架构净化] 移除了对 synthesize_prime_chip_opportunity 的调用。该方法是一个跨维度的“元融合”模块，
-                        其职责是融合多个筹码子维度的信号，因此它已被提升至更高阶的 CognitiveIntelligence 模块中，
-                        以从根本上解决跨模块依赖问题。
-        - 收益: ChipIntelligence 的职责更加纯粹，只负责生成领域内的基础和复合筹码信号，不再处理跨维度融合。
+          - [架构升级] 将“恐慌盘投降”信号的诊断过程重构为三个独立的、可复用的模块：
+                        1. _diagnose_setup_capitulation_ready (诊断战备状态)
+                        2. _diagnose_trigger_capitulation_fire (诊断点火行为)
+                        3. _synthesize_playbook_capitulation_reversal (合成最终剧本)
+          - [流程编排] 在主流程中按“先原子，后合成”的顺序调用这些新模块。
+        - 收益: 实现了信号的模块化和原子状态的复用，是架构上的一次重大升级。
         """
         
-        print("        -> [筹码情报最高司令部 V406.0 架构净化版] 启动...")
+        print("        -> [筹码情报最高司令部 V406.1 架构重构版] 启动...") # 更新版本号
         
         all_chip_states = {}
-        
         # 步骤 1: 执行所有独立的诊断和评分模块，生成所有纯筹码维度的信号
-        # 注意：这些方法返回的是更新后的df，我们需要从中提取新信号
         df = self.diagnose_composite_scores(df)
         df = self.diagnose_strategic_context_scores(df)
         df = self.diagnose_quantitative_chip_scores(df)
@@ -67,27 +67,28 @@ class ChipIntelligence:
         df = self.diagnose_chip_holder_behavior_scores(df)
         df = self.diagnose_fused_behavioral_chip_scores(df)
         df = self.diagnose_cross_validation_signals(df)
-        
         # 这是一个临时措施，用于从df中提取所有新生成的列
         for col in df.columns:
             if col not in self.strategy.df_indicators.columns and col not in all_chip_states:
                  all_chip_states[col] = df[col]
-
         # 步骤 2: 执行依赖于第一步结果的诊断模块
         accumulation_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_states)
-
         # 步骤 3: 执行终极信号引擎
         ultimate_chip_states = self.diagnose_ultimate_chip_signals_v3(df)
         all_chip_states.update(ultimate_chip_states)
-
-        # 步骤 4: 执行独立的剧本诊断
-        capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
-        all_chip_states.update(capitulation_reversal_states)
-
-        # 移除了对 synthesize_prime_chip_opportunity 的调用
-        
-        print(f"        -> [筹码情报最高司令部 V406.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
+        # 步骤 4: 执行独立的原子状态诊断 (新的模块化流程)
+        # 先诊断出可复用的“战备”和“点火”原子状态
+        setup_states = self._diagnose_setup_capitulation_ready(df)
+        all_chip_states.update(setup_states)
+        trigger_states = self._diagnose_trigger_capitulation_fire(df)
+        all_chip_states.update(trigger_states)
+        # 步骤 5: 执行剧本合成器
+        # 在调用合成器之前，必须确保原子状态已添加到df中，供其消费
+        df = df.assign(**all_chip_states)
+        playbook_states = self._synthesize_playbook_capitulation_reversal(df)
+        all_chip_states.update(playbook_states)
+        print(f"        -> [筹码情报最高司令部 V406.1] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。") # 更新版本号
         return all_chip_states, {}
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -471,7 +472,7 @@ class ChipIntelligence:
                         从脆弱的“上下文 * 核心行为”乘法模型，升级为鲁棒的“核心行为 * (1 + 上下文 * 奖励系数)”新范式。
         - 收益: 解决了因“筹码结构不够完美”而压制“趋势启动”强信号的问题，能更灵敏地捕捉各类启动机会。
         """
-        print("        -> [复合筹码评分模块 V1.2 核心+奖励范式升级版] 启动...") # [代码修改] 更新版本号和日志
+        print("        -> [复合筹码评分模块 V1.2 核心+奖励范式升级版] 启动...") # 更新版本号和日志
         new_scores = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -480,7 +481,7 @@ class ChipIntelligence:
         p = get_params_block(self.strategy, 'chip_feature_params')
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # [代码修改] 新增点火奖励系数参数
+        # 新增点火奖励系数参数
         ignition_bonus_factor = get_param_value(p.get('ignition_context_bonus_factor'), 0.8)
 
         def normalize(series, ascending=True):
@@ -495,7 +496,7 @@ class ChipIntelligence:
         new_scores['CHIP_SCORE_GATHERING_INTENSITY'] = (conc_slope_score * cost_slope_score * health_slope_score).astype(np.float32)
         
         # --- 3. 计算 CHIP_SCORE_TRIGGER_IGNITION (逻辑升级) ---
-        # [代码修改] 拆分为“核心行为”和“上下文”
+        # 拆分为“核心行为”和“上下文”
         # 核心行为：上升共振分，代表趋势确认
         bullish_resonance_score = atomic.get('SCORE_CHIP_BULLISH_RESONANCE_S', default_score)
         # 上下文：黄金机会分，代表完美的静态结构
@@ -939,7 +940,7 @@ class ChipIntelligence:
                       这个上下文环境从“否决项”升级为“奖励项”，使信号由核心的量价背离行为主导。
         - 收益: 极大提升了“洗盘吸筹”和“诱多派发”两大核心战术场景识别的准确性和鲁棒性。
         """
-        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 启动...") # [代码修改] 更新版本号和日志
+        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 启动...") # 更新版本号和日志
         new_scores = {}
         p = get_params_block(self.strategy, 'fused_behavioral_chip_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -961,7 +962,7 @@ class ChipIntelligence:
         def normalize(series, ascending=True):
             return series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
         
-        # [代码修改] 新增奖励系数参数
+        # 新增奖励系数参数
         washout_bonus = get_param_value(p.get('washout_context_bonus_factor'), 0.5)
         deceptive_bonus = get_param_value(p.get('deceptive_rally_context_bonus_factor'), 0.5)
 
@@ -976,7 +977,7 @@ class ChipIntelligence:
         # 3.2 定义上下文分 (价格下跌)
         drop_context_score = (1 - (df['pct_change_D'].fillna(0.0) - (-0.045)).abs() / 0.025).clip(0, 1).fillna(0.0)
 
-        # 3.3 [代码修改] 应用新范式融合生成S/A/B三级机会信号
+        # 3.3 应用新范式融合生成S/A/B三级机会信号
         final_washout_score = core_absorption_score * (1 + drop_context_score * washout_bonus)
         new_scores['CHIP_SCORE_OPP_WASHOUT_ABSORPTION_S'] = final_washout_score.astype(np.float32)
         # 为了兼容，A/B级可以设为S级的不同折扣
@@ -994,7 +995,7 @@ class ChipIntelligence:
         # 4.2 定义上下文分 (价格上涨)
         rally_context_score = normalize(df['pct_change_D'], ascending=True)
 
-        # 4.3 [代码修改] 应用新范式融合生成S/A/B三级风险信号
+        # 4.3 应用新范式融合生成S/A/B三级风险信号
         final_deceptive_score = core_divergence_risk * (1 + rally_context_score * deceptive_bonus)
         new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_S'] = final_deceptive_score.astype(np.float32)
         new_scores['CHIP_SCORE_RISK_DECEPTIVE_RALLY_A'] = (final_deceptive_score * 0.7).astype(np.float32)
@@ -1006,7 +1007,7 @@ class ChipIntelligence:
         
         # --- 6. 更新DataFrame ---
         df = df.assign(**new_scores)
-        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 计算完毕。") # [代码修改] 更新版本号
+        print("        -> [行为-筹码融合评分模块 V2.2 核心+奖励范式重构版] 计算完毕。") # 更新版本号
         return df
 
     def _calculate_normalized_score(self, series: pd.Series, window: int, ascending: bool = True) -> pd.Series:
@@ -1048,57 +1049,86 @@ class ChipIntelligence:
         # 将结果包装回一个带有原始索引的pandas Series
         return pd.Series(max_values, index=valid_series[0].index)
 
-    def _diagnose_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_setup_capitulation_ready(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 绝对强度增强版】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
-        - 核心升级 (本次修改):
-          - [绝对强度] 为核心的“行为分”(当日割肉盘占比)引入了基于Logistic函数的“绝对分”计算。
-          - [融合优化] 最终行为分 = MAX(相对分, 绝对分)。这确保了无论是“相对异常高”还是“绝对数值高”
-                        的恐慌割肉行为都能被捕捉，解决了单纯依赖相对排名导致信号被压制的问题。
-        - 收益: 信号对真实恐慌的识别能力和评分强度得到进一步飞跃。
+        【V1.0 · 原子状态】诊断“恐慌已弥漫”的战备(Setup)状态
+        - 核心职责: 生产 `SCORE_SETUP_CAPITULATION_READY` 原子状态分。
+        - 逻辑: 市场深度套牢 + 股价处于长期低位。
+        - 收益: 成为一个可被全系统复用的、描述市场背景的“乐高积木”。
         """
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
-        bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5)
-
-        # --- 1. 军备检查 ---
-        required_cols = [
-            'total_loser_rate_D',
-            'turnover_from_losers_ratio_D',
-            'ACCEL_5_turnover_from_losers_ratio_D'
-        ]
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"          -> [严重警告] 恐慌盘投降反转诊断引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+        
+        # 军备检查
+        required_cols = ['total_loser_rate_D', 'close_D']
+        if not all(col in df.columns for col in required_cols):
+            print(f"          -> [警告] 恐慌战备(Setup)诊断缺少关键数据: {required_cols}，模块已跳过！")
             return states
+            
+        # 因子1: 市场深度套牢
+        deep_capitulation_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
+        # 因子2: 股价处于长期低位
+        price_pos_yearly_score = self._normalize_score(df['close_D'], window=250, ascending=False)
+        
+        # 融合生成战备分
+        setup_score = (deep_capitulation_score * price_pos_yearly_score).astype(np.float32)
+        states['SCORE_SETUP_CAPITULATION_READY'] = setup_score
+        return states
 
-        # --- 2. 核心要素数值化 ---
-        # 上下文分 (逻辑不变)
-        capitulation_context_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
-
-        # [代码修改] 行为分：融合相对与绝对强度
-        # 相对分：捕捉与近期相比的异常飙升
+    def _diagnose_trigger_capitulation_fire(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 原子状态】诊断“卖压出清”的点火(Trigger)行为
+        - 核心职责: 生产 `SCORE_TRIGGER_CAPITULATION_FIRE` 原子状态分。
+        - 逻辑: 当日割肉盘占比极高 + 割肉盘正在加速涌出。
+        - 收益: 成为一个可被全系统复用的、描述动态行为的“乐高积木”。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        
+        # 军备检查
+        required_cols = ['turnover_from_losers_ratio_D', 'ACCEL_5_turnover_from_losers_ratio_D']
+        if not all(col in df.columns for col in required_cols):
+            print(f"          -> [警告] 恐慌点火(Trigger)诊断缺少关键数据: {required_cols}，模块已跳过！")
+            return states
+            
+        # 因子1: 当日割肉盘占比极高 (融合相对与绝对强度)
         relative_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
-        # 绝对分：使用Logistic函数，捕捉绝对数值上的恐慌程度
-        # k=0.1, x0=50. 当割肉盘占比达到50%时，得分为0.5
         k = get_param_value(p.get('logistic_k', 0.1))
         x0 = get_param_value(p.get('logistic_x0', 50.0))
         absolute_turnover_score = 1 / (1 + np.exp(-k * (df['turnover_from_losers_ratio_D'] - x0)))
-        # 融合：取两者最大值，确保任何一种恐慌模式都能被识别
         loser_turnover_score = np.maximum(relative_turnover_score, absolute_turnover_score)
-
-        # 加速分 (逻辑不变)
+        
+        # 因子2: 割肉盘正在加速涌出
         loser_turnover_accel_score = self._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        
+        # 融合生成点火分
+        trigger_score = (loser_turnover_score * loser_turnover_accel_score).astype(np.float32)
+        states['SCORE_TRIGGER_CAPITULATION_FIRE'] = trigger_score
+        return states
 
-        # --- 3. 最终裁决 (逻辑不变) ---
-        core_score = loser_turnover_score * loser_turnover_accel_score
-        final_score = (
-            core_score * (1 + capitulation_context_score * bonus_factor)
-        ).astype(np.float32)
+    def _synthesize_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 剧本合成器】合成“恐慌盘投降反转”剧本
+        - 核心职责: 消费“战备”和“点火”两个原子状态，合成最终的剧本分。
+        - 逻辑: 昨日战备就绪，今日点火触发。
+        """
+        states = {}
+        # 军备检查：确保上游的原子状态已生成
+        required_cols = ['SCORE_SETUP_CAPITULATION_READY', 'SCORE_TRIGGER_CAPITULATION_FIRE']
+        if not all(col in df.columns for col in required_cols):
+            print(f"          -> [警告] 恐慌反转剧本合成器缺少上游原子状态: {required_cols}，模块已跳过！")
+            return states
+            
+        setup_score = df['SCORE_SETUP_CAPITULATION_READY']
+        trigger_score = df['SCORE_TRIGGER_CAPITULATION_FIRE']
+        
+        # 剧本合成：昨日战备，今日点火
+        was_setup_yesterday = setup_score.shift(1).fillna(0.0)
+        final_score = (was_setup_yesterday * trigger_score).astype(np.float32)
         
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
-        
         return states
 
 
