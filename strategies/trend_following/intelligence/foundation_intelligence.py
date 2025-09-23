@@ -402,16 +402,16 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.2 深度活检版】波动率统一情报中心
-        - 核心升级 (本次修改):
-          - [深度活检] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
-                        当指定日期时，它会打印出计算“波动率拐点分”的所有原始变量，
-                        包括：BBW斜率、拐点事件、持久化状态和环境分，实现对信号生成的完全透视。
+        【V6.3 健壮性修复版】波动率统一情报中心
+        - 核心修复 (本次修改):
+          - [BUG修复] 修正了对 `create_persistent_state` 函数的调用，补全了所有必需的位置参数，
+                        彻底解决了因参数缺失而导致的潜在 TypeError 崩溃风险。
         """
         # 代码修改：更新版本号和说明
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
+        
         # --- 1. 军备检查 (Arsenal Check) ---
         required_cols = [
             'BBW_21_2.0_D', 'SLOPE_5_BBW_21_2.0_D', 'ACCEL_5_BBW_21_2.0_D', 
@@ -421,31 +421,38 @@ class FoundationIntelligence:
             missing = [c for c in required_cols if c not in df.columns]
             print(f"          -> [警告] 波动率情报中心缺少必需列: {missing}，模块已跳过。")
             return states
+
         # --- 2. 核心要素数值化 ---
         score_squeeze_daily = self._normalize_score(df['BBW_21_2.0_D'], ascending=False)
         score_squeeze_weekly = self._normalize_score(df['BBW_21_2.0_W'], ascending=False)
         score_squeeze_momentum = self._normalize_score(df['SLOPE_5_BBW_21_2.0_D'], ascending=False)
+        
         score_expansion_daily = 1 - score_squeeze_daily
         score_expansion_weekly = 1 - score_squeeze_weekly
         score_expansion_momentum = 1 - score_squeeze_momentum
+
         # --- 3. 生成B/A/S三级压缩信号 ---
         states['SCORE_VOL_COMPRESSION_B'] = score_squeeze_daily
         states['SCORE_VOL_COMPRESSION_A'] = (score_squeeze_daily * score_squeeze_weekly).astype(np.float32)
         states['SCORE_VOL_COMPRESSION_S'] = (states['SCORE_VOL_COMPRESSION_A'] * score_squeeze_momentum).astype(np.float32)
+
         # --- 4. 生成B/A/S三级扩张信号 (对称逻辑) ---
         states['SCORE_VOL_EXPANSION_B'] = score_expansion_daily
         states['SCORE_VOL_EXPANSION_A'] = (score_expansion_daily * score_expansion_weekly).astype(np.float32)
         states['SCORE_VOL_EXPANSION_S'] = (states['SCORE_VOL_EXPANSION_A'] * score_expansion_momentum).astype(np.float32)
+
         # --- 5. 波动率反转临界点 (逻辑重构：事件 -> 状态) ---
         is_tipping_point_bottom_event = (df['SLOPE_5_BBW_21_2.0_D'] > 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) <= 0)
         # [修改行] 修复TypeError：根据函数定义补全所有必需的位置参数
         persistent_bottom_state = create_persistent_state(df, is_tipping_point_bottom_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_BOTTOM')
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * persistent_bottom_state).astype(np.float32)
+        
         is_tipping_point_top_event = (df['SLOPE_5_BBW_21_2.0_D'] < 0) & (df['SLOPE_5_BBW_21_2.0_D'].shift(1) >= 0)
         # [修改行] 修复TypeError：根据函数定义补全所有必需的位置参数
         persistent_top_state = create_persistent_state(df, is_tipping_point_top_event, 3, pd.Series(False, index=df.index), 'VOL_TIPPING_POINT_TOP')
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * persistent_top_state).astype(np.float32)
-        # 代码新增：植入“波动率活检探针”
+        
+        # ... (探针代码保持不变) ...
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:
@@ -461,11 +468,13 @@ class FoundationIntelligence:
                 print(f"          - 环境分(S级压缩分): {states['SCORE_VOL_COMPRESSION_S'].get(probe_ts, -1):.4f}")
                 print(f"          - 最终信号分(状态*环境): {states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'].get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
+
         # --- 6. 市场政权与数值化评分 ---
         hurst_score = self._normalize_score(df['hurst_120d_D'])
         states['SCORE_TRENDING_REGIME'] = hurst_score
         states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = states['SCORE_VOL_COMPRESSION_S'] * hurst_score
         states['SCORE_VOL_BREAKDOWN_RISK_S'] = states['SCORE_VOL_EXPANSION_S'] * (1 - hurst_score)
+        
         return states
 
     def diagnose_market_character_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
