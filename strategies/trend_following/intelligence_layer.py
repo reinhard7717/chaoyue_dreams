@@ -90,7 +90,7 @@ class IntelligenceLayer:
                         提升至CognitiveIntelligence，并调整了调用顺序。
         - 收益: 严格遵循了“领域内诊断 -> 跨领域融合”的架构原则，彻底解决了因依赖顺序错误导致的信号丢失问题。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         print("--- [情报层总指挥官 V406.0 架构归位版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -129,7 +129,7 @@ class IntelligenceLayer:
         # --- 阶段三: 认知层跨域元融合 ---
         print("    - [阶段 3/4] 正在执行认知层跨域元融合...")
         
-        # 代码新增：在所有基础信号生成后，首先调用被移至认知层的“黄金机会”元融合模块
+        # 在所有基础信号生成后，首先调用被移至认知层的“黄金机会”元融合模块
         # 这一步至关重要，因为它消费了多个筹码子维度的信号，并为更高阶的认知模块提供输入
         prime_states, prime_scores = self.cognitive_intel.synthesize_prime_chip_opportunity(df)
         update_states(prime_states)
@@ -170,7 +170,7 @@ class IntelligenceLayer:
         self.strategy.setup_scores, self.strategy.playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         
         self.strategy.df_indicators = df
-        print("--- [情报层总指挥官 V406.0] 所有诊断模块执行完毕。 ---") # 代码修改：更新版本号
+        print("--- [情报层总指挥官 V406.0] 所有诊断模块执行完毕。 ---") # 更新版本号
         return self.strategy.trigger_events
 
     def _diagnose_strategic_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -224,21 +224,21 @@ class IntelligenceLayer:
         - 业务逻辑: 保持与V3.0版本完全一致，仅优化实现方式和增强健壮性。
         """
         states = {}
-        # 代码新增：增加军备检查，提高代码健壮性
+        # 增加军备检查，提高代码健壮性
         required_cols = ['SCORE_CHIP_TRUE_ACCUMULATION', 'SCORE_CHIP_FALSE_ACCUMULATION_RISK', 'SLOPE_21_chip_health_score_D']
         if not all(col in df.columns for col in required_cols):
             print(f"            -> [日线长周期筹码战略诊断-警告] 缺少上游智能信号，模块已跳过。请确保ChipIntelligence已运行。")
             return {}
 
         # --- 1. 消费“真实吸筹分” ---
-        # 代码修改：直接从df获取，而非atomic_states
+        # 直接从df获取，而非atomic_states
         true_accumulation_score = df['SCORE_CHIP_TRUE_ACCUMULATION']
         states['CONTEXT_CHIP_LONG_TERM_ACCUMULATION_D'] = true_accumulation_score > 0.5
         true_accumulation_slope = true_accumulation_score.diff().fillna(0)
         states['CONTEXT_CHIP_LONG_TERM_ACCEL_ACCUMULATION_D'] = (true_accumulation_score > 0.5) & (true_accumulation_slope > 0)
 
         # --- 2. 消费“虚假集中风险分” ---
-        # 代码修改：直接从df获取，而非atomic_states
+        # 直接从df获取，而非atomic_states
         false_accumulation_risk_score = df['SCORE_CHIP_FALSE_ACCUMULATION_RISK']
         states['CONTEXT_CHIP_LONG_TERM_DIVERGENCE_D'] = false_accumulation_risk_score > 0.5
         false_accumulation_risk_slope = false_accumulation_risk_score.diff().fillna(0)
@@ -248,7 +248,7 @@ class IntelligenceLayer:
         is_long_term_health_improving = df['SLOPE_21_chip_health_score_D'] > 0
         states['CONTEXT_CHIP_LONG_TERM_HEALTH_IMPROVING_D'] = is_long_term_health_improving
 
-        # print(f"            -> [日线长周期筹码战略诊断 V3.1] 已生成 {len(states)} 个基于智能信号的战略状态。") # 代码修改：更新版本号
+        # print(f"            -> [日线长周期筹码战略诊断 V3.1] 已生成 {len(states)} 个基于智能信号的战略状态。") # 更新版本号
         return states
 
     def _score_industry_lifecycle_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

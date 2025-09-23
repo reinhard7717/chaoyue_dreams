@@ -52,7 +52,7 @@ class ChipIntelligence:
                         以从根本上解决跨模块依赖问题。
         - 收益: ChipIntelligence 的职责更加纯粹，只负责生成领域内的基础和复合筹码信号，不再处理跨维度融合。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         print("        -> [筹码情报最高司令部 V406.0 架构净化版] 启动...")
         
         all_chip_states = {}
@@ -85,7 +85,7 @@ class ChipIntelligence:
         capitulation_reversal_states = self._diagnose_capitulation_reversal(df)
         all_chip_states.update(capitulation_reversal_states)
 
-        # 代码修改：移除了对 synthesize_prime_chip_opportunity 的调用
+        # 移除了对 synthesize_prime_chip_opportunity 的调用
         
         print(f"        -> [筹码情报最高司令部 V406.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
         return all_chip_states, {}
@@ -98,7 +98,7 @@ class ChipIntelligence:
                         当指定日期时，它会打印出所有用于计算吸筹分数的、最原始的归一化因子得分，
                         从而能精确地定位到导致最终分数为零的“罪魁祸首”。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         print("        -> [主力吸筹与风险诊断引擎 V4.2 一线探针版] 启动...")
         states = {}
         norm_window = 120
@@ -135,7 +135,7 @@ class ChipIntelligence:
         true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
 
-        # 代码新增：植入“一线法医探针”
+        # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:

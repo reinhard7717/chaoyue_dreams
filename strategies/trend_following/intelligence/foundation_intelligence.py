@@ -36,12 +36,12 @@ class FoundationIntelligence:
         - 收益: 确保了基础情报层的所有诊断能力都被完全激活，解决了关键信号（如MACD、波动率）
                 无法生成和监控的根本性问题。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         # print("      -> [基础情报分析总指挥 V3.1 全面诊断版] 启动...")
         df = self.strategy.df_indicators
         all_states = {}
 
-        # 代码修改：按顺序调用所有诊断引擎，并汇总结果
+        # 按顺序调用所有诊断引擎，并汇总结果
         all_states.update(self.diagnose_ultimate_foundation_signals(df))
         all_states.update(self.diagnose_ema_synergy(df))
         all_states.update(self.diagnose_oscillator_intelligence(df))
@@ -407,7 +407,7 @@ class FoundationIntelligence:
           - [BUG修复] 修正了对 `create_persistent_state` 函数的调用，补全了所有必需的位置参数，
                         彻底解决了因参数缺失而导致的潜在 TypeError 崩溃风险。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -628,7 +628,7 @@ class FoundationIntelligence:
                         当指定日期时，它会打印出计算“MACD底部反转分”的所有三维共振因子：
                         环境分(Z-score)、动能分(斜率)、加速度分，实现对信号生成的完全透视。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
@@ -683,7 +683,7 @@ class FoundationIntelligence:
         states['SCORE_MACD_TOP_REVERSAL_A'] = top_trigger_a
         states['SCORE_MACD_TOP_REVERSAL_S'] = (top_trigger_a * (1 - score_mom_short)).astype(np.float32)
 
-        # 代码新增：植入“MACD活检探针”
+        # 植入“MACD活检探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:

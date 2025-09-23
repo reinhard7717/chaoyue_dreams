@@ -48,7 +48,7 @@ class PlaybookEngine:
           - [剧本优化] 将“筹码共振-价格滞后”剧本的触发器升级为消费更可靠的“真实吸筹”信号。
           - [战术扩充] 新增 `PLAYBOOK_MEAN_REVERSION_GRID_A` 剧本，用于执行震荡市的网格交易。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         return [
             # --- 基于“真实吸筹”的王牌剧本 ---
             {
@@ -124,7 +124,7 @@ class PlaybookEngine:
                 'comment': 'A+级 - [洗盘吸筹反转] 在确认的“洗盘吸筹”行为后，由“显性反转K线”确认V型反转。'
             },
             # --- A级 战术剧本 (Tactical Playbooks) ---
-            # 代码新增：新增均值回归网格剧本
+            # 新增均值回归网格剧本
             {
                 'name': 'PLAYBOOK_MEAN_REVERSION_GRID_A',
                 'trigger': ['TRIGGER_MEAN_REVERSION_GRID_BUY_A'],
@@ -165,7 +165,7 @@ class PlaybookEngine:
           - [触发器升级] 将 `TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S` 的战备条件判断，从消费旧的、模糊的共振信号，升级为消费新的、高置信度的 `SCORE_CHIP_TRUE_ACCUMULATION` 信号。
           - [战术扩充] 新增 `TRIGGER_MEAN_REVERSION_GRID_BUY_A` 触发器。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -191,7 +191,7 @@ class PlaybookEngine:
             'true_accumulation_breakout_s_plus': get_param_value(p_triggers.get('true_accumulation_breakout_s_plus_threshold'), 0.6),
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
             'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
-            # 代码新增：新增均值回归触发器阈值
+            # 新增均值回归触发器阈值
             'mean_reversion_grid_buy_a': get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8),
         }
         # --- 2. 定义基础触发器 ---
@@ -235,7 +235,7 @@ class PlaybookEngine:
         # 触发器: 大反转后期·共振初起
         post_reversal_score = atomic.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score)
         triggers['TRIGGER_POST_REVERSAL_RESONANCE_S_PLUS'] = post_reversal_score > thresholds['post_reversal_resonance_s_plus']
-        # 代码新增：新增均值回归触发器
+        # 新增均值回归触发器
         mean_reversion_score = atomic.get('SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A', default_score)
         triggers['TRIGGER_MEAN_REVERSION_GRID_BUY_A'] = mean_reversion_score > thresholds['mean_reversion_grid_buy_a']
         # --- 更新“筹码共振-价格滞后”剧本的触发器逻辑 ---

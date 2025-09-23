@@ -82,14 +82,14 @@ class CyclicalIntelligence:
         trending_score_arr = np.divide(trend_power, total_power_raw, out=np.full_like(total_power_raw, 0.5), where=total_power_raw!=0)
         # 4.2 寻找主导周期
         valid_indices = np.where((xf > 1.0/(fft_window/2)) & (xf < 1.0/4))[0]
-        num_results = len(rolling_windows) # 代码新增：获取结果数组的长度
+        num_results = len(rolling_windows) # 获取结果数组的长度
         if len(valid_indices) > 0:
             power_in_valid_range = power_spectrum_cycle[:, valid_indices]
             dominant_indices_in_valid = np.argmax(power_in_valid_range, axis=1)
             dominant_global_indices = valid_indices[dominant_indices_in_valid]
             dominant_period_arr = 1.0 / xf[dominant_global_indices]
             total_power_cycle = np.sum(power_spectrum_cycle, axis=1)
-            # 代码修改：使用高级索引替代np.choose，修复BUG
+            # 使用高级索引替代np.choose，修复BUG
             row_indices = np.arange(num_results)
             selected_powers = power_in_valid_range[row_indices, dominant_indices_in_valid]
             dominant_power_arr = np.divide(selected_powers, total_power_cycle, out=np.zeros_like(total_power_cycle), where=total_power_cycle!=0)
@@ -97,7 +97,7 @@ class CyclicalIntelligence:
             top_powers = np.take_along_axis(power_in_valid_range, top_indices_in_valid, axis=1)
             cyclical_score_arr = np.divide(np.sum(top_powers, axis=1), total_power_cycle, out=np.zeros_like(total_power_cycle), where=total_power_cycle!=0)
             # 4.3 计算相位
-            # 代码修改：使用高级索引替代np.choose，修复BUG
+            # 使用高级索引替代np.choose，修复BUG
             selected_yf_cycle = yf_cycle[row_indices, dominant_global_indices]
             dominant_phase_rad = np.angle(selected_yf_cycle)
             phase_angle = ((fft_window - 1) * 2 * np.pi / dominant_period_arr + dominant_phase_rad) % (2 * np.pi)
@@ -110,7 +110,7 @@ class CyclicalIntelligence:
         # --- 5. 存储信号 ---
         def to_full_series(arr, fill_value):
             full_arr = np.full(len(df), fill_value, dtype=np.float32)
-            # 代码修改：修正数组切片，应为 fft_window - 1 到结尾
+            # 修正数组切片，应为 fft_window - 1 到结尾
             full_arr[fft_window-1:] = arr
             return pd.Series(full_arr, index=df.index, dtype=np.float32)
         states['SCORE_TRENDING_REGIME_FFT'] = to_full_series(trending_score_arr, 0.5)

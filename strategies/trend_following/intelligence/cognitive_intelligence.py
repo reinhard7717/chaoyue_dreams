@@ -1326,7 +1326,7 @@ class CognitiveIntelligence:
           - [依赖注入] 接收 `pullback_enhancements` 并传递给战术引擎，修复数据流。
           - [代码内聚] 将回踩战术的调试日志逻辑移入此方法。
         """
-        # 代码修改：更新方法签名和版本号
+        # 更新方法签名和版本号
         print("        -> [顶层认知总分合成模块 V2.2 架构修复版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
@@ -1338,11 +1338,11 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(micro_behavior_states) # 关键：立即更新原子状态库，供后续模块使用
 
         # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
-        # 代码修改：将 pullback_enhancements 传递给战术引擎
+        # 将 pullback_enhancements 传递给战术引擎
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         states.update(tactic_states)
         self.strategy.atomic_states.update(tactic_states) # 关键：再次更新原子状态库
-        # 代码新增：将战术引擎产出的剧本状态也更新到策略实例中
+        # 将战术引擎产出的剧本状态也更新到策略实例中
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
 
         # --- 步骤 3: 执行本模块剩余的核心认知融合任务 ---
@@ -1350,7 +1350,7 @@ class CognitiveIntelligence:
         industry_synergy_states = self.synthesize_industry_synergy_signals(df)
         states.update(industry_synergy_states)
         self.strategy.atomic_states.update(industry_synergy_states)
-        # 代码新增：调用新增的均值回归信号合成模块
+        # 调用新增的均值回归信号合成模块
         mean_reversion_states = self.synthesize_mean_reversion_signals(df)
         states.update(mean_reversion_states)
         self.strategy.atomic_states.update(mean_reversion_states)
@@ -1389,7 +1389,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(final_bearish_score, index=df.index, dtype=np.float32)
 
         # --- 步骤 6: 移动调试日志逻辑到此 ---
-        # 代码新增：将调试日志逻辑从 IntelligenceLayer 移入，保持内聚
+        # 将调试日志逻辑从 IntelligenceLayer 移入，保持内聚
         debug_params = get_params_block(self.strategy, 'debug_params')
         if get_param_value(debug_params.get('enable_pullback_decision_log'), False):
             decision_log_df = self._create_pullback_decision_log(df, pullback_enhancements)
@@ -1403,7 +1403,7 @@ class CognitiveIntelligence:
 
         # --- 步骤 7: 更新原子状态库并返回 ---
         self.strategy.atomic_states.update(states)
-        print("        -> [顶层认知总分合成模块 V2.2] 模块化重构完成。") # 代码修改：更新版本号
+        print("        -> [顶层认知总分合成模块 V2.2] 模块化重构完成。") # 更新版本号
         return df
 
     def synthesize_mean_reversion_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -610,7 +610,7 @@ class MultiTimeframeTrendStrategy:
                         来访问正确的模块实例，确保了探针逻辑与实际执行逻辑一致。
         - 收益: 彻底解决了因调用路径错误导致的 AttributeError，使探针能够正常运行。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         print("\n" + "="*35 + f" [首席法医官探针 V1.3] 正在解剖 {probe_date} " + "="*35)
         
         try:
@@ -643,7 +643,7 @@ class MultiTimeframeTrendStrategy:
             internal_vars = {}
             row = df.loc[probe_ts:probe_ts]
             if not row.empty:
-                # 代码修改：修正 _normalize_score 的调用路径
+                # 修正 _normalize_score 的调用路径
                 # 借用一个通用的 _normalize_score 实例，例如 chip_intel 下的
                 _normalize = self.tactical_engine.intelligence_layer.chip_intel._normalize_score
                 
@@ -732,7 +732,7 @@ class MultiTimeframeTrendStrategy:
           - [探针集成] 在 `debug_params` 中检查 `probe_date`，如果存在，则调用新增的 `_deploy_field_coroner_probe` 探针。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.7 法医探针集成版)] ---") # 代码修改：更新版本号
+        print(f"--- [历史回溯调试启动 (V320.7 法医探针集成版)] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -740,7 +740,7 @@ class MultiTimeframeTrendStrategy:
             # 步骤 1: 正常执行核心流程，生成所有数据
             all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
             
-            # 代码新增：检查并部署法医探针
+            # 检查并部署法医探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:

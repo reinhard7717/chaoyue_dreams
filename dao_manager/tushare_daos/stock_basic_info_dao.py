@@ -163,7 +163,7 @@ class StockBasicInfoDao(BaseDAO):
             logger.error(f"从数据库获取所有自选股失败: {e}", exc_info=True)
             return None
 
-    # --- 代码新增：增加一个更常用的“获取指定用户自选股”的方法 ---
+    # --- 增加一个更常用的“获取指定用户自选股”的方法 ---
     async def get_user_favorite_stocks(self, user: AbstractUser) -> Optional[List[Dict]]:
         """
         获取指定用户的自选股列表，并按默认排序（置顶、添加时间）

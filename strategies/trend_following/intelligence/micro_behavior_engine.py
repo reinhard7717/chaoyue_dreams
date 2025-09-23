@@ -78,7 +78,7 @@ class MicroBehaviorEngine:
         - 收益: 极大提升了信号的触发能力和稳定性，使其能更好地反映多因子的“共识”强度，
                 而不是在个别因子缺失时直接归零。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -106,7 +106,7 @@ class MicroBehaviorEngine:
         price_accel_score = self._normalize_score(df['ACCEL_1_close_D'].clip(lower=0), default=0.0)
         
         # --- 2. 融合计算最终分数 (算法升级) ---
-        # 代码修改：从几何平均升级为加权算术平均
+        # 从几何平均升级为加权算术平均
         weights = {
             'vol': 0.1,
             'macd': 0.3,
@@ -259,7 +259,7 @@ class MicroBehaviorEngine:
                         当指定日期时，它会打印出“股东换血”、“企稳点火”、“深度价值区”三大核心要素的得分，
                         以及最终的核心逻辑分和加成后的分数，实现对计算过程的完全透视。
         """
-        # 代码修改：更新版本号和说明
+        # 更新版本号和说明
         print("        -> [高质量战备可靠性诊断引擎 V2.2 一线探针版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
@@ -299,7 +299,7 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
         states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
-        # 代码新增：植入“一线法医探针”
+        # 植入“一线法医探针”
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str:
