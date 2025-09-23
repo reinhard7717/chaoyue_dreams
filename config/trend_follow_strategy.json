@@ -482,6 +482,17 @@
         "periods": [1, 5, 13, 21, 55],
         "norm_window": 120
       },
+      "capitulation_reversal_params": {
+        "enabled": true,
+        "description": "【V2.1 信号缩放版】恐慌盘投降剧本的专属参数。",
+        "norm_window": 120,
+        "logistic_k": 0.1,
+        "logistic_x0": 50.0,
+        "final_score_exponent": {
+          "value": 0.5,
+          "description": "【信号缩放】最终剧本分的指数缩放系数。0.5代表开根号，用于对抗多因子乘法带来的量纲压缩问题。"
+        }
+      },
       "foundation_ultimate_params": {
         "enabled": true,
         "description": "【V1.0 新增】终极基础层信号引擎参数",

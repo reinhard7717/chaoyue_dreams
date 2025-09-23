@@ -1126,11 +1126,14 @@ class ChipIntelligence:
 
     def _synthesize_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 剧本合成器】合成“恐慌盘投降反转”剧本
-        - 核心职责: 消费“战备”和“点火”两个原子状态，合成最终的剧本分。
-        - 逻辑: 昨日战备就绪，今日点火触发。
+        【V1.1 · 信号缩放版】合成“恐慌盘投降反转”剧本
+        - 核心升级 (本次修改):
+          - [信号缩放] 引入指数缩放(开根号)，解决多因子乘法导致的“量纲压缩”问题，使信号的有效值恢复到合理范围。
+        - 收益: 确保信号的战术价值能在最终计分系统中得到正确体现。
         """
         states = {}
+        p = get_params_block(self.strategy, 'capitulation_reversal_params', {}) # [代码修改] 从专属配置块读取参数
+        
         # 军备检查：确保上游的原子状态已生成
         required_cols = ['SCORE_SETUP_CAPITULATION_READY', 'SCORE_TRIGGER_CAPITULATION_FIRE']
         if not all(col in df.columns for col in required_cols):
@@ -1142,7 +1145,11 @@ class ChipIntelligence:
         
         # 剧本合成：昨日战备，今日点火
         was_setup_yesterday = setup_score.shift(1).fillna(0.0)
-        final_score = (was_setup_yesterday * trigger_score).astype(np.float32)
+        raw_score = (was_setup_yesterday * trigger_score)
+        
+        # [代码修改] 应用指数缩放，恢复信号量纲
+        exponent = get_param_value(p.get('final_score_exponent'), 1.0) # 默认为1.0，保持原样
+        final_score = (raw_score ** exponent).astype(np.float32)
         
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
         return states

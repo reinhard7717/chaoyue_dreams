@@ -686,13 +686,12 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_capitulation_probe(self, probe_date: str):
         """
-        【V2.1 · 双引擎解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
+        【V2.2 · 信号缩放解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
         - 核心重构 (本次修改):
-          - [探针升级] 升级了对“战备分”的解剖逻辑，使其能够完全复现“双引擎位置分”的计算过程。
-          - [透明化] 探针现在能分别展示“历史排名分”和“区间位置分”，并清晰地显示MAX函数的选择结果。
-        - 收益: 实现了对“战备-点火”模型全链路、全细节的透明化诊断，探针与信号逻辑完全同步。
+          - [终极同步] 探针的“最终验算”环节增加了“信号缩放”步骤，使其能完整复现并解剖从“毛坯分”到“精装分”的全过程。
+        - 收益: 实现了对信号生成逻辑的100%全链路透明化诊断，探针与信号逻辑完全同步，消除了所有诊断盲点。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.1 · 双引擎解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.2 · 信号缩放解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -717,10 +716,11 @@ class MultiTimeframeTrendStrategy:
                 return atomic[signal_name].get(date, default)
 
             # --- [第一层解剖]: 最终剧本分数 ---
-            print("\n--- [第一层解剖]: 最终剧本分数 ---")
+            # 注意：这里获取的是经过缩放后的“精装分”
             final_score = get_atomic_score("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", probe_ts)
+            print("\n--- [第一层解剖]: 最终剧本分数 ---")
             print(f"  ✅ SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL = {final_score:.4f}")
-            print(f"  -> 它的分数由 [昨日战备分 * 今日点火分] 得到:")
+            print(f"  -> 它的分数由 [(昨日战备分 * 今日点火分) ^ 指数] 得到:") # [代码修改] 更新公式描述
 
             # --- [第二层解剖]: 今日“点火”分 (Trigger) ---
             print("\n--- [第二层解剖]: 今日“点火”分 (Trigger) ---")
@@ -753,21 +753,16 @@ class MultiTimeframeTrendStrategy:
                 setup_score_yesterday = get_atomic_score("SCORE_SETUP_CAPITULATION_READY", yesterday_ts)
                 print(f"  ✅ SCORE_SETUP_CAPITULATION_READY @ {yesterday_str} = {setup_score_yesterday:.4f}")
 
-                # [代码修改] 升级对“战备分”的解剖，以匹配V1.1的双引擎逻辑
-                # 因子1: 深度套牢
                 loser_rate_raw = df.at[yesterday_ts, 'total_loser_rate_D']
                 loser_rate_score_calc = chip_intel._normalize_score(df['total_loser_rate_D'], norm_window, True).get(yesterday_ts, 0.0)
                 print(f"    - 因子1: 深度套牢 (原始值={loser_rate_raw:.2f}%) -> 套牢分 = {loser_rate_score_calc:.4f}")
 
-                # 因子2: 长期低位 (双引擎解剖)
                 price_raw = df.at[yesterday_ts, 'close_D']
                 long_term_window = 250
                 min_periods_long = long_term_window // 4
                 
-                # 引擎A: 历史排名分
                 rank_score_calc = chip_intel._normalize_score(df['close_D'], window=long_term_window, ascending=False).get(yesterday_ts, 0.0)
                 
-                # 引擎B: 区间位置分
                 rolling_low = df['low_D'].rolling(window=long_term_window, min_periods=min_periods_long).min()
                 rolling_high = df['high_D'].rolling(window=long_term_window, min_periods=min_periods_long).max()
                 price_range = (rolling_high.at[yesterday_ts] - rolling_low.at[yesterday_ts])
@@ -782,15 +777,21 @@ class MultiTimeframeTrendStrategy:
                 price_pos_score_calc = np.maximum(rank_score_calc, range_score_calc)
                 print(f"      - 最终位置分 = MAX(引擎A, 引擎B) = {price_pos_score_calc:.4f}")
 
-                # 最终验算
                 setup_score_calc = loser_rate_score_calc * price_pos_score_calc
                 print(f"    - [验算] 战备分 = {loser_rate_score_calc:.4f} * {price_pos_score_calc:.4f} = {setup_score_calc:.4f} ({'一致' if np.isclose(setup_score_calc, setup_score_yesterday) else '不一致'})")
 
             # --- [第四层解剖]: 最终验算 ---
             print("\n--- [第四层解剖]: 最终验算 ---")
-            final_score_calc = setup_score_yesterday * trigger_score_today
-            print(f"  - 最终剧本分 = 昨日战备分 * 今日点火分")
-            print(f"              = {setup_score_yesterday:.4f} * {trigger_score_today:.4f} = {final_score_calc:.4f}")
+            # [代码修改] 引入“毛坯分”和“精装分”的解剖逻辑
+            raw_score_calc = setup_score_yesterday * trigger_score_today
+            print(f"  - 步骤1 (毛坯分) = 昨日战备分 * 今日点火分")
+            print(f"                  = {setup_score_yesterday:.4f} * {trigger_score_today:.4f} = {raw_score_calc:.4f}")
+            
+            exponent = get_param_value(p.get('final_score_exponent'), 1.0)
+            final_score_calc = raw_score_calc ** exponent
+            print(f"  - 步骤2 (精装分) = (毛坯分) ^ {exponent}")
+            print(f"                  = ({raw_score_calc:.4f}) ^ {exponent} = {final_score_calc:.4f}")
+            
             print(f"  - [结论] 验算结果 ({final_score_calc:.4f}) 与实际信号值 ({final_score:.4f}) {'一致' if np.isclose(final_score_calc, final_score) else '不一致'}")
 
             print("\n" + "="*35 + " [恐慌盘投降探针] 解剖完毕 " + "="*35 + "\n")
