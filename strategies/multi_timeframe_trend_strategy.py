@@ -603,13 +603,14 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, probe_date: str):
         """
-        【V1.6 · 拉升吸筹逻辑同步版】首席法医官探针
+        【V1.7 · 趋势潜力逻辑同步版】首席法医官探针
         - 核心重构 (本次修改):
-          - [逻辑同步] 更新了对“拉升吸筹”的解剖逻辑，现在显示为“成本抬升分”与“获利盘稳定分”两者相乘，与 V4.4 版的算法保持一致。
-        - 收益: 确保了探针报告100%准确地反映了最新的、更符合实战的算法逻辑。
+          - [逻辑同步] 更新了对“企稳点火分”的解剖逻辑，将其中对已废弃信号`INTERNAL_SCORE_DOWNTREND_STABILIZING`的引用，
+                        修正为读取最新的`INTERNAL_SCORE_TREND_POTENTIAL`信号，与`micro_behavior_engine` V4.4版的算法完全保持一致。
+        - 收益: 修复了因信号不同步导致的探针报错，确保了探针报告100%准确地反映了最新的、更符合实战的算法逻辑。
         """
         # [代码修改] 更新版本号和说明
-        print("\n" + "="*35 + f" [首席法医官探针 V1.6 · 拉升吸筹逻辑同步版] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [首席法医官探针 V1.7 · 趋势潜力逻辑同步版] 正在解剖 {probe_date} " + "="*35)
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据 (daily_analysis_df 或 atomic_states) 不存在。调查终止。")
@@ -634,28 +635,32 @@ class MultiTimeframeTrendStrategy:
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
             p_reversal = get_params_block(self.tactical_engine, 'reversal_reliability_params', {})
-            reliability_weights = get_param_value(p_reversal.get('reliability_weights'), {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2})
-            ignition_weights = get_param_value(p_reversal.get('ignition_weights'), {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2})
+            # [代码修改] 确保探针读取的权重与计算引擎一致
+            main_reliability_weights = get_param_value(p_reversal.get('main_reliability_weights'), {'shareholder': 0.5, 'ignition': 0.5})
+            ignition_weights = get_param_value(p_reversal.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
+            bonus_factor = get_param_value(p_reversal.get('reversal_reliability_bonus_factor'), 0.5)
             print("\n--- [第一层解剖]: 王牌信号 (COGNITIVE_SCORE_REVERSAL_RELIABILITY) ---")
             probe_signal("COGNITIVE_SCORE_REVERSAL_RELIABILITY", indent=2)
-            print("  -> 它的分数由三大核心要素加权平均得到:")
-            print("\n--- [第二层解剖]: 三大核心要素 ---")
-            print(f"  [要素1: 股东换血 (SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT)] (权重: {reliability_weights.get('shareholder', 'N/A')})")
+            # [代码修改] 更新公式描述
+            print("  -> 它的分数由 [核心分 * (1 + 价值区奖励分 * 奖励系数)] 得到:")
+            print("\n--- [第二层解剖]: 核心构成 ---")
+            print(f"  [要素1: 股东换血 (SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT)] (核心分权重: {main_reliability_weights.get('shareholder', 'N/A')})")
             probe_signal("SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT", indent=4)
             print("    -> 它的分数是以下信号的最大值:")
             probe_signal("SCORE_CHIP_TRUE_ACCUMULATION", indent=6)
             probe_signal("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", indent=6)
             probe_signal("COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING", indent=6)
-            print(f"\n  [要素2: 企稳点火 (SCORE_IGNITION_CONFIRMATION)] (权重: {reliability_weights.get('ignition', 'N/A')})")
+            print(f"\n  [要素2: 企稳点火 (SCORE_IGNITION_CONFIRMATION)] (核心分权重: {main_reliability_weights.get('ignition', 'N/A')})")
             probe_signal("SCORE_IGNITION_CONFIRMATION", indent=4)
             print("    -> 它的分数由以下信号加权平均得到:")
             print(f"      - 早期动能分 (COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A) (权重: {ignition_weights.get('early', 'N/A')})")
             probe_signal("COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A", indent=8)
             print(f"      - 波动压缩分 (COGNITIVE_SCORE_VOL_COMPRESSION_FUSED) (权重: {ignition_weights.get('vol', 'N/A')})")
             probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=8)
-            print(f"      - 趋势企稳分 (INTERNAL_SCORE_DOWNTREND_STABILIZING) (权重: {ignition_weights.get('stabilizing', 'N/A')})")
-            probe_signal("INTERNAL_SCORE_DOWNTREND_STABILIZING", indent=8)
-            print(f"\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)] (权重: {reliability_weights.get('context', 'N/A')})")
+            # [代码修改] 将读取旧信号改为读取新信号，并更新描述
+            print(f"      - 趋势潜力分 (INTERNAL_SCORE_TREND_POTENTIAL) (权重: {ignition_weights.get('potential', 'N/A')})")
+            probe_signal("INTERNAL_SCORE_TREND_POTENTIAL", indent=8)
+            print(f"\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)] (奖励系数: {bonus_factor})")
             probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
             probe_signal("INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT", indent=6)
@@ -666,7 +671,6 @@ class MultiTimeframeTrendStrategy:
             rally_score = probe_signal("SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION", indent=4)
             suppress_score = probe_signal("SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION", indent=4)
             if rally_score >= 0:
-                # [代码修改] 更新解剖逻辑，现在是两者相乘
                 print("    -> 解剖“拉升吸筹” (值为两者相乘):")
                 probe_signal("INTERNAL_SCORE_COST_RISING", indent=6)
                 probe_signal("INTERNAL_SCORE_WINNER_HOLDING", indent=6)
