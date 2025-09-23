@@ -28,17 +28,30 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V3.0 终极信号版】基础情报分析总指挥
-        - 核心重构: 遵循终极信号范式，本模块不再返回一堆零散的原子信号。
-                      现在只调用唯一的终极信号引擎 `diagnose_ultimate_foundation_signals`，
-                      并将其产出的16个S+/S/A/B级信号作为本模块的最终输出。
-        - 收益: 架构与其他情报模块完全统一，极大提升了信号质量和架构清晰度。
+        【V3.1 全面诊断版】基础情报分析总指挥
+        - 核心重构 (本次修改):
+          - [架构修复] 彻底修复了旧版只调用单一引擎的重大缺陷。现在会按顺序调用模块内
+                        所有的诊断引擎（终极信号、EMA、震荡指标、波动率、经典指标等），
+                        并汇总所有产出的信号。
+        - 收益: 确保了基础情报层的所有诊断能力都被完全激活，解决了关键信号（如MACD、波动率）
+                无法生成和监控的根本性问题。
         """
-        # print("      -> [基础情报分析总指挥 V3.0 终极信号版] 启动...")
-        # 直接调用终极信号引擎，并将其结果作为本模块的唯一输出
-        ultimate_foundation_states = self.diagnose_ultimate_foundation_signals(self.strategy.df_indicators)
-        # print(f"      -> [基础情报分析总指挥 V3.0] 分析完毕，共生成 {len(ultimate_foundation_states)} 个终极基础层信号。")
-        return ultimate_foundation_states
+        # 代码修改：更新版本号和说明
+        # print("      -> [基础情报分析总指挥 V3.1 全面诊断版] 启动...")
+        df = self.strategy.df_indicators
+        all_states = {}
+
+        # 代码修改：按顺序调用所有诊断引擎，并汇总结果
+        all_states.update(self.diagnose_ultimate_foundation_signals(df))
+        all_states.update(self.diagnose_ema_synergy(df))
+        all_states.update(self.diagnose_oscillator_intelligence(df))
+        all_states.update(self.diagnose_volatility_intelligence(df))
+        all_states.update(self.diagnose_classic_indicators(df))
+        all_states.update(self.diagnose_market_character_scores(df))
+        all_states.update(self.diagnose_capital_and_range_states(df))
+        
+        print(f"      -> [基础情报分析总指挥 V3.1] 分析完毕，共生成 {len(all_states)} 个基础层信号。")
+        return all_states
 
     def diagnose_ultimate_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
