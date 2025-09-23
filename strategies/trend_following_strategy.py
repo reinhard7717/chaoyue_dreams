@@ -42,7 +42,6 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
-        self.mechanics_engine = DynamicMechanicsEngine(self)
 
     def apply_strategy(self, df: pd.DataFrame, params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
