@@ -603,14 +603,13 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_field_coroner_probe(self, probe_date: str):
         """
-        【V1.5 · 纯展示版】首席法医官探针
+        【V1.6 · 拉升吸筹逻辑同步版】首席法医官探针
         - 核心重构 (本次修改):
-          - [职责净化] 彻底移除了探针内部的所有重计算逻辑。
-          - [纯粹展示] 探针现在只负责从 `atomic_states` 中获取并展示由策略真实计算出的信号值。
-        - 收益: 从根本上杜绝了探针与实际计算结果不一致的可能性，使其成为一个100%可靠的“飞行记录仪回放器”。
+          - [逻辑同步] 更新了对“拉升吸筹”的解剖逻辑，现在显示为“成本抬升分”与“获利盘稳定分”两者相乘，与 V4.4 版的算法保持一致。
+        - 收益: 确保了探针报告100%准确地反映了最新的、更符合实战的算法逻辑。
         """
-        # [修改行] 更新版本号和说明
-        print("\n" + "="*35 + f" [首席法医官探针 V1.5 · 纯展示版] 正在解剖 {probe_date} " + "="*35)
+        # [代码修改] 更新版本号和说明
+        print("\n" + "="*35 + f" [首席法医官探针 V1.6 · 拉升吸筹逻辑同步版] 正在解剖 {probe_date} " + "="*35)
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据 (daily_analysis_df 或 atomic_states) 不存在。调查终止。")
@@ -623,10 +622,8 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [探针时区对齐] DataFrame索引时区为'{df.index.tz}'，已将探针时间戳本地化。")
             else:
                 probe_ts = probe_ts_naive
-            # [修改行] 简化探针函数，不再需要 source_dict 参数
             def probe_signal(signal_name, indent=2):
                 prefix = " " * indent
-                # [修改行] 直接从 atomic 中获取信号
                 if signal_name not in atomic:
                     print(f"{prefix}❌ [信号缺失] {signal_name}")
                     return 0.0
@@ -639,12 +636,9 @@ class MultiTimeframeTrendStrategy:
             p_reversal = get_params_block(self.tactical_engine, 'reversal_reliability_params', {})
             reliability_weights = get_param_value(p_reversal.get('reliability_weights'), {'shareholder': 0.4, 'ignition': 0.4, 'context': 0.2})
             ignition_weights = get_param_value(p_reversal.get('ignition_weights'), {'early': 0.5, 'vol': 0.3, 'stabilizing': 0.2})
-            # [修改行] 移除所有内部计算逻辑
-            # --- 1. 顶层王牌信号解剖 ---
             print("\n--- [第一层解剖]: 王牌信号 (COGNITIVE_SCORE_REVERSAL_RELIABILITY) ---")
             probe_signal("COGNITIVE_SCORE_REVERSAL_RELIABILITY", indent=2)
             print("  -> 它的分数由三大核心要素加权平均得到:")
-            # --- 2. 三大要素解剖 ---
             print("\n--- [第二层解剖]: 三大核心要素 ---")
             print(f"  [要素1: 股东换血 (SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT)] (权重: {reliability_weights.get('shareholder', 'N/A')})")
             probe_signal("SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT", indent=4)
@@ -660,29 +654,24 @@ class MultiTimeframeTrendStrategy:
             print(f"      - 波动压缩分 (COGNITIVE_SCORE_VOL_COMPRESSION_FUSED) (权重: {ignition_weights.get('vol', 'N/A')})")
             probe_signal("COGNITIVE_SCORE_VOL_COMPRESSION_FUSED", indent=8)
             print(f"      - 趋势企稳分 (INTERNAL_SCORE_DOWNTREND_STABILIZING) (权重: {ignition_weights.get('stabilizing', 'N/A')})")
-            # [修改行] 直接消费上游发布的内部信号
             probe_signal("INTERNAL_SCORE_DOWNTREND_STABILIZING", indent=8)
             print(f"\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)] (权重: {reliability_weights.get('context', 'N/A')})")
             probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
             print("    -> 它的分数由以下信号相乘得到:")
-            # [修改行] 直接消费上游发布的内部信号
             probe_signal("INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT", indent=6)
             probe_signal("INTERNAL_SCORE_RSI_W_OVERSOLD", indent=6)
-            # --- 3. 真实吸筹信号深度解剖 ---
             print("\n--- [第三层解剖]: 真实吸筹 (SCORE_CHIP_TRUE_ACCUMULATION) ---")
             probe_signal("SCORE_CHIP_TRUE_ACCUMULATION", indent=2)
             print("  -> 它的分数是 拉升吸筹 和 打压吸筹 的最大值:")
             rally_score = probe_signal("SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION", indent=4)
             suppress_score = probe_signal("SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION", indent=4)
             if rally_score >= 0:
-                print("    -> 解剖“拉升吸筹” (值为三者相乘):")
-                # [修改行] 直接消费上游发布的内部信号
-                probe_signal("INTERNAL_SCORE_CONCENTRATION_IMPROVING", indent=6)
+                # [代码修改] 更新解剖逻辑，现在是两者相乘
+                print("    -> 解剖“拉升吸筹” (值为两者相乘):")
                 probe_signal("INTERNAL_SCORE_COST_RISING", indent=6)
                 probe_signal("INTERNAL_SCORE_WINNER_HOLDING", indent=6)
             if suppress_score >= 0:
                 print("    -> 解剖“打压吸筹” (值为三者相乘):")
-                # [修改行] 直接消费上游发布的内部信号
                 probe_signal("INTERNAL_SCORE_CONCENTRATION_IMPROVING", indent=6)
                 probe_signal("INTERNAL_SCORE_COST_FALLING", indent=6)
                 probe_signal("INTERNAL_SCORE_LOSER_CAPITULATING", indent=6)

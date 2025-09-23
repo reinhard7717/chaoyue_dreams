@@ -92,14 +92,14 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.3 探针适配版】主力吸筹模式与风险诊断引擎
+        【V4.4 拉升吸筹逻辑修复版】主力吸筹模式与风险诊断引擎
         - 核心升级 (本次修改):
-          - [信号发布] 将内部计算的所有吸筹因子分数（如集中度改善分、成本抬升分等）正式发布到 `atomic_states` 中，
-                        以供“首席法医官探针”直接消费。
-        - 收益: 为探针提供了无需重计算的、100%真实的原始数据源，确保了调试信息的绝对准确性。
+          - [逻辑修复] 修正了“拉升吸筹”剧本的计算逻辑。原逻辑要求在拉升的同时筹码必须集中，这与市场实际情况相悖。
+          - [新范式] 新的“拉升吸筹分” = “成本抬升分” * “获利盘稳定分”，移除了不合理的“筹码集中改善分”因子，使其更专注于健康拉升的核心特征。
+        - 收益: 大幅提升了“真实吸筹”信号在上涨行情中的捕捉能力和准确性。
         """
-        # [修改行] 更新版本号和说明
-        print("        -> [主力吸筹与风险诊断引擎 V4.3 探针适配版] 启动...")
+        # [代码修改] 更新版本号和说明
+        print("        -> [主力吸筹与风险诊断引擎 V4.4 拉升吸筹逻辑修复版] 启动...")
         states = {}
         norm_window = 120
         required_cols = [
@@ -109,7 +109,7 @@ class ChipIntelligence:
         ]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.3缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
+            print(f"          -> [严重警告] 主力吸筹诊断引擎V4.4缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
             return states
         # --- 2. 核心要素数值化 ---
         conc_slope_score = self._normalize_score(df['SLOPE_5_concentration_90pct_D'], norm_window, ascending=False)
@@ -126,7 +126,8 @@ class ChipIntelligence:
         states['INTERNAL_SCORE_COST_FALLING'] = cost_falling_score.astype(np.float32)
         states['INTERNAL_SCORE_LOSER_CAPITULATING'] = loser_capitulating_score.astype(np.float32)
         # --- 3. 剧本与风险合成 ---
-        rally_accumulation_score = (concentration_improving_score * cost_rising_score * winner_holding_score).astype(np.float32)
+        # [代码修改] 移除 concentration_improving_score 因子，使其更符合拉升时的市场行为
+        rally_accumulation_score = (cost_rising_score * winner_holding_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
         suppress_accumulation_score = (concentration_improving_score * cost_falling_score * loser_capitulating_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
@@ -151,8 +152,9 @@ class ChipIntelligence:
                 print(f"            - 成本下降分: {cost_falling_score.get(probe_ts, -1):.4f}")
                 print(f"            - 恐慌盘涌出分: {loser_capitulating_score.get(probe_ts, -1):.4f}")
                 print(f"          - 最终剧本分:")
-                print(f"            - 拉升吸筹剧本分: {rally_accumulation_score.get(probe_ts, -1):.4f}")
-                print(f"            - 打压吸筹剧本分: {suppress_accumulation_score.get(probe_ts, -1):.4f}")
+                # [代码修改] 更新探针日志，明确显示新的计算逻辑
+                print(f"            - 拉升吸筹剧本分 (成本*稳定): {rally_accumulation_score.get(probe_ts, -1):.4f}")
+                print(f"            - 打压吸筹剧本分 (集中*成本*恐慌): {suppress_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"            - 真实吸筹分(最大值): {true_accumulation_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------\n")
         return states
