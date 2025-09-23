@@ -784,12 +784,12 @@ class MultiTimeframeTrendStrategy:
             
             if probe_date:
                 # [代码修改] 增加对新探针的调用
-                if get_param_value(debug_params.get('enable_coroner_probe'), True): # 默认开启法医官探针
-                    self._deploy_field_coroner_probe(probe_date=probe_date)
+                # if get_param_value(debug_params.get('enable_coroner_probe'), True): # 默认开启法医官探针
+                #     self._deploy_field_coroner_probe(probe_date=probe_date)
                 
-                if get_param_value(debug_params.get('enable_capitulation_probe'), False): # 新探针默认关闭
+                if get_param_value(debug_params.get('enable_capitulation_probe'), True): # 新探针默认关闭
                     self._deploy_capitulation_probe(probe_date=probe_date)
-            # ... (后续的报告打印逻辑保持不变) ...
+
             all_daily_scores_for_debug = all_daily_scores
             if all_score_components:
                 unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
