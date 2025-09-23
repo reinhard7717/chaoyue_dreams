@@ -90,7 +90,7 @@ class IntelligenceLayer:
                         提升至CognitiveIntelligence，并调整了调用顺序。
         - 收益: 严格遵循了“领域内诊断 -> 跨领域融合”的架构原则，彻底解决了因依赖顺序错误导致的信号丢失问题。
         """
-        # 更新版本号和说明
+        
         print("--- [情报层总指挥官 V406.0 架构归位版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}

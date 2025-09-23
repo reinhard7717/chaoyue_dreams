@@ -48,7 +48,7 @@ class PlaybookEngine:
           - [剧本优化] 将“筹码共振-价格滞后”剧本的触发器升级为消费更可靠的“真实吸筹”信号。
           - [战术扩充] 新增 `PLAYBOOK_MEAN_REVERSION_GRID_A` 剧本，用于执行震荡市的网格交易。
         """
-        # 更新版本号和说明
+        
         return [
             # --- 基于“真实吸筹”的王牌剧本 ---
             {
@@ -165,7 +165,7 @@ class PlaybookEngine:
           - [触发器升级] 将 `TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S` 的战备条件判断，从消费旧的、模糊的共振信号，升级为消费新的、高置信度的 `SCORE_CHIP_TRUE_ACCUMULATION` 信号。
           - [战术扩充] 新增 `TRIGGER_MEAN_REVERSION_GRID_BUY_A` 触发器。
         """
-        # 更新版本号和说明
+        
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)

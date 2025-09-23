@@ -36,7 +36,7 @@ class FoundationIntelligence:
         - 收益: 确保了基础情报层的所有诊断能力都被完全激活，解决了关键信号（如MACD、波动率）
                 无法生成和监控的根本性问题。
         """
-        # 更新版本号和说明
+        
         # print("      -> [基础情报分析总指挥 V3.1 全面诊断版] 启动...")
         df = self.strategy.df_indicators
         all_states = {}
@@ -408,7 +408,7 @@ class FoundationIntelligence:
           - [新范式] 新的“波动率拐点分” = “S级波动率压缩分” * “波动率加速分”。
         - 收益: 解决了因“斜率未过零”导致信号得分为零的顽固问题，使信号能更早、更稳定地捕捉到波动率从压缩到扩张的转折状态。
         """
-        # 更新版本号和说明
+        
         states = {}
         p = get_params_block(self.strategy, 'volatility_state_params')
         if not get_param_value(p.get('enabled'), False): return states
@@ -634,7 +634,7 @@ class FoundationIntelligence:
                         当指定日期时，它会打印出计算“MACD底部反转分”的所有三维共振因子：
                         环境分(Z-score)、动能分(斜率)、加速度分，实现对信号生成的完全透视。
         """
-        # 更新版本号和说明
+        
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states

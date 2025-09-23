@@ -87,7 +87,7 @@ class MicroBehaviorEngine:
             - 买盘突袭剧本 = 点火K线分 * S级波动率扩张分 (捕捉“放量大阳线”的暴力启动)。
         - 收益: 解决了原模型因子间逻辑矛盾、无法对特定剧本给出高分的问题，使信号能更精准、更强力地捕捉两种核心的底部启动形态。
         """
-        # [代码修改] 更新版本号和说明
+        
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -121,7 +121,7 @@ class MicroBehaviorEngine:
             if df.index.tz is not None:
                 probe_ts = probe_ts.tz_localize(df.index.tz)
             if probe_ts in df.index:
-                # [代码修改] 更新探针以反映新的剧本化诊断逻辑
+                # 更新探针以反映新的剧本化诊断逻辑
                 print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
                 print(f"          - 核心因子 (点火K线分): {ignition_candle_score.get(probe_ts, -1):.4f}")
                 print(f"          ---")
@@ -251,7 +251,7 @@ class MicroBehaviorEngine:
           - [新范式] 新的“深度价值区分” = MAX(价格位置分, 周线RSI超卖分)，使其能捕捉任一价值区形态。
         - 收益: 解决了因价值区判断条件过于严苛导致奖励项失效的问题，显著提升了王牌信号在真实价值底部的得分能力和区分度。
         """
-        # [代码修改] 更新版本号和说明
+        
         print("        -> [高质量战备可靠性诊断引擎 V4.5 终极优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
@@ -266,7 +266,7 @@ class MicroBehaviorEngine:
         states['INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT'] = deep_bottom_context_score.astype(np.float32)
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
         states['INTERNAL_SCORE_RSI_W_OVERSOLD'] = rsi_w_oversold_score.astype(np.float32)
-        # [代码修改] 将乘法改为取最大值，以体现“或”逻辑
+        # 将乘法改为取最大值，以体现“或”逻辑
         background_score = np.maximum(deep_bottom_context_score, rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
@@ -305,7 +305,7 @@ class MicroBehaviorEngine:
         if probe_date_str:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
-                # [代码修改] 更新探针逻辑以反映新的计算方式
+                # 更新探针逻辑以反映新的计算方式
                 probe_ignition_score = (
                     early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
                     vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +

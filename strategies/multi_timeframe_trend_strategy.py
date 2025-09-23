@@ -609,7 +609,7 @@ class MultiTimeframeTrendStrategy:
                         与`micro_behavior_engine` V4.5版的算法完全保持一致。
         - 收益: 确保了探针报告100%准确地反映了最终的、最符合实战的算法逻辑。
         """
-        # [代码修改] 更新版本号和说明
+        
         print("\n" + "="*35 + f" [首席法医官探针 V1.8 · 价值区逻辑同步版] 正在解剖 {probe_date} " + "="*35)
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
@@ -659,7 +659,7 @@ class MultiTimeframeTrendStrategy:
             probe_signal("INTERNAL_SCORE_TREND_POTENTIAL", indent=8)
             print(f"\n  [要素3: 深度价值区 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE)] (奖励系数: {bonus_factor})")
             probe_signal("SCORE_CONTEXT_DEEP_BOTTOM_ZONE", indent=4)
-            # [代码修改] 更新描述，从“相乘得到”改为“是以下信号的最大值”
+            # 更新描述，从“相乘得到”改为“是以下信号的最大值”
             print("    -> 它的分数是以下信号的最大值:")
             probe_signal("INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT", indent=6)
             probe_signal("INTERNAL_SCORE_RSI_W_OVERSOLD", indent=6)
