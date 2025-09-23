@@ -1041,17 +1041,20 @@ class ChipIntelligence:
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 探针增强版】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
-        - 核心逻辑: 捕捉市场深度超卖后，套牢盘集中“割肉”的时刻，这往往是卖压衰竭、趋势反转的前兆。
-          - 上下文（Setup）: 市场整体处于深度套牢状态 (`total_loser_rate` 很高)。
-          - 触发器（Trigger）: “割肉盘”成交占比 (`turnover_from_losers_ratio`) 及其加速度同时飙升。
-        - 核心升级 (V1.1): 新增“一线法医探针”，用于在调试模式下精确解剖信号的构成。
-        - 产出: SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL - 一个高置信度的底部反转剧本信号。
+        【V1.1 逻辑升维版】恐慌盘投降反转 (Capitulation Reversal) 诊断引擎
+        - 核心升级 (本次修改):
+          - [逻辑升维] 废除了旧的“三者相乘”逻辑，该逻辑会因“套牢盘不够多”而错误地压制信号。
+          - [新范式] 最终分 = (行为分 * 加速分) * (1 + 上下文分 * 奖励系数)。
+                      现在，“套牢盘比例”(上下文) 从一个“否决项”变为一个“奖励项”，
+                      使得信号的核心由“恐慌盘加速割肉”这一行为主导，更符合实战。
+        - 收益: 大幅提升了信号在真实恐慌抛售行情中的得分能力和准确性。
         """
-        # [代码修改] 更新版本号和说明
         states = {}
-        norm_window = 120
-        
+        # 从配置中读取参数
+        p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5) # 新增奖励系数
+
         # --- 1. 军备检查 ---
         required_cols = [
             'total_loser_rate_D',
@@ -1067,59 +1070,24 @@ class ChipIntelligence:
         # 上下文：市场整体套牢比例越高，分数越高
         capitulation_context_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
 
-        # 触发器1：当日割肉盘占比越高，分数越高
+        # 行为：当日割肉盘占比越高，分数越高
         loser_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
 
-        # 触发器2：割肉盘占比的加速度越大，分数越高
+        # 加速：割肉盘占比的加速度越大，分数越高
         loser_turnover_accel_score = self._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, ascending=True)
 
-        # --- 3. 最终裁决 ---
-        # 最终分数 = 上下文 * 触发器1 * 触发器2
+        # --- 3. 最终裁决 (逻辑升维) ---
+        # 采用新的“核心+奖励”范式
+        # 核心分由“行为”和“加速”决定
+        core_score = loser_turnover_score * loser_turnover_accel_score
+        # 最终分 = 核心分 * (1 + 上下文奖励)
         final_score = (
-            capitulation_context_score *
-            loser_turnover_score *
-            loser_turnover_accel_score
+            core_score * (1 + capitulation_context_score * bonus_factor)
         ).astype(np.float32)
         
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
         
-        # --- [代码新增] 4. 植入“一线法医探针” ---
-        debug_params = get_params_block(self.strategy, 'debug_params')
-        probe_date_str = get_param_value(debug_params.get('probe_date'))
-        if probe_date_str:
-            probe_ts = pd.to_datetime(probe_date_str)
-            if probe_ts in df.index:
-                print(f"\n          --- [一线探针: 恐慌盘投降诊断 @ {probe_date_str}] ---")
-                
-                # 组件1: 上下文
-                raw_context = df.at[probe_ts, 'total_loser_rate_D']
-                norm_context = capitulation_context_score.at[probe_ts]
-                print(f"          - 上下文 (总套牢盘比例):")
-                print(f"            - 原始值: {raw_context:.4f} -> 归一化得分: {norm_context:.4f}")
-
-                # 组件2: 触发器1
-                raw_trigger1 = df.at[probe_ts, 'turnover_from_losers_ratio_D']
-                norm_trigger1 = loser_turnover_score.at[probe_ts]
-                print(f"          - 触发器1 (割肉盘成交占比):")
-                print(f"            - 原始值: {raw_trigger1:.4f} -> 归一化得分: {norm_trigger1:.4f}")
-
-                # 组件3: 触发器2
-                raw_trigger2 = df.at[probe_ts, 'ACCEL_5_turnover_from_losers_ratio_D']
-                norm_trigger2 = loser_turnover_accel_score.at[probe_ts]
-                print(f"          - 触发器2 (割肉盘成交加速度):")
-                print(f"            - 原始值: {raw_trigger2:.4f} -> 归一化得分: {norm_trigger2:.4f}")
-
-                # 最终计算
-                probe_final_score = norm_context * norm_trigger1 * norm_trigger2
-                actual_final_score = final_score.at[probe_ts]
-                print(f"          - 最终剧本分:")
-                print(f"            - 决策公式: 上下文分 * 触发器1分 * 触发器2分")
-                print(f"            - [探针验算] {norm_context:.4f} * {norm_trigger1:.4f} * {norm_trigger2:.4f} = {probe_final_score:.4f}")
-                print(f"            - 实际最终分: {actual_final_score:.4f}")
-                print(f"          ----------------------------------------------------------\n")
-        
         return states
-
 
 
 

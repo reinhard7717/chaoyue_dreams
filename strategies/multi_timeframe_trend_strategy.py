@@ -686,11 +686,15 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_capitulation_probe(self, probe_date: str):
         """
-        【V1.0 新增】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
-        - 核心职责: 深度解剖 `SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL` 信号的构成，
-                      实现从原始数据到最终分数的全链路透明化。
+        【V1.1 深度解剖版】恐慌盘投降剧本探针 (Capitulation Playbook Probe)
+        - 核心升级 (本次修改):
+          - [深度解剖] 探针现在不仅显示原始指标值，还调用 `_normalize_score` 函数
+                        来计算并显示每个原始值对应的“归一化分数”。
+          - [逻辑同步] 探针的最终验算逻辑与 `_diagnose_capitulation_reversal` V1.1 版完全同步，
+                        采用“核心分 * (1 + 上下文奖励)”的新范式。
+        - 收益: 实现了从原始数据到最终分数的全链路透明化，极大提升了信号的可诊断性。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V1.0] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V1.1 · 深度解剖版] 正在解剖 {probe_date} " + "="*35)
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -706,6 +710,12 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
+            # 实例化 ChipIntelligence 以调用其内部方法
+            chip_intel = self.tactical_engine.intelligence_layer.chip_intelligence
+            p = get_params_block(self.tactical_engine, 'capitulation_reversal_params', {})
+            norm_window = get_param_value(p.get('norm_window'), 120)
+            bonus_factor = get_param_value(p.get('capitulation_context_bonus_factor'), 0.5)
+
             # 辅助函数，用于安全地获取和打印原子分数
             def probe_atomic_score(signal_name, indent=2):
                 prefix = " " * indent
@@ -716,43 +726,43 @@ class MultiTimeframeTrendStrategy:
                 print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
                 return value
 
-            # 辅助函数，用于安全地获取和打印原始指标值
-            def probe_raw_metric(metric_name, indent=2):
+            # 增强的辅助函数，同时获取原始值和归一化分
+            def probe_metric_and_norm_score(metric_name, ascending, indent=4):
                 prefix = " " * indent
                 if metric_name not in df.columns:
                     print(f"{prefix}❌ [指标缺失] {metric_name}")
-                    return 0.0
-                value = df.at[probe_ts, metric_name]
-                print(f"{prefix}➡️ {metric_name:<55} = {value:.4f}")
-                return value
+                    return 0.0, 0.0
+                raw_value = df.at[probe_ts, metric_name]
+                norm_score = chip_intel._normalize_score(df[metric_name], norm_window, ascending).get(probe_ts, 0.0)
+                print(f"{prefix}➡️ 原始值: {metric_name:<45} = {raw_value:.4f}")
+                print(f"{prefix} स्कोर 归一化分: {'':<42} = {norm_score:.4f}")
+                return raw_value, norm_score
 
             print("\n--- [第一层解剖]: 最终剧本分数 ---")
             final_score = probe_atomic_score("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", indent=2)
-            print("  -> 它的分数由以下三个归一化分数相乘得到:")
+            print(f"  -> 它的分数由 [核心分 * (1 + 上下文分 * {bonus_factor})] 得到:")
 
             print("\n--- [第二层解剖]: 核心构成因子 ---")
 
             # 因子1: 上下文 - 市场整体套牢比例
-            print("  [因子1: 上下文 - 市场整体套牢比例 (越高越好)]")
-            # 归一化分数在 chip_intelligence 中计算，这里我们直接从 atomic_states 获取或重新计算以验证
-            # 为了探针的独立性和清晰性，我们直接引用原始指标并说明其归一化逻辑
-            raw_total_loser_rate = probe_raw_metric("total_loser_rate_D", indent=4)
-            # 模拟归一化过程（注意：这只是一个估算，真实值依赖于历史数据分布）
-            # context_score = self.tactical_engine.intelligence_layer.chip_intelligence._normalize_score(df['total_loser_rate_D'], 120, True).get(probe_ts, 0.0)
-            # print(f"    - 归一化分数 (估算): {context_score:.4f}")
+            print("  [因子1: 上下文分 (奖励项)]")
+            _, context_score = probe_metric_and_norm_score("total_loser_rate_D", ascending=True)
 
+            # 因子2: 行为 - 当日割肉盘占比
+            print("\n  [因子2: 行为分 (核心项)]")
+            _, turnover_score = probe_metric_and_norm_score("turnover_from_losers_ratio_D", ascending=True)
 
-            # 因子2: 触发器 - 当日割肉盘占比
-            print("\n  [因子2: 触发器 - 当日割肉盘占比 (越高越好)]")
-            raw_turnover_losers = probe_raw_metric("turnover_from_losers_ratio_D", indent=4)
-            # turnover_score = self.tactical_engine.intelligence_layer.chip_intelligence._normalize_score(df['turnover_from_losers_ratio_D'], 120, True).get(probe_ts, 0.0)
-            # print(f"    - 归一化分数 (估算): {turnover_score:.4f}")
+            # 因子3: 加速 - 割肉盘占比5日加速度
+            print("\n  [因子3: 加速分 (核心项)]")
+            _, accel_score = probe_metric_and_norm_score("ACCEL_5_turnover_from_losers_ratio_D", ascending=True)
 
-            # 因子3: 确认 - 割肉盘占比的加速度
-            print("\n  [因子3: 确认 - 割肉盘占比5日加速度 (越高越好)]")
-            raw_accel_losers = probe_raw_metric("ACCEL_5_turnover_from_losers_ratio_D", indent=4)
-            # accel_score = self.tactical_engine.intelligence_layer.chip_intelligence._normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], 120, True).get(probe_ts, 0.0)
-            # print(f"    - 归一化分数 (估算): {accel_score:.4f}")
+            # 增加最终验算环节
+            print("\n--- [第三层解剖]: 探针验算 ---")
+            core_score_calc = turnover_score * accel_score
+            final_score_calc = core_score_calc * (1 + context_score * bonus_factor)
+            print(f"  - 核心分 (行为分 * 加速分) = {turnover_score:.4f} * {accel_score:.4f} = {core_score_calc:.4f}")
+            print(f"  - 最终分 (核心分 * (1 + 上下文分 * 奖励系数)) = {core_score_calc:.4f} * (1 + {context_score:.4f} * {bonus_factor}) = {final_score_calc:.4f}")
+            print(f"  - [结论] 验算结果 ({final_score_calc:.4f}) 与实际信号值 ({final_score:.4f}) {'一致' if np.isclose(final_score_calc, final_score) else '不一致'}")
 
             print("\n" + "="*35 + " [恐慌盘投降探针] 解剖完毕 " + "="*35 + "\n")
 
@@ -761,7 +771,6 @@ class MultiTimeframeTrendStrategy:
             import traceback
             traceback.print_exc()
             print("=" * 95)
-
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
@@ -783,7 +792,7 @@ class MultiTimeframeTrendStrategy:
             probe_date = get_param_value(debug_params.get('probe_date'))
             
             if probe_date:
-                # [代码修改] 增加对新探针的调用
+                # 增加对新探针的调用
                 # if get_param_value(debug_params.get('enable_coroner_probe'), True): # 默认开启法医官探针
                 #     self._deploy_field_coroner_probe(probe_date=probe_date)
                 
