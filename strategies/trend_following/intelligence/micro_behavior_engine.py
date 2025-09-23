@@ -71,11 +71,11 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.4 深度活检集群版】早期动能点火诊断模块 (东风初起)
-        - 核心升级 (本次修改):
-          - [深度活检集群] 探针现在对所有关键因子都执行“活检”，直接打印出计算它们所依赖的
-                           最原始的盘面数据（如：pct_change, MACD值, 成交量比率等），
-                           实现对信号生成链路的终极透视。
+        【V1.5 探针健壮性修复版】早期动能点火诊断模块 (东风初起)
+        - 核心修复 (本次修改):
+          - [健壮性修复] 修复了当MACD等指标列不存在时，探针因获取到字符串默认值('N/A')
+                         而导致字符串格式化错误的ValueError。现在统一使用 `np.nan` 作为
+                         数值型默认值，确保探针在任何情况下都能稳定运行。
         """
         # 代码修改：更新版本号和说明
         states = {}
@@ -127,20 +127,21 @@ class MicroBehaviorEngine:
 
             if probe_ts in df.index:
                 print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
-                # 代码修改：对所有为零的因子增加“活检”
                 print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f}  <-- [活检] 上游信号 SCORE_VOL_TIPPING_POINT_BOTTOM_OPP 的原始值")
                 
-                macd_val = df.get('MACD_12_26_9_D', pd.Series()).get(probe_ts, 'N/A')
-                signal_val = df.get('MACD_signal_12_26_9_D', pd.Series()).get(probe_ts, 'N/A')
-                hist_val = df.get('MACD_hist_12_26_9_D', pd.Series()).get(probe_ts, 'N/A')
+                # 代码修改：将默认值从 'N/A' 改为 np.nan
+                macd_val = df.get('MACD_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
+                signal_val = df.get('MACD_signal_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
+                hist_val = df.get('MACD_hist_12_26_9_D', pd.Series()).get(probe_ts, np.nan)
                 print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f}  <-- [活检] MACD({macd_val:.2f}), Signal({signal_val:.2f}), Hist({hist_val:.2f})")
 
-                pct_val = df.get('pct_change_D', pd.Series()).get(probe_ts, -99) * 100
+                pct_val = df.get('pct_change_D', pd.Series()).get(probe_ts, np.nan) * 100
                 print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f}  <-- [活检] 当日涨跌幅 = {pct_val:.2f}% (黄金区间: 0% ~ 5%)")
                 
                 print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}  <-- [活检] 当日成交量/21日均量 = {volume_ratio.get(probe_ts, -1):.2f} (黄金区间: 1.2-3.0)")
                 
-                accel_val = df.get('ACCEL_1_close_D', pd.Series()).get(probe_ts, -99)
+                # 代码修改：将默认值从 -99 改为 np.nan
+                accel_val = df.get('ACCEL_1_close_D', pd.Series()).get(probe_ts, np.nan)
                 print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}  <-- [活检] 价格加速度 = {accel_val:.4f}")
                 
                 print(f"          - 最终融合分 (几何平均): {final_score.get(probe_ts, -1):.4f}")
