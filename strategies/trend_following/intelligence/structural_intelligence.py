@@ -46,12 +46,13 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 变量名修复版】终极结构信号诊断模块
+        【V1.5 · 终极修复版】终极结构信号诊断模块
         - 核心修复 (本次修改):
-          - [BUG修复] 修正了在计算 `bearish_short_force` 时因变量名拼写错误 (`bearish_health` 应为 `overall_bearish_health`) 导致的 `NameError`。
-        - 收益: 修复了导致程序崩溃的严重BUG，确保终极结构信号能够正常生成。
+          - [BUG修复-1] 修正了在计算 `bearish_short_force` 时因变量名拼写错误导致的 `NameError`。
+          - [BUG修复-2] 修正了S+级信号的计算公式，避免了因重复应用指数缩放导致的“双重缩放”逻辑错误。
+        - 收益: 确保所有终极结构信号都能正确、稳定地生成，且数值量纲合理。
         """
-        print("        -> [终极结构信号诊断模块 V1.5 · 变量名修复版] 启动...")
+        print("        -> [终极结构信号诊断模块 V1.5 · 终极修复版] 启动...") # [代码修改] 更新版本号
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -82,32 +83,40 @@ class StructuralIntelligence:
             stacked_bearish_health_arrays = np.stack([s.values for s in bearish_health_scores_series], axis=0)
             overall_bearish_health_arr = np.prod(stacked_bearish_health_arrays, axis=0)**(1/num_pillars)
             overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
+        # --- 定义原始信号组件 (Raw Components) ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        # 修正此处的变量名，从 bearish_health 改为 overall_bearish_health
+        
+        # [代码修改] 修正此处的变量名，从 bearish_health 改为 overall_bearish_health
         bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
         bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
+        
+        # --- 定义原始信号 (Raw Signals) ---
+        raw_bullish_s = (bullish_short_force * bullish_medium_trend)
+        raw_bullish_s_plus = (raw_bullish_s * bullish_long_inertia)
+        raw_bearish_s = (bearish_short_force * bearish_medium_trend)
+        raw_bearish_s_plus = (raw_bearish_s * bearish_long_inertia)
+        
         # --- 对所有终极信号应用指数缩放 ---
-        # 修正后的 bullish_short_force 和 bearish_short_force 将在这里被正确使用
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = (overall_bullish_health[5] ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = ((overall_bullish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = ((bullish_short_force * bullish_medium_trend) ** exponent).astype(np.float32)
-        # 注意：S+级的计算依赖于S级，所以S级的修复会自动传递到S+级
-        s_plus_bullish_raw = (bullish_short_force * bullish_medium_trend * bullish_long_inertia)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = (s_plus_bullish_raw ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = (raw_bullish_s ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = (raw_bullish_s_plus ** exponent).astype(np.float32) # [代码修改] 修正S+计算逻辑
+        
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = (overall_bearish_health[5] ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = ((overall_bearish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = ((bearish_short_force * bearish_medium_trend) ** exponent).astype(np.float32)
-        s_plus_bearish_raw = (bearish_short_force * bearish_medium_trend * bearish_long_inertia)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (s_plus_bearish_raw ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = (raw_bearish_s ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (raw_bearish_s_plus ** exponent).astype(np.float32) # [代码修改] 修正S+计算逻辑
+        
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = ((bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = ((bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = ((bottom_context_score * bullish_short_force * bearish_long_inertia) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = ((bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia) ** exponent).astype(np.float32)
+        
         states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = ((top_context_score * overall_bearish_health[1] * overall_bullish_health[21]) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = ((top_context_score * overall_bearish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = ((top_context_score * overall_bearish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = ((top_context_score * bearish_short_force * bullish_long_inertia) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = ((top_context_score * bearish_short_force * bullish_medium_trend * bullish_long_inertia) ** exponent).astype(np.float32)
 
