@@ -107,6 +107,23 @@ class MicroBehaviorEngine:
         final_score_arr = prod_scores**(1.0 / len(score_components))
         final_score = pd.Series(final_score_arr, index=df.index, dtype=np.float32)
         states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
+        # 代码新增：植入“一线法医探针”
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str:
+            probe_ts = pd.to_datetime(probe_date_str)
+            if df.index.tz is not None:
+                probe_ts = probe_ts.tz_localize(df.index.tz)
+
+            if probe_ts in df.index:
+                print(f"\n          --- [一线探针: 早期动能点火诊断 @ {probe_date_str}] ---")
+                print(f"          - 因子1 (波动率拐点分): {vol_tipping_point_score.get(probe_ts, -1):.4f}")
+                print(f"          - 因子2 (MACD反转分): {macd_reversal_score.get(probe_ts, -1):.4f}")
+                print(f"          - 因子3 (温和上涨分): {gentle_rally_score.get(probe_ts, -1):.4f}")
+                print(f"          - 因子4 (温和放量分): {gentle_volume_score.get(probe_ts, -1):.4f}")
+                print(f"          - 因子5 (价格加速分): {price_accel_score.get(probe_ts, -1):.4f}")
+                print(f"          - 最终融合分 (几何平均): {final_score.get(probe_ts, -1):.4f}")
+                print(f"          ----------------------------------------------------------\n")
         return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
