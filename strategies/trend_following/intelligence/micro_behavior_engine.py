@@ -245,14 +245,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V4.4 A股逻辑优化版】高质量战备可靠性诊断引擎
+        【V4.5 终极优化版】高质量战备可靠性诊断引擎
         - 核心升级 (本次修改):
-          - [逻辑重构] 将“企稳点火分”中的滞后指标“趋势企稳分”(基于55日EMA斜率)，替换为更具前瞻性的“趋势潜力分”。
-          - [新范式] “趋势潜力分”基于FFT趋势度分数的斜率计算，旨在捕捉市场从“震荡”到“趋势”的早期转变，更符合A股实战。
-        - 收益: 解决了因过度依赖长周期均线企稳而导致信号滞后的问题，显著提升了“企稳点火”信号的灵敏度和前瞻性。
+          - [逻辑重构] 将“深度价值区”的融合逻辑从“乘法”（与逻辑）升级为“取最大值”（或逻辑）。
+          - [新范式] 新的“深度价值区分” = MAX(价格位置分, 周线RSI超卖分)，使其能捕捉任一价值区形态。
+        - 收益: 解决了因价值区判断条件过于严苛导致奖励项失效的问题，显著提升了王牌信号在真实价值底部的得分能力和区分度。
         """
-        # 更新版本号和说明
-        print("        -> [高质量战备可靠性诊断引擎 V4.4 A股逻辑优化版] 启动...")
+        # [代码修改] 更新版本号和说明
+        print("        -> [高质量战备可靠性诊断引擎 V4.5 终极优化版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -266,7 +266,8 @@ class MicroBehaviorEngine:
         states['INTERNAL_SCORE_DEEP_BOTTOM_CONTEXT'] = deep_bottom_context_score.astype(np.float32)
         rsi_w_oversold_score = self._normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), window=52, ascending=False, default=0.5)
         states['INTERNAL_SCORE_RSI_W_OVERSOLD'] = rsi_w_oversold_score.astype(np.float32)
-        background_score = (deep_bottom_context_score * rsi_w_oversold_score).astype(np.float32)
+        # [代码修改] 将乘法改为取最大值，以体现“或”逻辑
+        background_score = np.maximum(deep_bottom_context_score, rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
         # --- 第二幕：矛盾冲突 (The Conflict) - 强弱手换庄 ---
         shareholder_turnover_score = np.maximum.reduce([
@@ -282,7 +283,6 @@ class MicroBehaviorEngine:
         trend_potential_score = self._normalize_score(fft_trend_slope.clip(lower=0), window=norm_window, ascending=True, default=0.0)
         states['INTERNAL_SCORE_TREND_POTENTIAL'] = trend_potential_score.astype(np.float32)
         vol_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        # 更新权重，并使用新的“趋势潜力分”
         ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
         ignition_confirmation_score = (
             early_ignition_score * ignition_weights['early'] +
@@ -305,7 +305,7 @@ class MicroBehaviorEngine:
         if probe_date_str:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
-                # 更新探针逻辑以反映新的计算方式
+                # [代码修改] 更新探针逻辑以反映新的计算方式
                 probe_ignition_score = (
                     early_ignition_score.get(probe_ts, -1) * ignition_weights['early'] +
                     vol_compression_score.get(probe_ts, -1) * ignition_weights['vol'] +
@@ -320,7 +320,6 @@ class MicroBehaviorEngine:
                 print(f"          --- 企稳点火分 (内部计算) ---")
                 print(f"            - 早期动能分: {early_ignition_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['early']})")
                 print(f"            - 波动压缩分: {vol_compression_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['vol']})")
-                # 打印新的“趋势潜力分”
                 print(f"            - 趋势潜力分: {trend_potential_score.get(probe_ts, -1):.4f} (权重: {ignition_weights['potential']})")
                 print(f"            - [探针验算] 企稳点火分: {probe_ignition_score:.4f} vs 实际值: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
                 print(f"          --- 王牌信号分 (最终计算) ---")
