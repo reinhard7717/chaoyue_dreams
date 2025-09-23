@@ -1132,7 +1132,7 @@ class ChipIntelligence:
         - 收益: 确保信号的战术价值能在最终计分系统中得到正确体现。
         """
         states = {}
-        p = get_params_block(self.strategy, 'capitulation_reversal_params', {}) # [代码修改] 从专属配置块读取参数
+        p = get_params_block(self.strategy, 'capitulation_reversal_params', {}) # 从专属配置块读取参数
         
         # 军备检查：确保上游的原子状态已生成
         required_cols = ['SCORE_SETUP_CAPITULATION_READY', 'SCORE_TRIGGER_CAPITULATION_FIRE']
@@ -1147,7 +1147,7 @@ class ChipIntelligence:
         was_setup_yesterday = setup_score.shift(1).fillna(0.0)
         raw_score = (was_setup_yesterday * trigger_score)
         
-        # [代码修改] 应用指数缩放，恢复信号量纲
+        # 应用指数缩放，恢复信号量纲
         exponent = get_param_value(p.get('final_score_exponent'), 1.0) # 默认为1.0，保持原样
         final_score = (raw_score ** exponent).astype(np.float32)
         

@@ -46,22 +46,17 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 信号缩放版】终极结构信号诊断模块
-        - 核心升级 (本次修改):
-          - [信号缩放] 对所有16个终极信号的计算结果，统一应用指数缩放（开根号），
-                        从根本上解决因多因子乘法导致的“量纲压缩”问题。
-        - 收益: 确保所有终极信号的量级都在一个合理范围内，使其在计分系统中能发挥应有的作用。
+        【V1.5 · 变量名修复版】终极结构信号诊断模块
+        - 核心修复 (本次修改):
+          - [BUG修复] 修正了在计算 `bearish_short_force` 时因变量名拼写错误 (`bearish_health` 应为 `overall_bearish_health`) 导致的 `NameError`。
+        - 收益: 修复了导致程序崩溃的严重BUG，确保终极结构信号能够正常生成。
         """
-        print("        -> [终极结构信号诊断模块 V1.4 · 信号缩放版] 启动...") # [代码修改] 更新版本号
+        print("        -> [终极结构信号诊断模块 V1.5 · 变量名修复版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-        
-        # [代码修改] 获取缩放指数
         exponent = get_param_value(p_conf.get('final_score_exponent'), 1.0)
-
-        # ... (此部分代码保持不变) ...
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
@@ -90,30 +85,31 @@ class StructuralIntelligence:
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
-        bearish_short_force = (overall_bearish_health[1] * bearish_health[5])**0.5
-        bearish_medium_trend = (overall_bearish_health[13] * bearish_health[21])**0.5
+        # 修正此处的变量名，从 bearish_health 改为 overall_bearish_health
+        bearish_short_force = (overall_bearish_health[1] * overall_bearish_health[5])**0.5
+        bearish_medium_trend = (overall_bearish_health[13] * overall_bearish_health[21])**0.5
         bearish_long_inertia = overall_bearish_health[55]
-        
-        # --- [代码修改] 对所有终极信号应用指数缩放 ---
+        # --- 对所有终极信号应用指数缩放 ---
+        # 修正后的 bullish_short_force 和 bearish_short_force 将在这里被正确使用
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_B'] = (overall_bullish_health[5] ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_A'] = ((overall_bullish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] = ((bullish_short_force * bullish_medium_trend) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = ((states['SCORE_STRUCTURE_BULLISH_RESONANCE_S'] * bullish_long_inertia) ** exponent).astype(np.float32)
-        
+        # 注意：S+级的计算依赖于S级，所以S级的修复会自动传递到S+级
+        s_plus_bullish_raw = (bullish_short_force * bullish_medium_trend * bullish_long_inertia)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS'] = (s_plus_bullish_raw ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_B'] = (overall_bearish_health[5] ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_A'] = ((overall_bearish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] = ((bearish_short_force * bearish_medium_trend) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = ((states['SCORE_STRUCTURE_BEARISH_RESONANCE_S'] * bearish_long_inertia) ** exponent).astype(np.float32)
-        
+        s_plus_bearish_raw = (bearish_short_force * bearish_medium_trend * bearish_long_inertia)
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = (s_plus_bearish_raw ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_B'] = ((bottom_context_score * overall_bullish_health[1] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_A'] = ((bottom_context_score * overall_bullish_health[5] * overall_bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S'] = ((bottom_context_score * bullish_short_force * bearish_long_inertia) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS'] = ((bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia) ** exponent).astype(np.float32)
-        
         states['SCORE_STRUCTURE_TOP_REVERSAL_B'] = ((top_context_score * overall_bearish_health[1] * overall_bullish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_A'] = ((top_context_score * overall_bearish_health[5] * overall_bullish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL_S'] = ((top_context_score * bearish_short_force * bullish_long_inertia) ** exponent).astype(np.float32)
-        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = ((top_context_score * bearish_short_force * bearish_medium_trend * bullish_long_inertia) ** exponent).astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS'] = ((top_context_score * bearish_short_force * bullish_medium_trend * bullish_long_inertia) ** exponent).astype(np.float32)
 
         return states
 

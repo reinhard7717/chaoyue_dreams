@@ -691,7 +691,7 @@ class MultiTimeframeTrendStrategy:
           - [终极同步] 探针的“最终验算”环节增加了“信号缩放”步骤，使其能完整复现并解剖从“毛坯分”到“精装分”的全过程。
         - 收益: 实现了对信号生成逻辑的100%全链路透明化诊断，探针与信号逻辑完全同步，消除了所有诊断盲点。
         """
-        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.2 · 信号缩放解剖版] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新探针版本
+        print("\n" + "="*35 + f" [恐慌盘投降探针 V2.2 · 信号缩放解剖版] 正在解剖 {probe_date} " + "="*35) # 更新探针版本
         try:
             if self.daily_analysis_df is None or self.tactical_engine.atomic_states is None:
                 print("  [错误] 探针所需的核心分析数据不存在。调查终止。")
@@ -720,7 +720,7 @@ class MultiTimeframeTrendStrategy:
             final_score = get_atomic_score("SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL", probe_ts)
             print("\n--- [第一层解剖]: 最终剧本分数 ---")
             print(f"  ✅ SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL = {final_score:.4f}")
-            print(f"  -> 它的分数由 [(昨日战备分 * 今日点火分) ^ 指数] 得到:") # [代码修改] 更新公式描述
+            print(f"  -> 它的分数由 [(昨日战备分 * 今日点火分) ^ 指数] 得到:") # 更新公式描述
 
             # --- [第二层解剖]: 今日“点火”分 (Trigger) ---
             print("\n--- [第二层解剖]: 今日“点火”分 (Trigger) ---")
@@ -782,7 +782,7 @@ class MultiTimeframeTrendStrategy:
 
             # --- [第四层解剖]: 最终验算 ---
             print("\n--- [第四层解剖]: 最终验算 ---")
-            # [代码修改] 引入“毛坯分”和“精装分”的解剖逻辑
+            # 引入“毛坯分”和“精装分”的解剖逻辑
             raw_score_calc = setup_score_yesterday * trigger_score_today
             print(f"  - 步骤1 (毛坯分) = 昨日战备分 * 今日点火分")
             print(f"                  = {setup_score_yesterday:.4f} * {trigger_score_today:.4f} = {raw_score_calc:.4f}")
@@ -923,7 +923,7 @@ class MultiTimeframeTrendStrategy:
                 # if get_param_value(debug_params.get('enable_capitulation_probe'), True): # 新探针默认关闭
                 #     self._deploy_capitulation_probe(probe_date=probe_date)
                 
-                # [代码修改] 新增对终极反转探针的调用
+                # 新增对终极反转探针的调用
                 if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
                     self._deploy_ultimate_reversal_probe(probe_date=probe_date)
 

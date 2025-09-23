@@ -50,13 +50,13 @@ class DynamicMechanicsEngine:
                         从根本上解决因多因子乘法导致的“量纲压缩”问题。
         - 收益: 确保所有终极信号的量级都在一个合理范围内，使其在计分系统中能发挥应有的作用。
         """
-        print("        -> [终极动态力学信号诊断模块 V3.3 · 信号缩放版] 启动...") # [代码修改] 更新版本号
+        print("        -> [终极动态力学信号诊断模块 V3.3 · 信号缩放版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
             
-        # [代码修改] 获取缩放指数
+        # 获取缩放指数
         exponent = get_param_value(p_conf.get('final_score_exponent'), 1.0)
 
         # ... (此部分代码保持不变) ...
@@ -75,7 +75,7 @@ class DynamicMechanicsEngine:
         bearish_medium_trend = (bearish_health[13] * bearish_health[21])**0.5
         bearish_long_inertia = bearish_health[55]
 
-        # --- [代码修改] 对所有终极信号应用指数缩放 ---
+        # --- 对所有终极信号应用指数缩放 ---
         states['SCORE_DYN_BULLISH_RESONANCE_B'] = (bullish_health[5] ** exponent).astype(np.float32)
         states['SCORE_DYN_BULLISH_RESONANCE_A'] = ((bullish_health[5] * bullish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_DYN_BULLISH_RESONANCE_S'] = ((bullish_short_force * bullish_medium_trend) ** exponent).astype(np.float32)
