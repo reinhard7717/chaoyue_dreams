@@ -253,14 +253,16 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 一线探针版】高质量战备可靠性诊断引擎
+        【V3.0 三幕剧·加权共识版】高质量战备可靠性诊断引擎
         - 核心升级 (本次修改):
-          - [一线探针] 植入了一个由 `debug_params.probe_date` 控制的“一线法医探针”。
-                        当指定日期时，它会打印出“股东换血”、“企稳点火”、“深度价值区”三大核心要素的得分，
-                        以及最终的核心逻辑分和加成后的分数，实现对计算过程的完全透视。
+          - [算法革命] 彻底废除了原有的“连环乘法”融合逻辑，升级为更科学、更鲁棒的
+                        “加权平均”共识算法。
+          - [新范式] 最终分数 = (股东换血分 * 0.4) + (企稳点火分 * 0.4) + (深度价值区分 * 0.2)。
+        - 收益: 从根本上解决了因单一环节分数不高而导致整个信号链评分雪崩的问题，
+                极大提升了王牌信号的稳定性和实战价值。
         """
-        # 更新版本号和说明
-        print("        -> [高质量战备可靠性诊断引擎 V2.2 一线探针版] 启动...")
+        # 代码修改：更新版本号和说明
+        print("        -> [高质量战备可靠性诊断引擎 V3.0 三幕剧·加权共识版] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -292,11 +294,21 @@ class MicroBehaviorEngine:
         ignition_confirmation_score = (downtrend_stabilizing_score * vol_compression_score * early_ignition_score).astype(np.float32)
         states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score
 
-        # --- 最终剧本触发逻辑 (全新融合范式) ---
-        core_logic_score = (states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] * states['SCORE_IGNITION_CONFIRMATION'])
-        final_reliability_score = (core_logic_score * (1.0 + states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] * 1.0)).astype(np.float32)
+        # --- 最终剧本触发逻辑 (全新加权共识范式) ---
+        # 代码修改：从连环乘法升级为加权平均
+        weights = {
+            'shareholder': 0.4,
+            'ignition': 0.4,
+            'context': 0.2
+        }
+        final_reliability_score = (
+            shareholder_quality_score * weights['shareholder'] +
+            ignition_confirmation_score * weights['ignition'] +
+            background_score * weights['context']
+        ).astype(np.float32)
         
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score
+        # 为了兼容性，让另一个信号也等于这个王牌分
         states['COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS'] = final_reliability_score
         
         # 植入“一线法医探针”
@@ -306,11 +318,11 @@ class MicroBehaviorEngine:
             probe_ts = pd.to_datetime(probe_date_str)
             if probe_ts in df.index:
                 print(f"\n          --- [一线探针: 高质量战备诊断 @ {probe_date_str}] ---")
-                print(f"          - 要素1 (股东换血) 得分: {shareholder_quality_score.get(probe_ts, -1):.4f}")
-                print(f"          - 要素2 (企稳点火) 得分: {ignition_confirmation_score.get(probe_ts, -1):.4f}")
-                print(f"          - 要素3 (深度价值区/加成项) 得分: {background_score.get(probe_ts, -1):.4f}")
-                print(f"          - 核心逻辑分 (要素1 * 要素2): {core_logic_score.get(probe_ts, -1):.4f}")
-                print(f"          - 最终可靠性分 (核心逻辑分 * (1 + 加成)): {final_reliability_score.get(probe_ts, -1):.4f}")
+                # 代码修改：更新探针输出以匹配新的加权算法
+                print(f"          - 要素1 (股东换血) 得分: {shareholder_quality_score.get(probe_ts, -1):.4f} (权重: {weights['shareholder']})")
+                print(f"          - 要素2 (企稳点火) 得分: {ignition_confirmation_score.get(probe_ts, -1):.4f} (权重: {weights['ignition']})")
+                print(f"          - 要素3 (深度价值区) 得分: {background_score.get(probe_ts, -1):.4f} (权重: {weights['context']})")
+                print(f"          - 最终可靠性分 (加权平均): {final_reliability_score.get(probe_ts, -1):.4f}")
                 print(f"          ----------------------------------------------------------\n")
         
         return states
