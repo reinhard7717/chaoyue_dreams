@@ -147,7 +147,7 @@ class BehavioralIntelligence:
     # ==============================================================================
 
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.0 · 新增】原子信号中心，负责生产所有基础行为信号。"""
+        """【V1.1 · 数据流修复版】原子信号中心，负责生产所有基础行为信号。"""
         atomic_signals = {}
         params = self.strategy.params
         
@@ -160,11 +160,9 @@ class BehavioralIntelligence:
         upthrust_score = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score.name] = upthrust_score
         
-        ma_breakdown_score = self._diagnose_ma_breakdown(params)
+        # 将 df 作为参数传递给 _diagnose_ma_breakdown 方法
+        ma_breakdown_score = self._diagnose_ma_breakdown(df, params)
         atomic_signals[ma_breakdown_score.name] = ma_breakdown_score
-        
-        # _diagnose_multi_dimensional_resonance 和 _diagnose_pullback_enhancement_matrix
-        # 依赖于其他模块的信号，不应在此处生成，它们的逻辑已被更高级的引擎吸收或应在更高层处理。
         
         return atomic_signals
 
@@ -309,15 +307,24 @@ class BehavioralIntelligence:
         final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
         return final_score
 
-    def _diagnose_ma_breakdown(self, exit_params: dict) -> pd.Series:
+    def _diagnose_ma_breakdown(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
+        """
+        【V1.1 · 依赖注入修复版】
+        - 核心修复: 方法签名增加了 df 参数，不再依赖 self.strategy.df 或 self.strategy.df_indicators。
+                    所有对 DataFrame 的访问都改为使用传入的 df 参数，彻底解决了 AttributeError。
+        """
         p = exit_params.get('structure_breakdown_params', {})
         if not get_param_value(p.get('enabled'), False):
-            return pd.Series(0.0, index=self.strategy.df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
+            # 使用传入的 df.index，不再访问 self.strategy.df
+            return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
+        
         breakdown_ma_period = get_param_value(p.get('breakdown_ma_period'), 21)
         ma_col = f'EMA_{breakdown_ma_period}_D'
-        df = self.strategy.df_indicators
+
         if not all(col in df.columns for col in ['close_D', ma_col]):
+            # 使用传入的 df.index
             return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
+            
         breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
         breakdown_depth = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
         norm_window = get_param_value(p.get('norm_window'), 120)
