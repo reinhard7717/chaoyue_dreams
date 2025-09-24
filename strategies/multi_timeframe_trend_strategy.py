@@ -136,7 +136,7 @@ class MultiTimeframeTrendStrategy:
             )
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("    - [战术引擎] 引擎返回了空的分析结果。")
-                return ([], [], [], [], [])
+                return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
             
             records_tuple = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
@@ -146,10 +146,10 @@ class MultiTimeframeTrendStrategy:
                 params=self.tactical_engine.unified_config,
                 result_timeframe='D'
             )
-            return records_tuple
+            return (records_tuple, daily_analysis_df, score_details_df, risk_details_df)
         except Exception as e:
             logger.error(f"在 {stock_code} 的战术引擎执行期间发生错误: {e}", exc_info=True)
-            return ([], [], [], [], [])
+            return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
 
     async def run_for_latest_signal(self, stock_code: str, trade_time: Optional[datetime] = None) -> Tuple[List, List, List, List, List]:
         """

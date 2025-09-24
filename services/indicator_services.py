@@ -411,6 +411,8 @@ class IndicatorService:
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
         # --- 步骤 6: 【加速度计算】 - 修正步骤编号 ---
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
+        # [代码新增] 在所有基础特征和衍生特征计算完毕后，调用高级模式识别引擎
+        all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
         # --- 步骤 7: 【上下文信息注入】 - 修正步骤编号 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs

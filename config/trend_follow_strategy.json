@@ -32,16 +32,22 @@
       "ma_convergence": {
         "enabled": true,
         "description": "【新增】计算均线收敛度，为高级模式识别提供输入。",
-        "apply_on": ["D"],
-        "short_term_ma": "EMA_21_D",
-        "long_term_ma": "EMA_55_D"
+        "configs": [
+          {
+            "apply_on": ["D"],
+            "periods": [5, 8, 13, 21],
+            "output_column_name": "MA_CONV_CV_SHORT_D"
+          }
+        ]
       },
       "consolidation_period": {
         "enabled": true,
         "description": "【新增】识别价格盘整期，为突破战术提供上下文。",
-        "apply_on": ["D"],
-        "window": 20,
-        "threshold": 0.15
+        "boll_period": 21,
+        "roc_period": 12,
+        "vol_ma_period": 55,
+        "bbw_quantile": 0.25,
+        "roc_threshold": 5.0
       }
     },
     "slope_params": {
