@@ -1073,12 +1073,19 @@ class CognitiveIntelligence:
 
     def _deploy_structural_risk_probe(self, probe_date: str, components: Dict[str, pd.Series], mitigation_source: pd.Series, mitigation_factor: pd.Series, raw_score: pd.Series, final_score: pd.Series):
         """
-        【V1.0 新增】结构风险法医探针
+        【V1.1 时区修复版】结构风险法医探针
+        - 核心修复 (本次修改):
+          - [BUG修复] 增加了时区对齐逻辑。现在探针会检查数据索引的时区，并相应地本地化探针日期，解决了因时区不匹配导致“找不到日期”的严重错误。
         - 核心职责: 深度解剖 `SCORE_STRUCTURE_TOPPING_DANGER_S` 信号的构成，并清晰展示风险对冲过程。
         """
-        print("\n" + "="*35 + f" [结构风险法医探针 V1.0] 正在解剖 {probe_date} 的顶部危险分 " + "="*35)
+        print("\n" + "="*35 + f" [结构风险法医探针 V1.1 时区修复版] 正在解剖 {probe_date} 的顶部危险分 " + "="*35) # [代码修改] 更新版本号
         try:
-            probe_ts = pd.to_datetime(probe_date)
+            probe_ts_naive = pd.to_datetime(probe_date)
+            # [代码新增] 增加时区对齐逻辑，确保探针时间戳与数据索引的时区一致
+            if raw_score.index.tz is not None:
+                probe_ts = probe_ts_naive.tz_localize(raw_score.index.tz)
+            else:
+                probe_ts = probe_ts_naive
             if probe_ts not in raw_score.index:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。解剖终止。")
                 return
