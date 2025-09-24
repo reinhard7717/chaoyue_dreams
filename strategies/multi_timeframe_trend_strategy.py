@@ -8,7 +8,7 @@ import json
 import os
 import pandas as pd
 import numpy as np
-
+import gc
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy

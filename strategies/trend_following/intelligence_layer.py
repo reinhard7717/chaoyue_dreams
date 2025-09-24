@@ -45,10 +45,11 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V407.0 · 终极信号适配版】情报层总入口。
-        - 核心重构: 严格遵循“原子信号生成 -> 跨域认知融合 -> 战术剧本生成”的逻辑顺序。
+        【V408.0 · 依赖修复版】情报层总入口。
+        - 核心重构: 调整了情报引擎的调用顺序，将 ChipIntelligence 提前到 StructuralIntelligence 之前，
+                    解决了结构层因缺少筹码数据而跳过部分诊断的问题。
         """
-        print("--- [情报层总指挥官 V407.0 · 终极信号适配版] 开始执行所有诊断模块... ---")
+        print("--- [情报层总指挥官 V408.0 · 依赖修复版] 开始执行所有诊断模块... ---") # [代码修改] 更新版本号和说明
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -62,19 +63,23 @@ class IntelligenceLayer:
         # 调用所有底层情报引擎，生成所有S+/S/A/B四级终极信号，并注入atomic_states
         print("    - [阶段 1/3] 正在执行原子信号生成...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
-        update_states(self.structural_intel.diagnose_structural_states(df))
-        self.behavioral_intel.run_behavioral_analysis_command() # 此方法内部直接更新 atomic_states
-        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部直接更新 atomic_states
-        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
+        # [代码修改] 将 ChipIntelligence 的调用提前
+        # 必须先生成筹码数据，才能供其他模块（如结构层）消费
         chip_states, _ = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states)
+        
+        # [代码修改] 现在 StructuralIntelligence 可以安全地消费由 ChipIntelligence 生成的数据
+        update_states(self.structural_intel.diagnose_structural_states(df))
+        
+        self.behavioral_intel.run_behavioral_analysis_command()
+        update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
+        self.mechanics_engine.run_dynamic_analysis_command()
+        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
         # --- 阶段二: 跨域认知融合 ---
         # 调用认知层总入口，它会消费阶段一生成的所有原子信号，并生成更高阶的认知信号
         print("    - [阶段 2/3] 正在执行认知层跨域元融合...")
-        # cognitive_intel 内部会调用其子引擎，并将其结果更新到 atomic_states
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
 
         # --- 阶段三: 最终战法与剧本生成 ---
@@ -86,5 +91,5 @@ class IntelligenceLayer:
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
         
-        print("--- [情报层总指挥官 V407.0] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V408.0] 所有诊断模块执行完毕。 ---") # [代码修改] 更新版本号
         return self.strategy.trigger_events
