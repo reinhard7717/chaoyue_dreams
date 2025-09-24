@@ -764,38 +764,34 @@ class CognitiveIntelligence:
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.5 融合算法升级版】多域反转共振分数合成模块
-        - 核心升级 (本次修改):
-          - [算法升级] 将原有的“乘法融合”（几何平均）方式，升级为“加权平均融合”（算术平均）。
-          - [配置驱动] 新增从配置文件读取各领域权重的逻辑，使融合策略可配置。
-        - 收益:
-          - 降低了融合过程对单个输入信号极端值的敏感度，避免了单一错误信号被过度放大，使融合结果更稳健。
-          - 提升了策略的灵活性和可维护性。
+        【V2.6 融合逻辑修复版】多域反转共振分数合成模块
+        - 核心修复 (本次修改):
+          - [逻辑漏洞修复] 在融合各领域反转信号时，补上了之前遗漏的“结构层(STRUCTURE)”信号。
+          - [权重调整] 相应地调整了加权平均的权重，为新增的“结构层”分配了权重，确保融合逻辑的完整性。
+        - 收益: 修复了因缺少关键维度而导致认知层反转分过低的严重问题，使融合结果能更全面地反映市场共识。
         """
-        # print("        -> [多域反转共振分数合成模块 V2.5 融合算法升级版] 启动...") # 修改: 更新版本号
+        print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 从配置中读取权重，并使用加权平均 ---
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
-        # 如果配置不存在，则使用默认的等权重
-        bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.4, 'chip': 0.4, 'foundation': 0.2})
-        top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.4, 'chip': 0.4, 'foundation': 0.2})
+        # [代码修改] 更新默认权重，为新增的 'structure' 分配权重
+        bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
+        top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         # --- 1. 合成“底部反转共振”分数 ---
-        # 提取各领域信号
         mechanics_bottom_score = self._fuse_multi_level_scores(df, 'DYN_BOTTOM_REVERSAL')
-        chip_bottom_score = self._fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL') # 注意：这里消费的是我们刚刚改造好的、包含位置上下文的信号
+        chip_bottom_score = self._fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL')
         foundation_bottom_score = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
-        behavior_bottom_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL') # 同样消费改造后的信号
-        # 使用加权平均进行融合
+        behavior_bottom_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
+        structure_bottom_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL') # [代码新增] 获取结构层反转信号
         total_bottom_score = pd.Series(0.0, index=df.index)
         total_bottom_weight = 0.0
-        # 将各领域分数放入字典，方便按权重key调用
         bottom_sources = {
             'mechanics': mechanics_bottom_score,
             'chip': chip_bottom_score,
             'foundation': foundation_bottom_score,
-            'behavior': behavior_bottom_score
+            'behavior': behavior_bottom_score,
+            'structure': structure_bottom_score # [代码新增] 将结构层信号加入融合源
         }
         for domain, weight in bottom_weights.items():
             if domain in bottom_sources and weight > 0:
@@ -811,13 +807,15 @@ class CognitiveIntelligence:
         chip_top_score = self._fuse_multi_level_scores(df, 'CHIP_TOP_REVERSAL')
         foundation_top_score = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
         behavior_top_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        structure_top_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # [代码新增] 获取结构层顶部反转信号
         total_top_score = pd.Series(0.0, index=df.index)
         total_top_weight = 0.0
         top_sources = {
             'mechanics': mechanics_top_score,
             'chip': chip_top_score,
             'foundation': foundation_top_score,
-            'behavior': behavior_top_score
+            'behavior': behavior_top_score,
+            'structure': structure_top_score # [代码新增] 将结构层信号加入融合源
         }
         for domain, weight in top_weights.items():
             if domain in top_sources and weight > 0:
@@ -828,9 +826,7 @@ class CognitiveIntelligence:
         else:
             top_reversal_score = default_score
         states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S'] = top_reversal_score.astype(np.float32)
-
         self.strategy.atomic_states.update(states)
-        # print("        -> [多域反转共振分数合成模块 V2.5] 计算完毕。") # 修改: 更新版本号
         return df
 
     def synthesize_divergence_risks(self, df: pd.DataFrame) -> pd.DataFrame:
