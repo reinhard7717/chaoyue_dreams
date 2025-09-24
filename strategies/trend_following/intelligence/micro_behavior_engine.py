@@ -39,30 +39,36 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 信号适配版】微观行为诊断引擎总指挥
-        - 核心重构 (本次修改):
-          - [信号适配] 全面审查并更新了所有方法，确保它们消费的是最新的终极原子信号。
-          - [周期整合] 将 `CyclicalIntelligence` 产出的FFT周期信号整合到“高质量战备可靠性”诊断中。
+        【V2.1 · 状态同步修复版】微观行为诊断引擎总指挥
+        - 核心修复: 修正了状态更新逻辑。现在，每个子模块生成的信号都会被立即更新到
+                    全局的 `self.strategy.atomic_states` 中，而不仅仅是暂存在局部变量里。
+                    这解决了下游方法因无法获取上游即时计算的信号而导致崩溃的问题。
         """
-        print("      -> [微观行为诊断引擎 V2.0 · 信号适配版] 启动...") # 更新版本号
+        # [代码修改] 更新版本号和日志
+        print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
         all_states = {}
+
+        # [代码新增] 定义一个辅助函数来简化状态更新流程
+        def update_states(new_states: Dict[str, pd.Series]):
+            """同时更新局部和全局状态字典"""
+            if new_states:
+                all_states.update(new_states)
+                self.strategy.atomic_states.update(new_states)
+
+        # [代码修改] 依次调用所有微观行为合成方法，并使用辅助函数立即更新状态
+        update_states(self.synthesize_early_momentum_ignition(df))
         
-        # 依次调用所有微观行为合成方法
-        early_momentum_states = self.synthesize_early_momentum_ignition(df)
-        all_states.update(early_momentum_states)
+        # 现在，下游方法可以安全地消费上面生成的信号了
+        update_states(self.diagnose_deceptive_retail_flow(df))
+        update_states(self.synthesize_microstructure_dynamics(df))
+        update_states(self.synthesize_euphoric_acceleration_risk(df))
         
-        # 立即更新原子状态库，以便下游方法可以消费刚刚生成的信号
-        self.strategy.atomic_states.update(early_momentum_states)
-        
-        all_states.update(self.diagnose_deceptive_retail_flow(df))
-        all_states.update(self.synthesize_microstructure_dynamics(df))
-        all_states.update(self.synthesize_euphoric_acceleration_risk(df))
-        
-        # 将 early_ignition_score 作为参数传入
-        reversal_states = self.synthesize_reversal_reliability_score(
-            df, early_ignition_score=early_momentum_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A')
-        )
-        all_states.update(reversal_states)
+        # 在调用 reversal_reliability_score 之前，它所依赖的所有信号都已存在于 atomic_states 中
+        # 需要从 self.strategy.atomic_states 中获取 early_ignition_score，因为它刚刚被更新
+        early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A')
+        update_states(self.synthesize_reversal_reliability_score(
+            df, early_ignition_score=early_ignition_score
+        ))
         
         print(f"      -> [微观行为诊断引擎] 分析完毕，共生成 {len(all_states)} 个微观行为信号。")
         return all_states
