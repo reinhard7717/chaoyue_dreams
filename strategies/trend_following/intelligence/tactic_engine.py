@@ -52,7 +52,7 @@ class TacticEngine:
           - [职责重塑] 将原有的 `synthesize_v_reversal_ace_playbook` 重构为 `synthesize_panic_selling_setup`，使其职责回归纯粹的“战备信号生成”。
         - 核心职责: 按顺序调用本模块内的所有战术合成方法，并汇总其产出的所有信号。
         """
-        print("      -> [战术引擎 V1.2 · 架构归位版] 启动...") # [代码修改] 更新版本号和说明
+        print("      -> [战术引擎 V1.2 · 架构归位版] 启动...")
         all_states = {}
         # 注意：一些战术依赖于其他战术的输出，调用顺序很重要
         all_states.update(self.synthesize_chip_price_lag_playbook(df))

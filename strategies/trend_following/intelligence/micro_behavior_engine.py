@@ -79,36 +79,30 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 上下文过滤器版】早期动能点火诊断模块
+        【V6.0 · 纯粹形态版】早期动能点火诊断模块 (回归V6.0)
         - 核心重构 (本次修改):
-          - [上下文过滤器] 为解决“V6.0版”可能在加速冲顶时被错误激活的问题，引入了“下跌趋势”和“底部区域”双重上下文过滤器。
-          - [新范式] 最终分数 = 原始点火分数 × 下跌趋势上下文 × 底部区域上下文。
-          - 原始点火分数: 识别高质量大阳线。
-          - 下跌趋势上下文: 确保大阳线出现在短期下跌之后。
-          - 底部区域上下文: 确保大阳线出现在价格的相对低位。
-        - 收益: 从根本上区分了“底部反转阳线”和“顶部加速阳线”，极大提升了信号的准确性，避免了在趋势末端追高。
+          - [回归初心] 彻底移除V7.0引入的“下跌趋势”和“底部区域”双重上下文过滤器。
+          - [职责净化] 让此信号回归其核心职责：作为一个纯粹的、强大的“大阳线质量分”识别器。
+          - [新范式] 最终分数 = K线实体强度分 * K线位置强度分 * K线动能强度分。
+        - 收益: 解决了因上下文重复过滤导致“K线质量分”被过度压制的问题。将上下文判断的职责完全交还给上游的 `TRIGGER_DOMINANT_REVERSAL` 模块，使架构更清晰、逻辑更正确。
         """
-        print("        -> [早期动能点火诊断模块 V7.0 · 上下文过滤器版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [早期动能点火诊断模块 V8.0 · 纯粹形态版] 启动...")
         states = {}
-        # --- 1. 计算原始点火分数 (Raw Ignition Score) ---
+        # --- 1. K线实体强度分 ---
+        # 阳线实体占当天振幅的比例
         candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        body_size = (df['close_D'] - df['open_D']).clip(lower=0)
+        body_size = (df['close_D'] - df['open_D']).clip(lower=0) # 只考虑阳线
         body_strength_score = (body_size / candle_range).fillna(0.0)
+        # --- 2. K线位置强度分 ---
+        # 收盘价在当天振幅中的位置
         position_in_range_score = ((df['close_D'] - df['low_D']) / candle_range).fillna(0.0)
+        # --- 3. K线动能强度分 ---
+        # 对当日涨幅进行归一化，涨幅越大分数越高
+        # 使用一个合理的范围（如0%到10%）进行线性归一化，而不是相对排名
         momentum_strength_score = (df['pct_change_D'] / 0.10).clip(0, 1).fillna(0.0)
-        raw_ignition_score = (body_strength_score * position_in_range_score * momentum_strength_score)
-        # --- 2. 计算下跌趋势上下文分数 (Downtrend Context) ---
-        # 评估5日收盘价斜率，斜率越负，分数越高
-        downtrend_context_score = self._normalize_score(df['SLOPE_5_close_D'], window=60, ascending=False)
-        # --- 3. 计算底部区域上下文分数 (Low Price Context) ---
-        # 评估价格在过去60日的位置，位置越低，分数越高
-        rolling_high_60d = df['high_D'].rolling(window=60, min_periods=20).max()
-        rolling_low_60d = df['low_D'].rolling(window=60, min_periods=20).min()
-        price_range_60d = (rolling_high_60d - rolling_low_60d).replace(0, np.nan)
-        price_position_60d = ((df['close_D'] - rolling_low_60d) / price_range_60d).clip(0, 1).fillna(0.5)
-        low_price_context_score = 1.0 - price_position_60d
-        # --- 4. [代码修改] 融合生成最终信号 (应用双重上下文过滤器) ---
-        final_score = (raw_ignition_score * downtrend_context_score * low_price_context_score).astype(np.float32)
+        # --- 4. 融合生成最终信号 ---
+        # 三者相乘，得到一个综合的“大阳线质量分”
+        final_score = (body_strength_score * position_in_range_score * momentum_strength_score).astype(np.float32)
         states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
         return states
 

@@ -673,7 +673,7 @@
         "mean_reversion_grid_buy_a_threshold": { "value": 0.8, "description": "【A级】均值回归网格买入剧本的触发阈值" },
         "prime_chip_ignition_s_plus_plus": { "value": 0.7, "description": "【S++级】黄金筹码持续点火剧本的触发阈值" },
         "panic_selling_setup_threshold": { "value": 0.15, "description": "【S++级 V型反转】昨日“恐慌抛售”战备分的触发阈值" },
-        "dominant_reversal_trigger_threshold": { "value": 0.2, "description": "【S++级 V型反转】今日“显性反转”点火分的触发阈值" },
+        "dominant_reversal_trigger_threshold": { "value": 0.02, "description": "【S++级 V型反转】今日“显性反转”点火分的触发阈值" },
         "reversal_confirmation_candle": {
           "enabled": true,
           "min_pct_change": {

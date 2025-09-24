@@ -244,7 +244,7 @@ class PlaybookEngine:
         - 核心升级 (本次修改):
           - [新增探针] 集成了“V型反转法医探针”，可在调试模式下深度解剖该王牌剧本的触发逻辑。
         """
-        print("      -> [战术触发事件定义中心 V8.1 · 法医探针集成版] 启动...") # [代码修改] 更新版本号和说明
+        print("      -> [战术触发事件定义中心 V8.1 · 法医探针集成版] 启动...")
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
