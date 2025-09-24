@@ -44,14 +44,12 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 反转逻辑重构版】终极动态力学信号诊断模块
+        【V3.6 · 信号融合重构版】终极动态力学信号诊断模块
         - 核心重构 (本次修改):
-          - [反转逻辑修复] 与 structural_intelligence V1.6 同步，彻底重构了“反转”信号的生成逻辑。
-          - [新范式] 新的“底部反转”分数 = “底部上下文分数” * “短期看涨力量” * (1 - “长期看涨惯性”)。
-                     这精确地描述了“在非长期牛市的背景下，于底部区域出现短期看涨力量”的真实反转情景。
-        - 收益: 从根本上解决了反转信号在趋势拐点初期得分极低的问题，使其能更灵敏、更准确地捕捉到趋势的早期转折点。
+          - [信号哲学重构] 与 structural_intelligence V2.0 同步，废除了旧的基于“乘法融合”的健康度计算，全面转向基于“加权平均”的新范式。
+        - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        print("        -> [终极动态力学信号诊断模块 V3.5 · 反转逻辑重构版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [终极动态力学信号诊断模块 V3.6 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -66,10 +64,16 @@ class DynamicMechanicsEngine:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # ... (此处省略军备检查和核心要素数值化代码，假设它们与原版一致) ...
+        # [代码修改] 定义新的加权平均权重
+        health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
+        # [代码修改] 使用加权平均重构健康度计算
+        bullish_health = {}
+        bearish_health = {}
+        # 预计算所有归一化分数
         price_static = self._normalize_series(df['close_D'], norm_window, min_periods)
         price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
         price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
+        # ... (此处省略其他指标的预计算，逻辑与原版一致) ...
         volume_static = self._normalize_series(df['volume_D'], norm_window, min_periods)
         volume_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
         volume_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
@@ -88,45 +92,28 @@ class DynamicMechanicsEngine:
         inertia_static = self._normalize_series(df['ADX_14_D'], norm_window, min_periods)
         inertia_mom = {p: self._normalize_series(df[f'SLOPE_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
-        bullish_health = {}
-        bearish_health = {}
-        price_static_arr = price_static.values
-        volume_static_arr = volume_static.values
-        volatility_static_arr = volatility_static.values
-        efficiency_static_arr = efficiency_static.values
-        force_quality_static_arr = force_quality_static.values
-        kinetic_energy_static_arr = kinetic_energy_static.values
-        inertia_static_arr = inertia_static.values
         for p in periods:
-            price_health_arr = (price_static_arr * price_mom[p].values * price_accel[p].values)**(1/3)
-            volume_health_arr = (volume_static_arr * volume_mom[p].values * volume_accel[p].values)**(1/3)
+            price_health = price_static * health_weights['static'] + price_mom[p] * health_weights['slope'] + price_accel[p] * health_weights['accel']
+            volume_health = volume_static * health_weights['static'] + volume_mom[p] * health_weights['slope'] + volume_accel[p] * health_weights['accel']
             if p in volatility_mom:
-                 volatility_health_arr = (volatility_static_arr * volatility_mom[p].values * volatility_accel[p].values)**(1/3)
+                volatility_health = volatility_static * health_weights['static'] + volatility_mom[p] * health_weights['slope'] + volatility_accel[p] * health_weights['accel']
             else:
-                 volatility_health_arr = volatility_static_arr
-            efficiency_health_arr = (efficiency_static_arr * efficiency_mom[p].values * efficiency_accel[p].values)**(1/3)
-            force_quality_health_arr = (force_quality_static_arr * force_quality_mom[p].values * force_quality_accel[p].values)**(1/3)
-            kinetic_energy_health_arr = (kinetic_energy_static_arr * kinetic_energy_mom[p].values * kinetic_energy_accel[p].values)**(1/3)
-            inertia_health_arr = (inertia_static_arr * inertia_mom[p].values * inertia_accel[p].values)**(1/3)
-            health_components_arr = np.stack([
-                price_health_arr, volume_health_arr, volatility_health_arr, efficiency_health_arr,
-                force_quality_health_arr, kinetic_energy_health_arr, inertia_health_arr
-            ], axis=0)
-            final_health_arr = np.prod(health_components_arr, axis=0)**(1/7)
-            bullish_health[p] = pd.Series(final_health_arr, index=df.index, dtype=np.float32)
-            bearish_health_components_arr = np.stack([
-                1 - price_health_arr, 1 - volume_health_arr, 1 - volatility_health_arr, 1 - efficiency_health_arr,
-                1 - force_quality_health_arr, 1 - kinetic_energy_health_arr, 1 - inertia_health_arr
-            ], axis=0)
-            final_bearish_health_arr = np.prod(bearish_health_components_arr, axis=0)**(1/7)
-            bearish_health[p] = pd.Series(final_bearish_health_arr, index=df.index, dtype=np.float32)
+                volatility_health = volatility_static # 如果没有动态数据，则只使用静态分
+            efficiency_health = efficiency_static * health_weights['static'] + efficiency_mom[p] * health_weights['slope'] + efficiency_accel[p] * health_weights['accel']
+            force_quality_health = force_quality_static * health_weights['static'] + force_quality_mom[p] * health_weights['slope'] + force_quality_accel[p] * health_weights['accel']
+            kinetic_energy_health = kinetic_energy_static * health_weights['static'] + kinetic_energy_mom[p] * health_weights['slope'] + kinetic_energy_accel[p] * health_weights['accel']
+            inertia_health = inertia_static * health_weights['static'] + inertia_mom[p] * health_weights['slope'] + inertia_accel[p] * health_weights['accel']
+            
+            health_components = [price_health, volume_health, volatility_health, efficiency_health, force_quality_health, kinetic_energy_health, inertia_health]
+            bullish_health[p] = pd.Series(np.mean([s.values for s in health_components], axis=0), index=df.index, dtype=np.float32)
+            bearish_health[p] = 1 - bullish_health[p]
+        # 后续的信号合成逻辑保持不变
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
         bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5
         bullish_long_inertia = bullish_health[55]
         bearish_short_force = (bearish_health[1] * bearish_health[5])**0.5
         bearish_medium_trend = (bearish_health[13] * bearish_health[21])**0.5
         bearish_long_inertia = bearish_health[55]
-        # --- 共振信号合成 (逻辑不变) ---
         raw_bullish_s = (bullish_short_force * bullish_medium_trend)
         raw_bullish_s_plus = (raw_bullish_s * bullish_long_inertia)
         raw_bearish_s = (bearish_short_force * bearish_medium_trend)
@@ -139,13 +126,10 @@ class DynamicMechanicsEngine:
         states['SCORE_DYN_BEARISH_RESONANCE_A'] = ((bearish_health[5] * bearish_health[21]) ** exponent).astype(np.float32)
         states['SCORE_DYN_BEARISH_RESONANCE_S'] = (raw_bearish_s ** exponent).astype(np.float32)
         states['SCORE_DYN_BEARISH_RESONANCE_S_PLUS'] = (raw_bearish_s_plus ** exponent).astype(np.float32)
-        # --- 反转信号合成 (逻辑重构) ---
-        # [代码修改] 底部反转 = 底部环境 * 短期看涨力量 * (1 - 长期看涨惯性)，即非长期牛市背景下的短期看涨
         states['SCORE_DYN_BOTTOM_REVERSAL_B'] = ((bottom_context_score * bullish_health[1] * (1 - bullish_health[21])) ** exponent).astype(np.float32)
         states['SCORE_DYN_BOTTOM_REVERSAL_A'] = ((bottom_context_score * bullish_health[5] * (1 - bullish_health[21])) ** exponent).astype(np.float32)
         states['SCORE_DYN_BOTTOM_REVERSAL_S'] = ((bottom_context_score * bullish_short_force * (1 - bullish_long_inertia)) ** exponent).astype(np.float32)
         states['SCORE_DYN_BOTTOM_REVERSAL_S_PLUS'] = ((bottom_context_score * bullish_short_force * bullish_medium_trend * (1 - bullish_long_inertia)) ** exponent).astype(np.float32)
-        # [代码修改] 顶部反转 = 顶部环境 * 短期看跌力量 * (1 - 长期看跌惯性)，即非长期熊市背景下的短期看跌
         states['SCORE_DYN_TOP_REVERSAL_B'] = ((top_context_score * bearish_health[1] * (1 - bearish_health[21])) ** exponent).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_A'] = ((top_context_score * bearish_health[5] * (1 - bearish_health[21])) ** exponent).astype(np.float32)
         states['SCORE_DYN_TOP_REVERSAL_S'] = ((top_context_score * bearish_short_force * (1 - bearish_long_inertia)) ** exponent).astype(np.float32)
