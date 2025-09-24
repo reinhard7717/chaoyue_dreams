@@ -770,7 +770,7 @@ class CognitiveIntelligence:
           - [权重调整] 相应地调整了加权平均的权重，为新增的“结构层”分配了权重，确保融合逻辑的完整性。
         - 收益: 修复了因缺少关键维度而导致认知层反转分过低的严重问题，使融合结果能更全面地反映市场共识。
         """
-        print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...") # 更新版本号和说明
+        print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -1017,7 +1017,7 @@ class CognitiveIntelligence:
           - [新增探针] 新增 `_deploy_structural_risk_probe` 探针，用于深度解剖“顶部危险分”的构成。
         - 收益: 解决了在反转日因“技术形态丑陋”而被错误高估风险的问题，使策略决策更符合“反转优先”的实战哲学。
         """
-        print("        -> [联合作战司令部 V281.0 风险对冲版] 启动，正在分析战场核心结构...") # 更新版本号和说明
+        print("        -> [联合作战司令部 V281.0 风险对冲版] 启动，正在分析战场核心结构...")
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states

@@ -60,20 +60,21 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 信号融合重构版】终极行为信号诊断模块
+        【V2.1 · 最终融合版】终极行为信号诊断模块
         - 核心重构 (本次修改):
-          - [信号哲学重构] 废除了旧的基于“乘法融合”的健康度计算，全面转向基于“加权平均”的新范式。
-          - [鲁棒性提升] 新的融合逻辑更能容忍单个维度的弱势，只要关键维度（如斜率）表现强劲，就能产生有效信号，更符合A股反转初期的特征。
-        - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
+          - [最终融合] 彻底废除了“价格健康度”与“成交量健康度”之间的乘法融合，改为加权算术平均。
+          - [新范式] 最终健康度 = (价格健康度 * 权重1) + (成交量健康度 * 权重2)。
+        - 收益: 彻底解决了因单个维度（如成交量）弱势而导致整个行为信号失效的“几何平均暴政”问题，信号响应更及时、更鲁棒。
         """
-        print("        -> [终极行为信号诊断模块 V2.0 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [终极行为信号诊断模块 V2.1 · 最终融合版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
         
-        # [代码修改] 定义新的加权平均权重
         health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
+        # 定义价格和成交量两个大维度的融合权重
+        dimension_weights = {'price': 0.6, 'volume': 0.4}
         
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -95,7 +96,6 @@ class BehavioralIntelligence:
         bullish_health = {}
         bearish_health = {}
         for p in periods:
-            # [代码修改] 使用加权平均重构健康度计算
             price_health = (price_static_scores[p] * health_weights['static'] + 
                             price_mom_scores[p] * health_weights['slope'] + 
                             price_accel_scores[p] * health_weights['accel'])
@@ -104,9 +104,9 @@ class BehavioralIntelligence:
                           vol_mom_scores[p] * health_weights['slope'] + 
                           vol_accel_scores[p] * health_weights['accel'])
             
-            # 融合价格和成交量健康度 (这里仍然可以使用乘法，因为是两个大维度的融合)
-            bullish_health[p] = price_health * vol_health
-            bearish_health[p] = (1 - price_health) * (1 - vol_health)
+            # 使用加权算术平均融合价格和成交量两大维度
+            bullish_health[p] = (price_health * dimension_weights['price'] + vol_health * dimension_weights['volume'])
+            bearish_health[p] = ((1 - price_health) * dimension_weights['price'] + (1 - vol_health) * dimension_weights['volume'])
 
         # --- 后续的信号合成逻辑保持不变，但其输入已经变得更加强大和鲁棒 ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5

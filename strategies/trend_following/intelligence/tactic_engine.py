@@ -60,7 +60,7 @@ class TacticEngine:
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         all_states.update(self.synthesize_squeeze_playbooks(df))
-        all_states.update(self.synthesize_panic_selling_setup(df)) # [代码修改] 调用重构后的战备信号生成方法
+        all_states.update(self.synthesize_panic_selling_setup(df)) # 调用重构后的战备信号生成方法
         print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
 
@@ -71,7 +71,7 @@ class TacticEngine:
         - 战备状态 (Setup): 融合了“价格大幅下跌”、“成交量放大”、“筹码结构崩溃”三大特征。
         - 产出: SCORE_SETUP_PANIC_SELLING_S - 一个0-1之间的数值化战备分数。
         """
-        print("        -> [恐慌抛售战备模块 V1.0] 启动...") # [代码修改] 全新方法
+        print("        -> [恐慌抛售战备模块 V1.0] 启动...") # 全新方法
         states = {}
         # --- 1. 定义“恐慌抛售日”战备分数 (Setup Score) ---
         # 维度1: 价格大幅下跌 (使用归一化的跌幅)

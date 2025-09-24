@@ -292,7 +292,7 @@ class PlaybookEngine:
         is_triggered_today = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_score) > thresholds['dominant_reversal_trigger_threshold']
         triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = was_setup_yesterday & is_triggered_today
         
-        # [代码新增] 调用新的法医探针
+        # 调用新的法医探针
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str and get_param_value(debug_params.get('enable_v_reversal_probe'), False):

@@ -69,7 +69,7 @@ class StructuralIntelligence:
           - [鲁棒性提升] 新的融合逻辑更能容忍单个维度的弱势，只要关键维度（如斜率）表现强劲，就能产生有效信号，更符合A股反转初期的特征。
         - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        print("        -> [终极结构信号诊断模块 V2.0 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [终极结构信号诊断模块 V2.0 · 信号融合重构版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -84,10 +84,10 @@ class StructuralIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         
-        # [代码修改] 定义新的加权平均权重
+        # 定义新的加权平均权重
         health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
         
-        # [代码修改] 使用新的 _calculate_health_v2 辅助函数重构所有支柱的健康度计算
+        # 使用新的 _calculate_health_v2 辅助函数重构所有支柱的健康度计算
         pillar_health = {}
         # MA支柱
         ma_health = {}
@@ -122,7 +122,7 @@ class StructuralIntelligence:
         for p in periods:
             health_scores_series = [pillar_health[key][p] for key in pillar_health]
             stacked_health_arrays = np.stack([s.values for s in health_scores_series], axis=0)
-            # [代码修改] 从几何平均改为算术平均，增强鲁棒性
+            # 从几何平均改为算术平均，增强鲁棒性
             overall_health_arr = np.mean(stacked_health_arrays, axis=0)
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
             

@@ -49,7 +49,7 @@ class DynamicMechanicsEngine:
           - [信号哲学重构] 与 structural_intelligence V2.0 同步，废除了旧的基于“乘法融合”的健康度计算，全面转向基于“加权平均”的新范式。
         - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        print("        -> [终极动态力学信号诊断模块 V3.6 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [终极动态力学信号诊断模块 V3.6 · 信号融合重构版] 启动...")
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -65,10 +65,10 @@ class DynamicMechanicsEngine:
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         
-        # [代码修改] 定义新的加权平均权重
+        # 定义新的加权平均权重
         health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
         
-        # [代码修改] 使用加权平均重构健康度计算
+        # 使用加权平均重构健康度计算
         bullish_health = {}
         bearish_health = {}
         

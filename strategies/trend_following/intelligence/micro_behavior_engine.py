@@ -192,7 +192,7 @@ class MicroBehaviorEngine:
           - [上下文净化] 引入了“顶部位置上下文”过滤器。现在，最终风险分 = 原始风险分 * 顶部位置分。
         - 收益: 从根本上解决了该信号在底部区域被错误激活的问题。确保了这个为“顶部”量身定制的风险信号，只在价格处于高位时才生效，避免了对底部反转机会的“乌龙”惩罚。
         """
-        # 更新版本号和说明
+       
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
