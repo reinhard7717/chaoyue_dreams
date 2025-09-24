@@ -2,7 +2,7 @@
 # 版本: V101.0 · 终极信号适配版
 import logging
 import pandas as pd
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 from .trend_following.intelligence_layer import IntelligenceLayer
 from .trend_following.offensive_layer import OffensiveLayer
