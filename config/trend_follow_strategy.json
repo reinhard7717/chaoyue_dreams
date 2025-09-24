@@ -21,8 +21,8 @@
         "description": "【V4.0行为引擎新增】计算价格/成交量与各自均线的比率，为行为动态诊断提供静态输入。",
         "apply_on": ["D"],
         "periods": [1, 5, 13, 21, 55],
-        "price_source": "close_D",
-        "volume_source": "volume_D"
+        "price_source": "close",
+        "volume_source": "volume"
       }
     },
     "slope_params": {
