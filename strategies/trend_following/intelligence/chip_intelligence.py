@@ -194,11 +194,22 @@ class ChipIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.0 · 对称逻辑版】计算高级动态健康度"""
+        """【V3.1 · 健壮性修复版】计算高级动态健康度""" # [代码修改] 更新版本号和说明
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        overall_static_bull = (self._normalize_score(df.get('peak_control_ratio_D'), norm_window) * self._normalize_score(df.get('peak_strength_ratio_D'), norm_window) * self._normalize_score(df.get('peak_stability_D'), norm_window) * (1.0 - df.get('is_multi_peak_D', 0.0).astype(float)))**(1/4)
-        overall_static_bear = (self._normalize_score(df.get('peak_control_ratio_D'), norm_window, ascending=False) * self._normalize_score(df.get('peak_strength_ratio_D'), norm_window, ascending=False) * self._normalize_score(df.get('peak_stability_D'), norm_window, ascending=False) * df.get('is_multi_peak_D', 0.0).astype(float))**(1/4)
+        # [代码修改] 增加上游数据检测与预警机制
+        required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"        -> [筹码情报-高级动态健康度] 警告: 缺少关键数据列 {missing_cols}，模块已跳过！")
+            # 返回空的默认值，确保下游调用者不会因解包失败而崩溃
+            return s_bull, d_bull, s_bear, d_bear
+
+        # [代码修改] 将默认值从 0.0 更改为 pd.Series(0.0, index=df.index)，以防止在列不存在时调用 .astype() 出错
+        is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
+
+        overall_static_bull = (self._normalize_score(df.get('peak_control_ratio_D'), norm_window) * self._normalize_score(df.get('peak_strength_ratio_D'), norm_window) * self._normalize_score(df.get('peak_stability_D'), norm_window) * (1.0 - is_multi_peak_series))**(1/4)
+        overall_static_bear = (self._normalize_score(df.get('peak_control_ratio_D'), norm_window, ascending=False) * self._normalize_score(df.get('peak_strength_ratio_D'), norm_window, ascending=False) * self._normalize_score(df.get('peak_stability_D'), norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
         for p in periods:
             s_bull[p] = overall_static_bull
