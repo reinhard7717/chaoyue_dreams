@@ -435,7 +435,7 @@ class IndustryDao(BaseDAO):
         获取某只股票所属的所有同花顺板块/行业/概念
         """
         return await sync_to_async(list)(
-            ThsIndexMember.objects.filter(stock__con_code=stock_code, is_new='Y').select_related('ths_index')
+            ThsIndexMember.objects.filter(stock__stock_code=stock_code, is_new='Y').select_related('ths_index')
         )
 
     @sync_to_async
