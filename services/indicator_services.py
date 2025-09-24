@@ -557,14 +557,17 @@ class IndicatorService:
                 return ('legacy_supplemental', df) # 返回一个元组，包含数据标识和DataFrame
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
         # 检查是否需要高级筹码指标数据
-        chip_params = self._find_params_recursively(config, 'chip_feature_params')
-        needs_advanced_chip_data = chip_params.get('enabled', False) if chip_params else False
-        if needs_advanced_chip_data:
+        # 直接从 indicators_config 中检查 'advanced_chip_metrics' 是否启用
+        adv_chip_params = indicators_config.get('advanced_chip_metrics', {})
+        if adv_chip_params.get('enabled', False):
+            print("    - [配置读取] 检测到 'advanced_chip_metrics' 已启用，准备加载高级筹码数据。") # 增加调试信息
             async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
                 return ('advanced_chips', df)
             tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
+        else:
+            print("    - [配置读取] 'advanced_chip_metrics' 未启用或未配置，跳过加载。") # 增加调试信息
         # 日度基本面数据是常用数据，默认获取
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None

@@ -1,15 +1,15 @@
 {
   "file_name": "config/trend_follow_strategy.json",
-  "说明": "【V83.1 · 数据管道修复版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的配置文件。它全面转向消费新的终极信号，并整合了周期智能。",
+  "说明": "【V83.2 · 全功能激活版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的配置文件。它全面转向消费新的终极信号，并整合了周期智能。",
   "feature_engineering_params": {
-    "说明": "【数据工程层 V3.1 - 数据管道修复版】为所有情报引擎的终极信号计算提供必需的斜率和加速度指标。",
+    "说明": "【数据工程层 V3.2 - 全功能激活版】为所有情报引擎的终极信号计算提供必需的斜率和加速度指标。",
     "base_needed_bars": 1200,
     "indicators": {
       "说明": "基础指标配置保持不变，关键在于衍生指标的计算。",
       "cyq_perf": { "enabled": true },
       "advanced_chip_metrics": {
         "enabled": true,
-        "description": "【新增】加载高级筹码指标，为筹码情报引擎提供基础数据。"
+        "description": "加载高级筹码指标，为筹码情报引擎提供基础数据。"
       },
       "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233] }] },
       "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55] }] },
@@ -27,6 +27,20 @@
         "periods": [1, 5, 13, 21, 55],
         "price_source": "close",
         "volume_source": "volume"
+      },
+      "ma_convergence": {
+        "enabled": true,
+        "description": "【新增】计算均线收敛度，为高级模式识别提供输入。",
+        "apply_on": ["D"],
+        "short_term_ma": "EMA_21_D",
+        "long_term_ma": "EMA_55_D"
+      },
+      "consolidation_period": {
+        "enabled": true,
+        "description": "【新增】识别价格盘整期，为突破战术提供上下文。",
+        "apply_on": ["D"],
+        "window": 20,
+        "threshold": 0.15
       }
     },
     "slope_params": {
@@ -57,9 +71,6 @@
         "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
         "main_force_net_flow_consensus_sum_5d": [5], "main_force_net_flow_consensus_sum_13d": [13], "main_force_net_flow_consensus_sum_21d": [21], "main_force_net_flow_consensus_sum_55d": [55],
         "net_xl_amount_consensus_sum_5d": [5], "net_xl_amount_consensus_sum_13d": [13], "net_xl_amount_consensus_sum_21d": [21], "net_xl_amount_consensus_sum_55d": [55],
-        "net_lg_amount_consensus_sum_5d": [5], "net_lg_amount_consensus_sum_13d": [13], "net_lg_amount_consensus_sum_21d": [21], "net_lg_amount_consensus_sum_55d": [55],
-        "net_sh_amount_consensus_sum_5d": [5], "net_sh_amount_consensus_sum_13d": [13], "net_sh_amount_consensus_sum_21d": [21], "net_sh_amount_consensus_sum_55d": [55],
-        "net_md_amount_consensus_sum_5d": [5], "net_md_amount_consensus_sum_13d": [13], "net_md_amount_consensus_sum_21d": [21], "net_md_amount_consensus_sum_55d": [55],
         "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
         "active_buy_pressure_D": [1, 5, 13, 21, 55],
         "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
@@ -84,8 +95,7 @@
         "winner_profit_margin_D": [1, 5, 13, 21, 55], "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
         "main_force_net_flow_consensus": [1, 5, 13, 21, 55], "net_xl_amount_consensus": [1, 5, 13, 21, 55],
-        "net_lg_amount_consensus": [1, 5, 13, 21, 55], "net_sh_amount_consensus": [1, 5, 13, 21, 55],
-        "net_md_amount_consensus": [1, 5, 13, 21, 55], "main_force_flow_intensity_ratio": [1, 5, 13, 21, 55],
+        "main_force_flow_intensity_ratio": [1, 5, 13, 21, 55],
         "active_buy_pressure": [1, 5, 13, 21, 55], "main_force_conviction_ratio": [1, 5, 13, 21, 55],
         "main_force_vs_xl_divergence": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail": [1, 5, 13, 21, 55],
         "retail_panic_index": [1, 5, 13, 21, 55], "avg_order_value": [5], "trade_concentration_index": [5]
@@ -106,6 +116,22 @@
     "trend_follow": {
       "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
       "debug_params": { "enabled": { "value": false }, "probe_date": "2025-09-05" },
+      "hot_money_params": {
+        "enabled": true,
+        "description": "【新增】游资席位信号参数"
+      },
+      "market_sentiment_params": {
+        "enabled": true,
+        "description": "【新增】市场情绪信号参数"
+      },
+      "kpl_theme_params": {
+        "enabled": true,
+        "description": "【新增】KPL题材热度信号参数"
+      },
+      "smart_money_params": {
+        "enabled": true,
+        "description": "【新增】聪明钱（游资与机构协同）信号参数"
+      },
       "foundation_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "behavioral_dynamics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "chip_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
@@ -115,6 +141,10 @@
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V501.0 · 终极信号适配版】计分体系。全面转向消费各情报层产出的S+/S/A/B四级终极信号。",
+        "industry_lifecycle_scoring_params": {
+          "enabled": true,
+          "description": "【新增】行业生命周期评分参数"
+        },
         "reversal_offense_scoring": {
           "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重。",
           "positive_signals": {
