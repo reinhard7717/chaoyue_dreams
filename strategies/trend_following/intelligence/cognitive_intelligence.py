@@ -1010,55 +1010,103 @@ class CognitiveIntelligence:
 
     def diagnose_market_structure_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V280.0 终极结构层信号适配版】 - 联合作战司令部
-        - 核心升级: [信号适配] 将对均线、力学等结构维度信号的消费，全面适配为消费由
-                    StructuralIntelligence V2.0 生成的 'STRUCTURE_*' 终极信号。
+        【V281.0 风险对冲版】 - 联合作战司令部
+        - 核心升级 (本次修改):
+          - [风险对冲] 在计算“顶部危险分”时，引入了由“多域反转共振分”驱动的风险抑制因子。
+          - [新范式] 当强烈的底部反转信号出现时，它会显著降低甚至消除那些由下跌惯性导致的结构性顶部风险评分。
+          - [新增探针] 新增 `_deploy_structural_risk_probe` 探针，用于深度解剖“顶部危险分”的构成。
+        - 收益: 解决了在反转日因“技术形态丑陋”而被错误高估风险的问题，使策略决策更符合“反转优先”的实战哲学。
         """
-        # print("        -> [联合作战司令部 V280.0 终极结构层信号适配版] 启动，正在分析战场核心结构...")
+        print("        -> [联合作战司令部 V281.0 风险对冲版] 启动，正在分析战场核心结构...") # [代码修改] 更新版本号和说明
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
         # --- 1. 提取核心终极信号 ---
-        structural_bullish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') # 消费终极结构看涨信号
-        structural_bearish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE') # 消费终极结构看跌信号
-        structural_top_reversal_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # 消费终极结构顶部反转信号
+        structural_bullish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
+        structural_bearish_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE')
+        structural_top_reversal_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL')
         chip_concentrating_score = self._fuse_multi_level_scores(df, 'RISING_RESONANCE')
         chip_diverging_score = self._fuse_multi_level_scores(df, 'FALLING_RESONANCE')
         behavioral_bearish_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
         risk_late_stage_score_raw = self.strategy.atomic_states.get('CONTEXT_TREND_LATE_STAGE_SCORE', pd.Series(0, index=df.index))
         risk_late_stage_score = (risk_late_stage_score_raw / 600).clip(0, 1)
         prime_opportunity_score = self._get_atomic_score(df, 'CHIP_SCORE_PRIME_OPPORTUNITY_S', 0.0)
-        # --- 2. 定义核心结构状态 ---
-        # 主升浪: 结构看涨 & 筹码集中
-        base_uptrend_score = (structural_bullish_score * chip_concentrating_score) # 使用 structural_bullish_score
+        # --- 2. 定义核心结构状态 (逻辑不变) ---
+        base_uptrend_score = (structural_bullish_score * chip_concentrating_score)
         structure_states['SCORE_STRUCTURE_MAIN_UPTREND_WAVE_S'] = base_uptrend_score.astype(np.float32)
         structure_states['STRUCTURE_MAIN_UPTREND_WAVE_S'] = base_uptrend_score > 0.4
-        # 堡垒主升浪: 主升浪 + 黄金筹码机会
         structure_states['SCORE_STRUCTURE_FORTRESS_UPTREND_S_PLUS'] = (base_uptrend_score * prime_opportunity_score).astype(np.float32)
         structure_states['STRUCTURE_FORTRESS_UPTREND_S_PLUS'] = structure_states['SCORE_STRUCTURE_FORTRESS_UPTREND_S_PLUS'] > 0.5
-        # 突破前夜: 黄金筹码机会 & 波动率压缩 & 结构看涨
         fused_squeeze_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
-        prime_setup_score = prime_opportunity_score * fused_squeeze_score * structural_bullish_score # 使用 structural_bullish_score
+        prime_setup_score = prime_opportunity_score * fused_squeeze_score * structural_bullish_score
         structure_states['SCORE_SETUP_PRIME_STRUCTURE_S'] = prime_setup_score.astype(np.float32)
         structure_states['SETUP_PRIME_STRUCTURE_S'] = prime_setup_score > 0.6
-        # 早期反转: 行为反转 & 均线斜率转正 (保留原有逻辑，因为它依赖更底层的EMA斜率)
         is_recent_reversal = atomic.get('BEHAVIOR_CONTEXT_RECENT_REVERSAL_SIGNAL', default_series)
         is_ma_short_slope_positive = df.get('SLOPE_5_EMA_5_D', pd.Series(0, index=df.index)) > 0
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = is_recent_reversal & is_ma_short_slope_positive
-        # 顶部危险: 结构看跌/反转 或 行为看跌 或 上涨末期
-        topping_danger_score = np.maximum.reduce([
-            structural_bearish_score.values, 
-            structural_top_reversal_score.values, 
-            behavioral_bearish_score.values,
-            risk_late_stage_score.values
-        ]) # 使用新的结构层终极信号
-        structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] = pd.Series(topping_danger_score, index=df.index, dtype=np.float32)
-        # 下跌通道: 结构看跌 & 筹码发散
-        bearish_channel_score = structural_bearish_score * chip_diverging_score # 使用 structural_bearish_score
+        # --- 3. 计算“顶部危险分”，并引入风险对冲 ---
+        # [代码新增] 获取底部反转共振分，作为风险抑制的来源
+        bottom_reversal_resonance_score = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', pd.Series(0.0, index=df.index))
+        # [代码新增] 计算风险抑制因子。反转分越高，抑制越强。乘以2是为了让抑制效果更显著。
+        reversal_context_mitigation = (1 - (bottom_reversal_resonance_score * 2.0).clip(0, 1))
+        # 原始的顶部危险分计算
+        topping_danger_components = {
+            "structural_bearish": structural_bearish_score,
+            "structural_top_reversal": structural_top_reversal_score,
+            "behavioral_bearish": behavioral_bearish_score,
+            "late_stage_risk": risk_late_stage_score
+        }
+        topping_danger_score_raw = pd.Series(np.maximum.reduce([v.values for v in topping_danger_components.values()]), index=df.index, dtype=np.float32)
+        # [代码修改] 将原始风险分乘以抑制因子，得到最终的风险分
+        topping_danger_score_final = topping_danger_score_raw * reversal_context_mitigation
+        structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] = topping_danger_score_final.astype(np.float32)
+        # --- 4. 下跌通道计算 (逻辑不变) ---
+        bearish_channel_score = structural_bearish_score * chip_diverging_score
         structure_states['SCORE_STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score.astype(np.float32)
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score > 0.5
-        # print("        -> [联合作战司令部 V280.0] 核心战局定义升级完成。")
+        # --- 5. [代码新增] 调用新的探针 ---
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str and get_param_value(debug_params.get('enable_structural_risk_probe'), False):
+            self._deploy_structural_risk_probe(probe_date_str, topping_danger_components, bottom_reversal_resonance_score, reversal_context_mitigation, topping_danger_score_raw, topping_danger_score_final)
         return structure_states
+
+    def _deploy_structural_risk_probe(self, probe_date: str, components: Dict[str, pd.Series], mitigation_source: pd.Series, mitigation_factor: pd.Series, raw_score: pd.Series, final_score: pd.Series):
+        """
+        【V1.0 新增】结构风险法医探针
+        - 核心职责: 深度解剖 `SCORE_STRUCTURE_TOPPING_DANGER_S` 信号的构成，并清晰展示风险对冲过程。
+        """
+        print("\n" + "="*35 + f" [结构风险法医探针 V1.0] 正在解剖 {probe_date} 的顶部危险分 " + "="*35)
+        try:
+            probe_ts = pd.to_datetime(probe_date)
+            if probe_ts not in raw_score.index:
+                print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。解剖终止。")
+                return
+            print("  --- [第一部分: 原始风险构成] ---")
+            print(f"  原始分是以下信号的最大值:")
+            component_values = {}
+            for name, series in components.items():
+                value = series.get(probe_ts, 0.0)
+                component_values[name] = value
+                print(f"    - {name:<25} = {value:.4f}")
+            calculated_raw_score = max(component_values.values())
+            actual_raw_score = raw_score.get(probe_ts, 0.0)
+            print(f"  [验算] 探针计算原始分: {calculated_raw_score:.4f} vs 引擎记录原始分: {actual_raw_score:.4f} ({'一致' if np.isclose(calculated_raw_score, actual_raw_score) else '不一致'})")
+            print("\n  --- [第二部分: 风险对冲过程] ---")
+            mitigation_source_score = mitigation_source.get(probe_ts, 0.0)
+            mitigation_factor_value = mitigation_factor.get(probe_ts, 1.0)
+            print(f"  - 对冲信号源 (COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S): {mitigation_source_score:.4f}")
+            print(f"  - 计算抑制因子: (1 - (信号源分 * 2.0).clip(0, 1)) = {mitigation_factor_value:.4f}")
+            print("\n  --- [第三部分: 最终结论] ---")
+            calculated_final_score = actual_raw_score * mitigation_factor_value
+            actual_final_score = final_score.get(probe_ts, 0.0)
+            print(f"  - 最终决策公式: 原始风险分 * 抑制因子 = 最终风险分")
+            print(f"  - [验算] {actual_raw_score:.4f} * {mitigation_factor_value:.4f} = {calculated_final_score:.4f}")
+            print(f"  - 引擎记录最终分: {actual_final_score:.4f} ({'一致' if np.isclose(calculated_final_score, actual_final_score) else '不一致'})")
+        except Exception as e:
+            print(f"  [探针错误] 在执行结构风险法医探针时发生异常: {e}")
+        finally:
+            print("="*95 + "\n")
 
     def synthesize_topping_behaviors(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

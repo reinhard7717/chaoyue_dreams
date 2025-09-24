@@ -898,40 +898,35 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V320.8 · 双探针集成版】
+        【V321.0 · 结构风险探针集成版】
         - 核心修改 (本次修改):
-          - [探针集成] 新增对 `enable_capitulation_probe` 参数的检查，如果为真，则调用新增的 `_deploy_capitulation_probe` 探针。
+          - [探针集成] 新增对 `enable_structural_risk_probe` 参数的检查，如果为真，则调用新增的 `_deploy_structural_risk_probe` 探针。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V320.8 双探针集成版)] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 (V321.0 结构风险探针集成版)] ---") # [代码修改] 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 正常执行核心流程，生成所有数据
             all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = await self.run_for_stock(stock_code, trade_time=end_date, start_date_str=start_date)
-            
             # 检查并部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
-            
             if probe_date:
-                # 增加对新探针的调用
-                # if get_param_value(debug_params.get('enable_coroner_probe'), True): # 默认开启法医官探针
-                #     self._deploy_field_coroner_probe(probe_date=probe_date)
-                
-                # if get_param_value(debug_params.get('enable_capitulation_probe'), True): # 新探针默认关闭
-                #     self._deploy_capitulation_probe(probe_date=probe_date)
-                
-                # 新增对终极反转探针的调用
+                # [代码修改] 新增对结构风险探针的调用，它现在由 cognitive_intelligence 模块负责
+                # 注意：这个探针的调用逻辑已经内嵌到 diagnose_market_structure_states 方法中，
+                # 这里我们只需要确保 debug_params 中的 enable_structural_risk_probe 为 true 即可。
+                # 为了清晰，我们可以在这里打印一个提示。
+                if get_param_value(debug_params.get('enable_structural_risk_probe'), False):
+                    print(f"    -> [探针提示] 'enable_structural_risk_probe' 已激活，将在 {probe_date} 运行结构风险法医探针。")
                 if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
                     self._deploy_ultimate_reversal_probe(probe_date=probe_date)
-
+            # ... 后续的报告生成逻辑保持不变 ...
             all_daily_scores_for_debug = all_daily_scores
             if all_score_components:
                 unique_scores_from_components = {id(comp.daily_score): comp.daily_score for comp in all_score_components}
                 all_daily_scores_for_debug = list(unique_scores_from_components.values())
-
             if not all_daily_scores_for_debug:
                 print("[信息] 核心策略未生成任何每日分数记录。")
                 return
@@ -950,7 +945,6 @@ class MultiTimeframeTrendStrategy:
                 if trade_date not in daily_components_map:
                     daily_components_map[trade_date] = []
                 daily_components_map[trade_date].append(comp)
-            
             print(f"\n[步骤 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt_date = pd.to_datetime(start_date).date()
             end_dt_date = pd.to_datetime(end_date).date()
@@ -962,10 +956,9 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
             debug_period_daily_scores.sort(key=lambda x: x.trade_date)
-            display_days = 15 # 定义要展示的最新天数
+            display_days = 15
             if len(debug_period_daily_scores) > display_days:
                 print(f"\n[信息] 回测周期内共有 {len(debug_period_daily_scores)} 天数据，将仅展示最新的 {display_days} 天详细报告。")
-                # 对已排序的列表进行切片，只取最后10个元素
                 debug_period_daily_scores = debug_period_daily_scores[-display_days:]
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             subtotal_signal_names = ['SCORE_SETUP', 'SCORE_TRIGGER', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE']
