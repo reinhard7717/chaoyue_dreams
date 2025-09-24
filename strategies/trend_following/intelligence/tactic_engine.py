@@ -47,12 +47,12 @@ class TacticEngine:
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 王牌反转剧本版】战术引擎总指挥
-        - 核心升级 (本次修改):
-          - [新增剧本] 新增对 `synthesize_v_reversal_ace_playbook` 的调用，引入专门用于捕捉V型反转的王牌剧本。
+        【V1.2 · 架构归位版】战术引擎总指挥
+        - 核心重构 (本次修改):
+          - [职责重塑] 将原有的 `synthesize_v_reversal_ace_playbook` 重构为 `synthesize_panic_selling_setup`，使其职责回归纯粹的“战备信号生成”。
         - 核心职责: 按顺序调用本模块内的所有战术合成方法，并汇总其产出的所有信号。
         """
-        print("      -> [战术引擎 V1.1 · 王牌反转剧本版] 启动...") # [代码修改] 更新版本号和说明
+        print("      -> [战术引擎 V1.2 · 架构归位版] 启动...") # [代码修改] 更新版本号和说明
         all_states = {}
         # 注意：一些战术依赖于其他战术的输出，调用顺序很重要
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
@@ -60,9 +60,32 @@ class TacticEngine:
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         all_states.update(self.synthesize_squeeze_playbooks(df))
-        all_states.update(self.synthesize_v_reversal_ace_playbook(df)) # 调用新的V型反转王牌剧本
+        all_states.update(self.synthesize_panic_selling_setup(df)) # [代码修改] 调用重构后的战备信号生成方法
         print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
+
+    def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增, 原V型反转剧本重构】恐慌抛售战备(Setup)信号生成模块
+        - 核心目标: 识别“恐慌抛售日”，为下游的V型反转剧本提供战备状态输入。
+        - 战备状态 (Setup): 融合了“价格大幅下跌”、“成交量放大”、“筹码结构崩溃”三大特征。
+        - 产出: SCORE_SETUP_PANIC_SELLING_S - 一个0-1之间的数值化战备分数。
+        """
+        print("        -> [恐慌抛售战备模块 V1.0] 启动...") # [代码修改] 全新方法
+        states = {}
+        # --- 1. 定义“恐慌抛售日”战备分数 (Setup Score) ---
+        # 维度1: 价格大幅下跌 (使用归一化的跌幅)
+        price_drop_score = self._normalize_score(df['pct_change_D'].clip(upper=0), window=60, ascending=False)
+        # 维度2: 成交量显著放大
+        volume_spike_score = self._normalize_score(df['volume_D'] / df['VOL_MA_21_D'], window=60, ascending=True)
+        # 维度3: 筹码结构崩溃 (使用看跌共振信号)
+        chip_breakdown_score = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
+        # 融合为战备分
+        setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score).astype(np.float32)
+        states['SCORE_SETUP_PANIC_SELLING_S'] = setup_panic_selling_score
+        if (setup_panic_selling_score > 0.5).any():
+            print(f"          -> [S级战备] 侦测到 {(setup_panic_selling_score > 0.5).sum()} 个“恐慌抛售”战备日！")
+        return states
 
     def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

@@ -165,17 +165,18 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.2 · 健壮性修复版】战术触发事件定义中心
-        - 核心修复 (本次修改):
-          - [健壮性] 在读取阈值时，为 `get_param_value` 提供了默认值。这可以防止因配置文件中缺少某个阈值参数而导致程序崩溃的 `KeyError`。
+        【V8.0 · V型反转架构归位版】战术触发事件定义中心
+        - 核心重构 (本次修改):
+          - [架构归位] 将V型反转的核心触发逻辑（昨日战备 & 今日点火）移至此处，彻底解决循环依赖问题。
+          - [新范式] `TRIGGER_V_REVERSAL_ACE_S_PLUS` 现在由 `SCORE_SETUP_PANIC_SELLING_S` (昨日) 和 `TRIGGER_DOMINANT_REVERSAL` (今日) 共同决定。
+        - 收益: 严格遵循了“战备->触发->剧本”的架构，使信号生成逻辑清晰、健壮、可维护。
         """
-        print("      -> [战术触发事件定义中心 V7.2 · 健壮性修复版] 启动...") # [代码修改] 更新版本号和说明
+        print("      -> [战术触发事件定义中心 V8.0 · V型反转架构归位版] 启动...") # [代码修改] 更新版本号和说明
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         default_series = pd.Series(False, index=df.index)
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
-        # [代码修改] 为所有 get_param_value 调用添加默认值，增强健壮性
         thresholds = {
             'ignition_s': get_param_value(p_triggers.get('ignition_s_threshold'), 0.5),
             'bottom_reversal_s': get_param_value(p_triggers.get('bottom_reversal_s_threshold'), 0.4),
@@ -196,9 +197,11 @@ class PlaybookEngine:
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
             'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
             'mean_reversion_grid_buy_a': get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8),
-            'v_reversal_ace_s_plus': get_param_value(p_triggers.get('v_reversal_ace_s_plus_threshold'), 0.3),
+            # [代码新增] 为V型反转触发器定义新的阈值
+            'panic_selling_setup_threshold': get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4),
+            'dominant_reversal_trigger_threshold': get_param_value(p_triggers.get('dominant_reversal_trigger_threshold'), 0.2),
         }
-        # --- 后续逻辑保持不变 ---
+        # --- TRIGGER_DOMINANT_REVERSAL 的定义保持V7.0版不变 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
         today_body_size = (df['close_D'] - df['open_D']).clip(lower=0)
         yesterday_body_size = (df['open_D'].shift(1) - df['close_D'].shift(1)).clip(lower=0)
@@ -212,8 +215,15 @@ class PlaybookEngine:
         candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score
-        v_reversal_score = atomic.get('SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS', default_score)
-        triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = v_reversal_score > thresholds['v_reversal_ace_s_plus']
+        # --- [代码修改] 实现V型反转王牌剧本的正确触发逻辑 ---
+        # 战备条件: 昨日是“恐慌抛售日”
+        was_setup_yesterday = atomic.get('SCORE_SETUP_PANIC_SELLING_S', default_score).shift(1).fillna(0.0) > thresholds['panic_selling_setup_threshold']
+        # 点火条件: 今日出现“显性反转”
+        is_triggered_today = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_score) > thresholds['dominant_reversal_trigger_threshold']
+        # 最终触发器
+        triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = was_setup_yesterday & is_triggered_today
+        # --- 后续触发器定义逻辑保持不变 ---
+        # ... (此处省略后续代码，与上一版完全相同) ...
         triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = (atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > thresholds['true_accumulation_breakout_s_plus']) & (atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s'])
         triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = (atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score) > thresholds['capitulation_reversal_a_plus']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5)
         triggers['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'] = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score) > thresholds['conviction_breakout_s_plus']
