@@ -79,33 +79,37 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 剧本化重构版】早期动能点火诊断模块 (东风初起)
-        - 核心升级 (本次修改):
-          - [逻辑重构] 废除了原有的五因子“大杂烩”加权平均模型，重构为基于两种经典A股反转剧本的诊断模式。
-          - [新范式] 最终分数 = MAX(卖盘衰竭剧本分, 买盘突袭剧本分)。
-            - 卖盘衰竭剧本 = 点火K线分 * S级波动率压缩分 (捕捉“地量见地价”后的启动)。
-            - 买盘突袭剧本 = 点火K线分 * S级波动率扩张分 (捕捉“放量大阳线”的暴力启动)。
-        - 收益: 解决了原模型因子间逻辑矛盾、无法对特定剧本给出高分的问题，使信号能更精准、更强力地捕捉两种核心的底部启动形态。
+        【V7.0 · 上下文过滤器版】早期动能点火诊断模块
+        - 核心重构 (本次修改):
+          - [上下文过滤器] 为解决“V6.0版”可能在加速冲顶时被错误激活的问题，引入了“下跌趋势”和“底部区域”双重上下文过滤器。
+          - [新范式] 最终分数 = 原始点火分数 × 下跌趋势上下文 × 底部区域上下文。
+          - 原始点火分数: 识别高质量大阳线。
+          - 下跌趋势上下文: 确保大阳线出现在短期下跌之后。
+          - 底部区域上下文: 确保大阳线出现在价格的相对低位。
+        - 收益: 从根本上区分了“底部反转阳线”和“顶部加速阳线”，极大提升了信号的准确性，避免了在趋势末端追高。
         """
+        print("        -> [早期动能点火诊断模块 V7.0 · 上下文过滤器版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
-        atomic = self.strategy.atomic_states
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 提取上游核心信号 ---
-        vol_compression_score = atomic.get('SCORE_VOL_COMPRESSION_S', default_score)
-        vol_expansion_score = atomic.get('SCORE_VOL_EXPANSION_S', default_score)
-        # --- 2. 计算“点火K线”强度分 ---
-        # 核心逻辑：一个阳线实体占据整个K线振幅的比例，代表了当日买方的控制力。
+        # --- 1. 计算原始点火分数 (Raw Ignition Score) ---
         candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        ignition_candle_score = ((df['close_D'] - df['open_D']) / candle_range).clip(0, 1).fillna(0.0)
-        # --- 3. 计算两大反转剧本得分 ---
-        # 剧本一：卖盘衰竭式反转 (缩量 + 决定性阳线)
-        seller_exhaustion_score = (ignition_candle_score * vol_compression_score).astype(np.float32)
-        # 剧本二：买盘突袭式反转 (放量 + 决定性阳线)
-        buyer_assault_score = (ignition_candle_score * vol_expansion_score).astype(np.float32)
-        # --- 4. 融合生成最终信号 ---
-        # 取两种剧本中的最高分，代表当日最符合的启动模式
-        final_score = np.maximum(seller_exhaustion_score, buyer_assault_score)
-        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score.astype(np.float32)
+        body_size = (df['close_D'] - df['open_D']).clip(lower=0)
+        body_strength_score = (body_size / candle_range).fillna(0.0)
+        position_in_range_score = ((df['close_D'] - df['low_D']) / candle_range).fillna(0.0)
+        momentum_strength_score = (df['pct_change_D'] / 0.10).clip(0, 1).fillna(0.0)
+        raw_ignition_score = (body_strength_score * position_in_range_score * momentum_strength_score)
+        # --- 2. 计算下跌趋势上下文分数 (Downtrend Context) ---
+        # 评估5日收盘价斜率，斜率越负，分数越高
+        downtrend_context_score = self._normalize_score(df['SLOPE_5_close_D'], window=60, ascending=False)
+        # --- 3. 计算底部区域上下文分数 (Low Price Context) ---
+        # 评估价格在过去60日的位置，位置越低，分数越高
+        rolling_high_60d = df['high_D'].rolling(window=60, min_periods=20).max()
+        rolling_low_60d = df['low_D'].rolling(window=60, min_periods=20).min()
+        price_range_60d = (rolling_high_60d - rolling_low_60d).replace(0, np.nan)
+        price_position_60d = ((df['close_D'] - rolling_low_60d) / price_range_60d).clip(0, 1).fillna(0.5)
+        low_price_context_score = 1.0 - price_position_60d
+        # --- 4. [代码修改] 融合生成最终信号 (应用双重上下文过滤器) ---
+        final_score = (raw_ignition_score * downtrend_context_score * low_price_context_score).astype(np.float32)
+        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
         return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

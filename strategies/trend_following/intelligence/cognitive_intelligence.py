@@ -770,12 +770,12 @@ class CognitiveIntelligence:
           - [权重调整] 相应地调整了加权平均的权重，为新增的“结构层”分配了权重，确保融合逻辑的完整性。
         - 收益: 修复了因缺少关键维度而导致认知层反转分过低的严重问题，使融合结果能更全面地反映市场共识。
         """
-        print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...") # 更新版本号和说明
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
-        # [代码修改] 更新默认权重，为新增的 'structure' 分配权重
+        # 更新默认权重，为新增的 'structure' 分配权重
         bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         # --- 1. 合成“底部反转共振”分数 ---
@@ -783,7 +783,7 @@ class CognitiveIntelligence:
         chip_bottom_score = self._fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL')
         foundation_bottom_score = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
         behavior_bottom_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
-        structure_bottom_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL') # [代码新增] 获取结构层反转信号
+        structure_bottom_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL') # 获取结构层反转信号
         total_bottom_score = pd.Series(0.0, index=df.index)
         total_bottom_weight = 0.0
         bottom_sources = {
@@ -791,7 +791,7 @@ class CognitiveIntelligence:
             'chip': chip_bottom_score,
             'foundation': foundation_bottom_score,
             'behavior': behavior_bottom_score,
-            'structure': structure_bottom_score # [代码新增] 将结构层信号加入融合源
+            'structure': structure_bottom_score # 将结构层信号加入融合源
         }
         for domain, weight in bottom_weights.items():
             if domain in bottom_sources and weight > 0:
@@ -807,7 +807,7 @@ class CognitiveIntelligence:
         chip_top_score = self._fuse_multi_level_scores(df, 'CHIP_TOP_REVERSAL')
         foundation_top_score = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
         behavior_top_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        structure_top_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # [代码新增] 获取结构层顶部反转信号
+        structure_top_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL') # 获取结构层顶部反转信号
         total_top_score = pd.Series(0.0, index=df.index)
         total_top_weight = 0.0
         top_sources = {
@@ -815,7 +815,7 @@ class CognitiveIntelligence:
             'chip': chip_top_score,
             'foundation': foundation_top_score,
             'behavior': behavior_top_score,
-            'structure': structure_top_score # [代码新增] 将结构层信号加入融合源
+            'structure': structure_top_score # 将结构层信号加入融合源
         }
         for domain, weight in top_weights.items():
             if domain in top_sources and weight > 0:
@@ -1017,7 +1017,7 @@ class CognitiveIntelligence:
           - [新增探针] 新增 `_deploy_structural_risk_probe` 探针，用于深度解剖“顶部危险分”的构成。
         - 收益: 解决了在反转日因“技术形态丑陋”而被错误高估风险的问题，使策略决策更符合“反转优先”的实战哲学。
         """
-        print("        -> [联合作战司令部 V281.0 风险对冲版] 启动，正在分析战场核心结构...") # [代码修改] 更新版本号和说明
+        print("        -> [联合作战司令部 V281.0 风险对冲版] 启动，正在分析战场核心结构...") # 更新版本号和说明
         structure_states = {}
         default_series = pd.Series(False, index=df.index)
         atomic = self.strategy.atomic_states
@@ -1045,9 +1045,9 @@ class CognitiveIntelligence:
         is_ma_short_slope_positive = df.get('SLOPE_5_EMA_5_D', pd.Series(0, index=df.index)) > 0
         structure_states['STRUCTURE_EARLY_REVERSAL_B'] = is_recent_reversal & is_ma_short_slope_positive
         # --- 3. 计算“顶部危险分”，并引入风险对冲 ---
-        # [代码新增] 获取底部反转共振分，作为风险抑制的来源
+        # 获取底部反转共振分，作为风险抑制的来源
         bottom_reversal_resonance_score = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', pd.Series(0.0, index=df.index))
-        # [代码新增] 计算风险抑制因子。反转分越高，抑制越强。乘以2是为了让抑制效果更显著。
+        # 计算风险抑制因子。反转分越高，抑制越强。乘以2是为了让抑制效果更显著。
         reversal_context_mitigation = (1 - (bottom_reversal_resonance_score * 2.0).clip(0, 1))
         # 原始的顶部危险分计算
         topping_danger_components = {
@@ -1057,14 +1057,14 @@ class CognitiveIntelligence:
             "late_stage_risk": risk_late_stage_score
         }
         topping_danger_score_raw = pd.Series(np.maximum.reduce([v.values for v in topping_danger_components.values()]), index=df.index, dtype=np.float32)
-        # [代码修改] 将原始风险分乘以抑制因子，得到最终的风险分
+        # 将原始风险分乘以抑制因子，得到最终的风险分
         topping_danger_score_final = topping_danger_score_raw * reversal_context_mitigation
         structure_states['SCORE_STRUCTURE_TOPPING_DANGER_S'] = topping_danger_score_final.astype(np.float32)
         # --- 4. 下跌通道计算 (逻辑不变) ---
         bearish_channel_score = structural_bearish_score * chip_diverging_score
         structure_states['SCORE_STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score.astype(np.float32)
         structure_states['STRUCTURE_BEARISH_CHANNEL_F'] = bearish_channel_score > 0.5
-        # --- 5. [代码新增] 调用新的探针 ---
+        # --- 5. 调用新的探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params')
         probe_date_str = get_param_value(debug_params.get('probe_date'))
         if probe_date_str and get_param_value(debug_params.get('enable_structural_risk_probe'), False):
@@ -1078,10 +1078,10 @@ class CognitiveIntelligence:
           - [BUG修复] 增加了时区对齐逻辑。现在探针会检查数据索引的时区，并相应地本地化探针日期，解决了因时区不匹配导致“找不到日期”的严重错误。
         - 核心职责: 深度解剖 `SCORE_STRUCTURE_TOPPING_DANGER_S` 信号的构成，并清晰展示风险对冲过程。
         """
-        print("\n" + "="*35 + f" [结构风险法医探针 V1.1 时区修复版] 正在解剖 {probe_date} 的顶部危险分 " + "="*35) # [代码修改] 更新版本号
+        print("\n" + "="*35 + f" [结构风险法医探针 V1.1 时区修复版] 正在解剖 {probe_date} 的顶部危险分 " + "="*35) # 更新版本号
         try:
             probe_ts_naive = pd.to_datetime(probe_date)
-            # [代码新增] 增加时区对齐逻辑，确保探针时间戳与数据索引的时区一致
+            # 增加时区对齐逻辑，确保探针时间戳与数据索引的时区一致
             if raw_score.index.tz is not None:
                 probe_ts = probe_ts_naive.tz_localize(raw_score.index.tz)
             else:

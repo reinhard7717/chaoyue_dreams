@@ -903,7 +903,7 @@ class MultiTimeframeTrendStrategy:
           - [探针集成] 新增对 `enable_structural_risk_probe` 参数的检查，如果为真，则调用新增的 `_deploy_structural_risk_probe` 探针。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 (V321.0 结构风险探针集成版)] ---") # [代码修改] 更新版本号
+        print(f"--- [历史回溯调试启动 (V321.0 结构风险探针集成版)] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -914,7 +914,7 @@ class MultiTimeframeTrendStrategy:
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
-                # [代码修改] 新增对结构风险探针的调用，它现在由 cognitive_intelligence 模块负责
+                # 新增对结构风险探针的调用，它现在由 cognitive_intelligence 模块负责
                 # 注意：这个探针的调用逻辑已经内嵌到 diagnose_market_structure_states 方法中，
                 # 这里我们只需要确保 debug_params 中的 enable_structural_risk_probe 为 true 即可。
                 # 为了清晰，我们可以在这里打印一个提示。

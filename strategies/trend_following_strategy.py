@@ -3,7 +3,7 @@
 import logging
 import pandas as pd
 from typing import Any, Dict, List, Optional, Tuple
-import gc # [代码新增] 导入gc模块以支持内存回收
+import gc # 导入gc模块以支持内存回收
 
 from .trend_following.intelligence_layer import IntelligenceLayer
 from .trend_following.offensive_layer import OffensiveLayer
