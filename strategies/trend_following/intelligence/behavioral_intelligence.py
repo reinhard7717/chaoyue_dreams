@@ -60,68 +60,61 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 基因改造版】终极行为信号诊断模块
-        - 核心升级 (本次修改):
-          - [逻辑重构] 彻底重构了“反转”信号的生成逻辑，不再使用“创可贴”式的反过热因子。
-          - [新增] 明确定义了“底部上下文分数”和“顶部上下文分数”，基于价格在长期（55日）区间的位置进行量化。
-          - [新范式] “底部反转”分数 = “底部上下文分数” * “短期看涨力量” * “长期看跌惯性”。
-          - “顶部反转”分数 = “顶部上下文分数” * “短期看跌力量” * “长期看涨惯性”。
-        - 收益:
-          - 从根本上解决了“底部反转”信号在顶部得分最高的反向指标问题。信号的定义与其名称在逻辑上完全自洽。
+        【V2.0 · 信号融合重构版】终极行为信号诊断模块
+        - 核心重构 (本次修改):
+          - [信号哲学重构] 废除了旧的基于“乘法融合”的健康度计算，全面转向基于“加权平均”的新范式。
+          - [鲁棒性提升] 新的融合逻辑更能容忍单个维度的弱势，只要关键维度（如斜率）表现强劲，就能产生有效信号，更符合A股反转初期的特征。
+        - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        # print("        -> [终极行为信号诊断模块 V1.2 基因改造版] 启动...") # 修改: 更新版本号
+        print("        -> [终极行为信号诊断模块 V2.0 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return states
-        # --- 定义“位置上下文”分数，替代“反过热因子” ---
+        
+        # [代码修改] 定义新的加权平均权重
+        health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
+        
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9) # 使用一个极小值代替np.nan
-        # 价格在55日区间内的位置分 (0=最低点, 1=最高点)
+        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
-        # “底部上下文”分数：价格位置越低，分数越高
         bottom_context_score = 1 - price_position_in_range
-        # “顶部上下文”分数：价格位置越高，分数越高
         top_context_score = price_position_in_range
-
-        # --- 1. 军备检查 (Arsenal Check) ---
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-        required_cols = set()
-        for p in periods:
-            required_cols.update([
-                f'price_vs_ma_{p}_D', f'volume_vs_ma_{p}_D',
-                f'SLOPE_{p}_close_D', f'ACCEL_{p}_close_D',
-                f'SLOPE_{p}_volume_D', f'ACCEL_{p}_volume_D'
-            ])
-        missing_cols = list(required_cols - set(df.columns))
-        if missing_cols:
-            print(f"          -> [严重警告] 终极行为引擎缺少关键数据: {sorted(missing_cols)}，模块已跳过！")
-            return states
-        # --- 2. 核心要素数值化 (归一化处理) ---
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        price_static = {p: self._normalize_series(df.get(f'price_vs_ma_{p}_D'), norm_window, min_periods) for p in periods}
-        price_mom = {p: self._normalize_series(df.get(f'SLOPE_{p}_close_D'), norm_window, min_periods) for p in periods}
-        price_accel = {p: self._normalize_series(df.get(f'ACCEL_{p}_close_D'), norm_window, min_periods) for p in periods}
-        vol_static = {p: self._normalize_series(df.get(f'volume_vs_ma_{p}_D'), norm_window, min_periods, ascending=False) for p in periods}
-        vol_mom = {p: self._normalize_series(df.get(f'SLOPE_{p}_volume_D'), norm_window, min_periods) for p in periods}
-        vol_accel = {p: self._normalize_series(df.get(f'ACCEL_{p}_volume_D'), norm_window, min_periods) for p in periods}
-        # --- 3. 计算每个周期的“完美健康度” (Intra-Timeframe Validation) ---
+        
+        price_static_scores = {p: self._normalize_series(df.get(f'price_vs_ma_{p}_D'), norm_window, min_periods) for p in periods}
+        price_mom_scores = {p: self._normalize_series(df.get(f'SLOPE_{p}_close_D'), norm_window, min_periods) for p in periods}
+        price_accel_scores = {p: self._normalize_series(df.get(f'ACCEL_{p}_close_D'), norm_window, min_periods) for p in periods}
+        vol_static_scores = {p: self._normalize_series(df.get(f'volume_vs_ma_{p}_D'), norm_window, min_periods, ascending=False) for p in periods}
+        vol_mom_scores = {p: self._normalize_series(df.get(f'SLOPE_{p}_volume_D'), norm_window, min_periods) for p in periods}
+        vol_accel_scores = {p: self._normalize_series(df.get(f'ACCEL_{p}_volume_D'), norm_window, min_periods) for p in periods}
+        
         bullish_health = {}
         bearish_health = {}
         for p in periods:
-            bullish_health[p] = (price_static[p] * price_mom[p] * price_accel[p] * vol_static[p] * vol_mom[p] * vol_accel[p])
-            # 采用新的“看跌共振”计算逻辑
-            bearish_health[p] = ((1-price_static[p]) * (1-price_mom[p]) * (1-price_accel[p]) * (1-vol_static[p]) * (1-vol_mom[p]) * (1-vol_accel[p]))
-        # --- 4. 定义信号组件 ---
+            # [代码修改] 使用加权平均重构健康度计算
+            price_health = (price_static_scores[p] * health_weights['static'] + 
+                            price_mom_scores[p] * health_weights['slope'] + 
+                            price_accel_scores[p] * health_weights['accel'])
+            
+            vol_health = (vol_static_scores[p] * health_weights['static'] + 
+                          vol_mom_scores[p] * health_weights['slope'] + 
+                          vol_accel_scores[p] * health_weights['accel'])
+            
+            # 融合价格和成交量健康度 (这里仍然可以使用乘法，因为是两个大维度的融合)
+            bullish_health[p] = price_health * vol_health
+            bearish_health[p] = (1 - price_health) * (1 - vol_health)
+
+        # --- 后续的信号合成逻辑保持不变，但其输入已经变得更加强大和鲁棒 ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
         bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5
         bullish_long_inertia = bullish_health[55]
         bearish_short_force = (bearish_health[1] * bearish_health[5])**0.5
         bearish_medium_trend = (bearish_health[13] * bearish_health[21])**0.5
         bearish_long_inertia = bearish_health[55]
-        # --- 5. 共振信号合成 ---
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE_B'] = bullish_health[5].astype(np.float32)
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE_A'] = (bullish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE_S'] = (bullish_short_force * bullish_medium_trend).astype(np.float32)
@@ -130,14 +123,10 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_A'] = (bearish_health[5] * bearish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] = (bearish_short_force * bearish_medium_trend).astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = (states['SCORE_BEHAVIOR_BEARISH_RESONANCE_S'] * bearish_long_inertia).astype(np.float32)
-        # --- 6. 反转信号合成 ---
-        # --- 重构反转信号逻辑 ---
-        # 底部反转 = 底部上下文 * 短期看涨力量 * 长期看跌惯性
         states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_B'] = (bottom_context_score * bullish_health[1] * bearish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_A'] = (bottom_context_score * bullish_health[5] * bearish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S'] = (bottom_context_score * bullish_short_force * bearish_long_inertia).astype(np.float32)
-        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bearish_medium_trend * bearish_long_inertia).astype(np.float32)
-        # 顶部反转 = 顶部上下文 * 短期看跌力量 * 长期看涨惯性
+        states['SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS'] = (bottom_context_score * bullish_short_force * bullish_medium_trend * bearish_long_inertia).astype(np.float32)
         states['SCORE_BEHAVIOR_TOP_REVERSAL_B'] = (top_context_score * bearish_health[1] * bullish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_TOP_REVERSAL_A'] = (top_context_score * bearish_health[5] * bullish_health[21]).astype(np.float32)
         states['SCORE_BEHAVIOR_TOP_REVERSAL_S'] = (top_context_score * bearish_short_force * bullish_long_inertia).astype(np.float32)

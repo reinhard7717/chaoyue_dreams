@@ -49,7 +49,7 @@ class DynamicMechanicsEngine:
           - [信号哲学重构] 与 structural_intelligence V2.0 同步，废除了旧的基于“乘法融合”的健康度计算，全面转向基于“加权平均”的新范式。
         - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        print("        -> [终极动态力学信号诊断模块 V3.6 · 信号融合重构版] 启动...") # 更新版本号和说明
+        print("        -> [终极动态力学信号诊断模块 V3.6 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -64,16 +64,18 @@ class DynamicMechanicsEngine:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # 定义新的加权平均权重
+        
+        # [代码修改] 定义新的加权平均权重
         health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
-        # 使用加权平均重构健康度计算
+        
+        # [代码修改] 使用加权平均重构健康度计算
         bullish_health = {}
         bearish_health = {}
+        
         # 预计算所有归一化分数
         price_static = self._normalize_series(df['close_D'], norm_window, min_periods)
         price_mom = {p: self._normalize_series(df[f'SLOPE_{p}_close_D'], norm_window, min_periods) for p in periods}
         price_accel = {p: self._normalize_series(df[f'ACCEL_{p}_close_D'], norm_window, min_periods) for p in periods}
-        # ... (此处省略其他指标的预计算，逻辑与原版一致) ...
         volume_static = self._normalize_series(df['volume_D'], norm_window, min_periods)
         volume_mom = {p: self._normalize_series(df[f'SLOPE_{p}_volume_D'], norm_window, min_periods) for p in periods}
         volume_accel = {p: self._normalize_series(df[f'ACCEL_{p}_volume_D'], norm_window, min_periods) for p in periods}
@@ -92,6 +94,7 @@ class DynamicMechanicsEngine:
         inertia_static = self._normalize_series(df['ADX_14_D'], norm_window, min_periods)
         inertia_mom = {p: self._normalize_series(df[f'SLOPE_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
         inertia_accel = {p: self._normalize_series(df[f'ACCEL_{p}_ADX_14_D'], norm_window, min_periods) for p in periods}
+
         for p in periods:
             price_health = price_static * health_weights['static'] + price_mom[p] * health_weights['slope'] + price_accel[p] * health_weights['accel']
             volume_health = volume_static * health_weights['static'] + volume_mom[p] * health_weights['slope'] + volume_accel[p] * health_weights['accel']
@@ -107,7 +110,8 @@ class DynamicMechanicsEngine:
             health_components = [price_health, volume_health, volatility_health, efficiency_health, force_quality_health, kinetic_energy_health, inertia_health]
             bullish_health[p] = pd.Series(np.mean([s.values for s in health_components], axis=0), index=df.index, dtype=np.float32)
             bearish_health[p] = 1 - bullish_health[p]
-        # 后续的信号合成逻辑保持不变
+
+        # --- 后续的信号合成逻辑保持不变 ---
         bullish_short_force = (bullish_health[1] * bullish_health[5])**0.5
         bullish_medium_trend = (bullish_health[13] * bullish_health[21])**0.5
         bullish_long_inertia = bullish_health[55]

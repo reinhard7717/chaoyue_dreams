@@ -69,7 +69,7 @@ class StructuralIntelligence:
           - [鲁棒性提升] 新的融合逻辑更能容忍单个维度的弱势，只要关键维度（如斜率）表现强劲，就能产生有效信号，更符合A股反转初期的特征。
         - 收益: 彻底解决了因“几何平均暴政”导致底层反转信号过弱的问题，将显著提升在关键反转日的信号强度。
         """
-        print("        -> [终极结构信号诊断模块 V2.0 · 信号融合重构版] 启动...") # 更新版本号和说明
+        print("        -> [终极结构信号诊断模块 V2.0 · 信号融合重构版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -83,9 +83,11 @@ class StructuralIntelligence:
         top_context_score = price_position_in_range
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        # 定义新的加权平均权重
+        
+        # [代码修改] 定义新的加权平均权重
         health_weights = {'static': 0.2, 'slope': 0.5, 'accel': 0.3}
-        # 使用新的 _calculate_health_v2 辅助函数重构所有支柱的健康度计算
+        
+        # [代码修改] 使用新的 _calculate_health_v2 辅助函数重构所有支柱的健康度计算
         pillar_health = {}
         # MA支柱
         ma_health = {}
@@ -97,6 +99,7 @@ class StructuralIntelligence:
             accel_col = f'ACCEL_{accel_lookback}_{static_col}'
             ma_health[p] = self._calculate_health_v2(df, norm_window, df.get(static_col), df.get(slope_col), df.get(accel_col), health_weights)
         pillar_health['ma'] = ma_health
+        
         # 力学支柱
         mechanics_health = {}
         energy_series = df.get('energy_ratio_D')
@@ -109,22 +112,26 @@ class StructuralIntelligence:
             energy_score = self._normalize_score(energy_series, norm_window, df.index)
             mechanics_health[p] = (cost_slope_score * 0.4 + conc_lock_score * 0.4 + energy_score * 0.2)
         pillar_health['mechanics'] = mechanics_health
+        
         # MTF 和 Pattern 支柱的健康度计算逻辑较为特殊，保持不变
         pillar_health['mtf'] = self._calculate_mtf_health(df, periods, norm_window)
         pillar_health['pattern'] = self._calculate_pattern_health(df, periods, norm_window)
+        
         overall_bullish_health = {}
         overall_bearish_health = {}
         for p in periods:
             health_scores_series = [pillar_health[key][p] for key in pillar_health]
             stacked_health_arrays = np.stack([s.values for s in health_scores_series], axis=0)
-            # 从几何平均改为算术平均，增强鲁棒性
+            # [代码修改] 从几何平均改为算术平均，增强鲁棒性
             overall_health_arr = np.mean(stacked_health_arrays, axis=0)
             overall_bullish_health[p] = pd.Series(overall_health_arr, index=df.index, dtype=np.float32)
+            
             bearish_health_scores_series = [(1 - pillar_health[key][p]) for key in pillar_health]
             stacked_bearish_health_arrays = np.stack([s.values for s in bearish_health_scores_series], axis=0)
             overall_bearish_health_arr = np.mean(stacked_bearish_health_arrays, axis=0)
             overall_bearish_health[p] = pd.Series(overall_bearish_health_arr, index=df.index, dtype=np.float32)
-        # 后续的信号合成逻辑保持不变，但其输入已经变得更加强大和鲁棒
+
+        # --- 后续的信号合成逻辑保持不变，但其输入已经变得更加强大和鲁棒 ---
         bullish_short_force = (overall_bullish_health[1] * overall_bullish_health[5])**0.5
         bullish_medium_trend = (overall_bullish_health[13] * overall_bullish_health[21])**0.5
         bullish_long_inertia = overall_bullish_health[55]
