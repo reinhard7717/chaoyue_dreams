@@ -593,6 +593,7 @@
         "playbook_synergy_scoring": {
           "说明": "【剧本协同分】剧本权重保持不变，作为独立的战术加分项。",
           "positive_signals": {
+            "PLAYBOOK_V_REVERSAL_ACE_S_PLUS": 800,
             "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": 720,
             "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": 650,
             "SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT": 750,

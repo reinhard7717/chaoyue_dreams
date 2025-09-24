@@ -47,22 +47,61 @@ class TacticEngine:
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【新增方法】战术引擎总指挥
+        【V1.1 · 王牌反转剧本版】战术引擎总指挥
+        - 核心升级 (本次修改):
+          - [新增剧本] 新增对 `synthesize_v_reversal_ace_playbook` 的调用，引入专门用于捕捉V型反转的王牌剧本。
         - 核心职责: 按顺序调用本模块内的所有战术合成方法，并汇总其产出的所有信号。
         """
-        print("      -> [战术引擎] 启动...")
+        print("      -> [战术引擎 V1.1 · 王牌反转剧本版] 启动...") # [代码修改] 更新版本号和说明
         all_states = {}
         # 注意：一些战术依赖于其他战术的输出，调用顺序很重要
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
         all_states.update(self.synthesize_advanced_tactics(df))
         all_states.update(self.synthesize_prime_tactic(df))
-        
-        # _diagnose_pullback_tactics_matrix 内部有自己的增强器，可以独立运行
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
-        
         all_states.update(self.synthesize_squeeze_playbooks(df))
+        all_states.update(self.synthesize_v_reversal_ace_playbook(df)) # 调用新的V型反转王牌剧本
         print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
+
+    def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】V型反转王牌剧本 (V-Reversal Ace Playbook)
+        - 核心目标: 精确捕捉A股市场常见的“恐慌性杀跌后的报复性反转”模式。
+        - 战备状态 (Setup): 前一日是“恐慌抛售日”，融合了“价格大幅下跌”、“成交量放大”、“筹码结构崩溃”三大特征。
+        - 点火触发 (Trigger): 当日出现强劲的“显性反转K线”。
+        - 剧本逻辑: 昨日恐慌抛售战备就绪，今日强力反转点火确认。
+        - 产出: 一个S++级的、高确定性的V型反转剧本信号。
+        """
+        print("        -> [V型反转王牌剧本 V1.0] 启动...") # 打印启动信息
+        states = {}
+        atomic = self.strategy.atomic_states
+        triggers = self.strategy.trigger_events
+        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # --- 1. 定义“恐慌抛售日”战备分数 (Setup Score) ---
+        # 维度1: 价格大幅下跌 (使用归一化的跌幅)
+        price_drop_score = self._normalize_score(df['pct_change_D'].clip(upper=0), window=60, ascending=False)
+        # 维度2: 成交量显著放大
+        volume_spike_score = self._normalize_score(df['volume_D'] / df['VOL_MA_21_D'], window=60, ascending=True)
+        # 维度3: 筹码结构崩溃 (使用看跌共振信号)
+        chip_breakdown_score = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
+        # 融合为战备分
+        setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score).astype(np.float32)
+        states['SCORE_SETUP_PANIC_SELLING_S'] = setup_panic_selling_score
+        # --- 2. 获取“显性反转”点火信号 (Trigger) ---
+        # 直接消费由PlaybookEngine生成的、已包含多维度信息的数值化反转信号
+        trigger_dominant_reversal_score = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_score)
+        # --- 3. 融合生成最终剧本信号 ---
+        # 逻辑: 昨日战备就绪 & 今日点火确认
+        was_setup_yesterday = setup_panic_selling_score.shift(1).fillna(0.0)
+        is_triggered_today = trigger_dominant_reversal_score
+        final_playbook_score = (was_setup_yesterday * is_triggered_today).astype(np.float32)
+        # 生成S++级的剧本分数和布尔信号
+        states['SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS'] = final_playbook_score
+        states['PLAYBOOK_V_REVERSAL_ACE_S_PLUS'] = final_playbook_score > 0.3 # 设置一个合理的触发阈值
+        if (states['PLAYBOOK_V_REVERSAL_ACE_S_PLUS']).any():
+            print(f"          -> [S++级王牌剧本] 侦测到 {(states['PLAYBOOK_V_REVERSAL_ACE_S_PLUS']).sum()} 次“V型反转”王牌买点！")
+        return states
 
     def synthesize_chip_price_lag_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

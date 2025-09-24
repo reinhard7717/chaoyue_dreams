@@ -50,6 +50,12 @@ class PlaybookEngine:
         """
         
         return [
+            # 新增V型反转王牌剧本，并置于最前，体现其最高优先级
+            {
+                'name': 'PLAYBOOK_V_REVERSAL_ACE_S_PLUS',
+                'trigger': ['TRIGGER_V_REVERSAL_ACE_S_PLUS'],
+                'comment': 'S++级(王牌) - [V型反转] 在前一日确认的“恐慌抛售”后，由当日强劲的“显性反转K线”确认的最高确定性反转剧本。'
+            },
             # --- 基于“真实吸筹”的王牌剧本 ---
             {
                 'name': 'PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS',
@@ -212,6 +218,9 @@ class PlaybookEngine:
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         # 注意：这里仍然叫 TRIGGER_DOMINANT_REVERSAL，但其内容已是0-1的数值分，而不是布尔值
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score
+        # --- 为V型反转王牌剧本定义触发器 ---
+        v_reversal_score = atomic.get('SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS', default_score)
+        triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = v_reversal_score > thresholds['v_reversal_ace_s_plus']
         # --- 后续触发器定义逻辑保持不变，但它们现在消费的是一个更强大的数值化信号 ---
         triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = (atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > thresholds['true_accumulation_breakout_s_plus']) & (atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s'])
         triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = (atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score) > thresholds['capitulation_reversal_a_plus']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5) # 现在比较数值

@@ -98,6 +98,7 @@
         "说明_trigger_signals": "--- 独立触发器信号 ---",
         "TRIGGER_DOMINANT_REVERSAL": { "cn_name": "【触发器】显性反转", "category": "触发器-机会", "type": "trigger", "description": "由强力反转K线确认的、具备主导性的反转信号。" },
         "说明_playbook_ace": "--- S++/S+级王牌战法与剧本 ---",
+        "PLAYBOOK_V_REVERSAL_ACE_S_PLUS": { "cn_name": "【剧本S++】V型反转王牌", "category": "战法-机会", "type": "playbook", "description": "在确认的“恐慌抛售日”之后，由当日强劲的“显性反转K线”确认的最高确定性V型反转剧本。" },
         "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": { "cn_name": "【剧本S++】大反转后期共振", "category": "战法-机会", "type": "playbook", "description": "执行“大反转后期·共振初起”这一最高级别的逆向交易剧本。" },
         "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": { "cn_name": "【剧本S++】真实吸筹突破", "category": "战法-机会", "type": "playbook", "description": "在确认的“真实吸筹”阶段后，由多域点火共振确认的突破，是最高置信度的买点之一。" },
         "PLAYBOOK_CAPITULATION_REVERSAL_A_PLUS": { "cn_name": "【剧本A+】恐慌盘投降反转", "category": "战法-机会", "type": "playbook", "description": "捕捉市场极度悲观，套牢盘集中割肉后的高胜率V型反转机会。" },
