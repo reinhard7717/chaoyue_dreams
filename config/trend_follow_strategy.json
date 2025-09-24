@@ -671,6 +671,7 @@
         "normal_squeeze_a": { "value": 0.5, "description": "【A级】常规压缩突破剧本的触发阈值" },
         "mean_reversion_grid_buy_a_threshold": { "value": 0.8, "description": "【A级】均值回归网格买入剧本的触发阈值" },
         "prime_chip_ignition_s_plus_plus": { "value": 0.7, "description": "【S++级】黄金筹码持续点火剧本的触发阈值" },
+        "v_reversal_ace_s_plus_threshold": { "value": 0.3, "description": "【S++级】V型反转王牌剧本的触发阈值" },
         "reversal_confirmation_candle": {
           "enabled": true,
           "min_pct_change": {

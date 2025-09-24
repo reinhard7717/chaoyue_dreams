@@ -165,19 +165,17 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 反转信号数值化版】战术触发事件定义中心
-        - 核心重构 (本次修改):
-          - [反转信号升维] 彻底重构了 `TRIGGER_DOMINANT_REVERSAL` 的生成逻辑。
-          - [旧范式] 原逻辑是一个简单的布尔信号，无法区分反转的强度。
-          - [新范式] 新逻辑是一个0-1之间的数值化评分，综合了“收复力度”、“位置优势”和“K线质量”三大维度，能精确量化反转的“成色”。
-        - 收益: 为所有依赖此触发器的上游模块（如回踩战术、剧本等）提供了更精细、更可靠的输入，从信号链的源头提升了整个策略的决策质量。
+        【V7.2 · 健壮性修复版】战术触发事件定义中心
+        - 核心修复 (本次修改):
+          - [健壮性] 在读取阈值时，为 `get_param_value` 提供了默认值。这可以防止因配置文件中缺少某个阈值参数而导致程序崩溃的 `KeyError`。
         """
-        print("      -> [战术触发事件定义中心 V7.0 · 反转信号数值化版] 启动...") # 更新版本号和说明
+        print("      -> [战术触发事件定义中心 V7.2 · 健壮性修复版] 启动...") # [代码修改] 更新版本号和说明
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         default_series = pd.Series(False, index=df.index)
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
+        # [代码修改] 为所有 get_param_value 调用添加默认值，增强健壮性
         thresholds = {
             'ignition_s': get_param_value(p_triggers.get('ignition_s_threshold'), 0.5),
             'bottom_reversal_s': get_param_value(p_triggers.get('bottom_reversal_s_threshold'), 0.4),
@@ -198,32 +196,26 @@ class PlaybookEngine:
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
             'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
             'mean_reversion_grid_buy_a': get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8),
+            'v_reversal_ace_s_plus': get_param_value(p_triggers.get('v_reversal_ace_s_plus_threshold'), 0.3),
         }
-        # --- 重构 TRIGGER_DOMINANT_REVERSAL 为数值化评分 ---
+        # --- 后续逻辑保持不变 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
-        # 维度1: 收复力度分 (Recovery Strength)
         today_body_size = (df['close_D'] - df['open_D']).clip(lower=0)
-        yesterday_body_size = (df['open_D'].shift(1) - df['close_D'].shift(1)).clip(lower=0) # 只考虑前一日是阴线的情况
-        recovery_score = (today_body_size / yesterday_body_size.replace(0, np.nan)).clip(0, 2).fillna(0) / 2.0 # 收复2倍及以上为满分
-        # 维度2: 位置优势分 (Positional Advantage)
+        yesterday_body_size = (df['open_D'].shift(1) - df['close_D'].shift(1)).clip(lower=0)
+        recovery_score = (today_body_size / yesterday_body_size.replace(0, np.nan)).clip(0, 2).fillna(0) / 2.0
         lookback = get_param_value(p_dominant.get('position_lookback_days'), 60)
         rolling_high = df['high_D'].rolling(lookback).max()
         rolling_low = df['low_D'].rolling(lookback).min()
         price_range = (rolling_high - rolling_low).replace(0, 1e-9)
         price_position = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
-        position_score = 1.0 - price_position # 价格位置越低，分数越高
-        # 维度3: K线质量分 (Candle Quality) - 直接复用早期动能点火的逻辑
+        position_score = 1.0 - price_position
         candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
-        # 最终融合: 三者相乘，得到最终的反转强度分
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
-        # 注意：这里仍然叫 TRIGGER_DOMINANT_REVERSAL，但其内容已是0-1的数值分，而不是布尔值
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score
-        # --- 为V型反转王牌剧本定义触发器 ---
         v_reversal_score = atomic.get('SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS', default_score)
         triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = v_reversal_score > thresholds['v_reversal_ace_s_plus']
-        # --- 后续触发器定义逻辑保持不变，但它们现在消费的是一个更强大的数值化信号 ---
         triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = (atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > thresholds['true_accumulation_breakout_s_plus']) & (atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s'])
-        triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = (atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score) > thresholds['capitulation_reversal_a_plus']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5) # 现在比较数值
+        triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = (atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score) > thresholds['capitulation_reversal_a_plus']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5)
         triggers['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'] = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score) > thresholds['conviction_breakout_s_plus']
         triggers['TRIGGER_POST_REVERSAL_RESONANCE_S_PLUS'] = atomic.get('COGNITIVE_SCORE_OPP_POST_REVERSAL_RESONANCE_A_PLUS', default_score) > thresholds['post_reversal_resonance_s_plus']
         triggers['TRIGGER_MEAN_REVERSION_GRID_BUY_A'] = atomic.get('SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A', default_score) > thresholds['mean_reversion_grid_buy_a']
@@ -231,10 +223,10 @@ class PlaybookEngine:
         price_momentum_suppressed_score = (1 - self.strategy.df_indicators['SLOPE_5_close_D'].rolling(120).rank(pct=True)).fillna(0.5)
         was_price_suppressed_yesterday = price_momentum_suppressed_score.shift(1).fillna(0.0) > 0.8
         was_setup_yesterday_for_lag = was_true_accumulation_yesterday_for_lag & was_price_suppressed_yesterday
-        is_gentle_lift_today = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score) > 0.3 # 使用数值比较
+        is_gentle_lift_today = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score) > 0.3
         triggers['TRIGGER_CHIP_RESONANCE_PRICE_LAG_BREAKOUT_S'] = was_setup_yesterday_for_lag & is_gentle_lift_today
         triggers['TRIGGER_BOTTOM_REVERSAL_RESONANCE_S'] = atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S', default_score) > thresholds['bottom_reversal_s']
-        triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5) # 现在比较数值
+        triggers['TRIGGER_HEALTHY_PULLBACK_CONFIRMED_S'] = (atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY_S', default_score).shift(1).fillna(0.0) > thresholds['healthy_pullback_s']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5)
         triggers['TRIGGER_CLASSIC_PATTERN_BREAKOUT_S'] = atomic.get('COGNITIVE_SCORE_CLASSIC_PATTERN_OPP_S', default_score) > thresholds['classic_pattern_s']
         triggers['TRIGGER_SHAKEOUT_REVERSAL_A'] = atomic.get('COGNITIVE_SCORE_OPP_SQUEEZE_SHAKEOUT_REVERSAL_A', default_score) > thresholds['shakeout_reversal_a']
         triggers['TRIGGER_CONSOLIDATION_BREAKOUT_A'] = atomic.get('COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A', default_score) > thresholds['consolidation_breakout_a']
