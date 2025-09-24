@@ -82,7 +82,7 @@ class CognitiveIntelligence:
           - [周期整合] 将 `CyclicalIntelligence` 产出的FFT周期信号整合到“趋势质量”和“回踩”诊断中。
         - 收益: 认知层的决策质量实现了质的飞跃，能够更深刻地理解市场状态。
         """
-        print("        -> [顶层认知总分合成模块 V2.3 · 认知升级版] 启动...") # [代码修改] 更新版本号
+        print("        -> [顶层认知总分合成模块 V2.3 · 认知升级版] 启动...") # 更新版本号
         
         # --- 步骤 0: 预处理，确保所有底层信号已就绪 ---
         # 在一个理想的架构中，这一步由更高层的 `IntelligenceLayer` 保证。
@@ -135,7 +135,7 @@ class CognitiveIntelligence:
                         形成一个更鲁棒、更可靠的“趋势政权”评分。
         - 收益: 对趋势质量的评估更加精细和准确，能区分“控盘驱动的趋势”和“情绪驱动的趋势”。
         """
-        # print("        -> [趋势质量融合评分模块 V2.2 · FFT周期整合版] 启动...") # [代码修改] 更新版本号
+        # print("        -> [趋势质量融合评分模块 V2.2 · FFT周期整合版] 启动...") # 更新版本号
         
         # --- 1. 提取各领域的核心健康度评分 ---
         behavior_health_score = 1.0 - self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
@@ -143,7 +143,7 @@ class CognitiveIntelligence:
         structural_health_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
         
-        # [代码修改] 融合Hurst指数和FFT的趋势分
+        # 融合Hurst指数和FFT的趋势分
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
         regime_health_score = (regime_health_score_hurst + regime_health_score_fft) / 2.0
@@ -188,7 +188,7 @@ class CognitiveIntelligence:
                         当回踩发生在周期波谷附近时，给予显著加分。
         - 收益: 能够有效区分“顺应周期的健康回踩”和“周期顶部的危险回调”，极大提升回踩信号的胜率。
         """
-        # print("        -> [认知层回踩状态合成模块 V2.4 · FFT周期整合版] 启动...") # [代码修改] 更新版本号
+        # print("        -> [认知层回踩状态合成模块 V2.4 · FFT周期整合版] 启动...") # 更新版本号
         states = {}
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
         constructive_context_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
@@ -196,7 +196,7 @@ class CognitiveIntelligence:
         gentle_drop_score = (1 - (df['pct_change_D'].abs() / 0.05)).clip(0, 1).fillna(0.0)
         shrinking_volume_score = self._get_atomic_score(df, 'SCORE_VOL_WEAKENING_DROP', 0.0) 
         
-        # [代码修改] 引入FFT周期相位作为时机确认
+        # 引入FFT周期相位作为时机确认
         # 相位分数在-1(波谷)到+1(波峰)之间。我们希望在接近波谷时分数高。
         # (1 - phase) / 2 将其映射到 0(波峰) 到 1(波谷)
         cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0).fillna(0.0)) / 2.0 

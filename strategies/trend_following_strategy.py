@@ -46,7 +46,7 @@ class TrendFollowStrategy:
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-        # [代码修改] 将所有时间框架的数据注入到 df_indicators 中
+        # 将所有时间框架的数据注入到 df_indicators 中
         # IntelligenceLayer 内部会根据需要选择使用哪个时间框架的数据
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         

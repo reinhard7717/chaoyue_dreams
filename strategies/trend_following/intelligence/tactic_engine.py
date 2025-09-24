@@ -23,7 +23,7 @@ class TacticEngine:
 
     def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
         """融合S+/S/A/B等多层置信度分数的辅助函数。"""
-        # [代码修改] 此处直接调用 utils 中的公共函数，保持一致性
+        # 此处直接调用 utils 中的公共函数，保持一致性
         return fuse_multi_level_scores(df, self.strategy.atomic_states, base_name, weights)
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
@@ -32,7 +32,7 @@ class TacticEngine:
         - 核心重构 (本次修改):
           - [信号适配] 全面审查并更新了所有战术合成方法，确保它们消费的是最新的终极原子信号。
         """
-        print("      -> [战术引擎 V2.0 · 信号适配版] 启动...") # [代码修改] 更新版本号
+        print("      -> [战术引擎 V2.0 · 信号适配版] 启动...") # 更新版本号
         all_states = {}
         
         # 依次调用所有战术合成方法，注意调用顺序
@@ -58,7 +58,7 @@ class TacticEngine:
         price_drop_score = self._normalize_score(df['pct_change_D'].clip(upper=0), window=60, ascending=False)
         volume_spike_score = self._normalize_score(df['volume_D'] / df['VOL_MA_21_D'], window=60, ascending=True)
         
-        # [代码修改] 消费新的终极筹码看跌信号
+        # 消费新的终极筹码看跌信号
         chip_breakdown_score = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
         
         setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score).astype(np.float32)
@@ -74,7 +74,7 @@ class TacticEngine:
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        # [代码修改] 消费新的终极反转信号作为点火器
+        # 消费新的终极反转信号作为点火器
         trigger_dominant_reversal_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
         
         was_setup_yesterday = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING_S').shift(1).fillna(0.0)
@@ -93,7 +93,7 @@ class TacticEngine:
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        # [代码修改] 消费新的终极信号
+        # 消费新的终极信号
         chip_resonance_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
         price_momentum_suppressed_score = self._normalize_score(df['SLOPE_5_close_D'], ascending=False)
         volatility_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
@@ -114,7 +114,7 @@ class TacticEngine:
         - 核心逻辑: (黄金筹码结构 * 极致波动压缩 * 能量优势) * 点火共振
         """
         states = {}
-        # [代码修改] 消费新的终极信号
+        # 消费新的终极信号
         is_prime_chip_structure = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE') > 0.7
         fused_compression_score = self._fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         is_extreme_squeeze = fused_compression_score > 0.9
@@ -140,7 +140,7 @@ class TacticEngine:
         default_series = pd.Series(False, index=df.index)
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        # [代码修改] 消费新的终极信号
+        # 消费新的终极信号
         ascent_start_event = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') > 0.6
         # 锁仓拉升战法需要更严格的定义，例如基于筹码和资金的协同
         chip_resonance_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
@@ -185,7 +185,7 @@ class TacticEngine:
         
         setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
         
-        # [代码修改] 消费新的终极信号
+        # 消费新的终极信号
         trigger_explosive_breakout_score = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL_S', 0.0)
         
         score_s_plus = (setup_extreme_squeeze_score * trigger_explosive_breakout_score).astype(np.float32)

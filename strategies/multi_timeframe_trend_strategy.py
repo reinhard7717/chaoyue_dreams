@@ -130,7 +130,7 @@ class MultiTimeframeTrendStrategy:
         - 核心重构: 不再进行任何数据合并，直接将 all_dfs 传递给战术引擎。
         """
         try:
-            # [代码修改] 直接将 all_dfs 传递给战术引擎
+            # 直接将 all_dfs 传递给战术引擎
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
                 all_dfs, self.unified_config, start_date_str=start_date_str
             )
@@ -496,12 +496,12 @@ class MultiTimeframeTrendStrategy:
           - [探针修复] 修改了所有探针的调用签名，将捕获的DataFrame作为参数显式传递，解决了探针因找不到数据而失效的问题。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V322.0 · 调试流程重构版] ---") # [代码修改] 更新版本号
+        print(f"--- [历史回溯调试启动 V322.0 · 调试流程重构版] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
-            # [代码修改] 步骤 1: 独立执行数据准备和战术引擎，并捕获所有返回结果
+            # 步骤 1: 独立执行数据准备和战术引擎，并捕获所有返回结果
             print("    -> [阶段 1/2] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
@@ -513,7 +513,7 @@ class MultiTimeframeTrendStrategy:
 
             print("    -> [阶段 1/2] 核心策略计算完成，已捕获所有中间过程数据。")
 
-            # [代码修改] 步骤 2: 检查并部署探针，将捕获的数据作为参数传入
+            # 步骤 2: 检查并部署探针，将捕获的数据作为参数传入
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
@@ -522,14 +522,14 @@ class MultiTimeframeTrendStrategy:
                     print(f"    -> [探针提示] 'enable_structural_risk_probe' 已激活，将在 {probe_date} 运行结构风险法医探针。")
                 
                 if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
-                    # [代码修改] 将捕获的 daily_analysis_df 和 atomic_states 传入探针
+                    # 将捕获的 daily_analysis_df 和 atomic_states 传入探针
                     self._deploy_ultimate_reversal_probe(
                         probe_date=probe_date,
                         daily_analysis_df=daily_analysis_df,
                         atomic_states=self.tactical_engine.atomic_states
                     )
 
-            # [代码修改] 步骤 3: 使用捕获的数据进行报告生成
+            # 步骤 3: 使用捕获的数据进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             start_dt_date = pd.to_datetime(start_date).date()
             end_dt_date = pd.to_datetime(end_date).date()
@@ -546,7 +546,7 @@ class MultiTimeframeTrendStrategy:
                 trade_date = daily_score_obj.trade_date
                 time_str = trade_date.strftime('%Y-%m-%d')
                 
-                # [代码修改] 从捕获的DataFrame中获取当日数据
+                # 从捕获的DataFrame中获取当日数据
                 day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
                 
                 final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
@@ -582,7 +582,7 @@ class MultiTimeframeTrendStrategy:
         """
         print("\n" + "="*35 + f" [终极反转信号探针 V1.1] 正在解剖 {probe_date} " + "="*35)
         try:
-            # [代码修改] 使用传入的DataFrame
+            # 使用传入的DataFrame
             df = daily_analysis_df
             atomic = atomic_states
             probe_ts = pd.to_datetime(probe_date)

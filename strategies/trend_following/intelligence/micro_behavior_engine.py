@@ -34,7 +34,7 @@ class MicroBehaviorEngine:
 
     def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
         """融合S+/S/A/B等多层置信度分数的辅助函数。"""
-        # [代码修改] 此处直接调用 utils 中的公共函数，保持一致性
+        # 此处直接调用 utils 中的公共函数，保持一致性
         return fuse_multi_level_scores(df, self.strategy.atomic_states, base_name, weights)
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -44,7 +44,7 @@ class MicroBehaviorEngine:
           - [信号适配] 全面审查并更新了所有方法，确保它们消费的是最新的终极原子信号。
           - [周期整合] 将 `CyclicalIntelligence` 产出的FFT周期信号整合到“高质量战备可靠性”诊断中。
         """
-        print("      -> [微观行为诊断引擎 V2.0 · 信号适配版] 启动...") # [代码修改] 更新版本号
+        print("      -> [微观行为诊断引擎 V2.0 · 信号适配版] 启动...") # 更新版本号
         all_states = {}
         
         # 依次调用所有微观行为合成方法
@@ -93,7 +93,7 @@ class MicroBehaviorEngine:
         if not get_param_value(p.get('enabled'), True): return states
         
         norm_window = get_param_value(p.get('norm_window'), 120)
-        # [代码修改] 消费新的终极资金流信号
+        # 消费新的终极资金流信号
         retail_inflow_score = self._fuse_multi_level_scores(df, 'FF_BEARISH_RESONANCE') # 散户流入是资金流的看跌信号
         chip_concentration_score = self._normalize_score(df.get('SLOPE_5_concentration_90pct_D'), norm_window, ascending=False)
         price_suppression_score = self._normalize_score(df.get('SLOPE_5_close_D').abs(), norm_window, ascending=False)
@@ -172,7 +172,7 @@ class MicroBehaviorEngine:
         - 核心升级 (本次修改):
           - [周期整合] 引入FFT趋势潜力分，作为“转折点火”的确认维度之一。
         """
-        # print("        -> [高质量战备可靠性诊断引擎 V4.6 · FFT周期整合版] 启动...") # [代码修改] 更新版本号
+        # print("        -> [高质量战备可靠性诊断引擎 V4.6 · FFT周期整合版] 启动...") # 更新版本号
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True): return states
@@ -186,7 +186,7 @@ class MicroBehaviorEngine:
         background_score = np.maximum(deep_bottom_context_score, rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
         
-        # [代码修改] 全面适配新的终极信号
+        # 全面适配新的终极信号
         chip_accumulation_score = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
         chip_reversal_score = self._fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL')
         conviction_strengthening_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING')
@@ -198,7 +198,7 @@ class MicroBehaviorEngine:
         shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
         states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
         
-        # [代码修改] 引入FFT趋势潜力分
+        # 引入FFT趋势潜力分
         fft_trend_score = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT', 0.0)
         fft_trend_slope = fft_trend_score.diff(5).fillna(0)
         trend_potential_score = self._normalize_score(fft_trend_slope.clip(lower=0), window=norm_window, ascending=True, default=0.0)

@@ -9,7 +9,7 @@ from .utils import get_params_block
 class WarningLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-        # [代码修改] risk_metadata 现在从 signal_dictionary.json 加载
+        # risk_metadata 现在从 signal_dictionary.json 加载
         self.risk_metadata = get_params_block(self.strategy, 'score_type_map', {})
 
     def run_all_warnings(self) -> Tuple[pd.Series, pd.DataFrame, pd.Series, pd.Series]:

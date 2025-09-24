@@ -126,7 +126,7 @@ class PlaybookEngine:
           - [新增触发器] 新增了基于周期信号的 `TRIGGER_CYCLICAL_BOTTOM_FISHING_A` 等触发器。
         - 收益: 触发器工厂与信号体系完全同步，确保剧本引擎的决策基于最可靠的情报。
         """
-        print("      -> [战术触发事件定义中心 V9.0 · 终极信号适配版] 启动...") # [代码修改] 更新版本号
+        print("      -> [战术触发事件定义中心 V9.0 · 终极信号适配版] 启动...") # 更新版本号
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)

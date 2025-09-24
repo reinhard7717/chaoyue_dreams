@@ -65,7 +65,7 @@ class JudgmentLayer:
 
             date_col_name = long_df.columns[0]
             
-            # [代码修改] 直接从 score_map 中获取 cn_name
+            # 直接从 score_map 中获取 cn_name
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             

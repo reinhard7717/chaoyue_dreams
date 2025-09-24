@@ -35,7 +35,7 @@ class BehavioralIntelligence:
                        并将其产出的最终信号更新到策略状态中。
         - 收益: 实现了与其他所有情报模块完全统一的、最纯粹的架构范式，数据流清晰，职责单一。
         """
-        # print("      -> [行为情报模块总指挥 V3.0 · 终极净化版] 启动...") # [代码修改] 更新版本号和说明
+        # print("      -> [行为情报模块总指挥 V3.0 · 终极净化版] 启动...") # 更新版本号和说明
         df = self.strategy.df_indicators
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df)
         if ultimate_behavioral_states:
@@ -50,7 +50,7 @@ class BehavioralIntelligence:
           - [数据流] 本方法先调用原子信号中心获取“原材料”，再进行高阶信号的合成。
         - 收益: 实现了“原材料生产”与“高阶合成”的彻底分离，架构更加清晰健壮。
         """
-        print("        -> [终极行为信号诊断模块 V9.0 · 架构重构版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [终极行为信号诊断模块 V9.0 · 架构重构版] 启动...") # 更新版本号和说明
         
         # 步骤1: 调用原子信号中心，生成所有基础的“原材料”
         atomic_signals = self._generate_all_atomic_signals(df)
@@ -143,7 +143,7 @@ class BehavioralIntelligence:
         return states
 
     # ==============================================================================
-    # [代码修改] 以下为新增的原子信号中心和降级的原子诊断引擎
+    # 以下为新增的原子信号中心和降级的原子诊断引擎
     # ==============================================================================
 
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -222,7 +222,7 @@ class BehavioralIntelligence:
             d_bull[p], d_bear[p] = dynamic_bull_score, dynamic_bear_score
         return s_bull, d_bull, s_bear, d_bear
 
-    # [代码修改] 以下方法被降级为私有，作为原子信号的生产者
+    # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')

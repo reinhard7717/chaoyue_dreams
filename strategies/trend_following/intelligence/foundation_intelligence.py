@@ -58,7 +58,7 @@ class FoundationIntelligence:
           - [独立融合] 主引擎独立融合生成四个全局健康度，确保多空信号的计算互不干扰。
         - 收益: 实现了与所有其他情报引擎在哲学和代码结构上的完全统一，信号质量达到最终形态。
         """
-        print("        -> [统一基础层信号诊断引擎 V3.0 · 对称逻辑版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [统一基础层信号诊断引擎 V3.0 · 对称逻辑版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -79,7 +79,7 @@ class FoundationIntelligence:
         top_context_score = price_position_in_range
 
         # --- 3. 调用所有健康度组件计算器，获取四维健康度 ---
-        # [代码修改] 重构数据结构以接收四维健康度
+        # 重构数据结构以接收四维健康度
         health_data = {
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
@@ -150,7 +150,7 @@ class FoundationIntelligence:
         return states
 
     # ==============================================================================
-    # [代码修改] 以下为重构后的健康度组件计算器，现在返回四维健康度
+    # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
 
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:

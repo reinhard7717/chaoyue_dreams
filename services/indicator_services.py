@@ -823,7 +823,7 @@ class IndicatorService:
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
         
-        # [代码修改] 从方法地图中移除已移交职责的键
+        # 从方法地图中移除已移交职责的键
         indicator_method_map = {
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
             'coppock': self.calculator.calculate_coppock, 'rsi': self.calculator.calculate_rsi, 'macd': self.calculator.calculate_macd,
@@ -842,7 +842,7 @@ class IndicatorService:
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
 
         # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        # [代码修改] 确认有序计算列表中不包含已移交职责的键
+        # 确认有序计算列表中不包含已移交职责的键
         ordered_calc_keys = [
             'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
@@ -883,9 +883,9 @@ class IndicatorService:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    # [代码修改] 确认特殊处理逻辑中不包含已移交职责的键
+                    # 确认特殊处理逻辑中不包含已移交职责的键
                     if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
-                        result_df = await method_to_call(df=df_for_calc, params=params)
+                        result_df = await method_to_call(df=df_for_calc, params=sub_config)
                         merge_results(result_df, df_for_calc)
                         break
                     

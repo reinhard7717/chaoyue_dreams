@@ -994,30 +994,24 @@ class IndicatorCalculator:
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.6 异步优化版】计算价格/成交量与各自均线的比率。
-        - 指标含义: 量化当前价格或成交量偏离其移动平均线的程度，可用于判断超买/超卖或放量/缩量状态。
-        - 优化: 将同步计算逻辑移至工作线程执行，避免阻塞。
+        【V1.7 · 职责净化版】计算价格/成交量与各自均线的比率。
+        - 核心重构: 移除了方法内部对 'apply_on' 和后缀处理的冗余逻辑。
+                    现在方法假定调用者已完成时间周期过滤，并传入了正确的、无后缀的DataFrame。
+                    这使得本方法职责更单一，只专注于核心计算。
         """
-        if not params.get('enabled', False):
-            return None
-        
+        # 移除 enabled 检查，因为调用者已处理
         try:
             # 定义同步计算函数。
             def _sync_pv_ma_comparison():
+                # 直接从 params 获取参数，不再需要复杂的后缀处理
                 periods = params.get('periods', [])
-                apply_on_list = params.get('apply_on', [])
-                if not apply_on_list:
-                    logger.warning("计算价比/量比失败：配置中缺少 'apply_on' 字段。")
-                    return None
-                timeframe_key = apply_on_list[0]
-                suffix_to_remove = f"_{timeframe_key}"
-                price_source_with_suffix = params.get('price_source')
-                volume_source_with_suffix = params.get('volume_source')
-                if not all([periods, price_source_with_suffix, volume_source_with_suffix]):
+                price_source_col = params.get('price_source')
+                volume_source_col = params.get('volume_source')
+                
+                if not all([periods, price_source_col, volume_source_col]):
                     logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
                     return None
-                price_source_col = price_source_with_suffix.removesuffix(suffix_to_remove)
-                volume_source_col = volume_source_with_suffix.removesuffix(suffix_to_remove)
+                
                 result_df = pd.DataFrame(index=df.index)
                 for p in periods:
                     # --- 计算价格与均线比 ---
