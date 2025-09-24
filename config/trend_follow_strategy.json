@@ -1,1485 +1,260 @@
 {
   "file_name": "config/trend_follow_strategy.json",
-  "说明": "【V82.0 完全适配版】这是一个与V82.0“完全潜能版”代码完全匹配的、经过重构和净化的策略配置文件。它消除了所有冗余参数，并将逻辑集中化，使配置结构更清晰、更易于维护。",
+  "说明": "【V83.0 · 终极信号适配版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的配置文件。它全面转向消费新的终极信号，并整合了周期智能。",
   "feature_engineering_params": {
-    "说明": "【数据工程层 V2.0 - 统一版】定义本策略需要计算的所有技术指标，已合并周线数据需求。",
+    "说明": "【数据工程层 V3.0 - 终极信号支持版】为所有情报引擎的终极信号计算提供必需的斜率和加速度指标。",
     "base_needed_bars": 1200,
-    "说明_base_needed_bars": "请求的基础日线数据量。设置为1200条（约5年）以确保在重采样到周线后，仍有足够的数据（约240周）来计算长周期指标（如年线）。",
     "indicators": {
-      "说明": "已合并周线指标，'apply_on'字段精确控制计算级别。",
+      "说明": "基础指标配置保持不变，关键在于衍生指标的计算。",
       "cyq_perf": { "enabled": true },
-      "ema": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D", "60", "30"],
-            "periods": [5, 8, 13, 21, 34, 55, 89, 105, 144, 233]
-          },
-          { "apply_on": ["W"], "periods": [5, 10, 13, 21, 34, 55, 89, 144, 233] }
-        ]
-      },
-      "vol_ma": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D", "5"], "periods": [5, 13, 21, 55] },
-          { "apply_on": ["W"], "periods": [5, 21, 55] }
-        ]
-      },
-      "boll_bands_and_width": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D", "5"], "periods": [21], "std_dev": 2.0 },
-          { "apply_on": ["W"], "periods": [21], "std_dev": 2.0 }
-        ]
-      },
-      "rsi": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D", "W"], "periods": [13] }
-        ]
-      },
-      "macd": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D"], "periods": [13, 34, 8] },
-          { "apply_on": ["W"], "periods": [12, 26, 9] }
-        ]
-      },
-      "kdj": {
-        "enabled": true,
-        "configs": [{ "apply_on": ["W"], "periods": [9, 3, 3] }]
-      },
-      "roc": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D"], "periods": [12] }
-        ]
-      },
-      "obv": {
-        "enabled": true,
-        "configs": [{ "apply_on": ["W"] }]
-      },
-      "trix": {
-        "enabled": true,
-        "configs": [{ "apply_on": ["W"], "periods": [13, 8] }]
-      },
-      "coppock": {
-        "enabled": true,
-        "configs": [{ "apply_on": ["W"], "periods": [26, 13, 10] }]
-      },
-      "zscore": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "source_column_pattern": "MACDh_{fast}_{slow}_{signal}_D",
-            "window": 60,
-            "output_column_name": "MACD_HIST_ZSCORE_D"
-          }
-        ]
-      },
-      "dmi": {
-        "enabled": true,
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [14]
-          }
-        ]
-      },
-      "vwap": { "enabled": true, "apply_on": ["5", "30"] },
+      "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233] }] },
+      "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55] }] },
+      "boll_bands_and_width": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [21], "std_dev": 2.0 }] },
+      "rsi": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [13] }] },
+      "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }, { "apply_on": ["W"], "periods": [12, 26, 9] }] },
+      "dmi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [14] }] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
-      "bias": {
-        "enabled": true,
-        "configs": [
-          { "apply_on": ["D"], "periods": [21, 55] },
-          { "apply_on": ["W"], "periods": [20] }
-        ]
-      },
+      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55] }, { "apply_on": ["W"], "periods": [20] }] },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
-      "fibonacci_levels": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "params": {
-          "peak_distance": 13,
-          "peak_prominence_ratio": 0.05,
-          "levels": [0.382, 0.5, 0.618, 0.786]
-        }
-      },
-      "ma_convergence": {
-        "enabled": true,
-        "description": "均线粘合度指标。使用变异系数(CV)来量化，值越小代表粘合度越高。",
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [5, 13, 21],
-            "output_column_name": "MA_CONV_CV_SHORT_D"
-          },
-          {
-            "apply_on": ["D"],
-            "periods": [21, 55, 89],
-            "output_column_name": "MA_CONV_CV_LONG_D"
-          }
-        ]
-      },
-      "consolidation_period": {
-        "enabled": true,
-        "apply_on": ["D"],
-        "params": {
-          "boll_period": 21,
-          "boll_std": 2.0,
-          "bbw_quantile": 0.25,
-          "roc_period": 12,
-          "roc_threshold": 5.0,
-          "vol_ma_period": 55
-        }
-      },
-      "industry_context_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】行业背景分析参数",
-        "lookback_days": 21,
-        "description_lookback": "计算行业强度排名斜率和加速度时，回看的天数。"
-      },
-      "price_volume_ma_comparison": {
-        "enabled": true,
-        "description": "【V4.0行为引擎新增】计算价格/成交量与各自均线的比率，为行为动态诊断提供静态输入。",
-        "apply_on": ["D"],
-        "periods": [1, 5, 13, 21, 55],
-        "price_source": "close_D",
-        "volume_source": "volume_D"
-      },
-      "kpl_theme_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】KPL题材热度分析引擎参数",
-        "zt_num_weight": 0.7,
-        "description_zt_num": "题材内涨停家数的权重",
-        "up_num_weight": 0.3,
-        "description_up_num": "题材排名上升位数的权重",
-        "max_score_clip": 10.0,
-        "description_max_score": "用于归一化的分数上限，防止极端值影响",
-        "score_threshold": 0.5,
-        "description_score_threshold": "在IntelligenceLayer中，判断热度是否有效的阈值"
-      }
+      "price_volume_ma_comparison": { "enabled": true, "apply_on": ["D"], "periods": [1, 5, 13, 21, 55] }
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V238.1 筹码升维版】已全面整合 AdvancedChipMetrics 的核心指标，用于计算其动态斜率，从而洞察筹码结构的演化趋势。",
+      "说明": "【V239.0 终极信号支持版】为所有情报引擎的健康度计算提供必需的斜率指标。",
       "series_to_slope": {
         "close_D": [1, 5, 13, 21, 55],
-        "EMA_5_D": [5],
-        "EMA_13_D": [5, 13],
-        "EMA_21_D": [5, 21],
-        "EMA_55_D": [5, 21, 55],
-        "EMA_89_D": [10],
-        "EMA_105_D": [25],
-        "EMA_21_W": [5, 13],
-        "BBW_21_2.0_D": [5],
+        "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
+        "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
+        "volume_D": [1, 5, 13, 21, 55],
+        "BBW_21_2.0_D": [1, 5, 13],
         "RSI_13_D": [1, 5, 13, 21, 55],
-        "RSI_13_W": [5],
         "CMF_21_D": [1, 5, 13, 21, 55],
         "ATR_14_D": [1, 5, 13, 21, 55],
         "ADX_14_D": [1, 5, 13, 21, 55],
         "MACDh_13_34_8_D": [1, 5, 13, 21, 55],
-        "CMF_21_W": [5],
-        "volume_D": [1, 5, 13, 21, 55],
         "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
-        "hurst_120d_D": [5],
-        "price_cv_60d_D": [5],
-        "energy_ratio_D": [5]
+        "energy_ratio_D": [5],
+        "peak_cost_D": [1, 5, 13, 21, 55],
+        "concentration_90pct_D": [1, 5, 13, 21, 55],
+        "concentration_70pct_D": [1, 5, 13, 21, 55],
+        "peak_control_ratio_D": [1, 5, 13, 21, 55],
+        "peak_stability_D": [1, 5, 13, 21, 55],
+        "cost_divergence_D": [1, 5, 13, 21, 55],
+        "winner_profit_margin_D": [1, 5, 13, 21, 55],
+        "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
+        "chip_fault_strength_D": [1, 5, 13, 21, 55],
+        "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
+        "main_force_net_flow_consensus_sum_5d": [5], "main_force_net_flow_consensus_sum_13d": [13], "main_force_net_flow_consensus_sum_21d": [21], "main_force_net_flow_consensus_sum_55d": [55],
+        "net_xl_amount_consensus_sum_5d": [5], "net_xl_amount_consensus_sum_13d": [13], "net_xl_amount_consensus_sum_21d": [21], "net_xl_amount_consensus_sum_55d": [55],
+        "net_lg_amount_consensus_sum_5d": [5], "net_lg_amount_consensus_sum_13d": [13], "net_lg_amount_consensus_sum_21d": [21], "net_lg_amount_consensus_sum_55d": [55],
+        "net_sh_amount_consensus_sum_5d": [5], "net_sh_amount_consensus_sum_13d": [13], "net_sh_amount_consensus_sum_21d": [21], "net_sh_amount_consensus_sum_55d": [55],
+        "net_md_amount_consensus_sum_5d": [5], "net_md_amount_consensus_sum_13d": [13], "net_md_amount_consensus_sum_21d": [21], "net_md_amount_consensus_sum_55d": [55],
+        "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
+        "active_buy_pressure_D": [1, 5, 13, 21, 55],
+        "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
+        "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55],
+        "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
+        "retail_panic_index_D": [1, 5, 13, 21, 55],
+        "avg_order_value_D": [5],
+        "trade_concentration_index_D": [5]
       }
     },
     "accel_params": {
       "enabled": true,
-      "说明": "【V238.3 战略协同版】新增加速度计算，用于捕捉核心指标的动能变化率，支持多时间维度协同分析。",
+      "说明": "【V239.0 终极信号支持版】为所有情报引擎的健康度计算提供必需的加速度指标。",
       "series_to_accel": {
-        "EMA_5_D": [5],
-        "EMA_13_D": [13],
-        "EMA_21_D": [5, 21],
-        "EMA_55_D": [5, 55],
-        "close_D": [1, 5, 13, 21, 55],
-        "volume_D": [1, 5, 13, 21, 55],
-        "BBW_21_2.0_D": [5],
-        "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
-        "RSI_13_D": [1, 5, 13, 21, 55],
-        "CMF_21_D": [1, 5, 13, 21, 55],
-        "ATR_14_D": [1, 5, 13, 21, 55],
-        "ADX_14_D": [1, 5, 13, 21, 55],
-        "MACDh_13_34_8_D": [1, 5, 13, 21, 55],
-        "EMA_21_W": [5]
+        "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
+        "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
+        "volume_D": [1, 5, 13, 21, 55], "BBW_21_2.0_D": [1, 5, 13], "RSI_13_D": [1, 5, 13, 21, 55],
+        "CMF_21_D": [1, 5, 13, 21, 55], "ATR_14_D": [1, 5, 13, 21, 55], "ADX_14_D": [1, 5, 13, 21, 55],
+        "MACDh_13_34_8_D": [1, 5, 13, 21, 55], "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
+        "peak_cost_D": [1, 5, 13, 21, 55], "concentration_90pct_D": [1, 5, 13, 21, 55], "concentration_70pct_D": [1, 5, 13, 21, 55],
+        "peak_control_ratio_D": [1, 5, 13, 21, 55], "peak_stability_D": [1, 5, 13, 21, 55], "cost_divergence_D": [1, 5, 13, 21, 55],
+        "winner_profit_margin_D": [1, 5, 13, 21, 55], "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
+        "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
+        "main_force_net_flow_consensus": [1, 5, 13, 21, 55], "net_xl_amount_consensus": [1, 5, 13, 21, 55],
+        "net_lg_amount_consensus": [1, 5, 13, 21, 55], "net_sh_amount_consensus": [1, 5, 13, 21, 55],
+        "net_md_amount_consensus": [1, 5, 13, 21, 55], "main_force_flow_intensity_ratio": [1, 5, 13, 21, 55],
+        "active_buy_pressure": [1, 5, 13, 21, 55], "main_force_conviction_ratio": [1, 5, 13, 21, 55],
+        "main_force_vs_xl_divergence": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail": [1, 5, 13, 21, 55],
+        "retail_panic_index": [1, 5, 13, 21, 55], "avg_order_value": [5], "trade_concentration_index": [5]
       }
     }
   },
-  "weekly_context_params": {
+  "cyclical_analysis_params": {
     "enabled": true,
-    "说明": "【V83.0 新增】周线战略上下文引擎的专属配置区。所有周线级别的分析逻辑和剧本都集中于此。",
-    "fft_analysis_params": {
-      "enabled": true,
-      "说明": "FFT周期分析参数",
-      "fft_window": 64,
-      "comment_fft_window": "FFT计算窗口，单位：周。建议为2的幂，如32, 64, 128。64周约1.5年。",
-      "detrend_method": "linear",
-      "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。"
-    },
-    "trend_analysis_params": {
-      "enabled": true,
-      "ma_period": 21,
-      "left_side_support": {
-        "enabled": true,
-        "washout_score_min": 2
-      }
-    },
-    "strategy_playbooks": {
-      "说明": "【战略剧本层】定义了周线引擎包含的各种交易剧本（Playbook）。",
-      "ma_uptrend_playbook": {
-        "enabled": true,
-        "short_ma": 13,
-        "mid_ma": 21,
-        "long_ma": 55,
-        "tolerance_pct": 0.02
-      },
-      "ma20_rising_state_playbook": {
-        "enabled": true,
-        "ma_period": 21,
-        "slope_threshold_pct": 0.1
-      },
-      "ma20_turn_up_event_playbook": {
-        "enabled": true,
-        "ma_period": 21,
-        "accel_threshold": 0
-      },
-      "early_uptrend_playbook": {
-        "enabled": true,
-        "short_ma": 13,
-        "mid_ma": 21
-      },
-      "classic_breakout_playbook": {
-        "enabled": true,
-        "lookback_weeks": 26,
-        "volume_multiplier": 1.5
-      },
-      "box_consolidation_breakout_playbook": {
-        "enabled": true,
-        "box_period": 26,
-        "volume_multiplier": 1.5,
-        "vol_ma_period": 5,
-        "boll_period": 21,
-        "bbw_quantile": 0.3
-      },
-      "oversold_rebound_bias_playbook": {
-        "enabled": true,
-        "bias_period": 20,
-        "oversold_threshold": -15,
-        "rebound_trigger": -12
-      },
-      "trix_golden_cross_playbook": {
-        "enabled": true,
-        "slope_threshold": 0.01
-      },
-      "coppock_reversal_playbook": {
-        "enabled": true,
-        "deep_value_threshold": -100,
-        "accel_threshold": 10
-      },
-      "washout_score_playbook": {
-        "enabled": true,
-        "immunity_score_threshold": 3,
-        "immunity_window": 3,
-        "score_threshold": 2,
-        "support_type": "MA",
-        "support_ma_period": 21,
-        "drift_lookback_period": 3,
-        "bull_trap_lookback_period": 8,
-        "bull_trap_drop_threshold": 0.05,
-        "volume_avg_period": 20,
-        "volume_contraction_threshold": 0.7
-      },
-      "rejection_filter_playbook": {
-        "enabled": true,
-        "ma_period": 21,
-        "box_lookback_period": 52,
-        "volume_multiplier": 1.5
-      },
-      "ace_signal_breakout_trigger_playbook": {
-        "enabled": true,
-        "lookback_weeks": 52,
-        "volume_multiplier": 2.0,
-        "vol_ma_period": 5,
-        "trix_confirm": true
-      },
-      "strategic_score_weights": {
-        "说明": "战略分数各组成部分的权重",
-        "regime_bull_vol_expansion": 4,
-        "regime_bull_quiet": 2,
-        "regime_bear_vol_expansion": 6,
-        "regime_bear_quiet": 2,
-        "vpa_health": 2,
-        "cmf_accumulation": 2,
-        "cmf_distribution": 3,
-        "opp_bullish_divergence": 4,
-        "risk_bearish_divergence": 5,
-        "trend_health_strong": 2,
-        "psych_reversal_bullish": 3,
-        "psych_rejection_bearish": 4,
-        "high_proximity_bonus": 2,
-        "fft_trending_bonus": 4,
-        "comment_fft_trending_bonus": "FFT识别出的趋势政权强度带来的额外加分权重",
-        "fft_cyclical_penalty": 6,
-        "comment_fft_cyclical_penalty": "FFT识别出的震荡政权强度带来的额外扣分权重"
-      },
-      "synergy_with_daily": {
-        "说明": "周线战略分数对日线策略的影响参数",
-        "entry_threshold_adjustment_factor": 5,
-        "min_daily_entry_threshold": 50,
-        "max_daily_entry_threshold": 150
-      }
-    }
+    "说明": "【V1.0 新增】周期情报分析引擎参数，用于FFT分析。",
+    "fft_window": 128,
+    "comment_fft_window": "FFT计算窗口，单位：日。建议为2的幂，如64, 128, 256。",
+    "top_n_cycles": 3,
+    "comment_top_n_cycles": "分析最强的N个周期，用于计算周期性得分。",
+    "detrend_method": "linear",
+    "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。"
   },
   "strategy_params": {
     "trend_follow": {
-      "说明": "【V238.0 最终整合版】趋势跟踪策略核心模块。已整合所有最新改革，包括三权分立计分、CHIPCON风险系统、以及所有参数和列名的校准。",
-      "debug_params": {
-        "enabled": { "value": false },
-        "verbose_logging": { "value": true },
-        "probe_start_date": "2025-08-01",
-        "probe_date": "2025-09-05",
-        "enable_pullback_decision_log": { "value": false, "description": "是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"},
-        "enable_ultimate_reversal_probe": { "value": false, "description": "【新增】是否启用“终极反转信号探针”"},
-        "enable_structural_risk_probe": { "value": true, "description": "【新增】是否启用“结构风险法医探针”，用于解剖顶部危险分。"},
-        "enable_v_reversal_probe": { "value": true, "description": "【新增】是否启用“V型反转法医探针”，用于解剖王牌剧本的触发逻辑。"}
-      },
-      "strategy_info": {
-        "name": { "value": "救援飞哥版_V238", "说明": "策略唯一标识名称" },
-        "save_all_days": {
-          "value": true,
-          "description": "是否保存所有日期的分析记录。true: 保存所有天；false: 只保存在有信号(买/卖/预警)的日子。"
-        },
-        "save_daily_states": {
-          "value": false,
-          "description": "是否保存每日的原子状态和触发器记录。true: 保存，用于深度调试，但会产生大量数据；false: 不保存，用于生产环境，节省空间。"
-        }
-      },
-      "fibonacci_support_params": {
-        "enabled": true,
-        "description": "【V3.0 新增】数值化斐波那契诊断引擎参数",
-        "proximity_ratio": 0.01,
-        "trend_health_score_source": "SCORE_MA_HEALTH",
-        "description_detail": "trend_health_score_source 定义了用于评估趋势背景质量的数值化信号源"
-      },
-      "euphoric_risk_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】亢奋加速风险诊断引擎参数。",
-        "norm_window": 120,
-        "description_detail": "用于内部指标归一化的滚动窗口。"
-      },
-      "post_reversal_resonance_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】大反转后期·共振初起战术诊断引擎参数。"
-      },
-      "lock_chip_rally_params": {
-        "enabled": true,
-        "description": "【V2.1 新增】锁筹拉升(巡航)战法的精细化控制参数。",
-        "require_continuous_concentration": {
-          "value": true,
-          "description": "[主动确认] 是否要求在巡航期间，筹码必须每日都处于“持续集中”状态。"
-        },
-        "terminate_on_health_stalling": {
-          "value": true,
-          "description": "[灵敏预警] 是否将“持仓健康度失速”作为一个更早的巡航终止信号。"
-        }
-      },
-      "trend_stage_params": {
-        "enabled": true,
-        "description": "【V400.0 新增】趋势阶段评分模块的参数，用于精细化风险控制。",
-        "pullback_s_plus_max_late_stage_score": {
-          "value": 75,
-          "description": "【S+回踩战法风控】该战法能容忍的最高“上涨末期分数”。50分意味着最多只能有两个风险子信号激活。"
-        },
-        "dynamic_offense_max_late_stage_score": {
-          "value": 25,
-          "description": "【A级动能进攻风控】协同进攻信号能容忍的最高“上涨末期分数”。30分意味着最多只能有一个风险子信号激活，要求更严格。"
-        }
-      },
-      "box_state_params": {
-        "enabled": true,
-        "description": "【V3.0 新增】数值化箱体突破质量评分引擎参数",
-        "lookback_window": 8,
-        "max_amplitude_ratio": 0.05,
-        "norm_window": 60,
-        "trend_health_source": "SCORE_MA_HEALTH"
-      },
-      "fund_flow_params": {
-        "enabled": true,
-        "description": "【V18.0 新增】资金流七位一体智能融合引擎的开关。"
-      },
-      "multi_dim_trend_params": {
-        "enabled": true,
-        "description": "【V500.0 新增】数值化多维趋势引擎参数",
-        "ma_periods": [5, 13, 21, 55],
-        "norm_window": 120
-      },
-      "multi_dim_ma_params": {
-        "enabled": true,
-        "description": "【V600.0 新增】数值化多维均线诊断引擎参数",
-        "ma_periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
-        "slope_lookback": 5,
-        "accel_lookback": 5
-      },
-      "structural_mechanics_params": {
-        "enabled": true,
-        "description": "【V500.0 新增】数值化结构力学诊断引擎参数",
-        "dynamic_periods": [5, 13, 21],
-        "slope_lookback": 5,
-        "accel_lookback": 5,
-        "norm_window": 120,
-        "energy_advantage_threshold": 1.5
-      },
-      "mtf_trend_synergy_params": {
-        "enabled": true,
-        "description": "【V4.0 新增】数值化多维趋势协同诊断引擎参数",
-        "weekly_periods": [5, 13, 21],
-        "slope_lookback": 5,
-        "accel_lookback": 5,
-        "norm_window": 120,
-        "daily_momentum_source": "SCORE_MA_DYN_RESONANCE",
-        "daily_accel_source": "SCORE_MA_ACCEL_RESONANCE"
-      },
-      "fusion_scores_params": {
-        "enabled": true,
-        "description": "【V5.0 新增】质量加权融合评分引擎参数",
-        "signal_sources": {
-          "static_platform_setup": "SCORE_BREAKOUT_EVE_S",
-          "static_mechanics_setup": "SCORE_MECHANICS_BULLISH_SETUP_S",
-          "dynamic_ignition": "SCORE_MTF_IGNITION_SYNERGY_S_PLUS",
-          "dynamic_exhaustion_risk": "SCORE_MTF_EXHAUSTION_RISK_S_PLUS"
-        }
-      },
-      "structural_risk_params": {
-        "enabled": true,
-        "description": "【V2.0 新增】数值化结构性风险与市场状态诊断引擎参数",
-        "bias_periods_D": [21, 55],
-        "bias_period_W": 20,
-        "norm_window": 250,
-        "hurst_trending_threshold": 0.55,
-        "hurst_reverting_threshold": 0.45
-      },
-      "advanced_structural_params": {
-        "enabled": true,
-        "description": "【V2.0 新增】数值化先进结构模式诊断引擎参数",
-        "norm_window": 120,
-        "trend_health_source": "SCORE_MA_HEALTH",
-        "daily_alignment_bias_period": 55,
-        "weekly_alignment_bias_period": 21
-      },
-      "platform_state_params": {
-        "enabled": true,
-        "description": "【V200.0 新增】数值化平台诊断引擎参数",
-        "cost_cv_lookback": 5,
-        "stability_cv_window": 120,
-        "final_score_threshold_for_bool": 0.7,
-        "description_detail": "final_score_threshold_for_bool 用于生成兼容旧版的布尔信号"
-      },
-      "chip_ultimate_params": {
-        "enabled": true,
-        "description": "【V2.0 升维版】终极筹码信号引擎参数。因子定义已硬编码到V332.0引擎中，此处不再需要。",
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
-      },
-      "capitulation_reversal_params": {
-        "enabled": true,
-        "description": "【V2.1 信号缩放版】恐慌盘投降剧本的专属参数。",
-        "norm_window": 120,
-        "logistic_k": 0.1,
-        "logistic_x0": 50.0,
-        "final_score_exponent": {
-          "value": 0.5,
-          "description": "【信号缩放】最终剧本分的指数缩放系数。0.5代表开根号，用于对抗多因子乘法带来的量纲压缩问题。"
-        }
-      },
-      "foundation_ultimate_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】终极基础层信号引擎参数",
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
-      },
-      "fund_flow_ultimate_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】终极资金流信号引擎参数",
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
-      },
-      "structural_ultimate_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】终极结构层信号引擎参数",
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
-        "final_score_exponent": {
-          "value": 0.5,
-          "description": "【信号缩放】对所有终极结构信号应用指数缩放，解决量纲压缩问题。"
-        }
-      },
-      "smart_money_params": {
-        "enabled": true,
-        "description": "聪明钱（游资+机构）协同分析参数",
-        "hm_coordination_threshold": 3,
-        "description_hm": "定义多少家游资同时净买入算作“协同攻击”"
-      },
-      "reversal_resonance_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】多域反转共振融合算法参数",
-        "bottom_resonance_weights": {
-          "description": "底部反转时，各领域信号的权重。总和不必为1。",
-          "mechanics": 0.3,
-          "chip": 0.3,
-          "foundation": 0.2,
-          "behavior": 0.2
-        },
-        "top_resonance_weights": {
-          "description": "顶部反转时，各领域信号的权重。",
-          "mechanics": 0.3,
-          "chip": 0.3,
-          "foundation": 0.2,
-          "behavior": 0.2
-        }
-      },
-      "reversal_reliability_params": {
-        "enabled": true,
-        "description": "【V1.0 新增】反转可靠性诊断引擎参数。",
-        "norm_window": 120
-      },
+      "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
+      "debug_params": { "enabled": { "value": false }, "probe_date": "2025-09-05" },
+      "foundation_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "behavioral_dynamics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "chip_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "fund_flow_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "structural_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "dynamic_mechanics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
-        "说明": "【V500.0 反转优先版】计分体系。进攻逻辑被拆分为'反转'和'共振'两大引擎，并以反转为绝对核心。",
-
+        "说明": "【V501.0 · 终极信号适配版】计分体系。全面转向消费各情报层产出的S+/S/A/B四级终极信号。",
         "reversal_offense_scoring": {
-          "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重，作为策略的核心进攻火力。",
+          "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重。",
           "positive_signals": {
-            "说明_核心反转信号": "--- S++级核心反转信号 ---",
-            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": {
-              "score": 1500,
-              "description": "【王牌信号】反转可靠性总分，直接乘以一个巨大权重，作为反转进攻的核心。"
-            },
-
-            "说明_辅助反转信号": "--- S/A级辅助反转信号 ---",
-            "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": 400,
-            "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": 500,
-            "SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL": 350,
-            "SCORE_CHIP_BOTTOM_REVERSAL_S": 250,
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S": 250,
-            "SCORE_DYN_BOTTOM_REVERSAL_S": 250,
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S": 200,
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S": 250
+            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": { "score": 1500, "description": "【王牌】反转可靠性总分" },
+            "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": { "score": 800, "description": "【王牌】完美风暴底部机会" },
+            "SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS": { "score": 400, "description": "【终极信号】筹码底部反转" },
+            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS": { "score": 350, "description": "【终极信号】行为底部反转" },
+            "SCORE_DYN_BOTTOM_REVERSAL_S_PLUS": { "score": 300, "description": "【终极信号】力学底部反转" },
+            "SCORE_FF_BOTTOM_REVERSAL_S_PLUS": { "score": 300, "description": "【终极信号】资金底部反转" },
+            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS": { "score": 250, "description": "【终极信号】结构底部反转" },
+            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS": { "score": 200, "description": "【终极信号】基础底部反转" }
           }
         },
-
         "resonance_offense_scoring": {
-          "说明": "【第二引擎：共振进攻分】全面下调共振信号的权重，使其回归“趋势中段助推器”的辅助角色，而非决策主力。",
+          "说明": "【第二引擎：共振进攻分】共振信号作为趋势的助推器。",
           "positive_signals": {
-            "说明_认知层共振": "--- 认知层共振信号 (权重已下调) ---",
-            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": 250,
-            "COGNITIVE_FUSION_BULLISH_RESONANCE_S": 200,
-            "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": 300,
-            "COGNITIVE_SCORE_TREND_SUSTAINABILITY_UP": 150,
-            
-            "说明_各情报层共振": "--- 各情报层S+级共振信号 (权重已下调) ---",
-            "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": 180,
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": 180,
-            "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": 180,
-            "SCORE_FF_BULLISH_RESONANCE_S_PLUS": 180,
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": 180,
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": 150
+            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": { "score": 300, "description": "认知层多域点火共振" },
+            "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": { "score": 350, "description": "认知层终极看涨确认" },
+            "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": { "score": 200, "description": "【终极信号】筹码看涨共振" },
+            "SCORE_FF_BULLISH_RESONANCE_S_PLUS": { "score": 180, "description": "【终极信号】资金看涨共振" },
+            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": { "score": 150, "description": "【终极信号】行为看涨共振" },
+            "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": { "score": 150, "description": "【终极信号】力学看涨共振" },
+            "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": { "score": 120, "description": "【终极信号】结构看涨共振" },
+            "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": { "score": 100, "description": "【终极信号】基础看涨共振" }
           }
         },
-
         "playbook_synergy_scoring": {
-          "说明": "【剧本协同分】剧本权重保持不变，作为独立的战术加分项。",
+          "说明": "【剧本协同分】剧本作为独立的战术加分项。",
           "positive_signals": {
             "PLAYBOOK_V_REVERSAL_ACE_S_PLUS": 800,
-            "PLAYBOOK_POST_REVERSAL_RESONANCE_S_PLUS": 720,
-            "PLAYBOOK_TRUE_ACCUMULATION_BREAKOUT_S_PLUS": 650,
-            "SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT": 750,
-            "TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS": 680,
-            "PLAYBOOK_SUSTAINED_IGNITION_S_PLUS_PLUS": 500,
-            "PLAYBOOK_PRIME_CHIP_IGNITION_S_PLUS_PLUS": 500,
-            "PLAYBOOK_CORE_HOLDER_IGNITION_S_PLUS": 450,
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 520,
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 600,
-            "TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS": 550,
-            "TACTIC_FAULT_REBIRTH_ASCENT_S_PLUS": 500,
-            "PLAYBOOK_IGNITION_RESONANCE_S": 400,
-            "PLAYBOOK_BOTTOM_REVERSAL_S": 400,
-            "PLAYBOOK_BREAKOUT_EVE_S": 480,
-            "PLAYBOOK_WASHOUT_ABSORPTION_REVERSAL_A_PLUS": 300,
-            "PLAYBOOK_MEAN_REVERSION_GRID_A": 280,
-            "PLAYBOOK_HEALTHY_PULLBACK_A": 250,
-            "PLAYBOOK_CLASSIC_PATTERN_BREAKOUT_A": 200,
-            "PLAYBOOK_SHAKEOUT_REVERSAL_A": 200,
-            "PLAYBOOK_CONSOLIDATION_BREAKOUT_A": 200,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 220,
-            "TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS": 450,
-            "TACTIC_ASCENT_PULLBACK_REVERSAL_A": 250,
-            "TACTIC_ASCENT_PIT_REVERSAL_A_PLUS": 350
+            "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 700,
+            "PLAYBOOK_PERFECT_STORM_BOTTOM_S_PLUS": 650,
+            "PLAYBOOK_CRUISE_PIT_REVERSAL_S_PLUS": 600,
+            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL_S_PLUS": 500,
+            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 450,
+            "PLAYBOOK_BREAKOUT_EVE_S": 400,
+            "PLAYBOOK_CHIP_PRICE_LAG_S": 350,
+            "PLAYBOOK_ASCENT_PIT_REVERSAL_A_PLUS": 300,
+            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL_A": 250,
+            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 200,
+            "PLAYBOOK_MEAN_REVERSION_GRID_A": 180,
+            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING_A": 220
           }
         },
-        
-        "trigger_event_scoring": {
-          "说明": "【触发器加分】触发器作为点火信号，权重保持不变。",
-          "positive_signals": {
-            "TRIGGER_DOMINANT_REVERSAL": 150
-          }
-        },
-
         "judgment_params": {
           "enabled": true,
-          "description": "【V3.0 风险优先版】引入风险对冲和一票否决机制。",
-          "final_score_threshold": {
-            "value": 400,
-            "description": "经过风险对冲后，买入信号所需的最低最终得分。由于反转信号基础分很高，此阈值可适当提高。"
-          },
-          "euphoria_attenuation_multiplier": {
-            "value": 2.0,
-            "description": "亢奋风险对进攻分的衰减乘数。最终进攻分 = 原始进攻分 * (1 - 亢奋风险分 * 此乘数)。值越高，衰减越剧烈。"
-          },
-          "euphoria_veto_threshold": {
-            "value": 0.85,
-            "description": "亢奋风险的一票否决阈值。当亢奋风险分超过此值时，动态战术动作将强制设为'AVOID'，禁止任何买入。"
-          },
-          "risk_overflow_threshold": {
-            "value": 500, "description": "总风险分超过此阈值，直接触发卖出信号（三道防线之二：风险溢出）。"
-          }
+          "final_score_threshold": { "value": 400 },
+          "euphoria_veto_threshold": { "value": 0.85 },
+          "risk_overflow_threshold": { "value": 500 }
         }
       },
-      "mean_reversion_grid_params": {
+      "fused_risk_scoring": {
         "enabled": true,
-        "description": "【V1.0 新增】均值回归网格交易策略参数。",
-        "cyclical_regime_threshold": {
-          "value": 0.4,
-          "description": "FFT周期政权分数必须高于此阈值，才认为是震荡市。"
+        "说明": "【V1.0 新增】风险元融合模块的配置，用于合成顶层风险分。",
+        "risk_categories": {
+          "behavioral_risk": {
+            "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "chip_risk": {
+            "SCORE_CHIP_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_CHIP_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "fund_flow_risk": {
+            "SCORE_FF_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_FF_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "dynamic_mechanics_risk": {
+            "SCORE_DYN_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_DYN_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "structural_risk": {
+            "SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "foundation_risk": {
+            "SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
+            "SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+          },
+          "cognitive_risk": {
+            "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
+            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
+            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 }
+          }
         },
-        "trending_regime_threshold": {
-          "value": 0.45,
-          "description": "FFT趋势政权分数必须低于此阈值，才认为是震荡市。"
+        "dynamic_weighting_params": {
+          "enabled": true,
+          "base_weights": {
+            "behavioral_risk": 1.0, "chip_risk": 1.5, "fund_flow_risk": 1.2,
+            "dynamic_mechanics_risk": 0.8, "structural_risk": 1.0, "foundation_risk": 0.8,
+            "cognitive_risk": 1.5
+          }
         }
       },
       "trigger_event_params": {
         "enabled": true,
-        "说明": "【V234.2 V型反转架构归位版】触发事件引擎的参数配置。",
-        "chip_ignition_s": { "value": 0.7 },
-        "invalidation_risk": { "value": 0.5 },
-        "washout_reversal_a_plus": { "value": 0.6, "description": "【A+级】洗盘吸筹反转剧本的触发阈值" },
-        "extreme_squeeze_s_plus": { "value": 0.7, "description": "【S+级】极致压缩突破剧本的触发阈值" },
-        "breakout_eve_s": { "value": 0.6, "description": "【S级】突破前夜剧本的触发阈值" },
-        "normal_squeeze_a": { "value": 0.5, "description": "【A级】常规压缩突破剧本的触发阈值" },
-        "mean_reversion_grid_buy_a_threshold": { "value": 0.8, "description": "【A级】均值回归网格买入剧本的触发阈值" },
-        "prime_chip_ignition_s_plus_plus": { "value": 0.7, "description": "【S++级】黄金筹码持续点火剧本的触发阈值" },
-        "panic_selling_setup_threshold": { "value": 0.15, "description": "【S++级 V型反转】昨日“恐慌抛售”战备分的触发阈值" },
-        "dominant_reversal_trigger_threshold": { "value": 0.02, "description": "【S++级 V型反转】今日“显性反转”点火分的触发阈值" },
-        "reversal_confirmation_candle": {
+        "说明": "【V9.0 · 终极信号适配版】触发事件引擎的参数配置。",
+        "dominant_reversal_candle": { "trigger_threshold": 0.4 },
+        "panic_selling_setup_threshold": { "value": 0.15 },
+        "mean_reversion_grid_buy_a_threshold": { "value": 0.8 },
+        "cyclical_bottom_fishing": {
           "enabled": true,
-          "min_pct_change": {
-            "value": 0.03,
-            "说明": "反转确认阳线的最小日涨幅。"
-          }
-        },
-        "post_reversal_resonance_s_plus_threshold": {
-          "value": 0.65,
-          "description": "【S++级】“大反转后期·共振初起”战术的触发阈值。"
-        },
-        "dominant_reversal_candle": {
-          "enabled": true,
-          "recovery_ratio": {
-            "value": 0.5,
-            "说明": "显性反转阳线要求收复前一日阴线实体的最小比例。"
-          },
-          "position_filter_enabled": {
-            "value": true,
-            "description": "是否启用位置过滤器。启用后，只有在价格处于近期下半区时，此触发器才有效。"
-          },
-          "position_lookback_days": {
-            "value": 60,
-            "description": "计算价格位置分的回看周期（天）。"
-          },
-          "max_position_percentile": {
-            "value": 0.5,
-            "description": "价格位置分必须低于此分位数，触发器才有效。0.5代表必须在60日区间的下半区。"
-          }
-        },
-        "breakout_candle": {
-          "enabled": true,
-          "min_body_ratio": {
-            "value": 0.4,
-            "说明": "突破阳线(企稳型)的最小实体占比。"
-          }
-        },
-        "energy_release": {
-          "enabled": true,
-          "min_body_ratio": {
-            "value": 0.5,
-            "说明": "能量释放阳线的最小实体占比。"
-          },
-          "volume_ratio": {
-            "value": 1.5,
-            "说明": "能量释放要求的最小成交量放大倍数。"
-          }
-        },
-        "volume_spike_breakout": {
-          "enabled": true,
-          "volume_ratio": {
-            "value": 2.0,
-            "说明": "放量突破要求的最小成交量放大倍数。"
-          },
-          "lookback_period": {
-            "value": 20,
-            "说明": "放量突破需要突破过去N日的高点。"
-          }
-        },
-        "pullback_rebound_trigger_params": {
-          "enabled": true,
-          "support_ma": { "value": 21, "说明": "回踩的关键支撑均线。" }
-        },
-        "platform_pullback_trigger_params": {
-          "enabled": true,
-          "proximity_ratio": {
-            "value": 0.015,
-            "说明": "价格回踩平台时允许的最大误差范围。"
-          }
-        },
-        "trend_continuation_candle": {
-          "enabled": true,
-          "lookback_period": {
-            "value": 8,
-            "说明": "判断收盘价是否创近期新高的回看周期。"
-          }
-        },
-        "indicator_cross_params": {
-          "enabled": true,
-          "dmi_cross": { "enabled": false },
-          "macd_cross": {
-            "enabled": true,
-            "low_level": { "value": -0.5, "说明": "MACD低位金叉的位置阈值。" }
-          }
-        },
-        "box_bottom_reversal": {
-          "enabled": true,
-          "proximity_ratio": {
-            "value": 0.015,
-            "说明": "价格触及箱体下轨时允许的向下缓冲范围（例如0.015代表允许跌破1.5%）。"
-          }
+          "phase_threshold": -0.8,
+          "cyclical_regime_threshold": 0.3
         }
       },
-      "vpa_dynamics_params": {
+      "absolute_veto_params": {
         "enabled": true,
-        "volume_ratio_high": 2.5,
-        "pct_change_low": 0.01
+        "说明": "【V315.0 终极信号适配版】绝对否决权。消费各情报层产出的终极风险信号。",
+        "veto_signals": [
+          "SCORE_CHIP_BEARISH_RESONANCE_S_PLUS",
+          "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS",
+          "SCORE_FF_BEARISH_RESONANCE_S_PLUS",
+          "SCORE_DYN_BEARISH_RESONANCE_S_PLUS",
+          "SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS",
+          "SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS",
+          "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S"
+        ]
       },
-      "chip_feature_params": {
+      "trend_quality_params": {
         "enabled": true,
-        "description": "【V321.0 动态自适应版】筹码特征参数。所有关于筹码结构、动态和行为的判断都基于此。",
-        "structure_params": {
-          "description": "【V321.0 动态自适应版】定义各级筹码聚集状态的动态阈值。",
-          "steady_gathering_quantile": 0.4,
-          "accel_gathering_quantile": 0.15,
-          "locked_concentration_quantile": {
-            "value": 0.10,
-            "description": "[动态自适应] 定义A级“高度集中”的动态分位数。0.1代表集中度优于过去120天中90%的时间。"
-          },
-          "cost_stability_quantile": {
-            "value": 0.20,
-            "description": "[动态自适应] 定义A级“成本稳定”的动态分位数。0.2代表成本峰斜率波动小于过去120天中80%的时间。"
-          }
+        "说明": "【V2.2 · FFT周期整合版】趋势质量融合评分模块参数。",
+        "chip_pillar_weights": {
+          "quantitative": 0.2, "advanced": 0.2, "internal": 0.25, "holder": 0.25, "fault": 0.1
         },
-        "ignition_params": {
-          "enabled": true,
-          "description": "定义“筹码点火”触发器的参数。",
-          "accel_threshold": 0.01
-        },
-        "critical_failure_params": {
-          "enabled": true,
-          "min_required_risks": {
-            "value": 3,
-            "description": "【V320.2 风险聚合版】定义“筹码结构严重失效”所需的最小激活风险信号数量。例如3代表至少3个子风险同时激活。"
-          }
-        },
-        "accel_concentration_threshold": {
-            "value": -0.001,
-            "description": "定义“筹码加速集中”的加速度阈值。"
+        "domain_weights": {
+          "behavior": 0.20, "chip": 0.30, "fund_flow": 0.15, "structural": 0.15, "mechanics": 0.10, "regime": 0.10
         }
       },
-      "ma_state_params": {
+      "reversal_reliability_params": {
         "enabled": true,
-        "short_ma": 13,
-        "mid_ma": 21,
-        "long_ma": 55,
-        "converging_zscore": -1.0,
-        "diverging_zscore": 1.0
-      },
-      "oscillator_state_params": {
-        "enabled": true,
-        "rsi_overbought": 80,
-        "rsi_oversold": 25,
-        "bias_dynamic_threshold": {
-          "window": {
-            "value": 120,
-            "说明": "计算BIAS历史分位数的滚动窗口期。"
-          },
-          "quantile": {
-            "value": 0.1,
-            "说明": "BIAS值需要低于历史同期的哪个分位数才算'负向乖离'。"
-          }
-        }
-      },
-      "capital_state_params": {
-        "enabled": true,
-        "cmf_bullish_threshold": 0.05,
-        "divergence_context": { "persistence_days": 15, "trend_ma_period": 55 }
-      },
-      "volatility_state_params": {
-        "enabled": true,
-        "squeeze_percentile": 0.1,
-        "shrinking_ratio": 0.8,
-        "squeeze_context": { "persistence_days": 10, "volume_break_ratio": 1.5 }
-      },
-      "kline_pattern_params": {
-        "enabled": true,
-        "washout_params": {
-          "enabled": true,
-          "washout_threshold": -0.07,
-          "washout_volume_ratio": 1.5
-        },
-        "gap_support_params": { "enabled": true, "persistence_days": 10 },
-        "n_shape_params": {
-          "enabled": true,
-          "rally_threshold": 0.097,
-          "consolidation_days_max": 3
-        },
-        "atomic_behavior_params": {
-          "enabled": true,
-          "description": "基础K线行为的定义参数，供战法层调用。",
-          "sharp_drop_threshold": {
-            "value": -0.04,
-            "description": "定义“恐慌性大跌”所需的最小日跌幅。"
-          },
-          "high_volume_ratio": {
-            "value": 1.5,
-            "description": "定义“显著放量”所需的最小成交量放大倍数（相对于21日均量）。"
-          }
-        }
-      },
-      "dynamic_box_params": {
-        "enabled": true,
-        "lookback_window": 8,
-        "max_amplitude_ratio": 0.05
-      },
-      "contextual_bonus_params": {
-          "enabled": true,
-          "description": "【V4.0 衰减奖励版】为有利战场环境提供奖励。",
-          "bonuses": [
-              {
-                "if_state": "STRUCTURE_MAIN_UPTREND_WAVE_S",
-                "signal_name": "BONUS_CONTEXT_MAIN_UPTREND",
-                "description": "对处于“S级主升浪”期间的信号，给予固定的趋势确认奖励。",
-                "decay_model": false,
-                "add_score": 120
-              },
-              {
-                "if_state": "FRACTAL_STATE_STRONG_TREND",
-                "signal_name": "BONUS_CONTEXT_STRONG_TREND",
-                "description": "对处于“周线级强趋势”的终极顺风环境，给予固定的最高级别环境奖励。",
-                "decay_model": false,
-                "add_score": 180
-              },
-              {
-                "if_state": "SETUP_PRIME_STRUCTURE_S_PLUS_PLUS",
-                "signal_name": "BONUS_SETUP_S_PLUS_PLUS",
-                "description": "当进攻发动前的准备状态是“三位一体”的S++级黄金阵地时，给予巨额奖励分。",
-                "decay_model": false,
-                "add_score": 300
-              }
-          ]
-      },
-      "dynamic_mechanics_params": {
-        "enabled": true,
-        "description": "【V3.1 信号缩放版】终极动态力学引擎参数",
-        "periods": [1, 5, 13, 21, 55],
+        "说明": "【V4.6 · FFT周期整合版】反转可靠性诊断引擎参数。",
         "norm_window": 120,
-        "final_score_exponent": {
-          "value": 0.5,
-          "description": "【信号缩放】对所有终极动态力学信号应用指数缩放，解决量纲压缩问题。"
-        },
-        "tactical_matrix_rules": {
-          "enabled": true,
-          "说明": "【A股实战版】决策矩阵。引入地基分门槛和硬性否决规则。",
-          "min_positional_score": {
-            "value": 250,
-            "description": "【地基门槛】买入信号所需的最低“阵地分”，这是开仓的硬性资格要求。"
-          },
-          "hard_veto_signals": {
-            "value": [
-              "RISK_CHIP_STRUCTURE_CRITICAL_FAILURE",
-              "RISK_BEHAVIOR_WINNERS_FLEEING",
-              "RISK_CONTEXT_LONG_TERM_DISTRIBUTION",
-              "SCORE_STRUCTURE_TOPPING_DANGER_S",
-              "COGNITIVE_RISK_DYNAMIC_DECEPTIVE_CHURN"
-            ],
-            "description": "【硬性否决】S级红线风险列表。只要触发其中任何一个，无论分数多高，都禁止开仓。"
-          },
-          "tolerance_tiers": [
-            {
-              "score_max": 799,
-              "max_veto_votes": 0,
-              "description": "常规信号（总分低于800），不允许任何常规否决票。"
-            },
-            {
-              "score_min": 800,
-              "max_veto_votes": 1,
-              "description": "强信号（总分高于800），可容忍1张常规否决票（例如'风险分>进攻分'）。"
-            }
-          ]
-        }
+        "ignition_weights": { "early": 0.5, "vol": 0.2, "potential": 0.3 },
+        "main_reliability_weights": { "shareholder": 0.5, "ignition": 0.5 },
+        "reversal_reliability_bonus_factor": 0.5
       },
-      "intraday_entry_params": {
-        "enabled": false,
-        "daily_score_threshold": 100,
-        "timeframe": "5",
-        "confirmation_rules": {
-          "vwap_reclaim": { "enabled": true },
-          "volume_confirmation": { "enabled": true, "ma_period": 21 },
-          "volatility_breakout": {
-            "enabled": true,
-            "squeeze_window": 60,
-            "squeeze_percentile": 0.2
-          }
-        }
-      },
-      "distribution_context_params": {
+      "mean_reversion_grid_params": {
         "enabled": true,
-        "description": "【V1.2 动态阈值版】危险战区感知模块参数",
-        "lookback_days": {
-          "value": 10,
-          "description": "记忆回溯期（天）。"
-        },
-        "risk_multiplier": {
-          "value": 1.5,
-          "description": "当处于“近期派发压力”下时，为总风险分应用的惩罚系数。"
-        }
-      },
-      "washout_suspicion_params": {
-        "description": "【洗盘嫌疑 V1.0】战术模块参数，用于识别并对冲“假派发、真洗盘”的风险。",
-        "enabled": {
-          "value": true,
-          "description": "是否启用此战术模块。"
-        },
-        "support_ma_period": {
-          "value": 21,
-          "description": "定义关键支撑均线的周期。价格守住此均线，是洗盘的重要特征。"
-        },
-        "volume_threshold_ratio": {
-          "value": 2.0,
-          "description": "定义成交量是否“过大”的阈值。洗盘时成交量通常不会持续超过21日均量的2倍。"
-        },
-        "reduction_factor": {
-          "value": 0.5,
-          "description": "风险对冲系数。如果确认为“洗盘嫌疑”，则“主力派发”风险分乘以该系数（例如0.5代表打5折）。"
-        }
-      },
-      "post_accumulation_params": {
-        "enabled": true,
-        "description": "【V313.0 动态粘合版】初升浪诊断模块参数",
-        "convergence_params": {
-          "description": "均线动态粘合阈值参数",
-          "use_dynamic_threshold": true,
-          "window": 120,
-          "quantile": 0.2,
-          "description_detail": "当天的均线粘合度(CV)需要小于其过去120天中的最低10%水平，才被视为'高度粘合'。"
-        },
-        "persistence_days": {
-          "value": 15,
-          "description": "“初升浪”状态从突破日开始，可以持续的最大天数。"
-        },
-        "break_ma_period": {
-          "value": 21,
-          "description": "定义破坏“初升浪”状态的关键均线周期，跌破此均线则状态提前结束。"
-        },
-        "relay_params": {
-          "enabled": true,
-          "description": "【V324.0 新增】突破-回踩接力联动参数",
-          "lookback_window": {
-            "value": 15,
-            "description": "在回踩日，向前回溯多少天寻找“初升浪启动”事件。"
-          }
-        }
-      },
-      "pullback_analysis_params": {
-        "enabled": true,
-        "description": "【V500.0 统一回踩诊断中心】参数",
-        "healthy_pullback_rules": {
-          "description": "定义“健康回踩”的规则",
-          "min_pct_change": -0.05,
-          "max_turnover_rate": 5.0,
-          "max_winner_turnover_ratio": 40.0, "说明": "【参数优化】新增并设定为40.0，适度放宽对获利盘锁仓的要求，这是增加健康回踩信号的核心。"
-        },
-        "suppression_pullback_rules": {
-          "description": "定义“打压回踩”的规则",
-          "min_drop_pct": -0.03,
-          "min_loser_turnover_ratio": 40.0,
-          "max_winner_turnover_ratio": 30.0,
-          "divergence_tolerance": 0.0005,
-          "min_rebound_days": 1,
-          "max_rebound_days": 3
-        }
-      },
-      "performance_analysis_params": {
-        "enabled": true,
-        "说明": "【战后复盘分析模块】用于在回测结束后，统计各项得分信号的未来表现。",
-        "look_forward_days": {
-          "value": 5,
-          "description": "【评判周期】向前看多少个交易日来判断信号的成败。例如5代表信号触发后的5天内。"
-        },
-        "profit_target_pct": {
-          "value": 0.05,
-          "description": "【胜利条件】盈利目标百分比。在评判周期内达到此涨幅，记为'胜利'。例如0.10代表10%。"
-        },
-        "stop_loss_pct": {
-          "value": 0.03,
-          "description": "【失败条件】止损百分比。在评判周期内达到此跌幅，记为'失败'。例如0.05代表5%。"
-        }
-      },
-      "realtime_strategy_params": {
-        "enabled": true,
-        "说明": "【V1.0 盘中策略引擎参数】定义盘中实时交易策略的各项参数。",
-        "trade_start_time": "09:45",
-        "trade_end_time": "14:50",
-        "base_timeframe": "1min",
-        "processed_timeframes": ["5min", "30min", "60min"],
-        "min_data_points_5min": 21,
-        "min_data_points_30min": 34,
-        "min_data_points_60min": 55,
-        "indicators": {
-          "说明": "盘中基础技术指标配置。",
-          "ema": {
-            "enabled": true,
-            "configs": [
-              { "apply_on": ["5min", "30min", "60min"], "periods": [5, 13, 21, 34, 55] }
-            ]
-          },
-          "vol_ma": {
-            "enabled": true,
-            "configs": [
-              { "apply_on": ["5min", "30min", "60min"], "periods": [21] }
-            ]
-          },
-          "boll_bands_and_width": {
-            "enabled": true,
-            "configs": [
-              { "apply_on": ["5min", "30min"], "periods": [21], "std_dev": 2.0 }
-            ]
-          },
-          "vwap": { "enabled": true, "apply_on": ["5min"] },
-          "atr": { "enabled": true, "apply_on": ["5min", "30min"], "periods": [14] }
-        },
-        "kline_patterns": {
-          "enabled": true,
-          "说明": "盘中K线形态识别参数。",
-          "apply_on": ["5min", "30min"],
-          "patterns": ["CDL_HAMMER", "CDL_ENGULFING", "CDL_DOJI", "CDL_STAR"],
-          "hammer_strength_params": {
-            "min_body_ratio": 0.1,
-            "max_upper_shadow_ratio": 0.2,
-            "min_lower_shadow_ratio": 0.6,
-            "说明": "锤头线强度参数：实体占比最小，上影线占比最大，下影线占比最小"
-          }
-        },
-        "volume_anomalies": {
-          "enabled": true,
-          "说明": "盘中成交量异动分析参数。",
-          "apply_on": ["5min"],
-          "giant_volume_multiplier": 2.0,
-          "shrinking_volume_ratio": 0.5,
-          "volume_ma_period": 21
-        },
-        "volatility_params": {
-          "enabled": true,
-          "说明": "盘中波动率分析参数。",
-          "apply_on": ["5min"],
-          "bbw_slope_period": 5,
-          "intraday_range_threshold_pct": 0.01,
-          "bbw_lookback_window": 120,
-          "bbw_squeeze_percentile_threshold": 0.3,
-          "说明_bbw_squeeze": "BBW分位数回溯窗口和收缩阈值，用于量化BBW收缩程度"
-        },
-        "advanced_vwap_params": {
-          "enabled": true,
-          "说明": "VWAP相关高级指标参数。",
-          "apply_on": ["5min"],
-          "vwap_ma_period": 5,
-          "vwap_channel_std_dev": 1.0,
-          "vwap_deviation_threshold_pct": 0.005
-        },
-        "intraday_sr_params": {
-          "enabled": true,
-          "说明": "盘中支撑与阻力位参数。",
-          "pivot_points_enabled": true,
-          "prev_day_close_enabled": true,
-          "rebound_strength_min_pct": 0.005,
-          "rejection_strength_min_pct": 0.005,
-          "说明_strength_pct": "反弹/拒绝强度最小百分比，用于量化支撑阻力反弹/拒绝强度"
-        },
-        "micro_price_action_params": {
-          "enabled": true,
-          "说明": "价格行为微观结构参数。",
-          "apply_on": ["5min"],
-          "min_shadow_body_ratio": 0.8,
-          "rejection_threshold_pct": 0.003
-        },
-        "playbooks": {
-          "说明": "盘中交易剧本参数。",
-          "vwap_breakout": {
-            "enabled": true,
-            "说明": "5分钟VWAP突破动能剧本。",
-            "vwap_breakout_volume_multiplier": 1.5,
-            "vwap_breakout_min_pct_change": 0.005
-          },
-          "bollinger_breakout": {
-            "enabled": true,
-            "说明": "5分钟布林带突破剧本。",
-            "bollinger_breakout_volume_multiplier": 1.8,
-            "bollinger_breakout_max_bbw": 0.02
-          },
-          "ema_bullish_breakout_30min": {
-            "enabled": true,
-            "说明": "30分钟EMA多头排列突破剧本。此剧本主要依赖EMA指标本身，无额外参数。"
-          },
-          "pullback_rebound": {
-            "enabled": true,
-            "说明": "5分钟VWAP回调支撑反弹剧本。",
-            "pullback_vwap_tolerance_pct": 0.002,
-            "pullback_max_volume_multiplier": 1.2
-          },
-          "intraday_candlestick_reversal": {
-            "enabled": true,
-            "说明": "盘中K线反转形态剧本。",
-            "min_reversal_volume_multiplier": 1.2,
-            "min_reversal_pct_change": 0.008
-          },
-          "volume_breakout_with_bbw_squeeze": {
-            "enabled": true,
-            "说明": "布林带压缩后放量突破剧本。",
-            "volume_multiplier": 2.0,
-            "bbw_squeeze_quantile": 0.2
-          },
-          "vwap_channel_rebound": {
-            "enabled": true,
-            "说明": "VWAP通道支撑反弹剧本。",
-            "channel_std_dev": 1.0,
-            "rebound_min_pct_change": 0.003
-          },
-          "multi_timeframe_ema_confluence": {
-            "enabled": true,
-            "说明": "多周期EMA共振突破剧本。",
-            "min_30min_ema_slope": 0.0001,
-            "min_60min_ema_slope": 0.00005
-          },
-          "pivot_point_reversal": {
-            "enabled": true,
-            "说明": "枢轴点支撑反转剧本。",
-            "pivot_tolerance_pct": 0.0015,
-            "rebound_volume_multiplier": 1.2
-          },
-          "micro_price_rejection_rebound": {
-            "enabled": true,
-            "说明": "微观价格行为拒绝反弹剧本。",
-            "rejection_min_shadow_body_ratio": 0.8,
-            "rejection_volume_multiplier": 1.1
-          }
-        },
-        "intraday_scoring_params": {
-          "enabled": true,
-          "说明": "【V2.0 盘中评分系统参数】定义盘中实时信号的评分逻辑和评级阈值，引入分层判定。",
-          "base_score_per_playbook": {
-            "说明": "每个成功触发的剧本的基础分数。",
-            "5min VWAP Breakout": 50,
-            "5min Bollinger Breakout": 60,
-            "30min EMA Bullish Breakout": 70,
-            "5min VWAP Pullback Rebound": 40,
-            "Intraday Candlestick Reversal": 45,
-            "BBW Squeeze Volume Breakout": 80,
-            "VWAP Channel Rebound": 50,
-            "Multi-timeframe EMA Confluence": 90,
-            "Pivot Point Reversal": 55,
-            "Micro Price Rejection Rebound": 35
-          },
-          "tiered_feature_scoring": {
-            "说明": "基于特征程度的分层加减分权重。'metric'为特征名称，'direction'为正向(positive)或负向(negative)影响，'tiers'定义阈值和分数。",
-            "VOLUME_RATIO_TO_MA": {
-              "metric": "VOLUME_RATIO_TO_MA",
-              "direction": "dynamic",
-              "tiers": [
-                {"threshold": 1.5, "score_up": 15, "score_down": -15, "description": "放量 (1.5x均量)"},
-                {"threshold": 2.0, "score_up": 30, "score_down": -30, "description": "巨量 (2.0x均量)"},
-                {"threshold": 3.0, "score_up": 50, "score_down": -50, "description": "天量 (3.0x均量)"}
-              ]
-            },
-            "BBW_PERCENTILE": {
-              "metric": "BBW_PERCENTILE",
-              "direction": "positive_inverse",
-              "tiers": [
-                {"threshold": 0.3, "score": 10, "description": "BBW中度收缩 (低于30%分位)"},
-                {"threshold": 0.1, "score": 25, "description": "BBW高度收缩 (低于10%分位)"},
-                {"threshold": 0.05, "score": 40, "description": "BBW极致收缩 (低于5%分位)"}
-              ]
-            },
-            "VWAP_DEVIATION_PCT": {
-              "metric": "VWAP_DEVIATION_PCT",
-              "direction": "dynamic",
-              "tiers": [
-                {"threshold": 0.005, "score_up": 10, "score_down": -10, "description": "VWAP小幅偏离 (0.5%)"},
-                {"threshold": 0.01, "score_up": 20, "score_down": -20, "description": "VWAP中幅偏离 (1%)"},
-                {"threshold": 0.02, "score_up": 30, "score_down": -30, "description": "VWAP大幅偏离 (2%)"}
-              ]
-            },
-            "LOWER_SHADOW_RATIO": {
-              "metric": "LOWER_SHADOW_RATIO",
-              "direction": "positive",
-              "tiers": [
-                {"threshold": 0.3, "score": 10, "description": "长下影线 (影线占比>30%)"},
-                {"threshold": 0.5, "score": 25, "description": "极长下影线 (影线占比>50%)"}
-              ]
-            },
-            "UPPER_SHADOW_RATIO": {
-              "metric": "UPPER_SHADOW_RATIO",
-              "direction": "negative",
-              "tiers": [
-                {"threshold": 0.3, "score": -10, "description": "长上影线 (影线占比>30%)"},
-                {"threshold": 0.5, "score": -25, "description": "极长上影线 (影线占比>50%)"}
-              ]
-            },
-            "HAMMER_STRENGTH_SCORE": {
-              "metric": "HAMMER_STRENGTH_SCORE",
-              "direction": "positive",
-              "tiers": [
-                {"threshold": 0.5, "score": 20, "description": "中等强度锤头线"},
-                {"threshold": 0.8, "score": 40, "description": "高强度锤头线"}
-              ]
-            },
-            "REBOUND_STRENGTH_FROM_SUPPORT": {
-              "metric": "PRICE_REBOUNDING_FROM_SUPPORT",
-              "direction": "positive",
-              "tiers": [
-                {"threshold": 0.005, "score": 20, "description": "支撑位小幅反弹"},
-                {"threshold": 0.01, "score": 40, "description": "支撑位强劲反弹"}
-              ]
-            },
-            "REJECTION_STRENGTH_AT_RESISTANCE": {
-              "metric": "PRICE_REJECTION_AT_RESISTANCE",
-              "direction": "negative",
-              "tiers": [
-                {"threshold": 0.005, "score": -20, "description": "阻力位小幅拒绝"},
-                {"threshold": 0.01, "score": -40, "description": "阻力位强劲拒绝"}
-              ]
-            }
-          },
-          "fixed_feature_scoring": {
-            "说明": "无法分层判定的二元特征加减分。",
-            "CDL_ENGULFING_BULLISH": 30,
-            "CDL_MORNINGSTAR": 25,
-            "CDL_ENGULFING_BEARISH": -30,
-            "CDL_EVENINGSTAR": -25,
-            "EMA_BULLISH_CONFLUENCE": 40,
-            "VOLUME_PRICE_DIVERGENCE_BEARISH": -40,
-            "VWAP_SLOPE_UP": 10,
-            "VWAP_SLOPE_DOWN": -10,
-            "PRICE_ABOVE_PREV_CLOSE": 10,
-            "PRICE_BELOW_PREV_CLOSE": -10
-          },
-          "rating_thresholds": {
-            "说明": "盘中信心分数对应的评级。",
-            "STRONG_BUY": 150,
-            "BUY": 80,
-            "NEUTRAL": -50,
-            "SELL": -100,
-            "STRONG_SELL": -150
-          },
-          "daily_score_influence_multiplier": {
-            "value": 0.5,
-            "说明": "日线策略的'entry_score'对盘中评分的影响乘数。例如，日线1000分，乘数0.5，则盘中额外加500分。"
-          },
-          "daily_risk_penalty_multiplier": {
-            "value": 0.8,
-            "说明": "日线策略的'risk_score'对盘中评分的惩罚乘数。例如，日线200分风险，乘数0.8，则盘中额外扣160分。"
-          }
-        }
+        "说明": "【V1.0 新增】均值回归网格交易策略参数。",
+        "cyclical_regime_threshold": { "value": 0.4 },
+        "trending_regime_threshold": { "value": 0.45 }
       }
-    }
-  },
-  "exit_strategy_params": {
-    "enabled": true,
-    "说明": "【V97.1 风险剧本版】智能出场矩阵，新增了对'下跌中继'剧本的参数支持。",
-    "upthrust_distribution_params": {
-      "enabled": true,
-      "说明": "【V103 关系版】“冲高回落”结构信号的计算参数",
-      "overextension_ma_period": 55,
-      "overextension_threshold": 0.15,
-      "upthrust_lookback_days": 5,
-      "upper_shadow_ratio_min": 0.35
-    },
-    "true_breakdown_params": {
-      "enabled": true,
-      "说明": "“真实结构破位”信号的计算参数",
-      "lookback_period": 20,
-      "confirmation_ma_period": 21,
-      "confirmation_lookback_days": 2,
-      "slope_lookback_period": 5,
-      "required_negative_slope": -0.01
-    },
-    "structure_breakdown_params": {
-      "enabled": true,
-      "说明": "“急跌回调预警”信号的计算参数 (原结构性破位)",
-      "breakdown_ma_period": 21,
-      "min_pct_change": -0.03,
-      "high_volume_quantile": 0.75
-    },
-    "divergence_exit_params": {
-      "enabled": false,
-      "说明": "【已废弃】此参数块在V91.0之后已不再使用，保留但禁用。",
-      "lookback_period": 20,
-      "persistence_days": 5,
-      "break_ma_period": 10
-    },
-    "warning_threshold_params": {
-      "说明": "风险预警阈值。当风险分达到此级别但未达到卖出级别时，触发预警。",
-      "LOW": { "level": 30, "cn_name": "低度风险" },
-      "MEDIUM": { "level": 50, "cn_name": "中度风险" }
-    },
-    "exit_threshold_params": {
-      "说明": "真正的“卖出”信号阈值，门槛已提高。",
-      "HIGH": { "level": 80, "code": 88, "cn_name": "高度风险卖出" },
-      "CRITICAL": { "level": 120, "code": 99, "cn_name": "临界风险卖出" }
-    },
-    "stagnation_params": {
-      "enabled": true,
-      "说明": "【V102 新增】“熊市停滞”剧本的四重保险参数",
-      "atr_period": 14,
-      "low_vol_window": 120,
-      "low_vol_percentile": 0.1,
-      "low_range_window": 60,
-      "low_range_percentile": 0.1,
-      "discriminator_capital_lookback": 5,
-      "discriminator_ma_slope_period": 5,
-      "persistence_lookback_window": 3,
-      "persistence_required_days": 2
-    }
-  },
-  "risk_veto_params": {
-    "enabled": true,
-    "说明": "【V247.0 战略定力版】更严格的风险否决。",
-    "risk_tolerance_ratio": 0.65,
-    "min_absolute_risk_for_veto": 50
-  },
-  "absolute_veto_params": {
-    "enabled": true,
-    "说明": "【V314.1 终极信号适配版】绝对否决权。已全面升级为消费各情报层产出的终极风险信号，提升否决的准确性和可靠性。",
-    "veto_signals": [
-      "SCORE_CHIP_BEARISH_RESONANCE_S_PLUS",
-      "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS",
-      "SCORE_FF_BEARISH_RESONANCE_S_PLUS",
-      "SCORE_DYN_BEARISH_RESONANCE_S_PLUS",
-      "SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS",
-      "SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS",
-      "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S",
-      "COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S",
-      "CONTEXT_CHIP_LONG_TERM_ACCEL_DIVERGENCE_D",
-      "RISK_STRATEGIC_DISTRIBUTION_RALLY_TRAP_S",
-      "SCORE_STRUCTURE_TOPPING_DANGER_S"
-    ],
-    "mitigation_rules": {
-      "说明": "豁免/缓解规则。当强大的正面信号出现时，可以抵消掉某些'绝对否出'风险。",
-      "SCORE_STRUCTURE_TOPPING_DANGER_S": {
-        "mitigated_by": ["CONTEXT_EXPLOSIVE_RALLY"],
-        "description": "如果出现'S级顶部危险'结构，但当日K线是'爆炸性拉升阳线'，则可能是最后的疯狂或洗盘，暂时豁免，交由风险分处理。"
-      }
-    }
-  },
-  "risk_quantifier_params": {
-    "enabled": true,
-    "说明": "【V99.0 风险仪表盘】将原始风险指标翻译成 0-100 的直观得分。",
-
-    "peak_stability": {
-      "cn_name": "主峰根基动摇",
-      "source_metric": "peak_stability_slope_5d",
-      "direction": -1,
-      "说明_direction": "风险方向, -1代表数值越小风险越高(如斜率为负)",
-      "center_point": -1.0,
-      "说明_center": "中心点, 代表此数值对应50分风险",
-      "steepness": 2.0,
-      "说明_steepness": "陡峭度, 数值越大, 风险在中心点附近变化越剧烈"
-    },
-    "pressure_above": {
-      "cn_name": "上方压力积聚",
-      "source_metric": "pressure_above_slope_5d",
-      "direction": 1,
-      "说明_direction": "风险方向, 1代表数值越大风险越高(如斜率为正)",
-      "center_point": 0.8,
-      "steepness": 3.0
-    },
-    "cost_decay": {
-      "cn_name": "筹码成本衰竭",
-      "source_metric": "cost_slope_5d",
-      "direction": -1,
-      "center_point": -0.5,
-      "steepness": 2.5
-    },
-    "winner_evaporation": {
-      "cn_name": "获利盘蒸发",
-      "source_metric": "winner_rate_slope_5d",
-      "direction": -1,
-      "center_point": -2.0,
-      "steepness": 1.5
     }
   },
   "position_management_params": {
     "enabled": true,
-    "说明": "【V100.0 标准作战条例】定义了从建仓、加仓到止盈止损的全流程战术动作。",
-    "initial_sizing": {
-      "enabled": true,
-      "sizing_model": "FIXED_RISK_PERCENT",
-      "说明_model": "军力部署模型。FIXED_RISK_PERCENT: 基于总资金的固定风险百分比建仓，确保任何单次失利都在可控范围内。这是最专业的资金管理模式。计算公式: 仓位规模 = (总资金 * 风险百分比) / (入场价 - 止损价)",
-      "risk_per_trade_percent": 2.0,
-      "说明_risk_pct": "单笔交易愿意承受的最大风险，占总资金的百分比 (例如2.0代表2%)。这是我军的生命线！"
-    },
-    "stop_loss": {
-      "enabled": true,
-      "initial_stop_model": "PLATFORM_SUPPORT",
-      "说明_initial": "最后防线模型。PLATFORM_SUPPORT: 使用我们之前精心计算出的'稳固筹码平台'价格(stable_platform_price)作为初始止损位，具备极强的战术意义。",
-      "atr_multiplier_for_platform": 0.5,
-      "说明_atr_platform": "在平台价格下方再增加 N 倍的ATR作为缓冲，防止被精准的假跌破清除出场。设为0则不使用缓冲。",
-      "min_stop_loss_percent": 4.0,
-      "说明_min_pct": "为防止止损位因平台过近而过于贴近成本价，强制设置一个最小的止损幅度(例如4%)，保证部队有足够的腾挪空间。"
-    },
-    "trailing_stop": {
-      "enabled": true,
-      "trailing_model": "MOVING_AVERAGE",
-      "说明_trailing": "【第三道防线】锁定利润模型。让利润顺着趋势奔跑，同时保护已有战果。MOVING_AVERAGE: 当价格收盘有效跌破指定的移动平均线时，全线止盈。",
-      "ma_type": "EMA",
-      "ma_period": 21,
-      "说明_ma": "移动止盈使用的均线类型(EMA/SMA)和周期。EMA20是中期趋势的经典生命线。"
-    },
-    "pyramiding": {
-      "enabled": true,
-      "说明": "【乘胜追击】金字塔加仓规则。在优势战局下扩大战果，但需谨慎使用。",
-      "trigger_condition": "NEW_BUY_SIGNAL",
-      "说明_trigger": "加仓的触发条件。NEW_BUY_SIGNAL: 在盈利持仓期间，出现新的、评分达标的买入信号时。",
-      "add_size_ratio": 0.5,
-      "说明_add_size": "加仓规模，是初始仓位的比例 (例如0.5代表加仓初始仓位的一半)。",
-      "max_pyramid_count": 2,
-      "说明_max_count": "最大允许的加仓次数，防止在趋势末期过度投入兵力。"
-    },
-    "risk_based_reduction": {
-      "enabled": true,
-      "说明": "【风险减仓】基于风险评分的主动减仓模块，用于控制回撤。",
-      "level_2_alert_reduction_pct": 0.3,
-      "说明_l2": "当风险预警达到2级(中度风险)时，减仓的百分比。",
-      "level_3_alert_reduction_pct": 0.5,
-      "说明_l3": "当风险预警达到3级(高度风险)时，减仓的百分比。"
-    }
+    "说明": "【V100.0 标准作战条例】仓位管理参数保持不变。",
+    "initial_sizing": { "enabled": true, "risk_per_trade_percent": 2.0 },
+    "stop_loss": { "enabled": true, "initial_stop_model": "PLATFORM_SUPPORT", "atr_multiplier_for_platform": 0.5, "min_stop_loss_percent": 4.0 },
+    "trailing_stop": { "enabled": true, "trailing_model": "MOVING_AVERAGE", "ma_period": 21 },
+    "pyramiding": { "enabled": true, "add_size_ratio": 0.5, "max_pyramid_count": 2 }
   }
 }
