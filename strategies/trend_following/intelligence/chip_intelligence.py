@@ -320,6 +320,10 @@ class ChipIntelligence:
     def _diagnose_setup_capitulation_ready(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """【V1.1】诊断“恐慌已弥漫”的战备(Setup)状态 (战术模块，予以保留)"""
         states = {}
+        required_col = 'total_loser_rate_D'
+        if required_col not in df.columns:
+            print(f"        -> [筹码情报-恐慌战备诊断] 警告: 缺少关键数据列 '{required_col}'，模块已跳过！")
+            return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
         deep_capitulation_score = self._normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
@@ -339,6 +343,11 @@ class ChipIntelligence:
     def _diagnose_trigger_capitulation_fire(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """【V1.0】诊断“卖压出清”的点火(Trigger)行为 (战术模块，予以保留)"""
         states = {}
+        required_cols = ['turnover_from_losers_ratio_D', 'ACCEL_5_turnover_from_losers_ratio_D']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"        -> [筹码情报-卖压出清诊断] 警告: 缺少关键数据列 {missing_cols}，模块已跳过！")
+            return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
         relative_turnover_score = self._normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
@@ -354,6 +363,11 @@ class ChipIntelligence:
     def _synthesize_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """【V1.1】合成“恐慌盘投降反转”剧本 (战术模块，予以保留)"""
         states = {}
+        required_cols = ['SCORE_SETUP_CAPITULATION_READY', 'SCORE_TRIGGER_CAPITULATION_FIRE']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            print(f"        -> [筹码情报-投降反转剧本] 警告: 缺少前置信号 {missing_cols}，剧本合成已跳过！")
+            return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         setup_score = df['SCORE_SETUP_CAPITULATION_READY']
         trigger_score = df['SCORE_TRIGGER_CAPITULATION_FIRE']
