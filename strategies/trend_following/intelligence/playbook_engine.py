@@ -383,7 +383,30 @@ class PlaybookEngine:
         # 用指定的默认值填充因窗口期不足而产生的NaN
         return score.fillna(default)
 
-
+    def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+        """
+        【V1.0 新增】辅助函数：融合S+/S/A/B等多层置信度分数的辅助函数。
+        - 从其他情报模块迁移而来，用于支持探针的内部计算。
+        """
+        if weights is None:
+            weights = {'S_PLUS': 1.5, 'S': 1.0, 'A': 0.6, 'B': 0.3}
+        total_score = pd.Series(0.0, index=df.index)
+        total_weight = 0.0
+        for level in ['S_PLUS', 'S', 'A', 'B']:
+            if level not in weights: continue
+            weight = weights[level]
+            score_name = f"SCORE_{base_name}_{level}"
+            if score_name in self.strategy.atomic_states:
+                score_series = self.strategy.atomic_states[score_name]
+                if len(score_series) > 0:
+                    total_score += score_series.reindex(df.index).fillna(0.0) * weight
+                    total_weight += weight
+        if total_weight == 0:
+            single_score_name = f"SCORE_{base_name}"
+            if single_score_name in self.strategy.atomic_states:
+                return self.strategy.atomic_states[single_score_name].reindex(df.index).fillna(0.5)
+            return pd.Series(0.5, index=df.index)
+        return (total_score / total_weight).clip(0, 1)
 
 
 
