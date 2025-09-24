@@ -392,13 +392,20 @@ class IndicatorService:
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
+        indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # --- 步骤 3: 【VPA效率指标计算】 - 修正顺序，提前计算 ---
         # 解释：高级模式识别依赖VPA效率指标，因此必须先计算VPA。
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
-        # --- 步骤 4: 【高级模式识别】 - 移至VPA计算之后 ---
-        all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
+        # --- 步骤 4: 计算均线收敛度和盘整期，作为高级模式识别的前置步骤 ---
+        ma_conv_params = indicators_config.get('ma_convergence', {})
+        if ma_conv_params.get('enabled', False):
+            all_dfs = await self.feature_service.calculate_ma_convergence(all_dfs, ma_conv_params)
+            
+        consolidation_params = indicators_config.get('consolidation_period', {})
+        if consolidation_params.get('enabled', False):
+            all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
         # --- 步骤 5: 【斜率计算】 - 修正步骤编号 ---
         # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
@@ -802,11 +809,9 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.8 终极流程修复版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修正 (本次修改):
-          - [流程重构] 严格遵循“先计算，后命名”原则。所有指标计算都在无后缀的DataFrame上完成。
-          - [Z-Score修复] 修正了Z-Score源列名的拼接逻辑，确保它在无后缀环境中正确查找。
-        - 收益: 彻底解决了所有指标的计算顺序和依赖问题，流程完全理顺。
+        【V110.10 · 地图净化版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修正: 从 indicator_method_map 中彻底移除了 ma_convergence 和 consolidation_period，
+                    完成了职责移交的最后一步清理，确保了代码的纯净和一致性。
         """
         if not config:
             return df
@@ -818,6 +823,7 @@ class IndicatorService:
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
         
+        # [代码修改] 从方法地图中移除已移交职责的键
         indicator_method_map = {
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
             'coppock': self.calculator.calculate_coppock, 'rsi': self.calculator.calculate_rsi, 'macd': self.calculator.calculate_macd,
@@ -825,10 +831,8 @@ class IndicatorService:
             'cmf': self.calculator.calculate_cmf, 'bias': self.calculator.calculate_bias, 'atrn': self.calculator.calculate_atrn,
             'atrr': self.calculator.calculate_atrr, 'obv': self.calculator.calculate_obv, 'kdj': self.calculator.calculate_kdj,
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
-            'consolidation_period': self.calculator.calculate_consolidation_period,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
-            'ma_convergence': self.calculator.calculate_ma_convergence,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
@@ -838,11 +842,11 @@ class IndicatorService:
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
 
         # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        # 采用有序的计算列表，确保依赖项先被计算
+        # [代码修改] 确认有序计算列表中不包含已移交职责的键
         ordered_calc_keys = [
-            'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo', # 基础指标
-            'ma_convergence', 'price_volume_ma_comparison', 'zscore', # 依赖性指标
-            'consolidation_period', 'fibonacci_levels' # 复合模式指标
+            'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
+            'price_volume_ma_comparison', 'zscore', 
+            'fibonacci_levels'
         ]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
@@ -858,7 +862,6 @@ class IndicatorService:
                         source_pattern = z_config.get("source_column_pattern")
                         output_col_name = z_config.get("output_column_name")
                         window = z_config.get("window", 60)
-                        # 从模式中移除后缀，以匹配无后缀的df_for_calc
                         source_pattern_no_suffix = source_pattern.removesuffix(f"_{timeframe_key}")
                         macd_cfg = config.get('macd', {})
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
@@ -880,7 +883,8 @@ class IndicatorService:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    if indicator_name in ['consolidation_period', 'fibonacci_levels', 'price_volume_ma_comparison', 'ma_convergence']:
+                    # [代码修改] 确认特殊处理逻辑中不包含已移交职责的键
+                    if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
                         result_df = await method_to_call(df=df_for_calc, params=params)
                         merge_results(result_df, df_for_calc)
                         break
@@ -915,7 +919,6 @@ class IndicatorService:
 
         # --- 阶段二: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
-        # 核心修复：只为那些还没有正确后缀的列添加后缀
         rename_map = {
             col: f"{col}{suffix}" 
             for col in df_for_calc.columns 

@@ -895,76 +895,6 @@ class IndicatorCalculator:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_consolidation_period(self, df: pd.DataFrame, params: Dict) -> Optional[pd.DataFrame]:
-        """
-        【V2.3 异步优化版】根据多因子共振识别盘整期。
-        - 核心修复: 保持对 dynamic_bbw_threshold 的 bfill()，并对箱体高低点列中残余的NaN进行填充，根除NaN。
-        - 优化: 将整个复杂的同步计算过程封装并移入工作线程执行，防止长时间阻塞事件循环。
-        """
-        # 将所有前置检查放在同步函数外部，快速失败。
-        boll_period = params.get('boll_period', 21)
-        boll_std = params.get('boll_std', 2.0)
-        roc_period = params.get('roc_period', 12)
-        vol_ma_period = params.get('vol_ma_period', 55)
-        bbw_col = f"BBW_{boll_period}_{float(boll_std)}"
-        roc_col = f"ROC_{roc_period}"
-        vol_ma_col = f"VOL_MA_{vol_ma_period}"
-        required_cols = [bbw_col, roc_col, vol_ma_col, 'high', 'low', 'volume']
-        if not all(col in df.columns for col in required_cols):
-            missing = [col for col in required_cols if col not in df.columns]
-            print(f"    - [依赖错误] V2.3箱体计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
-            return None
-        
-        try:
-            # 定义一个同步函数来封装所有复杂的计算逻辑。
-            def _sync_consolidation_calc():
-                # 1. 参数获取
-                bbw_quantile = params.get('bbw_quantile', 0.25)
-                roc_threshold = params.get('roc_threshold', 5.0)
-                min_expanding_periods = boll_period * 2
-                # 2. 初始化结果DataFrame
-                result_df = pd.DataFrame(index=df.index)
-                # 3. 核心逻辑: 判断盘整状态
-                dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile)
-                dynamic_bbw_threshold.bfill(inplace=True)
-                result_df['dynamic_bbw_threshold'] = dynamic_bbw_threshold
-                cond_volatility = df[bbw_col] < result_df['dynamic_bbw_threshold']
-                cond_trend = df[roc_col].abs() < roc_threshold
-                cond_volume = df['volume'] < df[vol_ma_col]
-                is_consolidating = cond_volatility & cond_trend & cond_volume
-                result_df['is_consolidating'] = is_consolidating
-                # 4. 计算箱体指标
-                if is_consolidating.any():
-                    consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
-                    consolidating_df = df[is_consolidating].copy()
-                    grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
-                    consolidation_high = grouped['high'].transform('max')
-                    consolidation_low = grouped['low'].transform('min')
-                    consolidation_avg_vol = grouped['volume'].transform('mean')
-                    consolidation_duration = grouped['high'].transform('size')
-                    # 5. 填充结果
-                    result_df['dynamic_consolidation_high'] = consolidation_high
-                    result_df['dynamic_consolidation_low'] = consolidation_low
-                    result_df['dynamic_consolidation_avg_vol'] = consolidation_avg_vol
-                    result_df['dynamic_consolidation_duration'] = consolidation_duration
-                    fill_cols = [
-                        'dynamic_consolidation_high', 'dynamic_consolidation_low',
-                        'dynamic_consolidation_avg_vol', 'dynamic_consolidation_duration'
-                    ]
-                    result_df[fill_cols] = result_df[fill_cols].ffill()
-                # 6. 根除NaN: 对所有可能为空的列进行填充，确保下游策略的健壮性
-                result_df['dynamic_consolidation_high'] = result_df.get('dynamic_consolidation_high', pd.Series(index=df.index)).fillna(df['high'])
-                result_df['dynamic_consolidation_low'] = result_df.get('dynamic_consolidation_low', pd.Series(index=df.index)).fillna(df['low'])
-                result_df['dynamic_consolidation_avg_vol'] = result_df.get('dynamic_consolidation_avg_vol', pd.Series(index=df.index)).fillna(0)
-                result_df['dynamic_consolidation_duration'] = result_df.get('dynamic_consolidation_duration', pd.Series(index=df.index)).fillna(0)
-                return result_df
-
-            # 在独立的线程中异步执行整个计算过程。
-            return await asyncio.to_thread(_sync_consolidation_calc)
-        except Exception as e:
-            logger.error(f"计算 Consolidation Period 时发生未知错误: {e}", exc_info=True)
-            return None
-
     async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
         【V3.0 双引擎健壮版】计算斐波那契回撤水平。
@@ -1061,43 +991,6 @@ class IndicatorCalculator:
             
             # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
             return result_df
-
-    async def calculate_ma_convergence(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
-        """
-        【V1.1 异步优化版】计算均线粘合度 (MA Convergence)。
-        - 指标含义: 使用变异系数 (Coefficient of Variation) 来量化多条均线的离散程度。值越小，代表均线粘合度越高。
-        - 优化: 将同步计算逻辑移至工作线程执行，避免阻塞。
-        """
-        if not params.get('enabled', False):
-            return None
-        
-        try:
-            # 定义同步计算函数。
-            def _sync_ma_convergence():
-                result_df = pd.DataFrame(index=df.index)
-                for conv_config in params.get('configs', []):
-                    periods = conv_config.get('periods', [])
-                    output_col = conv_config.get('output_column_name')
-                    # 计算器工作在无后缀的命名空间
-                    ma_cols = [f"EMA_{p}" for p in periods]
-                    if all(col in df.columns for col in ma_cols):
-                        ma_df = df[ma_cols]
-                        ma_std = ma_df.std(axis=1)
-                        ma_mean = ma_df.mean(axis=1)
-                        # 计算变异系数，并处理均值为0的情况
-                        convergence_cv = ma_std / (ma_mean + 1e-9)
-                        # 输出的列名也应该是无后缀的
-                        result_df[output_col.removesuffix('_D')] = convergence_cv
-                    else:
-                        missing = [col for col in ma_cols if col not in df.columns]
-                        logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
-                return result_df if not result_df.empty else None
-
-            # 在独立的线程中异步执行。
-            return await asyncio.to_thread(_sync_ma_convergence)
-        except Exception as e:
-            logger.error(f"计算均线粘合度时出错: {e}", exc_info=True)
-            return None
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """

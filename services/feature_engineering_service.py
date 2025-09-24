@@ -278,3 +278,108 @@ class FeatureEngineeringService:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
         return all_dfs
+
+    async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】计算均线粘合度 (MA Convergence)。
+        - 核心职责: 从 indicator_calculate_services.py 移入，作为特征工程的一部分。
+        """
+        if not params.get('enabled', False):
+            return all_dfs
+        
+        for conv_config in params.get('configs', []):
+            for timeframe in conv_config.get('apply_on', []):
+                if timeframe not in all_dfs or all_dfs[timeframe].empty:
+                    continue
+                
+                df = all_dfs[timeframe]
+                periods = conv_config.get('periods', [])
+                output_col = conv_config.get('output_column_name')
+                
+                ma_cols = [f"EMA_{p}_{timeframe}" for p in periods]
+                if all(col in df.columns for col in ma_cols):
+                    ma_df = df[ma_cols]
+                    ma_std = ma_df.std(axis=1)
+                    ma_mean = ma_df.mean(axis=1)
+                    convergence_cv = ma_std / (ma_mean + 1e-9)
+                    df[output_col] = convergence_cv
+                else:
+                    missing = [col for col in ma_cols if col not in df.columns]
+                    logger.warning(f"计算均线粘合度 '{output_col}' 失败：缺少均线列 {missing}")
+        return all_dfs
+
+    async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 新增】根据多因子共振识别盘整期。
+        - 核心职责: 从 indicator_calculate_services.py 移入，作为特征工程的一部分。
+        """
+        if not params.get('enabled', False):
+            return all_dfs
+            
+        timeframe = 'D' # 此特征通常在日线计算
+        if timeframe not in all_dfs or all_dfs[timeframe].empty:
+            return all_dfs
+            
+        df = all_dfs[timeframe]
+        
+        boll_period = params.get('boll_period', 21)
+        boll_std = params.get('boll_std', 2.0)
+        roc_period = params.get('roc_period', 12)
+        vol_ma_period = params.get('vol_ma_period', 55)
+        
+        bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
+        roc_col = f"ROC_{roc_period}_{timeframe}"
+        vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
+        
+        required_cols = [bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}']
+        if not all(col in df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in df.columns]
+            logger.warning(f"盘整期计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
+            return all_dfs
+            
+        bbw_quantile = params.get('bbw_quantile', 0.25)
+        roc_threshold = params.get('roc_threshold', 5.0)
+        min_expanding_periods = boll_period * 2
+        
+        dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
+        df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
+        
+        cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
+        cond_trend = df[roc_col].abs() < roc_threshold
+        cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
+        is_consolidating = cond_volatility & cond_trend & cond_volume
+        df[f'is_consolidating_{timeframe}'] = is_consolidating
+        
+        if is_consolidating.any():
+            consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
+            consolidating_df = df[is_consolidating].copy()
+            grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
+            
+            df[f'dynamic_consolidation_high_{timeframe}'] = grouped[f'high_{timeframe}'].transform('max')
+            df[f'dynamic_consolidation_low_{timeframe}'] = grouped[f'low_{timeframe}'].transform('min')
+            df[f'dynamic_consolidation_avg_vol_{timeframe}'] = grouped[f'volume_{timeframe}'].transform('mean')
+            df[f'dynamic_consolidation_duration_{timeframe}'] = grouped[f'high_{timeframe}'].transform('size')
+            
+            fill_cols = [f'dynamic_consolidation_high_{timeframe}', f'dynamic_consolidation_low_{timeframe}', f'dynamic_consolidation_avg_vol_{timeframe}', f'dynamic_consolidation_duration_{timeframe}']
+            df[fill_cols] = df[fill_cols].ffill()
+
+        df[f'dynamic_consolidation_high_{timeframe}'] = df.get(f'dynamic_consolidation_high_{timeframe}', pd.Series(index=df.index)).fillna(df[f'high_{timeframe}'])
+        df[f'dynamic_consolidation_low_{timeframe}'] = df.get(f'dynamic_consolidation_low_{timeframe}', pd.Series(index=df.index)).fillna(df[f'low_{timeframe}'])
+        df[f'dynamic_consolidation_avg_vol_{timeframe}'] = df.get(f'dynamic_consolidation_avg_vol_{timeframe}', pd.Series(index=df.index)).fillna(0)
+        df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
+        
+        all_dfs[timeframe] = df
+        return all_dfs
+
+
+
+
+
+
+
+
+
+
+
+
+
