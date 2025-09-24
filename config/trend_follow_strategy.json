@@ -344,7 +344,8 @@
         "probe_date": "2025-09-05",
         "enable_pullback_decision_log": { "value": false, "description": "是否启用“回踩战术决策日志探针”，用于深度验证逻辑。"},
         "enable_ultimate_reversal_probe": { "value": false, "description": "【新增】是否启用“终极反转信号探针”"},
-        "enable_structural_risk_probe": { "value": true, "description": "【新增】是否启用“结构风险法医探针”，用于解剖顶部危险分。"}
+        "enable_structural_risk_probe": { "value": true, "description": "【新增】是否启用“结构风险法医探针”，用于解剖顶部危险分。"},
+        "enable_v_reversal_probe": { "value": true, "description": "【新增】是否启用“V型反转法医探针”，用于解剖王牌剧本的触发逻辑。"}
       },
       "strategy_info": {
         "name": { "value": "救援飞哥版_V238", "说明": "策略唯一标识名称" },

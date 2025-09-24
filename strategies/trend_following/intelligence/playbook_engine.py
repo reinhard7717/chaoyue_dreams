@@ -163,15 +163,88 @@ class PlaybookEngine:
             },
         ]
 
+    def _deploy_v_reversal_probe(self, df: pd.DataFrame, atomic: Dict, probe_date: str, setup_score: pd.Series, trigger_score: pd.Series, setup_threshold: float, trigger_threshold: float):
+        """
+        【V1.0 新增】V型反转法医探针
+        - 核心职责: 深度解剖 V型反转王牌剧本的触发逻辑，清晰展示“昨日战备”与“今日点火”两个核心环节的得分与判定过程。
+        """
+        print("\n" + "="*35 + f" [V型反转法医探针 V1.0] 正在解剖 {probe_date} 的触发逻辑 " + "="*35)
+        try:
+            probe_ts_naive = pd.to_datetime(probe_date)
+            if df.index.tz is not None:
+                probe_ts = probe_ts_naive.tz_localize(df.index.tz)
+            else:
+                probe_ts = probe_ts_naive
+            
+            yesterday_ts = probe_ts - pd.Timedelta(days=1)
+            while yesterday_ts not in df.index and yesterday_ts > df.index.min():
+                yesterday_ts -= pd.Timedelta(days=1)
+
+            if probe_ts not in df.index or yesterday_ts not in df.index:
+                print(f"  [错误] 探针日期 {probe_date} 或其前一个交易日不在数据范围内。解剖终止。")
+                return
+
+            # --- 第一部分: 解剖昨日战备分 ---
+            print(f"\n--- [第一部分: 解剖 {yesterday_ts.date()} 的战备分 (Setup)] ---")
+            was_setup_yesterday_score = setup_score.shift(1).get(probe_ts, 0.0)
+            print(f"  - 昨日战备分 (SCORE_SETUP_PANIC_SELLING_S): {was_setup_yesterday_score:.4f}")
+            print(f"  - 战备阈值: {setup_threshold:.4f}")
+            was_setup_ok = was_setup_yesterday_score > setup_threshold
+            print(f"  - [判定] 昨日战备是否就绪? {'✅ 是' if was_setup_ok else '❌ 否'}")
+            
+            print("    -> 战备分由以下三者相乘得到:")
+            price_drop = self._normalize_score(df['pct_change_D'].clip(upper=0), 60, False).get(yesterday_ts, 0.0)
+            volume_spike = self._normalize_score(df['volume_D'] / df['VOL_MA_21_D'], 60, True).get(yesterday_ts, 0.0)
+            chip_breakdown = self._fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE').get(yesterday_ts, 0.0)
+            print(f"      - 价格下跌分: {price_drop:.4f}")
+            print(f"      - 成交放量分: {volume_spike:.4f}")
+            print(f"      - 筹码崩溃分: {chip_breakdown:.4f}")
+            
+            # --- 第二部分: 解剖今日点火分 ---
+            print(f"\n--- [第二部分: 解剖 {probe_ts.date()} 的点火分 (Trigger)] ---")
+            is_triggered_today_score = trigger_score.get(probe_ts, 0.0)
+            print(f"  - 今日点火分 (TRIGGER_DOMINANT_REVERSAL): {is_triggered_today_score:.4f}")
+            print(f"  - 点火阈值: {trigger_threshold:.4f}")
+            is_trigger_ok = is_triggered_today_score > trigger_threshold
+            print(f"  - [判定] 今日是否成功点火? {'✅ 是' if is_trigger_ok else '❌ 否'}")
+
+            print("    -> 点火分由以下三者相乘得到:")
+            p_dominant = get_params_block(self.strategy, 'trigger_event_params', {}).get('dominant_reversal_candle', {})
+            today_body_size = (df.at[probe_ts, 'close_D'] - df.at[probe_ts, 'open_D'])
+            yesterday_body_size = (df.at[yesterday_ts, 'open_D'] - df.at[yesterday_ts, 'close_D'])
+            recovery = (today_body_size / yesterday_body_size if yesterday_body_size > 0 else 0)
+            recovery_score = np.clip(recovery, 0, 2) / 2.0
+            
+            lookback = get_param_value(p_dominant.get('position_lookback_days'), 60)
+            rolling_high = df['high_D'].rolling(lookback).max().at[probe_ts]
+            rolling_low = df['low_D'].rolling(lookback).min().at[probe_ts]
+            price_range = (rolling_high - rolling_low) if (rolling_high - rolling_low) > 1e-9 else 1e-9
+            position_score = 1.0 - np.clip(((df.at[probe_ts, 'close_D'] - rolling_low) / price_range), 0, 1)
+            
+            candle_quality = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', pd.Series(0.0, index=df.index)).get(probe_ts, 0.0)
+            print(f"      - K线收复分: {recovery_score:.4f}")
+            print(f"      - 底部位置分: {position_score:.4f}")
+            print(f"      - K线质量分: {candle_quality:.4f}")
+
+            # --- 第三部分: 最终结论 ---
+            print("\n--- [第三部分: 最终结论] ---")
+            final_trigger_result = was_setup_ok and is_trigger_ok
+            print(f"  - 触发器最终逻辑: (昨日战备就绪 AND 今日成功点火)")
+            print(f"  - 计算结果: ({was_setup_ok} AND {is_trigger_ok}) = {final_trigger_result}")
+            print(f"  - [结论] V型反转王牌剧本在 {probe_date} {'✅ 已触发' if final_trigger_result else '❌ 未触发'}")
+
+        except Exception as e:
+            print(f"  [探针错误] 在执行V型反转法医探针时发生异常: {e}")
+        finally:
+            print("="*95 + "\n")
+
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · V型反转架构归位版】战术触发事件定义中心
-        - 核心重构 (本次修改):
-          - [架构归位] 将V型反转的核心触发逻辑（昨日战备 & 今日点火）移至此处，彻底解决循环依赖问题。
-          - [新范式] `TRIGGER_V_REVERSAL_ACE_S_PLUS` 现在由 `SCORE_SETUP_PANIC_SELLING_S` (昨日) 和 `TRIGGER_DOMINANT_REVERSAL` (今日) 共同决定。
-        - 收益: 严格遵循了“战备->触发->剧本”的架构，使信号生成逻辑清晰、健壮、可维护。
+        【V8.1 · 法医探针集成版】战术触发事件定义中心
+        - 核心升级 (本次修改):
+          - [新增探针] 集成了“V型反转法医探针”，可在调试模式下深度解剖该王牌剧本的触发逻辑。
         """
-        print("      -> [战术触发事件定义中心 V8.0 · V型反转架构归位版] 启动...") # [代码修改] 更新版本号和说明
+        print("      -> [战术触发事件定义中心 V8.1 · 法医探针集成版] 启动...") # [代码修改] 更新版本号和说明
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -197,11 +270,9 @@ class PlaybookEngine:
             'capitulation_reversal_a_plus': get_param_value(p_triggers.get('capitulation_reversal_a_plus_threshold'), 0.7),
             'post_reversal_resonance_s_plus': get_param_value(p_triggers.get('post_reversal_resonance_s_plus_threshold'), 0.65),
             'mean_reversion_grid_buy_a': get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8),
-            # [代码新增] 为V型反转触发器定义新的阈值
             'panic_selling_setup_threshold': get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4),
             'dominant_reversal_trigger_threshold': get_param_value(p_triggers.get('dominant_reversal_trigger_threshold'), 0.2),
         }
-        # --- TRIGGER_DOMINANT_REVERSAL 的定义保持V7.0版不变 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
         today_body_size = (df['close_D'] - df['open_D']).clip(lower=0)
         yesterday_body_size = (df['open_D'].shift(1) - df['close_D'].shift(1)).clip(lower=0)
@@ -215,15 +286,25 @@ class PlaybookEngine:
         candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score
-        # --- [代码修改] 实现V型反转王牌剧本的正确触发逻辑 ---
-        # 战备条件: 昨日是“恐慌抛售日”
-        was_setup_yesterday = atomic.get('SCORE_SETUP_PANIC_SELLING_S', default_score).shift(1).fillna(0.0) > thresholds['panic_selling_setup_threshold']
-        # 点火条件: 今日出现“显性反转”
+        
+        panic_selling_setup_score = atomic.get('SCORE_SETUP_PANIC_SELLING_S', default_score)
+        was_setup_yesterday = panic_selling_setup_score.shift(1).fillna(0.0) > thresholds['panic_selling_setup_threshold']
         is_triggered_today = triggers.get('TRIGGER_DOMINANT_REVERSAL', default_score) > thresholds['dominant_reversal_trigger_threshold']
-        # 最终触发器
         triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = was_setup_yesterday & is_triggered_today
-        # --- 后续触发器定义逻辑保持不变 ---
-        # ... (此处省略后续代码，与上一版完全相同) ...
+        
+        # [代码新增] 调用新的法医探针
+        debug_params = get_params_block(self.strategy, 'debug_params')
+        probe_date_str = get_param_value(debug_params.get('probe_date'))
+        if probe_date_str and get_param_value(debug_params.get('enable_v_reversal_probe'), False):
+            self._deploy_v_reversal_probe(
+                df, atomic, probe_date_str, 
+                setup_score=panic_selling_setup_score, 
+                trigger_score=dominant_reversal_score,
+                setup_threshold=thresholds['panic_selling_setup_threshold'],
+                trigger_threshold=thresholds['dominant_reversal_trigger_threshold']
+            )
+            
+        # ... 后续触发器定义逻辑保持不变 ...
         triggers['TRIGGER_TRUE_ACCUMULATION_BREAKOUT_S_PLUS'] = (atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', default_score).shift(1).fillna(0.0) > thresholds['true_accumulation_breakout_s_plus']) & (atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score) > thresholds['ignition_s'])
         triggers['TRIGGER_CAPITULATION_REVERSAL_A_PLUS'] = (atomic.get('SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL', default_score) > thresholds['capitulation_reversal_a_plus']) & (triggers['TRIGGER_DOMINANT_REVERSAL'] > 0.5)
         triggers['TRIGGER_CONVICTION_BREAKOUT_S_PLUS'] = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score) > thresholds['conviction_breakout_s_plus']
