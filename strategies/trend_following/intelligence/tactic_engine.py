@@ -21,11 +21,6 @@ class TacticEngine:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
 
-    def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
-        """融合S+/S/A/B等多层置信度分数的辅助函数。"""
-        # 此处直接调用 utils 中的公共函数，保持一致性
-        return fuse_multi_level_scores(df, self.strategy.atomic_states, base_name, weights)
-
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 信号适配版】战术引擎总指挥
@@ -59,7 +54,7 @@ class TacticEngine:
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         
         # 消费新的终极筹码看跌信号
-        chip_breakdown_score = fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
+        chip_breakdown_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         
         setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score).astype(np.float32)
         states['SCORE_SETUP_PANIC_SELLING_S'] = setup_panic_selling_score
@@ -75,7 +70,7 @@ class TacticEngine:
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
         # 消费新的终极反转信号作为点火器
-        trigger_dominant_reversal_score = fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
+        trigger_dominant_reversal_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
         
         was_setup_yesterday = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING_S').shift(1).fillna(0.0)
         is_triggered_today = trigger_dominant_reversal_score
@@ -94,9 +89,9 @@ class TacticEngine:
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
         # 消费新的终极信号
-        chip_resonance_score = fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
-        price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, ascending=False)
-        volatility_compression_score = fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        chip_resonance_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
+        price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, window=60, ascending=False)
+        volatility_compression_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         
         setup_score = (chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score).astype(np.float32)
         states['SCORE_SETUP_CHIP_RESONANCE_READY_S'] = setup_score
@@ -115,10 +110,10 @@ class TacticEngine:
         """
         states = {}
         # 消费新的终极信号
-        is_prime_chip_structure = fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE') > 0.7
-        fused_compression_score = fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        is_prime_chip_structure = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE') > 0.7
+        fused_compression_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         is_extreme_squeeze = fused_compression_score > 0.9
-        has_energy_advantage = fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE') > 0.7
+        has_energy_advantage = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE') > 0.7
         
         condition_sum = (is_prime_chip_structure.astype(int) + is_extreme_squeeze.astype(int) + has_energy_advantage.astype(int))
         setup_s_plus_plus = (condition_sum == 3)
@@ -141,10 +136,9 @@ class TacticEngine:
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
         # 消费新的终极信号
-        ascent_start_event = fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') > 0.6
-        # 锁仓拉升战法需要更严格的定义，例如基于筹码和资金的协同
-        chip_resonance_score = fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
-        ff_resonance_score = fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
+        ascent_start_event = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.6
+        chip_resonance_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
+        ff_resonance_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         cruise_start_event = (chip_resonance_score * ff_resonance_score) > 0.7
 
         lookback_window = 15
@@ -158,7 +152,7 @@ class TacticEngine:
         was_healthy_pullback = (self._get_atomic_score(df, 'COGNITIVE_SCORE_PULLBACK_HEALTHY_S').shift(1).fillna(0.0) > healthy_threshold)
         was_suppressive_pullback = (self._get_atomic_score(df, 'COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE_S').shift(1).fillna(0.0) > suppressive_threshold)
         
-        is_reversal_confirmed = fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL') > 0.5
+        is_reversal_confirmed = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL') > 0.5
         
         late_stage_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_CONTEXT_LATE_STAGE', 0.0)
         is_in_safe_stage = late_stage_score < 0.6
@@ -180,7 +174,7 @@ class TacticEngine:
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        vol_compression_score = fuse_multi_level_scores(df, 'VOL_COMPRESSION')
+        vol_compression_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = vol_compression_score.astype(np.float32)
         
         setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
@@ -192,7 +186,7 @@ class TacticEngine:
         states['SCORE_PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = score_s_plus
         states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'] = score_s_plus > 0.7
         
-        platform_quality_score = fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
+        platform_quality_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         breakout_eve_score = (platform_quality_score * vol_compression_score)
         setup_breakout_eve_score = breakout_eve_score.shift(1).fillna(0.0)
         trigger_prime_breakout_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE_S', 0.0)

@@ -186,7 +186,7 @@ class PlaybookEngine:
         # 这里的逻辑可以根据需要保留或逐步废弃
         # 例如，旧的 'TRIGGER_UPTREND_IGNITION_RESONANCE_S'
         ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE_S')
-        is_in_main_uptrend = fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE') > 0.5
+        is_in_main_uptrend = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.5
         triggers['TRIGGER_UPTREND_IGNITION_RESONANCE_S'] = is_in_main_uptrend & (ignition_score > get_param_value(p_triggers.get('ignition_s_threshold'), 0.5))
 
         # 确保所有触发器都是布尔类型
@@ -227,7 +227,7 @@ class PlaybookEngine:
             print("    -> 战备分由以下三者相乘得到:")
             price_drop = normalize_score(df['pct_change_D'].clip(upper=0), df.index, 60, False).get(yesterday_ts, 0.0)
             volume_spike = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, 60, True).get(yesterday_ts, 0.0)
-            chip_breakdown = fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE').get(yesterday_ts, 0.0)
+            chip_breakdown = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE').get(yesterday_ts, 0.0)
             print(f"      - 价格下跌分: {price_drop:.4f}")
             print(f"      - 成交放量分: {volume_spike:.4f}")
             print(f"      - 筹码崩溃分: {chip_breakdown:.4f}")
