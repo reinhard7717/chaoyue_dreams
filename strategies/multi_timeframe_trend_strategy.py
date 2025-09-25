@@ -528,6 +528,12 @@ class MultiTimeframeTrendStrategy:
                         daily_analysis_df=daily_analysis_df,
                         atomic_states=self.tactical_engine.atomic_states
                     )
+                if get_param_value(debug_params.get('enable_bottom_reversal_probe'), False):
+                    self._deploy_bottom_reversal_probe(
+                        probe_date=probe_date,
+                        daily_analysis_df=daily_analysis_df,
+                        atomic_states=self.tactical_engine.atomic_states
+                    )
 
             # 步骤 3: 使用捕获的数据进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
@@ -540,7 +546,6 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
                 return
 
-            # ... 后续的报告生成逻辑保持不变，但现在它们依赖的是可靠的数据源 ...
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for daily_score_obj in sorted(debug_period_daily_scores, key=lambda x: x.trade_date):
                 trade_date = daily_score_obj.trade_date
@@ -615,4 +620,85 @@ class MultiTimeframeTrendStrategy:
         except Exception as e:
             print(f"  [探针错误] 在执行“终极反转信号探针”时发生异常: {e}")
             traceback.print_exc()
+
+    def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
+        """
+        【新增】底部反转信号深度诊断探针
+        - 职责: 深入解剖指定日期下，各个情报引擎的“底部反转”信号的详细计算过程。
+        """
+        print("\n" + "="*35 + f" [底部反转信号探针] 正在解剖 {probe_date} " + "="*35)
+        try:
+            df = daily_analysis_df
+            probe_ts = pd.to_datetime(probe_date)
+            if df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
+            if probe_ts not in df.index:
+                print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
+                return
+
+            # --- 探针 1: 解剖 `bottom_context_score` ---
+            print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
+            rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min().loc[probe_ts]
+            rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max().loc[probe_ts]
+            price_range_55d = rolling_high_55d - rolling_low_55d
+            close_price = df.loc[probe_ts, 'close_D']
+            position_in_range = ((close_price - rolling_low_55d) / price_range_55d) if price_range_55d > 0 else 0.5
+            bottom_context_score = 1 - position_in_range
+            print(f"  - 当日收盘价: {close_price:.2f}")
+            print(f"  - 55日滚动最低价: {rolling_low_55d:.2f}")
+            print(f"  - 55日滚动最高价: {rolling_high_55d:.2f}")
+            print(f"  - 价格在通道中的位置: {position_in_range:.2%}")
+            print(f"  - ✅ 最终底部情景分: {bottom_context_score:.4f}")
+
+            # --- 探针 2: 解剖 `overall_bullish_reversal_trigger` ---
+            print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
+            # 我们以 Chip 和 Dynamics 两个引擎为例
+            engine_prefixes = ['CHIP', 'DYN', 'STRUCTURE', 'BEHAVIOR', 'FF', 'FOUNDATION']
+            all_trigger_scores = {}
+            for prefix in engine_prefixes:
+                signal_name = f"SCORE_{prefix}_BOTTOM_REVERSAL_S_PLUS"
+                if signal_name in atomic_states:
+                    final_score = atomic_states[signal_name].get(probe_ts, 0.0)
+                    # 反推触发分: final_score = context * trigger => trigger = final_score / context
+                    trigger_score = final_score / bottom_context_score if bottom_context_score > 0 else 0
+                    all_trigger_scores[prefix] = trigger_score
+                    print(f"  - {prefix:<12s} | 最终分: {final_score:.4f} | 反推触发分: {trigger_score:.4f}")
             
+            avg_trigger_score = np.mean(list(all_trigger_scores.values()))
+            print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
+
+            # --- 探针 3: 深入一个指标的动态健康度 ---
+            print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
+            # 假设我们能拿到原始的SLOPE和ACCEL指标值
+            slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
+            accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
+            
+            # 模拟 normalize_score 的过程
+            from .trend_following.utils import normalize_score
+            slope_norm = normalize_score(df[f'SLOPE_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
+            accel_norm = normalize_score(df[f'ACCEL_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
+            
+            dynamic_health_conc = slope_norm * 0.6 + accel_norm * 0.4
+            
+            print(f"  - 5日集中度斜率 (原始值): {slope_raw:.4f}")
+            print(f"  - 5日集中度斜率 (归一化): {slope_norm:.4f}")
+            print(f"  - 5日集中度加速度 (原始值): {accel_raw:.4f}")
+            print(f"  - 5日集中度加速度 (归一化): {accel_norm:.4f}")
+            print(f"  - ✅ 集中度动态健康分 (估算): {dynamic_health_conc:.4f}")
+
+            print("\n" + "="*35 + " [底部反转信号探针] 解剖完毕 " + "="*35 + "\n")
+        except Exception as e:
+            print(f"  [探针错误] 在执行“底部反转信号探针”时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+
+
+
+
+
+
+
+
+
+
