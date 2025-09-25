@@ -9,13 +9,13 @@
 {% block extra_head %}
     {# --- 修改开始 --- #}
     {# 
-      修改原因：解决浏览器缓存问题。
-      通过在CSS文件URL后附加一个基于当前时间的查询字符串（?v={{ "now"|date:"U" }}），
-      可以强制浏览器在每次页面加载时都重新下载最新的 dashboard.css 文件。
-      这确保了所有为本页面新增的CSS样式（如 .playbook-tag, .filter-tag 等）都能被正确应用。
-      "now"|date:"U" 会生成一个唯一的Unix时间戳。
+      修改原因：修复由 `{{ "now"|date:"U" }}` 引起的服务器端 TypeError。
+      之前的方法在生成Unix时间戳时，无法正确处理 "now" 字符串。
+      新的方法使用 Django 内置的 `{% now "U" %}` 模板标签，
+      这是获取当前时间Unix时间戳的标准、无错方式。
+      这同样能实现强制浏览器刷新CSS缓存的目的。
     #}
-    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v={{ "now"|date:"U" }}">
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v={% now "U" %}">
     {# --- 修改结束 --- #}
 {% endblock %}
 
