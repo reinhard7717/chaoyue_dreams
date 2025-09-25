@@ -181,11 +181,11 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            slope = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), norm_window, ascending=True)
+            slope = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
+            accel = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), norm_window, ascending=False)
+            slope_neg = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
             accel_neg = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
             d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
         
