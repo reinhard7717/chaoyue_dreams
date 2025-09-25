@@ -18,7 +18,7 @@ class JudgmentLayer:
           2. 本方法负责组装最终报告，使用 update() 将惩罚分量精确覆盖到原始风险分上。
           3. 确保所有风险信号（无论是否参与惩罚）都能在报告中以其正确的分值形式出现。
         """
-        print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---")
+        # print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         

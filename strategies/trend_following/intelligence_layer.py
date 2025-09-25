@@ -15,6 +15,7 @@ from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
+from .intelligence.pattern_intelligence import PatternIntelligence
 from strategies.trend_following.utils import get_params_block, get_param_value, fuse_multi_level_scores, normalize_score
 
 class IntelligenceLayer:
@@ -40,6 +41,7 @@ class IntelligenceLayer:
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
+        self.pattern_intel = PatternIntelligence(strategy_instance)
         self.cyclical_intel = CyclicalIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
@@ -88,6 +90,8 @@ class IntelligenceLayer:
         
         # print("      -> 正在运行 [动态力学引擎]...")
         self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部更新状态
+        # print("      -> 正在运行 [形态智能引擎]...")
+        update_states(self.pattern_intel.run_pattern_analysis_command(df))
         
         # --- 阶段二: 跨域认知融合 ---
         # print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
@@ -150,6 +154,7 @@ class IntelligenceLayer:
         
         # 依次调用所有需要解剖的信号探针
         self._deploy_ignition_resonance_probe(probe_date)
+        self._deploy_volatility_breakout_probe(probe_date)
         self._deploy_ultimate_confirmation_probe(probe_date)
         self._deploy_v_reversal_ace_probe(probe_date)
         self._deploy_chip_price_lag_probe(probe_date)
@@ -296,6 +301,36 @@ class IntelligenceLayer:
             print(f"  - [结论] 得分低的核心原因是【昨日战备分】不足，主要瓶颈在于【{bottleneck[0]}】(分值: {bottleneck[1]:.4f})。")
         else:
             print("  - [结论] 昨日战备分充足，请检查今日点火分。")
+
+    # 为“波动突破”信号新增的专属探针
+    def _deploy_volatility_breakout_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“波动突破潜力”信号"""
+        print("\n--- [探针] 正在解剖: 【认知】波动突破潜力 (多域点火共振的瓶颈) ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        default_score = pd.Series(0.0, index=df.index)
+        
+        final_score = atomic.get('SCORE_VOL_BREAKOUT_POTENTIAL_S', default_score).get(probe_date, 0)
+        
+        # 反推其构成组件
+        compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score).get(probe_date, 0)
+        
+        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
+        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0.0, index=df.index))
+        expansion_score = normalize_score(bbw_slope, df.index, 120, ascending=True).get(probe_date, 0.5)
+        
+        # 原始计算逻辑: (compression_score * expansion_score)**0.5
+        
+        print(f"  - 最终得分: {final_score:.4f}")
+        print(f"  - 计算逻辑: (波动压缩分 * 波动扩张分) ^ 0.5")
+        print(f"    - 波动压缩分 (COGNITIVE_SCORE_VOL_COMPRESSION_FUSED): {compression_score:.4f}")
+        print(f"    - 波动扩张分 (基于BBW斜率): {expansion_score:.4f}")
+        
+        if final_score < 0.3:
+            bottleneck = min([('压缩分', compression_score), ('扩张分', expansion_score)], key=lambda item: item[1])
+            print(f"  - [结论] 得分低的核心瓶颈在于【{bottleneck[0]}】(分值: {bottleneck[1]:.4f})。")
+        else:
+            print("  - [结论] 分数正常。")
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """

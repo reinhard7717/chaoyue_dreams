@@ -19,7 +19,7 @@ class WarningLayer:
                       搜集所有 type 为 'risk' 的信号的原始分，并返回一个完整的 risk_details_df。
                       这使其成为一个纯粹的、由配置驱动的风险信号收集器。
         """
-        print("        -> [预警层分析中心 V3.0 · 配置驱动重构版] 启动...") # 更新版本号和说明
+        # print("        -> [预警层分析中心 V3.0 · 配置驱动重构版] 启动...") # 更新版本号和说明
         atomic_states = self.strategy.atomic_states
         df_index = self.strategy.df_indicators.index
         
