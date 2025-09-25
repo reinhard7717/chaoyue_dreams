@@ -181,6 +181,10 @@ def trend_following_list(request):
         'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks_pks,
         'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
+        # --- 新增行 ---
+        # 新增原因：在视图中生成缓存刷新参数，避免在模板中处理复杂逻辑导致错误。
+        # `timezone.now().timestamp()` 获取当前时间的Unix时间戳，`int()` 转换为整数。
+        'cache_bust': int(timezone.now().timestamp()),
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
