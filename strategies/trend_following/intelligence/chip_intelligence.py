@@ -155,7 +155,7 @@ class ChipIntelligence:
         """【V3.1 · 重构版】计算基础量化健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # [代码修改] 调用 utils.normalize_score
+        # 调用 utils.normalize_score
         static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         static_bull_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=True)
         overall_static_bull = (static_bull_conc * static_bull_health)**0.5
@@ -283,10 +283,11 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.4 拉升吸筹逻辑修复版】主力吸筹模式与风险诊断引擎 (战术模块，予以保留)
+        【V4.5 · 重构修复版】主力吸筹模式与风险诊断引擎 (战术模块，予以保留)
         """
         states = {}
         norm_window = 120
+        # 修正对 normalize_score 的调用
         conc_slope_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
         conc_accel_score = normalize_score(df.get('ACCEL_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
         concentration_improving_score = (conc_slope_score * conc_accel_score)
@@ -305,7 +306,7 @@ class ChipIntelligence:
         return states
 
     def _diagnose_setup_capitulation_ready(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.1】诊断“恐慌已弥漫”的战备(Setup)状态 (战术模块，予以保留)"""
+        """【V1.2 · 重构修复版】诊断“恐慌已弥漫”的战备(Setup)状态 (战术模块，予以保留)"""
         states = {}
         required_col = 'total_loser_rate_D'
         if required_col not in df.columns:
@@ -313,10 +314,16 @@ class ChipIntelligence:
             return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
-        deep_capitulation_score = normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
+        
+        # 修正对 normalize_score 的调用，这是导致错误的根源
+        deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
+        
         long_term_window = 250
         min_periods_long = long_term_window // 4
+        
+        # 修正对 normalize_score 的调用
         rank_score = normalize_score(df['close_D'], df.index, window=long_term_window, ascending=False)
+        
         rolling_low = df['low_D'].rolling(window=long_term_window, min_periods=min_periods_long).min()
         rolling_high = df['high_D'].rolling(window=long_term_window, min_periods=min_periods_long).max()
         price_range = (rolling_high - rolling_low).replace(0, 1e-9)
@@ -328,7 +335,7 @@ class ChipIntelligence:
         return states
 
     def _diagnose_trigger_capitulation_fire(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.0】诊断“卖压出清”的点火(Trigger)行为 (战术模块，予以保留)"""
+        """【V1.1 · 重构修复版】诊断“卖压出清”的点火(Trigger)行为 (战术模块，予以保留)"""
         states = {}
         required_cols = ['turnover_from_losers_ratio_D', 'ACCEL_5_turnover_from_losers_ratio_D']
         missing_cols = [col for col in required_cols if col not in df.columns]
@@ -337,12 +344,18 @@ class ChipIntelligence:
             return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
+        
+        # 修正对 normalize_score 的调用
         relative_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
+        
         k = get_param_value(p.get('logistic_k', 0.1))
         x0 = get_param_value(p.get('logistic_x0', 50.0))
         absolute_turnover_score = 1 / (1 + np.exp(-k * (df['turnover_from_losers_ratio_D'] - x0)))
         loser_turnover_score = np.maximum(relative_turnover_score, absolute_turnover_score)
+        
+        # 修正对 normalize_score 的调用
         loser_turnover_accel_score = normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
+        
         trigger_score = (loser_turnover_score * loser_turnover_accel_score).astype(np.float32)
         states['SCORE_TRIGGER_CAPITULATION_FIRE'] = trigger_score
         return states

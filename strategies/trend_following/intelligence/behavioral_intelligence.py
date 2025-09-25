@@ -159,7 +159,7 @@ class BehavioralIntelligence:
         """【V1.1 · 重构版】计算价格维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            # [代码修改] 调用 utils.normalize_score
+            # 调用 utils.normalize_score
             s_bull[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
             s_bear[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
             price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
@@ -174,7 +174,7 @@ class BehavioralIntelligence:
         """【V1.1 · 重构版】计算成交量维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            # [代码修改] 调用 utils.normalize_score
+            # 调用 utils.normalize_score
             s_bull[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
             s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)

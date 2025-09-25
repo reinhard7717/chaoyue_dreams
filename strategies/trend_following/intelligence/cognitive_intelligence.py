@@ -92,7 +92,7 @@ class CognitiveIntelligence:
         """
         【V2.3 · 重构版】趋势质量融合评分模块
         """
-        # [代码修改] 调用 utils.fuse_multi_level_scores
+        # 调用 utils.fuse_multi_level_scores
         behavior_health_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         structural_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
@@ -143,7 +143,7 @@ class CognitiveIntelligence:
         
         cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0).fillna(0.0)) / 2.0 
         
-        # [代码修改] 调用 utils.fuse_multi_level_scores
+        # 调用 utils.fuse_multi_level_scores
         winner_holding_tight_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'TOP_REVERSAL')
         chip_stable_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FALLING_RESONANCE')
         
@@ -156,7 +156,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_PULLBACK_HEALTHY_S'] = healthy_pullback_score.astype(np.float32)
         
         significant_drop_score = (df['pct_change_D'].abs() / 0.07).clip(0, 1).fillna(0.0)
-        # [代码修改] 调用 utils.fuse_multi_level_scores
+        # 调用 utils.fuse_multi_level_scores
         panic_selling_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
         suppressive_pullback_score = (
             is_pullback_day * constructive_context_score *
