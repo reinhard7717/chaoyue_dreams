@@ -153,6 +153,7 @@ class IntelligenceLayer:
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
+        self._deploy_hard_exit_probe(probe_date)
         self._deploy_dynamic_veto_probe(probe_date)
         
         self._deploy_ignition_resonance_probe(probe_date)
@@ -163,7 +164,7 @@ class IntelligenceLayer:
         
         print("="*95 + "\n")
 
-    # [代码新增] 全新的“动态力学否决权”探针
+    # 全新的“动态力学否决权”探针
     def _deploy_dynamic_veto_probe(self, probe_date: pd.Timestamp):
         """【探针V1.0】解剖“动态力学一票否决权”信号"""
         print("\n--- [探针] 正在解剖: 【决策】动态力学一票否决权 (AVOID) ---")
@@ -245,6 +246,55 @@ class IntelligenceLayer:
         root_cause_pillar = max(pillar_scores, key=pillar_scores.get)
         print(f"  - [最终结论] “一票否决”的根源在于【{root_cause_pillar.capitalize()}】支柱的看跌信号过强 (分值: {pillar_scores[root_cause_pillar]:.4f})。")
 
+    # 全新的“硬性离场信号”探针
+    def _deploy_hard_exit_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“硬性离场”信号"""
+        print("\n--- [探针] 正在解剖: 【决策】硬性离场信号 (Sell Signal) ---")
+        
+        # 步骤1: 检查是否存在硬性离场触发器
+        # self.strategy.exit_triggers 是由 ExitLayer 生成的 DataFrame
+        if not hasattr(self.strategy, 'exit_triggers') or self.strategy.exit_triggers.empty:
+            print("  - [警告] 未在策略实例中找到 'exit_triggers'，无法解剖。")
+            return
+            
+        exit_triggers_today = self.strategy.exit_triggers.loc[probe_date]
+        
+        if not exit_triggers_today.any():
+            print("  - [结论] 当日未触发任何硬性离场信号。'卖出信号'可能来源于其他逻辑。")
+            return
+
+        # 步骤2: 逐一解剖触发的离场原因
+        print("  - 检测到硬性离场触发器，解剖如下:")
+        triggered_reasons = exit_triggers_today[exit_triggers_today].index.tolist()
+        
+        root_cause = ""
+        for reason in triggered_reasons:
+            print(f"    - ✅ 触发: {reason}")
+            
+            # 针对 EXIT_TREND_BROKEN 进行深度解剖
+            if reason == 'EXIT_TREND_BROKEN':
+                p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
+                p_trailing = p_pos_mgmt.get('trailing_stop', {})
+                if get_param_value(p_trailing.get('enabled'), False):
+                    model = get_param_value(p_trailing.get('trailing_model'))
+                    if model == 'MOVING_AVERAGE':
+                        ma_type = get_param_value(p_trailing.get('ma_type'), 'EMA').upper()
+                        ma_period = get_param_value(p_trailing.get('ma_period'), 20)
+                        ma_col = f'{ma_type}_{ma_period}_D'
+                        
+                        close_price = self.strategy.df_indicators['close_D'].get(probe_date)
+                        ma_value = self.strategy.df_indicators.get(ma_col, pd.Series(np.nan)).get(probe_date)
+                        
+                        print(f"      -> 触发逻辑: 收盘价 < 移动平均线 ({ma_col})")
+                        print(f"      -> 当日收盘价: {close_price:.2f}")
+                        print(f"      -> {ma_col} 值: {ma_value:.2f}")
+                        print(f"      -> 判定: {close_price:.2f} < {ma_value:.2f} 为 True")
+                        root_cause = f"收盘价跌破 {ma_col}"
+
+        if not root_cause and triggered_reasons:
+            root_cause = triggered_reasons[0]
+
+        print(f"  - [最终结论] '卖出信号'的直接原因是触发了硬性离场信号【{root_cause}】。")
 
     # 为“多域点火共振”新增的探针
     def _deploy_ignition_resonance_probe(self, probe_date: pd.Timestamp):

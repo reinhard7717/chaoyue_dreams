@@ -41,7 +41,7 @@ class PatternIntelligence:
         is_macd_bull_cross = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
         score_macd_bullish_cross = is_macd_bull_cross
 
-        # [代码新增] 模式四: 下跌动能衰竭 (预测性指标)
+        # 模式四: 下跌动能衰竭 (预测性指标)
         rsi_slope_abs = df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)).abs()
         macd_hist_slope_abs = df.get('SLOPE_1_MACDh_13_34_8_D', pd.Series(0, index=df.index)).abs()
         # 归一化，值越小分数越高 (ascending=False)
