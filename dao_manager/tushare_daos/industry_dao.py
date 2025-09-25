@@ -980,7 +980,7 @@ class IndustryDao(BaseDAO):
         df = pd.DataFrame.from_records(data)
         df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
-        print(f"    - [DAO-KPL] 成功获取 {len(df)} 条题材归属记录。")
+        # print(f"    - [DAO-KPL] 成功获取 {len(df)} 条题材归属记录。")
         return df
 
     async def get_kpl_themes_hotness(self, concept_codes: List[str], start_date: date, end_date: date) -> pd.DataFrame:

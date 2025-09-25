@@ -215,7 +215,7 @@ class ContextualAnalysisService:
         - 优化: 完全重构了计算逻辑，使用pandas向量化操作和矩阵乘法替代原有的循环和apply，
                 大幅提升了计算效率，并减少了内存开销。
         """
-        print(f"    - [行业背景融合引擎 V1.1] 启动，为 {stock_code} 生成数值化融合行业背景...")
+        # print(f"    - [行业背景融合引擎 V1.1] 启动，为 {stock_code} 生成数值化融合行业背景...")
         # 1. 从配置中获取来源权重
         source_weights = params.get('source_weights', {})
         # 2. 从DAO获取原始数据

@@ -71,12 +71,37 @@ function flashRow(rowElement, type = 'update') {
 // 确保这些代码在页面完全加载后才执行
 // =========================================================================
 document.addEventListener('DOMContentLoaded', function () {
-    // 此处应放置您之前版本中的页面路由和初始化函数调用
-    // 例如:
-    // initializeHomePage();
-    // initializeTrendListPage();
-    // ...等等
-    // 由于您提供的最新代码中这部分为空，所以这里也为空。
-    // 但关键是，辅助函数已经被移出，问题已解决。
-    console.log('[dashboard.js] DOMContentLoaded event fired. Page-specific initializers would run here.');
+    // 新增: 封装一个用于初始化主控台搜索功能的函数
+    // 这样可以将页面特定的逻辑隔离开，提高代码的可读性和健壮性
+    function initializeSearchFunctionality() {
+        // 错误根源：尝试获取只在主控台页面存在的搜索输入框
+        const searchInput = document.getElementById('searchInput');
+
+        // 关键修复：添加一个 "卫兵子句"
+        // 在尝试为 searchInput 添加任何事件监听器之前，首先检查它是否存在。
+        // 如果 searchInput 为 null（即当前页面不是主控台页面），则函数直接返回，不执行后续代码。
+        if (!searchInput) {
+            // 在非主控台页面，这个日志会打印，是正常行为
+            console.log('[dashboard.js] Search input not found on this page. Skipping search initialization.');
+            return;
+        }
+
+        // 只有在 searchInput 元素存在时，才会执行以下代码
+        console.log('[dashboard.js] Search input found. Initializing search functionality...');
+
+        // 假设这里是您原来版本中为搜索框、结果容器等添加事件监听器的代码
+        // 例如:
+        // const searchResultsContainer = document.querySelector('.search-results-container');
+        // searchInput.addEventListener('input', function() {
+        //     // 您的搜索逻辑
+        // });
+        // ... 其他只应在主控台页面执行的JS代码
+    }
+
+    // 调用初始化函数
+    initializeSearchFunctionality();
+
+    // 此处可以安全地放置其他全局初始化代码
+    console.log('[dashboard.js] DOMContentLoaded event fired and processed without fatal errors.');
 });
+

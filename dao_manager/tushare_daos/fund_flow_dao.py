@@ -1318,7 +1318,7 @@ class FundFlowDao(BaseDAO):
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         
-        print(f"DAO: 查询完成，共返回 {len(df)} 条记录。")
+        # print(f"DAO: 查询完成，共返回 {len(df)} 条记录。")
         return df
 
 
