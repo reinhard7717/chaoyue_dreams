@@ -10,48 +10,42 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V506.0 · 隐形惩罚显形版】
-        - 核心修复: 将用于计算“衰减因子”的“亢奋风险”信号，明确地加入到 risk_details_df 中，
-                      使其能在调试报告中显示出来，解决了最终得分为负数但风险项为空的“幽灵惩罚”问题。
+        【V507.0 · 惩罚透明化重构版】
+        - 核心修复: 重构了风险惩罚分的计算与报告流程。现在 `_calculate_risk_penalty_score`
+                      会返回更新后的 risk_details_df，确保所有惩罚分项都在报告中可见。
         """
-        print("    --- [最高作战指挥部 V506.0 · 隐形惩罚显形版] 启动... ---")
+        print("    --- [最高作战指挥部 V507.0 · 惩罚透明化重构版] 启动... ---") # 更新版本号
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # --- 步骤 1: 计算风险惩罚分 (保持不变) ---
-        risk_components_df = self._calculate_risk_penalty_score()
-        df['risk_penalty_score'] = risk_components_df.sum(axis=1)
+        # 重构风险惩罚分的计算流程
+        # 现在，risk_details_df 会被传入并被更新后返回
+        df['risk_penalty_score'], risk_details_df = self._calculate_risk_penalty_score(risk_details_df)
 
-        # --- 步骤 2: 获取亢奋风险并计算衰减因子 ---
+        # --- 步骤 2: 获取亢奋风险并计算衰减因子 (逻辑不变，但现在 risk_details_df 已包含其他惩罚分) ---
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
         
-        # 将“亢奋风险”添加到 risk_details_df 中，使其在报告中可见
-        # 我们乘以一个系数（例如100）使其分数与其他风险项在同一数量级，便于观察
         euphoria_display_score = (euphoria_risk_score * 100).clip(0, 1000)
-        risk_details_df['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = euphoria_display_score
+        # 使用 .loc 避免 SettingWithCopyWarning
+        risk_details_df.loc[:, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = euphoria_display_score
         
         attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
 
-        # --- 步骤 3: 获取动态战术动作，并应用“一票否决” (保持不变) ---
+        # --- 步骤 3, 4, 5 保持不变 ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
         euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
         df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
-
-        # --- 步骤 4: 计算最终得分 (应用风险对冲) (保持不变) ---
         df['final_score'] = df['entry_score'] * (1 - attenuation_factor) - df['risk_penalty_score']
-        
-        # --- 步骤 5: 最终决策 (保持不变) ---
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         is_score_sufficient = df['final_score'] > final_score_threshold
         not_avoid = df['dynamic_action'] != 'AVOID'
         final_buy_condition = is_score_sufficient & not_avoid
-        
         df['signal_type'] = '无信号'
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
         # --- 步骤 6: 生成报告与清理 ---
-        # 此处调用的 _get_human_readable_summary 现在会消费包含了“亢奋风险”的 risk_details_df
+        # 此处调用的 _get_human_readable_summary 现在会消费一个包含了所有惩罚分项的 risk_details_df
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 
@@ -118,14 +112,18 @@ class JudgmentLayer:
         actions.loc[is_avoid] = 'AVOID'
         return actions
 
-    def _calculate_risk_penalty_score(self) -> pd.DataFrame:
+    def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V501.0 · 终极信号适配版】计算风险惩罚分
-        - 核心重构: 全面转向消费各情报层和认知层产出的终极风险信号。
+        【V502.0 · 惩罚透明化重构版】计算风险惩罚分
+        - 核心重构: 此方法现在接收 risk_details_df，将计算出的带权重的惩罚分填入其中，
+                      然后返回总惩罚分和更新后的 risk_details_df。
         """
         atomic = self.strategy.atomic_states
         default_series = pd.Series(0.0, index=self.strategy.df_indicators.index)
         risk_components = {}
+        
+        # 创建一个副本以安全地修改
+        reportable_risk_df = risk_details_df.copy()
 
         def get_clipped_score(signal_name):
             return atomic.get(signal_name, default_series).clip(lower=0)
@@ -135,24 +133,39 @@ class JudgmentLayer:
         if get_param_value(veto_params.get('enabled'), True):
             veto_signals = get_param_value(veto_params.get('veto_signals'), [])
             for signal_name in veto_signals:
-                risk_components[signal_name] = get_clipped_score(signal_name) * 300
-        
+                weighted_score = get_clipped_score(signal_name) * 300
+                risk_components[signal_name] = weighted_score
+                reportable_risk_df[signal_name] = weighted_score # 将带权重的分值写入报告DF
+
         # --- 风险2: 顶层认知风险 ---
-        risk_components['COGNITIVE_FUSED_RISK_SCORE'] = get_clipped_score('COGNITIVE_FUSED_RISK_SCORE') * 1.0 # 认知融合风险作为基准
+        cognitive_risk_score = get_clipped_score('COGNITIVE_FUSED_RISK_SCORE') * 1.0
+        risk_components['COGNITIVE_FUSED_RISK_SCORE'] = cognitive_risk_score
+        reportable_risk_df['COGNITIVE_FUSED_RISK_SCORE'] = cognitive_risk_score # 写入报告DF
 
         # --- 风险3: 各情报层S+级看跌共振风险 (权重: 150) ---
-        risk_components['SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS') * 150
-        risk_components['SCORE_CHIP_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_CHIP_BEARISH_RESONANCE_S_PLUS') * 150
-        risk_components['SCORE_DYN_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_DYN_BEARISH_RESONANCE_S_PLUS') * 150
-        risk_components['SCORE_FF_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_FF_BEARISH_RESONANCE_S_PLUS') * 150
-        risk_components['SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS') * 150
-        risk_components['SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'] = get_clipped_score('SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS') * 150
+        bearish_resonance_signals = [
+            'SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS', 'SCORE_CHIP_BEARISH_RESONANCE_S_PLUS',
+            'SCORE_DYN_BEARISH_RESONANCE_S_PLUS', 'SCORE_FF_BEARISH_RESONANCE_S_PLUS',
+            'SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS', 'SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS'
+        ]
+        for signal_name in bearish_resonance_signals:
+            weighted_score = get_clipped_score(signal_name) * 150
+            risk_components[signal_name] = weighted_score
+            reportable_risk_df[signal_name] = weighted_score # 写入报告DF
 
         # --- 风险4: 行业周期风险 ---
-        risk_components['RISK_INDUSTRY_STAGNATION'] = get_clipped_score('SCORE_INDUSTRY_STAGNATION') * 200
-        risk_components['RISK_INDUSTRY_DOWNTREND'] = get_clipped_score('SCORE_INDUSTRY_DOWNTREND') * 300
+        industry_stagnation_score = get_clipped_score('SCORE_INDUSTRY_STAGNATION') * 200
+        risk_components['RISK_INDUSTRY_STAGNATION'] = industry_stagnation_score
+        reportable_risk_df['SCORE_INDUSTRY_STAGNATION'] = industry_stagnation_score # 写入报告DF
+
+        industry_downtrend_score = get_clipped_score('SCORE_INDUSTRY_DOWNTREND') * 300
+        risk_components['RISK_INDUSTRY_DOWNTREND'] = industry_downtrend_score
+        reportable_risk_df['SCORE_INDUSTRY_DOWNTREND'] = industry_downtrend_score # 写入报告DF
         
-        return pd.DataFrame(risk_components).fillna(0)
+        total_penalty_score = pd.DataFrame(risk_components).sum(axis=1).fillna(0)
+        
+        # 返回总惩罚分和更新后的报告DF
+        return total_penalty_score, reportable_risk_df
 
     def _finalize_signals(self):
         """
