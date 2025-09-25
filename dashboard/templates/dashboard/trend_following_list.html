@@ -7,8 +7,16 @@
 {% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
-    {# 这里可以链接特定于此页面的CSS，但我们将样式添加到主dashboard.css中 #}
-    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    {# --- 修改开始 --- #}
+    {# 
+      修改原因：解决浏览器缓存问题。
+      通过在CSS文件URL后附加一个基于当前时间的查询字符串（?v={{ "now"|date:"U" }}），
+      可以强制浏览器在每次页面加载时都重新下载最新的 dashboard.css 文件。
+      这确保了所有为本页面新增的CSS样式（如 .playbook-tag, .filter-tag 等）都能被正确应用。
+      "now"|date:"U" 会生成一个唯一的Unix时间戳。
+    #}
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v={{ "now"|date:"U" }}">
+    {# --- 修改结束 --- #}
 {% endblock %}
 
 {% block sidebar %}
@@ -24,6 +32,7 @@
         </nav>
     </aside>
 {% endblock sidebar %}
+
 
 {% block content %}
 <div class="dashboard-container">
