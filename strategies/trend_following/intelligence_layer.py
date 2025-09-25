@@ -1,6 +1,7 @@
 # 文件: strategies/trend_following/intelligence_layer.py
 # 情报层总指挥官 (重构版)
 import pandas as pd
+import numpy as np
 from typing import Dict
 from .exit_layer import ExitLayer
 # --- 从新目录导入所有情报模块 ---
