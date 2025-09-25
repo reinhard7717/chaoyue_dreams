@@ -34,7 +34,7 @@ class MicroBehaviorEngine:
         print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
         all_states = {}
 
-        # [代码新增] 定义一个辅助函数来简化状态更新流程
+        # 定义一个辅助函数来简化状态更新流程
         def update_states(new_states: Dict[str, pd.Series]):
             """同时更新局部和全局状态字典"""
             if new_states:

@@ -2,7 +2,7 @@
 # 情报层总指挥官 (重构版)
 import pandas as pd
 from typing import Dict
-
+from .exit_layer import ExitLayer
 # --- 从新目录导入所有情报模块 ---
 from .intelligence.foundation_intelligence import FoundationIntelligence
 from .intelligence.structural_intelligence import StructuralIntelligence
@@ -42,6 +42,7 @@ class IntelligenceLayer:
         self.cyclical_intel = CyclicalIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
+        self.exit_layer = ExitLayer(self.strategy)
 
     def run_all_diagnostics(self) -> Dict:
         """
@@ -54,6 +55,7 @@ class IntelligenceLayer:
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
+        self.strategy.exit_triggers = pd.DataFrame(index=df.index)
 
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
@@ -87,9 +89,13 @@ class IntelligenceLayer:
         print("    - [阶段 3/3] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
-        
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
+        
+        # --- 阶段四: 硬性离场信号生成 ---
+        print("    - [阶段 4/4] 正在生成硬性离场信号...")
+        exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
+        self.strategy.exit_triggers = exit_triggers_df
         
         print("--- [情报层总指挥官 V408.0] 所有诊断模块执行完毕。 ---") # 更新版本号
         return self.strategy.trigger_events
