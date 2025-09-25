@@ -431,7 +431,7 @@ class CognitiveIntelligence:
         is_not_trending_regime = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT') < trending_regime_threshold
         context_is_ranging_market = (is_cyclical_regime & is_not_trending_regime).astype(float)
         states['CONTEXT_RANGING_MARKET'] = context_is_ranging_market.astype(np.float32)
-        bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index))
+        bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
         buy_opportunity_score = (1 - bbp.clip(0, 1)).astype(np.float32)
         states['SCORE_OPP_MEAN_REVERSION_BUY'] = buy_opportunity_score
         final_playbook_score = context_is_ranging_market * buy_opportunity_score

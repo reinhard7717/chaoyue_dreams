@@ -146,24 +146,36 @@ class IntelligenceLayer:
                     print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
 
         # 根据信号名选择解剖路径
-        if "CHIP" in nan_signal_name:
-            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
-            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
-            # 这是一个示例，实际探针可以做得更精细
-            print("  --> 正在检查所有筹码支柱的健康度贡献...")
-            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
-                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
-                    # 模拟计算 overall_health 的过程并打印
-                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
-                    pass
-            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
+        if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
+            # ... (保留对终极信号的解剖逻辑) ...
+            print(f"  --> 检测到终极信号层信号，开始解剖 {nan_signal_name}...")
 
-        elif "DYN" in nan_signal_name:
-            print("  --> 检测到动态力学信号，开始解剖 DynamicMechanicsEngine...")
-            probe_pillar_health(self.mechanics_engine, nan_date, 5, 'bullish_dynamic')
+        # [代码修改] 新增对认知层/战术层信号的解剖路径
+        elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
+            print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
+            
+            if nan_signal_name == 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A':
+                print("  ---> 解剖路径: final_score = context * opportunity")
+                
+                # 1. 解剖 context_is_ranging_market
+                print("  -----> 正在解剖 context_is_ranging_market...")
+                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4 # 假设阈值
+                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45 # 假设阈值
+                context_val = float(is_cyclical_regime and is_not_trending_regime)
+                print(f"      - context_is_ranging_market = {context_val}")
 
-        # 可以为其他引擎添加 elif 分支
-        # ...
+                # 2. 解剖 buy_opportunity_score
+                print("  -----> 正在解剖 buy_opportunity_score...")
+                bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(nan_date)
+                print(f"      - 原始指标 BBP_21_2.0_D: {bbp_val}")
+                if pd.isna(bbp_val):
+                    print("      ------> [!!!] 发现源头 NaN！问题出在 BBP_21_2.0_D 指标计算。")
+                opportunity_val = 1 - np.clip(bbp_val, 0, 1) if pd.notna(bbp_val) else np.nan
+                print(f"      - buy_opportunity_score = {opportunity_val}")
+
+                # 3. 最终计算
+                final_val = context_val * opportunity_val
+                print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
 
         else:
             print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
