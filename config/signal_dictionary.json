@@ -17,7 +17,13 @@
         "COGNITIVE_SCORE_IGNITION_RESONANCE_S": { "cn_name": "【认知S】多域点火共振", "category": "认知层-机会", "type": "dynamic", "score": 300, "description": "多个核心领域的“点火”信号形成共振，是最高级别的进攻信号。" },
         "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S": { "cn_name": "【认知S】多域反转共振", "category": "认知层-机会", "type": "positional", "description": "多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。" },
         "COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S": { "cn_name": "【认知S】行业协同进攻", "category": "认知层-机会", "type": "dynamic", "description": "行业景气周期与个股进攻信号形成共振，是“戴维斯双击”的体现。" },
-        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "cn_name": "【认知S风险】亢奋加速", "category": "认知层-风险", "type": "risk", "description": "融合高乖离度、天量、巨幅振动和冲高回落四大特征，识别趋势末端的“高潮式”加速上涨风险。" },
+        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { 
+            "cn_name": "【认知S风险】亢奋加速", 
+            "category": "认知层-风险", 
+            "type": "risk", 
+            "penalty_weight": 2500,
+            "description": "【重大风险】融合高乖离度、天量、巨幅振动和冲高回落四大特征，识别趋势末端的“高潮式”加速上涨风险。此信号会施加严厉的惩罚。"
+        },
         "COGNITIVE_FUSED_RISK_SCORE": { "cn_name": "【认知】融合风险总分", "category": "认知层-风险", "type": "risk", "penalty_weight": 1.0, "description": "融合了筹码、行为、资金流、结构等多个维度的风险信号，并经过动态加权和共振惩罚后得到的最终风险总分。" },
         "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": { "cn_name": "【认知S】终极看涨确认", "category": "认知层-机会", "type": "positional", "score": 350, "description": "融合结构与形态，对看涨趋势的最终确认。" },
         "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S": { "cn_name": "【认知S风险】终极看跌确认", "category": "认知层-风险", "type": "risk", "penalty_weight": 300, "description": "融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。" },

@@ -31,34 +31,30 @@ class JudgmentLayer:
         # 2. 使用 update()，用计算出的带权重惩罚分，精确覆盖对应信号的分数
         if not penalty_components_df.empty:
             reportable_risk_df.update(penalty_components_df)
-        
-        # --- 步骤 2: 处理“亢奋加速风险”的衰减与报告 ---
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
-        
-        # 计算衰减因子
-        attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
-        
-        # 将“亢奋加速风险”的显示分（原始分*100）也加入到报告DF中
-        # 这一步现在是安全的，不会被其他逻辑覆盖
-        euphoria_display_score = (euphoria_risk_score * 100).clip(0, 1000)
-        if 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION' in reportable_risk_df.columns:
-            reportable_risk_df['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = euphoria_display_score
-        
-        # --- 步骤 3, 4, 5 保持不变 ---
+
+        # --- 步骤 3: 获取动态战术动作 (逻辑不变) ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
-        df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
-        df['final_score'] = df['entry_score'] * (1 - attenuation_factor) - df['risk_penalty_score']
+        
+        # --- [代码修改] 步骤 4: 简化最终得分计算公式 ---
+        # [代码修改] 最终得分现在是简单的进攻分减去总风险惩罚分
+        df['final_score'] = df['entry_score'] - df['risk_penalty_score']
+        
+        # --- 步骤 5: 根据最终得分和动态动作，确定最终信号 (逻辑不变) ---
+        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         is_score_sufficient = df['final_score'] > final_score_threshold
+        
+        # 亢奋风险的一票否决权逻辑仍然保留，作为独立的风控机制
+        euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
+        euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
+        df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
+        
         not_avoid = df['dynamic_action'] != 'AVOID'
         final_buy_condition = is_score_sufficient & not_avoid
         df['signal_type'] = '无信号'
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        # --- 步骤 6: 生成报告与清理 ---
-        # reportable_risk_df 现在是完整且准确的，包含了所有应报告的风险项及其正确分值
+        # --- 步骤 6: 生成报告与清理 (逻辑不变) ---
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 

@@ -132,19 +132,45 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 重构版】亢奋加速风险诊断引擎
+        【V2.0 · 智能上下文重构版】亢奋加速风险诊断引擎
+        - 核心重构: 彻底废除旧的、基于简单滚动窗口的风险评估逻辑。引入“智能上下文”和“安全港豁免”两大机制，
+                      使其能准确区分“牛市启动”和“力竭冲顶”，解决了模型在趋势起点误判的重大缺陷。
+        - 新增逻辑:
+          1. [智能上下文] 使用以MA55为基准的“波段伸展度”替代旧的“价格通道位置”，更精准地评估价格是否过热。
+          2. [安全港豁免] 增加“主升浪启动区”的判断。当价格紧贴上升的MA55、且前期波动率较低时，
+                         即使出现巨量大阳线，也视为健康启动，风险分将被大幅压制。
         """
+        print("        -> [亢奋加速风险诊断模块 V2.0 · 智能上下文重构版] 启动...") # [代码修改] 更新版本号和说明
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
 
-        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
+        # --- 步骤 1: 【智能上下文】计算以MA55为基准的“波段伸展度” ---
+        # 这是对您“以MA55为波段计算低点”思想的实现
+        ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
-        top_context_score = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        # 计算从MA55到近期高点的“波段空间”
+        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
+        # 计算当前收盘价在这个波段空间中的位置，即“伸展度”
+        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+        print(f"          - [智能上下文] 09-08 波段伸展度 (基于MA55): {stretch_from_ma55_score.loc['2025-09-08']:.2%}")
 
-        # 全部改为调用 utils.normalize_score 并传入 df.index
+        # --- 步骤 2: 【安全港豁免】判断是否处于“主升浪启动区” ---
+        # 条件1: MA55生命线本身处于上升趋势 (我们用5日斜率判断其近期趋势)
+        ma55_is_rising = (df.get('SLOPE_5_EMA_55_D', pd.Series(0, index=df.index)) > 0).astype(float)
+        # 条件2: 价格紧贴MA55 (乖离率BIAS很小)
+        bias_55d = df.get('BIAS_55_D', pd.Series(0.5, index=df.index))
+        price_is_near_ma55 = (bias_55d.abs() < 0.15).astype(float) # 乖离率小于15%视为“紧贴”
+        # 条件3: 前期波动率处于压缩状态 (昨日的BBW处于近期低位)
+        bbw_d = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
+        volatility_was_low = (bbw_d.shift(1) < bbw_d.rolling(60).quantile(0.3)).astype(float)
+        # 综合计算“安全港”得分，三者都满足时分数为1
+        safe_launch_context_score = (ma55_is_rising * price_is_near_ma55 * volatility_was_low)
+        print(f"          - [安全港豁免] 09-08 安全启动区得分: {safe_launch_context_score.loc['2025-09-08']:.4f} (ma55上升:{ma55_is_rising.loc['2025-09-08']:.0f}, 紧贴ma55:{price_is_near_ma55.loc['2025-09-08']:.0f}, 前期压缩:{volatility_was_low.loc['2025-09-08']:.0f})")
+
+        # --- 步骤 3: 计算原始风险因子 (识别“加速”这个行为本身) ---
+        # 这部分逻辑与旧版类似，但现在只作为风险的“原材料”
         bias_score = normalize_score(df['BIAS_21_D'].abs(), df.index, norm_window, ascending=True)
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
@@ -153,10 +179,15 @@ class MicroBehaviorEngine:
         total_range = (df['high_D'] - df['low_D']).replace(0, 1e-9)
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
         upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
-        
         raw_risk_score = (bias_score * volume_spike_score * volatility_score * upthrust_score)**(1/4)
-        final_risk_score = (raw_risk_score * top_context_score).astype(np.float32)
+
+        # --- 步骤 4: 最终风险裁定 ---
+        # 最终风险 = 原始风险 * 波段伸展度 * (1 - 安全港豁免分)
+        # 如果安全港得分为1，则(1-1)=0，最终风险直接归零。
+        final_risk_score = (raw_risk_score * stretch_from_ma55_score * (1 - safe_launch_context_score)).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score
+        
+        print(f"          - [最终裁定] 09-08 亢奋加速风险分: {final_risk_score.loc['2025-09-08']:.4f} (原始分 {raw_risk_score.loc['2025-09-08']:.2f} * 伸展度 {stretch_from_ma55_score.loc['2025-09-08']:.2f} * 豁免因子 {(1 - safe_launch_context_score.loc['2025-09-08']):.2f})")
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
