@@ -441,7 +441,7 @@ class IndicatorService:
         four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
-            print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，调用上下文服务进行数据融合...")
+            # print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，调用上下文服务进行数据融合...")
             # 调用 ContextualAnalysisService 的融合引擎
             industry_lifecycle_df = await self.context_service.prepare_fused_industry_signals(
                 stock_code, start_date, end_date, industry_params
@@ -453,19 +453,19 @@ class IndicatorService:
                 for col in industry_lifecycle_df.columns:
                     # 对所有新注入的列进行填充
                     df_daily[col] = df_daily[col].ffill().fillna(0)
-                print(f"    - [行业背景注入] 成功注入融合后的行业生命周期数据。")
+                # print(f"    - [行业背景注入] 成功注入融合后的行业生命周期数据。")
             else:
                 print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的融合行业生命周期数据。")
         # --- 注入KPL题材热度信号 ---
         kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
         if kpl_params and kpl_params.get('enabled', False):
-            print(f"    - [KPL题材热度注入] 检测到KPL题材分析已启用，开始注入热度分...")
+            # print(f"    - [KPL题材热度注入] 检测到KPL题材分析已启用，开始注入热度分...")
             # 调用 contextual_analysis_service 的新方法
             kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
                 stock_code, start_date, end_date, kpl_params
             )
             # 新增代码: 增加调试信息，检查返回的DataFrame状态
-            print(f"    - [KPL题材热度注入-调试] 收到KPL热度DataFrame，行数: {len(kpl_hotness_df)}，索引类型: {type(kpl_hotness_df.index)}")
+            # print(f"    - [KPL题材热度注入-调试] 收到KPL热度DataFrame，行数: {len(kpl_hotness_df)}，索引类型: {type(kpl_hotness_df.index)}")
             if not kpl_hotness_df.empty:
                 # 修改代码: 在合并前，强制将kpl_hotness_df的索引转换为带UTC时区的DatetimeIndex，以匹配df_daily
                 kpl_hotness_df.index = pd.to_datetime(kpl_hotness_df.index, utc=True)
@@ -473,7 +473,7 @@ class IndicatorService:
                 df_daily = df_daily.merge(kpl_hotness_df, left_index=True, right_index=True, how='left')
                 # 默认用0填充没有热度的日期
                 df_daily['THEME_HOTNESS_SCORE_D'].fillna(0, inplace=True)
-                print(f"    - [KPL题材热度注入] 成功注入KPL题材热度分。")
+                # print(f"    - [KPL题材热度注入] 成功注入KPL题材热度分。")
             else:
                 # 即使没有数据，也要确保列存在，值为0
                 df_daily['THEME_HOTNESS_SCORE_D'] = 0.0

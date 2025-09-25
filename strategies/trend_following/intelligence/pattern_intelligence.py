@@ -19,7 +19,7 @@ class PatternIntelligence:
         """
         形态分析总指挥。
         """
-        print("      -> 正在运行 [形态智能引擎 V2.1 · 预测能力版]...") # 更新版本号和说明
+        # print("      -> 正在运行 [形态智能引擎 V2.1 · 预测能力版]...") # 更新版本号和说明
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
             return {}

@@ -327,7 +327,7 @@ class ContextualAnalysisService:
         聪明钱信号引擎
         - 核心职责: 融合游资(HmDetail)和龙虎榜(TopList, TopInst)数据，生成协同与背离信号。
         """
-        print("    - [聪明钱引擎] 开始准备游资与机构协同信号...")
+        # print("    - [聪明钱引擎] 开始准备游资与机构协同信号...")
         
         # 1. 并发获取所有需要的原始数据
         tasks = {
@@ -424,7 +424,7 @@ class ContextualAnalysisService:
         max_score = params.get('max_score_clip', 10.0)
         normalized_score = (daily_hotness / max_score).clip(0, 1)
         result_df = pd.DataFrame(normalized_score, columns=['THEME_HOTNESS_SCORE_D'])
-        print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
+        # print(f"    - [KPL热度引擎] 完成分析，已生成题材热度分。")
         return result_df
 
     async def _process_single_industry_strength(self, concept: ConceptMaster, trade_date: datetime.date, market_daily_df: pd.DataFrame) -> Optional[Dict]:

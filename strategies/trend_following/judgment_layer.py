@@ -17,7 +17,7 @@ class JudgmentLayer:
                       同时强制将其 final_score 置为 0。
         - 收益: 彻底解决了“高分卖出”的报告悖论，实现了决策逻辑与最终报告的完美统一。
         """
-        print("    --- [最高作战指挥部 V512.0 · 终极决策透明化版] 启动... ---") # [代码修改] 更新版本号
+        # print("    --- [最高作战指挥部 V512.0 · 终极决策透明化版] 启动... ---") # 更新版本号
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
@@ -48,14 +48,14 @@ class JudgmentLayer:
         final_buy_condition = is_score_sufficient & ~is_dynamic_veto & ~is_hard_exit_veto
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        # [代码修改] 扩展否决逻辑，使其更具体
+        # 扩展否决逻辑，使其更具体
         vetoed_by_dynamic = is_score_sufficient & is_dynamic_veto
         df.loc[vetoed_by_dynamic, 'signal_type'] = '风险否决'
         
         vetoed_by_hard_exit = is_score_sufficient & is_hard_exit_veto & ~is_dynamic_veto
         df.loc[vetoed_by_hard_exit, 'signal_type'] = '趋势否决' # 更具体的否决原因
         
-        # [代码修改] 核心修复：对所有被否决的信号执行“分数清零”
+        # 核心修复：对所有被否决的信号执行“分数清零”
         # 这一步确保了报告中的分数与最终决策严格一致
         all_veto_conditions = vetoed_by_dynamic | vetoed_by_hard_exit
         df.loc[all_veto_conditions, 'final_score'] = 0

@@ -1816,7 +1816,7 @@ class IndustryDao(BaseDAO):
                       所有计算逻辑已移至 ContextualAnalysisService。
         - 返回: 一个包含原始生命周期数据的长格式 DataFrame。
         """
-        print(f"    - [DAO-查询] 正在为 {stock_code} 获取原始行业生命周期数据...")
+        # print(f"    - [DAO-查询] 正在为 {stock_code} 获取原始行业生命周期数据...")
         # 1. 获取股票所属的所有概念
         all_concepts = await self.get_stock_all_concepts(stock_code)
         if not all_concepts:
@@ -1847,7 +1847,7 @@ class IndustryDao(BaseDAO):
         df = pd.DataFrame.from_records(data)
         # 重命名以保持一致性
         df.rename(columns={'concept__code': 'concept_code', 'concept__source': 'source'}, inplace=True)
-        print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
+        # print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
         return df
     
     # =================================================================

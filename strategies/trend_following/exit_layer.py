@@ -25,7 +25,7 @@ class ExitLayer:
         triggers_df['EXIT_RISK_OVERFLOW'] = pd.Series(False, index=df.index)
         triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
         
-        # --- [代码修改] 核心修改：构建双均线立体防御体系 ---
+        # --- 核心修改：构建双均线立体防御体系 ---
         p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
         p_trailing = p_pos_mgmt.get('trailing_stop', {})
         
@@ -42,7 +42,7 @@ class ExitLayer:
             if tactical_ma_col in df.columns:
                 # 当日收盘价低于战术移动平均线，触发趋势破位信号
                 triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[tactical_ma_col]
-                print(f"    -> [离场层] 战术破位监控已激活 (基于 {tactical_ma_col})。")
+                # print(f"    -> [离场层] 战术破位监控已激活 (基于 {tactical_ma_col})。")
             else:
                 print(f"    -> [离场层-警告] 无法找到战术移动平均线列: {tactical_ma_col}，战术破位监控未激活。")
 
@@ -54,7 +54,7 @@ class ExitLayer:
             if strategic_ma_col in df.columns:
                 # 当日收盘价低于战略移动平均线，触发战略失效信号
                 triggers_df['EXIT_STRATEGY_INVALIDATED'] = df['close_D'] < df[strategic_ma_col]
-                print(f"    -> [离场层] 战略失效监控已激活 (基于 {strategic_ma_col})。")
+                # print(f"    -> [离场层] 战略失效监控已激活 (基于 {strategic_ma_col})。")
             else:
                 print(f"    -> [离场层-警告] 无法找到战略移动平均线列: {strategic_ma_col}，战略失效监控未激活。")
 

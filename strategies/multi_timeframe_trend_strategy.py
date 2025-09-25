@@ -94,8 +94,9 @@ class MultiTimeframeTrendStrategy:
     
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
-        【总指挥层核心 - V507.0 · 终极信号适配版】
+        【总指挥层核心 - V507.1 · 数据流修复版】
         - 核心重构: 极大简化了数据流。现在直接将包含所有时间框架数据的 all_dfs 传递给战术引擎。
+        - 本次修复: 修正了对 _run_tactical_engine 返回的嵌套元组的错误处理，解决了 TypeError 和潜在的 IndexError。
         """
         mode_str = "闪电突袭" if latest_only else "全面战役"
         start_info = f", 计算起始于: {start_date_str}" if start_date_str and not latest_only else ""
@@ -109,21 +110,28 @@ class MultiTimeframeTrendStrategy:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
             return ([], [], [], [], [])
         
-        # 2. 战术引擎: 直接将 all_dfs 注入，由其内部的 IntelligenceLayer 负责融合
-        records_tuple = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
+        # 修改变量名，更清晰地接收 _run_tactical_engine 的返回结果
+        # tactical_results 是一个四元组: ((signals, details, ...), df1, df2, df3)
+        tactical_results = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
         
+        # 从嵌套元组中正确解包出包含5个列表的内部元组
+        # records_from_tactical 现在是 (list_of_signals, list_of_details, ...)
+        records_from_tactical = tactical_results[0]
+
         # 3. 盘中引擎 (逻辑不变)
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
         risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
         
-        # 4. 信号汇总
-        all_signals = records_tuple[0] + intraday_entry_signals + risk_alert_signals
-        all_details = records_tuple[1] + intraday_entry_details + risk_alert_details
+        # 修正拼接逻辑，从内部元组中按索引取值
+        all_signals = records_from_tactical[0] + intraday_entry_signals + risk_alert_signals
+        all_details = records_from_tactical[1] + intraday_entry_details + risk_alert_details
         if all_signals:
             all_signals.sort(key=lambda x: x.trade_time)
             
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
-        return (all_signals, all_details, records_tuple[2], records_tuple[3], records_tuple[4])
+        
+        # 修正最终返回值的来源，确保返回5个列表
+        return (all_signals, all_details, records_from_tactical[2], records_from_tactical[3], records_from_tactical[4])
 
     async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
