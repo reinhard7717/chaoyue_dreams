@@ -491,13 +491,12 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V323.0 · 报告完整性修复版】
-        - 核心修复: 彻底重构报告生成逻辑。不再依赖 reporting_layer 返回的、可能被过滤的 daily_score 对象列表。
-                    现在直接消费未经任何过滤的 `daily_analysis_df`，确保调试报告能展示指定时段内的每一天，
-                    无论当天是否有信号，从而解决了报告日期不连续的重大BUG。
+        【V323.1 · 时区兼容性修复版】
+        - 核心修复: 解决了因 DataFrame 索引为“感知时区”(tz-aware)而开始/结束日期为“天真时区”(tz-naive)
+                    导致的 TypeError。现在，在进行日期筛选前，会统一两者时区。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V323.0 · 报告完整性修复版] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 V323.1 · 时区兼容性修复版] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -506,8 +505,6 @@ class MultiTimeframeTrendStrategy:
             print("    -> [阶段 1/2] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
-            # 调用 _run_tactical_engine 并捕获所有返回的数据
-            # records_tuple 中包含的 daily_scores 列表可能是不完整的，我们不再使用它
             _records_tuple, daily_analysis_df, score_details_df, risk_details_df = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
@@ -533,10 +530,19 @@ class MultiTimeframeTrendStrategy:
 
             # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
+            
+            # [代码修改] 统一时区以进行安全比较
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
             
-            # 直接从完整的 daily_analysis_df 中筛选日期
+            # 检查 DataFrame 索引是否有时区信息
+            if daily_analysis_df.index.tz is not None:
+                # 如果有，则将 start_dt 和 end_dt 本地化到相同的时区
+                print(f"    -> [时区校准] 检测到索引时区为 {daily_analysis_df.index.tz}，正在校准开始/结束日期...")
+                start_dt = start_dt.tz_localize(daily_analysis_df.index.tz)
+                end_dt = end_dt.tz_localize(daily_analysis_df.index.tz)
+            
+            # 现在可以安全地进行比较
             debug_period_df = daily_analysis_df[(daily_analysis_df.index >= start_dt) & (daily_analysis_df.index <= end_dt)]
             
             if debug_period_df.empty:
@@ -544,7 +550,6 @@ class MultiTimeframeTrendStrategy:
                 return
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            # 直接遍历筛选后的 DataFrame
             for trade_date, row in debug_period_df.iterrows():
                 time_str = trade_date.strftime('%Y-%m-%d')
                 
@@ -553,14 +558,12 @@ class MultiTimeframeTrendStrategy:
                 
                 print(f"\n{time_str} [最终得分: {final_score_val:<7.0f}] [最终信号: {signal_type}]")
                 
-                # 打印分数构成，数据源改为 row['signal_details_cn']
                 score_details_json = row.get('signal_details_cn', {})
                 if score_details_json and isinstance(score_details_json, dict):
                     offense_details = score_details_json.get('offense', [])
                     if offense_details:
                         print("  --- 激活进攻项 ---")
                         for item in offense_details:
-                            # 确保 item 是字典
                             if isinstance(item, dict):
                                 print(f"    - {item.get('name', 'N/A')} ({item.get('score', 0)})")
                     
