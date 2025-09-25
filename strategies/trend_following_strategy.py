@@ -58,8 +58,7 @@ class TrendFollowStrategy:
         self.df_indicators['entry_score'] = entry_score
         
         # --- 指挥链 3/7: 预警层 ---
-        risk_score, risk_details_df, _, _ = self.warning_layer.run_all_warnings()
-        self.df_indicators['risk_score'] = risk_score
+        risk_details_df = self.warning_layer.run_all_warnings()
         
         # --- 指挥链 4/7: 统合判断层 ---
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
@@ -72,6 +71,9 @@ class TrendFollowStrategy:
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
+        
+        if risk_details_df is None:
+            risk_details_df = pd.DataFrame(index=self.df_indicators.index)
         
         return self.df_indicators, score_details_df, risk_details_df
 
