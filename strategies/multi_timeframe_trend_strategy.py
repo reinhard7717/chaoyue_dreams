@@ -538,7 +538,7 @@ class MultiTimeframeTrendStrategy:
             # 检查 DataFrame 索引是否有时区信息
             if daily_analysis_df.index.tz is not None:
                 # 如果有，则将 start_dt 和 end_dt 本地化到相同的时区
-                print(f"    -> [时区校准] 检测到索引时区为 {daily_analysis_df.index.tz}，正在校准开始/结束日期...")
+                # print(f"    -> [时区校准] 检测到索引时区为 {daily_analysis_df.index.tz}，正在校准开始/结束日期...")
                 start_dt = start_dt.tz_localize(daily_analysis_df.index.tz)
                 end_dt = end_dt.tz_localize(daily_analysis_df.index.tz)
             
