@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import json
 import os
 import pandas as pd
+import numpy as np
 import traceback
 import gc
 from services.indicator_services import IndicatorService
