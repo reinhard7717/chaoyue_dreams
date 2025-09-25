@@ -216,15 +216,15 @@ class FoundationIntelligence:
         """【V3.0 · 对称逻辑版】计算CMF健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull_score = normalize_score(df.get('CMF_21_D'), norm_window, ascending=True)
-        static_bear_score = normalize_score(df.get('CMF_21_D'), norm_window, ascending=False)
+        static_bull_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=True)
+        static_bear_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=False)
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            slope = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), norm_window, ascending=True)
+            slope = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
+            accel = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
