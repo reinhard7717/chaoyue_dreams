@@ -12,41 +12,37 @@ class WarningLayer:
         # risk_metadata 现在从 signal_dictionary.json 加载
         self.risk_metadata = get_params_block(self.strategy, 'score_type_map', {})
 
-    def run_all_warnings(self) -> Tuple[pd.Series, pd.DataFrame, pd.Series, pd.Series]:
+    def run_all_warnings(self) -> pd.DataFrame:
         """
-        【V2.1 · 终极信号适配版】预警层总指挥
-        - 核心重构: 全面消费由认知层和各情报层产出的终极风险信号。
+        【V3.0 · 配置驱动重构版】预警层总指挥
+        - 核心重构: 不再返回多个零散的结果。唯一职责是根据 score_type_map 配置，
+                      搜集所有 type 为 'risk' 的信号的原始分，并返回一个完整的 risk_details_df。
+                      这使其成为一个纯粹的、由配置驱动的风险信号收集器。
         """
-        print("        -> [预警层分析中心 V2.1 · 终极信号适配版] 启动...")
+        print("        -> [预警层分析中心 V3.0 · 配置驱动重构版] 启动...") # 更新版本号和说明
         atomic_states = self.strategy.atomic_states
-        default_series = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        df_index = self.strategy.df_indicators.index
         
-        # --- 1. 获取认知层计算的融合风险总分 ---
-        total_risk_score = atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', default_series).copy()
+        risk_details_cols = {}
         
-        # --- 2. 获取所有S+级风险信号，用于动态诊断 ---
-        risk_prefixes = ('SCORE_CHIP_BEARISH_RESONANCE_S_PLUS', 'SCORE_CHIP_TOP_REVERSAL_S_PLUS',
-                         'SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS', 'SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS',
-                         'SCORE_FF_BEARISH_RESONANCE_S_PLUS', 'SCORE_FF_TOP_REVERSAL_S_PLUS',
-                         'SCORE_DYN_BEARISH_RESONANCE_S_PLUS', 'SCORE_DYN_TOP_REVERSAL_S_PLUS',
-                         'SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS', 'SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS',
-                         'SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS', 'SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS',
-                         'COGNITIVE_SCORE_RISK_')
-        risk_details_cols = {
-            key: atomic_states[key]
-            for key in atomic_states
-            if key.startswith(risk_prefixes) and isinstance(atomic_states[key], pd.Series)
-        }
+        # 遍历配置，而不是硬编码前缀
+        for signal_name, meta in self.risk_metadata.items():
+            # 只收集被明确定义为 'risk' 类型的信号
+            if isinstance(meta, dict) and meta.get('type') == 'risk':
+                if signal_name in atomic_states and isinstance(atomic_states[signal_name], pd.Series):
+                    risk_details_cols[signal_name] = atomic_states[signal_name]
+
+        if not risk_details_cols:
+            print("        -> [预警层分析中心 V3.0] 未在配置中找到任何 'risk' 类型信号。")
+            return pd.DataFrame(index=df_index)
+
         risk_details_df = pd.DataFrame(risk_details_cols)
         
-        # --- 3. 调用二次分析引擎 ---
-        risk_momentum_summary = self._diagnose_risk_momentum(total_risk_score)
-        risk_dynamics_summary = self._diagnose_risk_dynamics(risk_details_df)
+        print(f"        -> [预警层分析中心 V3.0] 已根据配置收集 {len(risk_details_df.columns)} 个风险信号。")
         
-        print("        -> [预警层分析中心 V2.1] 所有风险分析完成。")
-        return total_risk_score, risk_details_df, risk_momentum_summary, risk_dynamics_summary
+        # 只返回一个完整的、包含所有原始风险分的DataFrame
+        return risk_details_df
 
-    # _diagnose_risk_momentum 和 _diagnose_risk_dynamics 方法保持不变
     def _diagnose_risk_momentum(self, total_risk_score_series: pd.Series) -> pd.Series:
         window = 3
         accel_threshold = 20.0
