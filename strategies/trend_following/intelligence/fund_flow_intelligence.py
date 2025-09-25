@@ -95,13 +95,26 @@ class FundFlowIntelligence:
         return params
 
     def _calculate_context_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """计算宏观价格位置的上下文门控分数。"""
+        """
+        【V2.1 · 底部识别升级版】计算宏观价格位置的上下文门控分数。
+        - 核心升级: 引入周线RSI和FFT周期作为新的判断维度。
+        """
+        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
+        price_pos_score = 1 - price_position_in_range
+        
+        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+        
+        cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
+        cycle_trough_score = (1 - cycle_phase) / 2.0
+
+        bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
+        
         return {
-            'bottom_context': 1 - price_position_in_range,
+            'bottom_context': pd.Series(bottom_context_score, index=df.index),
             'top_context': price_position_in_range
         }
 

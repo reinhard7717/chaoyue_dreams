@@ -70,12 +70,18 @@ class ChipIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
 
-        # --- 2. 计算“外部宏观位置”门控 (用于反转) ---
+        # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
+        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
         price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
-        bottom_context_score = 1 - price_position_in_range
+        price_pos_score = 1 - price_position_in_range
+        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+        cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
+        cycle_trough_score = (1 - cycle_phase) / 2.0
+        bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
+        bottom_context_score = pd.Series(bottom_context_score, index=df.index)
         top_context_score = price_position_in_range
 
         # --- 3. 调用所有健康度组件计算器，获取四维健康度 ---

@@ -69,13 +69,13 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # [代码修改] 不再创建预格式化的字符串，而是创建一个字典
+            # 不再创建预格式化的字符串，而是创建一个字典
             long_df['summary_dict'] = long_df.apply(
                 lambda row: {'name': row['cn_name'], 'score': int(row['score'])},
                 axis=1
             )
             
-            # [代码修改] 返回字典的列表，而不是字符串的列表
+            # 返回字典的列表，而不是字符串的列表
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
         offense_summaries = process_details_df(score_details_df)

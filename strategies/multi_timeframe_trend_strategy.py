@@ -491,13 +491,13 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V322.0 · 调试流程重构版】
-        - 核心重构:
-          - [数据流修复] 不再调用 run_for_stock，而是独立执行数据准备和战术引擎调用，并捕获 apply_strategy 返回的核心DataFrame。
-          - [探针修复] 修改了所有探针的调用签名，将捕获的DataFrame作为参数显式传递，解决了探针因找不到数据而失效的问题。
+        【V323.0 · 报告完整性修复版】
+        - 核心修复: 彻底重构报告生成逻辑。不再依赖 reporting_layer 返回的、可能被过滤的 daily_score 对象列表。
+                    现在直接消费未经任何过滤的 `daily_analysis_df`，确保调试报告能展示指定时段内的每一天，
+                    无论当天是否有信号，从而解决了报告日期不连续的重大BUG。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V322.0 · 调试流程重构版] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 V323.0 · 报告完整性修复版] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -507,71 +507,69 @@ class MultiTimeframeTrendStrategy:
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
             # 调用 _run_tactical_engine 并捕获所有返回的数据
-            records_tuple, daily_analysis_df, score_details_df, risk_details_df = await self._run_tactical_engine(
+            # records_tuple 中包含的 daily_scores 列表可能是不完整的，我们不再使用它
+            _records_tuple, daily_analysis_df, score_details_df, risk_details_df = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
-            all_signals, all_details, all_daily_scores, all_score_components, all_daily_states = records_tuple
 
             print("    -> [阶段 1/2] 核心策略计算完成，已捕获所有中间过程数据。")
 
-            # 步骤 2: 检查并部署探针，将捕获的数据作为参数传入
+            # 步骤 2: 检查并部署探针 (逻辑保持不变)
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             probe_date = get_param_value(debug_params.get('probe_date'))
             if probe_date:
-                if get_param_value(debug_params.get('enable_structural_risk_probe'), False):
-                    # 注意：这个探针的调用逻辑已经内嵌到 cognitive_intelligence 模块中，此处仅作提示
-                    print(f"    -> [探针提示] 'enable_structural_risk_probe' 已激活，将在 {probe_date} 运行结构风险法医探针。")
-                
-                if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
-                    # 将捕获的 daily_analysis_df 和 atomic_states 传入探针
-                    self._deploy_ultimate_reversal_probe(
-                        probe_date=probe_date,
-                        daily_analysis_df=daily_analysis_df,
-                        atomic_states=self.tactical_engine.atomic_states
-                    )
                 if get_param_value(debug_params.get('enable_bottom_reversal_probe'), False):
                     self._deploy_bottom_reversal_probe(
                         probe_date=probe_date,
                         daily_analysis_df=daily_analysis_df,
                         atomic_states=self.tactical_engine.atomic_states
                     )
+                if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
+                    self._deploy_ultimate_reversal_probe(
+                        probe_date=probe_date,
+                        daily_analysis_df=daily_analysis_df,
+                        atomic_states=self.tactical_engine.atomic_states
+                    )
 
-            # 步骤 3: 使用捕获的数据进行报告生成
+            # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
-            start_dt_date = pd.to_datetime(start_date).date()
-            end_dt_date = pd.to_datetime(end_date).date()
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
             
-            debug_period_daily_scores = [ds for ds in all_daily_scores if start_dt_date <= ds.trade_date <= end_dt_date]
+            # 直接从完整的 daily_analysis_df 中筛选日期
+            debug_period_df = daily_analysis_df[(daily_analysis_df.index >= start_dt) & (daily_analysis_df.index <= end_dt)]
             
-            if not debug_period_daily_scores:
-                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何每日分数记录。")
+            if debug_period_df.empty:
+                print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
                 return
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
-            for daily_score_obj in sorted(debug_period_daily_scores, key=lambda x: x.trade_date):
-                trade_date = daily_score_obj.trade_date
+            # 直接遍历筛选后的 DataFrame
+            for trade_date, row in debug_period_df.iterrows():
                 time_str = trade_date.strftime('%Y-%m-%d')
                 
-                # 从捕获的DataFrame中获取当日数据
-                day_analysis_row = daily_analysis_df.loc[daily_analysis_df.index.date == trade_date]
+                final_score_val = row.get('final_score', 'N/A')
+                signal_type = row.get('signal_type', '无信号')
                 
-                final_score_val = day_analysis_row.iloc[0].get('final_score', 'N/A') if not day_analysis_row.empty else 'N/A'
-                risk_penalty_score_val = day_analysis_row.iloc[0].get('risk_penalty_score', 'N/A') if not day_analysis_row.empty else 'N/A'
+                print(f"\n{time_str} [最终得分: {final_score_val:<7.0f}] [最终信号: {signal_type}]")
                 
-                print(f"\n{time_str} [最终得分: {final_score_val:<7.0f}] [最终信号: {daily_score_obj.signal_type}]")
-                
-                # 打印分数构成
-                if daily_score_obj.score_details_json:
-                    offense_details = daily_score_obj.score_details_json.get('offense', [])
+                # 打印分数构成，数据源改为 row['signal_details_cn']
+                score_details_json = row.get('signal_details_cn', {})
+                if score_details_json and isinstance(score_details_json, dict):
+                    offense_details = score_details_json.get('offense', [])
                     if offense_details:
                         print("  --- 激活进攻项 ---")
                         for item in offense_details:
-                            print(f"    - {item['name']} ({item['score']})")
-                    risk_details = daily_score_obj.score_details_json.get('risk', [])
+                            # 确保 item 是字典
+                            if isinstance(item, dict):
+                                print(f"    - {item.get('name', 'N/A')} ({item.get('score', 0)})")
+                    
+                    risk_details = score_details_json.get('risk', [])
                     if risk_details:
                         print("  --- 激活风险项 ---")
                         for item in risk_details:
-                            print(f"    - {item['name']} ({item['score']})")
+                            if isinstance(item, dict):
+                                print(f"    - {item.get('name', 'N/A')} ({item.get('score', 0)})")
 
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
