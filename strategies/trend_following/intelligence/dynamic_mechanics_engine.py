@@ -26,10 +26,13 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.2 · 底部反转逻辑重构版】终极动态力学信号诊断模块
+        【V8.3 · 性能优化版】终极动态力学信号诊断模块
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
+        - 本次优化:
+          - [效率] 重构了第4步“全局健康度融合”逻辑。通过将各支柱健康分预先堆叠为NumPy数组，
+                    再利用向量化操作进行加权求和（取平均值），取代了原先在for循环中对Pandas Series的重复计算，
+                    大幅提升了计算效率并减少了内存占用。
         """
-        # print("        -> [终极动态力学信号诊断模块 V8.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -43,7 +46,6 @@ class DynamicMechanicsEngine:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # 获取底部情景奖励因子
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 调用公共函数计算上下文分数 ---
@@ -67,19 +69,29 @@ class DynamicMechanicsEngine:
             health_data['bearish_static'].append(s_bear)
             health_data['bearish_dynamic'].append(d_bear)
 
-        # --- 4. 独立融合，生成四个全局健康度 ---
+        # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
-        for health_type in health_data:
+        # 遍历四种健康度类型
+        for health_type, health_sources in [
+            ('bullish_static', health_data['bullish_static']),
+            ('bullish_dynamic', health_data['bullish_dynamic']),
+            ('bearish_static', health_data['bearish_static']),
+            ('bearish_dynamic', health_data['bearish_dynamic'])
+        ]:
             overall_health[health_type] = {}
+            # 遍历所有周期
             for p in periods:
-                components_for_period = [pillar_dict[p].values for pillar_dict in health_data[health_type] if p in pillar_dict]
+                # 将所有支柱的健康分Series的Numpy数组堆叠成一个 (num_pillars, N) 的矩阵
+                components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
-                    overall_health[health_type][p] = pd.Series(np.mean(np.stack(components_for_period, axis=0), axis=0), index=df.index)
+                    stacked_values = np.stack(components_for_period, axis=0)
+                    # 使用NumPy的向量化操作，一次性完成求平均
+                    fused_values = np.mean(stacked_values, axis=0)
+                    overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
-                    overall_health[health_type][p] = pd.Series(0.5, index=df.index)
+                    overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # --- 5. 终极信号合成 (采用对称逻辑) ---
-        # 5.1 看涨信号合成
+        # --- 5. 终极信号合成 (逻辑不变) ---
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -92,10 +104,8 @@ class DynamicMechanicsEngine:
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
         
-        # 应用新的“奖励”模式公式
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        # 5.2 看跌信号合成
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
@@ -109,7 +119,7 @@ class DynamicMechanicsEngine:
         overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
         final_top_reversal_score = top_context_score * overall_bearish_reversal_trigger
 
-        # 5.3 赋值
+        # --- 5.3 赋值 (逻辑不变) ---
         for prefix, score in [('SCORE_DYN_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_DYN_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_DYN_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_DYN_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = (score ** exponent).astype(np.float32)

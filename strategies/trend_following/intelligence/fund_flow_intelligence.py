@@ -105,28 +105,54 @@ class FundFlowIntelligence:
         return pillar_health
 
     def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[int, pd.Series]]:
-        """执行意图驱动的加权融合，生成全局四维健康度。"""
+        """
+        【V2.2 · 性能优化版】执行意图驱动的加权融合，生成全局四维健康度。
+        - 本次优化:
+          - [效率] 重构了整个融合逻辑。通过预先将意图权重映射为NumPy数组，并在周期循环中
+                    将所有支柱的健康分堆叠成矩阵，最终利用一次矩阵乘法（`@`）和一次求和
+                    完成加权融合。这取代了原先在多重循环中对Pandas Series的重复操作，
+                    极大提升了计算效率并减少了内存占用。
+        """
         overall_health = {}
+        pillar_names = list(params['pillar_configs'].keys())
+        num_pillars = len(pillar_names)
+        
+        # [代码新增] 预处理权重，将它们映射为与支柱顺序一致的NumPy数组
+        resonance_weights_array = np.array([params['resonance_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
+        reversal_weights_array = np.array([params['reversal_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
+
+        # 遍历四种健康度类型
         for health_type in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
             overall_health[health_type] = {}
-            weights_map = params['resonance_pillar_weights'] if 'static' in health_type else params['reversal_pillar_weights']
             
+            # 根据健康度类型选择对应的权重数组
+            weights_array = resonance_weights_array if 'static' in health_type else reversal_weights_array
+            total_weights = np.sum(weights_array)
+            
+            # 确定要从 pillar_health 中提取的键名
+            health_dict_key = f"{'s' if 'static' in health_type else 'd'}_{'bull' if 'bullish' in health_type else 'bear'}"
+            
+            # 遍历所有周期
             for p in params['periods']:
-                weighted_scores, total_weights = [], 0
-                for name, config in params['pillar_configs'].items():
-                    intent = config['intent']
-                    weight = weights_map.get(intent, 0)
-                    health_dict_key = f"{'s' if 'static' in health_type else 'd'}_{'bull' if 'bullish' in health_type else 'bear'}"
-                    score = pillar_health[name][health_dict_key].get(p)
-                    if score is not None:
-                        weighted_scores.append(score.values * weight)
-                        total_weights += weight
+                # 将所有支柱在当前周期的健康分Series的Numpy数组堆叠成一个 (num_pillars, N) 的矩阵
+                # N是数据行数
+                pillar_scores_matrix = np.stack([
+                    pillar_health[name][health_dict_key].get(p, pd.Series(0.5)).values 
+                    for name in pillar_names
+                ], axis=0)
                 
                 if total_weights > 0:
-                    final_score_arr = np.sum(np.stack(weighted_scores, axis=0), axis=0) / total_weights
-                    overall_health[health_type][p] = pd.Series(final_score_arr, index=pillar_health[next(iter(pillar_health))]['s_bull'][p].index, dtype=np.float32)
+                    # 使用NumPy的向量化乘法和加法，一次性完成加权求和
+                    # (num_pillars, N) 矩阵与 (num_pillars,) 权重的乘法(利用广播) -> (num_pillars, N) -> 沿axis=0求和 -> (N,)
+                    fused_values = np.sum(pillar_scores_matrix * weights_array[:, np.newaxis], axis=0) / total_weights
+                    
+                    # 获取正确的索引用于创建Series
+                    sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
+                    overall_health[health_type][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
                 else:
-                    overall_health[health_type][p] = pd.Series(0.5, index=pillar_health[next(iter(pillar_health))]['s_bull'][p].index, dtype=np.float32)
+                    sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
+                    overall_health[health_type][p] = pd.Series(0.5, index=sample_index, dtype=np.float32)
+                    
         return overall_health
 
     def _synthesize_final_signals(self, overall_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:

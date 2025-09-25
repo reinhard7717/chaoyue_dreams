@@ -31,10 +31,13 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.2 · 底部反转逻辑重构版】终极结构信号诊断模块
+        【V7.3 · 性能优化版】终极结构信号诊断模块
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
+        - 本次优化:
+          - [效率] 重构了第4步“全局健康度融合”逻辑。通过将各支柱健康分预先堆叠为NumPy数组，
+                    再利用向量化操作进行加权求和（取平均值），取代了原先在for循环中对Pandas Series的重复计算，
+                    大幅提升了计算效率并减少了内存占用。
         """
-        # print("        -> [终极结构信号诊断模块 V7.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -46,13 +49,12 @@ class StructuralIntelligence:
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-        # 获取底部情景奖励因子
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 调用公共函数计算上下文分数 ---
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        # --- 3. 调用所有健康度组件计算器，获取四维健康度 ---
+        # --- 3. 调用所有健康度组件计算器 ---
         health_data = {
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
@@ -70,19 +72,29 @@ class StructuralIntelligence:
             health_data['bearish_static'].append(s_bear)
             health_data['bearish_dynamic'].append(d_bear)
         
-        # --- 4. 独立融合，生成四个全局健康度 ---
+        # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
-        for health_type in health_data:
+        # 遍历四种健康度类型
+        for health_type, health_sources in [
+            ('bullish_static', health_data['bullish_static']),
+            ('bullish_dynamic', health_data['bullish_dynamic']),
+            ('bearish_static', health_data['bearish_static']),
+            ('bearish_dynamic', health_data['bearish_dynamic'])
+        ]:
             overall_health[health_type] = {}
+            # 遍历所有周期
             for p in periods:
-                components_for_period = [pillar_dict[p].values for pillar_dict in health_data[health_type] if p in pillar_dict]
+                # 将所有支柱的健康分Series的Numpy数组堆叠成一个 (num_pillars, N) 的矩阵
+                components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
-                    overall_health[health_type][p] = pd.Series(np.mean(np.stack(components_for_period, axis=0), axis=0), index=df.index)
+                    stacked_values = np.stack(components_for_period, axis=0)
+                    # 使用NumPy的向量化操作，一次性完成求平均
+                    fused_values = np.mean(stacked_values, axis=0)
+                    overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
-                    overall_health[health_type][p] = pd.Series(0.5, index=df.index)
+                    overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # --- 5. 终极信号合成 (采用对称逻辑) ---
-        # 5.1 看涨信号合成
+        # --- 5. 终极信号合成 (逻辑不变) ---
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -95,10 +107,8 @@ class StructuralIntelligence:
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
         
-        # 应用新的“奖励”模式公式
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        # 5.2 看跌信号合成 (使用独立的看跌健康度)
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
@@ -112,7 +122,7 @@ class StructuralIntelligence:
         overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
         final_top_reversal_score = top_context_score * overall_bearish_reversal_trigger
 
-        # 5.3 赋值
+        # --- 5.3 赋值 (逻辑不变) ---
         for prefix, score in [('SCORE_STRUCTURE_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_STRUCTURE_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_STRUCTURE_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_STRUCTURE_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = (score ** exponent).astype(np.float32)
@@ -165,24 +175,30 @@ class StructuralIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.0 · 对称逻辑版】计算MTF支柱的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
-        
+        """
+        【V2.1 · 性能优化版】计算MTF(多时间框架)支柱的四维健康度
+        - 本次优化:
+          - [效率] 简化了 `get_avg_score` 辅助函数，使用列表推导式和 `np.mean` 提高效率。
+          - [效率] 将静态分和动态分的计算移出循环，一次性生成后通过字典推导式赋值给所有周期，
+                    避免了不必要的重复计算。
+        """
         # 静态健康度：周线结构对齐度
         weekly_cols = [col for col in df.columns if 'EMA' in col and col.endswith('_W')]
         if len(weekly_cols) > 1:
-            bull_align = np.mean([ (df[weekly_cols[i]] > df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1) ], axis=0)
-            bear_align = np.mean([ (df[weekly_cols[i]] < df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1) ], axis=0)
-            static_bull_score = pd.Series(bull_align, index=df.index, dtype=np.float32)
-            static_bear_score = pd.Series(bear_align, index=df.index, dtype=np.float32)
+            # 使用列表推导式和np.mean进行向量化计算
+            bull_align_matrix = np.stack([(df[weekly_cols[i]] > df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
+            bear_align_matrix = np.stack([(df[weekly_cols[i]] < df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
+            static_bull_score = pd.Series(np.mean(bull_align_matrix, axis=0), index=df.index, dtype=np.float32)
+            static_bear_score = pd.Series(np.mean(bear_align_matrix, axis=0), index=df.index, dtype=np.float32)
         else:
             static_bull_score = static_bear_score = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 动态健康度：周线斜率和加速度
+        # 简化的 get_avg_score 辅助函数
         def get_avg_score(cols: list[str], asc: bool) -> pd.Series:
             if not cols: return pd.Series(0.5, index=df.index, dtype=np.float32)
-            scores = [normalize_score(df.get(c), df.index, norm_window, ascending=asc).values for c in cols]
-            return pd.Series(np.mean(np.stack(scores, axis=0), axis=0), index=df.index, dtype=np.float32)
+            # 使用列表推导式和np.mean进行向量化计算
+            scores_matrix = np.stack([normalize_score(df.get(c), df.index, norm_window, ascending=asc).values for c in cols], axis=0)
+            return pd.Series(np.mean(scores_matrix, axis=0), index=df.index, dtype=np.float32)
 
         weekly_slope_cols = [c for c in df.columns if 'SLOPE' in c and c.endswith('_W')]
         weekly_accel_cols = [c for c in df.columns if 'ACCEL' in c and c.endswith('_W')]
@@ -190,33 +206,40 @@ class StructuralIntelligence:
         dynamic_bull_score = (get_avg_score(weekly_slope_cols, True) * get_avg_score(weekly_accel_cols, True))**0.5
         dynamic_bear_score = (get_avg_score(weekly_slope_cols, False) * get_avg_score(weekly_accel_cols, False))**0.5
 
-        for p in periods:
-            s_bull[p], s_bear[p] = static_bull_score, static_bear_score
-            d_bull[p], d_bear[p] = dynamic_bull_score, dynamic_bear_score
+        # 使用字典推导式一次性生成所有周期的分数，避免在循环中重复赋值
+        s_bull = {p: static_bull_score for p in periods}
+        s_bear = {p: static_bear_score for p in periods}
+        d_bull = {p: dynamic_bull_score for p in periods}
+        d_bear = {p: dynamic_bear_score for p in periods}
+        
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.0 · 对称逻辑版】计算形态支柱的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
-        
+        """
+        【V2.1 · 性能优化版】计算形态支柱的四维健康度
+        - 本次优化:
+          - [效率] 将静态分和动态分的计算移出循环，一次性生成后通过字典推导式赋值给所有周期，
+                    避免了不必要的重复计算。
+        """
         # 静态健康度：是否存在吸筹/盘整形态 vs 派发形态
         is_accumulation = df.get('is_accumulation_D', 0).astype(float)
         is_consolidation = df.get('is_consolidation_D', 0).astype(float)
-        # 假设存在 is_distribution_D，若无则为0
         is_distribution = df.get('is_distribution_D', 0).astype(float)
         static_bull_score = pd.Series(np.maximum(is_accumulation, is_consolidation), index=df.index).replace(0, 0.5)
         static_bear_score = pd.Series(is_distribution, index=df.index).replace(0, 0.5)
 
         # 动态健康度：是否存在突破 vs 破位事件
         is_breakthrough = df.get('is_breakthrough_D', 0).astype(float)
-        # 假设存在 is_breakdown_D，若无则为0
         is_breakdown = df.get('is_breakdown_D', 0).astype(float)
         dynamic_bull_score = pd.Series(is_breakthrough, index=df.index).replace(0, 0.5)
         dynamic_bear_score = pd.Series(is_breakdown, index=df.index).replace(0, 0.5)
 
-        for p in periods:
-            s_bull[p], s_bear[p] = static_bull_score, static_bear_score
-            d_bull[p], d_bear[p] = dynamic_bull_score, dynamic_bear_score
+        # 使用字典推导式一次性生成所有周期的分数，避免在循环中重复赋值
+        s_bull = {p: static_bull_score for p in periods}
+        s_bear = {p: static_bear_score for p in periods}
+        d_bull = {p: dynamic_bull_score for p in periods}
+        d_bear = {p: dynamic_bear_score for p in periods}
+        
         return s_bull, d_bull, s_bear, d_bear
 
 

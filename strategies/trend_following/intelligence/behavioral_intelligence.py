@@ -33,11 +33,13 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.2 · 底部反转逻辑重构版】终极行为信号诊断模块
+        【V9.3 · 性能优化版】终极行为信号诊断模块
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
+        - 本次优化:
+          - [效率] 重构了第4步“全局健康度融合”逻辑。通过将各维度健康分预先堆叠为NumPy数组，
+                    再利用向量化操作进行加权求和，取代了原先在for循环中对Pandas Series的重复计算，
+                    大幅提升了计算效率并减少了内存占用。
         """
-        # print("        -> [终极行为信号诊断模块 V9.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
-        
         atomic_signals = self._generate_all_atomic_signals(df)
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -51,7 +53,6 @@ class BehavioralIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        # 获取底部情景奖励因子
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 调用公共函数计算上下文分数 ---
@@ -62,27 +63,37 @@ class BehavioralIntelligence:
         vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, min_periods, dynamic_weights, periods)
         kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
 
-        # --- 4. 独立融合，生成四个全局健康度 ---
+        # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
-        for p in periods:
-            s_bull_price = price_s_bull[p] * dimension_weights['price']
-            s_bull_vol = vol_s_bull[p] * dimension_weights['volume']
-            s_bull_kline = kline_s_bull[p] * dimension_weights['kline']
-            overall_health.setdefault('bullish_static', {})[p] = s_bull_price + s_bull_vol + s_bull_kline
-            d_bull_price = price_d_bull[p] * dimension_weights['price']
-            d_bull_vol = vol_d_bull[p] * dimension_weights['volume']
-            d_bull_kline = kline_d_bull[p] * dimension_weights['kline']
-            overall_health.setdefault('bullish_dynamic', {})[p] = d_bull_price + d_bull_vol + d_bull_kline
-            s_bear_price = price_s_bear[p] * dimension_weights['price']
-            s_bear_vol = vol_s_bear[p] * dimension_weights['volume']
-            s_bear_kline = kline_s_bear[p] * dimension_weights['kline']
-            overall_health.setdefault('bearish_static', {})[p] = s_bear_price + s_bear_vol + s_bear_kline
-            d_bear_price = price_d_bear[p] * dimension_weights['price']
-            d_bear_vol = vol_d_bear[p] * dimension_weights['volume']
-            d_bear_kline = kline_d_bear[p] * dimension_weights['kline']
-            overall_health.setdefault('bearish_dynamic', {})[p] = d_bear_price + d_bear_vol + d_bear_kline
+        # 将各维度权重整理成一个列表，顺序与下面的数组堆叠顺序保持一致
+        dim_weights_array = np.array([dimension_weights['price'], dimension_weights['volume'], dimension_weights['kline']])
+        
+        # 遍历四种健康度类型
+        for health_type, health_sources in [
+            ('bullish_static', [price_s_bull, vol_s_bull, kline_s_bull]),
+            ('bullish_dynamic', [price_d_bull, vol_d_bull, kline_d_bull]),
+            ('bearish_static', [price_s_bear, vol_s_bear, kline_s_bear]),
+            ('bearish_dynamic', [price_d_bear, vol_d_bear, kline_d_bear])
+        ]:
+            overall_health[health_type] = {}
+            # 遍历所有周期
+            for p in periods:
+                # 将三个维度的健康分Series的Numpy数组堆叠成一个 (3, N) 的矩阵
+                # N是数据行数
+                stacked_values = np.stack([
+                    health_sources[0][p].values,
+                    health_sources[1][p].values,
+                    health_sources[2][p].values
+                ], axis=0)
+                
+                # 使用NumPy的向量化乘法和加法，一次性完成加权求和
+                # (3, N) 矩阵与 (3,) 权重的乘法(利用广播机制) -> (3, N) -> 沿axis=0求和 -> (N,)
+                fused_values = np.sum(stacked_values * dim_weights_array[:, np.newaxis], axis=0)
+                
+                # 将最终的Numpy数组转换回Pandas Series
+                overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
-        # --- 5. 终极信号合成 ---
+        # --- 5. 终极信号合成 (逻辑不变) ---
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -95,7 +106,6 @@ class BehavioralIntelligence:
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
         
-        # 应用新的“奖励”模式公式
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
@@ -111,7 +121,7 @@ class BehavioralIntelligence:
         overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
         final_top_reversal_score = top_context_score * overall_bearish_reversal_trigger
 
-        # --- 6. 赋值 ---
+        # --- 6. 赋值 (逻辑不变) ---
         for prefix, score in [('SCORE_BEHAVIOR_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_BEHAVIOR_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_BEHAVIOR_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_BEHAVIOR_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
@@ -174,8 +184,12 @@ class BehavioralIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict, norm_window: int, min_periods: int, periods: list) -> tuple:
-        """【V1.0】计算K线形态与行为模式维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        """
+        【V1.1 · 性能优化版】计算K线形态与行为模式维度的四维健康度
+        - 本次优化:
+          - [效率] 将静态分和动态分的赋值操作移出 for 循环。由于这些分数对于所有周期 p 都是相同的，
+                    因此在循环外计算一次，然后使用字典推导式生成结果，避免了不必要的重复赋值。
+        """
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
         
         strong_close = atomic_signals.get('SCORE_PRICE_POSITION_IN_RANGE', default_series)
@@ -196,9 +210,12 @@ class BehavioralIntelligence:
         down_streak = atomic_signals.get('COUNT_CONSECUTIVE_DOWN_STREAK', pd.Series(0, index=df.index)).astype(float)
         dynamic_bear_score = (down_streak / 5.0).clip(0, 1)
 
-        for p in periods:
-            s_bull[p], s_bear[p] = static_bull_score, static_bear_score
-            d_bull[p], d_bear[p] = dynamic_bull_score, dynamic_bear_score
+        # 使用字典推导式一次性生成所有周期的分数，避免在循环中重复赋值
+        s_bull = {p: static_bull_score for p in periods}
+        s_bear = {p: static_bear_score for p in periods}
+        d_bull = {p: dynamic_bull_score for p in periods}
+        d_bear = {p: dynamic_bear_score for p in periods}
+        
         return s_bull, d_bull, s_bear, d_bear
 
     # 以下方法被降级为私有，作为原子信号的生产者

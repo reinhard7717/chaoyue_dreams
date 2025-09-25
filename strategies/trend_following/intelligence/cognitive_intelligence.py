@@ -173,66 +173,87 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.2 智能信号消费版】风险元融合模块
+        【V3.3 · 性能优化版】风险元融合模块
+        - 本次优化:
+          - [效率] 重构了维度内融合的计算流程。通过“预处理-批量获取-缓存计算”的模式，
+                    将原先在循环中对Pandas Series的反复查找和转换，优化为对预先缓存的
+                    NumPy数组的直接访问，显著降低了函数调用和数据转换开销，提升了执行效率。
         """
-        # print("        -> [风险元融合模块 V3.2 智能信号消费版] 启动...") # 修改: 更新版本号
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
+            
         risk_categories = p_fused_risk.get('risk_categories', {})
-        p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
-        base_weights = p_dynamic_weighting.get('base_weights', {})
-        context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
         p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
         secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
-        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
+        
+        # --- [代码新增] 优化步骤 1: 预处理，收集所有需要的信号并批量获取 ---
+        all_required_signals = set()
+        for category_name, signals in risk_categories.items():
+            if category_name != "说明":
+                all_required_signals.update(s for s in signals if s != "说明")
+
+        # 批量获取Series并转换为Numpy数组，存入缓存字典
+        signal_numpy_cache = {
+            sig_name: self._get_atomic_score(df, sig_name, 0.0).values
+            for sig_name in all_required_signals
+        }
+        default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
+
+        # --- 维度内融合 (Intra-dimension Fusion) ---
         fused_dimension_scores = {}
-        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # --- 1. 维度内融合 ---
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
+            
             category_signal_scores = []
             for signal_name, signal_params in signals.items():
                 if signal_name == "说明": continue
-                if signal_name not in self.strategy.atomic_states:
-                    continue
-                atomic_score = self._get_atomic_score(df, signal_name, 0.0)
+                
+                # 直接从缓存的Numpy数组中读取数据
+                atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
+                
                 is_inverse = signal_params.get('inverse', False)
-                processed_score = 1.0 - atomic_score if is_inverse else atomic_score
+                processed_score = 1.0 - atomic_score_np if is_inverse else atomic_score_np
                 weight = signal_params.get('weight', 1.0)
                 final_signal_score = processed_score * weight
                 category_signal_scores.append(final_signal_score)
+                
             if category_signal_scores:
-                stacked_scores = np.stack([s.values for s in category_signal_scores], axis=1)
+                stacked_scores = np.stack(category_signal_scores, axis=1)
                 sorted_scores = np.sort(stacked_scores, axis=1)
                 primary_risk_values = sorted_scores[:, -1]
                 secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0
                 dimension_risk_values = primary_risk_values + secondary_risk_values * secondary_risk_discount
-                dimension_risk_score = pd.Series(dimension_risk_values, index=df.index)
+                dimension_risk_score = pd.Series(dimension_risk_values, index=df.index, dtype=np.float32)
                 fused_dimension_scores[category_name] = dimension_risk_score
-                states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score.astype(np.float32)
+                states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
             else:
-                fused_dimension_scores[category_name] = default_series.copy()
-        # --- 2. 维度间融合 ---
+                fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # --- 维度间融合 (Inter-dimension Fusion) & 风险共振惩罚 (逻辑不变) ---
+        p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
+        base_weights = p_dynamic_weighting.get('base_weights', {})
+        context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
+        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
+        
         total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
+        
         for category_name, weight in base_weights.items():
             if category_name in fused_dimension_scores:
                 current_weight = pd.Series(weight, index=df.index)
                 if get_param_value(p_dynamic_weighting.get('enabled'), True):
                     early_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {})
                     if category_name in early_adjustments:
-                        adjustment_factor = early_adjustments[category_name]
-                        current_weight = current_weight.where(~is_early_stage, current_weight * adjustment_factor)
+                        current_weight = current_weight.where(~is_early_stage, current_weight * early_adjustments[category_name])
                     late_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {})
                     if category_name in late_adjustments:
-                        adjustment_factor = late_adjustments[category_name]
-                        current_weight = current_weight.where(~is_late_stage, current_weight * adjustment_factor)
+                        current_weight = current_weight.where(~is_late_stage, current_weight * late_adjustments[category_name])
                 total_fused_risk_score += fused_dimension_scores[category_name] * current_weight
-        # --- 3. 风险共振惩罚 ---
+                
         if get_param_value(p_resonance.get('enabled'), True):
             core_dims = get_param_value(p_resonance.get('core_risk_dimensions'), [])
             min_dims = get_param_value(p_resonance.get('min_dimensions_for_resonance'), 2)
@@ -245,6 +266,7 @@ class CognitiveIntelligence:
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
             total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, total_fused_risk_score * penalty_multiplier)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
+            
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
         return states
 
