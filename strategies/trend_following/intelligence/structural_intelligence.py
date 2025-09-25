@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score
 
 class StructuralIntelligence:
     def __init__(self, strategy_instance, dynamic_thresholds: Dict):
@@ -14,21 +14,6 @@ class StructuralIntelligence:
         """
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
-
-    def _normalize_score(self, series: pd.Series, window: int, target_index: pd.Index, ascending: bool = True) -> pd.Series:
-        """
-        【V1.0 新增】计算一个系列在滚动窗口内的归一化得分 (0-1)。
-        """
-        if series is None or series.isnull().all():
-            return pd.Series(0.5, index=target_index)
-
-        return series.rolling(
-            window=window, 
-            min_periods=int(window * 0.2)
-        ).rank(
-            pct=True, 
-            ascending=ascending
-        ).fillna(0.5).astype(np.float32)
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -152,37 +137,37 @@ class StructuralIntelligence:
         """【V2.0 · 对称逻辑版】计算MA支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            s_bull[p] = self._normalize_score(df.get(f'price_vs_ma_{p}_D'), norm_window, df.index, ascending=True)
-            s_bear[p] = self._normalize_score(df.get(f'price_vs_ma_{p}_D'), norm_window, df.index, ascending=False)
+            s_bull[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), norm_window, df.index, ascending=True)
+            s_bear[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), norm_window, df.index, ascending=False)
             
             static_col = f'EMA_{p}_D' if p > 1 else 'close_D'
             slope_col = f'SLOPE_{p}_{static_col}'
             accel_col = f'ACCEL_{p}_{static_col}'
             
-            slope_score = self._normalize_score(df.get(slope_col), norm_window, df.index, ascending=True)
-            accel_score = self._normalize_score(df.get(accel_col), norm_window, df.index, ascending=True)
+            slope_score = normalize_score(df.get(slope_col), norm_window, df.index, ascending=True)
+            accel_score = normalize_score(df.get(accel_col), norm_window, df.index, ascending=True)
             d_bull[p] = slope_score * dynamic_weights['slope'] + accel_score * dynamic_weights['accel']
             
-            slope_score_neg = self._normalize_score(df.get(slope_col), norm_window, df.index, ascending=False)
-            accel_score_neg = self._normalize_score(df.get(accel_col), norm_window, df.index, ascending=False)
+            slope_score_neg = normalize_score(df.get(slope_col), norm_window, df.index, ascending=False)
+            accel_score_neg = normalize_score(df.get(accel_col), norm_window, df.index, ascending=False)
             d_bear[p] = slope_score_neg * dynamic_weights['slope'] + accel_score_neg * dynamic_weights['accel']
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
         """【V2.0 · 对称逻辑版】计算力学支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
-        static_bull_energy = self._normalize_score(df.get('energy_ratio_D'), norm_window, df.index, ascending=True)
-        static_bear_energy = self._normalize_score(df.get('energy_ratio_D'), norm_window, df.index, ascending=False)
+        static_bull_energy = normalize_score(df.get('energy_ratio_D'), norm_window, df.index, ascending=True)
+        static_bear_energy = normalize_score(df.get('energy_ratio_D'), norm_window, df.index, ascending=False)
         for p in periods:
             s_bull[p] = static_bull_energy
             s_bear[p] = static_bear_energy
             
-            cost_slope_bull = self._normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), norm_window, df.index, ascending=True)
-            conc_lock_bull = self._normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), norm_window, df.index, ascending=False)
+            cost_slope_bull = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), norm_window, df.index, ascending=True)
+            conc_lock_bull = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), norm_window, df.index, ascending=False)
             d_bull[p] = (cost_slope_bull * conc_lock_bull)**0.5
             
-            cost_slope_bear = self._normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), norm_window, df.index, ascending=False)
-            conc_lock_bear = self._normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), norm_window, df.index, ascending=True)
+            cost_slope_bear = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), norm_window, df.index, ascending=False)
+            conc_lock_bear = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), norm_window, df.index, ascending=True)
             d_bear[p] = (cost_slope_bear * conc_lock_bear)**0.5
         return s_bull, d_bull, s_bear, d_bear
 
@@ -203,7 +188,7 @@ class StructuralIntelligence:
         # 动态健康度：周线斜率和加速度
         def get_avg_score(cols: list[str], asc: bool) -> pd.Series:
             if not cols: return pd.Series(0.5, index=df.index, dtype=np.float32)
-            scores = [self._normalize_score(df.get(c), norm_window, df.index, ascending=asc).values for c in cols]
+            scores = [normalize_score(df.get(c), norm_window, df.index, ascending=asc).values for c in cols]
             return pd.Series(np.mean(np.stack(scores, axis=0), axis=0), index=df.index, dtype=np.float32)
 
         weekly_slope_cols = [c for c in df.columns if 'SLOPE' in c and c.endswith('_W')]

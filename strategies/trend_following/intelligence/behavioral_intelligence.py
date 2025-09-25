@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score
 
 class BehavioralIntelligence:
     def __init__(self, strategy_instance):
@@ -14,17 +14,6 @@ class BehavioralIntelligence:
         self.strategy = strategy_instance
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
-
-    def _normalize_series(self, series: pd.Series, norm_window: int, min_periods: int, ascending: bool = True) -> pd.Series:
-        """
-        辅助函数：将Pandas Series进行滚动窗口排名归一化。
-        """
-        if series is None or series.empty:
-            return pd.Series(0.5, index=self.strategy.df_indicators.index, dtype=np.float32)
-        
-        rank = series.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        result = rank if ascending else 1 - rank
-        return result.astype(np.float32)
 
     def run_behavioral_analysis_command(self) -> None:
         """
@@ -167,27 +156,29 @@ class BehavioralIntelligence:
         return atomic_signals
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.0】计算价格维度的四维健康度"""
+        """【V1.1 · 重构版】计算价格维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            s_bull[p] = self._normalize_series(df.get(f'price_vs_ma_{p}_D'), norm_window, min_periods, ascending=True)
-            s_bear[p] = self._normalize_series(df.get(f'price_vs_ma_{p}_D'), norm_window, min_periods, ascending=False)
-            price_mom = self._normalize_series(df.get(f'SLOPE_{p}_close_D'), norm_window, min_periods, ascending=True)
-            price_accel = self._normalize_series(df.get(f'ACCEL_{p}_close_D'), norm_window, min_periods, ascending=True)
+            # [代码修改] 调用 utils.normalize_score
+            s_bull[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
+            s_bear[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
+            price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
+            price_accel = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=True)
             d_bull[p] = price_mom * dynamic_weights['slope'] + price_accel * dynamic_weights['accel']
-            price_mom_neg = self._normalize_series(df.get(f'SLOPE_{p}_close_D'), norm_window, min_periods, ascending=False)
-            price_accel_neg = self._normalize_series(df.get(f'ACCEL_{p}_close_D'), norm_window, min_periods, ascending=False)
+            price_mom_neg = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=False)
+            price_accel_neg = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=False)
             d_bear[p] = price_mom_neg * dynamic_weights['slope'] + price_accel_neg * dynamic_weights['accel']
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.0】计算成交量维度的四维健康度"""
+        """【V1.1 · 重构版】计算成交量维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            s_bull[p] = self._normalize_series(df.get(f'volume_vs_ma_{p}_D'), norm_window, min_periods, ascending=True)
-            s_bear[p] = self._normalize_series(df.get(f'volume_vs_ma_{p}_D'), norm_window, min_periods, ascending=True)
-            vol_mom = self._normalize_series(df.get(f'SLOPE_{p}_volume_D'), norm_window, min_periods, ascending=True)
-            vol_accel = self._normalize_series(df.get(f'ACCEL_{p}_volume_D'), norm_window, min_periods, ascending=True)
+            # [代码修改] 调用 utils.normalize_score
+            s_bull[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
+            s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
+            vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
+            vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             d_bull[p] = vol_mom * dynamic_weights['slope'] + vol_accel * dynamic_weights['accel']
             d_bear[p] = vol_mom * dynamic_weights['slope'] + vol_accel * dynamic_weights['accel']
         return s_bull, d_bull, s_bear, d_bear

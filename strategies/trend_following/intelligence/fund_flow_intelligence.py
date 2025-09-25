@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -12,17 +12,6 @@ class FundFlowIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-
-    def _normalize_score(self, series: pd.Series, window: int, target_index: pd.Index, ascending: bool = True) -> pd.Series:
-        """
-        【V13.0】计算一个系列在滚动窗口内的归一化得分 (0-1)。
-        """
-        if series is None or series.isnull().all():
-            return pd.Series(0.5, index=target_index, dtype=np.float32)
-
-        min_periods = max(1, int(window * 0.2))
-        rank = series.rolling(window=window, min_periods=min_periods).rank(pct=True, ascending=ascending).fillna(0.5)
-        return rank.astype(np.float32)
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -221,15 +210,15 @@ class FundFlowIntelligence:
             slope_col = f"SLOPE_{p}_{slope_base}_D"
             accel_col = f"ACCEL_{p}_{base_col_name}_D"
 
-            s_bull[p] = self._normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == 1))
-            s_bear[p] = self._normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == -1))
+            s_bull[p] = normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == 1))
+            s_bear[p] = normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == -1))
             
-            d_bull_slope = self._normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == 1))
-            d_bull_accel = self._normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == 1))
+            d_bull_slope = normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == 1))
+            d_bull_accel = normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == 1))
             d_bull[p] = d_bull_slope * dynamic_weights['slope'] + d_bull_accel * dynamic_weights['accel']
             
-            d_bear_slope = self._normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == -1))
-            d_bear_accel = self._normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == -1))
+            d_bear_slope = normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == -1))
+            d_bear_accel = normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == -1))
             d_bear[p] = d_bear_slope * dynamic_weights['slope'] + d_bear_accel * dynamic_weights['accel']
 
         return {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}

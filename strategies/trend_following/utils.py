@@ -146,6 +146,30 @@ def optimize_df_memory(df: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         print(f'    -> [内存优化] DataFrame内存从 {start_mem:.2f} MB 优化至 {end_mem:.2f} MB (减少了 {(start_mem - end_mem) / start_mem * 100:.1f}%)')
     return df
 
+def normalize_score(series: pd.Series, target_index: pd.Index, window: int, ascending: bool = True, default_value=0.5) -> pd.Series:
+    """
+    【新增公共函数】计算一个系列在滚动窗口内的归一化得分 (0-1)。
+    - 核心逻辑: 使用滚动窗口的百分比排名 (rank(pct=True)) 来实现归一化。
+    - 健壮性: 处理空Series，并使用 target_index 确保返回的Series长度和索引正确。
+    """
+    if series is None or series.isnull().all() or series.empty:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
+
+    # 确保series的索引与目标索引对齐，避免后续操作因索引不匹配产生问题
+    series = series.reindex(target_index)
+
+    min_periods = max(1, int(window * 0.2))
+    
+    rank = series.rolling(
+        window=window, 
+        min_periods=min_periods
+    ).rank(
+        pct=True, 
+        ascending=ascending
+    )
+    
+    # 使用 reindex 再次确保最终输出的索引是完整的 target_index
+    return rank.reindex(target_index).fillna(default_value).astype(np.float32)
 
 
 

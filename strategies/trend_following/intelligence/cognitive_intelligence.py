@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
 from enum import Enum
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, fuse_multi_level_scores
 from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 
@@ -29,50 +29,11 @@ class CognitiveIntelligence:
         self.micro_behavior_engine = MicroBehaviorEngine(strategy_instance)
         self.tactic_engine = TacticEngine(strategy_instance)
 
-    def _fuse_multi_level_scores(self, df: pd.DataFrame, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
-        """
-        【V1.2 S+适配版】融合S+/S/A/B等多层置信度分数的辅助函数。
-        """
-        if weights is None:
-            weights = {'S_PLUS': 1.5, 'S': 1.0, 'A': 0.6, 'B': 0.3}
-        
-        total_score = pd.Series(0.0, index=df.index)
-        total_weight = 0.0
-        
-        for level in ['S_PLUS', 'S', 'A', 'B']:
-            if level not in weights: continue
-            weight = weights[level]
-            score_name = f"SCORE_{base_name}_{level}"
-            if score_name in self.strategy.atomic_states:
-                score_series = self.strategy.atomic_states[score_name]
-                if len(score_series) > 0:
-                    total_score += score_series.reindex(df.index).fillna(0.0) * weight
-                    total_weight += weight
-        
-        if total_weight == 0:
-            single_score_name = f"SCORE_{base_name}"
-            if single_score_name in self.strategy.atomic_states:
-                return self.strategy.atomic_states[single_score_name].reindex(df.index).fillna(0.5)
-            return pd.Series(0.5, index=df.index)
-            
-        return (total_score / total_weight).clip(0, 1)
-
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """
         【健壮性修复版】安全地从原子状态库中获取分数。
         """
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
-
-    def _normalize_score(self, series: pd.Series, window: int = 120, ascending: bool = True, default=0.5) -> pd.Series:
-        """
-        辅助函数：将一个Series进行滚动窗口排名归一化，生成0-1分。
-        """
-        if series is None or series.empty:
-            return pd.Series(default, index=self.strategy.df_indicators.index)
-        min_periods = max(1, window // 5)
-        rank = series.rolling(window=window, min_periods=min_periods).rank(pct=True)
-        score = rank if ascending else 1 - rank
-        return score.fillna(default).astype(np.float32)
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
@@ -129,21 +90,15 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.2 · FFT周期整合版】趋势质量融合评分模块
-        - 核心升级 (本次修改):
-          - [周期整合] 将FFT趋势分 (`SCORE_TRENDING_REGIME_FFT`) 与Hurst指数趋势分进行融合，
-                        形成一个更鲁棒、更可靠的“趋势政权”评分。
-        - 收益: 对趋势质量的评估更加精细和准确，能区分“控盘驱动的趋势”和“情绪驱动的趋势”。
+        【V2.3 · 重构版】趋势质量融合评分模块
         """
-        # print("        -> [趋势质量融合评分模块 V2.2 · FFT周期整合版] 启动...") # 更新版本号
+        # [代码修改] 调用 utils.fuse_multi_level_scores
+        behavior_health_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
+        fund_flow_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
+        structural_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
+        mechanics_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
         
-        # --- 1. 提取各领域的核心健康度评分 ---
-        behavior_health_score = 1.0 - self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        fund_flow_health_score = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
-        structural_health_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
-        mechanics_health_score = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
-        
-        # 融合Hurst指数和FFT的趋势分
+        # ... (后续逻辑保持不变) ...
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
         regime_health_score = (regime_health_score_hurst + regime_health_score_fft) / 2.0
@@ -151,11 +106,9 @@ class CognitiveIntelligence:
         p_chip_pillars = get_params_block(self.strategy, 'trend_quality_params', {}).get('chip_pillar_weights', {})
         chip_health_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         total_chip_weight = 0.0
-        # 消费独立的筹码支柱分，并进行加权
         chip_pillar_names = ['quantitative', 'advanced', 'internal', 'holder', 'fault']
         for pillar_name in chip_pillar_names:
-            weight = p_chip_pillars.get(pillar_name, 0.2) # 提供一个默认权重
-            # 构造每个支柱的健康度信号名
+            weight = p_chip_pillars.get(pillar_name, 0.2)
             pillar_health_signal_name = f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH'
             pillar_score = self._get_atomic_score(df, pillar_health_signal_name, 0.0)
             chip_health_score += pillar_score * weight
@@ -163,11 +116,9 @@ class CognitiveIntelligence:
         if total_chip_weight > 0:
             chip_health_score /= total_chip_weight
 
-        # --- 2. 定义各维度权重 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
         
-        # --- 3. 加权融合生成最终的趋势质量分 ---
         trend_quality_score = (
             behavior_health_score * weights.get('behavior', 0.20) +
             chip_health_score * weights.get('chip', 0.30) +
@@ -177,18 +128,12 @@ class CognitiveIntelligence:
             regime_health_score * weights.get('regime', 0.10)
         )
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score.astype(np.float32)
-        # print("        -> [趋势质量融合评分模块 V2.2] 计算完毕。")
         return df
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.4 · FFT周期整合版】认知层回踩状态合成模块
-        - 核心升级 (本次修改):
-          - [周期整合] 引入FFT主导周期相位 (`DOMINANT_CYCLE_PHASE`) 作为回踩时机的确认。
-                        当回踩发生在周期波谷附近时，给予显著加分。
-        - 收益: 能够有效区分“顺应周期的健康回踩”和“周期顶部的危险回调”，极大提升回踩信号的胜率。
+        【V2.5 · 重构版】认知层回踩状态合成模块
         """
-        # print("        -> [认知层回踩状态合成模块 V2.4 · FFT周期整合版] 启动...") # 更新版本号
         states = {}
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
         constructive_context_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
@@ -196,24 +141,23 @@ class CognitiveIntelligence:
         gentle_drop_score = (1 - (df['pct_change_D'].abs() / 0.05)).clip(0, 1).fillna(0.0)
         shrinking_volume_score = self._get_atomic_score(df, 'SCORE_VOL_WEAKENING_DROP', 0.0) 
         
-        # 引入FFT周期相位作为时机确认
-        # 相位分数在-1(波谷)到+1(波峰)之间。我们希望在接近波谷时分数高。
-        # (1 - phase) / 2 将其映射到 0(波峰) 到 1(波谷)
         cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0).fillna(0.0)) / 2.0 
         
-        winner_holding_tight_score = 1.0 - self._fuse_multi_level_scores(df, 'TOP_REVERSAL')
-        chip_stable_score = 1.0 - self._fuse_multi_level_scores(df, 'FALLING_RESONANCE')
+        # [代码修改] 调用 utils.fuse_multi_level_scores
+        winner_holding_tight_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'TOP_REVERSAL')
+        chip_stable_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FALLING_RESONANCE')
         
         healthy_pullback_score = (
             is_pullback_day * constructive_context_score *
             gentle_drop_score * shrinking_volume_score *
             winner_holding_tight_score * chip_stable_score *
-            (1 + cycle_trough_score * 0.5) # 周期确认提供最多50%的加成
+            (1 + cycle_trough_score * 0.5)
         )
         states['COGNITIVE_SCORE_PULLBACK_HEALTHY_S'] = healthy_pullback_score.astype(np.float32)
         
         significant_drop_score = (df['pct_change_D'].abs() / 0.07).clip(0, 1).fillna(0.0)
-        panic_selling_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
+        # [代码修改] 调用 utils.fuse_multi_level_scores
+        panic_selling_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
         suppressive_pullback_score = (
             is_pullback_day * constructive_context_score *
             significant_drop_score * panic_selling_score * winner_holding_tight_score
@@ -221,11 +165,8 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE_S'] = suppressive_pullback_score.astype(np.float32)
         
         self.strategy.atomic_states.update(states)
-        # print("        -> [认知层回踩状态合成模块 V2.4] 计算完毕。")
         return df
 
-    # --- 其他所有 synthesize_* 和 diagnose_* 方法保持不变 ---
-    # ... (此处省略所有其他未修改的方法，以保持简洁)
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.2 智能信号消费版】风险元融合模块
@@ -310,18 +251,18 @@ class CognitiveIntelligence:
         # print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 启动...")
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        foundation_bullish = self._fuse_multi_level_scores(df, 'FOUNDATION_BULLISH_RESONANCE')
-        foundation_bearish = self._fuse_multi_level_scores(df, 'FOUNDATION_BEARISH_RESONANCE')
-        foundation_bottom = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
-        foundation_top = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
-        structure_bullish = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
-        structure_bearish = self._fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE')
-        structure_bottom = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL')
-        structure_top = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL')
-        behavior_bullish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
-        behavior_bearish = self._fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
-        behavior_bottom = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
-        behavior_top = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        foundation_bullish = fuse_multi_level_scores(df, 'FOUNDATION_BULLISH_RESONANCE')
+        foundation_bearish = fuse_multi_level_scores(df, 'FOUNDATION_BEARISH_RESONANCE')
+        foundation_bottom = fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
+        foundation_top = fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
+        structure_bullish = fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
+        structure_bearish = fuse_multi_level_scores(df, 'STRUCTURE_BEARISH_RESONANCE')
+        structure_bottom = fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL')
+        structure_top = fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL')
+        behavior_bullish = fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
+        behavior_bearish = fuse_multi_level_scores(df, 'BEHAVIOR_BEARISH_RESONANCE')
+        behavior_bottom = fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
+        behavior_top = fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
         all_scores = [
             foundation_bullish, foundation_bearish, foundation_bottom, foundation_top,
             structure_bullish, structure_bearish, structure_bottom, structure_top,
@@ -361,10 +302,10 @@ class CognitiveIntelligence:
         fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE_S', default_series)
         fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL_S', default_series)
         fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL_S', default_series)
-        pattern_bullish = self._fuse_multi_level_scores(df, 'PATTERN_BULLISH_RESONANCE')
-        pattern_bearish = self._fuse_multi_level_scores(df, 'PATTERN_BEARISH_RESONANCE')
-        pattern_bottom = self._fuse_multi_level_scores(df, 'PATTERN_BOTTOM_REVERSAL')
-        pattern_top = self._fuse_multi_level_scores(df, 'PATTERN_TOP_REVERSAL')
+        pattern_bullish = fuse_multi_level_scores(df, 'PATTERN_BULLISH_RESONANCE')
+        pattern_bearish = fuse_multi_level_scores(df, 'PATTERN_BEARISH_RESONANCE')
+        pattern_bottom = fuse_multi_level_scores(df, 'PATTERN_BOTTOM_REVERSAL')
+        pattern_top = fuse_multi_level_scores(df, 'PATTERN_TOP_REVERSAL')
         states['COGNitive_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
@@ -381,12 +322,12 @@ class CognitiveIntelligence:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         chip_playbook_ignition = self._get_atomic_score(df, 'SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT', 0.0)
-        chip_consensus_ignition = self._fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
-        behavioral_ignition = self._fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
-        structural_breakout = self._fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
-        mechanics_ignition = self._fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
-        volatility_breakout = self._fuse_multi_level_scores(df, 'VOL_BREAKOUT')
-        fund_flow_ignition_old = self._fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
+        chip_consensus_ignition = fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE')
+        behavioral_ignition = fuse_multi_level_scores(df, 'BEHAVIOR_BULLISH_RESONANCE')
+        structural_breakout = fuse_multi_level_scores(df, 'STRUCTURE_BULLISH_RESONANCE')
+        mechanics_ignition = fuse_multi_level_scores(df, 'DYN_BULLISH_RESONANCE')
+        volatility_breakout = fuse_multi_level_scores(df, 'VOL_BREAKOUT')
+        fund_flow_ignition_old = fuse_multi_level_scores(df, 'FF_BULLISH_RESONANCE')
         fund_flow_conviction_breakout = self._get_atomic_score(df, 'SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', 0.0)
         general_ignition_resonance = (
             behavioral_ignition * structural_breakout * mechanics_ignition *
@@ -411,11 +352,11 @@ class CognitiveIntelligence:
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
         bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
-        mechanics_bottom_score = self._fuse_multi_level_scores(df, 'DYN_BOTTOM_REVERSAL')
-        chip_bottom_score = self._fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL')
-        foundation_bottom_score = self._fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
-        behavior_bottom_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
-        structure_bottom_score = self._fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL')
+        mechanics_bottom_score = fuse_multi_level_scores(df, 'DYN_BOTTOM_REVERSAL')
+        chip_bottom_score = fuse_multi_level_scores(df, 'CHIP_BOTTOM_REVERSAL')
+        foundation_bottom_score = fuse_multi_level_scores(df, 'FOUNDATION_BOTTOM_REVERSAL')
+        behavior_bottom_score = fuse_multi_level_scores(df, 'BEHAVIOR_BOTTOM_REVERSAL')
+        structure_bottom_score = fuse_multi_level_scores(df, 'STRUCTURE_BOTTOM_REVERSAL')
         total_bottom_score = pd.Series(0.0, index=df.index)
         total_bottom_weight = 0.0
         bottom_sources = {
@@ -428,11 +369,11 @@ class CognitiveIntelligence:
                 total_bottom_weight += weight
         bottom_reversal_score = total_bottom_score / total_bottom_weight if total_bottom_weight > 0 else default_score
         states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S'] = bottom_reversal_score.astype(np.float32)
-        mechanics_top_score = self._fuse_multi_level_scores(df, 'DYN_TOP_REVERSAL')
-        chip_top_score = self._fuse_multi_level_scores(df, 'CHIP_TOP_REVERSAL')
-        foundation_top_score = self._fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
-        behavior_top_score = self._fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
-        structure_top_score = self._fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL')
+        mechanics_top_score = fuse_multi_level_scores(df, 'DYN_TOP_REVERSAL')
+        chip_top_score = fuse_multi_level_scores(df, 'CHIP_TOP_REVERSAL')
+        foundation_top_score = fuse_multi_level_scores(df, 'FOUNDATION_TOP_REVERSAL')
+        behavior_top_score = fuse_multi_level_scores(df, 'BEHAVIOR_TOP_REVERSAL')
+        structure_top_score = fuse_multi_level_scores(df, 'STRUCTURE_TOP_REVERSAL')
         total_top_score = pd.Series(0.0, index=df.index)
         total_top_weight = 0.0
         top_sources = {
@@ -463,7 +404,7 @@ class CognitiveIntelligence:
         score_downtrend = atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
         industry_bearish_score = np.maximum(score_stagnation, score_downtrend)
         stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
-        stock_breakout_score = self._fuse_multi_level_scores(df, 'VOL_BREAKOUT')
+        stock_breakout_score = fuse_multi_level_scores(df, 'VOL_BREAKOUT')
         stock_bullish_score = np.maximum(stock_ignition_score, stock_breakout_score)
         stock_breakdown_score = atomic.get('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', default_score)
         stock_distribution_score = atomic.get('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', default_score)
