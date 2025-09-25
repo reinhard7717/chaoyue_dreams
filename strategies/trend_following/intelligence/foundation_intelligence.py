@@ -160,12 +160,12 @@ class FoundationIntelligence:
             s_bear[p] = static_bear_score
             
             ema_col = f'EMA_{p}_D' if p > 1 else 'close_D'
-            slope = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), norm_window, ascending=True)
+            slope = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=True)
+            accel = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=True)
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), norm_window, ascending=False)
+            slope_neg = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=False)
+            accel_neg = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=False)
             d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
         
         return s_bull, d_bull, s_bear, d_bear
@@ -174,8 +174,8 @@ class FoundationIntelligence:
         """【V3.0 · 对称逻辑版】计算RSI健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull_score = normalize_score(df.get('RSI_13_D'), norm_window, ascending=True)
-        static_bear_score = normalize_score(df.get('RSI_13_D'), norm_window, ascending=False)
+        static_bull_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=True)
+        static_bear_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=False)
 
         for p in periods:
             s_bull[p] = static_bull_score
@@ -186,7 +186,7 @@ class FoundationIntelligence:
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), norm_window, ascending=False)
+            accel_neg = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
             d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
         
         return s_bull, d_bull, s_bear, d_bear
@@ -195,19 +195,19 @@ class FoundationIntelligence:
         """【V3.0 · 对称逻辑版】计算MACD健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull_score = normalize_score(df.get('MACDh_13_34_8_D'), norm_window, ascending=True)
-        static_bear_score = normalize_score(df.get('MACDh_13_34_8_D'), norm_window, ascending=False)
+        static_bull_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
+        static_bear_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            slope = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), norm_window, ascending=True)
+            slope = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
+            accel = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), norm_window, ascending=False)
+            slope_neg = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
+            accel_neg = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
             d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
         
         return s_bull, d_bull, s_bear, d_bear
@@ -227,8 +227,8 @@ class FoundationIntelligence:
             accel = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), norm_window, ascending=True)
             d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
             
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), norm_window, ascending=False)
+            slope_neg = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
+            accel_neg = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
             d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
         
         return s_bull, d_bull, s_bear, d_bear
@@ -242,17 +242,15 @@ class FoundationIntelligence:
         【V6.4 状态诊断升级版】波动率统一情报中心 (战术模块，予以保留)
         """
         states = {}
-        p = get_params_block(self.strategy, 'volatility_state_params')
-        if not get_param_value(p.get('enabled'), False): return states
-        
-        score_squeeze_daily = normalize_score(df.get('BBW_21_2.0_D'), ascending=False)
-        score_squeeze_weekly = normalize_score(df.get('BBW_21_2.0_W'), ascending=False)
-        score_squeeze_momentum = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), ascending=False)
+        norm_window = 120 # 使用一个标准的归一化窗口
+        score_squeeze_daily = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+        score_squeeze_weekly = normalize_score(df.get('BBW_21_2.0_W'), df.index, norm_window, ascending=False)
+        score_squeeze_momentum = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
         score_expansion_daily = 1 - score_squeeze_daily
         score_expansion_weekly = 1 - score_squeeze_weekly
         score_expansion_momentum = 1 - score_squeeze_momentum
-        score_vol_accel_up = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), ascending=True)
-        score_vol_accel_down = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), ascending=False)
+        score_vol_accel_up = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+        score_vol_accel_down = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
         
         states['SCORE_VOL_COMPRESSION_B'] = score_squeeze_daily
         states['SCORE_VOL_COMPRESSION_A'] = (score_squeeze_daily * score_squeeze_weekly).astype(np.float32)
@@ -265,7 +263,7 @@ class FoundationIntelligence:
         states['SCORE_VOL_TIPPING_POINT_BOTTOM_OPP'] = (states['SCORE_VOL_COMPRESSION_S'] * score_vol_accel_up).astype(np.float32)
         states['SCORE_VOL_TIPPING_POINT_TOP_RISK'] = (states['SCORE_VOL_EXPANSION_S'] * score_vol_accel_down).astype(np.float32)
         
-        hurst_score = normalize_score(df.get('hurst_120d_D'))
+        hurst_score = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
         states['SCORE_TRENDING_REGIME'] = hurst_score
         states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = states['SCORE_VOL_COMPRESSION_S'] * hurst_score
         states['SCORE_VOL_BREAKDOWN_RISK_S'] = states['SCORE_VOL_EXPANSION_S'] * (1 - hurst_score)
@@ -279,13 +277,14 @@ class FoundationIntelligence:
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
         
+        norm_window = 120 # 使用一个标准的归一化窗口
         candle_body_up = (df.get('close_D', 0) - df.get('open_D', 0)).clip(lower=0)
         candle_body_down = (df.get('open_D', 0) - df.get('close_D', 0)).clip(lower=0)
-        score_price_up_strength = normalize_score(candle_body_up)
-        score_price_down_strength = normalize_score(candle_body_down)
+        score_price_up_strength = normalize_score(candle_body_up, df.index, norm_window)
+        score_price_down_strength = normalize_score(candle_body_down, df.index, norm_window)
         
-        score_vol_slope_up = normalize_score(df.get('SLOPE_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0))
-        score_vol_accel_up = normalize_score(df.get('ACCEL_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0))
+        score_vol_slope_up = normalize_score(df.get('SLOPE_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0), df.index, norm_window)
+        score_vol_accel_up = normalize_score(df.get('ACCEL_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0), df.index, norm_window)
         score_volume_igniting = score_vol_slope_up * score_vol_accel_up
         
         states['SCORE_VOL_PRICE_IGNITION_UP'] = score_price_up_strength * score_volume_igniting
