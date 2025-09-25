@@ -31,14 +31,10 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 对称逻辑版】终极结构信号诊断模块
-        - 核心重构 (本次修改):
-          - [哲学升维] 彻底废除 `1 - bullish` 的粗暴逻辑，为“看跌”信号建立完全独立且对称的计算体系。
-          - [四维输出] 所有健康度组件现在输出 (静多, 动多, 静空, 动空) 四个维度的健康分。
-          - [独立融合] 主引擎独立融合生成四个全局健康度，确保多空信号的计算互不干扰。
-        - 收益: 实现了与所有其他情报引擎在哲学和代码结构上的完全统一，信号质量达到最终形态。
+        【V7.2 · 底部反转逻辑重构版】终极结构信号诊断模块
+        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [终极结构信号诊断模块 V7.0 · 对称逻辑版] 启动...") # 更新版本号和说明
+        print("        -> [终极结构信号诊断模块 V7.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -50,9 +46,10 @@ class StructuralIntelligence:
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        # 获取底部情景奖励因子
+        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
-        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
@@ -62,7 +59,7 @@ class StructuralIntelligence:
         cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
         cycle_trough_score = (1 - cycle_phase) / 2.0
         bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
-        bottom_context_score = pd.Series(bottom_context_score, index=df.index) # 转换回Series
+        bottom_context_score = pd.Series(bottom_context_score, index=df.index)
         top_context_score = price_position_in_range
         
         # --- 3. 调用所有健康度组件计算器，获取四维健康度 ---
@@ -70,14 +67,12 @@ class StructuralIntelligence:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
-        
         calculators = {
             'ma': self._calculate_ma_health,
             'mechanics': self._calculate_mechanics_health,
             'mtf': self._calculate_mtf_health,
             'pattern': self._calculate_pattern_health,
         }
-
         for name, calculator in calculators.items():
             s_bull, d_bull, s_bear, d_bear = calculator(df, periods, norm_window, dynamic_weights)
             health_data['bullish_static'].append(s_bull)
@@ -87,7 +82,7 @@ class StructuralIntelligence:
         
         # --- 4. 独立融合，生成四个全局健康度 ---
         overall_health = {}
-        for health_type in health_data: # e.g., 'bullish_static'
+        for health_type in health_data:
             overall_health[health_type] = {}
             for p in periods:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_data[health_type] if p in pillar_dict]
@@ -109,7 +104,9 @@ class StructuralIntelligence:
         bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        final_bottom_reversal_score = bottom_context_score * overall_bullish_reversal_trigger
+        
+        # 应用新的“奖励”模式公式
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         # 5.2 看跌信号合成 (使用独立的看跌健康度)
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}

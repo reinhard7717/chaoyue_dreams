@@ -531,7 +531,7 @@ class MultiTimeframeTrendStrategy:
             # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
-            # [代码修改] 统一时区以进行安全比较
+            # 统一时区以进行安全比较
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
             

@@ -153,11 +153,17 @@ class FundFlowIntelligence:
         return overall_health
 
     def _synthesize_final_signals(self, overall_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
-        """合成最终的共振与反转信号。"""
+        """
+        【V2.2 · 底部反转逻辑重构版】合成最终的共振与反转信号
+        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
+        """
         final_scores = {}
         periods = params['periods']
         res_tw = params['resonance_tf_weights']
         rev_tw = params['reversal_tf_weights']
+        # 获取底部情景奖励因子
+        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # 看涨信号合成
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
@@ -171,7 +177,9 @@ class FundFlowIntelligence:
         bull_rev_med = (bullish_dynamic.get(13, 0.5) * bullish_dynamic.get(21, 0.5))**0.5
         bull_rev_long = bullish_dynamic.get(55, 0.5)
         bullish_trigger = (bull_rev_short * rev_tw['short'] + bull_rev_med * rev_tw['medium'] + bull_rev_long * rev_tw['long'])
-        final_scores['bottom_reversal'] = context_scores['bottom_context'] * bullish_trigger
+        
+        # 应用新的“奖励”模式公式
+        final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
 
         # 看跌信号合成
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}

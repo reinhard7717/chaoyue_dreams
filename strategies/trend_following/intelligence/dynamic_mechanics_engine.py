@@ -26,14 +26,10 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 职责重构 & 对称逻辑版】终极动态力学信号诊断模块
-        - 核心重构 (本次修改):
-          - [职责净化] 移除价格、成交量、主力强度等维度，使其职责聚焦于纯粹的“力学”属性。
-          - [代码重构] 将臃肿的计算逻辑拆分为多个职责单一的 `_calculate_*_health` 辅助函数。
-          - [哲学统一] 全面贯彻“四维健康度”和对称逻辑，与其他所有情报引擎在哲学上完全统一。
-        - 收益: 模块职责清晰，代码结构优雅，信号逻辑严谨，实现了系统哲学的最终完备。
+        【V8.2 · 底部反转逻辑重构版】终极动态力学信号诊断模块
+        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [终极动态力学信号诊断模块 V8.0 · 职责重构 & 对称逻辑版] 启动...") # 更新版本号和说明
+        print("        -> [终极动态力学信号诊断模块 V8.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -47,9 +43,10 @@ class DynamicMechanicsEngine:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
+        # 获取底部情景奖励因子
+        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
-        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
@@ -67,14 +64,12 @@ class DynamicMechanicsEngine:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
-        
         calculators = {
             'volatility': self._calculate_volatility_health,
             'efficiency': self._calculate_efficiency_health,
             'kinetic_energy': self._calculate_kinetic_energy_health,
             'inertia': self._calculate_inertia_health,
         }
-
         for name, calculator in calculators.items():
             s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, min_periods, dynamic_weights, periods)
             health_data['bullish_static'].append(s_bull)
@@ -106,7 +101,9 @@ class DynamicMechanicsEngine:
         bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        final_bottom_reversal_score = bottom_context_score * overall_bullish_reversal_trigger
+        
+        # 应用新的“奖励”模式公式
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         # 5.2 看跌信号合成
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}

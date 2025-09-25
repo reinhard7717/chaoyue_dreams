@@ -51,14 +51,10 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 对称逻辑版】统一筹码信号诊断引擎
-        - 核心重构 (本次修改):
-          - [哲学升维] 彻底废除 `1 - bullish` 的粗暴逻辑，为“看跌”信号建立完全独立且对称的计算体系。
-          - [四维输出] 所有健康度组件现在输出 (静多, 动多, 静空, 动空) 四个维度的健康分。
-          - [独立融合] 主引擎独立融合生成四个全局健康度，确保多空信号的计算互不干扰。
-        - 收益: 从根本上区分了“中性”与“看跌”，极大提升了空头信号的精确性和可靠性，实现了系统哲学的最终完备。
+        【V4.2 · 底部反转逻辑重构版】统一筹码信号诊断引擎
+        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [统一筹码信号诊断引擎 V4.0 · 对称逻辑版] 启动...") # 更新版本号和说明
+        print("        -> [统一筹码信号诊断引擎 V4.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -69,9 +65,10 @@ class ChipIntelligence:
         reversal_tf_weights = {'short': 0.6, 'medium': 0.3, 'long': 0.1}
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        # 获取底部情景奖励因子
+        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
-        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
@@ -89,7 +86,6 @@ class ChipIntelligence:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
-        
         pillars_calculators = {
             'quantitative': self._calculate_quantitative_health,
             'advanced': self._calculate_advanced_dynamics_health,
@@ -97,7 +93,6 @@ class ChipIntelligence:
             'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
-
         for name, calculator in pillars_calculators.items():
             s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, dynamic_weights, periods)
             health_data['bullish_static'].append(s_bull)
@@ -107,7 +102,7 @@ class ChipIntelligence:
 
         # --- 4. 独立融合，生成四个全局健康度 ---
         overall_health = {}
-        for health_type in health_data: # e.g., 'bullish_static'
+        for health_type in health_data:
             overall_health[health_type] = {}
             for p in periods:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_data[health_type] if p in pillar_dict]
@@ -124,11 +119,14 @@ class ChipIntelligence:
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
         overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
         
-        bullish_short_force_rev = (overall_health['bullish_dynamic'].get(1, 0.5) * overall_health['bullish_dynamic'].get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (overall_health['bullish_dynamic'].get(13, 0.5) * overall_health['bullish_dynamic'].get(21, 0.5))**0.5
-        bullish_long_inertia_rev = overall_health['bullish_dynamic'].get(55, 0.5)
+        bullish_dynamic_health = overall_health['bullish_dynamic']
+        bullish_short_force_rev = (bullish_dynamic_health.get(1, 0.5) * bullish_dynamic_health.get(5, 0.5))**0.5
+        bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
+        bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        final_bottom_reversal_score = bottom_context_score * overall_bullish_reversal_trigger
+        
+        # 应用新的“奖励”模式公式
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         # 5.2 看跌信号合成 (使用独立的看跌健康度)
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
@@ -137,9 +135,10 @@ class ChipIntelligence:
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
         overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
 
-        bearish_short_force_rev = (overall_health['bearish_dynamic'].get(1, 0.5) * overall_health['bearish_dynamic'].get(5, 0.5))**0.5
-        bearish_medium_trend_rev = (overall_health['bearish_dynamic'].get(13, 0.5) * overall_health['bearish_dynamic'].get(21, 0.5))**0.5
-        bearish_long_inertia_rev = overall_health['bearish_dynamic'].get(55, 0.5)
+        bearish_dynamic_health = overall_health['bearish_dynamic']
+        bearish_short_force_rev = (bearish_dynamic_health.get(1, 0.5) * bearish_dynamic_health.get(5, 0.5))**0.5
+        bearish_medium_trend_rev = (bearish_dynamic_health.get(13, 0.5) * bearish_dynamic_health.get(21, 0.5))**0.5
+        bearish_long_inertia_rev = bearish_dynamic_health.get(55, 0.5)
         overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
         final_top_reversal_score = top_context_score * overall_bearish_reversal_trigger
 

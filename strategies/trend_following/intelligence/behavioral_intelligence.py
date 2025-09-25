@@ -33,18 +33,12 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 架构重构版】终极行为信号诊断模块
-        - 核心重构 (本次修改):
-          - [架构重构] 新增 `_generate_all_atomic_signals` 作为唯一的原子信号来源。
-          - [数据流] 本方法先调用原子信号中心获取“原材料”，再进行高阶信号的合成。
-        - 收益: 实现了“原材料生产”与“高阶合成”的彻底分离，架构更加清晰健壮。
+        【V9.2 · 底部反转逻辑重构版】终极行为信号诊断模块
+        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [终极行为信号诊断模块 V9.0 · 架构重构版] 启动...") # 更新版本号和说明
+        print("        -> [终极行为信号诊断模块 V9.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         
-        # 步骤1: 调用原子信号中心，生成所有基础的“原材料”
         atomic_signals = self._generate_all_atomic_signals(df)
-
-        # 步骤2: 基于原子信号，进行高阶信号合成
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -57,9 +51,10 @@ class BehavioralIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
+        # 获取底部情景奖励因子
+        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
         # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
-        # 引入新的、更智能的底部情景分计算逻辑
         rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
@@ -84,17 +79,14 @@ class BehavioralIntelligence:
             s_bull_vol = vol_s_bull[p] * dimension_weights['volume']
             s_bull_kline = kline_s_bull[p] * dimension_weights['kline']
             overall_health.setdefault('bullish_static', {})[p] = s_bull_price + s_bull_vol + s_bull_kline
-
             d_bull_price = price_d_bull[p] * dimension_weights['price']
             d_bull_vol = vol_d_bull[p] * dimension_weights['volume']
             d_bull_kline = kline_d_bull[p] * dimension_weights['kline']
             overall_health.setdefault('bullish_dynamic', {})[p] = d_bull_price + d_bull_vol + d_bull_kline
-            
             s_bear_price = price_s_bear[p] * dimension_weights['price']
             s_bear_vol = vol_s_bear[p] * dimension_weights['volume']
             s_bear_kline = kline_s_bear[p] * dimension_weights['kline']
             overall_health.setdefault('bearish_static', {})[p] = s_bear_price + s_bear_vol + s_bear_kline
-
             d_bear_price = price_d_bear[p] * dimension_weights['price']
             d_bear_vol = vol_d_bear[p] * dimension_weights['volume']
             d_bear_kline = kline_d_bear[p] * dimension_weights['kline']
@@ -112,7 +104,9 @@ class BehavioralIntelligence:
         bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        final_bottom_reversal_score = bottom_context_score * overall_bullish_reversal_trigger
+        
+        # 应用新的“奖励”模式公式
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5

@@ -10,31 +10,38 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V505.0 · 终极信号适配版】
-        - 核心重构: 全面适配新的信号体系，特别是风险惩罚和一票否决逻辑。
+        【V506.0 · 隐形惩罚显形版】
+        - 核心修复: 将用于计算“衰减因子”的“亢奋风险”信号，明确地加入到 risk_details_df 中，
+                      使其能在调试报告中显示出来，解决了最终得分为负数但风险项为空的“幽灵惩罚”问题。
         """
-        print("    --- [最高作战指挥部 V505.0 · 终极信号适配版] 启动... ---")
+        print("    --- [最高作战指挥部 V506.0 · 隐形惩罚显形版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # --- 步骤 1: 计算风险惩罚分 ---
+        # --- 步骤 1: 计算风险惩罚分 (保持不变) ---
         risk_components_df = self._calculate_risk_penalty_score()
         df['risk_penalty_score'] = risk_components_df.sum(axis=1)
 
         # --- 步骤 2: 获取亢奋风险并计算衰减因子 ---
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
+        
+        # 将“亢奋风险”添加到 risk_details_df 中，使其在报告中可见
+        # 我们乘以一个系数（例如100）使其分数与其他风险项在同一数量级，便于观察
+        euphoria_display_score = (euphoria_risk_score * 100).clip(0, 1000)
+        risk_details_df['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = euphoria_display_score
+        
         attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
 
-        # --- 步骤 3: 获取动态战术动作，并应用“一票否决” ---
+        # --- 步骤 3: 获取动态战术动作，并应用“一票否决” (保持不变) ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
         euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
         df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
 
-        # --- 步骤 4: 计算最终得分 (应用风险对冲) ---
+        # --- 步骤 4: 计算最终得分 (应用风险对冲) (保持不变) ---
         df['final_score'] = df['entry_score'] * (1 - attenuation_factor) - df['risk_penalty_score']
         
-        # --- 步骤 5: 最终决策 ---
+        # --- 步骤 5: 最终决策 (保持不变) ---
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         is_score_sufficient = df['final_score'] > final_score_threshold
         not_avoid = df['dynamic_action'] != 'AVOID'
@@ -44,6 +51,7 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
         # --- 步骤 6: 生成报告与清理 ---
+        # 此处调用的 _get_human_readable_summary 现在会消费包含了“亢奋风险”的 risk_details_df
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 
