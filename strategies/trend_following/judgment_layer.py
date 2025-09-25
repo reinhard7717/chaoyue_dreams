@@ -11,28 +11,40 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V508.0 · 风险流重构版】
-        - 核心重构: 全面适配 WarningLayer V3.0 的新数据流。
-                      现在接收由 WarningLayer 提供的、包含所有原始风险分的 risk_details_df，
-                      并将其传递给重构后的 _calculate_risk_penalty_score 进行加权和报告。
+        【V509.0 · 报告流程终极修复版】
+        - 核心重构: 彻底重构风险报告流程，修复了因错误“归零”逻辑导致风险项在报告中消失的重大BUG。
+        - 新流程:
+          1. _calculate_risk_penalty_score 职责净化，只计算并返回总惩罚分和惩罚分量详情。
+          2. 本方法负责组装最终报告，使用 update() 将惩罚分量精确覆盖到原始风险分上。
+          3. 确保所有风险信号（无论是否参与惩罚）都能在报告中以其正确的分值形式出现。
         """
-        print("    --- [最高作战指挥部 V508.0 · 风险流重构版] 启动... ---") # 更新版本号
+        print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---") # [代码修改] 更新版本号
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # risk_details_df 现在是包含所有原始风险分的完整“起诉书”
-        # 将其传递给“法官” _calculate_risk_penalty_score 进行审判
-        df['risk_penalty_score'], reportable_risk_df = self._calculate_risk_penalty_score(risk_details_df)
+        # [代码修改] 调用职责净化后的惩罚计算器
+        df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
 
-        # --- 步骤 2: 获取亢奋风险并计算衰减因子 ---
+        # [代码修改] 组装最终用于报告的 risk_details_df
+        # 1. 从原始的、包含所有风险信号原始分的 risk_details_df 开始
+        reportable_risk_df = risk_details_df.copy()
+        # 2. 使用 update()，用计算出的带权重惩罚分，精确覆盖对应信号的分数
+        if not penalty_components_df.empty:
+            reportable_risk_df.update(penalty_components_df)
+        
+        # --- 步骤 2: 处理“亢奋加速风险”的衰减与报告 ---
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
         
-        # 将亢奋风险的“显示分”也加入到报告DF中
-        # 注意：这里的 euphora_risk_score 是原始分(0-1)，而 reportable_risk_df 中的已经是加权惩罚分
-        # 为了统一，我们应该在 _calculate_risk_penalty_score 中处理它
+        # 计算衰减因子
         attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
-
+        
+        # [代码修改] 将“亢奋加速风险”的显示分（原始分*100）也加入到报告DF中
+        # 这一步现在是安全的，不会被其他逻辑覆盖
+        euphoria_display_score = (euphoria_risk_score * 100).clip(0, 1000)
+        if 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION' in reportable_risk_df.columns:
+            reportable_risk_df['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = euphoria_display_score
+        
         # --- 步骤 3, 4, 5 保持不变 ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
         euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
@@ -46,44 +58,44 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
         # --- 步骤 6: 生成报告与清理 ---
-        # reportable_risk_df 现在包含了所有带权重的惩罚分，报告将完全透明
+        # [代码修改] reportable_risk_df 现在是完整且准确的，包含了所有应报告的风险项及其正确分值
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V503.0 · 配置驱动重构版】计算风险惩罚分
-        - 核心重构: 不再硬编码信号列表。而是遍历传入的 risk_details_df 的所有列（信号），
-                      从 score_type_map 配置中查找各自的 'penalty_weight'，
-                      计算加权惩罚分，并就地更新 DataFrame 用于报告。
+        【V504.0 · 职责净化版】计算风险惩罚分
+        - 核心重构: 职责净化。此方法不再修改传入的DataFrame。
+                      它只负责计算，并返回两个纯粹的结果：
+                      1. total_penalty_score: 所有惩罚项加权后的总分。
+                      2. penalty_components_df: 一个只包含被加权惩罚项及其分值的DataFrame。
         """
         if risk_details_df.empty:
-            return pd.Series(0.0, index=self.strategy.df_indicators.index), risk_details_df
+            return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
 
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        reportable_risk_df = risk_details_df.copy()
+        penalty_components = {} # [代码修改] 使用一个新字典来存储惩罚分量
 
-        # 遍历传入的、包含所有原始风险分的DataFrame的列
-        for signal_name in reportable_risk_df.columns:
-            raw_score = reportable_risk_df[signal_name].clip(lower=0)
+        # [代码修改] 遍历传入的、包含所有原始风险分的DataFrame的列
+        for signal_name in risk_details_df.columns:
+            raw_score = risk_details_df[signal_name].clip(lower=0)
             
-            # 从配置中查找该信号的惩罚权重
             signal_meta = score_map.get(signal_name, {})
-            penalty_weight = signal_meta.get('penalty_weight', 0) # 默认权重为0
+            penalty_weight = signal_meta.get('penalty_weight', 0)
             
+            # [代码修改] 只处理有惩罚权重的信号
             if penalty_weight > 0:
-                # 计算加权惩罚分
                 weighted_score = raw_score * penalty_weight
-                # 就地更新DataFrame，用于最终报告
-                reportable_risk_df[signal_name] = weighted_score
-            else:
-                # 如果没有配置权重，则该项不参与惩罚，在报告中分值也为0
-                reportable_risk_df[signal_name] = 0.0
+                penalty_components[signal_name] = weighted_score
         
-        # 总惩罚分是所有加权惩罚分之和
-        total_penalty_score = reportable_risk_df.sum(axis=1).fillna(0)
+        if not penalty_components:
+            return pd.Series(0.0, index=risk_details_df.index), pd.DataFrame(index=risk_details_df.index)
+
+        # [代码修改] 创建只包含惩罚分量的DataFrame
+        penalty_components_df = pd.DataFrame(penalty_components)
+        total_penalty_score = penalty_components_df.sum(axis=1).fillna(0)
         
-        return total_penalty_score, reportable_risk_df
+        return total_penalty_score, penalty_components_df
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
