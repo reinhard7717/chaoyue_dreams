@@ -29,7 +29,7 @@ class DynamicMechanicsEngine:
         【V8.2 · 底部反转逻辑重构版】终极动态力学信号诊断模块
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [终极动态力学信号诊断模块 V8.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
+        # print("        -> [终极动态力学信号诊断模块 V8.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):

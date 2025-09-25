@@ -25,7 +25,7 @@ class ChipIntelligence:
                         具有特殊战术意义的“剧本”诊断模块，它们作为终极信号的补充而存在。
         - 收益: 实现了前所未有的架构清晰度、逻辑一致性和哲学完备性。
         """
-        print("        -> [筹码情报最高司令部 V500.0 · 统一范式版] 启动...") # 更新版本号
+        # print("        -> [筹码情报最高司令部 V500.0 · 统一范式版] 启动...") # 更新版本号
         
         all_chip_states = {}
         
@@ -54,7 +54,7 @@ class ChipIntelligence:
         【V4.2 · 底部反转逻辑重构版】统一筹码信号诊断引擎
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [统一筹码信号诊断引擎 V4.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
+        # print("        -> [统一筹码信号诊断引擎 V4.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states

@@ -36,7 +36,7 @@ class BehavioralIntelligence:
         【V9.2 · 底部反转逻辑重构版】终极行为信号诊断模块
         - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
         """
-        print("        -> [终极行为信号诊断模块 V9.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
+        # print("        -> [终极行为信号诊断模块 V9.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         
         atomic_signals = self._generate_all_atomic_signals(df)
         states = {}

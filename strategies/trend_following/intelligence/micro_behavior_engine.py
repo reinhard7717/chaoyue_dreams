@@ -31,7 +31,7 @@ class MicroBehaviorEngine:
                     这解决了下游方法因无法获取上游即时计算的信号而导致崩溃的问题。
         """
         # 更新版本号和日志
-        print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
+        # print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
         all_states = {}
 
         # 定义一个辅助函数来简化状态更新流程
@@ -138,7 +138,7 @@ class MicroBehaviorEngine:
           - [逻辑强化] 修复了“ma55上升”判断过于敏感的问题。不再使用5日斜率，
                         而是采用更稳健的“当前MA55高于3天前的MA55”来判断其短期上升趋势。
         """
-        print("        -> [亢奋加速风险诊断模块 V2.1 · 安全港逻辑强化版] 启动...") # 更新版本号和说明
+        # print("        -> [亢奋加速风险诊断模块 V2.1 · 安全港逻辑强化版] 启动...") # 更新版本号和说明
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states

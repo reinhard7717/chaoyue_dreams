@@ -63,45 +63,45 @@ class IntelligenceLayer:
                 self.strategy.atomic_states.update(new_states)
 
         # --- 阶段一: 原子信号生成 (已按依赖关系重构顺序) ---
-        print("    - [阶段 1/4] 正在执行原子信号生成...")
+        # print("    - [阶段 1/4] 正在执行原子信号生成...")
         
         # 1. 首先运行周期引擎，生成最基础的宏观周期信号
-        print("      -> 正在运行 [周期引擎]...")
+        # print("      -> 正在运行 [周期引擎]...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
         # 2. 运行其他所有情报引擎，它们现在可以安全地消费周期信号
-        print("      -> 正在运行 [基础层引擎]...")
+        # print("      -> 正在运行 [基础层引擎]...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
         
-        print("      -> 正在运行 [筹码引擎]...")
+        # print("      -> 正在运行 [筹码引擎]...")
         chip_states, _ = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states)
         
-        print("      -> 正在运行 [结构引擎]...")
+        # print("      -> 正在运行 [结构引擎]...")
         update_states(self.structural_intel.diagnose_structural_states(df))
         
-        print("      -> 正在运行 [行为引擎]...")
+        # print("      -> 正在运行 [行为引擎]...")
         self.behavioral_intel.run_behavioral_analysis_command() # 此方法内部更新状态
         
-        print("      -> 正在运行 [资金流引擎]...")
+        # print("      -> 正在运行 [资金流引擎]...")
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         
-        print("      -> 正在运行 [动态力学引擎]...")
+        # print("      -> 正在运行 [动态力学引擎]...")
         self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部更新状态
         
         # --- 阶段二: 跨域认知融合 ---
-        print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
+        # print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
 
         # --- 阶段三: 最终战法与剧本生成 ---
-        print("    - [阶段 3/4] 正在生成最终战法与剧本...")
+        # print("    - [阶段 3/4] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
         
         # --- 阶段四: 硬性离场信号生成 ---
-        print("    - [阶段 4/4] 正在生成硬性离场信号...")
+        # print("    - [阶段 4/4] 正在生成硬性离场信号...")
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         
@@ -111,7 +111,10 @@ class IntelligenceLayer:
         return self.strategy.trigger_events
 
     def deploy_forensic_probes(self):
-        """【V1.0 新增】法医探针调度中心"""
+        """
+        【V1.1 · 时区校准修复版】法医探针调度中心
+        - 核心修复: 解决了因探针日期(tz-naive)与数据索引(tz-aware)时区不匹配导致的探针跳过问题。
+        """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
@@ -121,11 +124,29 @@ class IntelligenceLayer:
             return
             
         probe_date = pd.to_datetime(probe_date_str)
+        
+        # 时区校准逻辑
+        # 检查数据索引是否为“时区感知”类型
+        if self.strategy.df_indicators.index.tz is not None:
+            # 如果是，则将“天真”的探针日期本地化到与索引相同的时区
+            try:
+                probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
+            except Exception as e:
+                # 处理重复本地化等异常情况
+                print(f"    -> [法医探针] 警告: 在本地化探针日期时发生异常: {e}。可能日期已有时区。")
+                # 尝试直接转换时区
+                try:
+                    probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
+                except Exception as e_conv:
+                     print(f"    -> [法医探针] 错误: 转换探针日期时区也失败: {e_conv}。")
+                     return
+
+        # [代码修改] 现在，这里的检查是在两个时区类型相同的对象之间进行的
         if probe_date not in self.strategy.df_indicators.index:
-            print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} 不在数据索引中，跳过探针部署。")
+            print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
 
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.0] 正在解剖 {probe_date_str} " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # [代码修改] 更新版本号
         
         # 依次调用所有需要解剖的信号探针
         self._deploy_ignition_resonance_probe(probe_date)
@@ -135,7 +156,7 @@ class IntelligenceLayer:
         
         print("="*95 + "\n")
 
-    # [代码新增] 为“多域点火共振”新增的探针
+    # 为“多域点火共振”新增的探针
     def _deploy_ignition_resonance_probe(self, probe_date: pd.Timestamp):
         """【探针V1.0】解剖“多域点火共振”信号"""
         print("\n--- [探针] 正在解剖: 【认知S】多域点火共振 ---")
@@ -187,7 +208,7 @@ class IntelligenceLayer:
         else:
             print("  - [结论] 通用共振分数正常，但可能低于其他两个剧本分。")
 
-    # [代码新增] 为“终极确认”新增的探针
+    # 为“终极确认”新增的探针
     def _deploy_ultimate_confirmation_probe(self, probe_date: pd.Timestamp):
         """【探针V1.0】解剖“终极确认”信号"""
         print("\n--- [探针] 正在解剖: 【认知S】终极看涨/底部确认 ---")
@@ -212,7 +233,7 @@ class IntelligenceLayer:
         else:
             print("  - [结论] 形态分正常，请检查融合分。")
 
-    # [代码新增] 为“V型反转王牌”新增的探针
+    # 为“V型反转王牌”新增的探针
     def _deploy_v_reversal_ace_probe(self, probe_date: pd.Timestamp):
         """【探针V1.0】解剖“V型反转王牌”信号"""
         print("\n--- [探针] 正在解剖: 【战法S++】V型反转王牌 ---")
@@ -239,7 +260,7 @@ class IntelligenceLayer:
         else:
             print("  - [结论] 战备与点火条件均满足，得分正常。")
 
-    # [代码新增] 为“筹码价格滞后”新增的探针
+    # 为“筹码价格滞后”新增的探针
     def _deploy_chip_price_lag_probe(self, probe_date: pd.Timestamp):
         """【探针V1.0】解剖“筹码价格滞后”信号"""
         print("\n--- [探针] 正在解剖: 【战法S】筹码价格滞后 ---")

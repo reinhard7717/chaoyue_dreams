@@ -22,7 +22,7 @@ class FoundationIntelligence:
           - [保留特例] 保留了 `diagnose_volatility_intelligence` 等具有特殊战术意义的模块。
         - 收益: 实现了前所未有的架构清晰度、逻辑一致性和哲学完备性。
         """
-        print("      -> [基础情报分析总指挥 V4.0 · 统一范式版] 启动...") # 更新版本号
+        # print("      -> [基础情报分析总指挥 V4.0 · 统一范式版] 启动...") # 更新版本号
         df = self.strategy.df_indicators
         all_states = {}
 
@@ -44,7 +44,7 @@ class FoundationIntelligence:
                       公式从 `context * trigger` 升级为 `trigger * (1 + context * bonus)`，
                       解决了因位置不完美而压制强反转信号的根本性问题。
         """
-        print("        -> [统一基础层信号诊断引擎 V3.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
+        # print("        -> [统一基础层信号诊断引擎 V3.2 · 底部反转逻辑重构版] 启动...") # 更新版本号和说明
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
