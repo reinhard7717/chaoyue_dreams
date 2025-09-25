@@ -153,6 +153,8 @@ class IntelligenceLayer:
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
+        self._deploy_dynamic_veto_probe(probe_date)
+        
         self._deploy_ignition_resonance_probe(probe_date)
         self._deploy_volatility_breakout_probe(probe_date)
         self._deploy_ultimate_confirmation_probe(probe_date)
@@ -160,6 +162,89 @@ class IntelligenceLayer:
         self._deploy_chip_price_lag_probe(probe_date)
         
         print("="*95 + "\n")
+
+    # [代码新增] 全新的“动态力学否决权”探针
+    def _deploy_dynamic_veto_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“动态力学一票否决权”信号"""
+        print("\n--- [探针] 正在解剖: 【决策】动态力学一票否决权 (AVOID) ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=df.index)
+
+        # 步骤1: 确认否决事实
+        dynamic_action = df.get('dynamic_action', pd.Series('HOLD', index=df.index)).get(probe_date, 'HOLD')
+        print(f"  - 当日动态力学战术动作: {dynamic_action}")
+
+        if dynamic_action != 'AVOID':
+            print("  - [结论] 当日未触发'一票否决'，无需深入解剖。")
+            return
+
+        # 步骤2: 追溯否决来源
+        risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        veto_threshold = 0.6 # 这是在 _get_dynamic_combat_action 中硬编码的阈值
+        print(f"  - 触发原因: 力学看跌共振分 ({risk_expansion_score:.4f}) > 阈值 ({veto_threshold:.2f})")
+
+        # 步骤3: 解剖共振构成
+        p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
+        resonance_tf_weights = p_conf.get('resonance_tf_weights', {'short': 0.2, 'medium': 0.5, 'long': 0.3})
+        periods = p_conf.get('periods', [1, 5, 13, 21, 55])
+        
+        # 重新计算 bearish_resonance_health
+        overall_health = {}
+        health_data = {'bearish_static': [], 'bearish_dynamic': []}
+        # 注意：这里为了探针的独立性，重新执行了部分计算逻辑
+        for name, calculator in {
+            'volatility': self.mechanics_engine._calculate_volatility_health,
+            'efficiency': self.mechanics_engine._calculate_efficiency_health,
+            'kinetic_energy': self.mechanics_engine._calculate_kinetic_energy_health,
+            'inertia': self.mechanics_engine._calculate_inertia_health,
+        }.items():
+            _, _, s_bear, d_bear = calculator(df, 120, 24, p_conf.get('dynamic_weights', {}), periods)
+            health_data['bearish_static'].append(s_bear)
+            health_data['bearish_dynamic'].append(d_bear)
+
+        for health_type in health_data:
+            overall_health[health_type] = {}
+            for p in periods:
+                components = [pillar_dict[p].values for pillar_dict in health_data[health_type] if p in pillar_dict]
+                overall_health[health_type][p] = pd.Series(np.mean(np.stack(components, axis=0), axis=0), index=df.index)
+
+        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        
+        short_force = (bearish_resonance_health.get(1, default_score).get(probe_date, 0.5) * bearish_resonance_health.get(5, default_score).get(probe_date, 0.5))**0.5
+        medium_trend = (bearish_resonance_health.get(13, default_score).get(probe_date, 0.5) * bearish_resonance_health.get(21, default_score).get(probe_date, 0.5))**0.5
+        long_inertia = bearish_resonance_health.get(55, default_score).get(probe_date, 0.5)
+        
+        print("  - 看跌共振分由三股力量加权构成:")
+        print(f"    - 短期看跌力 (权重 {resonance_tf_weights['short']}): {short_force:.4f}")
+        print(f"    - 中期看跌力 (权重 {resonance_tf_weights['medium']}): {medium_trend:.4f}")
+        print(f"    - 长期看跌力 (权重 {resonance_tf_weights['long']}): {long_inertia:.4f}")
+
+        # 步骤4 & 5: 找出最差的周期和最差的支柱
+        worst_period_force = max([('短期', short_force), ('中期', medium_trend), ('长期', long_inertia)], key=lambda item: item[1])
+        print(f"  - 主要矛盾在于【{worst_period_force[0]}看跌力】(分值: {worst_period_force[1]:.4f})")
+
+        # 以最差的周期（例如短期）为例，深入解剖
+        p_short = 5 # 以5日为例
+        static_health_score = overall_health['bearish_static'][p_short].get(probe_date, 0.5)
+        dynamic_health_score = overall_health['bearish_dynamic'][p_short].get(probe_date, 0.5)
+        print(f"    -> 该力由 '静态看跌分' 和 '动态看跌分' 相乘得到:")
+        print(f"       - {p_short}日静态看跌分: {static_health_score:.4f}")
+        print(f"       - {p_short}日动态看跌分: {dynamic_health_score:.4f}")
+
+        # 找出静态和动态中更差的那个，并解剖其支柱
+        worst_health_type = 'bearish_static' if static_health_score > dynamic_health_score else 'bearish_dynamic'
+        print(f"    -> 其中【{worst_health_type.replace('bearish_', '')}看跌分】更差，解剖其构成支柱:")
+        
+        pillar_scores = {}
+        for i, pillar_name in enumerate(['volatility', 'efficiency', 'kinetic_energy', 'inertia']):
+            pillar_score = health_data[worst_health_type][i][p_short].get(probe_date, 0.5)
+            pillar_scores[pillar_name] = pillar_score
+            print(f"       - {pillar_name.capitalize()} 支柱得分: {pillar_score:.4f}")
+            
+        root_cause_pillar = max(pillar_scores, key=pillar_scores.get)
+        print(f"  - [最终结论] “一票否决”的根源在于【{root_cause_pillar.capitalize()}】支柱的看跌信号过强 (分值: {pillar_scores[root_cause_pillar]:.4f})。")
+
 
     # 为“多域点火共振”新增的探针
     def _deploy_ignition_resonance_probe(self, probe_date: pd.Timestamp):

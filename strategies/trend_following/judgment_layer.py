@@ -11,50 +11,53 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V509.0 · 报告流程终极修复版】
-        - 核心重构: 彻底重构风险报告流程，修复了因错误“归零”逻辑导致风险项在报告中消失的重大BUG。
-        - 新流程:
-          1. _calculate_risk_penalty_score 职责净化，只计算并返回总惩罚分和惩罚分量详情。
-          2. 本方法负责组装最终报告，使用 update() 将惩罚分量精确覆盖到原始风险分上。
-          3. 确保所有风险信号（无论是否参与惩罚）都能在报告中以其正确的分值形式出现。
+        【V511.0 · 分数归零修复版】
+        - 核心修复: 新增了“分数归零”逻辑。当一个高分买入机会因“风险否决”被拒绝时，
+                      不仅将其 signal_type 标记为 '风险否决'，同时强制将其 final_score 置为 0。
+        - 收益: 解决了前端按分数排序时，被否决信号依然高亮显示的重大UI/UX问题，
+                实现了“决策即报告”的最终闭环。
         """
-        # print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---")
+        print("    --- [最高作战指挥部 V511.0 · 分数归零修复版] 启动... ---") # 更新版本号
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # 调用职责净化后的惩罚计算器
         df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
 
-        # 组装最终用于报告的 risk_details_df
-        # 1. 从原始的、包含所有风险信号原始分的 risk_details_df 开始
         reportable_risk_df = risk_details_df.copy()
-        # 2. 使用 update()，用计算出的带权重惩罚分，精确覆盖对应信号的分数
         if not penalty_components_df.empty:
             reportable_risk_df.update(penalty_components_df)
 
-        # --- 步骤 3: 获取动态战术动作 (逻辑不变) ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # --- 步骤 4: 简化最终得分计算公式 ---
-        # 最终得分现在是简单的进攻分减去总风险惩罚分
+        # 步骤1: 计算原始最终分，用于决策
         df['final_score'] = df['entry_score'] - df['risk_penalty_score']
         
-        # --- 步骤 5: 根据最终得分和动态动作，确定最终信号 (逻辑不变) ---
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         is_score_sufficient = df['final_score'] > final_score_threshold
         
-        # 亢奋风险的一票否决权逻辑仍然保留，作为独立的风控机制
         euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
         euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
-        df.loc[euphoria_risk_score > euphoria_veto_threshold, 'dynamic_action'] = 'AVOID'
+        is_euphoria_veto = euphoria_risk_score > euphoria_veto_threshold
+        df.loc[is_euphoria_veto, 'dynamic_action'] = 'AVOID'
         
-        not_avoid = df['dynamic_action'] != 'AVOID'
+        is_dynamic_veto = df['dynamic_action'] == 'AVOID'
+        not_avoid = ~is_dynamic_veto
+        
         final_buy_condition = is_score_sufficient & not_avoid
+        
+        # 步骤2: 根据决策逻辑，确定最终信号类型
         df['signal_type'] = '无信号'
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        # --- 步骤 6: 生成报告与清理 (逻辑不变) ---
+        vetoed_buy_condition = is_score_sufficient & is_dynamic_veto
+        df.loc[vetoed_buy_condition, 'signal_type'] = '风险否决'
+        
+        # --- 对被否决的信号执行“分数清零” ---
+        # 这一步确保了报告中的分数与最终决策严格一致
+        df.loc[vetoed_buy_condition, 'final_score'] = 0
+        
+        # 步骤3: 生成报告并完成
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 
