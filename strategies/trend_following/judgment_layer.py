@@ -11,13 +11,13 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V511.0 · 分数归零修复版】
-        - 核心修复: 新增了“分数归零”逻辑。当一个高分买入机会因“风险否决”被拒绝时，
-                      不仅将其 signal_type 标记为 '风险否决'，同时强制将其 final_score 置为 0。
-        - 收益: 解决了前端按分数排序时，被否决信号依然高亮显示的重大UI/UX问题，
-                实现了“决策即报告”的最终闭环。
+        【V512.0 · 终极决策透明化版】
+        - 核心修复: 引入了对“硬性离场信号”的感知。当买入决策被硬性离场信号
+                      (如趋势破位)否决时，不仅将 signal_type 标记为 '趋势否决'，
+                      同时强制将其 final_score 置为 0。
+        - 收益: 彻底解决了“高分卖出”的报告悖论，实现了决策逻辑与最终报告的完美统一。
         """
-        print("    --- [最高作战指挥部 V511.0 · 分数归零修复版] 启动... ---") # 更新版本号
+        print("    --- [最高作战指挥部 V512.0 · 终极决策透明化版] 启动... ---") # [代码修改] 更新版本号
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
@@ -29,35 +29,38 @@ class JudgmentLayer:
 
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # 步骤1: 计算原始最终分，用于决策
+        # 步骤1: 计算原始最终分
         df['final_score'] = df['entry_score'] - df['risk_penalty_score']
         
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         is_score_sufficient = df['final_score'] > final_score_threshold
         
-        euphoria_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
-        euphoria_veto_threshold = get_param_value(p_judge.get('euphoria_veto_threshold'), 0.85)
-        is_euphoria_veto = euphoria_risk_score > euphoria_veto_threshold
-        df.loc[is_euphoria_veto, 'dynamic_action'] = 'AVOID'
-        
+        # 步骤2: 识别所有“一票否决”条件
         is_dynamic_veto = df['dynamic_action'] == 'AVOID'
-        not_avoid = ~is_dynamic_veto
+        # [代码新增] 从 exit_triggers 中识别硬性离场否决
+        is_hard_exit_veto = self.strategy.exit_triggers.any(axis=1)
         
-        final_buy_condition = is_score_sufficient & not_avoid
-        
-        # 步骤2: 根据决策逻辑，确定最终信号类型
+        # 步骤3: 根据决策逻辑，确定最终信号类型
         df['signal_type'] = '无信号'
+        
+        # 只有在分数足够且没有任何否决的情况下，才产生买入信号
+        final_buy_condition = is_score_sufficient & ~is_dynamic_veto & ~is_hard_exit_veto
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
-        vetoed_buy_condition = is_score_sufficient & is_dynamic_veto
-        df.loc[vetoed_buy_condition, 'signal_type'] = '风险否决'
+        # [代码修改] 扩展否决逻辑，使其更具体
+        vetoed_by_dynamic = is_score_sufficient & is_dynamic_veto
+        df.loc[vetoed_by_dynamic, 'signal_type'] = '风险否决'
         
-        # --- 对被否决的信号执行“分数清零” ---
+        vetoed_by_hard_exit = is_score_sufficient & is_hard_exit_veto & ~is_dynamic_veto
+        df.loc[vetoed_by_hard_exit, 'signal_type'] = '趋势否决' # 更具体的否决原因
+        
+        # [代码修改] 核心修复：对所有被否决的信号执行“分数清零”
         # 这一步确保了报告中的分数与最终决策严格一致
-        df.loc[vetoed_buy_condition, 'final_score'] = 0
+        all_veto_conditions = vetoed_by_dynamic | vetoed_by_hard_exit
+        df.loc[all_veto_conditions, 'final_score'] = 0
         
-        # 步骤3: 生成报告并完成
+        # 步骤4: 生成报告并完成
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 
