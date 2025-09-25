@@ -35,8 +35,8 @@ class JudgmentLayer:
         # --- 步骤 3: 获取动态战术动作 (逻辑不变) ---
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # --- [代码修改] 步骤 4: 简化最终得分计算公式 ---
-        # [代码修改] 最终得分现在是简单的进攻分减去总风险惩罚分
+        # --- 步骤 4: 简化最终得分计算公式 ---
+        # 最终得分现在是简单的进攻分减去总风险惩罚分
         df['final_score'] = df['entry_score'] - df['risk_penalty_score']
         
         # --- 步骤 5: 根据最终得分和动态动作，确定最终信号 (逻辑不变) ---

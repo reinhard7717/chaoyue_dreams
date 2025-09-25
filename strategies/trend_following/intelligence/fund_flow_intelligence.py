@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, calculate_context_scores
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -43,8 +43,9 @@ class FundFlowIntelligence:
         if not params['enabled']:
             return {}
 
-        # 步骤2: 计算宏观价格位置的上下文门控分数
-        context_scores = self._calculate_context_scores(df)
+        # 步骤2: 调用公共函数计算上下文分数
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
 
         # 步骤3: 计算每一个资金流支柱的四维健康度
         pillar_health = self._calculate_all_pillar_health(df, params)
@@ -93,30 +94,6 @@ class FundFlowIntelligence:
             'md_flow': {'base': 'net_md_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
         }
         return params
-
-    def _calculate_context_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.1 · 底部识别升级版】计算宏观价格位置的上下文门控分数。
-        - 核心升级: 引入周线RSI和FFT周期作为新的判断维度。
-        """
-        # 引入新的、更智能的底部情景分计算逻辑
-        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
-        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
-        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
-        price_pos_score = 1 - price_position_in_range
-        
-        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
-        
-        cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        cycle_trough_score = (1 - cycle_phase) / 2.0
-
-        bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
-        
-        return {
-            'bottom_context': pd.Series(bottom_context_score, index=df.index),
-            'top_context': price_position_in_range
-        }
 
     def _calculate_all_pillar_health(self, df: pd.DataFrame, params: Dict) -> Dict[str, Dict]:
         """计算所有资金流支柱的四维健康度。"""
@@ -215,7 +192,7 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.0】计算单个资金流支柱的四维健康度"""
+        """【V2.1 · 健壮性修复版】计算单个资金流支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
@@ -227,9 +204,10 @@ class FundFlowIntelligence:
             else:
                 static_col = f"{base_col_name}_D"
             
+            # 修复accel列名构造错误的问题
             slope_base = static_col.replace('_D', '')
             slope_col = f"SLOPE_{p}_{slope_base}_D"
-            accel_col = f"ACCEL_{p}_{base_col_name}_D"
+            accel_col = f"ACCEL_{p}_{slope_base}_D"
 
             s_bull[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == 1))
             s_bear[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == -1))

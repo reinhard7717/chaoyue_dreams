@@ -629,7 +629,7 @@ class MultiTimeframeTrendStrategy:
         - 核心修复: 修正了获取配置参数的访问路径，从错误的 self.strategy.tactical_engine
                       更正为正确的 self.tactical_engine，解决了 AttributeError。
         """
-        print("\n" + "="*35 + f" [底部反转信号探针 V1.2] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新版本号
+        print("\n" + "="*35 + f" [底部反转信号探针 V1.2] 正在解剖 {probe_date} " + "="*35) # 更新版本号
         try:
             df = daily_analysis_df
             probe_ts = pd.to_datetime(probe_date)
@@ -641,12 +641,24 @@ class MultiTimeframeTrendStrategy:
             # --- 探针 1: 解剖 `bottom_context_score` (逻辑不变) ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             # ... (这部分代码保持不变) ...
-            rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min().loc[probe_ts]
-            rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max().loc[probe_ts]
-            price_range_55d = rolling_high_55d - rolling_low_55d
-            close_price = df.loc[probe_ts, 'close_D']
-            position_in_range = ((close_price - rolling_low_55d) / price_range_55d) if price_range_55d > 0 else 0.5
-            bottom_context_score = 1 - position_in_range
+            ma55 = df.get('EMA_55_D', df['close_D'])
+            rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+            
+            # 价格在波段中的位置分数 (用于顶部反转)
+            wave_channel_height_top = (rolling_high_55d - ma55).replace(0, 1e-9)
+            top_context_score = ((df['close_D'] - ma55) / wave_channel_height_top).clip(0, 1).fillna(0.5)
+            
+            # 价格位置分 (用于底部反转)
+            price_pos_score = 1 - top_context_score
+            
+            # 其他维度保持不变
+            rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+            cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
+            cycle_trough_score = (1 - cycle_phase) / 2.0
+            
+            # 融合生成最终的底部情景分
+            bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
+            bottom_context_score = pd.Series(bottom_context_score, index=df.index)
             print(f"  - 当日收盘价: {close_price:.2f}")
             print(f"  - 55日滚动最低价: {rolling_low_55d:.2f}")
             print(f"  - 55日滚动最高价: {rolling_high_55d:.2f}")
@@ -657,7 +669,7 @@ class MultiTimeframeTrendStrategy:
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
             
-            # [代码修改] 修正了获取配置的访问路径
+            # 修正了获取配置的访问路径
             # 错误: p_chip_conf = get_params_block(self.strategy.tactical_engine, 'chip_ultimate_params', {})
             # 正确: 直接使用 self.tactical_engine
             p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})

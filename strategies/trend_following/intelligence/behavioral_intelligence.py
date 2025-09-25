@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores
 
 class BehavioralIntelligence:
     def __init__(self, strategy_instance):
@@ -54,18 +54,8 @@ class BehavioralIntelligence:
         # 获取底部情景奖励因子
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
 
-        # --- 2. 计算“外部宏观位置”门控 (逻辑升级) ---
-        rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min()
-        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        price_range_55d = (rolling_high_55d - rolling_low_55d).replace(0, 1e-9)
-        price_position_in_range = ((df['close_D'] - rolling_low_55d) / price_range_55d).clip(0, 1).fillna(0.5)
-        price_pos_score = 1 - price_position_in_range
-        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
-        cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        cycle_trough_score = (1 - cycle_phase) / 2.0
-        bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
-        bottom_context_score = pd.Series(bottom_context_score, index=df.index)
-        top_context_score = price_position_in_range
+        # --- 2. 调用公共函数计算上下文分数 ---
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
         # --- 3. 调用所有行为健康度组件计算器 ---
         price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, min_periods, dynamic_weights, periods)

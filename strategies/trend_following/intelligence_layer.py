@@ -105,8 +105,176 @@ class IntelligenceLayer:
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         
+        self.deploy_forensic_probes()
+        
         print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
+
+    def deploy_forensic_probes(self):
+        """【V1.0 新增】法医探针调度中心"""
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        if not debug_params.get('enabled', False):
+            return
+            
+        probe_date_str = debug_params.get('probe_date')
+        if not probe_date_str:
+            return
+            
+        probe_date = pd.to_datetime(probe_date_str)
+        if probe_date not in self.strategy.df_indicators.index:
+            print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} 不在数据索引中，跳过探针部署。")
+            return
+
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.0] 正在解剖 {probe_date_str} " + "="*30)
+        
+        # 依次调用所有需要解剖的信号探针
+        self._deploy_ignition_resonance_probe(probe_date)
+        self._deploy_ultimate_confirmation_probe(probe_date)
+        self._deploy_v_reversal_ace_probe(probe_date)
+        self._deploy_chip_price_lag_probe(probe_date)
+        
+        print("="*95 + "\n")
+
+    # [代码新增] 为“多域点火共振”新增的探针
+    def _deploy_ignition_resonance_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“多域点火共振”信号"""
+        print("\n--- [探针] 正在解剖: 【认知S】多域点火共振 ---")
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        
+        # 获取所有组件的分数
+        chip_playbook_ignition = atomic.get('SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT', default_score).get(probe_date, 0)
+        behavioral_ignition = atomic.get('SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        structural_breakout = atomic.get('SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        mechanics_ignition = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        chip_consensus_ignition = atomic.get('SCORE_CHIP_BULLISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        fund_flow_ignition = atomic.get('SCORE_FF_BULLISH_RESONANCE_S_PLUS', default_score).get(probe_date, 0)
+        volatility_breakout = atomic.get('SCORE_VOL_BREAKOUT_POTENTIAL_S', default_score).get(probe_date, 0)
+        fund_flow_conviction_breakout = atomic.get('SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', default_score).get(probe_date, 0)
+
+        # 计算通用共振
+        general_ignition_resonance = (
+            behavioral_ignition * structural_breakout * mechanics_ignition *
+            chip_consensus_ignition * fund_flow_ignition * volatility_breakout
+        )
+        
+        # 最终得分
+        final_score = np.maximum.reduce([
+            chip_playbook_ignition, 
+            general_ignition_resonance,
+            fund_flow_conviction_breakout
+        ])
+
+        print(f"  - 最终得分: {final_score:.4f}")
+        print("  - 计算逻辑: 取以下三项的最大值")
+        print(f"    1. 筹码剧本点火 (SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT): {chip_playbook_ignition:.4f}")
+        print(f"    2. 资金信念突破 (SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT): {fund_flow_conviction_breakout:.4f}")
+        print(f"    3. 通用共振相乘: {general_ignition_resonance:.4f}")
+        print("      -> 通用共振由以下信号相乘得到:")
+        print(f"         - 行为共振: {behavioral_ignition:.4f}")
+        print(f"         - 结构共振: {structural_breakout:.4f}")
+        print(f"         - 力学共振: {mechanics_ignition:.4f}")
+        print(f"         - 筹码共振: {chip_consensus_ignition:.4f}")
+        print(f"         - 资金共振: {fund_flow_ignition:.4f}")
+        print(f"         - 波动突破: {volatility_breakout:.4f}")
+        
+        if general_ignition_resonance < 0.01:
+            bottleneck = min([
+                ('行为', behavioral_ignition), ('结构', structural_breakout), ('力学', mechanics_ignition),
+                ('筹码', chip_consensus_ignition), ('资金', fund_flow_ignition), ('波动', volatility_breakout)
+            ], key=lambda item: item[1])
+            print(f"  - [结论] 得分低是因为“通用共振”接近于0，主要瓶颈在于【{bottleneck[0]}共振】(分值: {bottleneck[1]:.4f})。")
+        else:
+            print("  - [结论] 通用共振分数正常，但可能低于其他两个剧本分。")
+
+    # [代码新增] 为“终极确认”新增的探针
+    def _deploy_ultimate_confirmation_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“终极确认”信号"""
+        print("\n--- [探针] 正在解剖: 【认知S】终极看涨/底部确认 ---")
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=self.strategy.df_indicators.index)
+
+        # 看涨确认
+        fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE_S', default_score).get(probe_date, 0)
+        pattern_bullish = atomic.get('SCORE_PATTERN_BULLISH_RESONANCE_S', default_score).get(probe_date, 0)
+        final_bullish = fusion_bullish * pattern_bullish
+        print(f"  - 终极看涨确认分: {final_bullish:.4f} (融合分 {fusion_bullish:.4f} * 形态分 {pattern_bullish:.4f})")
+
+        # 底部确认
+        fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL_S', default_score).get(probe_date, 0)
+        pattern_bottom = atomic.get('SCORE_PATTERN_BOTTOM_REVERSAL_S', default_score).get(probe_date, 0)
+        final_bottom = fusion_bottom * pattern_bottom
+        print(f"  - 终极底部确认分: {final_bottom:.4f} (融合分 {fusion_bottom:.4f} * 形态分 {pattern_bottom:.4f})")
+        
+        if pattern_bullish < 0.1 and pattern_bottom < 0.1:
+            print("  - [结论] 得分极低的核心原因是【形态分】(pattern_score) 接近于0。")
+            print("  - [诊断] 系统中缺少专门生成'PATTERN_...'系列信号的引擎，导致形态分始终为默认的低值。这是一个需要修复的系统性BUG。")
+        else:
+            print("  - [结论] 形态分正常，请检查融合分。")
+
+    # [代码新增] 为“V型反转王牌”新增的探针
+    def _deploy_v_reversal_ace_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“V型反转王牌”信号"""
+        print("\n--- [探针] 正在解剖: 【战法S++】V型反转王牌 ---")
+        atomic = self.strategy.atomic_states
+        default_score = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        
+        yesterday_date = probe_date - pd.Timedelta(days=1)
+        while yesterday_date not in self.strategy.df_indicators.index and yesterday_date > self.strategy.df_indicators.index.min():
+            yesterday_date -= pd.Timedelta(days=1)
+
+        was_setup_yesterday = atomic.get('SCORE_SETUP_PANIC_SELLING_S', default_score).get(yesterday_date, 0)
+        trigger_today = atomic.get('SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS', default_score).get(probe_date, 0)
+        final_score = was_setup_yesterday * trigger_today
+
+        print(f"  - 最终得分: {final_score:.4f}")
+        print(f"  - 计算逻辑: 昨日战备分 * 今日点火分")
+        print(f"    - 昨日({yesterday_date.date()})恐慌抛售战备分: {was_setup_yesterday:.4f}")
+        print(f"    - 今日({probe_date.date()})行为反转点火分: {trigger_today:.4f}")
+        
+        if was_setup_yesterday < 0.15: # 假设战备阈值为0.15
+            print(f"  - [结论] 得分为0的核心原因是【昨日战备分】过低，未达到恐慌抛售的标准。")
+        elif trigger_today < 0.5: # 假设点火阈值为0.5
+            print(f"  - [结论] 得分为0的核心原因是【今日点火分】不足，反转形态不够强力。")
+        else:
+            print("  - [结论] 战备与点火条件均满足，得分正常。")
+
+    # [代码新增] 为“筹码价格滞后”新增的探针
+    def _deploy_chip_price_lag_probe(self, probe_date: pd.Timestamp):
+        """【探针V1.0】解剖“筹码价格滞后”信号"""
+        print("\n--- [探针] 正在解剖: 【战法S】筹码价格滞后 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        default_score = pd.Series(0.0, index=df.index)
+        
+        yesterday_date = probe_date - pd.Timedelta(days=1)
+        while yesterday_date not in df.index and yesterday_date > df.index.min():
+            yesterday_date -= pd.Timedelta(days=1)
+
+        chip_resonance_score = atomic.get('SCORE_CHIP_BULLISH_RESONANCE_S_PLUS', default_score).get(yesterday_date, 0)
+        price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, window=60, ascending=False).get(yesterday_date, 0)
+        volatility_compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score).get(yesterday_date, 0)
+        
+        setup_score_yesterday = chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score
+        trigger_score_today = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score).get(probe_date, 0)
+        final_score = setup_score_yesterday * trigger_score_today
+
+        print(f"  - 最终得分: {final_score:.4f}")
+        print(f"  - 计算逻辑: 昨日战备分 * 今日点火分")
+        print(f"    - 今日({probe_date.date()})价格启动点火分: {trigger_score_today:.4f}")
+        print(f"    - 昨日({yesterday_date.date()})综合战备分: {setup_score_yesterday:.4f}")
+        print("      -> 昨日战备分由以下信号相乘得到:")
+        print(f"         - 筹码共振分: {chip_resonance_score:.4f}")
+        print(f"         - 价格压制分: {price_momentum_suppressed_score:.4f}")
+        print(f"         - 波动压缩分: {volatility_compression_score:.4f}")
+
+        if setup_score_yesterday < 0.2: # 假设战备阈值为0.2
+            bottleneck = min([
+                ('筹码共振', chip_resonance_score), ('价格压制', price_momentum_suppressed_score), ('波动压缩', volatility_compression_score)
+            ], key=lambda item: item[1])
+            print(f"  - [结论] 得分低的核心原因是【昨日战备分】不足，主要瓶颈在于【{bottleneck[0]}】(分值: {bottleneck[1]:.4f})。")
+        else:
+            print("  - [结论] 昨日战备分充足，请检查今日点火分。")
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """
