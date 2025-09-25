@@ -195,19 +195,19 @@ class ChipIntelligence:
         # 将默认值从 0.0 更改为 pd.Series(0.0, index=df.index)，以防止在列不存在时调用 .astype() 出错
         is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
 
-        overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), norm_window) * normalize_score(df.get('peak_strength_ratio_D'), norm_window) * normalize_score(df.get('peak_stability_D'), norm_window) * (1.0 - is_multi_peak_series))**(1/4)
-        overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), norm_window, ascending=False) * is_multi_peak_series)**(1/4)
+        overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window) * (1.0 - is_multi_peak_series))**(1/4)
+        overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            d_bull_control = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), norm_window) * dynamic_weights['accel']
-            d_bull_stability = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), norm_window) * dynamic_weights['accel']
+            d_bull_control = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), df.index, norm_window) * dynamic_weights['accel']
+            d_bull_stability = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), df.index, norm_window) * dynamic_weights['accel']
             d_bull[p] = (d_bull_control * d_bull_stability)**0.5
 
-            d_bear_control = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), norm_window, ascending=False) * dynamic_weights['accel']
-            d_bear_stability = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), norm_window, ascending=False) * dynamic_weights['accel']
+            d_bear_control = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            d_bear_stability = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
             d_bear[p] = (d_bear_control * d_bear_stability)**0.5
 
         return s_bull, d_bull, s_bear, d_bear
@@ -216,19 +216,19 @@ class ChipIntelligence:
         """【V3.0 · 对称逻辑版】计算内部结构健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('concentration_70pct_D'), norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), norm_window) * normalize_score(df.get('pressure_above_D'), norm_window, ascending=False))**0.5)**0.5
-        overall_static_bear = (normalize_score(df.get('concentration_70pct_D'), norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), norm_window, ascending=True))**0.5)**0.5
+        overall_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
+        overall_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            d_bull_core_conc = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), norm_window, ascending=False) * dynamic_weights['accel']
-            d_bull_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), norm_window) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), norm_window, ascending=False))**0.5
+            d_bull_core_conc = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            d_bull_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), df.index, norm_window) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), df.index, norm_window, ascending=False))**0.5
             d_bull[p] = (d_bull_core_conc * d_bull_net_support)**0.5
 
-            d_bear_core_conc = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), norm_window, ascending=True) * dynamic_weights['accel']
-            d_bear_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), norm_window, ascending=True))**0.5
+            d_bear_core_conc = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
+            d_bear_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), df.index, norm_window, ascending=True))**0.5
             d_bear[p] = (d_bear_core_conc * d_bear_net_support)**0.5
 
         return s_bull, d_bull, s_bear, d_bear
@@ -237,21 +237,21 @@ class ChipIntelligence:
         """【V3.0 · 对称逻辑版】计算持仓者行为与情绪健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('cost_divergence_D'), norm_window) * normalize_score(df.get('winner_profit_margin_D'), norm_window) * normalize_score(df.get('total_winner_rate_D'), norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), norm_window, ascending=False))**(1/4)
-        overall_static_bear = (normalize_score(df.get('cost_divergence_D'), norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), norm_window, ascending=True))**(1/4)
+        overall_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
+        overall_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            d_bull_cost_div = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), norm_window) * dynamic_weights['accel']
-            d_bull_margin = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), norm_window) * dynamic_weights['accel']
-            d_bull_turnover = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), norm_window, ascending=False) * dynamic_weights['accel']
+            d_bull_cost_div = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), df.index, norm_window) * dynamic_weights['accel']
+            d_bull_margin = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), df.index, norm_window) * dynamic_weights['accel']
+            d_bull_turnover = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
             d_bull[p] = (d_bull_cost_div * d_bull_margin * d_bull_turnover)**(1/3)
 
-            d_bear_cost_div = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), norm_window, ascending=False) * dynamic_weights['accel']
-            d_bear_margin = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), norm_window, ascending=False) * dynamic_weights['accel']
-            d_bear_turnover = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), norm_window, ascending=True) * dynamic_weights['accel']
+            d_bear_cost_div = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            d_bear_margin = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            d_bear_turnover = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
             d_bear[p] = (d_bear_cost_div * d_bear_margin * d_bear_turnover)**(1/3)
 
         return s_bull, d_bull, s_bear, d_bear
@@ -260,19 +260,19 @@ class ChipIntelligence:
         """【V2.0 · 对称逻辑版】计算筹码断层健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('chip_fault_strength_D'), norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), norm_window, ascending=False))**0.5
-        overall_static_bear = (normalize_score(df.get('chip_fault_strength_D'), norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), norm_window, ascending=True))**0.5
+        overall_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
+        overall_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            d_bull_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), norm_window, ascending=False) * dynamic_weights['accel']
-            d_bull_vacuum = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), norm_window, ascending=False) * dynamic_weights['accel']
+            d_bull_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            d_bull_vacuum = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
             d_bull[p] = (d_bull_strength * d_bull_vacuum)**0.5
 
-            d_bear_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), norm_window, ascending=True) * dynamic_weights['accel']
-            d_bear_vacuum = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), norm_window, ascending=True) * dynamic_weights['accel']
+            d_bear_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
+            d_bear_vacuum = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
             d_bear[p] = (d_bear_strength * d_bear_vacuum)**0.5
             
         return s_bull, d_bull, s_bear, d_bear
@@ -287,13 +287,13 @@ class ChipIntelligence:
         """
         states = {}
         norm_window = 120
-        conc_slope_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), norm_window, ascending=False)
-        conc_accel_score = normalize_score(df.get('ACCEL_5_concentration_90pct_D'), norm_window, ascending=False)
+        conc_slope_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
+        conc_accel_score = normalize_score(df.get('ACCEL_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
         concentration_improving_score = (conc_slope_score * conc_accel_score)
-        cost_rising_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), norm_window, ascending=True)
-        cost_falling_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), norm_window, ascending=False)
-        winner_holding_score = normalize_score(df.get('SLOPE_5_turnover_from_winners_ratio_D'), norm_window, ascending=False)
-        loser_capitulating_score = normalize_score(df.get('turnover_from_losers_ratio_D'), norm_window, ascending=True)
+        cost_rising_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), df.index, norm_window, ascending=True)
+        cost_falling_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), df.index, norm_window, ascending=False)
+        winner_holding_score = normalize_score(df.get('SLOPE_5_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
+        loser_capitulating_score = normalize_score(df.get('turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
         
         rally_accumulation_score = (cost_rising_score * winner_holding_score).astype(np.float32)
         states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
@@ -316,7 +316,7 @@ class ChipIntelligence:
         deep_capitulation_score = normalize_score(df['total_loser_rate_D'], norm_window, ascending=True)
         long_term_window = 250
         min_periods_long = long_term_window // 4
-        rank_score = normalize_score(df['close_D'], window=long_term_window, ascending=False)
+        rank_score = normalize_score(df['close_D'], df.index, window=long_term_window, ascending=False)
         rolling_low = df['low_D'].rolling(window=long_term_window, min_periods=min_periods_long).min()
         rolling_high = df['high_D'].rolling(window=long_term_window, min_periods=min_periods_long).max()
         price_range = (rolling_high - rolling_low).replace(0, 1e-9)
@@ -337,12 +337,12 @@ class ChipIntelligence:
             return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
-        relative_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        relative_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
         k = get_param_value(p.get('logistic_k', 0.1))
         x0 = get_param_value(p.get('logistic_x0', 50.0))
         absolute_turnover_score = 1 / (1 + np.exp(-k * (df['turnover_from_losers_ratio_D'] - x0)))
         loser_turnover_score = np.maximum(relative_turnover_score, absolute_turnover_score)
-        loser_turnover_accel_score = normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], norm_window, ascending=True)
+        loser_turnover_accel_score = normalize_score(df['ACCEL_5_turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
         trigger_score = (loser_turnover_score * loser_turnover_accel_score).astype(np.float32)
         states['SCORE_TRIGGER_CAPITULATION_FIRE'] = trigger_score
         return states
@@ -365,7 +365,4 @@ class ChipIntelligence:
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
         return states
 
-    # 移除了所有被重构为 _calculate...health 的旧 diagnose...scores 方法
-    # 例如 diagnose_ultimate_chip_signals_v3, diagnose_cross_validation_signals, 
-    # diagnose_composite_scores, diagnose_quantitative_chip_scores 等...
-    # 同时移除了 _max_of_series 和 _calculate_normalized_score 等不再需要的辅助函数
+

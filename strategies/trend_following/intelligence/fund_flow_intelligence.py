@@ -210,15 +210,15 @@ class FundFlowIntelligence:
             slope_col = f"SLOPE_{p}_{slope_base}_D"
             accel_col = f"ACCEL_{p}_{base_col_name}_D"
 
-            s_bull[p] = normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == 1))
-            s_bear[p] = normalize_score(df.get(static_col), norm_window, df.index, ascending=(polarity == -1))
+            s_bull[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == 1))
+            s_bear[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == -1))
             
-            d_bull_slope = normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == 1))
-            d_bull_accel = normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == 1))
+            d_bull_slope = normalize_score(df.get(slope_col), df.index, norm_window, ascending=(polarity == 1))
+            d_bull_accel = normalize_score(df.get(accel_col), df.index, norm_window, ascending=(polarity == 1))
             d_bull[p] = d_bull_slope * dynamic_weights['slope'] + d_bull_accel * dynamic_weights['accel']
             
-            d_bear_slope = normalize_score(df.get(slope_col), norm_window, df.index, ascending=(polarity == -1))
-            d_bear_accel = normalize_score(df.get(accel_col), norm_window, df.index, ascending=(polarity == -1))
+            d_bear_slope = normalize_score(df.get(slope_col), df.index, norm_window, ascending=(polarity == -1))
+            d_bear_accel = normalize_score(df.get(accel_col), df.index, norm_window, ascending=(polarity == -1))
             d_bear[p] = d_bear_slope * dynamic_weights['slope'] + d_bear_accel * dynamic_weights['accel']
 
         return {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}

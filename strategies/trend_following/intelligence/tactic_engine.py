@@ -55,8 +55,8 @@ class TacticEngine:
         """
         # print("        -> [恐慌抛售战备模块 V1.1] 启动...")
         states = {}
-        price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), window=60, ascending=False)
-        volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], window=60, ascending=True)
+        price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
+        volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         
         # 消费新的终极筹码看跌信号
         chip_breakdown_score = fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE')
@@ -95,7 +95,7 @@ class TacticEngine:
         
         # 消费新的终极信号
         chip_resonance_score = fuse_multi_level_scores(df, 'CHIP_BULLISH_RESONANCE', {'S_PLUS': 1.2, 'S': 1.0})
-        price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], ascending=False)
+        price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, ascending=False)
         volatility_compression_score = fuse_multi_level_scores(df, 'VOL_COMPRESSION')
         
         setup_score = (chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score).astype(np.float32)

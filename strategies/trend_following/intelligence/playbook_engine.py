@@ -225,8 +225,8 @@ class PlaybookEngine:
             print(f"  - [判定] 昨日战备是否就绪? {'✅ 是' if was_setup_ok else '❌ 否'}")
             
             print("    -> 战备分由以下三者相乘得到:")
-            price_drop = normalize_score(df['pct_change_D'].clip(upper=0), 60, False).get(yesterday_ts, 0.0)
-            volume_spike = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], 60, True).get(yesterday_ts, 0.0)
+            price_drop = normalize_score(df['pct_change_D'].clip(upper=0), df.index, 60, False).get(yesterday_ts, 0.0)
+            volume_spike = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, 60, True).get(yesterday_ts, 0.0)
             chip_breakdown = fuse_multi_level_scores(df, 'CHIP_BEARISH_RESONANCE').get(yesterday_ts, 0.0)
             print(f"      - 价格下跌分: {price_drop:.4f}")
             print(f"      - 成交放量分: {volume_spike:.4f}")

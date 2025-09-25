@@ -134,8 +134,8 @@ class DynamicMechanicsEngine:
         """【V1.0 · 新增】计算波动率(BBW)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull = normalize_score(df.get('BBW_21_2.0_D'), norm_window, min_periods, ascending=False) # 压缩为好
-        static_bear = normalize_score(df.get('BBW_21_2.0_D'), norm_window, min_periods, ascending=True)  # 扩张为坏
+        static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, min_periods, ascending=False) # 压缩为好
+        static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, min_periods, ascending=True)  # 扩张为坏
 
         for p in periods:
             s_bull[p] = static_bull
@@ -143,8 +143,8 @@ class DynamicMechanicsEngine:
             
             # 动态分只在中短期有意义
             if p in [1, 5, 13]:
-                d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), norm_window, min_periods) * dynamic_weights['accel']
-                d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), norm_window, min_periods, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), norm_window, min_periods, ascending=True) * dynamic_weights['accel']
+                d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, min_periods) * dynamic_weights['accel']
+                d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, min_periods, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, min_periods, ascending=True) * dynamic_weights['accel']
             else: # 长周期波动率动态意义不大，给中性分
                 d_bull[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
                 d_bear[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -155,14 +155,14 @@ class DynamicMechanicsEngine:
         """【V1.0 · 新增】计算效率(VPA)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), norm_window, min_periods)
-        static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), norm_window, min_periods, ascending=False)
+        static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, min_periods)
+        static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, min_periods, ascending=False)
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), norm_window, min_periods) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), norm_window, min_periods, ascending=False) * dynamic_weights['accel']
+            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, min_periods) * dynamic_weights['accel']
+            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, min_periods, ascending=False) * dynamic_weights['accel']
 
         return s_bull, d_bull, s_bear, d_bear
 
@@ -170,14 +170,14 @@ class DynamicMechanicsEngine:
         """【V1.0 · 新增】计算动能(ATR)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull = normalize_score(df.get('ATR_14_D'), norm_window, min_periods) # 动能放大为好
-        static_bear = normalize_score(df.get('ATR_14_D'), norm_window, min_periods, ascending=False) # 动能萎缩为坏
+        static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window, min_periods) # 动能放大为好
+        static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, min_periods, ascending=False) # 动能萎缩为坏
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), norm_window, min_periods) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), norm_window, min_periods, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), norm_window, min_periods, ascending=True) * dynamic_weights['accel'] # 看跌时，动能放大也是风险
+            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, min_periods) * dynamic_weights['accel']
+            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, min_periods, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, min_periods, ascending=True) * dynamic_weights['accel'] # 看跌时，动能放大也是风险
 
         return s_bull, d_bull, s_bear, d_bear
 
@@ -185,14 +185,14 @@ class DynamicMechanicsEngine:
         """【V1.0 · 新增】计算惯性(ADX)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        static_bull = normalize_score(df.get('ADX_14_D'), norm_window, min_periods) # 惯性强为好
-        static_bear = normalize_score(df.get('ADX_14_D'), norm_window, min_periods, ascending=False) # 惯性弱为坏
+        static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window, min_periods) # 惯性强为好
+        static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, min_periods, ascending=False) # 惯性弱为坏
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), norm_window, min_periods) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), norm_window, min_periods, ascending=False) * dynamic_weights['accel']
+            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, min_periods) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, min_periods) * dynamic_weights['accel']
+            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, min_periods, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, min_periods, ascending=False) * dynamic_weights['accel']
 
         return s_bull, d_bull, s_bear, d_bear
 
