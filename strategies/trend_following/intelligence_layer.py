@@ -107,7 +107,71 @@ class IntelligenceLayer:
         print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
+    def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
+        """
+        【V1.0 新增】NaN 值法医探针。
+        当检测到 NaN 时，此方法被调用，以追溯并解剖导致问题的信号计算链。
+        """
+        print("\n" + "="*30 + f" [NaN 法医探针 V1.0 启动] " + "="*30)
+        print(f"  - 案发时间: {nan_date.strftime('%Y-%m-%d')}")
+        print(f"  - 可疑信号: {nan_signal_name}")
+        print("  - 开始进行计算链路回溯解剖...")
+        print("-" * 80)
 
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+
+        def get_val(signal_name, date, source_dict=atomic):
+            """安全地获取并打印一个值"""
+            val = source_dict.get(signal_name, pd.Series(np.nan, index=df.index)).get(date, np.nan)
+            print(f"    -> 读取 '{signal_name}': {val}")
+            return val
+
+        def probe_pillar_health(engine_intel, date, period, health_type):
+            """通用支柱健康度探针"""
+            # 这是一个简化的示例，实际需要根据每个引擎的结构来定制
+            # 这里我们假设可以访问到引擎的内部计算方法或存储的中间结果
+            # 为了简化，我们直接从 atomic_states 或 df_indicators 中读取最终的指标
+            print(f"  ---> 解剖 {health_type} 健康度 (周期 {period})...")
+            # 示例：追溯到最原始的 slope 和 accel 指标
+            # 这需要根据具体信号的计算逻辑来确定原始指标名
+            # 例如，对于 DYN 引擎的波动率健康度
+            if "DYN" in nan_signal_name:
+                raw_slope = df.get(f'SLOPE_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
+                raw_accel = df.get(f'ACCEL_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
+                print(f"      ----> 原始指标 SLOPE_{period}_BBW_21_2.0_D: {raw_slope}")
+                print(f"      ----> 原始指标 ACCEL_{period}_BBW_21_2.0_D: {raw_accel}")
+                if pd.isna(raw_slope) or pd.isna(raw_accel):
+                    print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
+
+        # 根据信号名选择解剖路径
+        if "CHIP" in nan_signal_name:
+            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
+            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
+            # 这是一个示例，实际探针可以做得更精细
+            print("  --> 正在检查所有筹码支柱的健康度贡献...")
+            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
+                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
+                    # 模拟计算 overall_health 的过程并打印
+                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
+                    pass
+            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
+
+        elif "DYN" in nan_signal_name:
+            print("  --> 检测到动态力学信号，开始解剖 DynamicMechanicsEngine...")
+            probe_pillar_health(self.mechanics_engine, nan_date, 5, 'bullish_dynamic')
+
+        # 可以为其他引擎添加 elif 分支
+        # ...
+
+        else:
+            print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
+            print("  --> 正在检查该信号在 atomic_states 中的值...")
+            get_val(nan_signal_name, nan_date)
+
+        print("-" * 80)
+        print(f"  - 解剖完毕。请重点关注报告中值为 'NaN' 的步骤，其上一步即为问题源头。")
+        print("=" * 80 + "\n")
 
 
 

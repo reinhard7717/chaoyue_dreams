@@ -122,7 +122,12 @@
   "strategy_params": {
     "trend_follow": {
       "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
-      "debug_params": { "enabled": { "value": false }, "probe_date": "2025-09-05", "enable_bottom_reversal_probe": true },
+      "debug_params": {
+        "enabled": { "value": true },
+        "probe_date": "2025-09-08",
+        "enable_bottom_reversal_probe": true,
+        "enable_nan_probe": true
+      },
       "hot_money_params": {
         "enabled": true,
         "description": "【新增】游资席位信号参数"

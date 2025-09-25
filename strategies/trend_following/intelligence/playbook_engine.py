@@ -200,7 +200,6 @@ class PlaybookEngine:
                  
         return triggers
 
-    # _deploy_v_reversal_probe, _normalize_score, _fuse_multi_level_scores 等辅助方法保持不变
     def _deploy_v_reversal_probe(self, df: pd.DataFrame, atomic: Dict, probe_date: str, setup_score: pd.Series, trigger_score: pd.Series, setup_threshold: float, trigger_threshold: float):
         """
         【V1.0 新增】V型反转法医探针

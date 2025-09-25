@@ -11,11 +11,12 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V503.0 · 配置驱动重构版】
-        - 核心重构: 不再读取本地配置，而是遍历所有原子信号，根据 signal_dictionary.json
-                      中定义的 'type' 和 'score' 动态计算进攻分。
+        【V503.2 · 法医探针版】
+        - 核心升级: 在填充NaN之前，增加了一个“NaN法医探针”的触发逻辑。
+                      如果检测到 total_score 中有NaN，并且配置中启用了探针，
+                      它会调用 intelligence_layer 的探针进行深度诊断，然后再填充NaN以防止崩溃。
         """
-        print("        -> [进攻方案评估中心 V503.0 · 配置驱动重构版] 启动...") # [代码修改]
+        print("        -> [进攻方案评估中心 V503.2 · 法医探针版] 启动...") # [代码修改] 更新版本号和说明
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         
@@ -25,11 +26,9 @@ class OffensiveLayer:
         
         total_score = pd.Series(0.0, index=df.index)
         
-        # [代码修改] 遍历所有信号，根据配置动态计分
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             
-            # 只处理进攻型信号
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
@@ -40,4 +39,41 @@ class OffensiveLayer:
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount
 
-        return total_score.astype(int), score_details_df.fillna(0)
+        # [代码修改] 核心升级：先诊断，后修复
+        if total_score.hasnans:
+            debug_params = get_params_block(self.strategy, 'debug_params', {})
+            if get_param_value(debug_params.get('enable_nan_probe'), False):
+                # 找到第一个出现NaN的日期
+                nan_dates = total_score[total_score.isna()].index
+                if not nan_dates.empty:
+                    first_nan_date = nan_dates[0]
+                    # 找到是哪个信号在这一天贡献了NaN
+                    nan_signal_name = "Unknown"
+                    for col in score_details_df.columns:
+                        if pd.isna(score_details_df.loc[first_nan_date, col]):
+                            nan_signal_name = col
+                            break
+                    # 调用法医探针
+                    self.strategy.intelligence_layer.deploy_nan_forensics_probe(first_nan_date, nan_signal_name)
+
+        # 无论是否诊断，最后都执行防御性填充，确保流程不中断
+        return total_score.fillna(0).astype(int), score_details_df.fillna(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
