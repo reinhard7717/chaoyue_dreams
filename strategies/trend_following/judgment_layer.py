@@ -49,8 +49,9 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.8 · 终极信号适配版】生成人类可读的信号摘要。
-        - 核心重构: 更新了中文名映射的查找逻辑，以适配新的信号字典结构。
+        【V2.9 · 数据结构修复版】生成人类可读的信号摘要。
+        - 核心修复: 不再返回预格式化的字符串列表，而是返回一个字典列表，
+                    每个字典包含 'name' 和 'score'，以供下游程序化处理。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
@@ -65,13 +66,17 @@ class JudgmentLayer:
 
             date_col_name = long_df.columns[0]
             
-            # 直接从 score_map 中获取 cn_name
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            long_df['summary_str'] = long_df['cn_name'] + " (" + long_df['score'].astype(int).astype(str) + ")"
+            # [代码修改] 不再创建预格式化的字符串，而是创建一个字典
+            long_df['summary_dict'] = long_df.apply(
+                lambda row: {'name': row['cn_name'], 'score': int(row['score'])},
+                axis=1
+            )
             
-            return long_df.groupby(date_col_name)['summary_str'].apply(list)
+            # [代码修改] 返回字典的列表，而不是字符串的列表
+            return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
         offense_summaries = process_details_df(score_details_df)
         risk_summaries = process_details_df(risk_details_df)
