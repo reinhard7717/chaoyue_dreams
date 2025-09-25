@@ -306,7 +306,7 @@ class CognitiveIntelligence:
         pattern_bearish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_BEARISH_RESONANCE')
         pattern_bottom = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_BOTTOM_REVERSAL')
         pattern_top = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_TOP_REVERSAL')
-        states['COGNitive_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
         states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
