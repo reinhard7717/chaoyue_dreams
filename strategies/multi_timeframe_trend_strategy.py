@@ -625,19 +625,21 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """
-        【新增】底部反转信号深度诊断探针
-        - 职责: 深入解剖指定日期下，各个情报引擎的“底部反转”信号的详细计算过程。
+        【V1.1 · 奖励模式适配版】底部反转信号深度诊断探针
+        - 核心重构: 彻底更新探针的分析逻辑，使其与情报引擎最新的“奖励模式”公式完全同步。
+                      反推公式从 final/context 修正为 final/(1 + context * bonus_factor)，
+                      解决了因探针逻辑过时而产生“不可能分数”的重大BUG。
         """
-        print("\n" + "="*35 + f" [底部反转信号探针] 正在解剖 {probe_date} " + "="*35)
+        print("\n" + "="*35 + f" [底部反转信号探针 V1.1] 正在解剖 {probe_date} " + "="*35) # 更新版本号
         try:
             df = daily_analysis_df
             probe_ts = pd.to_datetime(probe_date)
-            if df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
+            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz) # 增加健壮性检查
             if probe_ts not in df.index:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # --- 探针 1: 解剖 `bottom_context_score` ---
+            # --- 探针 1: 解剖 `bottom_context_score` (逻辑不变) ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min().loc[probe_ts]
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max().loc[probe_ts]
@@ -649,32 +651,40 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 55日滚动最低价: {rolling_low_55d:.2f}")
             print(f"  - 55日滚动最高价: {rolling_high_55d:.2f}")
             print(f"  - 价格在通道中的位置: {position_in_range:.2%}")
-            print(f"  - ✅ 最终底部情景分: {bottom_context_score:.4f}")
+            print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score:.4f}")
 
-            # --- 探针 2: 解剖 `overall_bullish_reversal_trigger` ---
+            # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
-            # 我们以 Chip 和 Dynamics 两个引擎为例
+            print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
+            
+            # 从任一引擎配置中获取奖励因子，它们应该是统一的
+            p_chip_conf = get_params_block(self.strategy.tactical_engine, 'chip_ultimate_params', {})
+            bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
+            print(f"  -> 使用的奖励因子 (Bonus Factor): {bonus_factor}")
+
             engine_prefixes = ['CHIP', 'DYN', 'STRUCTURE', 'BEHAVIOR', 'FF', 'FOUNDATION']
             all_trigger_scores = {}
             for prefix in engine_prefixes:
                 signal_name = f"SCORE_{prefix}_BOTTOM_REVERSAL_S_PLUS"
                 if signal_name in atomic_states:
                     final_score = atomic_states[signal_name].get(probe_ts, 0.0)
-                    # 反推触发分: final_score = context * trigger => trigger = final_score / context
-                    trigger_score = final_score / bottom_context_score if bottom_context_score > 0 else 0
+                    
+                    # 使用新的、正确的反推公式
+                    denominator = (1 + bottom_context_score * bonus_factor)
+                    trigger_score = final_score / denominator if denominator > 0 else 0
+                    
                     all_trigger_scores[prefix] = trigger_score
                     print(f"  - {prefix:<12s} | 最终分: {final_score:.4f} | 反推触发分: {trigger_score:.4f}")
             
-            avg_trigger_score = np.mean(list(all_trigger_scores.values()))
+            # 使用 nanmean 保证计算健壮性
+            avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
 
-            # --- 探针 3: 深入一个指标的动态健康度 ---
+            # --- 探针 3: (逻辑不变) ---
             print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
-            # 假设我们能拿到原始的SLOPE和ACCEL指标值
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             
-            # 模拟 normalize_score 的过程
             from .trend_following.utils import normalize_score
             slope_norm = normalize_score(df[f'SLOPE_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
             accel_norm = normalize_score(df[f'ACCEL_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)

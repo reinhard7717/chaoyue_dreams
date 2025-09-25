@@ -16,7 +16,7 @@ class OffensiveLayer:
                       如果检测到 total_score 中有NaN，并且配置中启用了探针，
                       它会调用 intelligence_layer 的探针进行深度诊断，然后再填充NaN以防止崩溃。
         """
-        print("        -> [进攻方案评估中心 V503.2 · 法医探针版] 启动...") # [代码修改] 更新版本号和说明
+        print("        -> [进攻方案评估中心 V503.2 · 法医探针版] 启动...") # 更新版本号和说明
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         
@@ -39,7 +39,7 @@ class OffensiveLayer:
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount
 
-        # [代码修改] 核心升级：先诊断，后修复
+        # 核心升级：先诊断，后修复
         if total_score.hasnans:
             debug_params = get_params_block(self.strategy, 'debug_params', {})
             if get_param_value(debug_params.get('enable_nan_probe'), False):

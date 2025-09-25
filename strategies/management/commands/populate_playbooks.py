@@ -53,7 +53,7 @@ class Command(BaseCommand):
             "risk": Playbook.PlaybookType.RISK,
             "trigger": Playbook.PlaybookType.TRIGGER,
             "context": Playbook.PlaybookType.CONTEXT,
-            "subtotal": Playbook.PlaybookType.CONTEXT, # [代码修改] 将subtotal也视为上下文类型
+            "subtotal": Playbook.PlaybookType.CONTEXT, # 将subtotal也视为上下文类型
             "unknown": Playbook.PlaybookType.UNKNOWN,
         }
 
