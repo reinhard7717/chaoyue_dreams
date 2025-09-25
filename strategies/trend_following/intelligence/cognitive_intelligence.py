@@ -389,11 +389,10 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(states)
         return df
 
-    def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 新增】行业-个股协同元融合引擎
+        【V1.1 · 返回值修复版】行业-个股协同元融合引擎
         """
-        # print("        -> [行业-个股协同元融合引擎 V1.0] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -413,18 +412,19 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S'] = synergy_offense_score.astype(np.float32)
         synergy_risk_score = pd.Series(industry_bearish_score, index=df.index) * pd.Series(stock_bearish_score, index=df.index)
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK_S'] = synergy_risk_score.astype(np.float32)
-        # print(f"        -> [行业-个股协同元融合引擎 V1.0] 完成，生成了2个S级协同信号。")
-        return states
+        
+        # [代码修改] 更新 atomic_states 并返回 df 以维持调用链
+        self.strategy.atomic_states.update(states)
+        return df
 
-    def synthesize_mean_reversion_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_mean_reversion_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 新增】均值回归网格交易策略信号合成模块
+        【V1.1 · 返回值修复版】均值回归网格交易策略信号合成模块
         """
-        # print("        -> [均值回归信号合成模块 V1.0] 启动...")
         states = {}
         p = get_params_block(self.strategy, 'mean_reversion_grid_params', {})
         if not get_param_value(p.get('enabled'), True):
-            return states
+            return df # [代码修改] 如果禁用，直接返回 df
         cyclical_regime_threshold = get_param_value(p.get('cyclical_regime_threshold'), 0.4)
         trending_regime_threshold = get_param_value(p.get('trending_regime_threshold'), 0.45)
         is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > cyclical_regime_threshold
@@ -436,8 +436,9 @@ class CognitiveIntelligence:
         states['SCORE_OPP_MEAN_REVERSION_BUY'] = buy_opportunity_score
         final_playbook_score = context_is_ranging_market * buy_opportunity_score
         states['SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A'] = final_playbook_score.astype(np.float32)
-        # print(f"          - [均值回归] 完成, 识别到 {(final_playbook_score > 0.5).sum()} 个潜在网格买点。")
-        return states
-
+        
+        # [代码修改] 更新 atomic_states 并返回 df 以维持调用链
+        self.strategy.atomic_states.update(states)
+        return df
 
 
