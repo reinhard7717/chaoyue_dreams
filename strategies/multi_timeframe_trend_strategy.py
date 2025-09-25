@@ -16,7 +16,7 @@ from strategies.trend_following_strategy import TrendFollowStrategy
 from strategies.weekly_context_engine import WeeklyContextEngine
 from utils.cache_manager import CacheManager
 from utils.config_loader import load_strategy_config
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 
 # 初始化日志记录器
@@ -625,11 +625,12 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """
-        【V1.2 · 路径修复版】底部反转信号深度诊断探针
-        - 核心修复: 修正了获取配置参数的访问路径，从错误的 self.strategy.tactical_engine
-                      更正为正确的 self.tactical_engine，解决了 AttributeError。
+        【V1.3 · 作用域及逻辑修复版】底部反转信号深度诊断探针
+        - 核心修复:
+          - [BUG修复] 移除了方法内部的 `import normalize_score` 语句，解决了 UnboundLocalError。
+          - [逻辑修复] 修正了探针1中的打印逻辑，使其与新的、基于MA55的上下文计算逻辑保持一致，并修复了多个变量未定义的BUG。
         """
-        print("\n" + "="*35 + f" [底部反转信号探针 V1.2] 正在解剖 {probe_date} " + "="*35) # 更新版本号
+        print("\n" + "="*35 + f" [底部反转信号探针 V1.3] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新版本号
         try:
             df = daily_analysis_df
             probe_ts = pd.to_datetime(probe_date)
@@ -638,40 +639,39 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # --- 探针 1: 解剖 `bottom_context_score` (逻辑不变) ---
+            # --- [代码修改] 探针 1: 修复了所有变量未定义和逻辑不匹配的问题 ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
-            # ... (这部分代码保持不变) ...
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
             
-            # 价格在波段中的位置分数 (用于顶部反转)
             wave_channel_height_top = (rolling_high_55d - ma55).replace(0, 1e-9)
             top_context_score = ((df['close_D'] - ma55) / wave_channel_height_top).clip(0, 1).fillna(0.5)
-            
-            # 价格位置分 (用于底部反转)
             price_pos_score = 1 - top_context_score
             
-            # 其他维度保持不变
             rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
-            cycle_phase = self.strategy.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
+            cycle_phase = self.tactical_engine.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
             cycle_trough_score = (1 - cycle_phase) / 2.0
             
-            # 融合生成最终的底部情景分
-            bottom_context_score = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
-            bottom_context_score = pd.Series(bottom_context_score, index=df.index)
-            print(f"  - 当日收盘价: {close_price:.2f}")
-            print(f"  - 55日滚动最低价: {rolling_low_55d:.2f}")
-            print(f"  - 55日滚动最高价: {rolling_high_55d:.2f}")
-            print(f"  - 价格在通道中的位置: {position_in_range:.2%}")
-            print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score:.4f}")
+            bottom_context_score_values = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
+            bottom_context_score = pd.Series(bottom_context_score_values, index=df.index)
 
-            # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
+            # 提取探针当日的精确值用于打印
+            close_price_val = df.get('close_D', pd.Series()).get(probe_ts, 0.0)
+            ma55_val = ma55.get(probe_ts, 0.0)
+            rolling_high_55d_val = rolling_high_55d.get(probe_ts, 0.0)
+            top_context_score_val = top_context_score.get(probe_ts, 0.0)
+            bottom_context_score_val = bottom_context_score.get(probe_ts, 0.0)
+
+            print(f"  - 当日收盘价: {close_price_val:.2f}")
+            print(f"  - 波段下轨 (MA55): {ma55_val:.2f}")
+            print(f"  - 波段上轨 (55日高点): {rolling_high_55d_val:.2f}")
+            print(f"  - 价格在波段伸展度: {top_context_score_val:.2%}")
+            print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score_val:.4f}")
+
+            # --- 探针 2: 核心逻辑重构，适配“奖励模式” (逻辑不变) ---
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
             
-            # 修正了获取配置的访问路径
-            # 错误: p_chip_conf = get_params_block(self.strategy.tactical_engine, 'chip_ultimate_params', {})
-            # 正确: 直接使用 self.tactical_engine
             p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})
             bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
             print(f"  -> 使用的奖励因子 (Bonus Factor): {bonus_factor}")
@@ -683,7 +683,7 @@ class MultiTimeframeTrendStrategy:
                 if signal_name in atomic_states:
                     final_score = atomic_states[signal_name].get(probe_ts, 0.0)
                     
-                    denominator = (1 + bottom_context_score * bonus_factor)
+                    denominator = (1 + bottom_context_score_val * bonus_factor)
                     trigger_score = final_score / denominator if denominator > 0 else 0
                     
                     all_trigger_scores[prefix] = trigger_score
@@ -692,12 +692,11 @@ class MultiTimeframeTrendStrategy:
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
 
-            # --- 探针 3: (逻辑不变) ---
+            # --- [代码修改] 探针 3: 移除了内部的 import 语句 ---
             print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
-            # ... (这部分代码保持不变) ...
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
-            from .trend_following.utils import normalize_score
+            # from .trend_following.utils import normalize_score # [代码删除] 移除此行
             slope_norm = normalize_score(df[f'SLOPE_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
             accel_norm = normalize_score(df[f'ACCEL_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
             dynamic_health_conc = slope_norm * 0.6 + accel_norm * 0.4
