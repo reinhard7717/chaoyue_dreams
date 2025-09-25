@@ -46,7 +46,7 @@ class ChipIntelligence:
         playbook_states = self._synthesize_playbook_capitulation_reversal(df)
         all_chip_states.update(playbook_states)
 
-        print(f"        -> [筹码情报最高司令部 V500.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。") # 更新版本号
+        # print(f"        -> [筹码情报最高司令部 V500.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。") # 更新版本号
         return all_chip_states, {}
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

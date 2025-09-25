@@ -89,7 +89,7 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         
-        print("        -> [顶层认知总分合成模块 V2.3] 认知升级完成。")
+        # print("        -> [顶层认知总分合成模块 V2.3] 认知升级完成。")
         return df
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 

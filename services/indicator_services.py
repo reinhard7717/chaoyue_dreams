@@ -481,14 +481,14 @@ class IndicatorService:
         # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
-            print(f"    - [配置信息] 检测到聪明钱分析已启用，开始生成协同信号...")
+            # print(f"    - [配置信息] 检测到聪明钱分析已启用，开始生成协同信号...")
             smart_money_signals_df = await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
             if not smart_money_signals_df.empty:
                 smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
                 df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
                 for col in smart_money_signals_df.columns:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                print(f"    - [聪明钱注入] 已将游资与机构协同信号注入日线数据。")
+                # print(f"    - [聪明钱注入] 已将游资与机构协同信号注入日线数据。")
         all_dfs['D'] = df_daily
         #  调用军械库清单生成器 ▼▼▼
         # self._log_final_data_columns(all_dfs)
@@ -562,7 +562,7 @@ class IndicatorService:
         # 直接从 indicators_config 中检查 'advanced_chip_metrics' 是否启用
         adv_chip_params = indicators_config.get('advanced_chip_metrics', {})
         if adv_chip_params.get('enabled', False):
-            print("    - [配置读取] 检测到 'advanced_chip_metrics' 已启用，准备加载高级筹码数据。") # 增加调试信息
+            # print("    - [配置读取] 检测到 'advanced_chip_metrics' 已启用，准备加载高级筹码数据。") # 增加调试信息
             async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
                 trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
                 df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)

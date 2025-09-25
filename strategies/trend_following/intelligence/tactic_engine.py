@@ -40,7 +40,7 @@ class TacticEngine:
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         all_states.update(self.synthesize_squeeze_playbooks(df))
         
-        print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
+        # print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

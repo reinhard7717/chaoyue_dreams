@@ -34,7 +34,7 @@ class FoundationIntelligence:
         all_states.update(self.diagnose_volatility_intelligence(df))
         all_states.update(self.diagnose_classic_indicators_atomics(df)) # 重命名为原子信号诊断
         
-        print(f"      -> [基础情报分析总指挥 V4.0] 分析完毕，共生成 {len(all_states)} 个基础层信号。") # 更新版本号
+        # print(f"      -> [基础情报分析总指挥 V4.0] 分析完毕，共生成 {len(all_states)} 个基础层信号。") # 更新版本号
         return all_states
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

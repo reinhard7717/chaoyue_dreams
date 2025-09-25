@@ -379,7 +379,7 @@ class ContextualAnalysisService:
         final_cols = [col for col in signals_df.columns if col.startswith('SMART_MONEY_')]
         final_signals_df = signals_df[final_cols].fillna(False).astype(bool)
 
-        print(f"    - [聪明钱引擎] 信号生成完毕。")
+        # print(f"    - [聪明钱引擎] 信号生成完毕。")
         return final_signals_df
 
     async def analyze_kpl_theme_hotness(self, stock_code: str, start_date: date, end_date: date, params: dict) -> pd.DataFrame:
@@ -389,7 +389,7 @@ class ContextualAnalysisService:
         - 优化: 改为使用 set_index 和 join 进行合并，更健壮、更高效。
         - 优化: 将 groupby.apply 重构为向量化计算，先计算单项得分再分组求和，提升效率。
         """
-        print(f"    - [KPL热度引擎] 开始为 {stock_code} 分析题材热度...")
+        # print(f"    - [KPL热度引擎] 开始为 {stock_code} 分析题材热度...")
         # 1. 获取股票在指定日期范围内所属的所有KPL题材
         stock_themes_df = await self.industry_dao.get_kpl_themes_for_stock(stock_code, start_date, end_date)
         if stock_themes_df.empty:

@@ -1279,7 +1279,7 @@ class FundFlowDao(BaseDAO):
         :param hm_names: 游资名称列表 (可选)
         :return: 包含查询结果的DataFrame
         """
-        print(f"DAO: 开始查询游资数据，日期范围: {start_date} to {end_date}, 股票: {stock_codes}, 游资: {hm_names}")
+        # print(f"DAO: 开始查询游资数据，日期范围: {start_date} to {end_date}, 股票: {stock_codes}, 游资: {hm_names}")
         
         # 构建基础查询
         qs = HmDetail.objects.filter(trade_date__range=(start_date, end_date))

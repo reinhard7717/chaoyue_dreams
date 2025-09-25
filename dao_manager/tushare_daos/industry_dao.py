@@ -966,7 +966,7 @@ class IndustryDao(BaseDAO):
 
     async def get_kpl_themes_for_stock(self, stock_code: str, start_date: date, end_date: date) -> pd.DataFrame:
         """【V1.2 修复版】获取股票在指定日期范围内所属的KPL题材列表。返回 tz-naive 的日期。"""
-        print(f"    - [DAO-KPL] 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的KPL题材归属...")
+        # print(f"    - [DAO-KPL] 正在为 {stock_code} 获取 {start_date} 到 {end_date} 的KPL题材归属...")
         query = KplConceptConstituent.objects.filter(
             stock__stock_code=stock_code,
             trade_time__gte=start_date,
