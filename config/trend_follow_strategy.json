@@ -152,32 +152,6 @@
           "enabled": true,
           "description": "【新增】行业生命周期评分参数"
         },
-        "reversal_offense_scoring": {
-          "说明": "【第一引擎：反转进攻分】对高可靠性的反转信号赋予极高权重。",
-          "positive_signals": {
-            "COGNITIVE_SCORE_REVERSAL_RELIABILITY": { "score": 1500, "description": "【王牌】反转可靠性总分" },
-            "COGNITIVE_SCORE_PERFECT_STORM_BOTTOM_S_PLUS": { "score": 800, "description": "【王牌】完美风暴底部机会" },
-            "SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS": { "score": 400, "description": "【终极信号】筹码底部反转" },
-            "SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS": { "score": 350, "description": "【终极信号】行为底部反转" },
-            "SCORE_DYN_BOTTOM_REVERSAL_S_PLUS": { "score": 300, "description": "【终极信号】力学底部反转" },
-            "SCORE_FF_BOTTOM_REVERSAL_S_PLUS": { "score": 300, "description": "【终极信号】资金底部反转" },
-            "SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS": { "score": 250, "description": "【终极信号】结构底部反转" },
-            "SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS": { "score": 200, "description": "【终极信号】基础底部反转" }
-          }
-        },
-        "resonance_offense_scoring": {
-          "说明": "【第二引擎：共振进攻分】共振信号作为趋势的助推器。",
-          "positive_signals": {
-            "COGNITIVE_SCORE_IGNITION_RESONANCE_S": { "score": 300, "description": "认知层多域点火共振" },
-            "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S": { "score": 350, "description": "认知层终极看涨确认" },
-            "SCORE_CHIP_BULLISH_RESONANCE_S_PLUS": { "score": 200, "description": "【终极信号】筹码看涨共振" },
-            "SCORE_FF_BULLISH_RESONANCE_S_PLUS": { "score": 180, "description": "【终极信号】资金看涨共振" },
-            "SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS": { "score": 150, "description": "【终极信号】行为看涨共振" },
-            "SCORE_DYN_BULLISH_RESONANCE_S_PLUS": { "score": 150, "description": "【终极信号】力学看涨共振" },
-            "SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS": { "score": 120, "description": "【终极信号】结构看涨共振" },
-            "SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS": { "score": 100, "description": "【终极信号】基础看涨共振" }
-          }
-        },
         "playbook_synergy_scoring": {
           "说明": "【剧本协同分】剧本作为独立的战术加分项。",
           "positive_signals": {
@@ -257,19 +231,6 @@
           "phase_threshold": -0.8,
           "cyclical_regime_threshold": 0.3
         }
-      },
-      "absolute_veto_params": {
-        "enabled": true,
-        "说明": "【V315.0 终极信号适配版】绝对否决权。消费各情报层产出的终极风险信号。",
-        "veto_signals": [
-          "SCORE_CHIP_BEARISH_RESONANCE_S_PLUS",
-          "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS",
-          "SCORE_FF_BEARISH_RESONANCE_S_PLUS",
-          "SCORE_DYN_BEARISH_RESONANCE_S_PLUS",
-          "SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS",
-          "SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS",
-          "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S"
-        ]
       },
       "trend_quality_params": {
         "enabled": true,

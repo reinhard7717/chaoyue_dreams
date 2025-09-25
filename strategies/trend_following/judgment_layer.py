@@ -64,26 +64,22 @@ class JudgmentLayer:
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V504.0 · 职责净化版】计算风险惩罚分
-        - 核心重构: 职责净化。此方法不再修改传入的DataFrame。
-                      它只负责计算，并返回两个纯粹的结果：
-                      1. total_penalty_score: 所有惩罚项加权后的总分。
-                      2. penalty_components_df: 一个只包含被加权惩罚项及其分值的DataFrame。
+        【V505.0 · 配置驱动终极版】计算风险惩罚分
+        - 核心重构: 逻辑已在V504.0中净化，此版本确认其完全依赖 signal_dictionary.json
+                      中的 'penalty_weight' 配置，无需任何修改。
         """
         if risk_details_df.empty:
             return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
 
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        penalty_components = {} # 使用一个新字典来存储惩罚分量
+        penalty_components = {}
 
-        # 遍历传入的、包含所有原始风险分的DataFrame的列
         for signal_name in risk_details_df.columns:
             raw_score = risk_details_df[signal_name].clip(lower=0)
             
             signal_meta = score_map.get(signal_name, {})
             penalty_weight = signal_meta.get('penalty_weight', 0)
             
-            # 只处理有惩罚权重的信号
             if penalty_weight > 0:
                 weighted_score = raw_score * penalty_weight
                 penalty_components[signal_name] = weighted_score
@@ -91,7 +87,6 @@ class JudgmentLayer:
         if not penalty_components:
             return pd.Series(0.0, index=risk_details_df.index), pd.DataFrame(index=risk_details_df.index)
 
-        # 创建只包含惩罚分量的DataFrame
         penalty_components_df = pd.DataFrame(penalty_components)
         total_penalty_score = penalty_components_df.sum(axis=1).fillna(0)
         
