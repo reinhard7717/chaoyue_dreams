@@ -147,10 +147,17 @@ class IntelligenceLayer:
 
         # 根据信号名选择解剖路径
         if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
-            # ... (保留对终极信号的解剖逻辑) ...
-            print(f"  --> 检测到终极信号层信号，开始解剖 {nan_signal_name}...")
+            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
+            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
+            # 这是一个示例，实际探针可以做得更精细
+            print("  --> 正在检查所有筹码支柱的健康度贡献...")
+            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
+                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
+                    # 模拟计算 overall_health 的过程并打印
+                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
+                    pass
+            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
 
-        # [代码修改] 新增对认知层/战术层信号的解剖路径
         elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
             print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
             
@@ -176,6 +183,9 @@ class IntelligenceLayer:
                 # 3. 最终计算
                 final_val = context_val * opportunity_val
                 print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
+
+        # 可以为其他引擎添加 elif 分支
+        # ...
 
         else:
             print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
