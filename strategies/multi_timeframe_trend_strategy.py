@@ -630,7 +630,7 @@ class MultiTimeframeTrendStrategy:
           - [BUG修复] 移除了方法内部的 `import normalize_score` 语句，解决了 UnboundLocalError。
           - [逻辑修复] 修正了探针1中的打印逻辑，使其与新的、基于MA55的上下文计算逻辑保持一致，并修复了多个变量未定义的BUG。
         """
-        print("\n" + "="*35 + f" [底部反转信号探针 V1.3] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新版本号
+        print("\n" + "="*35 + f" [底部反转信号探针 V1.3] 正在解剖 {probe_date} " + "="*35) # 更新版本号
         try:
             df = daily_analysis_df
             probe_ts = pd.to_datetime(probe_date)
@@ -639,7 +639,7 @@ class MultiTimeframeTrendStrategy:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
-            # --- [代码修改] 探针 1: 修复了所有变量未定义和逻辑不匹配的问题 ---
+            # --- 探针 1: 修复了所有变量未定义和逻辑不匹配的问题 ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -692,7 +692,7 @@ class MultiTimeframeTrendStrategy:
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
 
-            # --- [代码修改] 探针 3: 移除了内部的 import 语句 ---
+            # --- 探针 3: 移除了内部的 import 语句 ---
             print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)

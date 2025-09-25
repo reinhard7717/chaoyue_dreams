@@ -259,8 +259,7 @@ class FoundationIntelligence:
         
         hurst_score = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
         states['SCORE_TRENDING_REGIME'] = hurst_score
-        states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = states['SCORE_VOL_COMPRESSION_S'] * hurst_score
-        states['SCORE_VOL_BREAKDOWN_RISK_S'] = states['SCORE_VOL_EXPANSION_S'] * (1 - hurst_score)
+
         return states
 
     def diagnose_classic_indicators_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

@@ -59,7 +59,11 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
 
         # --- 步骤 3: 执行本模块的核心认知融合任务 ---
-        # 注意：这些方法现在可以消费由子引擎和所有底层引擎生成的、更丰富的信号
+        # 首先调用新的波动率合成器，确保其信号可被下游消费
+        volatility_states = self._synthesize_volatility_signals(df)
+        self.strategy.atomic_states.update(volatility_states)
+
+        # 确保后续调用顺序正确
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
         df = self.synthesize_structural_fusion_scores(df)
@@ -440,5 +444,47 @@ class CognitiveIntelligence:
         # 更新 atomic_states 并返回 df 以维持调用链
         self.strategy.atomic_states.update(states)
         return df
+
+    # 新增一个专门的波动率认知信号合成方法
+    def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 预判能力版】波动率认知信号合成模块
+        - 核心职责: 整合基础波动率信息，生成更高级的“压缩分”和“突破潜力分”。
+        - 算法升级: “突破潜力”融合了BBW的斜率和加速度，具备更强的前瞻性。
+        """
+        states = {}
+        norm_window = 120 # 考虑从参数获取
+
+        # 1. 波动压缩分 (Fused Compression Score)
+        atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
+        vol_compression_atr = 1 - normalize_score(atr_ratio, df.index, norm_window)
+        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
+        vol_compression_bbw = 1 - normalize_score(bbw, df.index, norm_window)
+        fused_compression_score = (vol_compression_atr * 0.4 + vol_compression_bbw * 0.6)
+        
+        # 2. 波动突破潜力 (Volatility Breakout Potential) - 预判能力升级版
+        bbw_slope_score = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+        bbw_accel_score = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+        
+        # 融合斜率和加速度，赋予前瞻性
+        expansion_score = (bbw_slope_score * 0.6 + bbw_accel_score * 0.4)
+        
+        breakout_potential = (fused_compression_score * expansion_score)**0.5
+
+        states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = fused_compression_score.astype(np.float32)
+        states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = breakout_potential.astype(np.float32)
+        
+        return states
+
+
+
+
+
+
+
+
+
+
+
 
 

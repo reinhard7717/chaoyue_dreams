@@ -145,12 +145,12 @@ class IntelligenceLayer:
                      print(f"    -> [法医探针] 错误: 转换探针日期时区也失败: {e_conv}。")
                      return
 
-        # [代码修改] 现在，这里的检查是在两个时区类型相同的对象之间进行的
+        # 现在，这里的检查是在两个时区类型相同的对象之间进行的
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
 
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # [代码修改] 更新版本号
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
         self._deploy_ignition_resonance_probe(probe_date)
@@ -304,7 +304,7 @@ class IntelligenceLayer:
 
     # 为“波动突破”信号新增的专属探针
     def _deploy_volatility_breakout_probe(self, probe_date: pd.Timestamp):
-        """【探针V1.0】解剖“波动突破潜力”信号"""
+        """【探针V1.1 · 算法同步版】解剖“波动突破潜力”信号"""
         print("\n--- [探针] 正在解剖: 【认知】波动突破潜力 (多域点火共振的瓶颈) ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
@@ -315,22 +315,23 @@ class IntelligenceLayer:
         # 反推其构成组件
         compression_score = atomic.get('COGNITIVE_SCORE_VOL_COMPRESSION_FUSED', default_score).get(probe_date, 0)
         
-        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
-        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0.0, index=df.index))
-        expansion_score = normalize_score(bbw_slope, df.index, 120, ascending=True).get(probe_date, 0.5)
-        
-        # 原始计算逻辑: (compression_score * expansion_score)**0.5
+        # 匹配新的扩张分计算逻辑
+        bbw_slope_score = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, 120, ascending=True).get(probe_date, 0.5)
+        bbw_accel_score = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, 120, ascending=True).get(probe_date, 0.5)
+        expansion_score = (bbw_slope_score * 0.6 + bbw_accel_score * 0.4)
         
         print(f"  - 最终得分: {final_score:.4f}")
         print(f"  - 计算逻辑: (波动压缩分 * 波动扩张分) ^ 0.5")
         print(f"    - 波动压缩分 (COGNITIVE_SCORE_VOL_COMPRESSION_FUSED): {compression_score:.4f}")
-        print(f"    - 波动扩张分 (基于BBW斜率): {expansion_score:.4f}")
+        print(f"    - 波动扩张分 (融合了斜率和加速度): {expansion_score:.4f}")
+        print(f"      -> 斜率分: {bbw_slope_score:.4f}")
+        print(f"      -> 加速度分: {bbw_accel_score:.4f}")
         
-        if final_score < 0.3:
-            bottleneck = min([('压缩分', compression_score), ('扩张分', expansion_score)], key=lambda item: item[1])
-            print(f"  - [结论] 得分低的核心瓶颈在于【{bottleneck[0]}】(分值: {bottleneck[1]:.4f})。")
+        if expansion_score < 0.5:
+            bottleneck = min([('斜率分', bbw_slope_score), ('加速度分', bbw_accel_score)], key=lambda item: item[1])
+            print(f"  - [结论] 扩张分偏低的核心瓶颈在于【{bottleneck[0]}】(分值: {bottleneck[1]:.4f})。")
         else:
-            print("  - [结论] 分数正常。")
+            print("  - [结论] 扩张分正常。")
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """
