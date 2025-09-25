@@ -625,22 +625,22 @@ class MultiTimeframeTrendStrategy:
 
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """
-        【V1.1 · 奖励模式适配版】底部反转信号深度诊断探针
-        - 核心重构: 彻底更新探针的分析逻辑，使其与情报引擎最新的“奖励模式”公式完全同步。
-                      反推公式从 final/context 修正为 final/(1 + context * bonus_factor)，
-                      解决了因探针逻辑过时而产生“不可能分数”的重大BUG。
+        【V1.2 · 路径修复版】底部反转信号深度诊断探针
+        - 核心修复: 修正了获取配置参数的访问路径，从错误的 self.strategy.tactical_engine
+                      更正为正确的 self.tactical_engine，解决了 AttributeError。
         """
-        print("\n" + "="*35 + f" [底部反转信号探针 V1.1] 正在解剖 {probe_date} " + "="*35) # 更新版本号
+        print("\n" + "="*35 + f" [底部反转信号探针 V1.2] 正在解剖 {probe_date} " + "="*35) # [代码修改] 更新版本号
         try:
             df = daily_analysis_df
             probe_ts = pd.to_datetime(probe_date)
-            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz) # 增加健壮性检查
+            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
             if probe_ts not in df.index:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
 
             # --- 探针 1: 解剖 `bottom_context_score` (逻辑不变) ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
+            # ... (这部分代码保持不变) ...
             rolling_low_55d = df['low_D'].rolling(window=55, min_periods=21).min().loc[probe_ts]
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max().loc[probe_ts]
             price_range_55d = rolling_high_55d - rolling_low_55d
@@ -657,8 +657,10 @@ class MultiTimeframeTrendStrategy:
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
             
-            # 从任一引擎配置中获取奖励因子，它们应该是统一的
-            p_chip_conf = get_params_block(self.strategy.tactical_engine, 'chip_ultimate_params', {})
+            # [代码修改] 修正了获取配置的访问路径
+            # 错误: p_chip_conf = get_params_block(self.strategy.tactical_engine, 'chip_ultimate_params', {})
+            # 正确: 直接使用 self.tactical_engine
+            p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})
             bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
             print(f"  -> 使用的奖励因子 (Bonus Factor): {bonus_factor}")
 
@@ -669,28 +671,24 @@ class MultiTimeframeTrendStrategy:
                 if signal_name in atomic_states:
                     final_score = atomic_states[signal_name].get(probe_ts, 0.0)
                     
-                    # 使用新的、正确的反推公式
                     denominator = (1 + bottom_context_score * bonus_factor)
                     trigger_score = final_score / denominator if denominator > 0 else 0
                     
                     all_trigger_scores[prefix] = trigger_score
                     print(f"  - {prefix:<12s} | 最终分: {final_score:.4f} | 反推触发分: {trigger_score:.4f}")
             
-            # 使用 nanmean 保证计算健壮性
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
 
             # --- 探针 3: (逻辑不变) ---
             print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
+            # ... (这部分代码保持不变) ...
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
             accel_raw = df.get(f'ACCEL_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
-            
             from .trend_following.utils import normalize_score
             slope_norm = normalize_score(df[f'SLOPE_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
             accel_norm = normalize_score(df[f'ACCEL_5_concentration_90pct_D'], df.index, 120, ascending=False).get(probe_ts, 0.5)
-            
             dynamic_health_conc = slope_norm * 0.6 + accel_norm * 0.4
-            
             print(f"  - 5日集中度斜率 (原始值): {slope_raw:.4f}")
             print(f"  - 5日集中度斜率 (归一化): {slope_norm:.4f}")
             print(f"  - 5日集中度加速度 (原始值): {accel_raw:.4f}")
