@@ -125,8 +125,8 @@
       "debug_params": {
         "enabled": { "value": true },
         "probe_date": "2025-09-05",
-        "enable_bottom_reversal_probe": true,
-        "enable_nan_probe": true
+        "enable_bottom_reversal_probe": false,
+        "enable_nan_probe": false
       },
       "hot_money_params": {
         "enabled": true,

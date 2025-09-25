@@ -109,7 +109,7 @@ class IntelligenceLayer:
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         
-        self.deploy_forensic_probes()
+        # self.deploy_forensic_probes()
         
         print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
