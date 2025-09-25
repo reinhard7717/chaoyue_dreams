@@ -18,14 +18,14 @@ class JudgmentLayer:
           2. 本方法负责组装最终报告，使用 update() 将惩罚分量精确覆盖到原始风险分上。
           3. 确保所有风险信号（无论是否参与惩罚）都能在报告中以其正确的分值形式出现。
         """
-        print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---") # [代码修改] 更新版本号
+        print("    --- [最高作战指挥部 V509.0 · 报告流程终极修复版] 启动... ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # [代码修改] 调用职责净化后的惩罚计算器
+        # 调用职责净化后的惩罚计算器
         df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
 
-        # [代码修改] 组装最终用于报告的 risk_details_df
+        # 组装最终用于报告的 risk_details_df
         # 1. 从原始的、包含所有风险信号原始分的 risk_details_df 开始
         reportable_risk_df = risk_details_df.copy()
         # 2. 使用 update()，用计算出的带权重惩罚分，精确覆盖对应信号的分数
@@ -39,7 +39,7 @@ class JudgmentLayer:
         # 计算衰减因子
         attenuation_factor = (euphoria_risk_score * get_param_value(p_judge.get('euphoria_attenuation_multiplier'), 2.0)).clip(0, 1)
         
-        # [代码修改] 将“亢奋加速风险”的显示分（原始分*100）也加入到报告DF中
+        # 将“亢奋加速风险”的显示分（原始分*100）也加入到报告DF中
         # 这一步现在是安全的，不会被其他逻辑覆盖
         euphoria_display_score = (euphoria_risk_score * 100).clip(0, 1000)
         if 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION' in reportable_risk_df.columns:
@@ -58,7 +58,7 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'signal_type'] = '买入信号'
         
         # --- 步骤 6: 生成报告与清理 ---
-        # [代码修改] reportable_risk_df 现在是完整且准确的，包含了所有应报告的风险项及其正确分值
+        # reportable_risk_df 现在是完整且准确的，包含了所有应报告的风险项及其正确分值
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 
@@ -74,16 +74,16 @@ class JudgmentLayer:
             return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
 
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        penalty_components = {} # [代码修改] 使用一个新字典来存储惩罚分量
+        penalty_components = {} # 使用一个新字典来存储惩罚分量
 
-        # [代码修改] 遍历传入的、包含所有原始风险分的DataFrame的列
+        # 遍历传入的、包含所有原始风险分的DataFrame的列
         for signal_name in risk_details_df.columns:
             raw_score = risk_details_df[signal_name].clip(lower=0)
             
             signal_meta = score_map.get(signal_name, {})
             penalty_weight = signal_meta.get('penalty_weight', 0)
             
-            # [代码修改] 只处理有惩罚权重的信号
+            # 只处理有惩罚权重的信号
             if penalty_weight > 0:
                 weighted_score = raw_score * penalty_weight
                 penalty_components[signal_name] = weighted_score
@@ -91,7 +91,7 @@ class JudgmentLayer:
         if not penalty_components:
             return pd.Series(0.0, index=risk_details_df.index), pd.DataFrame(index=risk_details_df.index)
 
-        # [代码修改] 创建只包含惩罚分量的DataFrame
+        # 创建只包含惩罚分量的DataFrame
         penalty_components_df = pd.DataFrame(penalty_components)
         total_penalty_score = penalty_components_df.sum(axis=1).fillna(0)
         

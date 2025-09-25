@@ -46,11 +46,11 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V408.0 · 依赖修复版】情报层总入口。
-        - 核心重构: 调整了情报引擎的调用顺序，将 ChipIntelligence 提前到 StructuralIntelligence 之前，
-                    解决了结构层因缺少筹码数据而跳过部分诊断的问题。
+        【V410.0 · 依赖重构版】情报层总入口。
+        - 核心重构: 调整了情报引擎的调用顺序，将 CyclicalIntelligence 提前到所有其他引擎之前，
+                    因为它提供的周期信号是所有引擎计算“情景分”的基础依赖。
         """
-        print("--- [情报层总指挥官 V408.0 · 依赖修复版] 开始执行所有诊断模块... ---") # 更新版本号和说明
+        print("--- [情报层总指挥官 V410.0 · 依赖重构版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -61,32 +61,39 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
 
-        # --- 阶段一: 原子信号生成 ---
-        # 调用所有底层情报引擎，生成所有S+/S/A/B四级终极信号，并注入atomic_states
-        print("    - [阶段 1/3] 正在执行原子信号生成...")
+        # --- 阶段一: 原子信号生成 (已按依赖关系重构顺序) ---
+        print("    - [阶段 1/4] 正在执行原子信号生成...")
+        
+        # 1. 首先运行周期引擎，生成最基础的宏观周期信号
+        print("      -> 正在运行 [周期引擎]...")
+        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
+        
+        # 2. 运行其他所有情报引擎，它们现在可以安全地消费周期信号
+        print("      -> 正在运行 [基础层引擎]...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
         
-        # 将 ChipIntelligence 的调用提前
-        # 必须先生成筹码数据，才能供其他模块（如结构层）消费
+        print("      -> 正在运行 [筹码引擎]...")
         chip_states, _ = self.chip_intel.run_chip_intelligence_command(df)
         update_states(chip_states)
         
-        # 现在 StructuralIntelligence 可以安全地消费由 ChipIntelligence 生成的数据
+        print("      -> 正在运行 [结构引擎]...")
         update_states(self.structural_intel.diagnose_structural_states(df))
         
-        self.behavioral_intel.run_behavioral_analysis_command()
+        print("      -> 正在运行 [行为引擎]...")
+        self.behavioral_intel.run_behavioral_analysis_command() # 此方法内部更新状态
+        
+        print("      -> 正在运行 [资金流引擎]...")
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        self.mechanics_engine.run_dynamic_analysis_command()
-        update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
+        
+        print("      -> 正在运行 [动态力学引擎]...")
+        self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部更新状态
         
         # --- 阶段二: 跨域认知融合 ---
-        # 调用认知层总入口，它会消费阶段一生成的所有原子信号，并生成更高阶的认知信号
-        print("    - [阶段 2/3] 正在执行认知层跨域元融合...")
+        print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
 
         # --- 阶段三: 最终战法与剧本生成 ---
-        # Playbook引擎消费所有已生成的原子和认知信号，定义最终的触发器和剧本
-        print("    - [阶段 3/3] 正在生成最终战法与剧本...")
+        print("    - [阶段 3/4] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
@@ -97,5 +104,23 @@ class IntelligenceLayer:
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         
-        print("--- [情报层总指挥官 V408.0] 所有诊断模块执行完毕。 ---") # 更新版本号
+        print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
