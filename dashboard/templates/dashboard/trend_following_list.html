@@ -7,14 +7,7 @@
 {% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
-    {# --- 修改开始 --- #}
-    {# 
-      修改原因：使用从视图(views.py)传递过来的 `cache_bust` 变量。
-      这是最稳健的缓存刷新方法，它将时间戳生成逻辑放在Python后端，
-      彻底避免了在模板中因格式化字符串 "now" 而引发的 `TypeError`。
-    #}
-    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v={{ cache_bust }}">
-    {# --- 修改结束 --- #}
+
 {% endblock %}
 
 
