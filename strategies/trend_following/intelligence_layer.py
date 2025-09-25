@@ -15,7 +15,7 @@ from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
-from .utils import get_params_block
+from strategies.trend_following.utils import get_params_block, get_param_value, fuse_multi_level_scores, normalize_score
 
 class IntelligenceLayer:
     """
