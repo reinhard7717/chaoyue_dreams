@@ -15,6 +15,10 @@ class PlaybookEngine:
         self.playbook_blueprints = self._get_playbook_blueprints()
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
 
+    def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
+        """安全地从原子状态库中获取分数。"""
+        return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
+
     def generate_playbook_states(self, trigger_events: Dict[str, pd.Series]) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
         """
         【V5.0 · 信号适配版】剧本状态生成引擎
