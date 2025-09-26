@@ -561,13 +561,14 @@ class IntelligenceLayer:
     # 新增全新的风险溯源探针
     def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V3.0 · 钻透式解剖版】风险溯源法医探针
+        【探针V4.0 · 钻透式解剖版】风险溯源法医探针
         - 核心升级: 实现“钻透式”解剖，追溯到最原始的指标值，并展示完整的归一化计算过程，
                       揭示“相对归一化”导致风险信号失效的根本原因。
+        - BUG修复: 修正了调用部分引擎健康度计算器时缺少 `periods` 参数的错误。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BEARISH_RESONANCE_S_PLUS'
-        print(f"\n--- [风险探针 V3.0] 正在解剖: 【终极风险信号】{signal_name} ---")
+        print(f"\n--- [风险探针 V4.0] 正在解剖: 【终极风险信号】{signal_name} ---")
 
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -584,7 +585,6 @@ class IntelligenceLayer:
 
         period_to_probe = 13
         
-        # 检查 health 数据是否完整
         if period_to_probe not in overall_health.get('bearish_static', {}) or period_to_probe not in overall_health.get('bearish_dynamic', {}):
             print(f"  - [探针警告] 在 {domain_upper} 领域的 overall_health 中缺少周期 {period_to_probe} 的数据。")
             return
@@ -596,15 +596,12 @@ class IntelligenceLayer:
         print(f"    - {period_to_probe}日静态看跌分 (s_bear): {s_bear_score:.4f}")
         print(f"    - {period_to_probe}日动态看跌分 (d_bear): {d_bear_score:.4f}")
 
-        # 定位瓶颈
         bottleneck_type = 's_bear' if s_bear_score < d_bear_score else 'd_bear'
         bottleneck_score = s_bear_score if bottleneck_type == 's_bear' else d_bear_score
         print(f"  - [定位瓶颈] 【{bottleneck_type}】分数({bottleneck_score:.4f}) 更低，是主要问题所在。")
         
-        # --- 钻透式解剖 ---
         print(f"    -> 开始对 {domain_upper} 领域的【{bottleneck_type}】进行钻透式解剖...")
 
-        # 获取引擎实例
         engine_map = {
             'FF': self.fund_flow_intel, 'CHIP': self.chip_intel, 'DYN': self.mechanics_engine,
             'BEHAVIOR': self.behavioral_intel, 'STRUCTURE': self.structural_intel, 'FOUNDATION': self.foundation_intel
@@ -612,58 +609,48 @@ class IntelligenceLayer:
         engine_instance = engine_map.get(domain_upper)
         if not engine_instance: return
 
-        # 获取该引擎的所有健康度计算器
         calc_map = {
             'DYN': [('_calculate_volatility_health', '波动率'), ('_calculate_efficiency_health', '效率'), ('_calculate_kinetic_energy_health', '动能'), ('_calculate_inertia_health', '惯性')],
             'BEHAVIOR': [('_calculate_price_health', '价格'), ('_calculate_volume_health', '成交量'), ('_calculate_kline_pattern_health', 'K线形态')],
-            # 为其他引擎添加映射...
+            'STRUCTURE': [('_calculate_ma_health', '均线'), ('_calculate_mechanics_health', '力学'), ('_calculate_mtf_health', '多周期'), ('_calculate_pattern_health', '形态')],
+            'FOUNDATION': [('_calculate_ema_health', 'EMA'), ('_calculate_rsi_health', 'RSI'), ('_calculate_macd_health', 'MACD'), ('_calculate_cmf_health', 'CMF')]
         }
         
-        # 遍历该引擎的所有支柱计算器
         for calc_func_name, pillar_cn_name in calc_map.get(domain_upper, []):
             try:
                 calculator = getattr(engine_instance, calc_func_name)
-                # 模拟调用以获取单个支柱的健康度
-                s_bull, d_bull, s_bear, d_bear = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
                 
-                pillar_score_series = s_bear[period_to_probe] if bottleneck_type == 's_bear' else d_bear[period_to_probe]
+                # [代码修改] 修复了BEHAVIOR引擎探针调用缺少参数的BUG
+                if domain_upper == 'BEHAVIOR':
+                    # 行为引擎的健康度计算器需要额外的 atomic_signals 参数
+                    atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
+                    s_bull, d_bull, s_bear, d_bear = calculator(df, atomic_signals_for_behavior, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
+                elif domain_upper == 'STRUCTURE':
+                    s_bull, d_bull, s_bear, d_bear = calculator(df, [period_to_probe], 120, {'slope': 0.6, 'accel': 0.4})
+                else:
+                    s_bull, d_bull, s_bear, d_bear = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
+
+                pillar_score_series = s_bear.get(period_to_probe) if bottleneck_type == 's_bear' else d_bear.get(period_to_probe)
+                if pillar_score_series is None: continue
                 pillar_score = pillar_score_series.get(probe_date, 0.0)
                 print(f"       - {pillar_cn_name:<12s} 支柱贡献分: {pillar_score:.4f}")
 
-                # 以您最关心的“动能”为例，进行最深度的钻透
-                if domain_upper == 'DYN' and pillar_cn_name == '动能' and bottleneck_type == 'd_bear':
+                if domain_upper == 'DYN' and pillar_cn_name == '动能' and bottleneck_type == 'd_bear' and pillar_score < 0.5:
                     print(f"         -> [深度钻透] 开始解剖“动能”支柱的 d_bear 分数...")
-                    
                     slope_col = f'SLOPE_{period_to_probe}_ATR_14_D'
-                    accel_col = f'ACCEL_{period_to_probe}_ATR_14_D'
-                    
-                    # 1. 获取原始值
                     raw_slope = df.get(slope_col, pd.Series(np.nan)).get(probe_date, np.nan)
-                    raw_accel = df.get(accel_col, pd.Series(np.nan)).get(probe_date, np.nan)
-                    print(f"            - 步骤1: 获取原始指标值")
-                    print(f"              - {slope_col}: {raw_slope:.6f}")
-                    print(f"              - {accel_col}: {raw_accel:.6f}")
-
-                    # 2. 提取归一化窗口数据并展示统计信息
+                    print(f"            - 步骤1: 获取原始指标值: {slope_col} = {raw_slope:.6f}")
                     norm_window = 120
                     slope_series = df.get(slope_col)
                     if slope_series is not None:
                         slope_window_data = slope_series.loc[:probe_date].tail(norm_window)
                         print(f"            - 步骤2: 提取斜率指标在过去 {norm_window} 天的统计数据")
-                        print(f"              - 窗口最大值: {slope_window_data.max():.6f}")
-                        print(f"              - 窗口最小值: {slope_window_data.min():.6f}")
-                        print(f"              - 窗口平均值: {slope_window_data.mean():.6f}")
-
-                        # 3. 计算并展示相对排名
-                        # 使用 rank(pct=True) 来精确模拟 normalize_score 的核心
+                        print(f"              - 窗口最大值: {slope_window_data.max():.6f}, 最小值: {slope_window_data.min():.6f}, 平均值: {slope_window_data.mean():.6f}")
                         slope_rank_pct = slope_window_data.rank(pct=True).iloc[-1]
-                        print(f"            - 步骤3: 计算当日原始值的相对排名")
+                        print(f"            - 步骤3: 计算当日原始值的相对排名 (ascending=True)")
                         print(f"              - 当日斜率值 ({raw_slope:.6f}) 在此窗口中的百分位排名为: {slope_rank_pct:.2%}")
-                        
-                        # 4. 展示最终的归一化分数
                         normalized_slope_score = slope_rank_pct
-                        print(f"            - 步骤4: 得出被“稀释”的归一化分数")
-                        print(f"              - 归一化后的斜率分 (相对风险): {normalized_slope_score:.4f}")
+                        print(f"            - 步骤4: 得出被“稀释”的归一化分数: {normalized_slope_score:.4f}")
                         print(f"         -> [钻透结论] 尽管原始斜率值为正，显示动能增加，但由于其在120天历史窗口内的相对排名不高，导致其风险贡献分被严重拉低。")
 
             except Exception as e:

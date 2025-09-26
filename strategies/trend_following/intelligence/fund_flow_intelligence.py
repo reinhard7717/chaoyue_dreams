@@ -137,6 +137,8 @@ class FundFlowIntelligence:
                     else:
                         sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
                         fused_results[intent_type][health_key][p] = pd.Series(0.5, index=sample_index, dtype=np.float32)
+
+        self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
