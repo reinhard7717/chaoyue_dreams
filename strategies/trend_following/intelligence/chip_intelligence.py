@@ -51,8 +51,9 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V10.6 · 参数修复版】统一筹码信号诊断引擎
-        - 核心修复: 修正了在调用各健康度组件计算器时，参数传递顺序错误的问题，解决了 TypeError。
+        【V10.7 · 健壮性修复版】统一筹码信号诊断引擎
+        - 核心修复: 增加了对 pillar_weights 配置缺失的防御性检查。如果权重未配置，
+                      将打印警告并回退到等权重平均，而不是直接崩溃。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -84,7 +85,6 @@ class ChipIntelligence:
             'fault': self._calculate_fault_health,
         }
         for name, calculator in calculators.items():
-            # [代码修改] 修正了调用健康度组件计算器时的参数顺序
             s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, dynamic_weights, periods)
             health_data['bullish_static'].append(s_bull)
             health_data['bullish_dynamic'].append(d_bull)
@@ -94,7 +94,14 @@ class ChipIntelligence:
         # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
         pillar_names = list(pillar_weights.keys())
-        weights_array = np.array([pillar_weights[name] for name in pillar_names])
+        weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
+
+        # 增加对权重配置缺失的防御性检查
+        use_equal_weights = False
+        if not pillar_weights or weights_array.sum() == 0:
+            print(f"        -> [筹码情报引擎] 警告: 'pillar_weights' 在配置文件中缺失或总和为0。将临时采用等权重融合。")
+            use_equal_weights = True
+
         for health_type, health_sources in [
             ('bullish_static', health_data['bullish_static']),
             ('bullish_dynamic', health_data['bullish_dynamic']),
@@ -103,19 +110,20 @@ class ChipIntelligence:
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                # 检查 health_sources 是否为空
                 if not health_sources: continue
                 
-                # 检查每个 pillar_dict 是否包含周期 p
                 valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if not valid_pillars: continue
 
                 stacked_values = np.stack(valid_pillars, axis=0)
-                fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
+                if use_equal_weights:
+                    fused_values = np.mean(stacked_values, axis=0)
+                else:
+                    fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         # --- 5. 终极信号合成 ---
-        bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods if p in overall_health['bullish_static'] and p in overall_health['bullish_dynamic']}
+        bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods if p in overall_health.get('bullish_static', {}) and p in overall_health.get('bullish_dynamic', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
@@ -128,7 +136,7 @@ class ChipIntelligence:
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
-        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods if p in overall_health['bearish_static'] and p in overall_health['bearish_dynamic']}
+        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods if p in overall_health.get('bearish_static', {}) and p in overall_health.get('bearish_dynamic', {})}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)

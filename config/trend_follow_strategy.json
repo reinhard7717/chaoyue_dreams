@@ -144,10 +144,36 @@
         "enabled": true,
         "description": "聪明钱（游资与机构协同）信号参数"
       },
-      "foundation_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
-      "behavioral_dynamics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
-      "chip_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
-      "fund_flow_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "foundation_ultimate_params": {
+        "enabled": true,
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 120
+      },
+      "behavioral_dynamics_params": {
+        "enabled": true,
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 120
+      },
+      "chip_ultimate_params": {
+        "enabled": true,
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 120,
+        "bottom_context_bonus_factor": 0.5,
+        "top_context_bonus_factor": 0.8,
+        "pillar_weights": {
+          "说明": "筹码层五大支柱的融合权重",
+          "quantitative": 0.25,
+          "advanced": 0.25,
+          "internal": 0.20,
+          "holder": 0.20,
+          "fault": 0.10
+        }
+      },
+      "fund_flow_ultimate_params": {
+        "enabled": true,
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 120
+      },
       "structural_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "dynamic_mechanics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "four_layer_scoring_params": {

@@ -52,7 +52,7 @@ class DynamicMechanicsEngine:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
-        # [代码修改] 修正了对 _calculate_kinetic_energy_health 的方法引用
+        # 修正了对 _calculate_kinetic_energy_health 的方法引用
         calculators = {
             'volatility': self._calculate_volatility_health,
             'efficiency': self._calculate_efficiency_health,
