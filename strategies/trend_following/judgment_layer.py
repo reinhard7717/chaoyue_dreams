@@ -66,35 +66,28 @@ class JudgmentLayer:
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V511.0 · 惩罚链路修复版】计算总风险惩罚分
+        【V511.1 · 重复惩罚修复版】计算总风险惩罚分
         - 核心修复:
-          - [BUG修复] 彻底修复了风险惩罚计算链路断裂的致命BUG。
-          - [逻辑重构] 不再消费错误的、未放大的融合风险分。现在直接遍历由 `warning_layer` 
-                        提供的 `risk_details_df`，对其中每一个原始风险信号 (0-1分)，
-                        查找其在 `score_type_map` 中定义的 `penalty_weight`，
-                        并计算 `惩罚分 = 原始风险分 * penalty_weight`。
-        - 收益: 确保了每一个风险信号都能根据其预设的威胁等级，转化为有效的最终惩罚分数，
-                  从根本上解决了“激活风险项为0”的问题。
+          - [BUG修复] 彻底修复了“亢奋加速风险”被重复计算两次的致命BUG。
+          - [逻辑优化] 简化了计算流程，现在统一在循环中处理所有风险信号，
+                        不再有特殊的外部处理逻辑，确保每个风险信号只被惩罚一次。
+        - 收益: 恢复了风险惩罚体系的平衡，避免了单一风险项权重被不合理放大的问题。
         """
         df = self.strategy.df_indicators
         
-        # 如果风险详情为空，则直接返回0
         if risk_details_df.empty:
             return pd.Series(0.0, index=df.index), pd.DataFrame(index=df.index)
 
         total_penalty_score = pd.Series(0.0, index=df.index)
         penalty_components_df = pd.DataFrame(index=df.index)
         
-        # 从 score_type_map 中获取所有信号的元数据
         score_map = get_params_block(self.strategy, 'score_type_map', {})
 
         # 遍历 risk_details_df 中的每一列（即每一个风险信号）
         for signal_name in risk_details_df.columns:
+            # 确保信号在配置中定义，并且有 penalty_weight
             if signal_name in score_map and 'penalty_weight' in score_map[signal_name]:
-                # 获取该风险信号的原始分数 (0-1)
                 raw_risk_score = risk_details_df[signal_name]
-                
-                # 获取其在字典中定义的惩罚权重
                 penalty_weight = score_map[signal_name]['penalty_weight']
                 
                 # 计算该信号贡献的惩罚分
@@ -106,15 +99,8 @@ class JudgmentLayer:
                 # 记录每个分量的惩罚，用于报告
                 penalty_components_df[signal_name] = penalty_amount
         
-        # 兼容旧的亢奋风险惩罚逻辑（如果需要）
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        euphoric_risk_weight = get_param_value(p_judge.get('euphoric_risk_weight'), 1000.0)
-        euphoric_risk_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
-        euphoric_penalty = euphoric_risk_score * euphoric_risk_weight
+        # [代码修改] 删除了对亢奋风险的重复计算逻辑，因为它已经在上面的循环中被统一处理了。
         
-        total_penalty_score += euphoric_penalty
-        penalty_components_df['EUPHORIC_RISK_PENALTY'] = euphoric_penalty
-
         return total_penalty_score, penalty_components_df
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:

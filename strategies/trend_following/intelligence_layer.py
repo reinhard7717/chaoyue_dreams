@@ -561,13 +561,12 @@ class IntelligenceLayer:
     # [代码修改] 彻底重构风险探针，实现“钻透式”解剖
     def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V4.1 · 健壮性修复版】风险溯源法医探针
-        - 核心升级: 实现“钻透式”解剖，追溯到最原始的指标值。
-        - BUG修复: 修正了调用部分引擎健康度计算器时缺少参数或数据类型错误的BUG。
+        【探针V4.3 · 健壮性修复版】风险溯源法医探针
+        - BUG修复: 彻底修复了调用 BEHAVIOR 和 FOUNDATION 引擎健康度计算器时错误的参数传递和数据类型问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BEARISH_RESONANCE_S_PLUS'
-        print(f"\n--- [风险探针 V4.1] 正在解剖: 【终极风险信号】{signal_name} ---")
+        print(f"\n--- [风险探针 V4.3] 正在解剖: 【终极风险信号】{signal_name} ---")
 
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -579,8 +578,8 @@ class IntelligenceLayer:
         overall_health = atomic.get(overall_health_cache_key)
         
         if not overall_health:
-             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
-             return
+            print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
+            return
 
         period_to_probe = 13
         
@@ -619,22 +618,23 @@ class IntelligenceLayer:
             try:
                 calculator = getattr(engine_instance, calc_func_name)
                 
-                # [代码修改] 统一并修复所有引擎的探针调用逻辑
                 periods_arg = [period_to_probe]
+                # [代码修改] 修复了所有引擎的探针调用逻辑
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
-                    s_bull, d_bull, s_bear, d_bear = calculator(df, atomic_signals_for_behavior, 120, {'slope': 0.6, 'accel': 0.4}, periods_arg)
+                    if calc_func_name in ['_calculate_price_health', '_calculate_volume_health']:
+                        s_bull, d_bull, s_bear, d_bear = calculator(df, 120, 24, {'slope': 0.6, 'accel': 0.4}, periods_arg)
+                    else:
+                        s_bull, d_bull, s_bear, d_bear = calculator(df, atomic_signals_for_behavior, 120, 24, periods_arg)
                 elif domain_upper == 'STRUCTURE':
                     s_bull, d_bull, s_bear, d_bear = calculator(df, periods_arg, 120, {'slope': 0.6, 'accel': 0.4})
-                else:
+                else: # DYN, FOUNDATION, CHIP
                     s_bull, d_bull, s_bear, d_bear = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, periods_arg)
 
                 pillar_score_series = s_bear.get(period_to_probe) if bottleneck_type == 's_bear' else d_bear.get(period_to_probe)
                 if pillar_score_series is None: continue
                 pillar_score = pillar_score_series.get(probe_date, 0.0)
                 print(f"       - {pillar_cn_name:<12s} 支柱贡献分: {pillar_score:.4f}")
-
-                # ... (深度钻透逻辑保持不变) ...
 
             except Exception as e:
                 print(f"       - [探针错误] 解剖支柱 '{pillar_cn_name}' 失败: {e}")

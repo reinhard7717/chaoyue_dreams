@@ -52,7 +52,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V239.0 终极信号支持版】为所有情报引擎的健康度计算提供必需的斜率指标。",
+      "说明": "【V239.1 资金流补完版】为所有情报引擎的健康度计算提供必需的斜率指标。",
       "series_to_slope": {
         "close_D": [1, 5, 13, 21, 55],
         "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
@@ -76,21 +76,29 @@
         "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55],
         "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus_sum_5d": [5], "main_force_net_flow_consensus_sum_13d": [13], "main_force_net_flow_consensus_sum_21d": [21], "main_force_net_flow_consensus_sum_55d": [55],
-        "net_xl_amount_consensus_sum_5d": [5], "net_xl_amount_consensus_sum_13d": [13], "net_xl_amount_consensus_sum_21d": [21], "net_xl_amount_consensus_sum_55d": [55],
+        "main_force_net_flow_consensus_D": [1, 5, 13, 21, 55],
+        "main_force_net_flow_consensus_sum_5d_D": [5], "main_force_net_flow_consensus_sum_13d_D": [13], "main_force_net_flow_consensus_sum_21d_D": [21], "main_force_net_flow_consensus_sum_55d_D": [55],
+        "net_xl_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_xl_amount_consensus_sum_5d_D": [5], "net_xl_amount_consensus_sum_13d_D": [13], "net_xl_amount_consensus_sum_21d_D": [21], "net_xl_amount_consensus_sum_55d_D": [55],
+        "net_lg_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_lg_amount_consensus_sum_5d_D": [5], "net_lg_amount_consensus_sum_13d_D": [13], "net_lg_amount_consensus_sum_21d_D": [21], "net_lg_amount_consensus_sum_55d_D": [55],
         "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
         "active_buy_pressure_D": [1, 5, 13, 21, 55],
         "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
         "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55],
         "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
         "retail_panic_index_D": [1, 5, 13, 21, 55],
+        "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_sh_amount_consensus_sum_5d_D": [5], "net_sh_amount_consensus_sum_13d_D": [13], "net_sh_amount_consensus_sum_21d_D": [21], "net_sh_amount_consensus_sum_55d_D": [55],
+        "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_md_amount_consensus_sum_5d_D": [5], "net_md_amount_consensus_sum_13d_D": [13], "net_md_amount_consensus_sum_21d_D": [21], "net_md_amount_consensus_sum_55d_D": [55],
         "avg_order_value_D": [5],
         "trade_concentration_index_D": [5]
       }
     },
     "accel_params": {
       "enabled": true,
-      "说明": "【V239.0 终极信号支持版】为所有情报引擎的健康度计算提供必需的加速度指标。",
+      "说明": "【V239.1 资金流补完版】为所有情报引擎的健康度计算提供必需的加速度指标。",
       "series_to_accel": {
         "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
         "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
@@ -101,11 +109,21 @@
         "peak_control_ratio_D": [1, 5, 13, 21, 55], "peak_stability_D": [1, 5, 13, 21, 55], "cost_divergence_D": [1, 5, 13, 21, 55],
         "winner_profit_margin_D": [1, 5, 13, 21, 55], "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus": [1, 5, 13, 21, 55], "net_xl_amount_consensus": [1, 5, 13, 21, 55],
-        "main_force_flow_intensity_ratio": [1, 5, 13, 21, 55],
-        "active_buy_pressure": [1, 5, 13, 21, 55], "main_force_conviction_ratio": [1, 5, 13, 21, 55],
-        "main_force_vs_xl_divergence": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail": [1, 5, 13, 21, 55],
-        "retail_panic_index": [1, 5, 13, 21, 55], "avg_order_value": [5], "trade_concentration_index": [5]
+        "main_force_net_flow_consensus_D": [1, 5, 13, 21, 55],
+        "main_force_net_flow_consensus_sum_5d_D": [5], "main_force_net_flow_consensus_sum_13d_D": [13], "main_force_net_flow_consensus_sum_21d_D": [21], "main_force_net_flow_consensus_sum_55d_D": [55],
+        "net_xl_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_xl_amount_consensus_sum_5d_D": [5], "net_xl_amount_consensus_sum_13d_D": [13], "net_xl_amount_consensus_sum_21d_D": [21], "net_xl_amount_consensus_sum_55d_D": [55],
+        "net_lg_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_lg_amount_consensus_sum_5d_D": [5], "net_lg_amount_consensus_sum_13d_D": [13], "net_lg_amount_consensus_sum_21d_D": [21], "net_lg_amount_consensus_sum_55d_D": [55],
+        "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
+        "active_buy_pressure_D": [1, 5, 13, 21, 55], "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
+        "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
+        "retail_panic_index_D": [1, 5, 13, 21, 55],
+        "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_sh_amount_consensus_sum_5d_D": [5], "net_sh_amount_consensus_sum_13d_D": [13], "net_sh_amount_consensus_sum_21d_D": [21], "net_sh_amount_consensus_sum_55d_D": [55],
+        "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
+        "net_md_amount_consensus_sum_5d_D": [5], "net_md_amount_consensus_sum_13d_D": [13], "net_md_amount_consensus_sum_21d_D": [21], "net_md_amount_consensus_sum_55d_D": [55],
+        "avg_order_value_D": [5], "trade_concentration_index_D": [5]
       }
     }
   },
