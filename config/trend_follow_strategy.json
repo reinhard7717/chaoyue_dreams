@@ -147,12 +147,20 @@
       "foundation_ultimate_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
+        "norm_window": 120,
+        "pillar_weights": {
+          "说明": "基础层四大支柱的融合权重",
+          "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
+        }
       },
       "behavioral_dynamics_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
+        "norm_window": 120,
+        "pillar_weights": {
+          "说明": "行为层三大支柱的融合权重",
+          "price": 0.4, "volume": 0.3, "kline": 0.3
+        }
       },
       "chip_ultimate_params": {
         "enabled": true,
@@ -172,10 +180,24 @@
       "fund_flow_ultimate_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120
+        "norm_window": 120,
+        "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
+        "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 }
       },
-      "structural_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
-      "dynamic_mechanics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
+      "structural_ultimate_params": {
+        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120,
+        "pillar_weights": {
+          "说明": "结构层四大支柱的融合权重",
+          "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
+        }
+      },
+      "dynamic_mechanics_params": {
+        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120,
+        "pillar_weights": {
+          "说明": "动态力学层四大支柱的融合权重",
+          "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
+        }
+      },
       "four_layer_scoring_params": {
         "enabled": { "value": true },
         "说明": "【V501.0 · 终极信号适配版】计分体系。全面转向消费各情报层产出的S+/S/A/B四级终极信号。",
