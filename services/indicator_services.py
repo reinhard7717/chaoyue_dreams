@@ -313,53 +313,49 @@ class IndicatorService:
 
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 延迟命名版】预计算衍生指标列名适配器
-        - 核心职责: 将数据库列名转换为一个不带任何时间后缀的、统一的中间格式。
-                    例如：'peak_cost_slope_5d' -> 'SLOPE_5_peak_cost'
-        - 核心修正 (V3.0): 移除了在转换过程中添加 '_D' 后缀的逻辑。
-                          最终的后缀将在各自时间周期处理的最后阶段统一添加。
-                          这从根本上解决了周线数据出现 '_D_W' 双重后缀的问题。
-        - 输入: 包含数据库原始列名的DataFrame。
-        - 输出: 列名已转换为统一中间格式的DataFrame。
+        【V3.1 加速度修复版】预计算衍生指标列名适配器
+        - 核心修复: 新增了对 `_sum_..._accel_` 和常规 `_accel_` 列的重命名逻辑，
+                    解决了加速度指标无法被下游消费的致命BUG。
         """
-        # print("    - [数据适配层 V3.0] 正在将预计算列名转换为统一中间格式...")
         import re
         rename_map = {}
-        # 遍历DataFrame中的每一列
         for col in df.columns:
             new_name = None
-            # 规则1: 匹配资金流的聚合指标斜率，例如 'net_flow_consensus_sum_5d_slope_5d'
+            # 规则1: 匹配资金流的聚合指标斜率
             ff_sum_slope_match = re.match(r'(.+)_sum_(\d+)d_slope_(\d+)d$', col)
             if ff_sum_slope_match:
-                base_name = ff_sum_slope_match.group(1)
-                sum_period = ff_sum_slope_match.group(2)
-                slope_period = ff_sum_slope_match.group(3)
-                # 转换为: SLOPE_5_net_flow_consensus_sum_5d (无后缀)
+                base_name, sum_period, slope_period = ff_sum_slope_match.groups()
                 new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d"
-            # 规则2: 匹配常规斜率，例如 'peak_cost_slope_5d'
+            
+            # [代码修改] 新增规则1.1: 匹配资金流的聚合指标加速度
+            elif '_sum_' in col and '_accel_' in col:
+                ff_sum_accel_match = re.match(r'(.+)_sum_(\d+)d_accel_(\d+)d$', col)
+                if ff_sum_accel_match:
+                    base_name, sum_period, accel_period = ff_sum_accel_match.groups()
+                    new_name = f"ACCEL_{accel_period}_{base_name}_sum_{sum_period}d"
+
+            # 规则2: 匹配常规斜率
             elif '_slope_' in col:
                 slope_match = re.match(r'(.+)_slope_(\d+)d$', col)
                 if slope_match:
-                    base_name = slope_match.group(1)
-                    period = slope_match.group(2)
-                    # 转换为: SLOPE_5_peak_cost (无后缀)
+                    base_name, period = slope_match.groups()
                     new_name = f"SLOPE_{period}_{base_name}"
-            # 规则3: 匹配常规加速度，例如 'peak_cost_accel_5d'
+            
+            # 规则3: 匹配常规加速度
             elif '_accel_' in col:
                 accel_match = re.match(r'(.+)_accel_(\d+)d$', col)
                 if accel_match:
-                    base_name = accel_match.group(1)
-                    period = accel_match.group(2)
-                    # 转换为: ACCEL_5_peak_cost (无后缀)
-                    new_name = f"ACCEL_{period}_{base_name}"            
-            # 规则4: 对于非衍生指标，如果带有_D后缀，也先移除，等待后续统一添加
-            # 例如 'chip_health_score_D' -> 'chip_health_score'
+                    base_name, period = accel_match.groups()
+                    new_name = f"ACCEL_{period}_{base_name}"
+            
+            # 规则4: 移除日线后缀
             elif col.endswith('_D'):
-                new_name = col[:-2] # 移除最后的 '_D'
+                new_name = col[:-2]
+            
             if new_name:
                 rename_map[col] = new_name
+        
         if rename_map:
-            # print(f"      -> 发现并转换 {len(rename_map)} 个列到中间格式。")
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
         else:

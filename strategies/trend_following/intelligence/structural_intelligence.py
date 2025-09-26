@@ -74,6 +74,8 @@ class StructuralIntelligence:
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
+        self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
+
         # --- 5. 终极信号合成 (全新反转逻辑) ---
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5

@@ -92,6 +92,8 @@ class DynamicMechanicsEngine:
                 fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
+        self.strategy.atomic_states['__DYN_overall_health'] = overall_health
+        
         # --- 5. 终极信号合成 (全新反转逻辑) ---
         # 看涨共振
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods if p in overall_health.get('bullish_static', {}) and p in overall_health.get('bullish_dynamic', {})}

@@ -472,9 +472,9 @@ class IntelligenceLayer:
     # 全新的终极反转信号探针
     def _deploy_ultimate_reversal_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V1.2 · 哲学同步版】解剖终极反转信号 (以指定领域为例)
-        - 核心修复: 完全重写探针逻辑，使其与新的“反转信号哲学”保持一致。
-                    现在它能正确地解剖 `静态看跌 * 动态看涨` 的组合。
+        【探针V1.3 · 直连引擎版】解剖终极反转信号
+        - 核心修复: 不再尝试重构数据，而是直接读取由各情报引擎缓存的 `__<DOMAIN>_overall_health` 数据。
+                    这确保了探针的绝对准确性，并解决了之前因无法访问内部状态而报告错误信息的问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BOTTOM_REVERSAL_S_PLUS'
@@ -505,17 +505,13 @@ class IntelligenceLayer:
         print(f"    - 反推得到的看涨触发分 (Trigger): {trigger_score:.4f}")
 
         # --- 步骤 2: 解剖 Trigger Score 的构成 (全新逻辑) ---
-        # 获取正确的 overall_health 数据
-        # 注意：这里为了探针的独立性，我们只获取最终的 overall_health 分数，不再重新计算
-        overall_health = self.strategy.atomic_states.get(f'__{domain_upper}_overall_health', {}) # 假设终极信号函数会缓存这个
+        # [代码修改] 直接从 atomic_states 读取引擎缓存的 overall_health
+        overall_health_cache_key = f'__{domain_upper}_overall_health'
+        overall_health = atomic.get(overall_health_cache_key)
+        
         if not overall_health:
-             # 如果没有缓存，需要一个简化的方式来获取，这里我们直接从atomic_states里拿
-             # 这是一个简化，理想的探针应该能访问到引擎内部状态
-             print("  - [探针警告] 无法直接访问引擎内部的 overall_health，将尝试从原子状态重构。结果可能不完全精确。")
-             overall_health = {
-                 'bearish_static': {p: atomic.get(f'INTERNAL_{domain_upper}_BEARISH_STATIC_{p}', default_score) for p in periods},
-                 'bullish_dynamic': {p: atomic.get(f'INTERNAL_{domain_upper}_BULLISH_DYNAMIC_{p}', default_score) for p in periods}
-             }
+             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。请确保 {domain} 引擎已正确缓存其内部状态。")
+             return
 
         # 使用新的反转健康度逻辑
         bullish_reversal_health = {p: overall_health['bearish_static'][p].get(probe_date, 0.5) * overall_health['bullish_dynamic'][p].get(probe_date, 0.5) for p in periods}
@@ -538,19 +534,16 @@ class IntelligenceLayer:
         elif main_force_name == '中期': p1, p2 = 13, 21
         else: p1, p2 = 55, 55
         
-        # 解剖的是“反转健康度”
         print(f"    -> 该力由 {p1}日 和 {p2}日 的 '反转健康度' 融合得到:")
         print(f"       - {p1}日反转健康度: {bullish_reversal_health.get(p1, 0.5):.4f}")
         print(f"       - {p2}日反转健康度: {bullish_reversal_health.get(p2, 0.5):.4f}")
         
-        # 解剖的是“静态看跌”和“动态看涨”
         static_bearish_p1 = overall_health['bearish_static'][p1].get(probe_date, 0.5)
         dynamic_bullish_p1 = overall_health['bullish_dynamic'][p1].get(probe_date, 0.5)
         print(f"    -> {p1}日反转健康度由以下两者相乘得到:")
         print(f"       - {p1}日静态看跌分: {static_bearish_p1:.4f}")
         print(f"       - {p1}日动态看涨分: {dynamic_bullish_p1:.4f}")
 
-        # 最终结论
         if static_bearish_p1 < 0.5:
              print(f"  - [最终结论] {signal_name} 分数低的核心原因是【静态看跌分】不足，市场并未处于公认的弱势/超卖状态。")
         elif dynamic_bullish_p1 < 0.5:
