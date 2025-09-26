@@ -51,8 +51,8 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V10.4 · 顶部反转逻辑重构版】统一筹码信号诊断引擎
-        - 核心重构: 彻底修改顶部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“风险放大器”。
+        【V10.5 · 命名修复版】统一筹码信号诊断引擎
+        - 核心修复: 修正了对多个健康度组件计算器方法的错误引用，解决了 AttributeError。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -77,11 +77,12 @@ class ChipIntelligence:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
+        # [代码修改] 修正了对多个健康度组件计算器的方法引用
         calculators = {
             'quantitative': self._calculate_quantitative_health,
-            'advanced': self._calculate_advanced_health,
-            'internal': self._calculate_internal_health,
-            'holder': self._calculate_holder_health,
+            'advanced': self._calculate_advanced_dynamics_health,
+            'internal': self._calculate_internal_structure_health,
+            'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
         for name, calculator in calculators.items():

@@ -26,8 +26,8 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 顶部反转逻辑重构版】终极动态力学信号诊断模块
-        - 核心重构: 彻底修改顶部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“风险放大器”。
+        【V3.5 · 命名修复版】终极动态力学信号诊断模块
+        - 核心修复: 修正了对 `_calculate_kinetic_energy_health` 方法的错误引用，解决了 AttributeError。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -52,10 +52,11 @@ class DynamicMechanicsEngine:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
+        # [代码修改] 修正了对 _calculate_kinetic_energy_health 的方法引用
         calculators = {
             'volatility': self._calculate_volatility_health,
             'efficiency': self._calculate_efficiency_health,
-            'momentum': self._calculate_momentum_health,
+            'momentum': self._calculate_kinetic_energy_health,
             'inertia': self._calculate_inertia_health,
         }
         for name, calculator in calculators.items():
