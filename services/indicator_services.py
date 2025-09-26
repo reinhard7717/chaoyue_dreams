@@ -313,48 +313,41 @@ class IndicatorService:
 
     def _rename_precomputed_derivatives(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.1 加速度修复版】预计算衍生指标列名适配器
-        - 核心修复: 新增了对 `_sum_..._accel_` 和常规 `_accel_` 列的重命名逻辑，
-                    解决了加速度指标无法被下游消费的致命BUG。
+        【V4.0 · 终极重构版】预计算衍生指标列名适配器
+        - 核心重构: 废弃了原先脆弱且易错的 if/elif 链式匹配逻辑。
+        - 解决方案: 采用单一、更强大的正则表达式，通过可选捕获组 `(...)?` 一次性、
+                    无歧义地解析所有类型的衍生指标（包括常规、带sum的、斜率、加速度）。
+                    这从根本上解决了因匹配顺序错误导致列名解析失败的BUG。
         """
         import re
         rename_map = {}
-        for col in df.columns:
-            new_name = None
-            # 规则1: 匹配资金流的聚合指标斜率
-            ff_sum_slope_match = re.match(r'(.+)_sum_(\d+)d_slope_(\d+)d$', col)
-            if ff_sum_slope_match:
-                base_name, sum_period, slope_period = ff_sum_slope_match.groups()
-                new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d"
-            
-            # 新增规则1.1: 匹配资金流的聚合指标加速度
-            elif '_sum_' in col and '_accel_' in col:
-                ff_sum_accel_match = re.match(r'(.+)_sum_(\d+)d_accel_(\d+)d$', col)
-                if ff_sum_accel_match:
-                    base_name, sum_period, accel_period = ff_sum_accel_match.groups()
-                    new_name = f"ACCEL_{accel_period}_{base_name}_sum_{sum_period}d"
+        # 定义一个能处理所有情况的、统一的正则表达式
+        # 模式解释:
+        #   (.+?)                     - 非贪婪匹配基础指标名 (base_name)
+        #   (?:_sum_(\d+)d)?          - 可选的sum部分，捕获sum周期 (sum_period)
+        #   _(slope|accel)_(\d+)d$    - 必须匹配的斜率/加速度部分，捕获类型(deriv_type)和周期(deriv_period)
+        pattern = re.compile(r'(.+?)(?:_sum_(\d+)d)?_(slope|accel)_(\d+)d$')
 
-            # 规则2: 匹配常规斜率
-            elif '_slope_' in col:
-                slope_match = re.match(r'(.+)_slope_(\d+)d$', col)
-                if slope_match:
-                    base_name, period = slope_match.groups()
-                    new_name = f"SLOPE_{period}_{base_name}"
-            
-            # 规则3: 匹配常规加速度
-            elif '_accel_' in col:
-                accel_match = re.match(r'(.+)_accel_(\d+)d$', col)
-                if accel_match:
-                    base_name, period = accel_match.groups()
-                    new_name = f"ACCEL_{period}_{base_name}"
-            
-            # 规则4: 移除日线后缀
-            elif col.endswith('_D'):
-                new_name = col[:-2]
-            
-            if new_name:
+        for col in df.columns:
+            match = pattern.match(col)
+            if match:
+                base_name, sum_period, deriv_type, deriv_period = match.groups()
+                
+                # 根据捕获组构建新的、标准化的列名
+                if sum_period:
+                    # 处理带 _sum_ 的情况
+                    # 例如: net_lg_amount_consensus_sum_13d_slope_13d -> SLOPE_13_net_lg_amount_consensus_sum_13d
+                    new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}_sum_{sum_period}d"
+                else:
+                    # 处理常规情况
+                    # 例如: RSI_13_slope_5d -> SLOPE_5_RSI_13
+                    new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}"
+                
                 rename_map[col] = new_name
-        
+            elif col.endswith('_D'):
+                # 保留对仅带 _D 后缀的列的处理逻辑
+                rename_map[col] = col[:-2]
+
         if rename_map:
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
