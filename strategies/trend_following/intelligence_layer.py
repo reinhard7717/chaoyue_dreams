@@ -472,9 +472,12 @@ class IntelligenceLayer:
     # [代码新增] 全新的终极反转信号探针
     def _deploy_ultimate_reversal_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V1.0】解剖终极反转信号 (以指定领域为例)
-        :param probe_date: 要解剖的日期
-        :param domain: 要解剖的领域, e.g., 'BEHAVIOR', 'CHIP', 'DYN'
+        【探针V1.1 · 健壮性修复版】解剖终极反转信号 (以指定领域为例)
+        - 本次修改:
+          - [修复] 解决了因 `dynamic_weights` 为 None 导致的 'NoneType' object is not subscriptable 错误。
+                   现在会从配置文件中健壮地获取参数，并提供默认值。
+          - [重构] 优化了探针逻辑，不再重新执行庞大的终极信号诊断函数，而是直接调用
+                   更底层的健康度计算方法，并手动传入所有必需参数，提高了探针的独立性和效率。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BOTTOM_REVERSAL_S_PLUS'
@@ -488,14 +491,20 @@ class IntelligenceLayer:
         final_score = atomic.get(signal_name, default_score).get(probe_date, 0.0)
         print(f"  - 当日最终得分: {final_score:.4f}")
 
-        # 反推 Trigger 和 Context
-        p_conf = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params' if domain == 'BEHAVIOR' else f'{domain.lower()}_ultimate_params', {})
-        bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
+        # [代码修改] 健壮地获取参数，并提供默认值
+        # 尝试从特定领域参数块获取，如果失败，则从通用块获取
+        p_conf_domain = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params' if domain_upper == 'BEHAVIOR' else f'{domain.lower()}_ultimate_params', {})
+        p_conf_generic = get_params_block(self.strategy, 'trend_quality_params', {}) # 假设通用参数在这里
+        
+        bonus_factor = get_param_value(p_conf_domain.get('bottom_context_bonus_factor'), 0.5)
+        dynamic_weights = get_param_value(p_conf_domain.get('dynamic_weights'), {'slope': 0.6, 'accel': 0.4})
+        reversal_tf_weights = get_param_value(p_conf_domain.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
+        periods = get_param_value(p_conf_domain.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_conf_domain.get('norm_window'), 120)
         
         context_score, _ = calculate_context_scores(df, atomic)
         context_score_today = context_score.get(probe_date, 0.0)
         
-        # 公式: final_score = trigger * (1 + context * bonus) => trigger = final_score / (1 + context * bonus)
         trigger_denominator = 1 + context_score_today * bonus_factor
         trigger_score = final_score / trigger_denominator if trigger_denominator != 0 else 0.0
 
@@ -505,29 +514,52 @@ class IntelligenceLayer:
         print(f"    - 反推得到的看涨触发分 (Trigger): {trigger_score:.4f}")
 
         # --- 步骤 2: 解剖 Trigger Score 的构成 ---
-        reversal_tf_weights = get_param_value(p_conf.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
-        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        
-        # 获取对应的 overall_health['bullish_dynamic']
-        # 为简化探针，我们假设可以访问到对应引擎实例
         engine_map = {
-            'BEHAVIOR': self.behavioral_intel,
-            'CHIP': self.chip_intel,
-            'DYN': self.mechanics_engine,
-            'FOUNDATION': self.foundation_intel,
-            # ... 可继续添加其他引擎
+            'BEHAVIOR': self.behavioral_intel, 'CHIP': self.chip_intel,
+            'DYN': self.mechanics_engine, 'FOUNDATION': self.foundation_intel,
+            'STRUCTURE': self.structural_intel,
         }
         engine = engine_map.get(domain_upper)
         if not engine:
             print(f"  - [错误] 未找到领域 '{domain}' 对应的引擎实例。")
             return
 
-        # 这里需要一种方式来获取或重新计算当天的 overall_health
-        # 为了探针的独立性，我们在这里重新模拟计算 bullish_dynamic
-        # 注意：这会重复计算，但仅在调试时发生
-        overall_health = engine.diagnose_ultimate_behavioral_signals(df) if domain_upper == 'BEHAVIOR' else engine.diagnose_unified_chip_signals(df) if domain_upper == 'CHIP' else engine.diagnose_ultimate_dynamic_mechanics_signals(df) if domain_upper == 'DYN' else engine.diagnose_unified_foundation_signals(df)
-        
-        bullish_dynamic_health = {p: s.get(probe_date, 0.5) for p, s in overall_health.get('bullish_dynamic', {}).items()}
+        # [代码修改] 重构此部分，直接调用健康度计算器，而不是整个终极信号函数
+        # 1. 获取所有支柱的健康度
+        health_data = {'bullish_dynamic': []}
+        if domain_upper == 'BEHAVIOR':
+            calculators = {'price': engine._calculate_price_health, 'volume': engine._calculate_volume_health, 'kline': engine._calculate_kline_pattern_health}
+            atomic_signals = engine._generate_all_atomic_signals(df) # kline需要
+            for name, calculator in calculators.items():
+                if name == 'kline':
+                    _, d_bull, _, _ = calculator(df, atomic_signals, norm_window, 24, periods)
+                else:
+                    _, d_bull, _, _ = calculator(df, norm_window, 24, dynamic_weights, periods)
+                health_data['bullish_dynamic'].append(d_bull)
+        # ... 此处可以为其他 domain 添加 elif ...
+        else:
+             print(f"  - [警告] 领域 '{domain}' 的详细支柱探针尚未实现。")
+             # 即使未实现，也需要一个空的默认值以避免后续错误
+             bullish_dynamic_health = {p: 0.5 for p in periods}
+
+        # 2. 融合生成 overall_health['bullish_dynamic']
+        overall_bullish_dynamic = {}
+        for p in periods:
+            components = [pillar_dict[p].values for pillar_dict in health_data['bullish_dynamic'] if p in pillar_dict]
+            if components:
+                stacked_values = np.stack(components, axis=0)
+                # 根据不同引擎的融合逻辑（加权或平均）
+                if domain_upper == 'BEHAVIOR':
+                    dim_weights = get_param_value(p_conf_domain.get('dimension_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+                    weights_array = np.array([dim_weights['price'], dim_weights['volume'], dim_weights['kline']])
+                    fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
+                else: # 其他引擎默认是平均
+                    fused_values = np.mean(stacked_values, axis=0)
+                overall_bullish_dynamic[p] = pd.Series(fused_values, index=df.index)
+            else:
+                overall_bullish_dynamic[p] = pd.Series(0.5, index=df.index)
+
+        bullish_dynamic_health = {p: s.get(probe_date, 0.5) for p, s in overall_bullish_dynamic.items()}
 
         short_force = (bullish_dynamic_health.get(1, 0.5) * bullish_dynamic_health.get(5, 0.5))**0.5
         medium_trend = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
@@ -538,43 +570,29 @@ class IntelligenceLayer:
         print(f"    - 中期看涨力 (权重 {reversal_tf_weights['medium']}): {medium_trend:.4f}")
         print(f"    - 长期看涨力 (权重 {reversal_tf_weights['long']}): {long_inertia:.4f}")
 
-        # --- 步骤 3: 找出主要贡献力量，并解剖其构成 ---
+        # --- 步骤 3 & 4 (逻辑不变，但现在基于更可靠的数据) ---
         forces = {'短期': short_force, '中期': medium_trend, '长期': long_inertia}
         main_force_name = max(forces, key=forces.get)
         print(f"  - 主要贡献力量来自【{main_force_name}看涨力】(分值: {forces[main_force_name]:.4f})")
 
-        # 以主要贡献力量（例如短期）为例，深入解剖其构成
-        if main_force_name == '短期':
-            p1, p2 = 1, 5
-        elif main_force_name == '中期':
-            p1, p2 = 13, 21
-        else: # 长期
-            p1, p2 = 55, 55
+        if main_force_name == '短期': p1, p2 = 1, 5
+        elif main_force_name == '中期': p1, p2 = 13, 21
+        else: p1, p2 = 55, 55
         
         print(f"    -> 该力由 {p1}日 和 {p2}日 的 '动态看涨分' 融合得到:")
         print(f"       - {p1}日动态看涨分: {bullish_dynamic_health.get(p1, 0.5):.4f}")
         print(f"       - {p2}日动态看涨分: {bullish_dynamic_health.get(p2, 0.5):.4f}")
 
-        # --- 步骤 4: 解剖单日动态看涨分的构成 (以p1为例) ---
-        # 这一步需要深入到具体引擎的 _calculate_..._health 方法
-        # 这里以 BehavioralIntelligence 为例
         if domain_upper == 'BEHAVIOR':
-            price_d_bull, vol_d_bull, kline_d_bull = {}, {}, {}
-            # 重新计算各维度健康度
-            price_s_bull, price_d_bull, _, _ = engine._calculate_price_health(df, 120, 24, p_conf.get('dynamic_weights'), periods)
-            vol_s_bull, vol_d_bull, _, _ = engine._calculate_volume_health(df, 120, 24, p_conf.get('dynamic_weights'), periods)
-            atomic_signals = engine._generate_all_atomic_signals(df)
-            kline_s_bull, kline_d_bull, _, _ = engine._calculate_kline_pattern_health(df, atomic_signals, 120, 24, periods)
+            price_score = health_data['bullish_dynamic'][0][p1].get(probe_date, 0.5)
+            vol_score = health_data['bullish_dynamic'][1][p1].get(probe_date, 0.5)
+            kline_score = health_data['bullish_dynamic'][2][p1].get(probe_date, 0.5)
             
-            price_score = price_d_bull[p1].get(probe_date, 0.5)
-            vol_score = vol_d_bull[p1].get(probe_date, 0.5)
-            kline_score = kline_d_bull[p1].get(probe_date, 0.5)
-            
-            dimension_weights = get_param_value(p_conf.get('dimension_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+            dim_weights = get_param_value(p_conf_domain.get('dimension_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
             print(f"    -> {p1}日动态看涨分由以下维度加权构成:")
-            print(f"       - 价格维度 (权重 {dimension_weights['price']}): {price_score:.4f}")
-            print(f"       - 成交量维度 (权重 {dimension_weights['volume']}): {vol_score:.4f}")
-            print(f"       - K线形态维度 (权重 {dimension_weights['kline']}): {kline_score:.4f}")
+            print(f"       - 价格维度 (权重 {dim_weights['price']}): {price_score:.4f}")
+            print(f"       - 成交量维度 (权重 {dim_weights['volume']}): {vol_score:.4f}")
+            print(f"       - K线形态维度 (权重 {dim_weights['kline']}): {kline_score:.4f}")
             
             root_cause_dim = max({'价格': price_score, '成交量': vol_score, 'K线': kline_score}.items(), key=lambda item: item[1])
             print(f"  - [最终结论] {signal_name} 在当日维持高分的根源在于【{root_cause_dim[0]}维度】的动态看涨分持续强势 (分值: {root_cause_dim[1]:.4f})。")

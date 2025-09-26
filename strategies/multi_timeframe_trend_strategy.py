@@ -499,12 +499,13 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V323.1 · 时区兼容性修复版】
-        - 核心修复: 解决了因 DataFrame 索引为“感知时区”(tz-aware)而开始/结束日期为“天真时区”(tz-naive)
-                    导致的 TypeError。现在，在进行日期筛选前，会统一两者时区。
+        【V323.2 · 健壮性修复版】
+        - 核心修复:
+          - [时区兼容] 解决了因 DataFrame 索引为“感知时区”(tz-aware)而开始/结束日期为“天真时区”(tz-naive) 导致的 TypeError。
+          - [索引健壮] 增加了对索引类型的检查，避免在索引不是 DatetimeIndex 时（如 RangeIndex）调用 .tz 属性而引发 AttributeError。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V323.1 · 时区兼容性修复版] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 V323.2 · 健壮性修复版] ---") # [代码修改] 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -513,48 +514,46 @@ class MultiTimeframeTrendStrategy:
             print("    -> [阶段 1/2] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
-            _records_tuple, daily_analysis_df, score_details_df, risk_details_df = await self._run_tactical_engine(
+            # [代码修改] 增加对返回值的健壮性处理
+            engine_results = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
+            if not isinstance(engine_results, tuple) or len(engine_results) < 4:
+                print("[严重错误] 战术引擎返回结果格式不正确，无法继续调试。")
+                return
+
+            _records_tuple, daily_analysis_df, score_details_df, risk_details_df = engine_results
+
+            # [代码新增] 增加对 daily_analysis_df 的有效性检查
+            if daily_analysis_df is None or daily_analysis_df.empty:
+                print("[严重错误] 战术引擎未能生成有效的分析数据(daily_analysis_df)，调试终止。")
+                return
 
             print("    -> [阶段 1/2] 核心策略计算完成，已捕获所有中间过程数据。")
 
-            # 步骤 2: 检查并部署探针 (逻辑保持不变)
+            # 步骤 2: 检查并部署探针
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            probe_date = get_param_value(debug_params.get('probe_date'))
-            if probe_date:
-                if get_param_value(debug_params.get('enable_bottom_reversal_probe'), False):
-                    self._deploy_bottom_reversal_probe(
-                        probe_date=probe_date,
-                        daily_analysis_df=daily_analysis_df,
-                        atomic_states=self.tactical_engine.atomic_states
-                    )
-                if get_param_value(debug_params.get('enable_ultimate_reversal_probe'), False):
-                    self._deploy_ultimate_reversal_probe(
-                        probe_date=probe_date,
-                        daily_analysis_df=daily_analysis_df,
-                        atomic_states=self.tactical_engine.atomic_states
-                    )
+            if get_param_value(debug_params.get('enabled'), False):
+                self.tactical_engine.intelligence_layer.deploy_forensic_probes()
 
             # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
-            # 统一时区以进行安全比较
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
             
-            # 检查 DataFrame 索引是否有时区信息
-            if daily_analysis_df.index.tz is not None:
-                # 如果有，则将 start_dt 和 end_dt 本地化到相同的时区
-                # print(f"    -> [时区校准] 检测到索引时区为 {daily_analysis_df.index.tz}，正在校准开始/结束日期...")
-                start_dt = start_dt.tz_localize(daily_analysis_df.index.tz)
-                end_dt = end_dt.tz_localize(daily_analysis_df.index.tz)
+            # [代码修改] 增加索引类型检查，修复 AttributeError
+            if isinstance(daily_analysis_df.index, pd.DatetimeIndex) and daily_analysis_df.index.tz is not None:
+                target_timezone = daily_analysis_df.index.tz
+                start_dt = start_dt.tz_localize(target_timezone)
+                end_dt = end_dt.tz_localize(target_timezone)
             
-            # 现在可以安全地进行比较
             debug_period_df = daily_analysis_df[(daily_analysis_df.index >= start_dt) & (daily_analysis_df.index <= end_dt)]
             
             if debug_period_df.empty:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
+                # [代码新增] 增加对完整数据的检查提示
+                print(f"    -> 提示: 请检查完整数据(daily_analysis_df)的索引范围是否覆盖此期间。完整数据范围: {daily_analysis_df.index.min()} to {daily_analysis_df.index.max()}")
                 return
 
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
@@ -564,7 +563,9 @@ class MultiTimeframeTrendStrategy:
                 final_score_val = row.get('final_score', 'N/A')
                 signal_type = row.get('signal_type', '无信号')
                 
-                print(f"\n{time_str} [最终得分: {final_score_val:<7.0f}] [最终信号: {signal_type}]")
+                # [代码修改] 格式化输出，使其更对齐
+                final_score_str = f"{final_score_val:<7.0f}" if isinstance(final_score_val, (int, float)) else "N/A"
+                print(f"\n{time_str} [最终得分: {final_score_str}] [最终信号: {signal_type}]")
                 
                 score_details_json = row.get('signal_details_cn', {})
                 if score_details_json and isinstance(score_details_json, dict):
@@ -573,14 +574,14 @@ class MultiTimeframeTrendStrategy:
                         print("  --- 激活进攻项 ---")
                         for item in offense_details:
                             if isinstance(item, dict):
-                                print(f"    - {item.get('name', 'N/A')} ({item.get('score', 0)})")
+                                print(f"    - {item.get('name', 'N/A'):<20} ({item.get('score', 0):>5.0f})")
                     
                     risk_details = score_details_json.get('risk', [])
                     if risk_details:
                         print("  --- 激活风险项 ---")
                         for item in risk_details:
                             if isinstance(item, dict):
-                                print(f"    - {item.get('name', 'N/A')} ({item.get('score', 0)})")
+                                print(f"    - {item.get('name', 'N/A'):<20} ({item.get('score', 0):>5.0f})")
 
             print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
