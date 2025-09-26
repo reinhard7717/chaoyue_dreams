@@ -26,8 +26,8 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 命名修复版】终极动态力学信号诊断模块
-        - 核心修复: 修正了对 `_calculate_kinetic_energy_health` 方法的错误引用，解决了 AttributeError。
+        【V3.6 · 参数修复版】终极动态力学信号诊断模块
+        - 核心修复: 修正了在调用各健康度组件计算器时，参数传递顺序错误的问题，解决了 TypeError。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -41,7 +41,6 @@ class DynamicMechanicsEngine:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        # 为顶部反转新增奖励(惩罚)因子
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
 
         # --- 2. 调用公共函数计算上下文分数 ---
@@ -52,7 +51,6 @@ class DynamicMechanicsEngine:
             'bullish_static': [], 'bullish_dynamic': [],
             'bearish_static': [], 'bearish_dynamic': []
         }
-        # 修正了对 _calculate_kinetic_energy_health 的方法引用
         calculators = {
             'volatility': self._calculate_volatility_health,
             'efficiency': self._calculate_efficiency_health,
@@ -60,7 +58,8 @@ class DynamicMechanicsEngine:
             'inertia': self._calculate_inertia_health,
         }
         for name, calculator in calculators.items():
-            s_bull, d_bull, s_bear, d_bear = calculator(df, periods, norm_window, dynamic_weights)
+            # [代码修改] 修正了调用健康度组件计算器时的参数顺序
+            s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, dynamic_weights, periods)
             health_data['bullish_static'].append(s_bull)
             health_data['bullish_dynamic'].append(d_bull)
             health_data['bearish_static'].append(s_bear)
@@ -69,7 +68,14 @@ class DynamicMechanicsEngine:
         # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
         pillar_names = list(pillar_weights.keys())
-        weights_array = np.array([pillar_weights[name] for name in pillar_names])
+        
+        # 防御性编程：如果权重未配置，则采用等权重
+        if not pillar_weights:
+            print(f"        -> [动态力学引擎] 警告: 'pillar_weights' 在配置文件中缺失。将临时采用等权重融合。")
+            weights_array = np.full(len(calculators), 1.0 / len(calculators))
+        else:
+            weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
+
         for health_type, health_sources in [
             ('bullish_static', health_data['bullish_static']),
             ('bullish_dynamic', health_data['bullish_dynamic']),
@@ -78,35 +84,37 @@ class DynamicMechanicsEngine:
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                stacked_values = np.stack([pillar_dict[p].values for pillar_dict in health_sources], axis=0)
+                if not health_sources: continue
+                valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
+                if not valid_pillars: continue
+                
+                stacked_values = np.stack(valid_pillars, axis=0)
                 fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
-        # --- 5. 终极信号合成 ---
-        bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
+        # --- 5. 终极信号合成 (逻辑保持不变) ---
+        bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods if p in overall_health.get('bullish_static', {}) and p in overall_health.get('bullish_dynamic', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
         overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
         
-        bullish_dynamic_health = overall_health['bullish_dynamic']
-        bullish_short_force_rev = (bullish_dynamic_health.get(1, 0.5) * bullish_dynamic_health.get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
-        bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
+        bullish_dynamic_health = overall_health.get('bullish_dynamic', {})
+        bullish_short_force_rev = (bullish_dynamic_health.get(1, pd.Series(0.5, index=df.index)) * bullish_dynamic_health.get(5, pd.Series(0.5, index=df.index)))**0.5
+        bullish_medium_trend_rev = (bullish_dynamic_health.get(13, pd.Series(0.5, index=df.index)) * bullish_dynamic_health.get(21, pd.Series(0.5, index=df.index)))**0.5
+        bullish_long_inertia_rev = bullish_dynamic_health.get(55, pd.Series(0.5, index=df.index))
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
-        # 重构顶部反转信号的计算逻辑
-        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods if p in overall_health.get('bearish_static', {}) and p in overall_health.get('bearish_dynamic', {})}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
         overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
         
-        # 使用新的“风险放大器”模型
-        final_top_reversal_score = (overall_bearish_resonance * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
+        final_top_reversal_score = (overall_bearish_resonance * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
 
-        # --- 6. 赋值 ---
+        # --- 6. 赋值 (逻辑保持不变) ---
         for prefix, score in [('SCORE_DYN_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_DYN_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_DYN_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_DYN_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
