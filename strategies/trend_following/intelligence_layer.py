@@ -114,6 +114,95 @@ class IntelligenceLayer:
         print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
+    def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
+        """
+        【V1.0 新增】NaN 值法医探针。
+        当检测到 NaN 时，此方法被调用，以追溯并解剖导致问题的信号计算链。
+        """
+        print("\n" + "="*30 + f" [NaN 法医探针 V1.0 启动] " + "="*30)
+        print(f"  - 案发时间: {nan_date.strftime('%Y-%m-%d')}")
+        print(f"  - 可疑信号: {nan_signal_name}")
+        print("  - 开始进行计算链路回溯解剖...")
+        print("-" * 80)
+
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+
+        def get_val(signal_name, date, source_dict=atomic):
+            """安全地获取并打印一个值"""
+            val = source_dict.get(signal_name, pd.Series(np.nan, index=df.index)).get(date, np.nan)
+            print(f"    -> 读取 '{signal_name}': {val}")
+            return val
+
+        def probe_pillar_health(engine_intel, date, period, health_type):
+            """通用支柱健康度探针"""
+            # 这是一个简化的示例，实际需要根据每个引擎的结构来定制
+            # 这里我们假设可以访问到引擎的内部计算方法或存储的中间结果
+            # 为了简化，我们直接从 atomic_states 或 df_indicators 中读取最终的指标
+            print(f"  ---> 解剖 {health_type} 健康度 (周期 {period})...")
+            # 示例：追溯到最原始的 slope 和 accel 指标
+            # 这需要根据具体信号的计算逻辑来确定原始指标名
+            # 例如，对于 DYN 引擎的波动率健康度
+            if "DYN" in nan_signal_name:
+                raw_slope = df.get(f'SLOPE_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
+                raw_accel = df.get(f'ACCEL_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
+                print(f"      ----> 原始指标 SLOPE_{period}_BBW_21_2.0_D: {raw_slope}")
+                print(f"      ----> 原始指标 ACCEL_{period}_BBW_21_2.0_D: {raw_accel}")
+                if pd.isna(raw_slope) or pd.isna(raw_accel):
+                    print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
+
+        # 根据信号名选择解剖路径
+        if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
+            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
+            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
+            # 这是一个示例，实际探针可以做得更精细
+            print("  --> 正在检查所有筹码支柱的健康度贡献...")
+            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
+                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
+                    # 模拟计算 overall_health 的过程并打印
+                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
+                    pass
+            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
+
+        elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
+            print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
+            
+            if nan_signal_name == 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A':
+                print("  ---> 解剖路径: final_score = context * opportunity")
+                
+                # 1. 解剖 context_is_ranging_market
+                print("  -----> 正在解剖 context_is_ranging_market...")
+                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4 # 假设阈值
+                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45 # 假设阈值
+                context_val = float(is_cyclical_regime and is_not_trending_regime)
+                print(f"      - context_is_ranging_market = {context_val}")
+
+                # 2. 解剖 buy_opportunity_score
+                print("  -----> 正在解剖 buy_opportunity_score...")
+                bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(nan_date)
+                print(f"      - 原始指标 BBP_21_2.0_D: {bbp_val}")
+                if pd.isna(bbp_val):
+                    print("      ------> [!!!] 发现源头 NaN！问题出在 BBP_21_2.0_D 指标计算。")
+                opportunity_val = 1 - np.clip(bbp_val, 0, 1) if pd.notna(bbp_val) else np.nan
+                print(f"      - buy_opportunity_score = {opportunity_val}")
+
+                # 3. 最终计算
+                final_val = context_val * opportunity_val
+                print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
+
+        # 可以为其他引擎添加 elif 分支
+        # ...
+
+        else:
+            print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
+            print("  --> 正在检查该信号在 atomic_states 中的值...")
+            get_val(nan_signal_name, nan_date)
+
+        print("-" * 80)
+        print(f"  - 解剖完毕。请重点关注报告中值为 'NaN' 的步骤，其上一步即为问题源头。")
+        print("=" * 80 + "\n")
+
+
     def deploy_forensic_probes(self):
         """
         【V1.1 · 时区校准修复版】法医探针调度中心
@@ -153,6 +242,7 @@ class IntelligenceLayer:
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
+        self._super_probe_ff_period_13(probe_date)
         self._deploy_risk_resonance_probe(probe_date, 'FF')
         self._deploy_risk_resonance_probe(probe_date, 'CHIP')
         self._deploy_risk_resonance_probe(probe_date, 'DYN')
@@ -641,94 +731,100 @@ class IntelligenceLayer:
         
         print(f"  - [最终诊断] {domain_upper} 风险分低，根源在于其构成支柱的【{bottleneck_type}】分数，在现有“相对归一化”逻辑下被历史数据“平均化”，无法体现当日的绝对风险。")
 
-    def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
-        """
-        【V1.0 新增】NaN 值法医探针。
-        当检测到 NaN 时，此方法被调用，以追溯并解剖导致问题的信号计算链。
-        """
-        print("\n" + "="*30 + f" [NaN 法医探针 V1.0 启动] " + "="*30)
-        print(f"  - 案发时间: {nan_date.strftime('%Y-%m-%d')}")
-        print(f"  - 可疑信号: {nan_signal_name}")
-        print("  - 开始进行计算链路回溯解剖...")
-        print("-" * 80)
 
-        df = self.strategy.df_indicators
+    def _super_probe_ff_period_13(self, probe_date: pd.Timestamp):
+        """
+        【FF-13 超级探针 V1.0】
+        这是一个专为解剖“FF领域overall_health缺少周期13数据”问题而设计的终极诊断工具。
+        它将一步步、无死角地回溯计算链路，定位导致数据缺失的根本原因。
+        """
+        print("\n" + "="*30 + " [FF-13 超级探针 V1.0 启动] " + "="*30)
+        
+        domain_upper = 'FF'
+        period_to_probe = 13
+        
         atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        
+        # --- 步骤 1: 检查最顶层的缓存 `__FF_overall_health` ---
+        print(f"--- 步骤 1: 检查顶层缓存 `__FF_overall_health` 在周期 {period_to_probe} 的状态 ---")
+        overall_health_cache_key = f'__{domain_upper}_overall_health'
+        overall_health = atomic.get(overall_health_cache_key)
+        
+        if not overall_health:
+            print(f"  - [致命错误] 探针失败: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
+            print("    -> 这意味着 `fund_flow_intel._fuse_health_with_intent_weights` 方法未能成功缓存其结果。")
+            print("="*95 + "\n")
+            return
 
-        def get_val(signal_name, date, source_dict=atomic):
-            """安全地获取并打印一个值"""
-            val = source_dict.get(signal_name, pd.Series(np.nan, index=df.index)).get(date, np.nan)
-            print(f"    -> 读取 '{signal_name}': {val}")
-            return val
-
-        def probe_pillar_health(engine_intel, date, period, health_type):
-            """通用支柱健康度探针"""
-            # 这是一个简化的示例，实际需要根据每个引擎的结构来定制
-            # 这里我们假设可以访问到引擎的内部计算方法或存储的中间结果
-            # 为了简化，我们直接从 atomic_states 或 df_indicators 中读取最终的指标
-            print(f"  ---> 解剖 {health_type} 健康度 (周期 {period})...")
-            # 示例：追溯到最原始的 slope 和 accel 指标
-            # 这需要根据具体信号的计算逻辑来确定原始指标名
-            # 例如，对于 DYN 引擎的波动率健康度
-            if "DYN" in nan_signal_name:
-                raw_slope = df.get(f'SLOPE_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
-                raw_accel = df.get(f'ACCEL_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
-                print(f"      ----> 原始指标 SLOPE_{period}_BBW_21_2.0_D: {raw_slope}")
-                print(f"      ----> 原始指标 ACCEL_{period}_BBW_21_2.0_D: {raw_accel}")
-                if pd.isna(raw_slope) or pd.isna(raw_accel):
-                    print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
-
-        # 根据信号名选择解剖路径
-        if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
-            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
-            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
-            # 这是一个示例，实际探针可以做得更精细
-            print("  --> 正在检查所有筹码支柱的健康度贡献...")
-            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
-                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
-                    # 模拟计算 overall_health 的过程并打印
-                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
-                    pass
-            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
-
-        elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
-            print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
-            
-            if nan_signal_name == 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A':
-                print("  ---> 解剖路径: final_score = context * opportunity")
-                
-                # 1. 解剖 context_is_ranging_market
-                print("  -----> 正在解剖 context_is_ranging_market...")
-                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4 # 假设阈值
-                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45 # 假设阈值
-                context_val = float(is_cyclical_regime and is_not_trending_regime)
-                print(f"      - context_is_ranging_market = {context_val}")
-
-                # 2. 解剖 buy_opportunity_score
-                print("  -----> 正在解剖 buy_opportunity_score...")
-                bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(nan_date)
-                print(f"      - 原始指标 BBP_21_2.0_D: {bbp_val}")
-                if pd.isna(bbp_val):
-                    print("      ------> [!!!] 发现源头 NaN！问题出在 BBP_21_2.0_D 指标计算。")
-                opportunity_val = 1 - np.clip(bbp_val, 0, 1) if pd.notna(bbp_val) else np.nan
-                print(f"      - buy_opportunity_score = {opportunity_val}")
-
-                # 3. 最终计算
-                final_val = context_val * opportunity_val
-                print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
-
-        # 可以为其他引擎添加 elif 分支
-        # ...
-
+        # --- 步骤 2: 检查构成 `overall_health` 的四个核心健康度分量 ---
+        print(f"\n--- 步骤 2: 检查 `overall_health` 的四个核心分量在周期 {period_to_probe} 的数据 ---")
+        is_missing = False
+        for health_type in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
+            health_series = overall_health.get(health_type, {}).get(period_to_probe)
+            if health_series is None:
+                print(f"  - [关键发现] 在 `overall_health['{health_type}']` 中, 周期 {period_to_probe} 的键不存在！")
+                is_missing = True
+            elif health_series.empty:
+                print(f"  - [关键发现] `overall_health['{health_type}'][{period_to_probe}]` 是一个空的 Series！")
+                is_missing = True
+            else:
+                score_at_probe_date = health_series.get(probe_date, np.nan)
+                print(f"  - `overall_health['{health_type}'][{period_to_probe}]` 存在。当日分值: {score_at_probe_date:.4f}")
+        
+        if not is_missing:
+            print("  - [初步结论] `overall_health` 自身结构完整，问题可能出在下游的信号合成步骤。但这与错误日志不符，继续深入。")
         else:
-            print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
-            print("  --> 正在检查该信号在 atomic_states 中的值...")
-            get_val(nan_signal_name, nan_date)
+            print(f"  - [初步结论] 核心问题确认: `overall_health` 在周期 {period_to_probe} 的数据结构不完整。")
 
-        print("-" * 80)
-        print(f"  - 解剖完毕。请重点关注报告中值为 'NaN' 的步骤，其上一步即为问题源头。")
-        print("=" * 80 + "\n")
+        # --- 步骤 3: 钻透式解剖，重新计算 `overall_health` 并检查每一个支柱的贡献 ---
+        print(f"\n--- 步骤 3: 钻透式解剖 - 检查构成 `overall_health` 的每一个【支柱】在周期 {period_to_probe} 的健康度 ---")
+        
+        # 获取计算所需的参数
+        params = self.fund_flow_intel._initialize_ff_params()
+        pillar_configs = params['pillar_configs']
+        
+        # 重新计算所有支柱的健康度，这一次我们只关心周期13
+        pillar_health_at_13 = {}
+        print("  -> 正在重新计算所有支柱在周期13的健康度...")
+        for name, config in pillar_configs.items():
+            # 调用您系统中最新的 _calculate_pillar_health 方法
+            health_dict = self.fund_flow_intel._calculate_pillar_health(
+                df, name, config, params['norm_window'], params['dynamic_weights'], [period_to_probe]
+            )
+            pillar_health_at_13[name] = health_dict
 
+        # --- 步骤 4: 打印每个支柱在周期13的健康度，寻找 NaN 或空值 ---
+        print(f"\n--- 步骤 4: 展示各支柱在周期 {period_to_probe} 的健康度得分，寻找异常值 ---")
+        culprit_pillars = []
+        for name, health_dict in pillar_health_at_13.items():
+            print(f"  - 支柱: {name:<20}")
+            is_pillar_faulty = False
+            for health_type in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
+                series = health_dict.get(health_type, {}).get(period_to_probe)
+                if series is None or series.empty:
+                    print(f"    - {health_type:<10}: [!!! 致命错误 !!!] 未能计算出 Series。")
+                    is_pillar_faulty = True
+                else:
+                    score = series.get(probe_date, np.nan)
+                    if pd.isna(score):
+                        print(f"    - {health_type:<10}: [!!! 关键发现 !!!] 值为 NaN。")
+                        is_pillar_faulty = True
+                    else:
+                        print(f"    - {health_type:<10}: {score:.4f}")
+            if is_pillar_faulty:
+                culprit_pillars.append(name)
+
+        # --- 步骤 5: 最终诊断 ---
+        print("\n--- 步骤 5: 最终诊断结论 ---")
+        if not culprit_pillars:
+            print("  - [诊断结论] 所有支柱在周期13的健康度均计算正常。问题可能极其罕见，出在 `_fuse_health_with_intent_weights` 的融合逻辑中。")
+        else:
+            print(f"  - [根本原因定位] 定位到以下【问题支柱】在周期13的计算中产生NaN或空值: {', '.join(culprit_pillars)}")
+            print("  - [下一步行动] 请检查这些问题支柱的 `_calculate_pillar_health` 方法在执行时，其内部打印的 `[FF探针-警告]` 日志。")
+            print("    日志会明确指出是哪个 `static_col`, `slope_col`, 或 `accel_col` 在数据层中找不到，这便是问题的根源。")
+
+        print("="*95 + "\n")
 
 
 
