@@ -532,9 +532,9 @@ class MultiTimeframeTrendStrategy:
             print("    -> [阶段 1/2] 核心策略计算完成，已捕获所有中间过程数据。")
 
             # 步骤 2: 检查并部署探针
-            debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            if get_param_value(debug_params.get('enabled'), False):
-                self.tactical_engine.intelligence_layer.deploy_forensic_probes()
+            # debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            # if get_param_value(debug_params.get('enabled'), False):
+            #     self.tactical_engine.intelligence_layer.deploy_forensic_probes()
 
             # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
             print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
