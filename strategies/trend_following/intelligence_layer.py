@@ -16,7 +16,7 @@ from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
-from strategies.trend_following.utils import get_params_block, get_param_value, fuse_multi_level_scores, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score
 
 class IntelligenceLayer:
     """
