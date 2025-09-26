@@ -30,27 +30,21 @@ class MicroBehaviorEngine:
                     全局的 `self.strategy.atomic_states` 中，而不仅仅是暂存在局部变量里。
                     这解决了下游方法因无法获取上游即时计算的信号而导致崩溃的问题。
         """
-        # 更新版本号和日志
         # print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
         all_states = {}
 
-        # 定义一个辅助函数来简化状态更新流程
         def update_states(new_states: Dict[str, pd.Series]):
-            """同时更新局部和全局状态字典"""
             if new_states:
                 all_states.update(new_states)
                 self.strategy.atomic_states.update(new_states)
 
-        # 依次调用所有微观行为合成方法，并使用辅助函数立即更新状态
         update_states(self.synthesize_early_momentum_ignition(df))
-        
-        # 现在，下游方法可以安全地消费上面生成的信号了
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
+        
+        # [代码新增] 在此调用新增的亢奋加速风险模块
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         
-        # 在调用 reversal_reliability_score 之前，它所依赖的所有信号都已存在于 atomic_states 中
-        # 需要从 self.strategy.atomic_states 中获取 early_ignition_score，因为它刚刚被更新
         early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A')
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
@@ -239,7 +233,55 @@ class MicroBehaviorEngine:
         
         return states
 
+    # [代码新增] 全新的“亢奋加速风险”诊断引擎
+    def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.1 · 安全港逻辑强化版】亢奋加速风险诊断引擎
+        - 核心职责: 识别因前一日大涨或连续上涨导致的次日“追高”风险。
+        - 算法: 融合短期乖离率、成交量放大、波动率放大、上影线压力等多个风险因子，
+                 并结合“波段伸展度”作为智能上下文，同时设置“主升浪启动区”作为安全港豁免。
+        - 本次修改:
+          - [逻辑强化] 修复了“ma55上升”判断过于敏感的问题。不再使用5日斜率，
+                        而是采用更稳健的“当前MA55高于3天前的MA55”来判断其短期上升趋势。
+        """
+        states = {}
+        p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
+        if not get_param_value(p_risk.get('enabled'), True): return states
+        norm_window = get_param_value(p_risk.get('norm_window'), 120)
 
+        # --- 步骤 1: 【智能上下文】计算以MA55为基准的“波段伸展度” ---
+        ma55 = df.get('EMA_55_D', df['close_D'])
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
+        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+
+        # --- 步骤 2: 【安全港豁免】判断是否处于“主升浪启动区” ---
+        # 使用更稳健的MA55趋势判断方法
+        ma55_is_rising = (ma55 > ma55.shift(3)).astype(float)
+        
+        bias_55d = df.get('BIAS_55_D', pd.Series(0.5, index=df.index))
+        price_is_near_ma55 = (bias_55d.abs() < 0.15).astype(float)
+        bbw_d = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
+        volatility_was_low = (bbw_d.shift(1) < bbw_d.rolling(60).quantile(0.3)).astype(float)
+        safe_launch_context_score = (ma55_is_rising * price_is_near_ma55 * volatility_was_low)
+
+        # --- 步骤 3: 计算原始风险因子 ---
+        bias_score = normalize_score(df['BIAS_21_D'].abs(), df.index, norm_window, ascending=True)
+        volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
+        volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
+        atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
+        volatility_score = normalize_score(atr_ratio, df.index, norm_window, ascending=True)
+        total_range = (df['high_D'] - df['low_D']).replace(0, 1e-9)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
+        upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
+        raw_risk_score = (bias_score * volume_spike_score * volatility_score * upthrust_score)**(1/4)
+
+        # --- 步骤 4: 最终风险裁定 ---
+        # 最终风险 = 原始风险 * 波段伸展度 * (1 - 安全港豁免分)
+        final_risk_score = (raw_risk_score * stretch_from_ma55_score * (1 - safe_launch_context_score)).astype(np.float32)
+        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score
+        
+        return states
 
 
 

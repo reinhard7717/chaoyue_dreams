@@ -124,7 +124,7 @@
       "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
       "debug_params": {
         "enabled": { "value": true },
-        "probe_date": "2025-09-15",
+        "probe_date": "2025-09-18",
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
       },

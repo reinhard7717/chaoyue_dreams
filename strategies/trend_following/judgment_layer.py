@@ -66,31 +66,34 @@ class JudgmentLayer:
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V505.0 · 配置驱动终极版】计算风险惩罚分
-        - 核心重构: 逻辑已在V504.0中净化，此版本确认其完全依赖 signal_dictionary.json
-                      中的 'penalty_weight' 配置，无需任何修改。
+        【V510.0 · 亢奋风险惩罚版】计算总风险惩罚分
+        - 核心升级: 新增了对“亢奋加速风险”的直接惩罚。
+                      这个信号专门用于抑制在前一日大涨后次日追高的行为。
         """
-        if risk_details_df.empty:
-            return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
-
-        score_map = get_params_block(self.strategy, 'score_type_map', {})
-        penalty_components = {}
-
-        for signal_name in risk_details_df.columns:
-            raw_score = risk_details_df[signal_name].clip(lower=0)
-            
-            signal_meta = score_map.get(signal_name, {})
-            penalty_weight = signal_meta.get('penalty_weight', 0)
-            
-            if penalty_weight > 0:
-                weighted_score = raw_score * penalty_weight
-                penalty_components[signal_name] = weighted_score
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
         
-        if not penalty_components:
-            return pd.Series(0.0, index=risk_details_df.index), pd.DataFrame(index=risk_details_df.index)
-
+        # --- 1. 融合基础风险分 ---
+        fused_risk_score = atomic.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index))
+        
+        # --- 2. [代码新增] 获取并应用亢奋加速风险分 ---
+        # 这个信号专门用于惩罚追高行为
+        euphoric_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
+        
+        # 从配置中获取惩罚权重
+        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        fused_risk_weight = get_param_value(p_judge.get('fused_risk_weight'), 1.0)
+        euphoric_risk_weight = get_param_value(p_judge.get('euphoric_risk_weight'), 1000.0) # 给予一个非常高的权重
+        
+        # --- 3. 计算最终惩罚分 ---
+        total_penalty_score = (fused_risk_score * fused_risk_weight) + (euphoric_risk_score * euphoric_risk_weight)
+        
+        # 准备用于报告的惩罚分量
+        penalty_components = {
+            'FUSED_RISK_PENALTY': fused_risk_score * fused_risk_weight,
+            'EUPHORIC_RISK_PENALTY': euphoric_risk_score * euphoric_risk_weight
+        }
         penalty_components_df = pd.DataFrame(penalty_components)
-        total_penalty_score = penalty_components_df.sum(axis=1).fillna(0)
         
         return total_penalty_score, penalty_components_df
 
