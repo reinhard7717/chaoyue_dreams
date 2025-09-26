@@ -31,7 +31,7 @@
       },
       "ma_convergence": {
         "enabled": true,
-        "description": "【新增】计算均线收敛度，为高级模式识别提供输入。",
+        "description": "计算均线收敛度，为高级模式识别提供输入。",
         "configs": [
           {
             "apply_on": ["D"],
@@ -42,7 +42,7 @@
       },
       "consolidation_period": {
         "enabled": true,
-        "description": "【新增】识别价格盘整期，为突破战术提供上下文。",
+        "description": "识别价格盘整期，为突破战术提供上下文。",
         "boll_period": 21,
         "roc_period": 12,
         "vol_ma_period": 55,
@@ -124,25 +124,25 @@
       "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
       "debug_params": {
         "enabled": { "value": true },
-        "probe_date": "2025-09-05",
+        "probe_date": "2025-09-15",
         "enable_bottom_reversal_probe": false,
         "enable_nan_probe": false
       },
       "hot_money_params": {
         "enabled": true,
-        "description": "【新增】游资席位信号参数"
+        "description": "游资席位信号参数"
       },
       "market_sentiment_params": {
         "enabled": true,
-        "description": "【新增】市场情绪信号参数"
+        "description": "市场情绪信号参数"
       },
       "kpl_theme_params": {
         "enabled": true,
-        "description": "【新增】KPL题材热度信号参数"
+        "description": "KPL题材热度信号参数"
       },
       "smart_money_params": {
         "enabled": true,
-        "description": "【新增】聪明钱（游资与机构协同）信号参数"
+        "description": "聪明钱（游资与机构协同）信号参数"
       },
       "foundation_ultimate_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
       "behavioral_dynamics_params": { "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120 },
@@ -155,7 +155,7 @@
         "说明": "【V501.0 · 终极信号适配版】计分体系。全面转向消费各情报层产出的S+/S/A/B四级终极信号。",
         "industry_lifecycle_scoring_params": {
           "enabled": true,
-          "description": "【新增】行业生命周期评分参数"
+          "description": "行业生命周期评分参数"
         },
         "playbook_synergy_scoring": {
           "说明": "【剧本协同分】剧本作为独立的战术加分项。",

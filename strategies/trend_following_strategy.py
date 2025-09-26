@@ -79,7 +79,7 @@ class TrendFollowStrategy:
 
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """
-        【新增】将所有时间框架的数据合并到一个DataFrame中。
+        将所有时间框架的数据合并到一个DataFrame中。
         """
         if 'D' not in all_dfs:
             return pd.DataFrame()
