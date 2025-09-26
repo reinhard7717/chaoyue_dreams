@@ -210,6 +210,7 @@ class StrategyDailyScore(models.Model):
         PROCEED_WITH_CAUTION = 'PROCEED_WITH_CAUTION', '谨慎持仓'
         FORCE_ATTACK = 'FORCE_ATTACK', '强力进攻'
         NO_SIGNAL = 'NO_SIGNAL', '无信号' # 默认值
+        GAP_UP_SKIPPED = 'GAP_UP_SKIPPED', '高开跳过'
 
     stock = models.ForeignKey(
         'StockInfo',
