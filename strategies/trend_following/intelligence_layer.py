@@ -676,7 +676,7 @@ class IntelligenceLayer:
 
         s_bear_score = overall_health['s_bear'][period_to_probe].get(probe_date, 0.0)
         d_bear_score = overall_health['d_bear'][period_to_probe].get(probe_date, 0.0)
-        # [代码修改结束]
+        
         
         print(f"  - 解剖核心逻辑 (以{period_to_probe}日周期为例): 看跌共振分 ≈ s_bear * d_bear")
         print(f"    - {period_to_probe}日静态看跌分 (s_bear): {s_bear_score:.4f}")

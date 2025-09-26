@@ -1118,7 +1118,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
         'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus', # 新增
         'flow_divergence_mf_vs_retail', 'main_force_flow_intensity_ratio'
     ]
-    # [代码修改结束]
+    
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     for p in UNIFIED_PERIODS:
         calc_window = 2 if p == 1 else p
