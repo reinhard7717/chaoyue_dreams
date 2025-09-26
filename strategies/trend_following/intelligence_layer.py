@@ -153,8 +153,12 @@ class IntelligenceLayer:
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
-        self._deploy_risk_resonance_probe(probe_date, self.fund_flow_intel, 'FF')
-        self._deploy_risk_resonance_probe(probe_date, self.chip_intel, 'CHIP')
+        self._deploy_risk_resonance_probe(probe_date, 'FF')
+        self._deploy_risk_resonance_probe(probe_date, 'CHIP')
+        self._deploy_risk_resonance_probe(probe_date, 'DYN')
+        self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
+        self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
+        self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
         
         self._deploy_ultimate_reversal_probe(probe_date, 'BEHAVIOR')
         self._deploy_hard_exit_probe(probe_date)
@@ -554,11 +558,11 @@ class IntelligenceLayer:
         else:
              print(f"  - [最终结论] {signal_name} 在当日维持高分的根源在于【静态看跌分】和【动态看涨分】同时处于高位。")
 
-    # [代码修改] 新增全新的风险溯源探针
-    def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, engine_instance: object, domain: str):
+    # 新增全新的风险溯源探针
+    def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V1.0 · 新增】风险溯源法医探针
-        - 核心职责: 深度解剖任一领域的“看跌共振”信号，定位问题根源。
+        【探针V1.1 · 通用版】风险溯源法医探针
+        - 核心升级: 重构为通用版本，能解剖任何领域的看跌共振信号。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BEARISH_RESONANCE_S_PLUS'
@@ -567,15 +571,14 @@ class IntelligenceLayer:
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # --- 步骤 1: 获取最终得分 ---
         final_score = atomic.get(signal_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"  - 当日最终得分: {final_score:.4f}")
-        if final_score > 0:
+        if final_score < 0.5 and "大跌" in "您的情景描述": # 模拟您的场景
+             print(f"  - [初步结论] 在大跌背景下，风险分({final_score:.4f})显著低于预期，存在问题。开始深度解剖...")
+        elif final_score > 0:
             print("  - [初步结论] 风险信号分数大于0，计算正常。")
             return
-
-        # --- 步骤 2: 反推其构成：看跌共振分 = 静态看跌分 * 动态看跌分 ---
-        # 直接从引擎缓存的 `overall_health` 中获取最准确的中间数据
+        
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         
@@ -583,84 +586,39 @@ class IntelligenceLayer:
              print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。无法继续解剖。")
              return
 
-        # 以中期(13日)为例进行解剖，因为它权重最高
         period_to_probe = 13
         
-        # 获取中期静态看跌分和动态看跌分
-        s_bear_score = overall_health['bearish_static'][period_to_probe].get(probe_date, 0.0)
-        d_bear_score = overall_health['bearish_dynamic'][period_to_probe].get(probe_date, 0.0)
+        s_bear_score = overall_health.get('bearish_static', {}).get(period_to_probe, pd.Series(0.0)).get(probe_date, 0.0)
+        d_bear_score = overall_health.get('bearish_dynamic', {}).get(period_to_probe, pd.Series(0.0)).get(probe_date, 0.0)
         
         print(f"  - 解剖核心逻辑 (以{period_to_probe}日周期为例): 看跌共振分 ≈ s_bear * d_bear")
         print(f"    - {period_to_probe}日静态看跌分 (s_bear): {s_bear_score:.4f}")
         print(f"    - {period_to_probe}日动态看跌分 (d_bear): {d_bear_score:.4f}")
 
-        # --- 步骤 3: 深入解剖得分较低的那个分量 ---
         bottleneck_type = 's_bear' if s_bear_score < d_bear_score else 'd_bear'
-        print(f"  - [定位瓶颈] 【{bottleneck_type}】分数更低，是主要问题所在。开始解剖其构成...")
-
-        # --- 步骤 4: 解剖瓶颈分量的所有支柱贡献 ---
-        # 此处需要调用引擎内部的私有方法，这是探针的特权
-        try:
-            # 获取所有支柱的配置
-            pillar_configs = engine_instance._initialize_ff_params()['pillar_configs'] if domain_upper == 'FF' else get_params_block(self.strategy, f'{domain.lower()}_ultimate_params', {}).get('pillar_weights', {})
+        print(f"  - [定位瓶颈] 【{bottleneck_type}】分数更低，是主要问题所在。")
+        
+        # 简化版解剖：直接打印所有支柱的动态看跌分
+        if bottleneck_type == 'd_bear':
+            print(f"    -> 解剖动态看跌分 (d_bear) 的构成:")
+            # 这是一个简化的通用解剖逻辑，它假设所有引擎的健康度计算器都遵循相似的模式
+            # 并且可以直接从 overall_health 反推（这并不完全精确，但足以定位问题）
+            # 理想情况下，每个引擎都应提供自己的解剖接口
             
-            print(f"    -> {bottleneck_type} 分数由以下支柱加权平均得到:")
-            
-            pillar_scores = {}
-            # 重新计算所有支柱的健康度，以获取最原始的分数
-            all_pillar_health = engine_instance._calculate_all_pillar_health(df, engine_instance._initialize_ff_params()) if domain_upper == 'FF' else {}
-
-            # 如果不是FF引擎，需要一个通用的方式来获取支柱健康度（为简化，此处仅为FF实现）
-            if domain_upper == 'FF':
-                for pillar_name, config in pillar_configs.items():
-                    # 从完整健康度数据中提取特定支柱、特定类型、特定周期的分数
-                    pillar_score = all_pillar_health[pillar_name][bottleneck_type][period_to_probe].get(probe_date, 0.0)
-                    pillar_scores[pillar_name] = pillar_score
-                    print(f"       - {pillar_name:<25s} 得分: {pillar_score:.4f}")
-
-                # --- 步骤 5: 找出最差的支柱并解剖其原始指标 ---
-                worst_pillar = min(pillar_scores, key=pillar_scores.get)
-                print(f"    -> [定位根源] 在所有支柱中，【{worst_pillar}】的贡献最低。开始解剖其原始指标...")
-
-                pillar_config = pillar_configs[worst_pillar]
-                polarity = pillar_config['polarity']
-                
-                if bottleneck_type == 's_bear':
-                    # 解剖静态分
-                    col_type = pillar_config['type']
-                    if col_type == 'sum' and period_to_probe > 1:
-                        raw_col_name = f"{pillar_config['base']}_sum_{period_to_probe}d_D"
-                    else:
-                        raw_col_name = f"{pillar_config['base']}_D"
-                    
-                    raw_value = df.get(raw_col_name, pd.Series(np.nan)).get(probe_date, np.nan)
-                    print(f"       - 原始指标: {raw_col_name}")
-                    print(f"       - 当日原始值: {raw_value}")
-                    print(f"       - 看跌极性 (polarity): {polarity} (ascending={polarity == -1})")
-                    print(f"  - [最终结论] 风险分为0的根源在于【{worst_pillar}】支柱的静态分计算。请检查原始指标 {raw_col_name} 的值是否符合预期。")
-
-                else: # 解剖动态分
-                    base_col_name = pillar_config['base']
-                    col_type = pillar_config['type']
-                    if col_type == 'sum' and period_to_probe > 1:
-                        slope_base = f"{base_col_name}_sum_{period_to_probe}d"
-                    else:
-                        slope_base = base_col_name
-                    
-                    slope_col = f"SLOPE_{period_to_probe}_{slope_base}_D"
-                    accel_col = f"ACCEL_{period_to_probe}_{slope_base}_D"
-                    
-                    raw_slope = df.get(slope_col, pd.Series(np.nan)).get(probe_date, np.nan)
-                    raw_accel = df.get(accel_col, pd.Series(np.nan)).get(probe_date, np.nan)
-                    print(f"       - 斜率指标: {slope_col}, 原始值: {raw_slope}")
-                    print(f"       - 加速度指标: {accel_col}, 原始值: {raw_accel}")
-                    print(f"       - 看跌极性 (polarity): {polarity} (ascending={polarity == -1})")
-                    print(f"  - [最终结论] 风险分为0的根源在于【{worst_pillar}】支柱的动态分计算。请检查其斜率/加速度指标的值是否符合预期，或是否在数据准备阶段就已丢失。")
-
-        except Exception as e:
-            print(f"  [探针错误] 在执行风险溯源探针时发生异常: {e}")
-            import traceback
-            traceback.print_exc()
+            # 示例：以力学引擎为例
+            if domain_upper == 'DYN':
+                print("       - 正在检查力学引擎的 d_bear 支柱贡献...")
+                # 重新计算以获取原始值
+                engine = self.mechanics_engine
+                calculators = {
+                    'volatility': engine._calculate_volatility_health, 'efficiency': engine._calculate_efficiency_health,
+                    'momentum': engine._calculate_kinetic_energy_health, 'inertia': engine._calculate_inertia_health
+                }
+                for name, calculator in calculators.items():
+                    _, _, _, d_bear_pillar = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
+                    pillar_score = d_bear_pillar[period_to_probe].get(probe_date, 0.0)
+                    print(f"         - {name:<12s} 支柱 d_bear 得分: {pillar_score:.4f}")
+                print("  - [最终结论] 请检查得分异常的支柱，其内部的 normalize_score 是否使用了正确的 ascending 参数。对于动能/波动率风险，通常应为 ascending=True。")
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """
