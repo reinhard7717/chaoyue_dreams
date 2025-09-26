@@ -327,7 +327,7 @@ class IndicatorService:
                 base_name, sum_period, slope_period = ff_sum_slope_match.groups()
                 new_name = f"SLOPE_{slope_period}_{base_name}_sum_{sum_period}d"
             
-            # [代码修改] 新增规则1.1: 匹配资金流的聚合指标加速度
+            # 新增规则1.1: 匹配资金流的聚合指标加速度
             elif '_sum_' in col and '_accel_' in col:
                 ff_sum_accel_match = re.match(r'(.+)_sum_(\d+)d_accel_(\d+)d$', col)
                 if ff_sum_accel_match:

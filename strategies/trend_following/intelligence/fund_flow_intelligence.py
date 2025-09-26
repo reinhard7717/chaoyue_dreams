@@ -30,37 +30,28 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 模块化重构版】终极资金流信号诊断模块
+        【V2.2 · 融合逻辑重构版】终极资金流信号诊断模块
         - 核心重构 (本次修改):
-          - [代码重构] 将原V2.0版的臃肿逻辑拆分为多个职责单一的私有辅助方法。
-          - [结构优化] 本方法升格为高层指挥官，负责按顺序调用各计算模块，代码更清晰。
-        - 收益: 极大提升了代码的可读性和可维护性，同时保持了业务逻辑的完整性。
+          - [数据流] 更新了调用流程，以适配 V2.3/V2.4 版的融合与合成逻辑。
         """
-        # print("        -> [终极资金流信号诊断模块 V2.1 · 模块化重构版] 启动...") # 更新版本号和说明
-        
-        # 步骤1: 初始化所有参数、权重和支柱配置
         params = self._initialize_ff_params()
         if not params['enabled']:
             return {}
 
-        # 步骤2: 调用公共函数计算上下文分数
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
 
-        # 步骤3: 计算每一个资金流支柱的四维健康度
         pillar_health = self._calculate_all_pillar_health(df, params)
 
-        # 步骤4: 执行“意图驱动加权融合”，生成全局的四维健康度
-        overall_health = self._fuse_health_with_intent_weights(pillar_health, params)
+        # 此处调用重构后的融合方法
+        fused_health = self._fuse_health_with_intent_weights(pillar_health, params)
 
-        # 步骤5: 结合全局健康度与上下文分数，合成最终的共振与反转信号
-        final_scores = self._synthesize_final_signals(overall_health, context_scores, params)
+        # 此处调用重构后的合成方法
+        final_scores = self._synthesize_final_signals(fused_health, context_scores, params)
 
-        # 步骤6: 将最终信号转换为 S+/S/A/B 四个等级
         states = self._assign_graded_states(final_scores)
         
         return states
-
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法
     # ==============================================================================
@@ -104,61 +95,55 @@ class FundFlowIntelligence:
             )
         return pillar_health
 
-    def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[int, pd.Series]]:
+    def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
         """
-        【V2.2 · 性能优化版】执行意图驱动的加权融合，生成全局四维健康度。
-        - 本次优化:
-          - [效率] 重构了整个融合逻辑。通过预先将意图权重映射为NumPy数组，并在周期循环中
-                    将所有支柱的健康分堆叠成矩阵，最终利用一次矩阵乘法（`@`）和一次求和
-                    完成加权融合。这取代了原先在多重循环中对Pandas Series的重复操作，
-                    极大提升了计算效率并减少了内存占用。
+        【V2.3 · 融合逻辑重构版】执行意图驱动的加权融合。
+        - 本次重构:
+          - [逻辑修正] 彻底修正了原V2.2版将健康度类型与信号意图混淆的致命BUG。
+          - [架构优化] 不再生成4个混乱的健康度，而是根据“共振”和“反转”两种意图，
+                        分别生成两套完整的、逻辑纯净的四维健康度字典。
+                        - fused_health_for_resonance: 用于计算共振信号。
+                        - fused_health_for_reversal: 用于计算反转信号。
+        - 收益: 从根本上解决了风险信号恒为0的问题，确保了信号计算的逻辑正确性。
         """
-        overall_health = {}
+        fused_results = {
+            'resonance': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}},
+            'reversal': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}}
+        }
         pillar_names = list(params['pillar_configs'].keys())
-        num_pillars = len(pillar_names)
-        
-        # 预处理权重，将它们映射为与支柱顺序一致的NumPy数组
-        resonance_weights_array = np.array([params['resonance_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
-        reversal_weights_array = np.array([params['reversal_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
-
-        # 遍历四种健康度类型
-        for health_type in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
-            overall_health[health_type] = {}
-            
-            # 根据健康度类型选择对应的权重数组
-            weights_array = resonance_weights_array if 'static' in health_type else reversal_weights_array
+        # 遍历两种意图：共振和反转
+        for intent_type, weights_key in [('resonance', 'resonance_pillar_weights'), ('reversal', 'reversal_pillar_weights')]:
+            # 获取当前意图对应的权重数组
+            weights_config = params[weights_key]
+            weights_array = np.array([weights_config.get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
             total_weights = np.sum(weights_array)
-            
-            # 确定要从 pillar_health 中提取的键名
-            health_dict_key = f"{'s' if 'static' in health_type else 'd'}_{'bull' if 'bullish' in health_type else 'bear'}"
-            
-            # 遍历所有周期
-            for p in params['periods']:
-                # 将所有支柱在当前周期的健康分Series的Numpy数组堆叠成一个 (num_pillars, N) 的矩阵
-                # N是数据行数
-                pillar_scores_matrix = np.stack([
-                    pillar_health[name][health_dict_key].get(p, pd.Series(0.5)).values 
-                    for name in pillar_names
-                ], axis=0)
-                
-                if total_weights > 0:
-                    # 使用NumPy的向量化乘法和加法，一次性完成加权求和
-                    # (num_pillars, N) 矩阵与 (num_pillars,) 权重的乘法(利用广播) -> (num_pillars, N) -> 沿axis=0求和 -> (N,)
-                    fused_values = np.sum(pillar_scores_matrix * weights_array[:, np.newaxis], axis=0) / total_weights
-                    
-                    # 获取正确的索引用于创建Series
-                    sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
-                    overall_health[health_type][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
-                else:
-                    sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
-                    overall_health[health_type][p] = pd.Series(0.5, index=sample_index, dtype=np.float32)
-                    
-        return overall_health
-
-    def _synthesize_final_signals(self, overall_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
+            # 遍历四种健康度类型
+            for health_key, health_dict_key in [
+                ('s_bull', 's_bull'), ('d_bull', 'd_bull'), 
+                ('s_bear', 's_bear'), ('d_bear', 'd_bear')
+            ]:
+                # 遍历所有周期
+                for p in params['periods']:
+                    # 将所有支柱在当前周期的健康分堆叠成矩阵
+                    pillar_scores_matrix = np.stack([
+                        pillar_health[name][health_dict_key].get(p, pd.Series(0.5)).values 
+                        for name in pillar_names
+                    ], axis=0)
+                    if total_weights > 0:
+                        # 使用向量化乘法和加法，完成加权求和
+                        fused_values = np.sum(pillar_scores_matrix * weights_array[:, np.newaxis], axis=0) / total_weights
+                        sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
+                        fused_results[intent_type][health_key][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
+                    else:
+                        sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
+                        fused_results[intent_type][health_key][p] = pd.Series(0.5, index=sample_index, dtype=np.float32)
+        return fused_results
+    
+    def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 哲学修复版】合成最终的共振与反转信号
-        - 核心修复: 彻底重构了底部和顶部反转信号的合成哲学。
+        【V2.4 · 融合逻辑重构版】合成最终的共振与反转信号
+        - 核心重构: 更新了信号合成逻辑，以消费由 V2.3 版 `_fuse_health_with_intent_weights`
+                      生成的两套全新的、逻辑纯净的健康度数据。
         """
         final_scores = {}
         periods = params['periods']
@@ -166,37 +151,37 @@ class FundFlowIntelligence:
         rev_tw = params['reversal_tf_weights']
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8) # 新增顶部因子
-
-        # 看涨共振 (逻辑不变)
-        bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
+        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
+        # 从重构后的数据结构中获取正确的健康度
+        resonance_health = fused_health['resonance']
+        reversal_health = fused_health['reversal']
+        # --- 看涨信号合成 ---
+        # 看涨共振: 使用“共振意图”融合的健康度
+        bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_bull'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bull_res_long = bullish_resonance_health.get(55, 0.5)
         final_scores['bullish_resonance'] = (bull_res_short * res_tw['short'] + bull_res_med * res_tw['medium'] + bull_res_long * res_tw['long'])
-        
-        # 底部反转 (全新逻辑: 静态看跌 * 动态看涨)
-        bullish_reversal_health = {p: overall_health['bearish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
+        # 底部反转: 使用“反转意图”融合的健康度，并应用“静态看跌 * 动态看涨”哲学
+        bullish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_bull'][p] for p in periods}
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bull_rev_long = bullish_reversal_health.get(55, 0.5)
         bullish_trigger = (bull_rev_short * rev_tw['short'] + bull_rev_med * rev_tw['medium'] + bull_rev_long * rev_tw['long'])
         final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
-
-        # 看跌共振 (逻辑不变)
-        bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        # --- 看跌信号合成 ---
+        # 看跌共振: 使用“共振意图”融合的健康度
+        bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_bear'][p] for p in periods}
         bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bear_res_long = bearish_resonance_health.get(55, 0.5)
         final_scores['bearish_resonance'] = (bear_res_short * res_tw['short'] + bear_res_med * res_tw['medium'] + bear_res_long * res_tw['long'])
-
-        # 顶部反转 (全新逻辑: 静态看涨 * 动态看跌)
-        bearish_reversal_health = {p: overall_health['bullish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        # 顶部反转: 使用“反转意图”融合的健康度，并应用“静态看涨 * 动态看跌”哲学
+        bearish_reversal_health = {p: reversal_health['s_bull'][p] * reversal_health['d_bear'][p] for p in periods}
         bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bear_rev_long = bearish_reversal_health.get(55, 0.5)
         bearish_trigger = (bear_rev_short * rev_tw['short'] + bear_rev_med * rev_tw['medium'] + bear_rev_long * rev_tw['long'])
-        # 顶部反转也应用奖励(惩罚)因子模型
         final_scores['top_reversal'] = (bearish_trigger * (1 + context_scores['top_context'] * top_context_bonus_factor)).clip(0, 1)
         
         return final_scores

@@ -505,7 +505,7 @@ class IntelligenceLayer:
         print(f"    - 反推得到的看涨触发分 (Trigger): {trigger_score:.4f}")
 
         # --- 步骤 2: 解剖 Trigger Score 的构成 (全新逻辑) ---
-        # [代码修改] 直接从 atomic_states 读取引擎缓存的 overall_health
+        # 直接从 atomic_states 读取引擎缓存的 overall_health
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         
