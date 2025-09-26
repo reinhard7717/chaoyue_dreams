@@ -99,7 +99,7 @@ class JudgmentLayer:
                 # 记录每个分量的惩罚，用于报告
                 penalty_components_df[signal_name] = penalty_amount
         
-        # [代码修改] 删除了对亢奋风险的重复计算逻辑，因为它已经在上面的循环中被统一处理了。
+        # 删除了对亢奋风险的重复计算逻辑，因为它已经在上面的循环中被统一处理了。
         
         return total_penalty_score, penalty_components_df
 

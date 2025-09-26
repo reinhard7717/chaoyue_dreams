@@ -558,7 +558,7 @@ class IntelligenceLayer:
         else:
              print(f"  - [最终结论] {signal_name} 在当日维持高分的根源在于【静态看跌分】和【动态看涨分】同时处于高位。")
 
-    # [代码修改] 彻底重构风险探针，实现“钻透式”解剖
+    # 彻底重构风险探针，实现“钻透式”解剖
     def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
         【探针V4.3 · 健壮性修复版】风险溯源法医探针
@@ -619,7 +619,7 @@ class IntelligenceLayer:
                 calculator = getattr(engine_instance, calc_func_name)
                 
                 periods_arg = [period_to_probe]
-                # [代码修改] 修复了所有引擎的探针调用逻辑
+                # 修复了所有引擎的探针调用逻辑
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     if calc_func_name in ['_calculate_price_health', '_calculate_volume_health']:

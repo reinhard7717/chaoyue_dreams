@@ -1035,7 +1035,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             # [代码新增结束]
             df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
-            # [代码修改] 在返回的列中加入新计算的字段
+            # 在返回的列中加入新计算的字段
             return df[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare', 'net_md_amount_tushare', 'net_sh_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
         elif source == 'ths':
             df['retail_net_flow_ths'] = df['buy_sm_amount'] + df['buy_md_amount']
@@ -1111,7 +1111,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
     """【资金流辅助函数 V1.1 · 数据补完版】使用标准化周期计算所有衍生指标。"""
     # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
-    # [代码修改] 在核心指标列表中补全缺失的指标
+    # 在核心指标列表中补全缺失的指标
     CORE_METRICS = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 
         'retail_net_flow_consensus', 'net_xl_amount_consensus',

@@ -206,25 +206,39 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.3 · 健壮性与命名双重修复版】计算单个资金流支柱的四维健康度"""
+        """【V2.4 · 终极现实修正版】计算单个资金流支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
 
         for p in periods:
+            # 彻底重构列名构造逻辑，以匹配数据层的“现实”
+            # 无论原始类型是 'sum' 还是 'daily'，数据层在处理多周期(p>1)衍生时，都加入了 _sum_{p}d
+            
+            # 构造静态列名
             if col_type == 'sum' and p > 1:
                 static_col = f"{base_col_name}_sum_{p}d_D"
             else:
                 static_col = f"{base_col_name}_D"
-            
-            # [代码修改] 修复了斜率和加速度列名构造的BUG，并增加健壮性
-            # 之前的逻辑在处理非sum类型指标时，可能构造出错误的列名。
-            # 新逻辑确保了无论指标类型如何，都能正确构造出与数据层一致的列名。
-            slope_col = f"SLOPE_{p}_{static_col}"
-            accel_col = f"ACCEL_{p}_{static_col}"
 
-            # [代码修改] 增加防御性编程：检查列是否存在，如果不存在则打印警告并使用默认值
+            # 构造斜率和加速度列名
+            if p > 1:
+                # 对于所有 p > 1 的情况，都使用带 _sum_{p}d 的衍生列名格式
+                # 这是为了匹配数据层提供的列，例如 'SLOPE_13_active_buy_pressure_sum_13d_D'
+                slope_base_col = f"{base_col_name}_sum_{p}d_D"
+                slope_col = f"SLOPE_{p}_{slope_base_col}"
+                accel_col = f"ACCEL_{p}_{slope_base_col}"
+            else: # p == 1
+                # 对于 p = 1 的情况，使用不带 _sum_ 的常规格式
+                slope_base_col = f"{base_col_name}_D"
+                slope_col = f"SLOPE_{p}_{slope_base_col}"
+                accel_col = f"ACCEL_{p}_{slope_base_col}"
+
+            # 增加调试信息，打印最终构造的列名
+            # print(f"  [FF探针-构造] 支柱='{name}', 周期={p}, 静态列: '{static_col}', 斜率列: '{slope_col}', 加速列: '{accel_col}'")
+
+            # 防御性编程：检查列是否存在，如果不存在则打印警告并使用默认值
             default_series = pd.Series(0.5, index=df.index)
             
             static_series = df.get(static_col)
