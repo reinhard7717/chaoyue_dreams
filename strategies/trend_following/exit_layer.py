@@ -31,7 +31,7 @@ class ExitLayer:
         
         # 初始化两条防线为不触发
         triggers_df['EXIT_TREND_BROKEN'] = pd.Series(False, index=df.index) # 战术破位
-        triggers_df['EXIT_STRATEGY_INVALIDATED'] = pd.Series(False, index=df.index) # [代码新增] 战略失效
+        triggers_df['EXIT_STRATEGY_INVALIDATED'] = pd.Series(False, index=df.index) # 战略失效
 
         if get_param_value(p_trailing.get('enabled'), False):
             # 防线一：战术止损线 (例如 EMA21)
@@ -46,7 +46,7 @@ class ExitLayer:
             else:
                 print(f"    -> [离场层-警告] 无法找到战术移动平均线列: {tactical_ma_col}，战术破位监控未激活。")
 
-            # [代码新增] 防线二：战略生命线 (例如 EMA55)
+            # 防线二：战略生命线 (例如 EMA55)
             strategic_ma_type = get_param_value(p_trailing.get('strategic_ma_type'), 'EMA').upper()
             strategic_ma_period = get_param_value(p_trailing.get('strategic_ma_period'), 55)
             strategic_ma_col = f'{strategic_ma_type}_{strategic_ma_period}_D'

@@ -25,12 +25,10 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 状态同步修复版】微观行为诊断引擎总指挥
-        - 核心修复: 修正了状态更新逻辑。现在，每个子模块生成的信号都会被立即更新到
-                    全局的 `self.strategy.atomic_states` 中，而不仅仅是暂存在局部变量里。
-                    这解决了下游方法因无法获取上游即时计算的信号而导致崩溃的问题。
+        【V2.2 · 风险升级版】微观行为诊断引擎总指挥
+        - 核心升级: 新增了 synthesize_post_peak_downturn_risk 模块，用于识别高位回落风险。
         """
-        # print("      -> [微观行为诊断引擎 V2.1 · 状态同步修复版] 启动...")
+        # print("      -> [微观行为诊断引擎 V2.2 · 风险升级版] 启动...") # 更新版本号
         all_states = {}
 
         def update_states(new_states: Dict[str, pd.Series]):
@@ -41,9 +39,10 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
-        
-        # [代码新增] 在此调用新增的亢奋加速风险模块
         update_states(self.synthesize_euphoric_acceleration_risk(df))
+        
+        # 调用全新的“高位回落风险”诊断引擎
+        update_states(self.synthesize_post_peak_downturn_risk(df))
         
         early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A')
         update_states(self.synthesize_reversal_reliability_score(
@@ -233,7 +232,7 @@ class MicroBehaviorEngine:
         
         return states
 
-    # [代码新增] 全新的“亢奋加速风险”诊断引擎
+    # “亢奋加速风险”诊断引擎
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 安全港逻辑强化版】亢奋加速风险诊断引擎
@@ -283,7 +282,52 @@ class MicroBehaviorEngine:
         
         return states
 
+    # “高位回落风险”诊断引擎
+    def synthesize_post_peak_downturn_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
+        - 核心职责: 识别股价在经历一轮上涨到达高位后，开始回落的风险。
+        - 算法:
+          1. 上下文: 前一日处于波段高位。
+          2. 触发器: 当日股价下跌。
+          3. 严重性: 结合下跌幅度、成交量放大程度、是否跌破短期均线等因素。
+        """
+        states = {}
+        p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
+        if not get_param_value(p_risk.get('enabled'), True): return states
+        norm_window = get_param_value(p_risk.get('norm_window'), 120)
 
+        # --- 步骤 1: 上下文 - 确认前一日处于高位 ---
+        ma55 = df.get('EMA_55_D', df['close_D'])
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
+        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+        
+        high_pos_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
+        was_in_high_position_yesterday = (stretch_from_ma55_score.shift(1) > high_pos_threshold).astype(float)
+
+        # --- 步骤 2: 触发器 - 确认当日正在下跌 ---
+        is_falling_today = (df['pct_change_D'] < 0).astype(float)
+
+        # --- 步骤 3: 严重性评估 ---
+        # 3.1 下跌幅度
+        fall_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+        fall_magnitude_score = normalize_score(fall_magnitude, df.index, norm_window, ascending=True)
+        
+        # 3.2 成交量放大
+        volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
+        volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
+        
+        # 3.3 跌破短期均线
+        ema5 = df.get('EMA_5_D', df['close_D'])
+        break_ema5_score = (df['close_D'] < ema5).astype(float)
+
+        # --- 步骤 4: 最终风险裁定 ---
+        severity_score = (fall_magnitude_score * volume_spike_score * break_ema5_score)**(1/3)
+        final_risk_score = (was_in_high_position_yesterday * is_falling_today * severity_score).astype(np.float32)
+        
+        states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_risk_score
+        return states
 
 
 

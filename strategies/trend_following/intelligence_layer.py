@@ -469,7 +469,7 @@ class IntelligenceLayer:
         else:
             print("  - [结论] 扩张分正常。")
 
-    # [代码新增] 全新的终极反转信号探针
+    # 全新的终极反转信号探针
     def _deploy_ultimate_reversal_probe(self, probe_date: pd.Timestamp, domain: str):
         """
         【探针V1.1 · 健壮性修复版】解剖终极反转信号 (以指定领域为例)
@@ -491,7 +491,7 @@ class IntelligenceLayer:
         final_score = atomic.get(signal_name, default_score).get(probe_date, 0.0)
         print(f"  - 当日最终得分: {final_score:.4f}")
 
-        # [代码修改] 健壮地获取参数，并提供默认值
+        # 健壮地获取参数，并提供默认值
         # 尝试从特定领域参数块获取，如果失败，则从通用块获取
         p_conf_domain = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params' if domain_upper == 'BEHAVIOR' else f'{domain.lower()}_ultimate_params', {})
         p_conf_generic = get_params_block(self.strategy, 'trend_quality_params', {}) # 假设通用参数在这里
@@ -524,7 +524,7 @@ class IntelligenceLayer:
             print(f"  - [错误] 未找到领域 '{domain}' 对应的引擎实例。")
             return
 
-        # [代码修改] 重构此部分，直接调用健康度计算器，而不是整个终极信号函数
+        # 重构此部分，直接调用健康度计算器，而不是整个终极信号函数
         # 1. 获取所有支柱的健康度
         health_data = {'bullish_dynamic': []}
         if domain_upper == 'BEHAVIOR':

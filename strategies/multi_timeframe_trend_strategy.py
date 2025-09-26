@@ -505,7 +505,7 @@ class MultiTimeframeTrendStrategy:
           - [索引健壮] 增加了对索引类型的检查，避免在索引不是 DatetimeIndex 时（如 RangeIndex）调用 .tz 属性而引发 AttributeError。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V323.2 · 健壮性修复版] ---") # [代码修改] 更新版本号
+        print(f"--- [历史回溯调试启动 V323.2 · 健壮性修复版] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
@@ -514,7 +514,7 @@ class MultiTimeframeTrendStrategy:
             print("    -> [阶段 1/2] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
-            # [代码修改] 增加对返回值的健壮性处理
+            # 增加对返回值的健壮性处理
             engine_results = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
@@ -524,7 +524,7 @@ class MultiTimeframeTrendStrategy:
 
             _records_tuple, daily_analysis_df, score_details_df, risk_details_df = engine_results
 
-            # [代码新增] 增加对 daily_analysis_df 的有效性检查
+            # 增加对 daily_analysis_df 的有效性检查
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("[严重错误] 战术引擎未能生成有效的分析数据(daily_analysis_df)，调试终止。")
                 return
@@ -542,7 +542,7 @@ class MultiTimeframeTrendStrategy:
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
             
-            # [代码修改] 增加索引类型检查，修复 AttributeError
+            # 增加索引类型检查，修复 AttributeError
             if isinstance(daily_analysis_df.index, pd.DatetimeIndex) and daily_analysis_df.index.tz is not None:
                 target_timezone = daily_analysis_df.index.tz
                 start_dt = start_dt.tz_localize(target_timezone)
@@ -552,7 +552,7 @@ class MultiTimeframeTrendStrategy:
             
             if debug_period_df.empty:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
-                # [代码新增] 增加对完整数据的检查提示
+                # 增加对完整数据的检查提示
                 print(f"    -> 提示: 请检查完整数据(daily_analysis_df)的索引范围是否覆盖此期间。完整数据范围: {daily_analysis_df.index.min()} to {daily_analysis_df.index.max()}")
                 return
 
@@ -563,7 +563,7 @@ class MultiTimeframeTrendStrategy:
                 final_score_val = row.get('final_score', 'N/A')
                 signal_type = row.get('signal_type', '无信号')
                 
-                # [代码修改] 格式化输出，使其更对齐
+                # 格式化输出，使其更对齐
                 final_score_str = f"{final_score_val:<7.0f}" if isinstance(final_score_val, (int, float)) else "N/A"
                 print(f"\n{time_str} [最终得分: {final_score_str}] [最终信号: {signal_type}]")
                 

@@ -111,7 +111,7 @@
   },
   "cyclical_analysis_params": {
     "enabled": true,
-    "说明": "【V1.0 新增】周期情报分析引擎参数，用于FFT分析。",
+    "说明": "【V1.0】周期情报分析引擎参数，用于FFT分析。",
     "fft_window": 128,
     "comment_fft_window": "FFT计算窗口，单位：日。建议为2的幂，如64, 128, 256。",
     "top_n_cycles": 3,
@@ -184,7 +184,7 @@
       },
       "fused_risk_scoring": {
         "enabled": true,
-        "说明": "【V1.0 新增】风险元融合模块的配置，用于合成顶层风险分。",
+        "说明": "【V1.0】风险元融合模块的配置，用于合成顶层风险分。",
         "risk_categories": {
           "behavioral_risk": {
             "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
@@ -213,7 +213,8 @@
           "cognitive_risk": {
             "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
             "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
-            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 }
+            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
+            "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false }
           }
         },
         "dynamic_weighting_params": {
@@ -255,9 +256,16 @@
         "main_reliability_weights": { "shareholder": 0.5, "ignition": 0.5 },
         "reversal_reliability_bonus_factor": 0.5
       },
+      "post_peak_downturn_risk_params": {
+        "enabled": true,
+        "说明": "【V1.0】高位回落风险诊断引擎参数。",
+        "norm_window": 120,
+        "high_position_threshold": 0.7,
+        "comment": "定义何为'高位'。当股价相对MA55的伸展度超过70%时，即认为处于高位。"
+      },
       "mean_reversion_grid_params": {
         "enabled": true,
-        "说明": "【V1.0 新增】均值回归网格交易策略参数。",
+        "说明": "【V1.0】均值回归网格交易策略参数。",
         "cyclical_regime_threshold": { "value": 0.4 },
         "trending_regime_threshold": { "value": 0.45 }
       }

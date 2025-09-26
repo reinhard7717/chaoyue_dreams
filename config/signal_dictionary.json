@@ -37,6 +37,13 @@
         "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "cn_name": "【微观风险】主导权转移(散户)", "category": "微观行为-风险", "type": "risk", "description": "交易颗粒度与集中度加速下降，市场主导权正从主力向散户转移，是经典的顶部派发风险。" },
         "COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING": { "cn_name": "【微观机会】主力信念加强", "category": "微观行为-机会", "type": "dynamic", "description": "核心主力(特大单)的买入意愿正在加速增强，是趋势健康和即将加速的强确认信号。" },
         "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "cn_name": "【微观风险】主力信念瓦解", "category": "微观行为-风险", "type": "risk", "description": "核心主力(特大单)的买入意愿正在加速衰减，是比资金净流出更灵敏的顶部预警信号。" },
+        "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": {
+            "cn_name": "【微观S风险】高位回落",
+            "category": "微观行为-风险",
+            "type": "risk",
+            "penalty_weight": 2800,
+            "description": "【重大风险】识别股价在经历上涨到达高位后，开始下跌的风险。此信号会施加严厉的惩罚。"
+        },
 
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
         "SCORE_SETUP_PANIC_SELLING_S": { "cn_name": "【战备S】恐慌抛售", "category": "战备-环境", "type": "context", "description": "融合价格大幅下跌、成交量放大、筹码结构崩溃三大特征，识别出适合V型反转的“恐慌抛售日”战备状态。" },

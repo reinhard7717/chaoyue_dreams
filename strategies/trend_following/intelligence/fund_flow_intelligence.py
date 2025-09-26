@@ -117,7 +117,7 @@ class FundFlowIntelligence:
         pillar_names = list(params['pillar_configs'].keys())
         num_pillars = len(pillar_names)
         
-        # [代码新增] 预处理权重，将它们映射为与支柱顺序一致的NumPy数组
+        # 预处理权重，将它们映射为与支柱顺序一致的NumPy数组
         resonance_weights_array = np.array([params['resonance_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
         reversal_weights_array = np.array([params['reversal_pillar_weights'].get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
 

@@ -189,7 +189,7 @@ class CognitiveIntelligence:
         p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
         secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
         
-        # --- [代码新增] 优化步骤 1: 预处理，收集所有需要的信号并批量获取 ---
+        # --- 优化步骤 1: 预处理，收集所有需要的信号并批量获取 ---
         all_required_signals = set()
         for category_name, signals in risk_categories.items():
             if category_name != "说明":

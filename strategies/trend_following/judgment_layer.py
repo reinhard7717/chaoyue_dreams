@@ -38,7 +38,7 @@ class JudgmentLayer:
         
         # 步骤2: 识别所有“一票否决”条件
         is_dynamic_veto = df['dynamic_action'] == 'AVOID'
-        # [代码新增] 从 exit_triggers 中识别硬性离场否决
+        # 从 exit_triggers 中识别硬性离场否决
         is_hard_exit_veto = self.strategy.exit_triggers.any(axis=1)
         
         # 步骤3: 根据决策逻辑，确定最终信号类型
@@ -76,7 +76,7 @@ class JudgmentLayer:
         # --- 1. 融合基础风险分 ---
         fused_risk_score = atomic.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index))
         
-        # --- 2. [代码新增] 获取并应用亢奋加速风险分 ---
+        # --- 2. 获取并应用亢奋加速风险分 ---
         # 这个信号专门用于惩罚追高行为
         euphoric_risk_score = atomic.get('COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', pd.Series(0.0, index=df.index))
         

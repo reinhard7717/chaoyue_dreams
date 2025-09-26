@@ -39,12 +39,8 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 性能优化版】统一基础层信号诊断引擎
-        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
-        - 本次优化:
-          - [效率] 重构了第4步“全局健康度融合”逻辑。通过将各支柱健康分预先堆叠为NumPy数组，
-                    再利用向量化操作进行加权求和（取平均值），取代了原先在for循环中对Pandas Series的重复计算，
-                    大幅提升了计算效率并减少了内存占用。
+        【V3.4 · 顶部反转逻辑重构版】统一基础层信号诊断引擎
+        - 核心重构: 彻底修改顶部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“风险放大器”。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -57,6 +53,8 @@ class FoundationIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
+        # 为顶部反转新增奖励(惩罚)因子
+        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
 
         # --- 2. 调用公共函数计算上下文分数 ---
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
@@ -81,7 +79,6 @@ class FoundationIntelligence:
 
         # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
         overall_health = {}
-        # 遍历四种健康度类型
         for health_type, health_sources in [
             ('bullish_static', health_data['bullish_static']),
             ('bullish_dynamic', health_data['bullish_dynamic']),
@@ -89,19 +86,16 @@ class FoundationIntelligence:
             ('bearish_dynamic', health_data['bearish_dynamic'])
         ]:
             overall_health[health_type] = {}
-            # 遍历所有周期
             for p in periods:
-                # 将所有支柱的健康分Series的Numpy数组堆叠成一个 (num_pillars, N) 的矩阵
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
                     stacked_values = np.stack(components_for_period, axis=0)
-                    # 使用NumPy的向量化操作，一次性完成求平均
                     fused_values = np.mean(stacked_values, axis=0)
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # --- 5. 终极信号合成 (逻辑不变) ---
+        # --- 5. 终极信号合成 ---
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -113,23 +107,19 @@ class FoundationIntelligence:
         bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
-        
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
+        # 重构顶部反转信号的计算逻辑
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
         overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
 
-        bearish_dynamic_health = overall_health['bearish_dynamic']
-        bearish_short_force_rev = (bearish_dynamic_health.get(1, 0.5) * bearish_dynamic_health.get(5, 0.5))**0.5
-        bearish_medium_trend_rev = (bearish_dynamic_health.get(13, 0.5) * bearish_dynamic_health.get(21, 0.5))**0.5
-        bearish_long_inertia_rev = bearish_dynamic_health.get(55, 0.5)
-        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
-        final_top_reversal_score = top_context_score * overall_bearish_reversal_trigger
+        # 使用新的“风险放大器”模型
+        final_top_reversal_score = (overall_bearish_resonance * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
 
-        # --- 5.3 赋值 (逻辑不变) ---
+        # --- 6. 赋值 ---
         for prefix, score in [('SCORE_FOUNDATION_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_FOUNDATION_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_FOUNDATION_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_FOUNDATION_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = score.astype(np.float32)

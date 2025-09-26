@@ -35,7 +35,7 @@ class SimulationLayer:
             self.strategy.df_indicators = df
             return
 
-        # [代码新增] 读取开盘过滤器参数
+        # 读取开盘过滤器参数
         p_open_filter = sim_params.get('opening_filter', {})
         opening_filter_enabled = get_param_value(p_open_filter.get('enabled'), True)
         # 将百分比转换为小数，例如 5.0 -> 0.05
@@ -142,7 +142,7 @@ class SimulationLayer:
                         t_plus_1_open = df.loc[next_day_index, 'open_D']
                     
                     if pd.notna(t_plus_1_open) and t_plus_1_open > 0:
-                        # [代码修改] 在此植入开盘过滤器
+                        # 在此植入开盘过滤器
                         opening_gap_pct = (t_plus_1_open - row.close_D) / row.close_D
                         
                         if opening_filter_enabled and opening_gap_pct > max_opening_gap_pct:
