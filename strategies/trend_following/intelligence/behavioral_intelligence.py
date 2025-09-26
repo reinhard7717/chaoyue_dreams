@@ -33,8 +33,10 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.4 · 顶部反转逻辑重构版】终极行为信号诊断模块
-        - 核心重构: 彻底修改顶部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“风险放大器”。
+        【V9.5 · 哲学修复版】终极行为信号诊断模块
+        - 核心修复: 彻底重构了底部和顶部反转信号的合成哲学。
+          - 底部反转 = 静态看跌 * 动态看涨 (从弱势中爆发出力量)
+          - 顶部反转 = 静态看涨 * 动态看跌 (从强势中爆发出卖压)
         """
         atomic_signals = self._generate_all_atomic_signals(df)
         states = {}
@@ -50,15 +52,17 @@ class BehavioralIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        # 为顶部反转新增奖励(惩罚)因子
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
-        # --- 2. 调用公共函数计算上下文分数 ---
+        
+        # --- 2. 计算上下文分数 ---
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
-        # --- 3. 调用所有行为健康度组件计算器 ---
+        
+        # --- 3. 计算健康度组件 ---
         price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, min_periods, dynamic_weights, periods)
         vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, min_periods, dynamic_weights, periods)
         kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
-        # --- 4. 独立融合，生成四个全局健康度 (向量化版本) ---
+        
+        # --- 4. 融合生成全局健康度 ---
         overall_health = {}
         dim_weights_array = np.array([dimension_weights['price'], dimension_weights['volume'], dimension_weights['kline']])
         for health_type, health_sources in [
@@ -74,30 +78,39 @@ class BehavioralIntelligence:
                 ], axis=0)
                 fused_values = np.sum(stacked_values * dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-        # --- 5. 终极信号合成 (逻辑不变) ---
+                
+        # --- 5. 终极信号合成 (全新反转逻辑) ---
+        # 看涨共振
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
         overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
-        bullish_dynamic_health = overall_health['bullish_dynamic']
-        bullish_short_force_rev = (bullish_dynamic_health.get(1, 0.5) * bullish_dynamic_health.get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (bullish_dynamic_health.get(13, 0.5) * bullish_dynamic_health.get(21, 0.5))**0.5
-        bullish_long_inertia_rev = bullish_dynamic_health.get(55, 0.5)
+        
+        # 底部反转 (全新逻辑: 静态看跌 * 动态看涨)
+        bullish_reversal_health = {p: overall_health['bearish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
+        bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
+        bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
+        bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
         overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        # 重构顶部反转信号的计算逻辑
+        # 看跌共振
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
         overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
 
-        # 使用新的“风险放大器”模型，而不是旧的“硬门控”模型
-        final_top_reversal_score = (overall_bearish_resonance * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
+        # 顶部反转 (全新逻辑: 静态看涨 * 动态看跌)
+        bearish_reversal_health = {p: overall_health['bullish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
+        bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
+        bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
+        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
+        final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
 
-        # --- 6. 赋值 (逻辑不变) ---
+        # --- 6. 赋值 ---
         for prefix, score in [('SCORE_BEHAVIOR_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_BEHAVIOR_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_BEHAVIOR_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_BEHAVIOR_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
@@ -152,7 +165,7 @@ class BehavioralIntelligence:
         for p in periods:
             # 看涨逻辑：成交量高于均线为佳
             s_bull[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            # [代码修改] 看跌逻辑：成交量低于均线为佳（缩量），修正 ascending 参数
+            # 看跌逻辑：成交量低于均线为佳（缩量），修正 ascending 参数
             s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
             
             # 看涨动态：成交量斜率、加速度增加为佳
@@ -160,7 +173,7 @@ class BehavioralIntelligence:
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             d_bull[p] = vol_mom * dynamic_weights['slope'] + vol_accel * dynamic_weights['accel']
             
-            # [代码修改] 看跌动态：成交量斜率、加速度减少为佳，创建独立的负向归一化分数
+            # 看跌动态：成交量斜率、加速度减少为佳，创建独立的负向归一化分数
             vol_mom_neg = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=False)
             vol_accel_neg = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=False)
             d_bear[p] = vol_mom_neg * dynamic_weights['slope'] + vol_accel_neg * dynamic_weights['accel']

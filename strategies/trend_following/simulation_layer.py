@@ -41,7 +41,7 @@ class SimulationLayer:
         # 将百分比转换为小数，例如 5.0 -> 0.05
         max_opening_gap_pct = get_param_value(p_open_filter.get('max_opening_gap_pct'), 5.0) / 100.0
 
-        # --- 其他参数读取 (逻辑不变) ---
+        # --- 其他参数读取 ---
         p_reduce = sim_params.get('risk_based_reduction', {})
         level_2_reduction = get_param_value(p_reduce.get('level_2_alert_reduction_pct'), 0.3)
         level_3_reduction = get_param_value(p_reduce.get('level_3_alert_reduction_pct'), 0.5)
@@ -55,7 +55,7 @@ class SimulationLayer:
         atr_multiplier_for_platform = get_param_value(p_stop_loss.get('atr_multiplier_for_platform'), 0.5)
         min_stop_loss_percent = get_param_value(p_stop_loss.get('min_stop_loss_percent'), 4.0) / 100.0
 
-        # --- 初始化模拟状态列和变量 (逻辑不变) ---
+        # --- 初始化模拟状态列和变量 ---
         df['position_size'] = 0.0
         df['alert_level'] = 0
         df['alert_reason'] = ''
@@ -84,7 +84,7 @@ class SimulationLayer:
             else:
                 df.loc[current_date, 'current_profit_loss_pct'] = 0.0
 
-            # --- 1. 持仓状态下的决策 (逻辑不变) ---
+            # --- 1. 持仓状态下的决策 ---
             if in_position:
                 # ... (此处省略所有持仓中的止损、止盈、加减仓逻辑，它们保持不变) ...
                 # 1.1 检查止损信号

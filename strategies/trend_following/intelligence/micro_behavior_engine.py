@@ -137,7 +137,7 @@ class MicroBehaviorEngine:
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
 
-        # --- 步骤 1: 【智能上下文】计算以MA55为基准的“波段伸展度” (逻辑不变) ---
+        # --- 步骤 1: 【智能上下文】计算以MA55为基准的“波段伸展度” ---
         ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
@@ -155,7 +155,7 @@ class MicroBehaviorEngine:
         safe_launch_context_score = (ma55_is_rising * price_is_near_ma55 * volatility_was_low)
         # print(f"          - [安全港豁免] 09-08 安全启动区得分: {safe_launch_context_score.loc['2025-09-08']:.4f} (ma55上升:{ma55_is_rising.loc['2025-09-08']:.0f}, 紧贴ma55:{price_is_near_ma55.loc['2025-09-08']:.0f}, 前期压缩:{volatility_was_low.loc['2025-09-08']:.0f})")
 
-        # --- 步骤 3: 计算原始风险因子 (逻辑不变) ---
+        # --- 步骤 3: 计算原始风险因子 ---
         bias_score = normalize_score(df['BIAS_21_D'].abs(), df.index, norm_window, ascending=True)
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
@@ -166,7 +166,7 @@ class MicroBehaviorEngine:
         upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
         raw_risk_score = (bias_score * volume_spike_score * volatility_score * upthrust_score)**(1/4)
 
-        # --- 步骤 4: 最终风险裁定 (逻辑不变) ---
+        # --- 步骤 4: 最终风险裁定 ---
         final_risk_score = (raw_risk_score * stretch_from_ma55_score * (1 - safe_launch_context_score)).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score
         

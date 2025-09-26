@@ -56,7 +56,7 @@ class CyclicalIntelligence:
                 states[name] = pd.Series(val, index=df.index, dtype=np.float32)
             return states
             
-        # --- 3. 向量化滚动窗口FFT分析 (逻辑不变) ---
+        # --- 3. 向量化滚动窗口FFT分析 ---
         close_values = close_prices.to_numpy()
         shape = (len(close_values) - fft_window + 1, fft_window)
         strides = (close_values.strides[0], close_values.strides[0])
@@ -77,7 +77,7 @@ class CyclicalIntelligence:
         power_spectrum_cycle[:, 0] = 0
         power_spectrum_raw = np.abs(yf_raw)**2
         
-        # --- 4. 向量化频谱分析与信号生成 (逻辑不变) ---
+        # --- 4. 向量化频谱分析与信号生成 ---
         total_power_raw = np.sum(power_spectrum_raw[:, 1:], axis=1)
         trend_freq_cutoff = 1.0 / (fft_window / 3.0)
         trend_indices = np.where(xf < trend_freq_cutoff)[0][1:]

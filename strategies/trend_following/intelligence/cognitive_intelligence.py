@@ -232,7 +232,7 @@ class CognitiveIntelligence:
             else:
                 fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
 
-        # --- 维度间融合 (Inter-dimension Fusion) & 风险共振惩罚 (逻辑不变) ---
+        # --- 维度间融合 (Inter-dimension Fusion) & 风险共振惩罚 ---
         p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
         base_weights = p_dynamic_weighting.get('base_weights', {})
         context_adjustments = p_dynamic_weighting.get('context_adjustments', {})

@@ -118,7 +118,7 @@ class MultiTimeframeTrendStrategy:
         # records_from_tactical 现在是 (list_of_signals, list_of_details, ...)
         records_from_tactical = tactical_results[0]
 
-        # 3. 盘中引擎 (逻辑不变)
+        # 3. 盘中引擎
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
         risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
         
@@ -677,7 +677,7 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 价格在波段伸展度: {top_context_score_val:.2%}")
             print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score_val:.4f}")
 
-            # --- 探针 2: 核心逻辑重构，适配“奖励模式” (逻辑不变) ---
+            # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
             
