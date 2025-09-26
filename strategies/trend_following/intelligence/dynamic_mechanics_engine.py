@@ -161,7 +161,7 @@ class DynamicMechanicsEngine:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.2 · 签名修复版】计算动能(ATR)维度的四维健康度"""
+        """【V1.3 · 逻辑修复版】计算动能(ATR)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window) # 动能放大为好
         static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False) # 动能萎缩为坏
@@ -170,7 +170,8 @@ class DynamicMechanicsEngine:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
             d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
+            # [代码修改] 看跌动态：动能斜率、加速度减少为坏，修正 ascending 参数
+            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
 
         return s_bull, d_bull, s_bear, d_bear
 

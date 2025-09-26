@@ -147,16 +147,23 @@ class BehavioralIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.1 · 重构版】计算成交量维度的四维健康度"""
+        """【V1.2 · 逻辑修复版】计算成交量维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         for p in periods:
-            # 调用 utils.normalize_score
+            # 看涨逻辑：成交量高于均线为佳
             s_bull[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
+            # [代码修改] 看跌逻辑：成交量低于均线为佳（缩量），修正 ascending 参数
+            s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
+            
+            # 看涨动态：成交量斜率、加速度增加为佳
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             d_bull[p] = vol_mom * dynamic_weights['slope'] + vol_accel * dynamic_weights['accel']
-            d_bear[p] = vol_mom * dynamic_weights['slope'] + vol_accel * dynamic_weights['accel']
+            
+            # [代码修改] 看跌动态：成交量斜率、加速度减少为佳，创建独立的负向归一化分数
+            vol_mom_neg = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=False)
+            vol_accel_neg = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=False)
+            d_bear[p] = vol_mom_neg * dynamic_weights['slope'] + vol_accel_neg * dynamic_weights['accel']
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict, norm_window: int, min_periods: int, periods: list) -> tuple:
