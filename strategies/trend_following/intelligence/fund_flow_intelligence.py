@@ -206,34 +206,31 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.4 · 终极现实修正版】计算单个资金流支柱的四维健康度"""
+        """【V2.5 · 回归本源版】计算单个资金流支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
 
         for p in periods:
-            # 彻底重构列名构造逻辑，以匹配数据层的“现实”
-            # 无论原始类型是 'sum' 还是 'daily'，数据层在处理多周期(p>1)衍生时，都加入了 _sum_{p}d
+            # [代码修改] 彻底重构列名构造逻辑，严格区分 'sum' 和 'daily' 类型
             
-            # 构造静态列名
+            # 1. 构造静态列名 (static_col)
             if col_type == 'sum' and p > 1:
                 static_col = f"{base_col_name}_sum_{p}d_D"
             else:
                 static_col = f"{base_col_name}_D"
 
-            # 构造斜率和加速度列名
-            if p > 1:
-                # 对于所有 p > 1 的情况，都使用带 _sum_{p}d 的衍生列名格式
-                # 这是为了匹配数据层提供的列，例如 'SLOPE_13_active_buy_pressure_sum_13d_D'
+            # 2. 构造斜率/加速度列名 (slope_col, accel_col)
+            # 核心逻辑：只有当支柱类型为 'sum' 且周期 p > 1 时，才使用带 _sum_ 的衍生列名
+            if col_type == 'sum' and p > 1:
                 slope_base_col = f"{base_col_name}_sum_{p}d_D"
-                slope_col = f"SLOPE_{p}_{slope_base_col}"
-                accel_col = f"ACCEL_{p}_{slope_base_col}"
-            else: # p == 1
-                # 对于 p = 1 的情况，使用不带 _sum_ 的常规格式
+            else:
+                # 对于 'daily' 类型的所有周期，以及 'sum' 类型的 p=1 周期，都使用常规基础列名
                 slope_base_col = f"{base_col_name}_D"
-                slope_col = f"SLOPE_{p}_{slope_base_col}"
-                accel_col = f"ACCEL_{p}_{slope_base_col}"
+            
+            slope_col = f"SLOPE_{p}_{slope_base_col}"
+            accel_col = f"ACCEL_{p}_{slope_base_col}"
 
             # 增加调试信息，打印最终构造的列名
             # print(f"  [FF探针-构造] 支柱='{name}', 周期={p}, 静态列: '{static_col}', 斜率列: '{slope_col}', 加速列: '{accel_col}'")
@@ -243,17 +240,17 @@ class FundFlowIntelligence:
             
             static_series = df.get(static_col)
             if static_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}' 缺失静态数据列: '{static_col}'")
+                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失静态数据列: '{static_col}'")
                 static_series = default_series
 
             slope_series = df.get(slope_col)
             if slope_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}' 缺失斜率数据列: '{slope_col}'")
+                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失斜率数据列: '{slope_col}'")
                 slope_series = default_series
 
             accel_series = df.get(accel_col)
             if accel_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}' 缺失加速度数据列: '{accel_col}'")
+                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失加速度数据列: '{accel_col}'")
                 accel_series = default_series
 
             s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
