@@ -1410,6 +1410,159 @@ def cleanup_non_trade_day_data():
     return f"任务完成，总共删除 {total_deleted_count} 条记录。"
 
 
+# ===================================================
+#      数据修复任务 (Data Repair Tasks)
+# ===================================================
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code # 【代码新增】
+from stock_models.time_trade import StockCyqPerf # 【代码新增】
+from itertools import groupby # 【代码新增】
+from operator import itemgetter # 【代码新增】
+
+# 【代码新增】
+def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.date, datetime.date]]:
+    """
+    辅助函数：将一个日期列表合并为连续的日期范围。
+    例如: [date(2022,1,4), date(2022,1,5), date(2022,1,7)]
+    返回: [(date(2022,1,4), date(2022,1,5)), (date(2022,1,7), date(2022,1,7))]
+    Args:
+        dates (List[datetime.date]): 日期对象列表。
+    Returns:
+        List[tuple[datetime.date, datetime.date]]: 由起始和结束日期组成的元组列表。
+    """
+    if not dates:
+        return []
+    
+    # 确保日期是唯一且排序的
+    sorted_dates = sorted(list(set(dates)))
+    
+    ranges = []
+    # 使用 groupby 和 toordinal 来查找连续的日期块
+    for k, g in groupby(enumerate(sorted_dates), lambda ix: ix[0] - ix[1].toordinal()):
+        group = list(map(itemgetter(1), g))
+        ranges.append((group[0], group[-1]))
+        
+    return ranges
+
+# 【代码新增】
+@celery_app.task(name='tasks.stock_time_trade_tasks.repair_missing_cyq_data_for_stock', queue='SaveHistoryData_TimeTrade', bind=True)
+@with_cache_manager
+def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
+    """
+    【数据修复执行器】
+    检查并修复单个股票缺失的 'cyq_perf' 和 'cyq_chips' 数据。
+    以 'stock_daily_data' 表作为交易日期的基准。
+    Args:
+        stock_code (str): 股票代码。
+        cache_manager (CacheManager): 缓存管理器实例。
+    """
+    print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
+    
+    async def _async_repair():
+        # 1. 获取所需模型
+        daily_model = get_daily_data_model_by_code(stock_code)
+        chips_model = get_cyq_chips_model_by_code(stock_code)
+        perf_model = StockCyqPerf # 该模型未分表
+
+        # 2. 异步获取所有相关交易日期
+        @sync_to_async(thread_sensitive=True)
+        def get_dates(model, is_chips=False):
+            qs = model.objects.filter(stock__stock_code=stock_code)
+            if is_chips:
+                # 对于筹码分布表，每天有多条记录，需要去重
+                return set(qs.values_list('trade_time', flat=True).distinct())
+            return set(qs.values_list('trade_time', flat=True))
+
+        # 并发获取所有日期集合
+        daily_dates, perf_dates, chips_dates = await asyncio.gather(
+            get_dates(daily_model),
+            get_dates(perf_model),
+            get_dates(chips_model, is_chips=True)
+        )
+
+        if not daily_dates:
+            print(f"[{stock_code}] [数据修复] 警告: 核心日线数据(daily_data)为空，无法进行比较和修复。")
+            return
+
+        # 3. 计算缺失的日期
+        missing_perf_dates = list(daily_dates - perf_dates)
+        missing_chips_dates = list(daily_dates - chips_dates)
+
+        # 4. 修复缺失的 'cyq_perf' 数据
+        if missing_perf_dates:
+            print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_perf_dates)} 天的 'cyq_perf' 数据。")
+            date_ranges = _group_consecutive_dates(missing_perf_dates)
+            print(f"[{stock_code}] [数据修复] 将为 {len(date_ranges)} 个日期范围派发 'cyq_perf' 修复任务。")
+            for start_date, end_date in date_ranges:
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                print(f"  -> 派发 'cyq_perf' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
+                # 调用已有的执行器任务进行修复
+                save_single_stock_cyq_perf.delay(
+                    stock_code=stock_code,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+        else:
+            print(f"[{stock_code}] [数据修复] 'cyq_perf' 数据完整，无需修复。")
+
+        # 5. 修复缺失的 'cyq_chips' 数据
+        if missing_chips_dates:
+            print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_chips_dates)} 天的 'cyq_chips' 数据。")
+            date_ranges = _group_consecutive_dates(missing_chips_dates)
+            print(f"[{stock_code}] [数据修复] 将为 {len(date_ranges)} 个日期范围派发 'cyq_chips' 修复任务。")
+            for start_date, end_date in date_ranges:
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                print(f"  -> 派发 'cyq_chips' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
+                # 调用已有的执行器任务进行修复
+                save_single_stock_cyq_chips.delay(
+                    stock_code=stock_code,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
+        else:
+            print(f"[{stock_code}] [数据修复] 'cyq_chips' 数据完整，无需修复。")
+
+    try:
+        async_to_sync(_async_repair)()
+        print(f"[{stock_code}] [数据修复] 检查和修复任务派发完成。")
+    except Exception as e:
+        logger.error(f"[{stock_code}] [数据修复] 执行修复任务时发生严重错误: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+# 【代码新增】
+@celery_app.task(name='tasks.stock_time_trade_tasks.schedule_repair_missing_cyq_data', queue='celery', bind=True)
+@with_cache_manager
+def schedule_repair_missing_cyq_data(self, *, cache_manager: CacheManager):
+    """
+    【数据修复调度器】
+    调度一个任务，为所有股票检查并修复缺失的 'cyq_perf' 和 'cyq_chips' 数据。
+    """
+    logger.info("任务启动: schedule_repair_missing_cyq_data - 开始调度CYQ数据修复任务...")
+    
+    async def _async_schedule():
+        stock_basic_dao = StockBasicInfoDao(cache_manager)
+        all_stocks = await stock_basic_dao.get_stock_list()
+        if not all_stocks:
+            logger.warning("[数据修复调度] 未能获取到任何股票列表，任务终止。")
+            return 0
+        
+        stock_codes = [stock.stock_code for stock in all_stocks]
+        print(f"[数据修复调度] 找到 {len(stock_codes)} 只股票，准备为每只股票派发修复检查任务。")
+        
+        for stock_code in stock_codes:
+            repair_missing_cyq_data_for_stock.delay(stock_code=stock_code)
+            
+        return len(stock_codes)
+
+    try:
+        dispatched_count = async_to_sync(_async_schedule)()
+        message = f"任务完成: schedule_repair_missing_cyq_data - 已为 {dispatched_count} 只股票派发了数据修复检查任务。"
+        logger.info(message)
+        return {"status": "success", "dispatched_count": dispatched_count}
+    except Exception as e:
+        logger.error(f"任务失败: schedule_repair_missing_cyq_data - 调度时发生严重错误: {e}", exc_info=True)
+        return {"status": "failed", "reason": str(e)}
 
 
 
