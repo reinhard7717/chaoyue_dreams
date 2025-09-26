@@ -120,8 +120,8 @@ class DynamicMechanicsEngine:
     # 以下为重构后的健康度组件计算器
     # ==============================================================================
 
-    def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.1 · 重构修复版】计算波动率(BBW)维度的四维健康度"""
+    def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
+        """【V1.2 · 签名修复版】计算波动率(BBW)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) # 压缩为好
         static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)  # 扩张为坏
@@ -138,8 +138,8 @@ class DynamicMechanicsEngine:
 
         return s_bull, d_bull, s_bear, d_bear
 
-    def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.1 · 重构修复版】计算效率(VPA)维度的四维健康度"""
+    def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
+        """【V1.2 · 签名修复版】计算效率(VPA)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
         static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
@@ -152,8 +152,8 @@ class DynamicMechanicsEngine:
 
         return s_bull, d_bull, s_bear, d_bear
 
-    def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.1 · 重构修复版】计算动能(ATR)维度的四维健康度"""
+    def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
+        """【V1.2 · 签名修复版】计算动能(ATR)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window) # 动能放大为好
         static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False) # 动能萎缩为坏
@@ -166,8 +166,8 @@ class DynamicMechanicsEngine:
 
         return s_bull, d_bull, s_bear, d_bear
 
-    def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.1 · 重构修复版】计算惯性(ADX)维度的四维健康度"""
+    def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
+        """【V1.2 · 签名修复版】计算惯性(ADX)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window) # 惯性强为好
         static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) # 惯性弱为坏
@@ -179,6 +179,7 @@ class DynamicMechanicsEngine:
             d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
 
         return s_bull, d_bull, s_bear, d_bear
+
 
 
 
