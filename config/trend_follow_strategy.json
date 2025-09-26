@@ -89,9 +89,15 @@
         "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
         "retail_panic_index_D": [1, 5, 13, 21, 55],
         "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_sum_5d_D": [5], "net_sh_amount_consensus_sum_13d_D": [13], "net_sh_amount_consensus_sum_21d_D": [21], "net_sh_amount_consensus_sum_55d_D": [55],
+        "net_sh_amount_consensus_sum_5d_D": [5],
+        "net_sh_amount_consensus_sum_13d_D": [13],
+        "net_sh_amount_consensus_sum_21d_D": [21],
+        "net_sh_amount_consensus_sum_55d_D": [55],
         "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_md_amount_consensus_sum_5d_D": [5], "net_md_amount_consensus_sum_13d_D": [13], "net_md_amount_consensus_sum_21d_D": [21], "net_md_amount_consensus_sum_55d_D": [55],
+        "net_md_amount_consensus_sum_5d_D": [5],
+        "net_md_amount_consensus_sum_13d_D": [13],
+        "net_md_amount_consensus_sum_21d_D": [21],
+        "net_md_amount_consensus_sum_55d_D": [55],
         "avg_order_value_D": [5],
         "trade_concentration_index_D": [5]
       }
@@ -120,10 +126,17 @@
         "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
         "retail_panic_index_D": [1, 5, 13, 21, 55],
         "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_sum_5d_D": [5], "net_sh_amount_consensus_sum_13d_D": [13], "net_sh_amount_consensus_sum_21d_D": [21], "net_sh_amount_consensus_sum_55d_D": [55],
+        "net_sh_amount_consensus_sum_5d_D": [5],
+        "net_sh_amount_consensus_sum_13d_D": [13],
+        "net_sh_amount_consensus_sum_21d_D": [21],
+        "net_sh_amount_consensus_sum_55d_D": [55],
         "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_md_amount_consensus_sum_5d_D": [5], "net_md_amount_consensus_sum_13d_D": [13], "net_md_amount_consensus_sum_21d_D": [21], "net_md_amount_consensus_sum_55d_D": [55],
-        "avg_order_value_D": [5], "trade_concentration_index_D": [5]
+        "net_md_amount_consensus_sum_5d_D": [5],
+        "net_md_amount_consensus_sum_13d_D": [13],
+        "net_md_amount_consensus_sum_21d_D": [21],
+        "net_md_amount_consensus_sum_55d_D": [55],
+        "avg_order_value_D": [5],
+        "trade_concentration_index_D": [5]
       }
     }
   },

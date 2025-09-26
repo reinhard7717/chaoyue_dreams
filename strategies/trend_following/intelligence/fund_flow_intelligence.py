@@ -206,7 +206,7 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.1 · 健壮性修复版】计算单个资金流支柱的四维健康度"""
+        """【V2.3 · 健壮性与命名双重修复版】计算单个资金流支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
@@ -218,20 +218,54 @@ class FundFlowIntelligence:
             else:
                 static_col = f"{base_col_name}_D"
             
-            # 修复accel列名构造错误的问题
-            slope_base = static_col.replace('_D', '')
-            slope_col = f"SLOPE_{p}_{slope_base}_D"
-            accel_col = f"ACCEL_{p}_{slope_base}_D"
+            # [代码修改] 修复了斜率和加速度列名构造的BUG，并增加健壮性
+            # 之前的逻辑在处理非sum类型指标时，可能构造出错误的列名。
+            # 新逻辑确保了无论指标类型如何，都能正确构造出与数据层一致的列名。
+            slope_col = f"SLOPE_{p}_{static_col}"
+            accel_col = f"ACCEL_{p}_{static_col}"
 
-            s_bull[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == 1))
-            s_bear[p] = normalize_score(df.get(static_col), df.index, norm_window, ascending=(polarity == -1))
+            # [代码修改] 增加防御性编程：检查列是否存在，如果不存在则打印警告并使用默认值
+            default_series = pd.Series(0.5, index=df.index)
             
-            d_bull_slope = normalize_score(df.get(slope_col), df.index, norm_window, ascending=(polarity == 1))
-            d_bull_accel = normalize_score(df.get(accel_col), df.index, norm_window, ascending=(polarity == 1))
+            static_series = df.get(static_col)
+            if static_series is None:
+                print(f"  [FF探针-警告] 支柱'{name}' 缺失静态数据列: '{static_col}'")
+                static_series = default_series
+
+            slope_series = df.get(slope_col)
+            if slope_series is None:
+                print(f"  [FF探针-警告] 支柱'{name}' 缺失斜率数据列: '{slope_col}'")
+                slope_series = default_series
+
+            accel_series = df.get(accel_col)
+            if accel_series is None:
+                print(f"  [FF探针-警告] 支柱'{name}' 缺失加速度数据列: '{accel_col}'")
+                accel_series = default_series
+
+            s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
+            s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
+            
+            d_bull_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == 1))
+            d_bull_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == 1))
             d_bull[p] = d_bull_slope * dynamic_weights['slope'] + d_bull_accel * dynamic_weights['accel']
             
-            d_bear_slope = normalize_score(df.get(slope_col), df.index, norm_window, ascending=(polarity == -1))
-            d_bear_accel = normalize_score(df.get(accel_col), df.index, norm_window, ascending=(polarity == -1))
+            d_bear_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == -1))
+            d_bear_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == -1))
             d_bear[p] = d_bear_slope * dynamic_weights['slope'] + d_bear_accel * dynamic_weights['accel']
 
         return {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
