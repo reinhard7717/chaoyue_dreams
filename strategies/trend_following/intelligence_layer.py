@@ -242,7 +242,7 @@ class IntelligenceLayer:
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
         # 依次调用所有需要解剖的信号探针
-        self._super_probe_ff_period_13(probe_date)
+        # self._super_probe_ff_period_13(probe_date)
         self._deploy_risk_resonance_probe(probe_date, 'FF')
         self._deploy_risk_resonance_probe(probe_date, 'CHIP')
         self._deploy_risk_resonance_probe(probe_date, 'DYN')
@@ -569,9 +569,8 @@ class IntelligenceLayer:
     # 全新的终极反转信号探针
     def _deploy_ultimate_reversal_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V1.3 · 直连引擎版】解剖终极反转信号
-        - 核心修复: 不再尝试重构数据，而是直接读取由各情报引擎缓存的 `__<DOMAIN>_overall_health` 数据。
-                    这确保了探针的绝对准确性，并解决了之前因无法访问内部状态而报告错误信息的问题。
+        【探针V1.4 · 键名校准版】解剖终极反转信号
+        - BUG修复: 修正了在访问 `overall_health` 缓存时使用错误键名的问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BOTTOM_REVERSAL_S_PLUS'
@@ -581,7 +580,6 @@ class IntelligenceLayer:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index)
 
-        # --- 步骤 1: 获取最终得分和其两大组成部分 (逻辑不变) ---
         final_score = atomic.get(signal_name, default_score).get(probe_date, 0.0)
         print(f"  - 当日最终得分: {final_score:.4f}")
 
@@ -601,17 +599,15 @@ class IntelligenceLayer:
         print(f"    - 奖励因子 (Bonus Factor): {bonus_factor:.2f}")
         print(f"    - 反推得到的看涨触发分 (Trigger): {trigger_score:.4f}")
 
-        # --- 步骤 2: 解剖 Trigger Score 的构成 (全新逻辑) ---
-        # 直接从 atomic_states 读取引擎缓存的 overall_health
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         
         if not overall_health:
-             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。请确保 {domain} 引擎已正确缓存其内部状态。")
+             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
              return
 
-        # 使用新的反转健康度逻辑
-        bullish_reversal_health = {p: overall_health['bearish_static'][p].get(probe_date, 0.5) * overall_health['bullish_dynamic'][p].get(probe_date, 0.5) for p in periods}
+        # [代码修改] 使用正确的键名 's_bear' 和 'd_bull'
+        bullish_reversal_health = {p: overall_health['s_bear'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
 
         short_force = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         medium_trend = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
@@ -622,7 +618,6 @@ class IntelligenceLayer:
         print(f"    - 中期反转力 (权重 {reversal_tf_weights['medium']}): {medium_trend:.4f}")
         print(f"    - 长期反转力 (权重 {reversal_tf_weights['long']}): {long_inertia:.4f}")
 
-        # --- 步骤 3 & 4 (全新逻辑) ---
         forces = {'短期': short_force, '中期': medium_trend, '长期': long_inertia}
         main_force_name = max(forces, key=forces.get)
         print(f"  - 主要贡献力量来自【{main_force_name}反转力】(分值: {forces[main_force_name]:.4f})")
@@ -635,8 +630,9 @@ class IntelligenceLayer:
         print(f"       - {p1}日反转健康度: {bullish_reversal_health.get(p1, 0.5):.4f}")
         print(f"       - {p2}日反转健康度: {bullish_reversal_health.get(p2, 0.5):.4f}")
         
-        static_bearish_p1 = overall_health['bearish_static'][p1].get(probe_date, 0.5)
-        dynamic_bullish_p1 = overall_health['bullish_dynamic'][p1].get(probe_date, 0.5)
+        # [代码修改] 使用正确的键名 's_bear' 和 'd_bull'
+        static_bearish_p1 = overall_health['s_bear'][p1].get(probe_date, 0.5)
+        dynamic_bullish_p1 = overall_health['d_bull'][p1].get(probe_date, 0.5)
         print(f"    -> {p1}日反转健康度由以下两者相乘得到:")
         print(f"       - {p1}日静态看跌分: {static_bearish_p1:.4f}")
         print(f"       - {p1}日动态看涨分: {dynamic_bullish_p1:.4f}")
@@ -651,12 +647,12 @@ class IntelligenceLayer:
     # 彻底重构风险探针，实现“钻透式”解剖
     def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V4.3 · 健壮性修复版】风险溯源法医探针
-        - BUG修复: 彻底修复了调用 BEHAVIOR 和 FOUNDATION 引擎健康度计算器时错误的参数传递和数据类型问题。
+        【探针V4.4 · 键名校准版】风险溯源法医探针
+        - BUG修复: 彻底修复了探针在访问 `overall_health` 缓存时使用错误键名 ('bearish_static' -> 's_bear') 的问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BEARISH_RESONANCE_S_PLUS'
-        print(f"\n--- [风险探针 V4.3] 正在解剖: 【终极风险信号】{signal_name} ---")
+        print(f"\n--- [风险探针 V4.4] 正在解剖: 【终极风险信号】{signal_name} ---")
 
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -673,12 +669,14 @@ class IntelligenceLayer:
 
         period_to_probe = 13
         
-        if period_to_probe not in overall_health.get('bearish_static', {}) or period_to_probe not in overall_health.get('bearish_dynamic', {}):
+        # [代码修改] 使用正确的键名 's_bear' 和 'd_bear' 来访问缓存
+        if period_to_probe not in overall_health.get('s_bear', {}) or period_to_probe not in overall_health.get('d_bear', {}):
             print(f"  - [探针警告] 在 {domain_upper} 领域的 overall_health 中缺少周期 {period_to_probe} 的数据。")
             return
 
-        s_bear_score = overall_health['bearish_static'][period_to_probe].get(probe_date, 0.0)
-        d_bear_score = overall_health['bearish_dynamic'][period_to_probe].get(probe_date, 0.0)
+        s_bear_score = overall_health['s_bear'][period_to_probe].get(probe_date, 0.0)
+        d_bear_score = overall_health['d_bear'][period_to_probe].get(probe_date, 0.0)
+        # [代码修改结束]
         
         print(f"  - 解剖核心逻辑 (以{period_to_probe}日周期为例): 看跌共振分 ≈ s_bear * d_bear")
         print(f"    - {period_to_probe}日静态看跌分 (s_bear): {s_bear_score:.4f}")
@@ -709,7 +707,6 @@ class IntelligenceLayer:
                 calculator = getattr(engine_instance, calc_func_name)
                 
                 periods_arg = [period_to_probe]
-                # 修复了所有引擎的探针调用逻辑
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     if calc_func_name in ['_calculate_price_health', '_calculate_volume_health']:
@@ -718,7 +715,7 @@ class IntelligenceLayer:
                         s_bull, d_bull, s_bear, d_bear = calculator(df, atomic_signals_for_behavior, 120, 24, periods_arg)
                 elif domain_upper == 'STRUCTURE':
                     s_bull, d_bull, s_bear, d_bear = calculator(df, periods_arg, 120, {'slope': 0.6, 'accel': 0.4})
-                else: # DYN, FOUNDATION, CHIP
+                else:
                     s_bull, d_bull, s_bear, d_bear = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, periods_arg)
 
                 pillar_score_series = s_bear.get(period_to_probe) if bottleneck_type == 's_bear' else d_bear.get(period_to_probe)
