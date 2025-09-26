@@ -591,47 +591,6 @@ class MultiTimeframeTrendStrategy:
             gc.collect()
             print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
 
-    def _deploy_ultimate_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
-        """
-        【V1.1 · 数据注入版】终极反转信号探针
-        - 核心重构: 不再依赖 self.daily_analysis_df，而是接收一个DataFrame作为参数。
-        """
-        print("\n" + "="*35 + f" [终极反转信号探针 V1.1] 正在解剖 {probe_date} " + "="*35)
-        try:
-            # 使用传入的DataFrame
-            df = daily_analysis_df
-            atomic = atomic_states
-            probe_ts = pd.to_datetime(probe_date)
-            if df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
-            if probe_ts not in df.index:
-                print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
-                return
-
-            # ... 探针的其余逻辑保持不变，因为它们现在可以访问正确的 df 和 atomic ...
-            def probe_signal(signal_name, indent=2):
-                prefix = " " * indent
-                value = atomic.get(signal_name, pd.Series()).get(probe_ts, 0.0)
-                print(f"{prefix}✅ {signal_name:<55} = {value:.4f}")
-                return value
-
-            def dissect_reversal_signal(layer_prefix: str):
-                print(f"\n--- [解剖: {layer_prefix}层 · 终极S级底部反转] ---")
-                final_signal_name = f"SCORE_{layer_prefix}_BOTTOM_REVERSAL_S"
-                final_score = probe_signal(final_signal_name, indent=2)
-                params = get_params_block(self.tactical_engine, f'{layer_prefix.lower()}_ultimate_params', {})
-                exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-                print(f"  -> 它的分数由 [(底部上下文 * 短期看涨力量 * 长期看跌惯性) ^ {exponent}] 得到:")
-                raw_score_calc = final_score ** (1/exponent)
-                print(f"  - [验算] 反推毛坯分 = ({final_score:.4f}) ^ (1/{exponent}) = {raw_score_calc:.4f}")
-
-            dissect_reversal_signal("STRUCTURE")
-            dissect_reversal_signal("DYN")
-
-            print("\n" + "="*35 + " [终极反转信号探针] 解剖完毕 " + "="*35 + "\n")
-        except Exception as e:
-            print(f"  [探针错误] 在执行“终极反转信号探针”时发生异常: {e}")
-            traceback.print_exc()
-
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """
         【V1.3 · 作用域及逻辑修复版】底部反转信号深度诊断探针

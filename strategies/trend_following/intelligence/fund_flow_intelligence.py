@@ -157,46 +157,47 @@ class FundFlowIntelligence:
 
     def _synthesize_final_signals(self, overall_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 底部反转逻辑重构版】合成最终的共振与反转信号
-        - 核心重构: 彻底修改底部反转信号的合成逻辑，将“情景分”从“硬性门控”改为“奖励因子”。
+        【V2.3 · 哲学修复版】合成最终的共振与反转信号
+        - 核心修复: 彻底重构了底部和顶部反转信号的合成哲学。
         """
         final_scores = {}
         periods = params['periods']
         res_tw = params['resonance_tf_weights']
         rev_tw = params['reversal_tf_weights']
-        # 获取底部情景奖励因子
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
+        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8) # 新增顶部因子
 
-        # 看涨信号合成
+        # 看涨共振 (逻辑不变)
         bullish_resonance_health = {p: overall_health['bullish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bull_res_long = bullish_resonance_health.get(55, 0.5)
         final_scores['bullish_resonance'] = (bull_res_short * res_tw['short'] + bull_res_med * res_tw['medium'] + bull_res_long * res_tw['long'])
         
-        bullish_dynamic = overall_health['bullish_dynamic']
-        bull_rev_short = (bullish_dynamic.get(1, 0.5) * bullish_dynamic.get(5, 0.5))**0.5
-        bull_rev_med = (bullish_dynamic.get(13, 0.5) * bullish_dynamic.get(21, 0.5))**0.5
-        bull_rev_long = bullish_dynamic.get(55, 0.5)
+        # 底部反转 (全新逻辑: 静态看跌 * 动态看涨)
+        bullish_reversal_health = {p: overall_health['bearish_static'][p] * overall_health['bullish_dynamic'][p] for p in periods}
+        bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
+        bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
+        bull_rev_long = bullish_reversal_health.get(55, 0.5)
         bullish_trigger = (bull_rev_short * rev_tw['short'] + bull_rev_med * rev_tw['medium'] + bull_rev_long * rev_tw['long'])
-        
-        # 应用新的“奖励”模式公式
         final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
 
-        # 看跌信号合成
+        # 看跌共振 (逻辑不变)
         bearish_resonance_health = {p: overall_health['bearish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
         bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bear_res_long = bearish_resonance_health.get(55, 0.5)
         final_scores['bearish_resonance'] = (bear_res_short * res_tw['short'] + bear_res_med * res_tw['medium'] + bear_res_long * res_tw['long'])
 
-        bearish_dynamic = overall_health['bearish_dynamic']
-        bear_rev_short = (bearish_dynamic.get(1, 0.5) * bearish_dynamic.get(5, 0.5))**0.5
-        bear_rev_med = (bearish_dynamic.get(13, 0.5) * bearish_dynamic.get(21, 0.5))**0.5
-        bear_rev_long = bearish_dynamic.get(55, 0.5)
+        # 顶部反转 (全新逻辑: 静态看涨 * 动态看跌)
+        bearish_reversal_health = {p: overall_health['bullish_static'][p] * overall_health['bearish_dynamic'][p] for p in periods}
+        bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
+        bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
+        bear_rev_long = bearish_reversal_health.get(55, 0.5)
         bearish_trigger = (bear_rev_short * rev_tw['short'] + bear_rev_med * rev_tw['medium'] + bear_rev_long * rev_tw['long'])
-        final_scores['top_reversal'] = context_scores['top_context'] * bearish_trigger
+        # 顶部反转也应用奖励(惩罚)因子模型
+        final_scores['top_reversal'] = (bearish_trigger * (1 + context_scores['top_context'] * top_context_bonus_factor)).clip(0, 1)
         
         return final_scores
 
