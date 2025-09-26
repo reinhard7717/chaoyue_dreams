@@ -171,10 +171,10 @@ class SimulationLayer:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                             
                             df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
-                            print(f"  -> {current_date.date()}: [建立仓位] 信号达标，T+1开盘价 {actual_entry_price:.2f} (缺口: {opening_gap_pct:+.2%}) 在容忍范围内。")
+                            # print(f"  -> {current_date.date()}: [建立仓位] 信号达标，T+1开盘价 {actual_entry_price:.2f} (缺口: {opening_gap_pct:+.2%}) 在容忍范围内。")
                     else:
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
-                        print(f"  -> {current_date.date()}: [跳过建仓] 信号达标，但T+1开盘价缺失或无效。")
+                        # print(f"  -> {current_date.date()}: [跳过建仓] 信号达标，但T+1开盘价缺失或无效。")
                 else:
                     # ... (空仓无信号时的逻辑不变) ...
                     if current_dynamic_action == 'AVOID': df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.AVOID.value

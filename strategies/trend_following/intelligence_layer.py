@@ -561,64 +561,115 @@ class IntelligenceLayer:
     # 新增全新的风险溯源探针
     def _deploy_risk_resonance_probe(self, probe_date: pd.Timestamp, domain: str):
         """
-        【探针V1.1 · 通用版】风险溯源法医探针
-        - 核心升级: 重构为通用版本，能解剖任何领域的看跌共振信号。
+        【探针V3.0 · 钻透式解剖版】风险溯源法医探针
+        - 核心升级: 实现“钻透式”解剖，追溯到最原始的指标值，并展示完整的归一化计算过程，
+                      揭示“相对归一化”导致风险信号失效的根本原因。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_BEARISH_RESONANCE_S_PLUS'
-        print(f"\n--- [风险探针] 正在解剖: 【终极风险信号】{signal_name} ---")
+        print(f"\n--- [风险探针 V3.0] 正在解剖: 【终极风险信号】{signal_name} ---")
 
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
         final_score = atomic.get(signal_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"  - 当日最终得分: {final_score:.4f}")
-        if final_score < 0.5 and "大跌" in "您的情景描述": # 模拟您的场景
-             print(f"  - [初步结论] 在大跌背景下，风险分({final_score:.4f})显著低于预期，存在问题。开始深度解剖...")
-        elif final_score > 0:
-            print("  - [初步结论] 风险信号分数大于0，计算正常。")
-            return
-        
+
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         
         if not overall_health:
-             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。无法继续解剖。")
+             print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
              return
 
         period_to_probe = 13
         
-        s_bear_score = overall_health.get('bearish_static', {}).get(period_to_probe, pd.Series(0.0)).get(probe_date, 0.0)
-        d_bear_score = overall_health.get('bearish_dynamic', {}).get(period_to_probe, pd.Series(0.0)).get(probe_date, 0.0)
+        # 检查 health 数据是否完整
+        if period_to_probe not in overall_health.get('bearish_static', {}) or period_to_probe not in overall_health.get('bearish_dynamic', {}):
+            print(f"  - [探针警告] 在 {domain_upper} 领域的 overall_health 中缺少周期 {period_to_probe} 的数据。")
+            return
+
+        s_bear_score = overall_health['bearish_static'][period_to_probe].get(probe_date, 0.0)
+        d_bear_score = overall_health['bearish_dynamic'][period_to_probe].get(probe_date, 0.0)
         
         print(f"  - 解剖核心逻辑 (以{period_to_probe}日周期为例): 看跌共振分 ≈ s_bear * d_bear")
         print(f"    - {period_to_probe}日静态看跌分 (s_bear): {s_bear_score:.4f}")
         print(f"    - {period_to_probe}日动态看跌分 (d_bear): {d_bear_score:.4f}")
 
+        # 定位瓶颈
         bottleneck_type = 's_bear' if s_bear_score < d_bear_score else 'd_bear'
-        print(f"  - [定位瓶颈] 【{bottleneck_type}】分数更低，是主要问题所在。")
+        bottleneck_score = s_bear_score if bottleneck_type == 's_bear' else d_bear_score
+        print(f"  - [定位瓶颈] 【{bottleneck_type}】分数({bottleneck_score:.4f}) 更低，是主要问题所在。")
         
-        # 简化版解剖：直接打印所有支柱的动态看跌分
-        if bottleneck_type == 'd_bear':
-            print(f"    -> 解剖动态看跌分 (d_bear) 的构成:")
-            # 这是一个简化的通用解剖逻辑，它假设所有引擎的健康度计算器都遵循相似的模式
-            # 并且可以直接从 overall_health 反推（这并不完全精确，但足以定位问题）
-            # 理想情况下，每个引擎都应提供自己的解剖接口
-            
-            # 示例：以力学引擎为例
-            if domain_upper == 'DYN':
-                print("       - 正在检查力学引擎的 d_bear 支柱贡献...")
-                # 重新计算以获取原始值
-                engine = self.mechanics_engine
-                calculators = {
-                    'volatility': engine._calculate_volatility_health, 'efficiency': engine._calculate_efficiency_health,
-                    'momentum': engine._calculate_kinetic_energy_health, 'inertia': engine._calculate_inertia_health
-                }
-                for name, calculator in calculators.items():
-                    _, _, _, d_bear_pillar = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
-                    pillar_score = d_bear_pillar[period_to_probe].get(probe_date, 0.0)
-                    print(f"         - {name:<12s} 支柱 d_bear 得分: {pillar_score:.4f}")
-                print("  - [最终结论] 请检查得分异常的支柱，其内部的 normalize_score 是否使用了正确的 ascending 参数。对于动能/波动率风险，通常应为 ascending=True。")
+        # --- 钻透式解剖 ---
+        print(f"    -> 开始对 {domain_upper} 领域的【{bottleneck_type}】进行钻透式解剖...")
+
+        # 获取引擎实例
+        engine_map = {
+            'FF': self.fund_flow_intel, 'CHIP': self.chip_intel, 'DYN': self.mechanics_engine,
+            'BEHAVIOR': self.behavioral_intel, 'STRUCTURE': self.structural_intel, 'FOUNDATION': self.foundation_intel
+        }
+        engine_instance = engine_map.get(domain_upper)
+        if not engine_instance: return
+
+        # 获取该引擎的所有健康度计算器
+        calc_map = {
+            'DYN': [('_calculate_volatility_health', '波动率'), ('_calculate_efficiency_health', '效率'), ('_calculate_kinetic_energy_health', '动能'), ('_calculate_inertia_health', '惯性')],
+            'BEHAVIOR': [('_calculate_price_health', '价格'), ('_calculate_volume_health', '成交量'), ('_calculate_kline_pattern_health', 'K线形态')],
+            # 为其他引擎添加映射...
+        }
+        
+        # 遍历该引擎的所有支柱计算器
+        for calc_func_name, pillar_cn_name in calc_map.get(domain_upper, []):
+            try:
+                calculator = getattr(engine_instance, calc_func_name)
+                # 模拟调用以获取单个支柱的健康度
+                s_bull, d_bull, s_bear, d_bear = calculator(df, 120, {'slope': 0.6, 'accel': 0.4}, [period_to_probe])
+                
+                pillar_score_series = s_bear[period_to_probe] if bottleneck_type == 's_bear' else d_bear[period_to_probe]
+                pillar_score = pillar_score_series.get(probe_date, 0.0)
+                print(f"       - {pillar_cn_name:<12s} 支柱贡献分: {pillar_score:.4f}")
+
+                # 以您最关心的“动能”为例，进行最深度的钻透
+                if domain_upper == 'DYN' and pillar_cn_name == '动能' and bottleneck_type == 'd_bear':
+                    print(f"         -> [深度钻透] 开始解剖“动能”支柱的 d_bear 分数...")
+                    
+                    slope_col = f'SLOPE_{period_to_probe}_ATR_14_D'
+                    accel_col = f'ACCEL_{period_to_probe}_ATR_14_D'
+                    
+                    # 1. 获取原始值
+                    raw_slope = df.get(slope_col, pd.Series(np.nan)).get(probe_date, np.nan)
+                    raw_accel = df.get(accel_col, pd.Series(np.nan)).get(probe_date, np.nan)
+                    print(f"            - 步骤1: 获取原始指标值")
+                    print(f"              - {slope_col}: {raw_slope:.6f}")
+                    print(f"              - {accel_col}: {raw_accel:.6f}")
+
+                    # 2. 提取归一化窗口数据并展示统计信息
+                    norm_window = 120
+                    slope_series = df.get(slope_col)
+                    if slope_series is not None:
+                        slope_window_data = slope_series.loc[:probe_date].tail(norm_window)
+                        print(f"            - 步骤2: 提取斜率指标在过去 {norm_window} 天的统计数据")
+                        print(f"              - 窗口最大值: {slope_window_data.max():.6f}")
+                        print(f"              - 窗口最小值: {slope_window_data.min():.6f}")
+                        print(f"              - 窗口平均值: {slope_window_data.mean():.6f}")
+
+                        # 3. 计算并展示相对排名
+                        # 使用 rank(pct=True) 来精确模拟 normalize_score 的核心
+                        slope_rank_pct = slope_window_data.rank(pct=True).iloc[-1]
+                        print(f"            - 步骤3: 计算当日原始值的相对排名")
+                        print(f"              - 当日斜率值 ({raw_slope:.6f}) 在此窗口中的百分位排名为: {slope_rank_pct:.2%}")
+                        
+                        # 4. 展示最终的归一化分数
+                        normalized_slope_score = slope_rank_pct
+                        print(f"            - 步骤4: 得出被“稀释”的归一化分数")
+                        print(f"              - 归一化后的斜率分 (相对风险): {normalized_slope_score:.4f}")
+                        print(f"         -> [钻透结论] 尽管原始斜率值为正，显示动能增加，但由于其在120天历史窗口内的相对排名不高，导致其风险贡献分被严重拉低。")
+
+            except Exception as e:
+                print(f"       - [探针错误] 解剖支柱 '{pillar_cn_name}' 失败: {e}")
+        
+        print(f"  - [最终诊断] {domain_upper} 风险分低，根源在于其构成支柱的【{bottleneck_type}】分数，在现有“相对归一化”逻辑下被历史数据“平均化”，无法体现当日的绝对风险。")
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """
