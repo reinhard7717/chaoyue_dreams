@@ -281,8 +281,9 @@ class BehavioralIntelligence:
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score).astype(np.float32)
         return states
 
-    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
-        p = exit_params.get('upthrust_distribution_params', {})
+    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        # 修正参数获取逻辑，使用正确的get_params_block工具，并修复了误导性的参数名
+        p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         if not get_param_value(p.get('enabled'), False):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
@@ -290,7 +291,8 @@ class BehavioralIntelligence:
         ma_col = f'EMA_{overextension_ma_period}_D'
         if not all(col in df.columns for col in ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
-        norm_window = get_param_value(p.get('norm_window'), 120)
+        # 使用配置中定义的norm_window，而不是硬编码
+        norm_window = get_param_value(p.get('norm_window'), 55)
         min_periods = max(1, norm_window // 5)
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         overextension_score = overextension_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
@@ -306,27 +308,26 @@ class BehavioralIntelligence:
         final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
         return final_score
 
-    def _diagnose_ma_breakdown(self, df: pd.DataFrame, exit_params: dict) -> pd.Series:
+    def _diagnose_ma_breakdown(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.1 · 依赖注入修复版】
-        - 核心修复: 方法签名增加了 df 参数，不再依赖 self.strategy.df 或 self.strategy.df_indicators。
-                    所有对 DataFrame 的访问都改为使用传入的 df 参数，彻底解决了 AttributeError。
+        【V1.2 · 参数访问修复版】
+        - 核心修复: 修正了参数获取逻辑，使用正确的 get_params_block 工具。
         """
-        p = exit_params.get('structure_breakdown_params', {})
+        # 修正参数获取逻辑，使用正确的get_params_block工具，并修复了误导性的参数名
+        p = get_params_block(self.strategy, 'structure_breakdown_params', {})
         if not get_param_value(p.get('enabled'), False):
-            # 使用传入的 df.index，不再访问 self.strategy.df
             return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
         
         breakdown_ma_period = get_param_value(p.get('breakdown_ma_period'), 21)
         ma_col = f'EMA_{breakdown_ma_period}_D'
 
         if not all(col in df.columns for col in ['close_D', ma_col]):
-            # 使用传入的 df.index
             return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
             
         breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
         breakdown_depth = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
-        norm_window = get_param_value(p.get('norm_window'), 120)
+        # 使用配置中定义的norm_window，而不是硬编码
+        norm_window = get_param_value(p.get('norm_window'), 55)
         min_periods = max(1, norm_window // 5)
         score = breakdown_depth.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
         final_score = (score * (breakdown_depth > 0)).astype(np.float32)
