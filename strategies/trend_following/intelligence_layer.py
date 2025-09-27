@@ -249,10 +249,10 @@ class IntelligenceLayer:
         
         # [代码新增] 部署全新的“过程情报引擎”探针
         self._deploy_process_intelligence_probe(probe_date)
-        # [代码修改] 部署全新的“全面进攻信号超级探针”
+        # 部署全新的“全面进攻信号超级探针”
         self._deploy_comprehensive_super_probe(probe_date)
         
-        # [代码修改] 保留风险探针，但注释掉重复的进攻探针
+        # 保留风险探针，但注释掉重复的进攻探针
         self._deploy_risk_resonance_probe(probe_date, 'DYN')
         self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
         self._deploy_risk_resonance_probe(probe_date, 'FF')
@@ -1201,7 +1201,7 @@ class IntelligenceLayer:
         【探针V1.8 · 通用元分析版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
         - 核心升级: 探针已完全泛化，能够智能解剖任何已配置的维度关系（量价、价资、价筹等）。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.8】 ---") # [代码修改] 更新版本号
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.8】 ---") # 更新版本号
         
         df = self.strategy.df_indicators
         engine = self.process_intel

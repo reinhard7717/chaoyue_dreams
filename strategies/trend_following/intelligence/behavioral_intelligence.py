@@ -60,7 +60,7 @@ class BehavioralIntelligence:
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        # [代码修改] 不再使用旧的、宽泛的 context_score，而是直接获取新的、精准的原子信号
+        # 不再使用旧的、宽泛的 context_score，而是直接获取新的、精准的原子信号
         bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION_S', pd.Series(0.0, index=df.index))
         # 顶部情景分暂时保留旧逻辑
         _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
@@ -99,7 +99,7 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        # [代码修改] 哲学升维：底部反转 = 高质量底部形态 * 向上动能
+        # 哲学升维：底部反转 = 高质量底部形态 * 向上动能
         bullish_reversal_health = {p: bottom_formation_score * overall_health['d_bull'][p] for p in periods}
         
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
@@ -110,7 +110,7 @@ class BehavioralIntelligence:
             (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bullish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        # [代码修改] 这里的奖励因子现在是对“高质量底部形态”的二次加强，逻辑上是合理的。
+        # 这里的奖励因子现在是对“高质量底部形态”的二次加强，逻辑上是合理的。
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
 
         # ... (后续的看跌逻辑保持不变) ...
@@ -209,7 +209,7 @@ class BehavioralIntelligence:
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        # [代码修改] 使用更智能的、包含价格背景的原子信号作为静态分
+        # 使用更智能的、包含价格背景的原子信号作为静态分
         # 静态看涨分: 缩量下跌是健康的。我们从原子信号库中获取这个分数。
         # 注意：这个信号本身是“缩量+下跌”的强度，所以它越高，代表调整越健康，是看涨的。
         static_bull_score = self.strategy.atomic_states.get('SCORE_VOL_WEAKENING_DROP', pd.Series(0.5, index=df.index))
@@ -229,7 +229,7 @@ class BehavioralIntelligence:
             
             # 看涨动态和看跌动态都受益于成交量的活跃。
             d_bull[p] = (vol_mom * vol_accel)**0.5
-            d_bear[p] = (vol_mom * vol_accel)**0.5 # [代码修改] 明确d_bear逻辑：成交量活跃本身对看跌也是一种能量
+            d_bear[p] = (vol_mom * vol_accel)**0.5 # 明确d_bear逻辑：成交量活跃本身对看跌也是一种能量
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
