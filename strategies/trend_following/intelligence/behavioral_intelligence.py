@@ -216,12 +216,14 @@ class BehavioralIntelligence:
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
         """
-        【V2.2 · 终极哲学统一版】
-        - 核心修复: 1. 将原子信号的融合逻辑从“相乘”修改为“取最大值”(OR)。
-                      2. 动态分不再是固定值，而是基于不同周期的突破/破位信号斜率计算，回归多周期分析哲学。
+        【V2.3 · 回归本源版】
+        - 核心修复: 彻底废除之前将K线动态分与MA信号错误关联的灾难性设计。
+        - 新哲学: K线动态健康度回归本源，定义为其“静态健康度”自身的变化趋势（斜率）。
+                      这确保了动态分逻辑的内聚性、正确性和范围约束。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
+        # --- 静态分计算 (逻辑保持不变) ---
         strong_close = normalize_score(atomic_signals.get('SCORE_ATOMIC_STRONG_CLOSE'), df.index, norm_window, True, min_periods)
         gap_support = normalize_score(atomic_signals.get('SCORE_ATOMIC_GAP_SUPPORT'), df.index, norm_window, True, min_periods)
         earth_heaven = normalize_score(atomic_signals.get('SCORE_OPP_EARTH_HEAVEN_BOARD'), df.index, norm_window, True, min_periods)
@@ -238,16 +240,23 @@ class BehavioralIntelligence:
             weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
         ]), index=df.index).astype(np.float32)
 
+        # [代码修改] 动态分回归本源：基于静态分自身的斜率计算
+        # --- 动态分计算 (全新逻辑) ---
         for p in periods:
+            # 静态分赋值
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 动态分基于不同周期的斜率计算，不再是固定值
-            breakthrough_col = f'SLOPE_{p}_SCORE_BEHAVIOR_MA_BREAKTHROUGH'
-            breakdown_col = f'SLOPE_{p}_SCORE_BEHAVIOR_MA_BREAKDOWN'
+            # 计算静态分的p周期斜率
+            bull_slope = static_bull_score.diff(p).fillna(0)
+            bear_slope = static_bear_score.diff(p).fillna(0)
             
-            d_bull[p] = normalize_score(atomic_signals.get(breakthrough_col), df.index, norm_window, True, min_periods)
-            d_bear[p] = normalize_score(atomic_signals.get(breakdown_col), df.index, norm_window, True, min_periods)
+            # 归一化斜率作为动态分
+            # 看涨动态：静态看涨分斜率越大越好
+            d_bull[p] = normalize_score(bull_slope, df.index, norm_window, ascending=True)
+            # 看跌动态：静态看跌分斜率越大越糟 (风险增加)
+            d_bear[p] = normalize_score(bear_slope, df.index, norm_window, ascending=True)
+        # [代码修改结束]
             
         return s_bull, d_bull, s_bear, d_bear
 
