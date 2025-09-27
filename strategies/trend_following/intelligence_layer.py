@@ -1197,79 +1197,67 @@ class IntelligenceLayer:
 
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """
-        【探针V1.1 · 动能增强版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
-        - 核心升级: 1. 明确展示用于计算趋势的回溯窗口。
-                      2. 新增对“加速度”和“过程动能”的解剖。
+        【探针V1.8 · 通用元分析版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
+        - 核心升级: 探针已完全泛化，能够智能解剖任何已配置的维度关系（量价、价资、价筹等）。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.1】 ---") # [代码修改] 更新版本号
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.8】 ---") # [代码修改] 更新版本号
         
         df = self.strategy.df_indicators
         engine = self.process_intel
         
         for config in engine.diagnostics_config:
-            signal_name = config.get('name')
-            print(f"\n  -> 正在解剖诊断任务: 【{signal_name}】")
+            if config.get('type') != 'meta_analysis':
+                continue
             
+            signal_name = config.get('name')
             signal_a_name = config.get('signal_A')
             signal_b_name = config.get('signal_B')
             
-            series_a = df.get(signal_a_name)
-            series_b = df.get(signal_b_name)
+            print(f"\n  -> 正在解剖元分析任务: 【{signal_name}】 ({signal_a_name} vs {signal_b_name})")
             
-            if series_a is None or series_b is None:
-                print(f"     - [探针错误] 无法获取原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
+            # --- 解剖第一维：瞬时关系分 ---
+            print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于量化力学模型) ---")
+            
+            # 从信号总线获取探针所需的中间值
+            momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+            thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+            relationship_score_today = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+            
+            # 获取原始变化率用于显示
+            change_a = df.get(signal_a_name, pd.Series(dtype=float)).ta.percent_return(length=1).get(probe_date, 0)
+            change_b = df.get(signal_b_name, pd.Series(dtype=float)).ta.percent_return(length=1).get(probe_date, 0)
+            signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+
+            print(f"       - 原始变化率: {signal_a_name}({change_a:+.2%}), {signal_b_name}({change_b:+.2%})")
+            print(f"       - 标准化动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})")
+            print(f"       - 力学公式: 关系分 = 动量A * (1 + {signal_b_factor_k} * 推力B)")
+            print(f"       - [代入计算]: {momentum_a:.4f} * (1 + {signal_b_factor_k:.1f} * {thrust_b:.4f}) = {relationship_score_today:.4f}")
+            
+            # --- 解剖第二维：元分析过程 ---
+            print(f"\n     --- [第二维] 解剖“关系分”在 {engine.meta_window} 日窗口内的趋势 ---")
+            relationship_series = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}")
+            if relationship_series is None:
+                print("       - [探针错误] 无法获取“瞬时关系分”序列。")
                 continue
-            
-            # [代码修改开始] 明确展示回溯窗口
-            end_loc = df.index.get_loc(probe_date)
-            start_loc = max(0, end_loc - engine.lookback_window + 1)
-            start_date = df.index[start_loc].date()
-            end_date = df.index[end_loc].date()
-            print(f"     - 回溯窗口 ({engine.lookback_window}天): 从 {start_date} 到 {end_date}")
-            # [代码修改结束]
 
-            val_a = series_a.get(probe_date, np.nan)
-            val_b = series_b.get(probe_date, np.nan)
-            print(f"     - 原始信号A ({signal_a_name}) 当日值: {val_a:.4f}")
-            print(f"     - 原始信号B ({signal_b_name}) 当日值: {val_b:.4f}")
+            # 使用 pandas-ta 重算趋势和加速度
+            relationship_trend_series = relationship_series.ta.linreg(length=engine.meta_window, append=False)
+            relationship_trend_today = relationship_trend_series.get(probe_date, np.nan)
             
-            trend_a_raw_series = engine._calculate_raw_process_trend(series_a)
-            trend_b_raw_series = engine._calculate_raw_process_trend(series_b)
-            trend_a_raw = trend_a_raw_series.get(probe_date, np.nan)
-            trend_b_raw = trend_b_raw_series.get(probe_date, np.nan)
-            print(f"     - 信号A的原始趋势 (斜率): {trend_a_raw:.6f}")
-            print(f"     - 信号B的原始趋势 (斜率): {trend_b_raw:.6f}")
+            relationship_accel_series = relationship_trend_series.ta.linreg(length=engine.meta_window, append=False)
+            relationship_accel_today = relationship_accel_series.get(probe_date, np.nan)
 
-            # [代码新增开始] 解剖加速度
-            accel_a_raw = engine._calculate_raw_process_accel(trend_a_raw_series).get(probe_date, np.nan)
-            accel_b_raw = engine._calculate_raw_process_accel(trend_b_raw_series).get(probe_date, np.nan)
-            print(f"     - 信号A的原始加速度: {accel_a_raw:.6f}")
-            print(f"     - 信号B的原始加速度: {accel_b_raw:.6f}")
-            # [代码新增结束]
-            
-            final_score_from_atomic = self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan)
-            
-            if config['type'] == 'divergence':
-                is_divergence = (trend_a_raw < 0) and (trend_b_raw > 0)
-                strength_trend_norm = normalize_score(trend_b_raw_series, df.index, engine.norm_window).get(probe_date, np.nan)
-                strength_accel_norm = normalize_score(engine._calculate_raw_process_accel(trend_b_raw_series), df.index, engine.norm_window).get(probe_date, np.nan)
-                strength_momentum_score = (strength_trend_norm * strength_accel_norm)**0.5
-                recalculated_score = float(is_divergence) * strength_momentum_score
-                print(f"     - 背离条件 (A_trend<0 and B_trend>0): {'✅ 满足' if is_divergence else '❌ 不满足'}")
-                print(f"     - 过程动能强度 (基于B的趋势和加速度): {strength_momentum_score:.4f} (趋势分:{strength_trend_norm:.2f}, 加速度分:{strength_accel_norm:.2f})")
-                print(f"     - [探针重算结果]: {recalculated_score:.4f}")
-                print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
+            print(f"       - “关系分”的趋势 (斜率): {relationship_trend_today:.4f}")
+            print(f"       - “关系分”的加速度: {relationship_accel_today:.4f}")
 
-            elif config['type'] == 'resonance':
-                is_resonance = (trend_a_raw > 0) and (trend_b_raw > 0)
-                momentum_a_norm = (normalize_score(trend_a_raw_series, df.index, engine.norm_window).get(probe_date, np.nan) * normalize_score(engine._calculate_raw_process_accel(trend_a_raw_series), df.index, engine.norm_window).get(probe_date, np.nan))**0.5
-                momentum_b_norm = (normalize_score(trend_b_raw_series, df.index, engine.norm_window).get(probe_date, np.nan) * normalize_score(engine._calculate_raw_process_accel(trend_b_raw_series), df.index, engine.norm_window).get(probe_date, np.nan))**0.5
-                strength_momentum_score = (momentum_a_norm * momentum_b_norm)**0.5
-                recalculated_score = float(is_resonance) * strength_momentum_score
-                print(f"     - 共振条件 (A_trend>0 and B_trend>0): {'✅ 满足' if is_resonance else '❌ 不满足'}")
-                print(f"     - 过程动能强度 (融合A和B): {strength_momentum_score:.4f} (A动能:{momentum_a_norm:.2f}, B动能:{momentum_b_norm:.2f})")
-                print(f"     - [探针重算结果]: {recalculated_score:.4f}")
-                print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
+            trend_strength = normalize_score(relationship_trend_series, df.index, engine.norm_window, ascending=True).get(probe_date, np.nan)
+            accel_strength = normalize_score(relationship_accel_series, df.index, engine.norm_window, ascending=True).get(probe_date, np.nan)
+            recalculated_score = trend_strength * accel_strength
+            
+            print(f"       - 趋势强度分 (归一化): {trend_strength:.4f}")
+            print(f"       - 加速度强度分 (归一化): {accel_strength:.4f}")
+            print(f"       - [探针重算结果]: {recalculated_score:.4f}")
+            print(f"       - [最终信号实际值]: {self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan):.4f}")
 
 
 

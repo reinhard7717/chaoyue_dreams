@@ -154,46 +154,37 @@
     "trend_follow": {
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "process_intelligence_params": {
-        "enabled": true,
-        "lookback_window": 13,
+        "comment": "【过程情报引擎 V1.8】配置块。定义所有元分析任务。",
+        "std_window": 21,
+        "meta_window": 5,
         "norm_window": 55,
-        "comment": "【V1.0】过程情报引擎。直接在原始数据上进行回溯，诊断背离与共振。",
         "diagnostics": [
           {
-            "name": "PROCESS_DIVERGENCE_PRICE_VS_CHIP_BULLISH",
-            "type": "divergence",
-            "signal_A": "close_D",
-            "signal_B": "concentration_90pct_D",
-            "condition": "A_trend < 0 and B_trend > 0",
-            "comment": "【经典看涨背离】价跌量缩：价格趋势向下，但90%筹码集中度趋势向上。"
-          },
-          {
-            "name": "PROCESS_RESONANCE_PRICE_VS_VOLUME_BULLISH",
-            "type": "resonance",
+            "name": "PROCESS_META_PV_REL_BULLISH_TURN",
+            "type": "meta_analysis",
             "signal_A": "close_D",
             "signal_B": "volume_D",
-            "condition": "A_trend > 0 and B_trend > 0",
-            "comment": "【经典看涨共振】价升量增：价格趋势向上，成交量趋势也向上。"
+            "signal_b_factor_k": 1.0,
+            "comment": "【元分析-量价】诊断'价格-成交量'关系是否出现看涨拐点。寻找从'价跌量缩'到'价涨量增'的转变。"
           },
           {
-            "name": "PROCESS_DIVERGENCE_PRICE_VS_RSI_BULLISH",
-            "type": "divergence",
+            "name": "PROCESS_META_PF_REL_BULLISH_TURN",
+            "type": "meta_analysis",
             "signal_A": "close_D",
-            "signal_B": "RSI_13_D",
-            "condition": "A_trend < 0 and B_trend > 0",
-            "comment": "【经典指标背离】价格趋势向下，但RSI指标趋势向上。"
+            "signal_B": "net_flow_consensus_D",
+            "signal_b_factor_k": 1.5,
+            "comment": "【元分析-价资】诊断'价格-资金流'关系是否出现看涨拐点。寻找从'价跌资平'到'价涨资进'的转变。资金流影响因子设为1.5，权重更高。"
           },
           {
-            "name": "PROCESS_DIVERGENCE_FF_INTERNAL_COVERT_ACCUM",
-            "type": "divergence",
-            "signal_A": "net_xl_amount_consensus_D",
-            "signal_B": "net_md_amount_consensus_D",
-            "condition": "A_trend < 0 and B_trend > 0",
-            "comment": "【资金内部背离】隐蔽吸筹：超大单趋势向下（砸盘），但中单趋势向上（接盘）。"
+            "name": "PROCESS_META_PC_REL_BULLISH_TURN",
+            "type": "meta_analysis",
+            "signal_A": "close_D",
+            "signal_B": "concentration_90pct_D",
+            "signal_b_factor_k": 2.0,
+            "comment": "【元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。寻找'价跌筹码集中'的经典吸筹模式。筹码变化通常更缓慢但意义重大，影响因子设为2.0。"
           }
         ]
       },
-
       "debug_params": {
         "enabled": { "value": true },
         "probe_date": "2025-09-08",

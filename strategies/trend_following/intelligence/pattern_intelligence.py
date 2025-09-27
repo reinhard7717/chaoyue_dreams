@@ -1,90 +1,124 @@
-# 文件: strategies/trend_following/intelligence/pattern_intelligence.py
-
+# 文件: strategies/trend_following/intelligence/process_intelligence.py
 import pandas as pd
 import numpy as np
+import pandas_ta as ta
 from typing import Dict
+
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
-class PatternIntelligence:
+class ProcessIntelligence:
     """
-    【V2.1 · 预测能力版】形态智能引擎
-    - 核心升级: 引入了“下跌动能衰竭”作为第四个识别维度，赋予引擎在明确反转信号出现前，
-                  就能识别潜在底部形态的“预测”能力。
-    - 收益: 极大提升了在阴跌末期行情中的信号灵敏度。
+    【V1.8 · 通用元分析引擎】
+    - 核心重构: 引擎已完全泛化，不再局限于量价。通过配置可分析价格与任何维度（资金、筹码等）
+                  的关系，并对该“关系”本身进行元分析，寻找拐点。
+    - 哲学: 万物皆可关系。通过“量化力学模型”将任意两个信号的关系转化为一张可分析的“走势图”，
+            再通过元分析寻找这张“关系走势图”的拐点。
+    - 优化: 全面采用 pandas-ta 库进行核心数学计算，性能与优雅性兼备。
+    - 版本: 1.8
     """
     def __init__(self, strategy_instance):
+        """
+        初始化通用元分析引擎。
+        """
         self.strategy = strategy_instance
+        self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
+        # 从配置中读取通用参数
+        self.norm_window = get_param_value(self.params.get('norm_window'), 55)
+        self.std_window = get_param_value(self.params.get('std_window'), 21)
+        self.meta_window = get_param_value(self.params.get('meta_window'), 5)
+        self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
-    def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def run_process_diagnostics(self) -> Dict[str, pd.Series]:
         """
-        形态分析总指挥。
+        运行所有在配置中定义的元分析诊断任务。
         """
-        # print("      -> 正在运行 [形态智能引擎 V2.1 · 预测能力版]...") # 更新版本号和说明
-        p = get_params_block(self.strategy, 'pattern_params', {})
-        if not get_param_value(p.get('enabled'), True):
+        print("      -> [过程情报引擎 V1.8 · 通用元分析引擎] 启动...") # [代码修改] 更新版本号
+        all_process_states = {}
+        df = self.strategy.df_indicators
+        if df.empty:
+            print("      -> [过程情报引擎 V1.8] 警告: 数据量不足，跳过诊断。")
             return {}
+
+        # 遍历所有诊断配置，执行元分析
+        for config in self.diagnostics_config:
+            signal_name = config.get('name')
+            signal_type = config.get('type')
+            if not signal_name or signal_type != 'meta_analysis':
+                continue
+            
+            meta_states = self._diagnose_meta_relationship(df, config)
+            if meta_states:
+                all_process_states.update(meta_states)
+            
+        print(f"      -> [过程情报引擎 V1.8] 分析完毕，共生成 {len(all_process_states)} 个高维度过程元状态。")
+        return all_process_states
+
+    def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.8 核心工具 - 第一维】基于“量化力学模型”计算任意两个信号的“瞬时关系分”。
+        :param df: 指标DataFrame。
+        :param config: 当前诊断任务的配置。
+        :return: “瞬时关系分”序列。
+        """
+        signal_a_name = config.get('signal_A') # 通常是 'close_D'
+        signal_b_name = config.get('signal_B') # 另一个维度，如 'volume_D', 'net_flow_consensus_D'
         
-        # --- 底部反转形态识别 (四位一体，增加预测能力) ---
+        signal_a = df.get(signal_a_name)
+        signal_b = df.get(signal_b_name)
+
+        if signal_a is None or signal_b is None:
+            print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
+            return pd.Series(dtype=np.float32)
+
+        # 使用 pandas-ta 计算百分比变化率
+        change_a = signal_a.ta.percent_return(length=1, append=False).fillna(0)
+        change_b = signal_b.ta.percent_return(length=1, append=False).fillna(0)
         
-        # 模式一: RSI从超卖区反转 (经典V反)
-        rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
-        was_oversold = (rsi.rolling(window=5, min_periods=1).min() < 35)
-        is_recovering = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) > 0)
-        score_rsi_reversal = (was_oversold & is_recovering).astype(float)
+        # 步骤1: 标准化 - 计算各自的滚动标准差
+        change_a_std = change_a.ta.stdev(length=self.std_window, append=False).replace(0, np.nan).fillna(method='bfill').fillna(1)
+        change_b_std = change_b.ta.stdev(length=self.std_window, append=False).replace(0, np.nan).fillna(method='bfill').fillna(1)
         
-        # 模式二: 突破动态盘整平台 (箱体突破)
-        is_breaking_consolidation = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
-        score_consolidation_breakout = is_breaking_consolidation * 0.8
+        # 步骤2: 计算标准化动量
+        momentum_a = (change_a / change_a_std).clip(-3, 3)
+        thrust_b = (change_b / change_b_std).clip(-3, 3)
         
-        # 模式三: MACD柱状线金叉 (趋势扭转)
-        macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        is_macd_bull_cross = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
-        score_macd_bullish_cross = is_macd_bull_cross
-
-        # 模式四: 下跌动能衰竭 (预测性指标)
-        rsi_slope_abs = df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)).abs()
-        macd_hist_slope_abs = df.get('SLOPE_1_MACDh_13_34_8_D', pd.Series(0, index=df.index)).abs()
-        # 归一化，值越小分数越高 (ascending=False)
-        rsi_exhaustion_score = normalize_score(rsi_slope_abs, df.index, window=60, ascending=False)
-        macd_exhaustion_score = normalize_score(macd_hist_slope_abs, df.index, window=60, ascending=False)
-        score_momentum_exhaustion = (rsi_exhaustion_score * macd_exhaustion_score)**0.5
+        # 步骤3: 应用量化力学公式
+        # 从配置中获取信号B的影响因子，提供默认值
+        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+        relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
         
-        # 融合四种模式: 只要有一种模式触发，就认为形态成立
-        bottom_pattern_score = np.maximum.reduce([
-            score_rsi_reversal.values, 
-            score_consolidation_breakout.values, 
-            score_macd_bullish_cross.values,
-            score_momentum_exhaustion.values # 加入新的预测性分数
-        ])
-        bottom_pattern_score = pd.Series(bottom_pattern_score, index=df.index)
-
-        # 看涨共振形态逻辑保持不变
-        bullish_pattern_score = (rsi > 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
-
-        states = {
-            'SCORE_PATTERN_BOTTOM_REVERSAL_S': bottom_pattern_score.astype(np.float32),
-            'SCORE_PATTERN_BULLISH_RESONANCE_S': bullish_pattern_score.astype(np.float32),
-        }
+        # 将重要的中间结果存入信号总线，供探针使用 (使用动态名称)
+        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
+        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         
-        states['SCORE_PATTERN_TOP_REVERSAL_S'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        states['SCORE_PATTERN_BEARISH_RESONANCE_S'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+        return relationship_score
 
-        return states
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.8 核心诊断 - 第二维】对“关系分”进行元分析。
+        :param df: 指标DataFrame。
+        :param config: 当前诊断任务的配置。
+        :return: 最终的元信号分字典。
+        """
+        signal_name = config.get('name')
+        
+        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
+        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        if relationship_score.empty:
+            return {}
+            
+        # 使用动态名称存储关系分，以便探针和未来扩展
+        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
+        self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
+        
+        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
+        relationship_trend = relationship_score.ta.linreg(length=self.meta_window, append=False).fillna(0)
+        relationship_accel = relationship_trend.ta.linreg(length=self.meta_window, append=False).fillna(0)
+        
+        # --- 步骤3: 融合趋势和加速度，形成最终的“元信号” ---
+        trend_strength = normalize_score(relationship_trend, df.index, self.norm_window, ascending=True)
+        accel_strength = normalize_score(relationship_accel, df.index, self.norm_window, ascending=True)
+        
+        meta_score = (trend_strength * accel_strength).astype(np.float32)
+        
+        return {signal_name: meta_score}
