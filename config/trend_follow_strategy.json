@@ -178,7 +178,7 @@
       "foundation_ultimate_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
+        "norm_window": 55,
         "pillar_weights": {
           "说明": "基础层四大支柱的融合权重",
           "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
@@ -187,7 +187,7 @@
       "behavioral_dynamics_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
+        "norm_window": 55,
         "pillar_weights": {
           "说明": "行为层三大支柱的融合权重",
           "price": 0.4, "volume": 0.3, "kline": 0.3
@@ -196,7 +196,7 @@
       "chip_ultimate_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
+        "norm_window": 55,
         "bottom_context_bonus_factor": 0.5,
         "top_context_bonus_factor": 0.8,
         "pillar_weights": {
@@ -211,19 +211,19 @@
       "fund_flow_ultimate_params": {
         "enabled": true,
         "periods": [1, 5, 13, 21, 55],
-        "norm_window": 120,
+        "norm_window": 55,
         "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
         "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 }
       },
       "structural_ultimate_params": {
-        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120,
+        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 55,
         "pillar_weights": {
           "说明": "结构层四大支柱的融合权重",
           "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
         }
       },
       "dynamic_mechanics_params": {
-        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 120,
+        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 55,
         "pillar_weights": {
           "说明": "动态力学层四大支柱的融合权重",
           "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
@@ -330,7 +330,7 @@
       "reversal_reliability_params": {
         "enabled": true,
         "说明": "【V4.6 · FFT周期整合版】反转可靠性诊断引擎参数。",
-        "norm_window": 120,
+        "norm_window": 55,
         "ignition_weights": { "early": 0.5, "vol": 0.2, "potential": 0.3 },
         "main_reliability_weights": { "shareholder": 0.5, "ignition": 0.5 },
         "reversal_reliability_bonus_factor": 0.5
@@ -338,7 +338,7 @@
       "post_peak_downturn_risk_params": {
         "enabled": true,
         "说明": "【V1.0】高位回落风险诊断引擎参数。",
-        "norm_window": 120,
+        "norm_window": 55,
         "high_position_threshold": 0.7,
         "comment": "定义何为'高位'。当股价相对MA55的伸展度超过70%时，即认为处于高位。"
       },
