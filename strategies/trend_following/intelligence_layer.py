@@ -249,19 +249,19 @@ class IntelligenceLayer:
         
         # [代码新增] 部署全新的“过程情报引擎”探针
         self._deploy_process_intelligence_probe(probe_date)
-        # 部署全新的“全面进攻信号超级探针”
-        self._deploy_comprehensive_super_probe(probe_date)
+        # # 部署全新的“全面进攻信号超级探针”
+        # self._deploy_comprehensive_super_probe(probe_date)
         
-        # 保留风险探针，但注释掉重复的进攻探针
-        self._deploy_risk_resonance_probe(probe_date, 'DYN')
-        self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
-        self._deploy_risk_resonance_probe(probe_date, 'FF')
-        self._deploy_risk_resonance_probe(probe_date, 'CHIP')
-        self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
-        self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
+        # # 保留风险探针，但注释掉重复的进攻探针
+        # self._deploy_risk_resonance_probe(probe_date, 'DYN')
+        # self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
+        # self._deploy_risk_resonance_probe(probe_date, 'FF')
+        # self._deploy_risk_resonance_probe(probe_date, 'CHIP')
+        # self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
+        # self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
         
-        if debug_params.get('enabled', False) and probe_date_str:
-            self._deploy_pillar_fusion_probe(probe_date, 'BEHAVIOR', 's_bull', 13)
+        # if debug_params.get('enabled', False) and probe_date_str:
+        #     self._deploy_pillar_fusion_probe(probe_date, 'BEHAVIOR', 's_bull', 13)
         
         print("="*95 + "\n")
 
