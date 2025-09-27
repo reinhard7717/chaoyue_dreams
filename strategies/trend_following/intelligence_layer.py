@@ -241,6 +241,8 @@ class IntelligenceLayer:
 
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
+        self._deploy_drill_down_probe(probe_date, 'SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS')
+        self._deploy_drill_down_probe(probe_date, 'SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS')
         # --- 常规探针部署 ---
         self._deploy_risk_resonance_probe(probe_date, 'DYN')
         # --- 针对性排名法医探针 ---
@@ -738,6 +740,100 @@ class IntelligenceLayer:
         
         print(f"  - [最终诊断] {domain_upper} 风险分低，根源在于其构成支柱的【{bottleneck_type}】分数，在现有“相对归一化”逻辑下被历史数据“平均化”，无法体现当日的绝对风险。")
 
+    def _deploy_drill_down_probe(self, probe_date: pd.Timestamp, target_signal: str):
+        """
+        【超级探针 V1.0】钻透式法医探针
+        - 核心功能: 对任何一个终极信号，从最终结果开始，逐层向下钻透，
+                      打印出其完整计算链路上的每一个中间值，直至最底层的原子输入。
+        - 使用方法: 在 `deploy_forensic_probes` 中调用此方法，并指定日期和目标信号名。
+        """
+        print(f"\n--- [钻透式探针] 正在对信号【{target_signal}】在【{probe_date.date()}】进行终极解剖 ---")
+        
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
+        
+        final_score = atomic.get(target_signal, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        print(f"【顶层】最终信号得分: {final_score:.4f}")
+
+        if "BOTTOM_REVERSAL" in target_signal:
+            # --- 解剖 Bottom Reversal ---
+            print("\n  [链路回溯] final_score = trigger_score * (1 + context_score * bonus_factor)")
+            
+            context_score, _ = calculate_context_scores(df, atomic)
+            context_score_today = context_score.get(probe_date, 0.0)
+            bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
+            trigger_denominator = 1 + context_score_today * bonus_factor
+            trigger_score = final_score / trigger_denominator if trigger_denominator != 0 else 0.0
+            print(f"    - 触发分 (Trigger): {trigger_score:.4f}")
+            print(f"    - 情景分 (Context): {context_score_today:.4f}")
+            print(f"    - 奖励因子 (Bonus): {bonus_factor:.2f}")
+
+            print("\n  [链路回溯] trigger_score 是由 short, medium, long 三股力量的加权几何平均构成")
+            overall_health = atomic.get('__BEHAVIOR_overall_health')
+            reversal_health = {p: overall_health['s_bear'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
+            short_force = (reversal_health.get(1, 0.5) * reversal_health.get(5, 0.5))**0.5
+            medium_force = (reversal_health.get(13, 0.5) * reversal_health.get(21, 0.5))**0.5
+            long_force = reversal_health.get(55, 0.5)
+            print(f"    - 短期反转力: {short_force:.4f}")
+            print(f"    - 中期反转力: {medium_force:.4f}")
+            print(f"    - 长期反转力: {long_force:.4f}")
+
+            print(f"\n  [链路回溯] 短期反转力 ({short_force:.4f}) 由 1日和5日的'反转健康度'融合得到")
+            print(f"    - 1日反转健康度: {reversal_health.get(1, 0.5):.4f} = 1日s_bear * 1日d_bull")
+            s_bear_1 = overall_health['s_bear'][1].get(probe_date, 0.5)
+            d_bull_1 = overall_health['d_bull'][1].get(probe_date, 0.5)
+            print(f"      - 1日 overall_health['s_bear']: {s_bear_1:.4f}")
+            print(f"      - 1日 overall_health['d_bull']: {d_bull_1:.4f}")
+
+            print(f"\n  [链路回溯] 1日 overall_health['s_bear'] ({s_bear_1:.4f}) 由三大支柱融合得到")
+            pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+            
+            # 重新计算一次，确保探针独立性
+            price_s_bull, _, price_s_bear, _ = self.behavioral_intel._calculate_price_health(df, 55, 11, {}, [1])
+            vol_s_bull, _, vol_s_bear, _ = self.behavioral_intel._calculate_volume_health(df, 55, 11, {}, [1])
+            kline_s_bull, _, kline_s_bear, _ = self.behavioral_intel._calculate_kline_pattern_health(df, atomic, 55, 11, [1])
+            
+            price_s_bear_1 = price_s_bear[1].get(probe_date, 0.5)
+            vol_s_bear_1 = vol_s_bear[1].get(probe_date, 0.5)
+            kline_s_bear_1 = kline_s_bear[1].get(probe_date, 0.5)
+            print(f"    - 价格支柱 s_bear (权重 {pillar_weights['price']}): {price_s_bear_1:.4f}")
+            print(f"    - 成交量支柱 s_bear (权重 {pillar_weights['volume']}): {vol_s_bear_1:.4f}")
+            print(f"    - K线支柱 s_bear (权重 {pillar_weights['kline']}): {kline_s_bear_1:.4f}")
+            
+            print(f"\n  [根源诊断] 价格支柱 s_bear ({price_s_bear_1:.4f}) 的计算过程:")
+            bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
+            bbp_today = bbp.get(probe_date, 0.5)
+            print(f"    - price_s_bear = 1.0 - bbp_score")
+            print(f"    - 当日 bbp_score (BBP_21_2.0_D): {bbp_today:.4f}")
+            print(f"    - [结论] 由于当日大涨，收盘价靠近布林线上轨，BBP分数高，导致'静态看跌分'极低。这是'底部反转'信号哑火的【核心原因】。")
+
+        elif "BULLISH_RESONANCE" in target_signal:
+            # --- 解剖 Bullish Resonance ---
+            print("\n  [链路回溯] final_score 是由 short, medium, long 三股力量的加权几何平均构成")
+            overall_health = atomic.get('__BEHAVIOR_overall_health')
+            resonance_health = {p: overall_health['s_bull'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
+            short_force = (resonance_health.get(1, 0.5) * resonance_health.get(5, 0.5))**0.5
+            medium_force = (resonance_health.get(13, 0.5) * resonance_health.get(21, 0.5))**0.5
+            long_force = resonance_health.get(55, 0.5)
+            print(f"    - 短期共振力: {short_force:.4f}")
+            print(f"    - 中期共振力: {medium_force:.4f}")
+            print(f"    - 长期共振力: {long_force:.4f}")
+
+            print(f"\n  [链路回溯] 短期共振力 ({short_force:.4f}) 由 1日和5日的'共振健康度'融合得到")
+            print(f"    - 1日共振健康度: {resonance_health.get(1, 0.5):.4f} = 1日s_bull * 1日d_bull")
+            s_bull_1 = overall_health['s_bull'][1].get(probe_date, 0.5)
+            d_bull_1 = overall_health['d_bull'][1].get(probe_date, 0.5)
+            print(f"      - 1日 overall_health['s_bull']: {s_bull_1:.4f}")
+            print(f"      - 1日 overall_health['d_bull']: {d_bull_1:.4f}")
+            
+            print(f"\n  [根源诊断] '看涨共振'分数低，通常是因为'静态看涨分'(s_bull)和'动态看涨分'(d_bull)未能同时处于高位。")
+            print(f"    - s_bull高，代表当前状态好（如收盘价高、成交量健康）。")
+            print(f"    - d_bull高，代表当前趋势好（如价格、成交量斜率和加速度都在提升）。")
+            print(f"    - 在【{probe_date.date()}】，s_bull({s_bull_1:.2f})和d_bull({d_bull_1:.2f})中可能有一项或多项不高，导致乘积较低。")
+
+        print(f"--- 信号【{target_signal}】解剖完毕 ---")
 
     def _super_probe_ff_period_13(self, probe_date: pd.Timestamp):
         """
