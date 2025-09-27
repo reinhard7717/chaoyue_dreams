@@ -241,12 +241,19 @@ class IntelligenceLayer:
 
         print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
-        # 依次调用所有需要解剖的信号探针
-        # self._super_probe_ff_period_13(probe_date)
+        # --- 常规探针部署 ---
+        self._deploy_risk_resonance_probe(probe_date, 'DYN')
+        # --- 针对性排名法医探针 ---
+        # 根据日志，DYN的瓶颈是s_bear，其中惯性支柱得分最低(0.0083)
+        self._deploy_ranking_forensics_probe(probe_date, 'DYN', 's_bear', '惯性')
+
+        self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
+        # 根据日志，BEHAVIOR的瓶颈是s_bear，其中K线形态得分最低(0.0000)
+        self._deploy_ranking_forensics_probe(probe_date, 'BEHAVIOR', 's_bear', 'K线形态')
+        
+        # --- 其他常规探针 ---
         self._deploy_risk_resonance_probe(probe_date, 'FF')
         self._deploy_risk_resonance_probe(probe_date, 'CHIP')
-        self._deploy_risk_resonance_probe(probe_date, 'DYN')
-        self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
         self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
         self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
         
@@ -822,6 +829,164 @@ class IntelligenceLayer:
             print("    日志会明确指出是哪个 `static_col`, `slope_col`, 或 `accel_col` 在数据层中找不到，这便是问题的根源。")
 
         print("="*95 + "\n")
+
+    def _deploy_normalization_dissection_probe(self, probe_date: pd.Timestamp, indicator_name: str, norm_window: int, ascending: bool):
+        """
+        【归一化解剖探针 V1.0】
+        - 核心职责: 彻底解剖 normalize_score 函数的内部工作原理，展示一个指标在特定日期
+                      的历史排名和最终得分的完整计算过程。
+        """
+        print(f"\n--- [归一化解剖探针 V1.0] 正在解剖指标: {indicator_name} ---")
+        df = self.strategy.df_indicators
+        
+        # 1. 获取完整的指标序列
+        indicator_series = df.get(indicator_name)
+        if indicator_series is None:
+            print(f"  - [探针错误] 无法在 df_indicators 中找到指标 '{indicator_name}'。")
+            return
+
+        # 2. 定位探针日期和历史窗口
+        if probe_date not in indicator_series.index:
+            print(f"  - [探针错误] 探针日期 {probe_date.date()} 不在数据索引中。")
+            return
+            
+        end_loc = indicator_series.index.get_loc(probe_date)
+        start_loc = max(0, end_loc - norm_window + 1)
+        window_series = indicator_series.iloc[start_loc:end_loc + 1]
+        
+        if len(window_series) < norm_window * 0.2: # 检查数据是否过少
+            print(f"  - [探针警告] 历史窗口内数据点过少 ({len(window_series)}个)，解剖可能无意义。")
+            return
+
+        # 3. 提取关键值
+        current_value = window_series.iloc[-1]
+        min_val = window_series.min()
+        max_val = window_series.max()
+        mean_val = window_series.mean()
+        
+        # 4. 计算排名
+        # 使用 rank 方法，method='min' 确保排名从1开始
+        ranks = window_series.rank(method='min', ascending=ascending)
+        current_rank = ranks.iloc[-1]
+        
+        # 5. 计算最终的百分比排名分数
+        # 这是 normalize_score 的核心逻辑
+        pct_rank_score = window_series.rank(pct=True, ascending=ascending).iloc[-1]
+
+        # 6. 打印解剖报告
+        print(f"  - 观察窗口: {norm_window} 天 (从 {window_series.index.min().date()} 到 {probe_date.date()})")
+        print(f"  - 归一化方向: {'升序 (值越大, 分数越高)' if ascending else '降序 (值越小, 分数越高)'}")
+        print("-" * 60)
+        print(f"  - 当日 ({probe_date.date()}) 原始值: {current_value:.4f}")
+        print(f"  - 窗口期内统计:")
+        print(f"    - 最小值: {min_val:.4f}")
+        print(f"    - 最大值: {max_val:.4f}")
+        print(f"    - 平均值: {mean_val:.4f}")
+        print("-" * 60)
+        print(f"  - 排名计算:")
+        print(f"    - 当日原始值在 {len(window_series)} 个数据点中，排名第 {int(current_rank)} 位。")
+        print(f"  - 最终得分 (rank(pct=True)): {pct_rank_score:.4f}")
+        print("-" * 60)
+        
+        if pct_rank_score < 0.3:
+            print(f"  - [探针结论] 得分低 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中排名非常靠后，不被认为是显著信号。")
+        elif pct_rank_score > 0.7:
+            print(f"  - [探针结论] 得分高 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中排名非常靠前，被认为是显著信号。")
+        else:
+            print(f"  - [探针结论] 得分中等 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中处于中游水平。")
+
+    def _deploy_ranking_forensics_probe(self, probe_date: pd.Timestamp, domain: str, bottleneck_type: str, pillar_cn_name: str):
+        """
+        【探针V5.0 · 排名法医版】
+        - 核心功能: 钻透式解剖 normalize_score 的内部计算过程，展示原始数据、窗口期、排名和最终得分。
+        """
+        print(f"\n--- [排名法医探针 V5.0] 正在对【{domain}领域-{pillar_cn_name}支柱】的【{bottleneck_type}】分数进行排名溯源 ---")
+        
+        df = self.strategy.df_indicators
+        p_conf = get_params_block(self.strategy, f'{domain.lower()}_ultimate_params', {})
+        if not p_conf: p_conf = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params', {})
+        
+        norm_window = get_param_value(p_conf.get('norm_window'), 55)
+
+        # 支柱中文名到其核心原始指标的映射
+        pillar_to_indicator_map = {
+            'DYN': {
+                '波动率': ('BBW_21_2.0_D', {'s_bear': False}), # s_bear看扩张，asc=True
+                '效率': ('VPA_EFFICIENCY_D', {'s_bear': False}),
+                '动能': ('ATR_14_D', {'s_bear': False}),
+                '惯性': ('ADX_14_D', {'s_bear': False}) # s_bear看趋势弱，ADX低，asc=False
+            },
+            'BEHAVIOR': {
+                '价格': ('price_vs_ma_13_D', {'s_bear': False}), # s_bear看价格低于均线，asc=False
+                '成交量': ('volume_vs_ma_13_D', {'s_bear': False}), # s_bear看缩量，asc=False
+                'K线形态': ('SCORE_RISK_UPTHRUST_DISTRIBUTION', {'s_bear': True}) # s_bear看上冲回落风险，asc=True
+            },
+            'STRUCTURE': {
+                '均线': ('price_vs_ma_13_D', {'s_bear': False}),
+                '力学': ('energy_ratio_D', {'s_bear': False}),
+                '多周期': ('EMA_5_W', {'s_bear': False}), # 简化为检查周线均线
+                '形态': ('is_distribution_D', {'s_bear': True})
+            },
+            'FOUNDATION': {
+                'EMA': ('price_vs_ma_13_D', {'s_bear': False}), # 简化
+                'RSI': ('RSI_13_D', {'s_bear': False}),
+                'MACD': ('MACDh_13_34_8_D', {'s_bear': False}),
+                'CMF': ('CMF_21_D', {'s_bear': False})
+            }
+        }
+        
+        indicator_map = pillar_to_indicator_map.get(domain, {}).get(pillar_cn_name)
+        if not indicator_map:
+            print(f"  - [探针错误] 未找到 {domain}-{pillar_cn_name} 的指标映射。")
+            return
+            
+        indicator_name, ascending_map = indicator_map
+        ascending = ascending_map.get(bottleneck_type, True)
+
+        if indicator_name not in df.columns:
+            print(f"  - [探针错误] 原始指标 '{indicator_name}' 不在数据表中。")
+            return
+
+        # 1. 提取窗口数据
+        start_date = probe_date - pd.Timedelta(days=norm_window + 10) # 多取10天buffer
+        window_series = df.loc[start_date:probe_date, indicator_name].dropna().tail(norm_window)
+        
+        if window_series.empty:
+            print(f"  - [探针警告] 在 {norm_window} 天窗口内未找到 '{indicator_name}' 的有效数据。")
+            return
+
+        current_value = window_series.get(probe_date)
+        if pd.isna(current_value):
+            print(f"  - [探针警告] 当日 '{indicator_name}' 值为 NaN。")
+            return
+
+        # 2. 分析窗口内数据
+        min_val = window_series.min()
+        max_val = window_series.max()
+        mean_val = window_series.mean()
+        
+        # 3. 计算排名
+        ranks = window_series.rank(pct=True, ascending=ascending)
+        current_rank_pct = ranks.get(probe_date)
+        
+        print(f"  - 溯源指标: {indicator_name}")
+        print(f"  - 归一化逻辑: 历史排名周期={norm_window}天, 排序方式 ascending={ascending}")
+        print(f"  - 窗口期: {window_series.index.min().date()} 至 {window_series.index.max().date()}")
+        print(f"  - 当日({probe_date.date()})原始值: {current_value:.4f}")
+        print(f"  - 窗口期内统计: 最大值={max_val:.4f}, 最小值={min_val:.4f}, 平均值={mean_val:.4f}")
+        print(f"  - [核心证据] 当日值在 {len(window_series)} 个样本中的归一化排名 (0-1): {current_rank_pct:.4f}")
+        
+        # 4. 最终诊断
+        if current_rank_pct < 0.1:
+            print(f"  - [最终诊断] 排名得分极低。尽管当日原始值可能不小，但在最近{norm_window}天内，它处于垫底水平。")
+            if ascending:
+                print(f"    -> 因为是升序排名，说明当日值远小于窗口期内的其他值。")
+            else:
+                print(f"    -> 因为是降序排名，说明当日值远大于窗口期内的其他值。")
+        elif current_rank_pct < 0.4:
+             print(f"  - [最终诊断] 排名得分偏低。这证明了“相对排名陷阱”：当日的风险/机会信号在近期历史中并不突出，因此被“平均化”。")
+        else:
+             print(f"  - [最终诊断] 排名得分正常。如果最终信号分依然很低，问题可能出在更高层级的权重融合上。")
 
 
 
