@@ -2,7 +2,7 @@
 # 行为与模式识别模块
 import pandas as pd
 import numpy as np
-from typing import Dict
+from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores
 
 class BehavioralIntelligence:
