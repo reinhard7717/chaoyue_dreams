@@ -1413,10 +1413,11 @@ def cleanup_non_trade_day_data():
 # ===================================================
 #      数据修复任务 (Data Repair Tasks)
 # ===================================================
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code # 【代码新增】
-from stock_models.time_trade import StockCyqPerf # 【代码新增】
-from itertools import groupby # 【代码新增】
-from operator import itemgetter # 【代码新增】
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
+from stock_models.time_trade import StockCyqPerf
+from itertools import groupby
+from operator import itemgetter
+from utils.sync_to_async import sync_to_async
 
 # 【代码新增】
 def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.date, datetime.date]]:

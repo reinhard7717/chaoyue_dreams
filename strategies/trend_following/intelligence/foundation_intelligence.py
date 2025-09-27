@@ -124,31 +124,33 @@ class FoundationIntelligence:
 
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
         """
-        【V3.1 · 性能优化版】计算EMA健康度
-        - 本次优化:
-          - [效率] 将静态分数的计算移出 for 循环。由于静态对齐分数对于所有周期 p 都是相同的，
-                    因此在循环外计算一次，然后在循环内直接赋值，避免了重复计算。
+        【V3.2 · 探针健壮性修复版】计算EMA健康度
+        - 核心修复: 增加了对 `periods` 列表长度的检查。当列表长度不足以计算均线对齐时，
+                      返回中性的静态得分(0.5)，从而修复了探针调用时因 `np.stack` 空列表而崩溃的BUG。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # 将静态分数的计算移到循环外部，因为它们与周期 p 无关
-        bull_alignment_scores = []
-        bear_alignment_scores = []
-        for i in range(len(periods) - 1):
-            short_col = f'EMA_{periods[i]}_D' if periods[i] > 1 else 'close_D'
-            long_col = f'EMA_{periods[i+1]}_D'
-            bull_alignment_scores.append((df.get(short_col, df['close_D']).values > df.get(long_col, df['close_D']).values).astype(np.float32))
-            bear_alignment_scores.append((df.get(short_col, df['close_D']).values < df.get(long_col, df['close_D']).values).astype(np.float32))
-        
-        static_bull_score = pd.Series(np.mean(np.stack(bull_alignment_scores, axis=0), axis=0), index=df.index)
-        static_bear_score = pd.Series(np.mean(np.stack(bear_alignment_scores, axis=0), axis=0), index=df.index)
+        # 增加健壮性检查，防止探针调用时崩溃
+        if len(periods) > 1:
+            bull_alignment_scores = []
+            bear_alignment_scores = []
+            for i in range(len(periods) - 1):
+                short_col = f'EMA_{periods[i]}_D' if periods[i] > 1 else 'close_D'
+                long_col = f'EMA_{periods[i+1]}_D'
+                bull_alignment_scores.append((df.get(short_col, df['close_D']).values > df.get(long_col, df['close_D']).values).astype(np.float32))
+                bear_alignment_scores.append((df.get(short_col, df['close_D']).values < df.get(long_col, df['close_D']).values).astype(np.float32))
+            
+            static_bull_score = pd.Series(np.mean(np.stack(bull_alignment_scores, axis=0), axis=0), index=df.index)
+            static_bear_score = pd.Series(np.mean(np.stack(bear_alignment_scores, axis=0), axis=0), index=df.index)
+        else:
+            # 如果周期列表不足以计算对齐度，则返回中性分
+            static_bull_score = pd.Series(0.5, index=df.index)
+            static_bear_score = pd.Series(0.5, index=df.index)
 
         for p in periods:
-            # 直接赋值预先计算好的静态分数
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 动态分数的计算逻辑保持不变，因为它们依赖于周期 p
             ema_col = f'EMA_{p}_D' if p > 1 else 'close_D'
             slope = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=True)
             accel = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=True)

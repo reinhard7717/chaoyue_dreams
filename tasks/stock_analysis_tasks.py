@@ -818,7 +818,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             period = int(period_str.replace('d', ''))
             calc_window = 2 if period == 1 else period
             if base_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                # print(f"[{stock_code}]   -> 正在计算斜率: {field_name} (基于 {base_col}, 窗口 {calc_window})") # 【代码新增】
+                # print(f"[{stock_code}]   -> 正在计算斜率: {field_name} (基于 {base_col}, 窗口 {calc_window})")
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], calc_window)
     # 自动化计算加速度
     for field_name in model_fields:
@@ -828,7 +828,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             source_slope_col = f"{base_col_with_slope}_slope_{period}d"
             calc_window = 2 if period == 1 else period
             if source_slope_col in final_metrics_df.columns and field_name not in final_metrics_df.columns:
-                # print(f"[{stock_code}]   -> 正在计算加速度: {field_name} (基于 {source_slope_col}, 窗口 {calc_window})") # 【代码新增】
+                # print(f"[{stock_code}]   -> 正在计算加速度: {field_name} (基于 {source_slope_col}, 窗口 {calc_window})")
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # 阶段二：计算最终版的筹码健康分
     # print(f"[{stock_code}] [阶段二] 计算筹码健康分...") # 【代码修改】调整了消息文本
@@ -1028,7 +1028,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
             df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
             df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
-            # [代码新增] 补全大单、中单、小单净额的计算
+            # 补全大单、中单、小单净额的计算
             df['net_lg_amount_tushare'] = df['buy_lg_amount'] - df['sell_lg_amount']
             df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
             df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
@@ -1073,7 +1073,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
     
-    # [代码新增] 补全对大单、中单、小单净流入的共识计算
+    # 补全对大单、中单、小单净流入的共识计算
     # 注意：目前只有tushare源提供了这些细分数据，所以这里的.mean()实际上只是取tushare的值，但保留了未来扩展性
     df['net_lg_amount_consensus'] = df[['net_lg_amount_tushare']].mean(axis=1)
     df['net_md_amount_consensus'] = df[['net_md_amount_tushare']].mean(axis=1)
