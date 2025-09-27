@@ -1496,7 +1496,7 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
             for start_date, end_date in date_ranges:
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
-                print(f"  -> 派发 'cyq_perf' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
+                # print(f"  -> 派发 'cyq_perf' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
                 # 调用已有的执行器任务进行修复
                 save_single_stock_cyq_perf.delay(
                     stock_code=stock_code,
@@ -1514,7 +1514,7 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
             for start_date, end_date in date_ranges:
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
-                print(f"  -> 派发 'cyq_chips' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
+                # print(f"  -> 派发 'cyq_chips' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
                 # 调用已有的执行器任务进行修复
                 save_single_stock_cyq_chips.delay(
                     stock_code=stock_code,
