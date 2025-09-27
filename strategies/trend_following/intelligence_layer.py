@@ -1025,7 +1025,7 @@ class IntelligenceLayer:
         final_fused_score = overall_health[health_type][period].get(probe_date, np.nan)
         print(f"  - 当日最终融合分 (overall_health['{health_type}'][{period}]): {final_fused_score:.4f}")
         
-        # [代码修改] 修正了 DYN 键对应的值，将 self.dynamic_mechanics_engine 改为 self.mechanics_engine
+        # 修正了 DYN 键对应的值，将 self.dynamic_mechanics_engine 改为 self.mechanics_engine
         engine_map = {
             'BEHAVIOR': (self.behavioral_intel, get_params_block(self.strategy, 'behavioral_dynamics_params').get('pillar_weights')),
             'CHIP': (self.chip_intel, get_params_block(self.strategy, 'chip_ultimate_params').get('pillar_weights')),

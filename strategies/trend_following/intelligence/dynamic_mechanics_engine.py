@@ -173,13 +173,13 @@ class DynamicMechanicsEngine:
             
             d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window)
             d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window)
-            # [代码修改] 根除加法，使用乘法（几何平均）
+            # 根除加法，使用乘法（几何平均）
             d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
 
             # 看跌动态：动能斜率、加速度减少为坏
             d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=False)
             d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=False)
-            # [代码修改] 根除加法，使用乘法（几何平均）
+            # 根除加法，使用乘法（几何平均）
             d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
         return s_bull, d_bull, s_bear, d_bear
 

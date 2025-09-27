@@ -166,45 +166,52 @@ class BehavioralIntelligence:
         
         return atomic_signals
 
-    def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.3 · 哲学统一版】计算成交量维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
-        for p in periods:
-            # 看涨静态：成交量高于均线为佳
-            s_bull[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            
-            # [代码修改] 统一看跌哲学：成交量放大是风险。因此静态看跌分也应基于成交量放大。
-            s_bear[p] = normalize_score(df.get(f'volume_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            
-            # 看涨动态：成交量斜率、加速度增加为佳
-            vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
-            vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
-            # [代码修改] 根除加法，使用乘法（几何平均）
-            d_bull[p] = (vol_mom * vol_accel)**0.5
-            
-            # 看跌动态：成交量在下跌中放大是风险，斜率和加速度增加为坏
-            vol_mom_neg = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
-            vol_accel_neg = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
-            # [代码修改] 根除加法，使用乘法（几何平均）
-            d_bear[p] = (vol_mom_neg * vol_accel_neg)**0.5
-        return s_bull, d_bull, s_bear, d_bear
-
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.2 · 哲学统一版】计算价格维度的四维健康度"""
+        """【V1.3 · 静态逻辑重构版】计算价格维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        
+        # 将静态分计算移出循环，并使用与周期无关的BBP指标
+        bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
+        # 看涨静态分：价格在布林带上轨附近为强
+        static_bull_score = bbp_score
+        # 看跌静态分：价格在布林带下轨附近为弱 (超卖)
+        static_bear_score = 1.0 - bbp_score
+
         for p in periods:
-            s_bull[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            s_bear[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
-            
+            # 为所有周期分配同一个、真正的静态分
+            s_bull[p] = static_bull_score
+            s_bear[p] = static_bear_score
+
             price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
             price_accel = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=True)
-            # [代码修改] 根除加法，使用乘法（几何平均）
             d_bull[p] = (price_mom * price_accel)**0.5
 
             price_mom_neg = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=False)
             price_accel_neg = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=False)
-            # [代码修改] 根除加法，使用乘法（几何平均）
             d_bear[p] = (price_mom_neg * price_accel_neg)**0.5
+        return s_bull, d_bull, s_bear, d_bear
+
+    def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
+        """【V1.4 · 静态逻辑重构版】计算成交量维度的四维健康度"""
+        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+
+        # 将静态分计算移出循环，并使用与周期无关的成交量比率
+        volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
+        # 看涨/看跌静态分：成交量放大被视为活跃，既可助涨也可助跌，因此使用同一个指标
+        static_volume_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
+
+        for p in periods:
+            # 为所有周期分配同一个、真正的静态分
+            s_bull[p] = static_volume_score
+            s_bear[p] = static_volume_score
+            
+            vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
+            vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
+            d_bull[p] = (vol_mom * vol_accel)**0.5
+            
+            vol_mom_neg = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
+            vol_accel_neg = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
+            d_bear[p] = (vol_mom_neg * vol_accel_neg)**0.5
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:

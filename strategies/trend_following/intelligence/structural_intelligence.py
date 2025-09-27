@@ -116,11 +116,31 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.0 · 对称逻辑版】计算MA支柱的四维健康度"""
+        """【V2.1 · 静态逻辑重构版】计算MA支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+
+        # 将静态分计算移出循环，使用所有均线的平均对齐度作为静态分
+        ma_periods = [5, 10, 20, 60, 120] # 使用一组固定的均线来评估整体结构
+        bull_alignment_scores = []
+        bear_alignment_scores = []
+        for i in range(len(ma_periods) - 1):
+            short_col = f'EMA_{ma_periods[i]}_D'
+            long_col = f'EMA_{ma_periods[i+1]}_D'
+            if short_col in df and long_col in df:
+                bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
+                bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
+        
+        if bull_alignment_scores:
+            static_bull_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
+            static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5)
+        else:
+            static_bull_score = pd.Series(0.5, index=df.index)
+            static_bear_score = pd.Series(0.5, index=df.index)
+
         for p in periods:
-            s_bull[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=True)
-            s_bear[p] = normalize_score(df.get(f'price_vs_ma_{p}_D'), df.index, norm_window, ascending=False)
+            # 为所有周期分配同一个、真正的静态分
+            s_bull[p] = static_bull_score
+            s_bear[p] = static_bear_score
             
             static_col = f'EMA_{p}_D' if p > 1 else 'close_D'
             slope_col = f'SLOPE_{p}_{static_col}'
@@ -128,11 +148,11 @@ class StructuralIntelligence:
             
             slope_score = normalize_score(df.get(slope_col), df.index, norm_window, ascending=True)
             accel_score = normalize_score(df.get(accel_col), df.index, norm_window, ascending=True)
-            d_bull[p] = slope_score * dynamic_weights['slope'] + accel_score * dynamic_weights['accel']
+            d_bull[p] = (slope_score * accel_score)**0.5
             
             slope_score_neg = normalize_score(df.get(slope_col), df.index, norm_window, ascending=False)
             accel_score_neg = normalize_score(df.get(accel_col), df.index, norm_window, ascending=False)
-            d_bear[p] = slope_score_neg * dynamic_weights['slope'] + accel_score_neg * dynamic_weights['accel']
+            d_bear[p] = (slope_score_neg * accel_score_neg)**0.5
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
