@@ -613,7 +613,7 @@ class IntelligenceLayer:
              print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
              return
 
-        # [代码修改] 使用正确的键名 's_bear' 和 'd_bull'
+        # 使用正确的键名 's_bear' 和 'd_bull'
         bullish_reversal_health = {p: overall_health['s_bear'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
 
         short_force = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
@@ -637,7 +637,7 @@ class IntelligenceLayer:
         print(f"       - {p1}日反转健康度: {bullish_reversal_health.get(p1, 0.5):.4f}")
         print(f"       - {p2}日反转健康度: {bullish_reversal_health.get(p2, 0.5):.4f}")
         
-        # [代码修改] 使用正确的键名 's_bear' 和 'd_bull'
+        # 使用正确的键名 's_bear' 和 'd_bull'
         static_bearish_p1 = overall_health['s_bear'][p1].get(probe_date, 0.5)
         dynamic_bullish_p1 = overall_health['d_bull'][p1].get(probe_date, 0.5)
         print(f"    -> {p1}日反转健康度由以下两者相乘得到:")
@@ -676,7 +676,7 @@ class IntelligenceLayer:
 
         period_to_probe = 13
         
-        # [代码修改] 使用正确的键名 's_bear' 和 'd_bear' 来访问缓存
+        # 使用正确的键名 's_bear' 和 'd_bear' 来访问缓存
         if period_to_probe not in overall_health.get('s_bear', {}) or period_to_probe not in overall_health.get('d_bear', {}):
             print(f"  - [探针警告] 在 {domain_upper} 领域的 overall_health 中缺少周期 {period_to_probe} 的数据。")
             return
@@ -910,7 +910,7 @@ class IntelligenceLayer:
         
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
 
-        # [代码修改] 支柱映射表现在包含数据源信息 ('df' 或 'atomic')
+        # 支柱映射表现在包含数据源信息 ('df' 或 'atomic')
         pillar_to_indicator_map = {
             'DYN': {
                 '波动率': ('BBW_21_2.0_D', {'s_bear': True}, 'df'), # s_bear看扩张，asc=True
@@ -945,7 +945,7 @@ class IntelligenceLayer:
         indicator_name, ascending_map, source_type = indicator_map
         ascending = ascending_map.get(bottleneck_type, True)
 
-        # [代码修改] 根据 source_type 决定从哪里获取数据
+        # 根据 source_type 决定从哪里获取数据
         source_df = df if source_type == 'df' else pd.DataFrame(atomic)
         if indicator_name not in source_df.columns:
             print(f"  - [探针错误] 原始指标 '{indicator_name}' 在数据源 '{source_type}' 中不存在。")

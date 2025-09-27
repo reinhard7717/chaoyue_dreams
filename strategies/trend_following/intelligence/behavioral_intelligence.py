@@ -17,26 +17,39 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self) -> None:
         """
-        【V3.0 · 终极净化版】行为情报模块总指挥
-        - 核心重构 (本次修改):
-          - [架构净化] 彻底废除旧的总指挥模式，本方法不再调用任何零散的原子诊断引擎。
-          - [单一职责] 本方法的唯一职责是调用唯一的终极信号引擎 `diagnose_ultimate_behavioral_signals`，
-                       并将其产出的最终信号更新到策略状态中。
-        - 收益: 实现了与其他所有情报模块完全统一的、最纯粹的架构范式，数据流清晰，职责单一。
+        【V3.1 · 原子信号暴露版】行为情报模块总指挥
+        - 核心修复: 将内部生成的原子信号(internal_atomic_signals)显式更新到全局状态(self.strategy.atomic_states)，
+                      以确保它们能被法医探针等下游模块正确访问，彻底修复探针因找不到中间信号而崩溃的BUG。
         """
-        # print("      -> [行为情报模块总指挥 V3.0 · 终极净化版] 启动...") # 更新版本号和说明
+        # print("      -> [行为情报模块总指挥 V3.1 · 原子信号暴露版] 启动...")
         df = self.strategy.df_indicators
-        ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df)
+        
+        # 步骤1: 生成内部原子信号
+        internal_atomic_signals = self._generate_all_atomic_signals(df)
+        
+        # 步骤2: 立即将内部原子信号暴露到全局状态，供下游消费
+        if internal_atomic_signals:
+            self.strategy.atomic_states.update(internal_atomic_signals)
+        
+        # 步骤3: 调用终极信号引擎，并传入已计算的原子信号以避免重复计算
+        ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df, atomic_signals=internal_atomic_signals)
+        
+        # 步骤4: 更新终极信号到全局状态
         if ultimate_behavioral_states:
             self.strategy.atomic_states.update(ultimate_behavioral_states)
-            # print(f"      -> [行为情报模块总指挥 V3.0] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
+            # print(f"      -> [行为情报模块总指挥 V3.1] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
 
-    def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V9.6 · 键名统一版】终极行为信号诊断模块
-        - 核心修复: 统一了 overall_health 缓存的键名，使用 s_bull, d_bull, s_bear, d_bear。
+        【V9.7 · 依赖注入版】终极行为信号诊断模块
+        - 核心升级: 接受一个可选的 `atomic_signals` 字典作为参数。如果传入，则直接使用；
+                      否则，自行计算。这使得上层模块可以预先计算并注入原子信号，避免重复工作。
         """
-        atomic_signals = self._generate_all_atomic_signals(df)
+        # 如果没有从外部传入预先计算好的原子信号，则自行计算
+        if atomic_signals is None:
+            atomic_signals = self._generate_all_atomic_signals(df)
+        # [代码修改结束]
+        
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
@@ -46,7 +59,7 @@ class BehavioralIntelligence:
         resonance_tf_weights = {'short': 0.2, 'medium': 0.5, 'long': 0.3}
         reversal_tf_weights = {'short': 0.6, 'medium': 0.3, 'long': 0.1}
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-        norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        norm_window = get_param_value(p_conf.get('norm_window'), 55) # 保持55天周期
         min_periods = max(1, norm_window // 5)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
@@ -77,7 +90,6 @@ class BehavioralIntelligence:
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
         
-        
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -104,7 +116,6 @@ class BehavioralIntelligence:
         overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
-
         for prefix, score in [('SCORE_BEHAVIOR_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_BEHAVIOR_BOTTOM_REVERSAL', final_bottom_reversal_score),
                               ('SCORE_BEHAVIOR_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_BEHAVIOR_TOP_REVERSAL', final_top_reversal_score)]:
             states[f'{prefix}_S_PLUS'] = score.astype(np.float32)

@@ -213,7 +213,7 @@ class FundFlowIntelligence:
         col_type = config['type']
 
         for p in periods:
-            # [代码修改] 彻底重构列名构造逻辑，严格区分 'sum' 和 'daily' 类型
+            # 彻底重构列名构造逻辑，严格区分 'sum' 和 'daily' 类型
             
             # 1. 构造静态列名 (static_col)
             if col_type == 'sum' and p > 1:
