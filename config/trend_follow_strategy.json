@@ -188,6 +188,30 @@
             "signal_B": "concentration_90pct_D",
             "signal_b_factor_k": 2.0,
             "comment": "【元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。寻找'价跌筹码集中'的经典吸筹模式。筹码变化通常更缓慢但意义重大，影响因子设为2.0。"
+          },
+          {
+            "name": "PROCESS_META_PP_RETAIL_CAPITULATION",
+            "type": "meta_analysis",
+            "signal_A": "close_D",
+            "signal_B": "retail_panic_index_D",
+            "signal_b_factor_k": -1.5,
+            "comment": "【心理-散户投降】诊断是否出现'散户恐慌投降'的底部特征。寻找'价跌 panic升'的背离点。注意：k为负值，因为价格下跌(动量A为负)而恐慌加剧(推力B为正)时，我们希望得到一个正向的关系分，代表底部特征。"
+          },
+          {
+            "name": "PROCESS_META_PE_EFFICIENCY_TURN",
+            "type": "meta_analysis",
+            "signal_A": "close_D",
+            "signal_B": "VPA_EFFICIENCY_D",
+            "signal_b_factor_k": 1.0,
+            "comment": "【结构-VPA效率】诊断'价格-VPA效率'关系是否出现看涨拐点。VPA效率衡量成交量的有效性。寻找从'价跌效率低'（无效下跌）到'价涨效率高'（有效上涨）的转变。"
+          },
+          {
+            "name": "PROCESS_META_PD_DIVERGENCE_CONFIRM",
+            "type": "meta_analysis",
+            "signal_A": "close_D",
+            "signal_B": "flow_divergence_mf_vs_retail_D",
+            "signal_b_factor_k": 2.5,
+            "comment": "【博弈-主力散户背离】诊断'价格-主力散户行为背离'关系。该指标为正代表主力买入强于散户。寻找'价跌但主力买'的终极底部背离。此为高阶信号，权重设为2.5。"
           }
         ]
       },
