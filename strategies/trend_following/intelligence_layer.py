@@ -1197,15 +1197,15 @@ class IntelligenceLayer:
 
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """
-        【探针V1.0】为 ProcessIntelligence 引擎定制的钻透式法医探针。
-        - 核心功能: 逐一解剖配置文件中定义的每个诊断任务，展示其完整的计算链路。
+        【探针V1.1 · 动能增强版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
+        - 核心升级: 1. 明确展示用于计算趋势的回溯窗口。
+                      2. 新增对“加速度”和“过程动能”的解剖。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.0】 ---")
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.1】 ---") # [代码修改] 更新版本号
         
         df = self.strategy.df_indicators
-        engine = self.process_intel # 获取引擎实例
+        engine = self.process_intel
         
-        # 遍历引擎配置中的每一个诊断任务
         for config in engine.diagnostics_config:
             signal_name = config.get('name')
             print(f"\n  -> 正在解剖诊断任务: 【{signal_name}】")
@@ -1213,48 +1213,63 @@ class IntelligenceLayer:
             signal_a_name = config.get('signal_A')
             signal_b_name = config.get('signal_B')
             
-            # 1. 获取原始数据
             series_a = df.get(signal_a_name)
             series_b = df.get(signal_b_name)
             
             if series_a is None or series_b is None:
                 print(f"     - [探针错误] 无法获取原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
                 continue
-                
+            
+            # [代码修改开始] 明确展示回溯窗口
+            end_loc = df.index.get_loc(probe_date)
+            start_loc = max(0, end_loc - engine.lookback_window + 1)
+            start_date = df.index[start_loc].date()
+            end_date = df.index[end_loc].date()
+            print(f"     - 回溯窗口 ({engine.lookback_window}天): 从 {start_date} 到 {end_date}")
+            # [代码修改结束]
+
             val_a = series_a.get(probe_date, np.nan)
             val_b = series_b.get(probe_date, np.nan)
             print(f"     - 原始信号A ({signal_a_name}) 当日值: {val_a:.4f}")
             print(f"     - 原始信号B ({signal_b_name}) 当日值: {val_b:.4f}")
             
-            # 2. 重新计算原始趋势
-            trend_a_raw = engine._calculate_raw_process_trend(series_a).get(probe_date, np.nan)
-            trend_b_raw = engine._calculate_raw_process_trend(series_b).get(probe_date, np.nan)
+            trend_a_raw_series = engine._calculate_raw_process_trend(series_a)
+            trend_b_raw_series = engine._calculate_raw_process_trend(series_b)
+            trend_a_raw = trend_a_raw_series.get(probe_date, np.nan)
+            trend_b_raw = trend_b_raw_series.get(probe_date, np.nan)
             print(f"     - 信号A的原始趋势 (斜率): {trend_a_raw:.6f}")
             print(f"     - 信号B的原始趋势 (斜率): {trend_b_raw:.6f}")
+
+            # [代码新增开始] 解剖加速度
+            accel_a_raw = engine._calculate_raw_process_accel(trend_a_raw_series).get(probe_date, np.nan)
+            accel_b_raw = engine._calculate_raw_process_accel(trend_b_raw_series).get(probe_date, np.nan)
+            print(f"     - 信号A的原始加速度: {accel_a_raw:.6f}")
+            print(f"     - 信号B的原始加速度: {accel_b_raw:.6f}")
+            # [代码新增结束]
             
-            # 3. 判断条件并计算强度
             final_score_from_atomic = self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan)
             
             if config['type'] == 'divergence':
                 is_divergence = (trend_a_raw < 0) and (trend_b_raw > 0)
-                strength_score = normalize_score(series_b.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
-                recalculated_score = float(is_divergence) * strength_score
-                print(f"     - 背离条件 (A<0 and B>0): {'✅ 满足' if is_divergence else '❌ 不满足'}")
-                print(f"     - 强度分 (基于B趋势归一化): {strength_score:.4f}")
+                strength_trend_norm = normalize_score(trend_b_raw_series, df.index, engine.norm_window).get(probe_date, np.nan)
+                strength_accel_norm = normalize_score(engine._calculate_raw_process_accel(trend_b_raw_series), df.index, engine.norm_window).get(probe_date, np.nan)
+                strength_momentum_score = (strength_trend_norm * strength_accel_norm)**0.5
+                recalculated_score = float(is_divergence) * strength_momentum_score
+                print(f"     - 背离条件 (A_trend<0 and B_trend>0): {'✅ 满足' if is_divergence else '❌ 不满足'}")
+                print(f"     - 过程动能强度 (基于B的趋势和加速度): {strength_momentum_score:.4f} (趋势分:{strength_trend_norm:.2f}, 加速度分:{strength_accel_norm:.2f})")
                 print(f"     - [探针重算结果]: {recalculated_score:.4f}")
                 print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
 
             elif config['type'] == 'resonance':
                 is_resonance = (trend_a_raw > 0) and (trend_b_raw > 0)
-                strength_a_norm = normalize_score(series_a.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
-                strength_b_norm = normalize_score(series_b.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
-                strength_score = (strength_a_norm * strength_b_norm)**0.5
-                recalculated_score = float(is_resonance) * strength_score
-                print(f"     - 共振条件 (A>0 and B>0): {'✅ 满足' if is_resonance else '❌ 不满足'}")
-                print(f"     - 强度分 (A,B趋势归一化后融合): {strength_score:.4f} (A:{strength_a_norm:.2f}, B:{strength_b_norm:.2f})")
+                momentum_a_norm = (normalize_score(trend_a_raw_series, df.index, engine.norm_window).get(probe_date, np.nan) * normalize_score(engine._calculate_raw_process_accel(trend_a_raw_series), df.index, engine.norm_window).get(probe_date, np.nan))**0.5
+                momentum_b_norm = (normalize_score(trend_b_raw_series, df.index, engine.norm_window).get(probe_date, np.nan) * normalize_score(engine._calculate_raw_process_accel(trend_b_raw_series), df.index, engine.norm_window).get(probe_date, np.nan))**0.5
+                strength_momentum_score = (momentum_a_norm * momentum_b_norm)**0.5
+                recalculated_score = float(is_resonance) * strength_momentum_score
+                print(f"     - 共振条件 (A_trend>0 and B_trend>0): {'✅ 满足' if is_resonance else '❌ 不满足'}")
+                print(f"     - 过程动能强度 (融合A和B): {strength_momentum_score:.4f} (A动能:{momentum_a_norm:.2f}, B动能:{momentum_b_norm:.2f})")
                 print(f"     - [探针重算结果]: {recalculated_score:.4f}")
                 print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
-
 
 
 
