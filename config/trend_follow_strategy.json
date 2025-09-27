@@ -153,6 +153,47 @@
   "strategy_params": {
     "trend_follow": {
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
+      "process_intelligence_params": {
+        "enabled": true,
+        "lookback_window": 13,
+        "norm_window": 55,
+        "comment": "【V1.0】过程情报引擎。直接在原始数据上进行回溯，诊断背离与共振。",
+        "diagnostics": [
+          {
+            "name": "PROCESS_DIVERGENCE_PRICE_VS_CHIP_BULLISH",
+            "type": "divergence",
+            "signal_A": "close_D",
+            "signal_B": "concentration_90pct_D",
+            "condition": "A_trend < 0 and B_trend > 0",
+            "comment": "【经典看涨背离】价跌量缩：价格趋势向下，但90%筹码集中度趋势向上。"
+          },
+          {
+            "name": "PROCESS_RESONANCE_PRICE_VS_VOLUME_BULLISH",
+            "type": "resonance",
+            "signal_A": "close_D",
+            "signal_B": "volume_D",
+            "condition": "A_trend > 0 and B_trend > 0",
+            "comment": "【经典看涨共振】价升量增：价格趋势向上，成交量趋势也向上。"
+          },
+          {
+            "name": "PROCESS_DIVERGENCE_PRICE_VS_RSI_BULLISH",
+            "type": "divergence",
+            "signal_A": "close_D",
+            "signal_B": "RSI_13_D",
+            "condition": "A_trend < 0 and B_trend > 0",
+            "comment": "【经典指标背离】价格趋势向下，但RSI指标趋势向上。"
+          },
+          {
+            "name": "PROCESS_DIVERGENCE_FF_INTERNAL_COVERT_ACCUM",
+            "type": "divergence",
+            "signal_A": "net_xl_amount_consensus_D",
+            "signal_B": "net_md_amount_consensus_D",
+            "condition": "A_trend < 0 and B_trend > 0",
+            "comment": "【资金内部背离】隐蔽吸筹：超大单趋势向下（砸盘），但中单趋势向上（接盘）。"
+          }
+        ]
+      },
+
       "debug_params": {
         "enabled": { "value": true },
         "probe_date": "2025-09-08",

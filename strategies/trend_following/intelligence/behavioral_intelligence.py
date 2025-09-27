@@ -41,11 +41,11 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V9.7 · 依赖注入版】终极行为信号诊断模块
-        - 核心升级: 接受一个可选的 `atomic_signals` 字典作为参数。如果传入，则直接使用；
-                      否则，自行计算。这使得上层模块可以预先计算并注入原子信号，避免重复工作。
+        【V9.9 · 哲学升维版】终极行为信号诊断模块
+        - 核心修复: 遵照指挥官指令，彻底重塑“底部反转”信号的哲学。
+          - 新哲学: 底部反转 = 高质量的底部形态(新原子信号) * 强劲的向上动能(d_bull)。
+                      这实现了“情景”、“状态”与“动态”的三位一体融合。
         """
-        # 如果没有从外部传入预先计算好的原子信号，则自行计算
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
         
@@ -53,21 +53,21 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        dynamic_weights = {'slope': 0.6, 'accel': 0.4}
-        dimension_weights = {'price': 0.4, 'volume': 0.3, 'kline': 0.3}
         resonance_tf_weights = {'short': 0.2, 'medium': 0.5, 'long': 0.3}
         reversal_tf_weights = {'short': 0.6, 'medium': 0.3, 'long': 0.1}
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-        norm_window = get_param_value(p_conf.get('norm_window'), 55) # 保持55天周期
-        min_periods = max(1, norm_window // 5)
+        norm_window = get_param_value(p_conf.get('norm_window'), 55)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        # [代码修改] 不再使用旧的、宽泛的 context_score，而是直接获取新的、精准的原子信号
+        bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION_S', pd.Series(0.0, index=df.index))
+        # 顶部情景分暂时保留旧逻辑
+        _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, min_periods, dynamic_weights, periods)
-        vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, min_periods, dynamic_weights, periods)
-        kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
+        price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), {}, periods)
+        vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), {}, periods)
+        kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
         
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
@@ -84,8 +84,6 @@ class BehavioralIntelligence:
                 stacked_values = np.stack([
                     health_sources[0][p].values, health_sources[1][p].values, health_sources[2][p].values
                 ], axis=0)
-                # 使用加权几何平均 (乘法) 替换加权求和 (加法)
-                # 使用 np.prod(base ** exponent) 来实现向量化的加权几何平均
                 fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
@@ -101,7 +99,9 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods}
+        # [代码修改] 哲学升维：底部反转 = 高质量底部形态 * 向上动能
+        bullish_reversal_health = {p: bottom_formation_score * overall_health['d_bull'][p] for p in periods}
+        
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
@@ -110,8 +110,10 @@ class BehavioralIntelligence:
             (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bullish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
+        # [代码修改] 这里的奖励因子现在是对“高质量底部形态”的二次加强，逻辑上是合理的。
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
 
+        # ... (后续的看跌逻辑保持不变) ...
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
@@ -150,6 +152,9 @@ class BehavioralIntelligence:
         """【V1.1 · 数据流修复版】原子信号中心，负责生产所有基础行为信号。"""
         atomic_signals = {}
         params = self.strategy.params
+        
+        # [代码新增] 首先调用全新的底部形态诊断引擎
+        atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         
         atomic_signals.update(self._diagnose_kline_patterns(df))
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
@@ -427,3 +432,54 @@ class BehavioralIntelligence:
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
         return states
+
+    def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 新增】原子级“底部形态”诊断引擎
+        - 核心哲学: 响应指挥官指令，融合“生命线支撑”、“悲观情绪衰竭”、“波动率压缩”
+                      三位一体，科学、严谨地定义“底部形态”。
+        """
+        states = {}
+        norm_window = 60 # 使用一个中等长度的窗口来评估状态
+
+        # --- 支柱一: 生命线支撑 (Proximity to MA55 Lifeline) ---
+        ma55 = df.get('EMA_55_D', df['close_D'])
+        # 计算收盘价在MA55上方的距离，越小越好；如果在下方，则惩罚
+        distance_from_ma55 = (df['close_D'] - ma55) / ma55
+        # 使用一个非线性的函数来评分，-2%到+5%之间为最佳区域
+        lifeline_proximity_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2)
+        
+        # --- 支柱二: 悲观情绪衰竭 (Pessimism Exhaustion) ---
+        # 近期RSI是否进入过超卖区
+        rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
+        was_rsi_oversold = (rsi.rolling(window=10).min() < 35).astype(float)
+        
+        # 价格是否处于年度低位区域
+        price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
+        deep_bottom_context_score = 1.0 - price_pos_yearly
+        
+        pessimism_exhaustion_score = np.maximum(was_rsi_oversold, deep_bottom_context_score)
+
+        # --- 支柱三: 波动率压缩 (Volatility Squeeze) ---
+        vol_compression_score = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+
+        # --- 最终融合 ---
+        # 三大支柱相乘，形成最终的底部形态分数
+        final_score = (lifeline_proximity_score * pessimism_exhaustion_score * vol_compression_score).astype(np.float32)
+        states['SCORE_ATOMIC_BOTTOM_FORMATION_S'] = final_score
+        
+        return states
+
+
+
+
+
+
+
+
+
+
+
+
+
+

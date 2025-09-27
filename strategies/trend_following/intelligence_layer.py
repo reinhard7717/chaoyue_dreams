@@ -16,6 +16,7 @@ from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
+from .intelligence.process_intelligence import ProcessIntelligence
 from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score
 
 class IntelligenceLayer:
@@ -43,6 +44,7 @@ class IntelligenceLayer:
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
         self.pattern_intel = PatternIntelligence(strategy_instance)
         self.cyclical_intel = CyclicalIntelligence(self.strategy)
+        self.process_intel = ProcessIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.exit_layer = ExitLayer(self.strategy)
@@ -92,6 +94,10 @@ class IntelligenceLayer:
         self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部更新状态
         # print("      -> 正在运行 [形态智能引擎]...")
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
+        
+        # print("    - [阶段 1.5/4] 正在运行统一过程诊断中心，分析跨域背离与共振...")
+        process_meta_states = self.process_intel.run_process_diagnostics()
+        update_states(process_meta_states)
         
         # --- 阶段二: 跨域认知融合 ---
         # print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
@@ -202,7 +208,6 @@ class IntelligenceLayer:
         print(f"  - 解剖完毕。请重点关注报告中值为 'NaN' 的步骤，其上一步即为问题源头。")
         print("=" * 80 + "\n")
 
-
     def deploy_forensic_probes(self):
         """
         【V1.1 · 时区校准修复版】法医探针调度中心
@@ -239,35 +244,20 @@ class IntelligenceLayer:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
 
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.1] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.2] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
-        self._deploy_drill_down_probe(probe_date, 'SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS')
-        self._deploy_drill_down_probe(probe_date, 'SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS')
-        # --- 常规探针部署 ---
+        # [代码新增] 部署全新的“过程情报引擎”探针
+        self._deploy_process_intelligence_probe(probe_date)
+        # [代码修改] 部署全新的“全面进攻信号超级探针”
+        self._deploy_comprehensive_super_probe(probe_date)
+        
+        # [代码修改] 保留风险探针，但注释掉重复的进攻探针
         self._deploy_risk_resonance_probe(probe_date, 'DYN')
-        # --- 针对性排名法医探针 ---
-        # 根据日志，DYN的瓶颈是s_bear，其中惯性支柱得分最低(0.0083)
-        self._deploy_ranking_forensics_probe(probe_date, 'DYN', 's_bear', '惯性')
-
         self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
-        # 根据日志，BEHAVIOR的瓶颈是s_bear，其中K线形态得分最低(0.0000)
-        self._deploy_ranking_forensics_probe(probe_date, 'BEHAVIOR', 's_bear', 'K线形态')
-        
-        # --- 其他常规探针 ---
         self._deploy_risk_resonance_probe(probe_date, 'FF')
         self._deploy_risk_resonance_probe(probe_date, 'CHIP')
         self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
         self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
-        
-        self._deploy_ultimate_reversal_probe(probe_date, 'BEHAVIOR')
-        self._deploy_hard_exit_probe(probe_date)
-        self._deploy_dynamic_veto_probe(probe_date)
-        
-        self._deploy_ignition_resonance_probe(probe_date)
-        self._deploy_volatility_breakout_probe(probe_date)
-        self._deploy_ultimate_confirmation_probe(probe_date)
-        self._deploy_v_reversal_ace_probe(probe_date)
-        self._deploy_chip_price_lag_probe(probe_date)
         
         if debug_params.get('enabled', False) and probe_date_str:
             self._deploy_pillar_fusion_probe(probe_date, 'BEHAVIOR', 's_bull', 13)
@@ -740,6 +730,60 @@ class IntelligenceLayer:
         
         print(f"  - [最终诊断] {domain_upper} 风险分低，根源在于其构成支柱的【{bottleneck_type}】分数，在现有“相对归一化”逻辑下被历史数据“平均化”，无法体现当日的绝对风险。")
 
+    def _deploy_comprehensive_super_probe(self, probe_date: pd.Timestamp):
+        """
+        【超级探针 V2.0】全面进攻信号钻透式探针
+        - 核心功能: 响应指挥官“全面数据支持”的要求，一次性解剖所有核心进攻信号，
+                      包括所有领域的“底部反转”和“看涨共振”信号。
+        """
+        print(f"\n{'='*25} [全面进攻信号超级探针 V2.0] 启动 {'='*25}")
+        
+        # 定义所有需要全面解剖的核心进攻信号
+        target_signals = [
+            # 认知层
+            'COGNITIVE_SCORE_REVERSAL_RELIABILITY',
+            'COGNITIVE_SCORE_IGNITION_RESONANCE_S',
+            # 行为层
+            'SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS',
+            # 筹码层
+            'SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_CHIP_BULLISH_RESONANCE_S_PLUS',
+            # 资金流层
+            'SCORE_FF_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_FF_BULLISH_RESONANCE_S_PLUS',
+            # 结构层
+            'SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS',
+            # 力学层
+            'SCORE_DYN_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_DYN_BULLISH_RESONANCE_S_PLUS',
+            # 基础层
+            'SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS',
+            'SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS',
+            # 战法
+            'SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS'
+        ]
+        
+        for signal in target_signals:
+            # 复用已有的、强大的终极反转探针和点火共振探针
+            if "BOTTOM_REVERSAL" in signal:
+                domain = signal.split('_')[1]
+                self._deploy_ultimate_reversal_probe(probe_date, domain)
+            elif "BULLISH_RESONANCE" in signal:
+                # 此处可以为共振信号也创建一个专用的钻透式探针，暂时先打印最终值
+                final_score = self.strategy.atomic_states.get(signal, pd.Series(0.0)).get(probe_date, 0.0)
+                print(f"\n--- [简易探针] 正在检查: 【{signal}】 ---")
+                print(f"  - 当日最终得分: {final_score:.4f}")
+            elif "REVERSAL_RELIABILITY" in signal:
+                 final_score = self.strategy.atomic_states.get(signal, pd.Series(0.0)).get(probe_date, 0.0)
+                 print(f"\n--- [简易探针] 正在检查: 【{signal}】 ---")
+                 print(f"  - 当日最终得分: {final_score:.4f}")
+            elif "V_REVERSAL_ACE" in signal:
+                self._deploy_v_reversal_ace_probe(probe_date)
+
+        print(f"\n{'='*28} [超级探针执行完毕] {'='*28}")
+
     def _deploy_drill_down_probe(self, probe_date: pd.Timestamp, target_signal: str):
         """
         【超级探针 V1.0】钻透式法医探针
@@ -1151,7 +1195,65 @@ class IntelligenceLayer:
         pillar_names = []
         # ... (后续代码保持不变) ...
 
+    def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针V1.0】为 ProcessIntelligence 引擎定制的钻透式法医探针。
+        - 核心功能: 逐一解剖配置文件中定义的每个诊断任务，展示其完整的计算链路。
+        """
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V1.0】 ---")
+        
+        df = self.strategy.df_indicators
+        engine = self.process_intel # 获取引擎实例
+        
+        # 遍历引擎配置中的每一个诊断任务
+        for config in engine.diagnostics_config:
+            signal_name = config.get('name')
+            print(f"\n  -> 正在解剖诊断任务: 【{signal_name}】")
+            
+            signal_a_name = config.get('signal_A')
+            signal_b_name = config.get('signal_B')
+            
+            # 1. 获取原始数据
+            series_a = df.get(signal_a_name)
+            series_b = df.get(signal_b_name)
+            
+            if series_a is None or series_b is None:
+                print(f"     - [探针错误] 无法获取原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
+                continue
+                
+            val_a = series_a.get(probe_date, np.nan)
+            val_b = series_b.get(probe_date, np.nan)
+            print(f"     - 原始信号A ({signal_a_name}) 当日值: {val_a:.4f}")
+            print(f"     - 原始信号B ({signal_b_name}) 当日值: {val_b:.4f}")
+            
+            # 2. 重新计算原始趋势
+            trend_a_raw = engine._calculate_raw_process_trend(series_a).get(probe_date, np.nan)
+            trend_b_raw = engine._calculate_raw_process_trend(series_b).get(probe_date, np.nan)
+            print(f"     - 信号A的原始趋势 (斜率): {trend_a_raw:.6f}")
+            print(f"     - 信号B的原始趋势 (斜率): {trend_b_raw:.6f}")
+            
+            # 3. 判断条件并计算强度
+            final_score_from_atomic = self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan)
+            
+            if config['type'] == 'divergence':
+                is_divergence = (trend_a_raw < 0) and (trend_b_raw > 0)
+                strength_score = normalize_score(series_b.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
+                recalculated_score = float(is_divergence) * strength_score
+                print(f"     - 背离条件 (A<0 and B>0): {'✅ 满足' if is_divergence else '❌ 不满足'}")
+                print(f"     - 强度分 (基于B趋势归一化): {strength_score:.4f}")
+                print(f"     - [探针重算结果]: {recalculated_score:.4f}")
+                print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
 
+            elif config['type'] == 'resonance':
+                is_resonance = (trend_a_raw > 0) and (trend_b_raw > 0)
+                strength_a_norm = normalize_score(series_a.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
+                strength_b_norm = normalize_score(series_b.rolling(window=engine.lookback_window).apply(lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False).fillna(0), df.index, engine.norm_window).get(probe_date, np.nan)
+                strength_score = (strength_a_norm * strength_b_norm)**0.5
+                recalculated_score = float(is_resonance) * strength_score
+                print(f"     - 共振条件 (A>0 and B>0): {'✅ 满足' if is_resonance else '❌ 不满足'}")
+                print(f"     - 强度分 (A,B趋势归一化后融合): {strength_score:.4f} (A:{strength_a_norm:.2f}, B:{strength_b_norm:.2f})")
+                print(f"     - [探针重算结果]: {recalculated_score:.4f}")
+                print(f"     - [最终信号实际值]: {final_score_from_atomic:.4f}")
 
 
 
