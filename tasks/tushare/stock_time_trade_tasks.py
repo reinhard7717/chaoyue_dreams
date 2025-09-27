@@ -1456,7 +1456,7 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
         stock_code (str): 股票代码。
         cache_manager (CacheManager): 缓存管理器实例。
     """
-    print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
+    # print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
     
     async def _async_repair():
         # 1. 获取所需模型
@@ -1503,8 +1503,8 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                     start_date_str=start_date_str,
                     end_date_str=end_date_str
                 )
-        else:
-            print(f"[{stock_code}] [数据修复] 'cyq_perf' 数据完整，无需修复。")
+        # else:
+            # print(f"[{stock_code}] [数据修复] 'cyq_perf' 数据完整，无需修复。")
 
         # 5. 修复缺失的 'cyq_chips' 数据
         if missing_chips_dates:
@@ -1521,12 +1521,12 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                     start_date_str=start_date_str,
                     end_date_str=end_date_str
                 )
-        else:
-            print(f"[{stock_code}] [数据修复] 'cyq_chips' 数据完整，无需修复。")
+        # else:
+            # print(f"[{stock_code}] [数据修复] 'cyq_chips' 数据完整，无需修复。")
 
     try:
         async_to_sync(_async_repair)()
-        print(f"[{stock_code}] [数据修复] 检查和修复任务派发完成。")
+        # print(f"[{stock_code}] [数据修复] 检查和修复任务派发完成。")
     except Exception as e:
         logger.error(f"[{stock_code}] [数据修复] 执行修复任务时发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e)
