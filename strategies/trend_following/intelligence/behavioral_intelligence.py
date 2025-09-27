@@ -167,11 +167,14 @@ class BehavioralIntelligence:
         return atomic_signals
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.3 · 静态逻辑重构版】计算价格维度的四维健康度"""
+        """【V1.4 · 终极净化版】计算价格维度的四维健康度
+        - 核心修复: 对BBP指标进行严格的[0, 1]区间裁剪，彻底杜绝静态分大于1的可能性。
+        """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # 将静态分计算移出循环，并使用与周期无关的BBP指标
-        bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
+        # 对BBP指标进行严格的[0, 1]区间裁剪
+        bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
+        
         # 看涨静态分：价格在布林带上轨附近为强
         static_bull_score = bbp_score
         # 看跌静态分：价格在布林带下轨附近为弱 (超卖)
@@ -240,7 +243,7 @@ class BehavioralIntelligence:
             weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
         ]), index=df.index).astype(np.float32)
 
-        # [代码修改] 动态分回归本源：基于静态分自身的斜率计算
+        # 动态分回归本源：基于静态分自身的斜率计算
         # --- 动态分计算 (全新逻辑) ---
         for p in periods:
             # 静态分赋值
