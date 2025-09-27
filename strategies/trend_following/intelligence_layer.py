@@ -267,6 +267,9 @@ class IntelligenceLayer:
         self._deploy_v_reversal_ace_probe(probe_date)
         self._deploy_chip_price_lag_probe(probe_date)
         
+        if debug_params.get('enabled', False) and probe_date_str:
+            self._deploy_pillar_fusion_probe(probe_date, 'BEHAVIOR', 's_bull', 13)
+        
         print("="*95 + "\n")
 
     # 全新的“动态力学否决权”探针
@@ -999,6 +1002,110 @@ class IntelligenceLayer:
              print(f"  - [最终诊断] 排名得分偏低。这证明了“相对排名陷阱”：当日的风险/机会信号在近期历史中并不突出，因此被“平均化”。")
         else:
              print(f"  - [最终诊断] 排名得分正常。如果最终信号分依然很低，问题可能出在更高层级的权重融合上。")
+
+    def _deploy_pillar_fusion_probe(self, probe_date: pd.Timestamp, domain: str, health_type: str, period: int):
+        """
+        【探针V1.0】支柱融合层法医探针
+        - 核心职责: 钻透式解剖 `overall_health` 的计算过程，揭示支柱分数是如何被融合成一个最终值的。
+        """
+        domain_upper = domain.upper()
+        print(f"\n--- [支柱融合探针 V1.0] 正在解剖【{domain_upper}领域】的【{health_type}】在周期【{period}】的融合逻辑 ---")
+
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        
+        overall_health_cache_key = f'__{domain_upper}_overall_health'
+        overall_health = atomic.get(overall_health_cache_key)
+        
+        if not overall_health or health_type not in overall_health or period not in overall_health[health_type]:
+            print(f"  - [探针错误] 无法在缓存 '{overall_health_cache_key}' 中找到路径 '{health_type}.{period}'。")
+            return
+
+        final_fused_score = overall_health[health_type][period].get(probe_date, np.nan)
+        print(f"  - 当日最终融合分 (overall_health['{health_type}'][{period}]): {final_fused_score:.4f}")
+        
+        engine_map = {
+            'BEHAVIOR': (self.behavioral_intel, {'price': 0.4, 'volume': 0.3, 'kline': 0.3}),
+            'CHIP': (self.chip_intel, get_params_block(self.strategy, 'chip_ultimate_params').get('pillar_weights')),
+            'DYN': (self.dynamic_mechanics_engine, get_params_block(self.strategy, 'dynamic_mechanics_params').get('pillar_weights')),
+            'STRUCTURE': (self.structural_intel, None), # 使用等权重
+            'FOUNDATION': (self.foundation_intel, None) # 使用等权重
+        }
+        calc_map = {
+            'BEHAVIOR': [('_calculate_price_health', '价格'), ('_calculate_volume_health', '成交量'), ('_calculate_kline_pattern_health', 'K线形态')],
+            'CHIP': [('_calculate_quantitative_health', '量化'), ('_calculate_advanced_dynamics_health', '高级'), ('_calculate_internal_structure_health', '内部'), ('_calculate_holder_behavior_health', '持仓'), ('_calculate_fault_health', '断层')],
+            'DYN': [('_calculate_volatility_health', '波动率'), ('_calculate_efficiency_health', '效率'), ('_calculate_kinetic_energy_health', '动能'), ('_calculate_inertia_health', '惯性')],
+            'STRUCTURE': [('_calculate_ma_health', '均线'), ('_calculate_mechanics_health', '力学'), ('_calculate_mtf_health', '多周期'), ('_calculate_pattern_health', '形态')],
+            'FOUNDATION': [('_calculate_ema_health', 'EMA'), ('_calculate_rsi_health', 'RSI'), ('_calculate_macd_health', 'MACD'), ('_calculate_cmf_health', 'CMF')]
+        }
+
+        engine_instance, pillar_weights = engine_map.get(domain_upper)
+        pillar_calculators = calc_map.get(domain_upper)
+        
+        if not engine_instance or not pillar_calculators:
+            print(f"  - [探针错误] 未找到领域 '{domain_upper}' 的引擎或计算器映射。")
+            return
+
+        print("  - 开始回溯计算各支柱的贡献分...")
+        pillar_scores = []
+        pillar_names = []
+        for calc_func_name, pillar_cn_name in pillar_calculators:
+            try:
+                calculator = getattr(engine_instance, calc_func_name)
+                # 简化参数传递，实际探针可能需要更复杂的适配
+                args = [df, 120, {'slope': 0.6, 'accel': 0.4}, [period]]
+                if domain_upper == 'BEHAVIOR':
+                    atomic_signals = self.behavioral_intel._generate_all_atomic_signals(df)
+                    if 'kline' in calc_func_name:
+                        args = [df, atomic_signals, 120, 24, [period]]
+                    else:
+                        args = [df, 120, 24, {'slope': 0.6, 'accel': 0.4}, [period]]
+                elif domain_upper == 'STRUCTURE':
+                     args = [df, [period], 120, {'slope': 0.6, 'accel': 0.4}]
+
+                s_bull, d_bull, s_bear, d_bear = calculator(*args)
+                
+                health_map = {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}
+                score_series = health_map[health_type].get(period)
+                
+                if score_series is not None:
+                    score = score_series.get(probe_date, np.nan)
+                    print(f"    - {pillar_cn_name:<12s} 支柱贡献分: {score:.4f}")
+                    pillar_scores.append(score)
+                    pillar_names.append(pillar_cn_name)
+                else:
+                    print(f"    - {pillar_cn_name:<12s} 支柱贡献分: [计算失败]")
+            except Exception as e:
+                print(f"    - [探针错误] 解剖支柱 '{pillar_cn_name}' 失败: {e}")
+
+        if not pillar_scores or any(pd.isna(s) for s in pillar_scores):
+            print("  - [诊断结论] 部分支柱分数计算失败或为NaN，导致融合失败。")
+            return
+
+        print("\n  - 开始模拟融合过程...")
+        scores_array = np.array(pillar_scores)
+        
+        if pillar_weights:
+            weights_array = np.array([pillar_weights.get(name.lower(), 0) for name in pillar_names])
+            print(f"    - 使用加权模式。权重: {dict(zip(pillar_names, weights_array))}")
+            simulated_sum = np.sum(scores_array * weights_array)
+            simulated_prod = np.prod(scores_array ** weights_array)
+        else:
+            print("    - 使用等权模式。")
+            simulated_sum = np.mean(scores_array)
+            simulated_prod = np.prod(scores_array) ** (1.0 / len(scores_array))
+
+        print(f"    - [旧逻辑模拟] 加权求和 (Arithmetic Mean): {simulated_sum:.4f}")
+        print(f"    - [新逻辑模拟] 加权几何平均 (Geometric Mean): {simulated_prod:.4f}")
+        
+        print("\n  - [最终诊断结论]")
+        if simulated_sum > 1.5 and abs(final_fused_score - simulated_sum) < 0.1:
+             print("    - 根源确认: 分数爆炸的根本原因是【支柱融合层】使用了错误的“加法”模型。")
+             print(f"    - 证据: 模拟的加法结果({simulated_sum:.4f})与实际爆炸的分数({final_fused_score:.4f})高度吻合。")
+             print(f"    - 正确值应为: {simulated_prod:.4f} (几何平均结果)。")
+        else:
+             print("    - 探针模拟结果与实际分数不符，问题可能更复杂，或存在其他覆盖逻辑。")
+
 
 
 

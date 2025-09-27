@@ -74,7 +74,7 @@ class FoundationIntelligence:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
                     stacked_values = np.stack(components_for_period, axis=0)
-                    fused_values = np.mean(stacked_values, axis=0)
+                    fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)

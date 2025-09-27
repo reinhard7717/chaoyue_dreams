@@ -82,7 +82,8 @@ class DynamicMechanicsEngine:
                 if not valid_pillars: continue
                 
                 stacked_values = np.stack(valid_pillars, axis=0)
-                fused_values = np.sum(stacked_values * weights_array[:, np.newaxis], axis=0)
+                # 使用加权几何平均 (乘法) 替换加权求和 (加法)
+                fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health

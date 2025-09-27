@@ -48,7 +48,6 @@ class BehavioralIntelligence:
         # 如果没有从外部传入预先计算好的原子信号，则自行计算
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
-        # [代码修改结束]
         
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -71,7 +70,8 @@ class BehavioralIntelligence:
         kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
         
         overall_health = {}
-        dim_weights_array = np.array([dimension_weights['price'], dimension_weights['volume'], dimension_weights['kline']])
+        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+        dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
         
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
@@ -79,13 +79,14 @@ class BehavioralIntelligence:
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
             ('d_bear', [price_d_bear, vol_d_bear, kline_d_bear])
         ]:
-        
             overall_health[health_type] = {}
             for p in periods:
                 stacked_values = np.stack([
                     health_sources[0][p].values, health_sources[1][p].values, health_sources[2][p].values
                 ], axis=0)
-                fused_values = np.sum(stacked_values * dim_weights_array[:, np.newaxis], axis=0)
+                # 使用加权几何平均 (乘法) 替换加权求和 (加法)
+                # 使用 np.prod(base ** exponent) 来实现向量化的加权几何平均
+                fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
@@ -214,7 +215,7 @@ class BehavioralIntelligence:
         earth_heaven = normalize_score(atomic_signals.get('SCORE_OPP_EARTH_HEAVEN_BOARD'), df.index, norm_window, True, min_periods)
         gentle_rise = normalize_score(atomic_signals.get('SCORE_ATOMIC_GENTLE_RISE'), df.index, norm_window, True, min_periods)
         
-        # [代码修改] 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
+        # 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
         static_bull_score = pd.Series(np.maximum.reduce([
             strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values
         ]), index=df.index).astype(np.float32)
@@ -225,7 +226,7 @@ class BehavioralIntelligence:
         heaven_earth = normalize_score(atomic_signals.get('SCORE_RISK_HEAVEN_EARTH_BOARD'), df.index, norm_window, True, min_periods)
         sharp_drop = normalize_score(atomic_signals.get('SCORE_ATOMIC_SHARP_DROP'), df.index, norm_window, True, min_periods)
         
-        # [代码修改] 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
+        # 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
         static_bear_score = pd.Series(np.maximum.reduce([
             weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
         ]), index=df.index).astype(np.float32)
