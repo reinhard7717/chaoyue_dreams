@@ -152,12 +152,97 @@
   },
   "strategy_params": {
     "trend_follow": {
-      "说明": "【V239.0 终极信号适配版】趋势跟踪策略核心模块。",
+      "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
         "enabled": { "value": true },
         "probe_date": "2025-09-18",
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
+      },
+      "upthrust_distribution_params": {
+        "enabled": true,
+        "description": "【V1.0】上冲派发风险诊断引擎参数，用于识别顶部风险。",
+        "overextension_ma_period": 55,
+        "upper_shadow_ratio_min": 0.5,
+        "norm_window": 55
+      },
+      "kline_pattern_params": {
+        "enabled": true,
+        "description": "【V1.0】K线形态原子信号引擎参数。",
+        "gap_support_params": {
+          "enabled": true,
+          "persistence_days": 13,
+          "description": "缺口支撑状态的持续天数。"
+        },
+        "atomic_behavior_params": {
+          "enabled": true,
+          "norm_window": 55,
+          "description": "用于计算“急跌”等原子行为信号。"
+        }
+      },
+      "advanced_atomic_params": {
+        "enabled": true,
+        "description": "【V1.0】高级原子信号引擎参数，如收盘价在日内位置、连涨/连跌天数等。"
+      },
+      "board_pattern_params": {
+        "enabled": true,
+        "description": "【V1.0】天地板/地天板等极端日内形态的识别参数。",
+        "limit_up_threshold": 0.098,
+        "limit_down_threshold": -0.098,
+        "price_buffer": 0.005
+      },
+      "structure_breakdown_params": {
+        "enabled": true,
+        "description": "【V1.0】均线破位风险诊断引擎参数。",
+        "breakdown_ma_period": 21,
+        "norm_window": 55
+      },
+      "vpa_dynamics_params": {
+        "enabled": true,
+        "description": "【V1.0】量价分析(VPA)动态风险诊断引擎参数。",
+        "norm_window": 55
+      },
+      "price_volume_atomic_params": {
+        "enabled": true,
+        "description": "【V1.0】量价原子信号引擎参数，如价格在近期区间位置、缩量下跌等。",
+        "norm_window": 55,
+        "range_lookback": 21
+      },
+      "capitulation_reversal_params": {
+        "enabled": true,
+        "description": "【V1.0】恐慌盘投降反转剧本的参数。",
+        "norm_window": 55,
+        "logistic_k": 0.1,
+        "logistic_x0": 50.0,
+        "final_score_exponent": 1.0
+      },
+      "deceptive_flow_params": {
+        "enabled": true,
+        "description": "【V1.0】伪装散户吸筹诊断引擎参数。",
+        "norm_window": 55
+      },
+      "euphoric_risk_params": {
+        "enabled": true,
+        "description": "【V1.0】亢奋加速风险诊断引擎参数。",
+        "norm_window": 55
+      },
+      "pullback_tactics_params": {
+        "enabled": true,
+        "description": "【V1.0】回踩战术诊断模块参数。",
+        "healthy_pullback_score_threshold": 0.4,
+        "suppressive_pullback_score_threshold": 0.4
+      },
+      "classic_indicator_params": {
+        "enabled": true,
+        "description": "【V1.0】经典指标原子信号诊断引擎参数。"
+      },
+      "pattern_params": {
+        "enabled": true,
+        "description": "【V1.0】形态智能引擎参数。"
+      },
+      "fund_flow_params": {
+        "enabled": true,
+        "description": "【V1.0】资金流情报模块总开关。"
       },
       "hot_money_params": {
         "enabled": true,
