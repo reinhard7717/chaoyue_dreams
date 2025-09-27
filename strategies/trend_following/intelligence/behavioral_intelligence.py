@@ -195,26 +195,36 @@ class BehavioralIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.4 · 静态逻辑重构版】计算成交量维度的四维健康度"""
+        """【V1.5 · 哲学重塑版】计算成交量维度的四维健康度
+        - 核心修复: 彻底废除之前脱离价格背景的、错误的成交量健康度评估逻辑。
+        - 新哲学:
+          - 静态看涨分: 来源于“缩量下跌”这一健康的原子信号 (SCORE_VOL_WEAKENING_DROP)。
+          - 静态看跌分: 来源于“放量滞涨”这一危险的原子信号 (SCORE_RISK_VPA_STAGNATION)。
+          - 动态分: 保持不变，衡量成交量趋势的活跃度，其好坏由静态分和价格背景决定。
+        """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        # 将静态分计算移出循环，并使用与周期无关的成交量比率
-        volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
-        # 看涨/看跌静态分：成交量放大被视为活跃，既可助涨也可助跌，因此使用同一个指标
-        static_volume_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
+        # [代码修改] 使用更智能的、包含价格背景的原子信号作为静态分
+        # 静态看涨分: 缩量下跌是健康的。我们从原子信号库中获取这个分数。
+        # 注意：这个信号本身是“缩量+下跌”的强度，所以它越高，代表调整越健康，是看涨的。
+        static_bull_score = self.strategy.atomic_states.get('SCORE_VOL_WEAKENING_DROP', pd.Series(0.5, index=df.index))
+        
+        # 静态看跌分: 放量滞涨是危险的。我们从原子信号库中获取这个分数。
+        static_bear_score = self.strategy.atomic_states.get('SCORE_RISK_VPA_STAGNATION', pd.Series(0.5, index=df.index))
 
         for p in periods:
             # 为所有周期分配同一个、真正的静态分
-            s_bull[p] = static_volume_score
-            s_bear[p] = static_volume_score
+            s_bull[p] = static_bull_score
+            s_bear[p] = static_bear_score
             
+            # 动态分衡量成交量的“活跃度”，其本身是中性的。
+            # 活跃度上升，既可以助涨（d_bull），也可以助跌（d_bear）。
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = (vol_mom * vol_accel)**0.5
             
-            vol_mom_neg = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
-            vol_accel_neg = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
-            d_bear[p] = (vol_mom_neg * vol_accel_neg)**0.5
+            # 看涨动态和看跌动态都受益于成交量的活跃。
+            d_bull[p] = (vol_mom * vol_accel)**0.5
+            d_bear[p] = (vol_mom * vol_accel)**0.5 # [代码修改] 明确d_bear逻辑：成交量活跃本身对看跌也是一种能量
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
