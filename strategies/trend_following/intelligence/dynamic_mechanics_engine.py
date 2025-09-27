@@ -171,7 +171,7 @@ class DynamicMechanicsEngine:
             s_bear[p] = static_bear
             d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window) * dynamic_weights['accel']
             # 看跌动态：动能斜率、加速度减少为坏，修正 ascending 参数
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
+            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
 
         return s_bull, d_bull, s_bear, d_bear
 

@@ -94,26 +94,42 @@ class BehavioralIntelligence:
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
-        overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bullish_resonance = (
+            (bullish_short_force_res ** resonance_tf_weights['short']) *
+            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bullish_long_inertia_res ** resonance_tf_weights['long'])
+        )
         
         bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-        overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bullish_reversal_trigger = (
+            (bullish_short_force_rev ** reversal_tf_weights['short']) *
+            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
-        overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bearish_resonance = (
+            (bearish_short_force_res ** resonance_tf_weights['short']) *
+            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bearish_long_inertia_res ** resonance_tf_weights['long'])
+        )
 
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
-        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bearish_reversal_trigger = (
+            (bearish_short_force_rev ** reversal_tf_weights['short']) *
+            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
         for prefix, score in [('SCORE_BEHAVIOR_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_BEHAVIOR_BOTTOM_REVERSAL', final_bottom_reversal_score),
