@@ -97,46 +97,38 @@ class FundFlowIntelligence:
 
     def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
         """
-        【V2.3 · 融合逻辑重构版】执行意图驱动的加权融合。
-        - 本次重构:
-          - [逻辑修正] 彻底修正了原V2.2版将健康度类型与信号意图混淆的致命BUG。
-          - [架构优化] 不再生成4个混乱的健康度，而是根据“共振”和“反转”两种意图，
-                        分别生成两套完整的、逻辑纯净的四维健康度字典。
-                        - fused_health_for_resonance: 用于计算共振信号。
-                        - fused_health_for_reversal: 用于计算反转信号。
-        - 收益: 从根本上解决了风险信号恒为0的问题，确保了信号计算的逻辑正确性。
+        【V2.4 · 终极哲学统一版】执行意图驱动的加权融合。
+        - 核心修复: 将融合逻辑从“加权求和”彻底修改为“加权几何平均”。
         """
         fused_results = {
             'resonance': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}},
             'reversal': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}}
         }
         pillar_names = list(params['pillar_configs'].keys())
-        # 遍历两种意图：共振和反转
+        
         for intent_type, weights_key in [('resonance', 'resonance_pillar_weights'), ('reversal', 'reversal_pillar_weights')]:
-            # 获取当前意图对应的权重数组
             weights_config = params[weights_key]
-            weights_array = np.array([weights_config.get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names])
-            total_weights = np.sum(weights_array)
-            # 遍历四种健康度类型
-            for health_key, health_dict_key in [
-                ('s_bull', 's_bull'), ('d_bull', 'd_bull'), 
-                ('s_bear', 's_bear'), ('d_bear', 'd_bear')
-            ]:
-                # 遍历所有周期
+            
+            # 准备加权几何平均所需的权重
+            valid_weights = [weights_config.get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names]
+            weights_array = np.array(valid_weights)
+            total_weights = weights_array.sum()
+            if total_weights > 0:
+                weights_array /= total_weights # 归一化权重
+            else:
+                weights_array = np.full_like(weights_array, 1.0 / len(weights_array)) # 等权重
+
+            for health_key in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
                 for p in params['periods']:
-                    # 将所有支柱在当前周期的健康分堆叠成矩阵
                     pillar_scores_matrix = np.stack([
-                        pillar_health[name][health_dict_key].get(p, pd.Series(0.5)).values 
+                        pillar_health[name][health_key].get(p, pd.Series(0.5, index=pillar_health[pillar_names[0]]['s_bull'][p].index)).values 
                         for name in pillar_names
                     ], axis=0)
-                    if total_weights > 0:
-                        # 使用向量化乘法和加法，完成加权求和
-                        fused_values = np.sum(pillar_scores_matrix * weights_array[:, np.newaxis], axis=0) / total_weights
-                        sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
-                        fused_results[intent_type][health_key][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
-                    else:
-                        sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
-                        fused_results[intent_type][health_key][p] = pd.Series(0.5, index=sample_index, dtype=np.float32)
+                    
+                    # 使用加权几何平均替换加权求和
+                    fused_values = np.prod(pillar_scores_matrix ** weights_array[:, np.newaxis], axis=0)
+                    sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
+                    fused_results[intent_type][health_key][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
 
         self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results

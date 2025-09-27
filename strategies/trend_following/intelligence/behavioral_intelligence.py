@@ -216,43 +216,38 @@ class BehavioralIntelligence:
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
         """
-        【V2.1 · 逻辑革命版】
-        - 核心修复: 将原子信号的融合逻辑从“相乘”(AND)彻底修改为“取最大值”(OR)。
-                      这解决了因单一信号为0而导致整个支柱评分为0的致命缺陷。
+        【V2.2 · 终极哲学统一版】
+        - 核心修复: 1. 将原子信号的融合逻辑从“相乘”修改为“取最大值”(OR)。
+                      2. 动态分不再是固定值，而是基于不同周期的突破/破位信号斜率计算，回归多周期分析哲学。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # --- 看涨静态分 (Bullish Static Score) ---
         strong_close = normalize_score(atomic_signals.get('SCORE_ATOMIC_STRONG_CLOSE'), df.index, norm_window, True, min_periods)
         gap_support = normalize_score(atomic_signals.get('SCORE_ATOMIC_GAP_SUPPORT'), df.index, norm_window, True, min_periods)
         earth_heaven = normalize_score(atomic_signals.get('SCORE_OPP_EARTH_HEAVEN_BOARD'), df.index, norm_window, True, min_periods)
         gentle_rise = normalize_score(atomic_signals.get('SCORE_ATOMIC_GENTLE_RISE'), df.index, norm_window, True, min_periods)
-        
-        # 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
         static_bull_score = pd.Series(np.maximum.reduce([
             strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values
         ]), index=df.index).astype(np.float32)
 
-        # --- 看跌静态分 (Bearish Static Score) ---
         weak_close = normalize_score(atomic_signals.get('SCORE_ATOMIC_WEAK_CLOSE'), df.index, norm_window, True, min_periods)
         upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION'), df.index, norm_window, True, min_periods)
         heaven_earth = normalize_score(atomic_signals.get('SCORE_RISK_HEAVEN_EARTH_BOARD'), df.index, norm_window, True, min_periods)
         sharp_drop = normalize_score(atomic_signals.get('SCORE_ATOMIC_SHARP_DROP'), df.index, norm_window, True, min_periods)
-        
-        # 从“与”逻辑(相乘)修改为“或”逻辑(取最大值)
         static_bear_score = pd.Series(np.maximum.reduce([
             weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
         ]), index=df.index).astype(np.float32)
 
-        # 动态分保持不变
-        dynamic_bull_score = normalize_score(atomic_signals.get('SCORE_BEHAVIOR_MA_BREAKTHROUGH'), df.index, norm_window, True, min_periods)
-        dynamic_bear_score = normalize_score(atomic_signals.get('SCORE_BEHAVIOR_MA_BREAKDOWN'), df.index, norm_window, True, min_periods)
-
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
-            d_bull[p] = dynamic_bull_score
-            d_bear[p] = dynamic_bear_score
+            
+            # 动态分基于不同周期的斜率计算，不再是固定值
+            breakthrough_col = f'SLOPE_{p}_SCORE_BEHAVIOR_MA_BREAKTHROUGH'
+            breakdown_col = f'SLOPE_{p}_SCORE_BEHAVIOR_MA_BREAKDOWN'
+            
+            d_bull[p] = normalize_score(atomic_signals.get(breakthrough_col), df.index, norm_window, True, min_periods)
+            d_bear[p] = normalize_score(atomic_signals.get(breakdown_col), df.index, norm_window, True, min_periods)
             
         return s_bull, d_bull, s_bear, d_bear
 

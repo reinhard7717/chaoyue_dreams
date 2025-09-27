@@ -94,43 +94,70 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.3 · 重构版】趋势质量融合评分模块
+        【V2.4 · 终极哲学统一版】趋势质量融合评分模块
+        - 核心修复: 将所有维度的融合逻辑从“加权求和”彻底修改为“加权几何平均”。
         """
-        # 调用 utils.fuse_multi_level_scores
         behavior_health_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         structural_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
         
-        # ... (后续逻辑保持不变) ...
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
-        regime_health_score = (regime_health_score_hurst + regime_health_score_fft) / 2.0
+        regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5 # 使用几何平均
         
         p_chip_pillars = get_params_block(self.strategy, 'trend_quality_params', {}).get('chip_pillar_weights', {})
-        chip_health_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        total_chip_weight = 0.0
         chip_pillar_names = ['quantitative', 'advanced', 'internal', 'holder', 'fault']
+        
+        # 筹码支柱融合从加法改为乘法
+        chip_pillar_scores = []
+        chip_pillar_weights = []
         for pillar_name in chip_pillar_names:
             weight = p_chip_pillars.get(pillar_name, 0.2)
-            pillar_health_signal_name = f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH'
-            pillar_score = self._get_atomic_score(df, pillar_health_signal_name, 0.0)
-            chip_health_score += pillar_score * weight
-            total_chip_weight += weight
-        if total_chip_weight > 0:
-            chip_health_score /= total_chip_weight
+            if weight > 0:
+                pillar_health_signal_name = f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH'
+                pillar_score = self._get_atomic_score(df, pillar_health_signal_name, 0.5) # 默认值改为0.5
+                chip_pillar_scores.append(pillar_score.values)
+                chip_pillar_weights.append(weight)
+        
+        if chip_pillar_scores:
+            weights_array = np.array(chip_pillar_weights)
+            weights_array /= weights_array.sum() # 归一化权重
+            stacked_scores = np.stack(chip_pillar_scores, axis=0)
+            chip_health_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            chip_health_score = pd.Series(chip_health_score_values, index=df.index, dtype=np.float32)
+        else:
+            chip_health_score = pd.Series(0.5, index=df.index, dtype=np.float32)
 
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
         
-        trend_quality_score = (
-            behavior_health_score * weights.get('behavior', 0.20) +
-            chip_health_score * weights.get('chip', 0.30) +
-            fund_flow_health_score * weights.get('fund_flow', 0.15) +
-            structural_health_score * weights.get('structural', 0.15) + 
-            mechanics_health_score * weights.get('mechanics', 0.10) +
-            regime_health_score * weights.get('regime', 0.10)
-        )
+        # 最终融合从加法改为乘法
+        domain_scores = [
+            behavior_health_score, chip_health_score, fund_flow_health_score,
+            structural_health_score, mechanics_health_score, regime_health_score
+        ]
+        domain_weights_config = [
+            weights.get('behavior', 0.20), weights.get('chip', 0.30), weights.get('fund_flow', 0.15),
+            weights.get('structural', 0.15), weights.get('mechanics', 0.10), weights.get('regime', 0.10)
+        ]
+        
+        valid_scores = []
+        valid_weights = []
+        for score, weight in zip(domain_scores, domain_weights_config):
+            if weight > 0:
+                valid_scores.append(score.values)
+                valid_weights.append(weight)
+
+        if valid_scores:
+            weights_array = np.array(valid_weights)
+            weights_array /= weights_array.sum() # 归一化权重
+            stacked_scores = np.stack(valid_scores, axis=0)
+            trend_quality_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            trend_quality_score = pd.Series(trend_quality_values, index=df.index, dtype=np.float32)
+        else:
+            trend_quality_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score.astype(np.float32)
         return df
 
@@ -370,47 +397,67 @@ class CognitiveIntelligence:
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.6 融合逻辑修复版】多域反转共振分数合成模块
+        【V2.7 · 终极哲学统一版】多域反转共振分数合成模块
+        - 核心修复: 将所有维度的融合逻辑从“加权求和”彻底修改为“加权几何平均”。
         """
-        # print("        -> [多域反转共振分数合成模块 V2.6 融合逻辑修复版] 启动...")
         states = {}
-        default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        default_score = pd.Series(0.5, index=df.index, dtype=np.float32) # 默认值改为0.5
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
         bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
-        mechanics_bottom_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL')
-        chip_bottom_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL')
-        foundation_bottom_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL')
-        behavior_bottom_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        structure_bottom_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
-        total_bottom_score = pd.Series(0.0, index=df.index)
-        total_bottom_weight = 0.0
+        
         bottom_sources = {
-            'mechanics': mechanics_bottom_score, 'chip': chip_bottom_score, 'foundation': foundation_bottom_score,
-            'behavior': behavior_bottom_score, 'structure': structure_bottom_score
+            'mechanics': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
+            'chip': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
+            'foundation': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL'),
+            'behavior': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
+            'structure': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
         }
+        
+        # 底部反转融合从加法改为乘法
+        bottom_scores = []
+        bottom_weight_values = []
         for domain, weight in bottom_weights.items():
             if domain in bottom_sources and weight > 0:
-                total_bottom_score += bottom_sources[domain] * weight
-                total_bottom_weight += weight
-        bottom_reversal_score = total_bottom_score / total_bottom_weight if total_bottom_weight > 0 else default_score
+                bottom_scores.append(bottom_sources[domain].values)
+                bottom_weight_values.append(weight)
+        
+        if bottom_scores:
+            weights_array = np.array(bottom_weight_values)
+            weights_array /= weights_array.sum()
+            stacked_scores = np.stack(bottom_scores, axis=0)
+            bottom_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            bottom_reversal_score = pd.Series(bottom_reversal_values, index=df.index, dtype=np.float32)
+        else:
+            bottom_reversal_score = default_score
+
         states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S'] = bottom_reversal_score.astype(np.float32)
-        mechanics_top_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL')
-        chip_top_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL')
-        foundation_top_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL')
-        behavior_top_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
-        structure_top_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
-        total_top_score = pd.Series(0.0, index=df.index)
-        total_top_weight = 0.0
+        
         top_sources = {
-            'mechanics': mechanics_top_score, 'chip': chip_top_score, 'foundation': foundation_top_score,
-            'behavior': behavior_top_score, 'structure': structure_top_score
+            'mechanics': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
+            'chip': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
+            'foundation': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL'),
+            'behavior': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
+            'structure': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
         }
+
+        # 顶部反转融合从加法改为乘法
+        top_scores = []
+        top_weight_values = []
         for domain, weight in top_weights.items():
             if domain in top_sources and weight > 0:
-                total_top_score += top_sources[domain] * weight
-                total_top_weight += weight
-        top_reversal_score = total_top_score / total_top_weight if total_top_weight > 0 else default_score
+                top_scores.append(top_sources[domain].values)
+                top_weight_values.append(weight)
+
+        if top_scores:
+            weights_array = np.array(top_weight_values)
+            weights_array /= weights_array.sum()
+            stacked_scores = np.stack(top_scores, axis=0)
+            top_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            top_reversal_score = pd.Series(top_reversal_values, index=df.index, dtype=np.float32)
+        else:
+            top_reversal_score = default_score
+
         states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S'] = top_reversal_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
         return df
@@ -470,26 +517,26 @@ class CognitiveIntelligence:
     # 新增一个专门的波动率认知信号合成方法
     def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 预判能力版】波动率认知信号合成模块
-        - 核心职责: 整合基础波动率信息，生成更高级的“压缩分”和“突破潜力分”。
-        - 算法升级: “突破潜力”融合了BBW的斜率和加速度，具备更强的前瞻性。
+        【V1.1 · 终极哲学统一版】波动率认知信号合成模块
+        - 核心修复: 将融合逻辑从“加权求和”彻底修改为“几何平均”。
         """
         states = {}
-        norm_window = 120 # 考虑从参数获取
+        norm_window = 120
 
         # 1. 波动压缩分 (Fused Compression Score)
         atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
         vol_compression_atr = 1 - normalize_score(atr_ratio, df.index, norm_window)
         bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
         vol_compression_bbw = 1 - normalize_score(bbw, df.index, norm_window)
-        fused_compression_score = (vol_compression_atr * 0.4 + vol_compression_bbw * 0.6)
+        # 融合从加法改为乘法
+        fused_compression_score = (vol_compression_atr * vol_compression_bbw)**0.5
         
-        # 2. 波动突破潜力 (Volatility Breakout Potential) - 预判能力升级版
+        # 2. 波动突破潜力 (Volatility Breakout Potential)
         bbw_slope_score = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
         bbw_accel_score = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
         
-        # 融合斜率和加速度，赋予前瞻性
-        expansion_score = (bbw_slope_score * 0.6 + bbw_accel_score * 0.4)
+        # 融合从加法改为乘法
+        expansion_score = (bbw_slope_score * bbw_accel_score)**0.5
         
         breakout_potential = (fused_compression_score * expansion_score)**0.5
 
@@ -497,6 +544,18 @@ class CognitiveIntelligence:
         states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = breakout_potential.astype(np.float32)
         
         return states
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
