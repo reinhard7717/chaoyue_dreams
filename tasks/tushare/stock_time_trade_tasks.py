@@ -4,6 +4,7 @@ import logging
 import datetime
 from django.conf import settings
 from asgiref.sync import async_to_sync
+from asgiref.sync import sync_to_async # 异步转换工具 asgiref.sync import sync_to_async # 异步转换工具
 from celery import chord, group, chain
 from math import ceil
 from django.db import models
@@ -19,6 +20,10 @@ from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from stock_models.time_trade import StockCyqChipsBJ, StockCyqChipsCY, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsSZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_5_SZ, StockMinuteData_60_SZ, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC, StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, StockDailyData_KC, StockDailyData_BJ
 from utils.cache_manager import CacheManager
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
+from stock_models.time_trade import StockCyqPerf
+from itertools import groupby
+from operator import itemgetter
 
 # 自选股队列
 FAVORITE_SAVE_API_DATA_QUEUE = 'favorite_SaveHistoryData_TimeTrade'
@@ -1413,11 +1418,6 @@ def cleanup_non_trade_day_data():
 # ===================================================
 #      数据修复任务 (Data Repair Tasks)
 # ===================================================
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code
-from stock_models.time_trade import StockCyqPerf
-from itertools import groupby
-from operator import itemgetter
-from utils.sync_to_async import sync_to_async
 
 # 【代码新增】
 def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.date, datetime.date]]:
