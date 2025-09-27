@@ -897,41 +897,43 @@ class IntelligenceLayer:
 
     def _deploy_ranking_forensics_probe(self, probe_date: pd.Timestamp, domain: str, bottleneck_type: str, pillar_cn_name: str):
         """
-        【探针V5.0 · 排名法医版】
-        - 核心功能: 钻透式解剖 normalize_score 的内部计算过程，展示原始数据、窗口期、排名和最终得分。
+        【探针V5.1 · 多源感知版】
+        - 核心升级: 探针现在可以智能地从 df_indicators 和 atomic_states 两个数据源中查找原始指标。
+        - BUG修复: 修复了因无法找到 SCORE_RISK_UPTHRUST_DISTRIBUTION 等中间信号而导致的探针崩溃问题。
         """
-        print(f"\n--- [排名法医探针 V5.0] 正在对【{domain}领域-{pillar_cn_name}支柱】的【{bottleneck_type}】分数进行排名溯源 ---")
+        print(f"\n--- [排名法医探针 V5.1] 正在对【{domain}领域-{pillar_cn_name}支柱】的【{bottleneck_type}】分数进行排名溯源 ---")
         
         df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
         p_conf = get_params_block(self.strategy, f'{domain.lower()}_ultimate_params', {})
         if not p_conf: p_conf = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params', {})
         
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
 
-        # 支柱中文名到其核心原始指标的映射
+        # [代码修改] 支柱映射表现在包含数据源信息 ('df' 或 'atomic')
         pillar_to_indicator_map = {
             'DYN': {
-                '波动率': ('BBW_21_2.0_D', {'s_bear': False}), # s_bear看扩张，asc=True
-                '效率': ('VPA_EFFICIENCY_D', {'s_bear': False}),
-                '动能': ('ATR_14_D', {'s_bear': False}),
-                '惯性': ('ADX_14_D', {'s_bear': False}) # s_bear看趋势弱，ADX低，asc=False
+                '波动率': ('BBW_21_2.0_D', {'s_bear': True}, 'df'), # s_bear看扩张，asc=True
+                '效率': ('VPA_EFFICIENCY_D', {'s_bear': False}, 'df'),
+                '动能': ('ATR_14_D', {'s_bear': False}, 'df'),
+                '惯性': ('ADX_14_D', {'s_bear': False}, 'df')
             },
             'BEHAVIOR': {
-                '价格': ('price_vs_ma_13_D', {'s_bear': False}), # s_bear看价格低于均线，asc=False
-                '成交量': ('volume_vs_ma_13_D', {'s_bear': False}), # s_bear看缩量，asc=False
-                'K线形态': ('SCORE_RISK_UPTHRUST_DISTRIBUTION', {'s_bear': True}) # s_bear看上冲回落风险，asc=True
+                '价格': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
+                '成交量': ('volume_vs_ma_13_D', {'s_bear': False}, 'df'),
+                'K线形态': ('SCORE_RISK_UPTHRUST_DISTRIBUTION', {'s_bear': True}, 'atomic') # 数据源是 atomic_states
             },
             'STRUCTURE': {
-                '均线': ('price_vs_ma_13_D', {'s_bear': False}),
-                '力学': ('energy_ratio_D', {'s_bear': False}),
-                '多周期': ('EMA_5_W', {'s_bear': False}), # 简化为检查周线均线
-                '形态': ('is_distribution_D', {'s_bear': True})
+                '均线': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
+                '力学': ('energy_ratio_D', {'s_bear': False}, 'df'),
+                '多周期': ('EMA_5_W', {'s_bear': False}, 'df'),
+                '形态': ('is_distribution_D', {'s_bear': True}, 'df')
             },
             'FOUNDATION': {
-                'EMA': ('price_vs_ma_13_D', {'s_bear': False}), # 简化
-                'RSI': ('RSI_13_D', {'s_bear': False}),
-                'MACD': ('MACDh_13_34_8_D', {'s_bear': False}),
-                'CMF': ('CMF_21_D', {'s_bear': False})
+                'EMA': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
+                'RSI': ('RSI_13_D', {'s_bear': False}, 'df'),
+                'MACD': ('MACDh_13_34_8_D', {'s_bear': False}, 'df'),
+                'CMF': ('CMF_21_D', {'s_bear': False}, 'df')
             }
         }
         
@@ -940,18 +942,28 @@ class IntelligenceLayer:
             print(f"  - [探针错误] 未找到 {domain}-{pillar_cn_name} 的指标映射。")
             return
             
-        indicator_name, ascending_map = indicator_map
+        indicator_name, ascending_map, source_type = indicator_map
         ascending = ascending_map.get(bottleneck_type, True)
 
-        if indicator_name not in df.columns:
-            print(f"  - [探针错误] 原始指标 '{indicator_name}' 不在数据表中。")
+        # [代码修改] 根据 source_type 决定从哪里获取数据
+        source_df = df if source_type == 'df' else pd.DataFrame(atomic)
+        if indicator_name not in source_df.columns:
+            print(f"  - [探针错误] 原始指标 '{indicator_name}' 在数据源 '{source_type}' 中不存在。")
+            # 额外诊断：检查atomic_states中是否存在该信号
+            if source_type == 'df' and indicator_name in atomic:
+                 print(f"    -> [补充诊断] 信号 '{indicator_name}' 存在于 atomic_states 中，但探针配置错误地指向了 df_indicators。请修正探针配置。")
             return
 
         # 1. 提取窗口数据
-        start_date = probe_date - pd.Timedelta(days=norm_window + 10) # 多取10天buffer
-        window_series = df.loc[start_date:probe_date, indicator_name].dropna().tail(norm_window)
+        # 确保即使是atomic_states也能正确处理日期窗口
+        full_series = source_df[indicator_name].reindex(df.index)
         
-        if window_series.empty:
+        # 找到探针日期在完整索引中的位置
+        probe_date_loc = df.index.get_loc(probe_date)
+        start_loc = max(0, probe_date_loc - norm_window + 1)
+        window_series = full_series.iloc[start_loc:probe_date_loc+1]
+
+        if window_series.empty or window_series.isnull().all():
             print(f"  - [探针警告] 在 {norm_window} 天窗口内未找到 '{indicator_name}' 的有效数据。")
             return
 
@@ -969,12 +981,12 @@ class IntelligenceLayer:
         ranks = window_series.rank(pct=True, ascending=ascending)
         current_rank_pct = ranks.get(probe_date)
         
-        print(f"  - 溯源指标: {indicator_name}")
+        print(f"  - 溯源指标: {indicator_name} (来源: {source_type})")
         print(f"  - 归一化逻辑: 历史排名周期={norm_window}天, 排序方式 ascending={ascending}")
         print(f"  - 窗口期: {window_series.index.min().date()} 至 {window_series.index.max().date()}")
         print(f"  - 当日({probe_date.date()})原始值: {current_value:.4f}")
         print(f"  - 窗口期内统计: 最大值={max_val:.4f}, 最小值={min_val:.4f}, 平均值={mean_val:.4f}")
-        print(f"  - [核心证据] 当日值在 {len(window_series)} 个样本中的归一化排名 (0-1): {current_rank_pct:.4f}")
+        print(f"  - [核心证据] 当日值在 {len(window_series.dropna())} 个有效样本中的归一化排名 (0-1): {current_rank_pct:.4f}")
         
         # 4. 最终诊断
         if current_rank_pct < 0.1:
