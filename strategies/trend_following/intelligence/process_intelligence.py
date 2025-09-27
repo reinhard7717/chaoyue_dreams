@@ -1,128 +1,124 @@
 # 文件: strategies/trend_following/intelligence/process_intelligence.py
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+import pandas_ta as ta
+from typing import Dict
+
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 class ProcessIntelligence:
     """
-    【V1.1 · 动能增强版】
-    - 核心升级: 遵从指挥官指令，引入“加速度”概念，将诊断依据从单一的“趋势”
-                  升级为“趋势”与“加速度”融合的“过程动能”，极大提升了诊断的精确度。
-    - 版本: 1.1
+    【V1.8 · 通用元分析引擎】
+    - 核心重构: 引擎已完全泛化，不再局限于量价。通过配置可分析价格与任何维度（资金、筹码等）
+                  的关系，并对该“关系”本身进行元分析，寻找拐点。
+    - 哲学: 万物皆可关系。通过“量化力学模型”将任意两个信号的关系转化为一张可分析的“走势图”，
+            再通过元分析寻找这张“关系走势图”的拐点。
+    - 优化: 全面采用 pandas-ta 库进行核心数学计算，性能与优雅性兼备。
+    - 版本: 1.8
     """
     def __init__(self, strategy_instance):
+        """
+        初始化通用元分析引擎。
+        """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
-        self.lookback_window = get_param_value(self.params.get('lookback_window'), 13)
+        # 从配置中读取通用参数
         self.norm_window = get_param_value(self.params.get('norm_window'), 55)
+        self.std_window = get_param_value(self.params.get('std_window'), 21)
+        self.meta_window = get_param_value(self.params.get('meta_window'), 5)
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
     def run_process_diagnostics(self) -> Dict[str, pd.Series]:
-        print("      -> [过程情报引擎 V1.1 · 动能增强版] 启动...") # [代码修改] 更新版本号
+        """
+        运行所有在配置中定义的元分析诊断任务。
+        """
+        print("      -> [过程情报引擎 V1.8 · 通用元分析引擎] 启动...") # [代码修改] 更新版本号
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
-            print("      -> [过程情报引擎 V1.1] 警告: 数据DataFrame为空，跳过诊断。")
+            print("      -> [过程情报引擎 V1.8] 警告: 数据量不足，跳过诊断。")
             return {}
-        
+
+        # 遍历所有诊断配置，执行元分析
         for config in self.diagnostics_config:
             signal_name = config.get('name')
             signal_type = config.get('type')
-            if not signal_name or not signal_type:
+            if not signal_name or signal_type != 'meta_analysis':
                 continue
             
-            if signal_type == 'divergence':
-                state = self._diagnose_divergence(df, config)
-                if state:
-                    all_process_states.update(state)
-            elif signal_type == 'resonance':
-                state = self._diagnose_resonance(df, config)
-                if state:
-                    all_process_states.update(state)
+            meta_states = self._diagnose_meta_relationship(df, config)
+            if meta_states:
+                all_process_states.update(meta_states)
             
-        print(f"      -> [过程情报引擎 V1.1] 分析完毕，共生成 {len(all_process_states)} 个高维度过程元状态。")
+        print(f"      -> [过程情报引擎 V1.8] 分析完毕，共生成 {len(all_process_states)} 个高维度过程元状态。")
         return all_process_states
 
-    def _calculate_raw_process_trend(self, series: pd.Series) -> pd.Series:
-        return series.rolling(window=self.lookback_window).apply(
-            lambda x: np.polyfit(range(len(x)), x.dropna(), 1)[0] if len(x.dropna()) > 1 else 0, raw=False
-        ).fillna(0)
-
-    
-    def _calculate_raw_process_accel(self, trend_series: pd.Series) -> pd.Series:
+    def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【核心工具 V1.1】计算原始趋势的加速度（即趋势的斜率）。
-        :param trend_series: 原始趋势（斜率）的 pd.Series。
-        :return: 加速度的 pd.Series。
+        【V1.8 核心工具 - 第一维】基于“量化力学模型”计算任意两个信号的“瞬时关系分”。
+        :param df: 指标DataFrame。
+        :param config: 当前诊断任务的配置。
+        :return: “瞬时关系分”序列。
         """
-        # 加速度是趋势的变化率，所以我们对趋势序列本身再求一次斜率
-        return self._calculate_raw_process_trend(trend_series)
-    
+        signal_a_name = config.get('signal_A') # 通常是 'close_D'
+        signal_b_name = config.get('signal_B') # 另一个维度，如 'volume_D', 'net_flow_consensus_D'
+        
+        signal_a = df.get(signal_a_name)
+        signal_b = df.get(signal_b_name)
 
-    def _diagnose_divergence(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        signal_a_name = config.get('signal_A')
-        signal_b_name = config.get('signal_B')
-        series_a = df.get(signal_a_name)
-        series_b = df.get(signal_b_name)
-        if series_a is None or series_b is None:
-            print(f"        -> [背离诊断] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'，跳过 '{config['name']}' 的计算。")
+        if signal_a is None or signal_b is None:
+            print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
+            return pd.Series(dtype=np.float32)
+
+        # 使用 pandas-ta 计算百分比变化率
+        change_a = signal_a.ta.percent_return(length=1, append=False).fillna(0)
+        change_b = signal_b.ta.percent_return(length=1, append=False).fillna(0)
+        
+        # 步骤1: 标准化 - 计算各自的滚动标准差
+        change_a_std = change_a.ta.stdev(length=self.std_window, append=False).replace(0, np.nan).fillna(method='bfill').fillna(1)
+        change_b_std = change_b.ta.stdev(length=self.std_window, append=False).replace(0, np.nan).fillna(method='bfill').fillna(1)
+        
+        # 步骤2: 计算标准化动量
+        momentum_a = (change_a / change_a_std).clip(-3, 3)
+        thrust_b = (change_b / change_b_std).clip(-3, 3)
+        
+        # 步骤3: 应用量化力学公式
+        # 从配置中获取信号B的影响因子，提供默认值
+        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+        relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        
+        # 将重要的中间结果存入信号总线，供探针使用 (使用动态名称)
+        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
+        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
+        
+        return relationship_score
+
+    def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.8 核心诊断 - 第二维】对“关系分”进行元分析。
+        :param df: 指标DataFrame。
+        :param config: 当前诊断任务的配置。
+        :return: 最终的元信号分字典。
+        """
+        signal_name = config.get('name')
+        
+        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
+        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        if relationship_score.empty:
             return {}
             
-        trend_a_raw = self._calculate_raw_process_trend(series_a)
-        trend_b_raw = self._calculate_raw_process_trend(series_b)
+        # 使用动态名称存储关系分，以便探针和未来扩展
+        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
+        self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         
-        # 引入加速度计算
-        accel_a_raw = self._calculate_raw_process_accel(trend_a_raw)
-        accel_b_raw = self._calculate_raw_process_accel(trend_b_raw)
+        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
+        relationship_trend = relationship_score.ta.linreg(length=self.meta_window, append=False).fillna(0)
+        relationship_accel = relationship_trend.ta.linreg(length=self.meta_window, append=False).fillna(0)
         
-
-        # 条件判断保持不变，只判断趋势方向
-        is_divergence = (trend_a_raw < 0) & (trend_b_raw > 0)
+        # --- 步骤3: 融合趋势和加速度，形成最终的“元信号” ---
+        trend_strength = normalize_score(relationship_trend, df.index, self.norm_window, ascending=True)
+        accel_strength = normalize_score(relationship_accel, df.index, self.norm_window, ascending=True)
         
-        # 强度由“过程动能”（趋势+加速度）决定
-        strength_trend_norm = normalize_score(trend_b_raw, df.index, self.norm_window)
-        strength_accel_norm = normalize_score(accel_b_raw, df.index, self.norm_window)
-        # 使用几何平均融合趋势和加速度的强度
-        strength_momentum_score = (strength_trend_norm * strength_accel_norm)**0.5
+        meta_score = (trend_strength * accel_strength).astype(np.float32)
         
-        
-        final_score = (is_divergence.astype(float) * strength_momentum_score).astype(np.float32)
-        return {config['name']: final_score}
-
-    def _diagnose_resonance(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
-        signal_a_name = config.get('signal_A')
-        signal_b_name = config.get('signal_B')
-        series_a = df.get(signal_a_name)
-        series_b = df.get(signal_b_name)
-        if series_a is None or series_b is None:
-            print(f"        -> [共振诊断] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'，跳过 '{config['name']}' 的计算。")
-            return {}
-            
-        trend_a_raw = self._calculate_raw_process_trend(series_a)
-        trend_b_raw = self._calculate_raw_process_trend(series_b)
-
-        # 引入加速度计算
-        accel_a_raw = self._calculate_raw_process_accel(trend_a_raw)
-        accel_b_raw = self._calculate_raw_process_accel(trend_b_raw)
-        
-
-        # 条件判断保持不变，只判断趋势方向
-        is_resonance = (trend_a_raw > 0) & (trend_b_raw > 0)
-        
-        # 强度由两个信号的“过程动能”共同决定
-        momentum_a_norm = (normalize_score(trend_a_raw, df.index, self.norm_window) * normalize_score(accel_a_raw, df.index, self.norm_window))**0.5
-        momentum_b_norm = (normalize_score(trend_b_raw, df.index, self.norm_window) * normalize_score(accel_b_raw, df.index, self.norm_window))**0.5
-        strength_momentum_score = (momentum_a_norm * momentum_b_norm)**0.5
-        
-        
-        final_score = (is_resonance.astype(float) * strength_momentum_score).astype(np.float32)
-        return {config['name']: final_score}
-
-
-
-
-
-
-
-
+        return {signal_name: meta_score}
