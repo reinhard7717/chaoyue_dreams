@@ -143,9 +143,8 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 融合逻辑重构版】合成最终的共振与反转信号
-        - 核心重构: 更新了信号合成逻辑，以消费由 V2.3 版 `_fuse_health_with_intent_weights`
-                      生成的两套全新的、逻辑纯净的健康度数据。
+        【V2.5 · 终极哲学统一版】合成最终的共振与反转信号
+        - 核心修复: 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
         """
         final_scores = {}
         periods = params['periods']
@@ -154,37 +153,55 @@ class FundFlowIntelligence:
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
-        # 从重构后的数据结构中获取正确的健康度
+        
         resonance_health = fused_health['resonance']
         reversal_health = fused_health['reversal']
+        
+        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
         # --- 看涨信号合成 ---
-        # 看涨共振: 使用“共振意图”融合的健康度
         bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_bull'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bull_res_long = bullish_resonance_health.get(55, 0.5)
-        final_scores['bullish_resonance'] = (bull_res_short * res_tw['short'] + bull_res_med * res_tw['medium'] + bull_res_long * res_tw['long'])
-        # 底部反转: 使用“反转意图”融合的健康度，并应用“静态看跌 * 动态看涨”哲学
+        final_scores['bullish_resonance'] = (
+            (bull_res_short ** res_tw['short']) *
+            (bull_res_med ** res_tw['medium']) *
+            (bull_res_long ** res_tw['long'])
+        )
+        
         bullish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_bull'][p] for p in periods}
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bull_rev_long = bullish_reversal_health.get(55, 0.5)
-        bullish_trigger = (bull_rev_short * rev_tw['short'] + bull_rev_med * rev_tw['medium'] + bull_rev_long * rev_tw['long'])
+        bullish_trigger = (
+            (bull_rev_short ** rev_tw['short']) *
+            (bull_rev_med ** rev_tw['medium']) *
+            (bull_rev_long ** rev_tw['long'])
+        )
         final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
+
         # --- 看跌信号合成 ---
-        # 看跌共振: 使用“共振意图”融合的健康度
         bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_bear'][p] for p in periods}
         bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bear_res_long = bearish_resonance_health.get(55, 0.5)
-        final_scores['bearish_resonance'] = (bear_res_short * res_tw['short'] + bear_res_med * res_tw['medium'] + bear_res_long * res_tw['long'])
-        # 顶部反转: 使用“反转意图”融合的健康度，并应用“静态看涨 * 动态看跌”哲学
+        final_scores['bearish_resonance'] = (
+            (bear_res_short ** res_tw['short']) *
+            (bear_res_med ** res_tw['medium']) *
+            (bear_res_long ** res_tw['long'])
+        )
+        
         bearish_reversal_health = {p: reversal_health['s_bull'][p] * reversal_health['d_bear'][p] for p in periods}
         bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bear_rev_long = bearish_reversal_health.get(55, 0.5)
-        bearish_trigger = (bear_rev_short * rev_tw['short'] + bear_rev_med * rev_tw['medium'] + bear_rev_long * rev_tw['long'])
+        bearish_trigger = (
+            (bear_rev_short ** rev_tw['short']) *
+            (bear_rev_med ** rev_tw['medium']) *
+            (bear_rev_long ** rev_tw['long'])
+        )
         final_scores['top_reversal'] = (bearish_trigger * (1 + context_scores['top_context'] * top_context_bonus_factor)).clip(0, 1)
+        
         
         return final_scores
 
@@ -206,65 +223,47 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.5 · 回归本源版】计算单个资金流支柱的四维健康度"""
+        """【V2.6 · 终极哲学统一版】计算单个资金流支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
 
         for p in periods:
-            # 彻底重构列名构造逻辑，严格区分 'sum' 和 'daily' 类型
-            
-            # 1. 构造静态列名 (static_col)
             if col_type == 'sum' and p > 1:
                 static_col = f"{base_col_name}_sum_{p}d_D"
             else:
                 static_col = f"{base_col_name}_D"
 
-            # 2. 构造斜率/加速度列名 (slope_col, accel_col)
-            # 核心逻辑：只有当支柱类型为 'sum' 且周期 p > 1 时，才使用带 _sum_ 的衍生列名
             if col_type == 'sum' and p > 1:
                 slope_base_col = f"{base_col_name}_sum_{p}d_D"
             else:
-                # 对于 'daily' 类型的所有周期，以及 'sum' 类型的 p=1 周期，都使用常规基础列名
                 slope_base_col = f"{base_col_name}_D"
             
             slope_col = f"SLOPE_{p}_{slope_base_col}"
             accel_col = f"ACCEL_{p}_{slope_base_col}"
 
-            # 增加调试信息，打印最终构造的列名
-            # print(f"  [FF探针-构造] 支柱='{name}', 周期={p}, 静态列: '{static_col}', 斜率列: '{slope_col}', 加速列: '{accel_col}'")
-
-            # 防御性编程：检查列是否存在，如果不存在则打印警告并使用默认值
             default_series = pd.Series(0.5, index=df.index)
             
-            static_series = df.get(static_col)
-            if static_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失静态数据列: '{static_col}'")
-                static_series = default_series
-
-            slope_series = df.get(slope_col)
-            if slope_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失斜率数据列: '{slope_col}'")
-                slope_series = default_series
-
-            accel_series = df.get(accel_col)
-            if accel_series is None:
-                print(f"  [FF探针-警告] 支柱'{name}'(周期{p}) 缺失加速度数据列: '{accel_col}'")
-                accel_series = default_series
+            static_series = df.get(static_col, default_series)
+            slope_series = df.get(slope_col, default_series)
+            accel_series = df.get(accel_col, default_series)
 
             s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
             s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
             
+            # 根除所有动态分计算中的加法
             d_bull_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == 1))
             d_bull_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == 1))
-            d_bull[p] = d_bull_slope * dynamic_weights['slope'] + d_bull_accel * dynamic_weights['accel']
+            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
             
             d_bear_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == -1))
             d_bear_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == -1))
-            d_bear[p] = d_bear_slope * dynamic_weights['slope'] + d_bear_accel * dynamic_weights['accel']
+            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+            
 
         return {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}
+
 
 
 

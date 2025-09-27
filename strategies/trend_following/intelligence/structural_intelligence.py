@@ -31,8 +31,8 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.6 · 键名统一版】终极结构信号诊断模块
-        - 核心修复: 统一了 overall_health 缓存的键名，使用 s_bull, d_bull, s_bear, d_bear。
+        【V7.8 · 终极哲学统一版】终极结构信号诊断模块
+        - 核心修复: 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -74,31 +74,47 @@ class StructuralIntelligence:
 
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
 
-        
+        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
-        overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bullish_resonance = (
+            (bullish_short_force_res ** resonance_tf_weights['short']) *
+            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bullish_long_inertia_res ** resonance_tf_weights['long'])
+        )
         
         bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-        overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bullish_reversal_trigger = (
+            (bullish_short_force_rev ** reversal_tf_weights['short']) *
+            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
-        overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bearish_resonance = (
+            (bearish_short_force_res ** resonance_tf_weights['short']) *
+            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bearish_long_inertia_res ** resonance_tf_weights['long'])
+        )
 
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
-        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bearish_reversal_trigger = (
+            (bearish_short_force_rev ** reversal_tf_weights['short']) *
+            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
 
@@ -156,7 +172,7 @@ class StructuralIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.0 · 对称逻辑版】计算力学支柱的四维健康度"""
+        """【V2.1 · 终极哲学统一版】计算力学支柱的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         static_bear_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
@@ -164,6 +180,7 @@ class StructuralIntelligence:
             s_bull[p] = static_bull_energy
             s_bear[p] = static_bear_energy
             
+            # 根除所有动态分计算中的加法
             cost_slope_bull = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=True)
             conc_lock_bull = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
             d_bull[p] = (cost_slope_bull * conc_lock_bull)**0.5
@@ -171,6 +188,7 @@ class StructuralIntelligence:
             cost_slope_bear = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=False)
             conc_lock_bear = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
             d_bear[p] = (cost_slope_bear * conc_lock_bear)**0.5
+            
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:

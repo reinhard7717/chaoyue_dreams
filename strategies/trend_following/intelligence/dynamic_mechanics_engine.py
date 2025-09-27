@@ -26,8 +26,8 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.7 · 键名统一版】终极动态力学信号诊断模块
-        - 核心修复: 统一了 overall_health 缓存的键名，使用 s_bull, d_bull, s_bear, d_bear。
+        【V3.9 · 终极哲学统一版】终极动态力学信号诊断模块
+        - 核心修复: 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -82,37 +82,52 @@ class DynamicMechanicsEngine:
                 if not valid_pillars: continue
                 
                 stacked_values = np.stack(valid_pillars, axis=0)
-                # 使用加权几何平均 (乘法) 替换加权求和 (加法)
                 fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
         
-        
+        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bull', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
-        overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bullish_resonance = (
+            (bullish_short_force_res ** resonance_tf_weights['short']) *
+            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bullish_long_inertia_res ** resonance_tf_weights['long'])
+        )
         
         bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bull', {})}
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-        overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bullish_reversal_trigger = (
+            (bullish_short_force_rev ** reversal_tf_weights['short']) *
+            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bear', {})}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
-        overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bearish_resonance = (
+            (bearish_short_force_res ** resonance_tf_weights['short']) *
+            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bearish_long_inertia_res ** resonance_tf_weights['long'])
+        )
         
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bear', {})}
         bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
-        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bearish_reversal_trigger = (
+            (bearish_short_force_rev ** reversal_tf_weights['short']) *
+            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
         
 
@@ -130,7 +145,7 @@ class DynamicMechanicsEngine:
     # ==============================================================================
 
     def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.2 · 签名修复版】计算波动率(BBW)维度的四维健康度"""
+        """【V1.3 · 终极哲学统一版】计算波动率(BBW)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) # 压缩为好
         static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)  # 扩张为坏
@@ -139,8 +154,15 @@ class DynamicMechanicsEngine:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
             if p in [1, 5, 13]:
-                d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
-                d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True) * dynamic_weights['accel']
+                # 根除所有动态分计算中的加法
+                d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+                d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+                d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
+
+                d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+                d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+                d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+                
             else:
                 d_bull[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
                 d_bear[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -148,7 +170,7 @@ class DynamicMechanicsEngine:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.2 · 签名修复版】计算效率(VPA)维度的四维健康度"""
+        """【V1.3 · 终极哲学统一版】计算效率(VPA)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
         static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
@@ -156,8 +178,15 @@ class DynamicMechanicsEngine:
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            # 根除所有动态分计算中的加法
+            d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window)
+            d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window)
+            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
+
+            d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
+            d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
+            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+            
 
         return s_bull, d_bull, s_bear, d_bear
 
@@ -184,7 +213,7 @@ class DynamicMechanicsEngine:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.2 · 签名修复版】计算惯性(ADX)维度的四维健康度"""
+        """【V1.3 · 终极哲学统一版】计算惯性(ADX)维度的四维健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window) # 惯性强为好
         static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) # 惯性弱为坏
@@ -192,10 +221,18 @@ class DynamicMechanicsEngine:
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            d_bull[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window) * dynamic_weights['accel']
-            d_bear[p] = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['slope'] + normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, ascending=False) * dynamic_weights['accel']
+            # 根除所有动态分计算中的加法
+            d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window)
+            d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window)
+            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
+
+            d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, ascending=False)
+            d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, ascending=False)
+            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+            
 
         return s_bull, d_bull, s_bear, d_bear
+
 
 
 

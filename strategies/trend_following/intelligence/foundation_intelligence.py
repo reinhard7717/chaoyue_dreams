@@ -39,8 +39,9 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.6 · 键名统一版】统一基础层信号诊断引擎
-        - 核心修复: 统一了 overall_health 缓存的键名，使用 s_bull, d_bull, s_bear, d_bear。
+        【V3.8 · 终极哲学统一版】统一基础层信号诊断引擎
+        - 核心修复: 1. 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
+                      2. 将所有动态健康度(d_bull/d_bear)的计算从“加法模型”修改为“几何平均”。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -81,31 +82,47 @@ class FoundationIntelligence:
 
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
         
-        
+        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
-        overall_bullish_resonance = (bullish_short_force_res * resonance_tf_weights['short'] + bullish_medium_trend_res * resonance_tf_weights['medium'] + bullish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bullish_resonance = (
+            (bullish_short_force_res ** resonance_tf_weights['short']) *
+            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bullish_long_inertia_res ** resonance_tf_weights['long'])
+        )
         
         bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-        overall_bullish_reversal_trigger = (bullish_short_force_rev * reversal_tf_weights['short'] + bullish_medium_trend_rev * reversal_tf_weights['medium'] + bullish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bullish_reversal_trigger = (
+            (bullish_short_force_rev ** reversal_tf_weights['short']) *
+            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
-        overall_bearish_resonance = (bearish_short_force_res * resonance_tf_weights['short'] + bearish_medium_trend_res * resonance_tf_weights['medium'] + bearish_long_inertia_res * resonance_tf_weights['long'])
+        overall_bearish_resonance = (
+            (bearish_short_force_res ** resonance_tf_weights['short']) *
+            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
+            (bearish_long_inertia_res ** resonance_tf_weights['long'])
+        )
 
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
-        overall_bearish_reversal_trigger = (bearish_short_force_rev * reversal_tf_weights['short'] + bearish_medium_trend_rev * reversal_tf_weights['medium'] + bearish_long_inertia_rev * reversal_tf_weights['long'])
+        overall_bearish_reversal_trigger = (
+            (bearish_short_force_rev ** reversal_tf_weights['short']) *
+            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
+            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
+        )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
 
@@ -123,27 +140,23 @@ class FoundationIntelligence:
     # ==============================================================================
 
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """
-        【V3.2 · 探针健壮性修复版】计算EMA健康度
-        - 核心修复: 增加了对 `periods` 列表长度的检查。当列表长度不足以计算均线对齐时，
-                      返回中性的静态得分(0.5)，从而修复了探针调用时因 `np.stack` 空列表而崩溃的BUG。
-        """
+        """【V3.3 · 终极哲学统一版】计算EMA健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # 增加健壮性检查，防止探针调用时崩溃
-        if len(periods) > 1:
-            bull_alignment_scores = []
-            bear_alignment_scores = []
-            for i in range(len(periods) - 1):
-                short_col = f'EMA_{periods[i]}_D' if periods[i] > 1 else 'close_D'
-                long_col = f'EMA_{periods[i+1]}_D'
-                bull_alignment_scores.append((df.get(short_col, df['close_D']).values > df.get(long_col, df['close_D']).values).astype(np.float32))
-                bear_alignment_scores.append((df.get(short_col, df['close_D']).values < df.get(long_col, df['close_D']).values).astype(np.float32))
-            
-            static_bull_score = pd.Series(np.mean(np.stack(bull_alignment_scores, axis=0), axis=0), index=df.index)
-            static_bear_score = pd.Series(np.mean(np.stack(bear_alignment_scores, axis=0), axis=0), index=df.index)
+        ma_periods = [5, 10, 20, 60, 120]
+        bull_alignment_scores = []
+        bear_alignment_scores = []
+        for i in range(len(ma_periods) - 1):
+            short_col = f'EMA_{ma_periods[i]}_D'
+            long_col = f'EMA_{ma_periods[i+1]}_D'
+            if short_col in df and long_col in df:
+                bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
+                bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
+        
+        if bull_alignment_scores:
+            static_bull_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
+            static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5)
         else:
-            # 如果周期列表不足以计算对齐度，则返回中性分
             static_bull_score = pd.Series(0.5, index=df.index)
             static_bear_score = pd.Series(0.5, index=df.index)
 
@@ -152,18 +165,20 @@ class FoundationIntelligence:
             s_bear[p] = static_bear_score
             
             ema_col = f'EMA_{p}_D' if p > 1 else 'close_D'
+            # 根除所有动态分计算中的加法
             slope = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=True)
             accel = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=True)
-            d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
+            d_bull[p] = (slope * accel)**0.5
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=False)
             accel_neg = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=False)
-            d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
+            d_bear[p] = (slope_neg * accel_neg)**0.5
+            
         
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.0 · 对称逻辑版】计算RSI健康度"""
+        """【V3.1 · 终极哲学统一版】计算RSI健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
         static_bull_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=True)
@@ -173,18 +188,20 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
+            # 根除所有动态分计算中的加法
             slope = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
             accel = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
+            d_bull[p] = (slope * accel)**0.5
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
             accel_neg = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
+            d_bear[p] = (slope_neg * accel_neg)**0.5
+            
         
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.0 · 对称逻辑版】计算MACD健康度"""
+        """【V3.1 · 终极哲学统一版】计算MACD健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
         static_bull_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
@@ -194,18 +211,20 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
+            # 根除所有动态分计算中的加法
             slope = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
             accel = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
+            d_bull[p] = (slope * accel)**0.5
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
             accel_neg = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
+            d_bear[p] = (slope_neg * accel_neg)**0.5
+            
         
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.0 · 对称逻辑版】计算CMF健康度"""
+        """【V3.1 · 终极哲学统一版】计算CMF健康度"""
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
         static_bull_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=True)
@@ -215,15 +234,18 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
+            # 根除所有动态分计算中的加法
             slope = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
             accel = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = slope * dynamic_weights['slope'] + accel * dynamic_weights['accel']
+            d_bull[p] = (slope * accel)**0.5
             
             slope_neg = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
             accel_neg = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = slope_neg * dynamic_weights['slope'] + accel_neg * dynamic_weights['accel']
+            d_bear[p] = (slope_neg * accel_neg)**0.5
+            
         
         return s_bull, d_bull, s_bear, d_bear
+
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块

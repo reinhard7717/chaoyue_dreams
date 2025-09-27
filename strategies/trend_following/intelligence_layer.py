@@ -1033,7 +1033,7 @@ class IntelligenceLayer:
             'STRUCTURE': (self.structural_intel, None), # 使用等权重
             'FOUNDATION': (self.foundation_intel, None) # 使用等权重
         }
-        # [代码修改结束]
+        
         
         calc_map = {
             'BEHAVIOR': [('_calculate_price_health', '价格'), ('_calculate_volume_health', '成交量'), ('_calculate_kline_pattern_health', 'K线形态')],
