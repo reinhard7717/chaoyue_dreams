@@ -153,6 +153,12 @@
   "strategy_params": {
     "trend_follow": {
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
+      "debug_params": {
+        "enabled": { "value": true },
+        "probe_date": "2025-09-04",
+        "enable_bottom_reversal_probe": true,
+        "enable_nan_probe": true
+      },
       "process_intelligence_params": {
         "comment": "【过程情报引擎 V1.8】配置块。定义所有元分析任务。",
         "std_window": 21,
@@ -184,12 +190,6 @@
             "comment": "【元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。寻找'价跌筹码集中'的经典吸筹模式。筹码变化通常更缓慢但意义重大，影响因子设为2.0。"
           }
         ]
-      },
-      "debug_params": {
-        "enabled": { "value": true },
-        "probe_date": "2025-09-08",
-        "enable_bottom_reversal_probe": true,
-        "enable_nan_probe": true
       },
       "upthrust_distribution_params": {
         "enabled": true,
