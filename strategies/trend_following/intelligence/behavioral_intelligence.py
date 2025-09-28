@@ -181,40 +181,70 @@ class BehavioralIntelligence:
         
         return atomic_signals
 
-    def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        states = {}
-        p = get_params_block(self.strategy, 'price_volume_atomic_params')
-        if not get_param_value(p.get('enabled'), True): return states
-        norm_window = get_param_value(p.get('norm_window'), 120)
-        min_periods = max(1, norm_window // 5)
-        lookback_period = get_param_value(p.get('range_lookback'), 20)
-        rolling_high = df['high_D'].rolling(window=lookback_period).max()
-        rolling_low = df['low_D'].rolling(window=lookback_period).min()
-        price_range = (rolling_high - rolling_low).replace(0, np.nan)
-        close_position_in_range = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
-        states['SCORE_PRICE_POSITION_IN_RECENT_RANGE'] = close_position_in_range.astype(np.float32)
-        vol_ma_col = 'VOL_MA_21_D'
-        if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
-            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-            price_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-            volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
-            volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-            states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
+    def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
+        """
+        【V2.0 · 布林带三体模型版】计算价格维度的四维健康度
+        - 核心重构: 彻底废除旧模型，完全采纳指挥官的战术哲学，引入全新的“布林带三体模型”。
+                      该模型将健康度评估分解为三个核心情景：中轨收缩、轨道突破、轨道压制。
+        """
+        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # [代码新增] 创建全新的“流动性枯竭风险”信号
-        p_drain = p.get('liquidity_drain_params', {})
-        drain_window = get_param_value(p_drain.get('window'), 10)
-        # 条件1: 价格在N日内持续下跌 (用斜率衡量)
-        price_trend_down = (df[f'SLOPE_{drain_window}_close_D'] < 0).astype(int)
-        # 条件2: 成交量在N日内持续萎缩 (用斜率衡量)
-        volume_trend_down = (df[f'SLOPE_{drain_window}_volume_D'] < 0).astype(int)
-        # 条件3: 当前成交量低于N日均量
-        is_low_volume = (df['volume_D'] < df[f'VOL_MA_{drain_window}_D']).astype(int)
-        # 风险分 = 三个条件相乘，只有全部满足时才为1
-        liquidity_drain_score = (price_trend_down * volume_trend_down * is_low_volume).astype(np.float32)
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score
+        # --- 模型所需基础数据 ---
+        bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
+        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
+        bbu = df.get('BBU_21_2.0_D', df['close_D'])
+        bbl = df.get('BBL_21_2.0_D', df['close_D'])
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+
+        # --- 情景一: 中轨收缩 (Mid-Band Squeeze) ---
+        # 带宽越窄，变盘潜力越大，分数越高
+        squeeze_score = normalize_score(bbw, df.index, norm_window, ascending=False)
+
+        # --- 情景二: 轨道突破 (Band Breakout - 趋势延续) ---
+        # 看涨突破：收盘价超越上轨的强度
+        bullish_breakout_magnitude = (df['close_D'] - bbu).clip(lower=0) / bbu.replace(0, np.nan)
+        bullish_breakout_score = normalize_score(bullish_breakout_magnitude, df.index, norm_window, ascending=True)
         
-        return states
+        # 看跌突破：收盘价跌穿下轨的强度
+        bearish_breakout_magnitude = (bbl - df['close_D']).clip(lower=0) / bbl.replace(0, np.nan)
+        bearish_breakout_score = normalize_score(bearish_breakout_magnitude, df.index, norm_window, ascending=True)
+
+        # --- 情景三: 轨道压制 (Band Rejection - 反转) ---
+        # 看涨反转：在下轨处被支撑，形成长下影线
+        is_touching_lower = df['low_D'] <= bbl
+        bounce_back_strength = ((df['close_D'] - df['low_D']) / day_range).fillna(0)
+        bullish_rejection_score = (is_touching_lower * bounce_back_strength)
+        
+        # 看跌反转：在上轨处被压制，形成长上影线
+        is_touching_upper = df['high_D'] >= bbu
+        pull_back_strength = ((df['high_D'] - df['close_D']) / day_range).fillna(0)
+        bearish_rejection_score = (is_touching_upper * pull_back_strength)
+
+        # --- 最终静态分融合 ---
+        # 静态看涨分是三种看涨情景中的最强者
+        static_bull_score = np.maximum.reduce([
+            squeeze_score, 
+            bullish_breakout_score, 
+            bullish_rejection_score
+        ])
+        
+        # 静态看跌分是两种看跌情景中的最强者 (收缩是中性，不计入看跌)
+        static_bear_score = np.maximum(bearish_breakout_score, bearish_rejection_score)
+
+        # --- 动态分计算 (逻辑保持不变) ---
+        for p in periods:
+            s_bull[p] = pd.Series(static_bull_score, index=df.index).astype(np.float32)
+            s_bear[p] = pd.Series(static_bear_score, index=df.index).astype(np.float32)
+
+            price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
+            price_accel = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=True)
+            d_bull[p] = (price_mom * price_accel)**0.5
+
+            price_mom_neg = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=False)
+            price_accel_neg = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=False)
+            d_bear[p] = (price_mom_neg * price_accel_neg)**0.5
+            
+        return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
@@ -460,6 +490,20 @@ class BehavioralIntelligence:
             volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
+        
+        # [代码新增] 创建全新的“流动性枯竭风险”信号
+        p_drain = p.get('liquidity_drain_params', {})
+        drain_window = get_param_value(p_drain.get('window'), 10)
+        # 条件1: 价格在N日内持续下跌 (用斜率衡量)
+        price_trend_down = (df[f'SLOPE_{drain_window}_close_D'] < 0).astype(int)
+        # 条件2: 成交量在N日内持续萎缩 (用斜率衡量)
+        volume_trend_down = (df[f'SLOPE_{drain_window}_volume_D'] < 0).astype(int)
+        # 条件3: 当前成交量低于N日均量
+        is_low_volume = (df['volume_D'] < df[f'VOL_MA_{drain_window}_D']).astype(int)
+        # 风险分 = 三个条件相乘，只有全部满足时才为1
+        liquidity_drain_score = (price_trend_down * volume_trend_down * is_low_volume).astype(np.float32)
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score
+        
         return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
