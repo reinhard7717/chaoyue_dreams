@@ -160,82 +160,91 @@
         "enable_nan_probe": true
       },
       "process_intelligence_params": {
-        "comment": "【过程情报引擎 V1.8】配置块。定义所有元分析任务。",
+        "comment": "【过程情报引擎 V2.1 · 战略升维版】配置块。引入'两阶段诊断'和'自适应物理模型'。",
         "std_window": 21,
         "meta_window": 5,
         "norm_window": 55,
         "bipolar_sensitivity": 1.0,
-        "meta_score_weights": [0.6, 0.4], "说明_meta_score_weights": "趋势权重60%，加速度权重40%",
+        "meta_score_weights": [0.6, 0.4],
         "diagnostics": [
           {
             "name": "PROCESS_META_PV_REL_BULLISH_TURN",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "volume_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "volume_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": 1.0,
-            "comment": "【元分析-量价】诊断'价格-成交量'关系是否出现看涨拐点。寻找从'价跌量缩'到'价涨量增'的转变。"
+            "comment": "【基础元分析-量价】诊断'价格-成交量'关系是否出现看涨拐点。"
           },
           {
             "name": "PROCESS_META_PF_REL_BULLISH_TURN",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "net_flow_consensus_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "net_flow_consensus_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": 1.5,
-            "comment": "【元分析-价资】诊断'价格-资金流'关系是否出现看涨拐点。寻找从'价跌资平'到'价涨资进'的转变。资金流影响因子设为1.5，权重更高。"
+            "comment": "【基础元分析-价资】诊断'价格-资金流'关系是否出现看涨拐点。"
           },
           {
             "name": "PROCESS_META_PC_REL_BULLISH_TURN",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "concentration_90pct_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "concentration_90pct_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": 2.0,
-            "comment": "【元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。寻找'价跌筹码集中'的经典吸筹模式。筹码变化通常更缓慢但意义重大，影响因子设为2.0。"
+            "comment": "【基础元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。"
           },
           {
             "name": "PROCESS_META_PP_RETAIL_CAPITULATION",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "retail_panic_index_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "retail_panic_index_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": -1.5,
-            "comment": "【心理-散户投降】诊断是否出现'散户恐慌投降'的底部特征。寻找'价跌 panic升'的背离点。注意：k为负值，因为价格下跌(动量A为负)而恐慌加剧(推力B为正)时，我们希望得到一个正向的关系分，代表底部特征。"
+            "comment": "【基础元分析-心理】诊断是否出现'散户恐慌投降'的底部特征。"
           },
           {
             "name": "PROCESS_META_PE_EFFICIENCY_TURN",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "VPA_EFFICIENCY_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": 1.0,
-            "comment": "【结构-VPA效率】诊断'价格-VPA效率'关系是否出现看涨拐点。VPA效率衡量成交量的有效性。寻找从'价跌效率低'（无效下跌）到'价涨效率高'（有效上涨）的转变。"
+            "comment": "【基础元分析-VPA效率】诊断'价格-VPA效率'关系是否出现看涨拐点。"
           },
           {
             "name": "PROCESS_META_PD_DIVERGENCE_CONFIRM",
             "type": "meta_analysis",
-            "signal_A": "close_D",
-            "signal_B": "flow_divergence_mf_vs_retail_D",
+            "task_type": "base",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "flow_divergence_mf_vs_retail_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": 2.5,
-            "comment": "【博弈-主力散户背离】诊断'价格-主力散户行为背离'关系。该指标为正代表主力买入强于散户。寻找'价跌但主力买'的终极底部背离。此为高阶信号，权重设为2.5。"
+            "comment": "【基础元分析-博弈】诊断'价格-主力散户行为背离'关系。"
           },
           {
             "name": "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC",
             "type": "meta_analysis",
-            "signal_A": "SCORE_CHIP_BULLISH_RESONANCE",
-            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE",
+            "task_type": "strategy",
+            "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【战略元分析】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。高分代表行为正在快速追赶或超越筹码，是强确认信号。"
           },
           {
             "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
             "type": "meta_analysis",
-            "signal_A": "SCORE_FF_BULLISH_RESONANCE",
-            "signal_B": "SCORE_STRUCTURE_BULLISH_RESONANCE",
+            "task_type": "strategy",
+            "signal_A": "SCORE_FF_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_STRUCTURE_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": -1.0,
             "comment": "【战略元分析】诊断'资金流'是否领先于'结构'。高分代表资金已大幅领先于结构改善，预示结构可能即将突破。k=-1.0用于捕捉领先关系。"
           },
           {
             "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY",
             "type": "meta_analysis",
-            "signal_A": "SCORE_DYN_BEARISH_RESONANCE",
-            "signal_B": "SCORE_CHIP_BEARISH_RESONANCE",
+            "task_type": "strategy",
+            "signal_A": "SCORE_DYN_BEARISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_CHIP_BEARISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【战略元分析-风险】诊断'力学看跌'与'筹码看跌'的共振过程。高分代表风险正在从一个领域向另一个领域快速传导和放大。"
           }

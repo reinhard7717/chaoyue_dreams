@@ -52,11 +52,12 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V410.0 · 依赖重构版】情报层总入口。
-        - 核心重构: 调整了情报引擎的调用顺序，将 CyclicalIntelligence 提前到所有其他引擎之前，
-                    因为它提供的周期信号是所有引擎计算“情景分”的基础依赖。
+        【V411.0 · 两阶段过程诊断版】情报层总入口。
+        - 核心重构: 将 ProcessIntelligence 的执行一分为二。
+                    1. 基础过程诊断: 在所有引擎之前运行，分析原始数据（价、量等），为其他引擎提供基础情景分。
+                    2. 战略过程诊断: 在所有状态引擎之后运行，分析它们产出的高阶信号，生成最终的战略协同分。
         """
-        # print("--- [情报层总指挥官 V410.0 · 依赖重构版] 开始执行所有诊断模块... ---")
+        # print("--- [情报层总指挥官 V411.0 · 两阶段过程诊断版] 开始执行所有诊断模块... ---") # [代码修改] 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -67,58 +68,55 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
 
-        # --- 阶段一: 原子信号生成 (已按依赖关系重构顺序) ---
-        # print("    - [阶段 1/4] 正在执行原子信号生成...")
+        # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
+        # print("    - [阶段 1/5] 正在执行基础信号生成...")
         
-        # 1. 首先运行周期引擎，生成最基础的宏观周期信号
-        # print("      -> 正在运行 [周期引擎]...")
+        # 1. 首先运行周期引擎
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
-        # 2. 运行其他所有情报引擎，它们现在可以安全地消费周期信号
-        # print("      -> 正在运行 [基础层引擎]...")
+        # [代码修改] --- 新增：阶段 1.5: 基础过程诊断 ---
+        # print("    - [阶段 1.5/5] 正在执行基础过程诊断 (分析原始数据)...")
+        # 这个 process_intel 实例只处理原始数据层面的诊断
+        base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
+        update_states(base_process_states)
+        # [代码修改结束]
+
+        # 2. 运行其他所有状态情报引擎
+        # print("    - [阶段 2/5] 正在执行状态情报引擎...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
-        
-        # print("      -> 正在运行 [筹码引擎]...")
-        chip_states, _ = self.chip_intel.run_chip_intelligence_command(df)
-        update_states(chip_states)
-        
-        # print("      -> 正在运行 [结构引擎]...")
+        update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
-        
-        # print("      -> 正在运行 [行为引擎]...")
-        self.behavioral_intel.run_behavioral_analysis_command() # 此方法内部更新状态
-        
-        # print("      -> 正在运行 [资金流引擎]...")
+        self.behavioral_intel.run_behavioral_analysis_command()
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        
-        # print("      -> 正在运行 [动态力学引擎]...")
-        self.mechanics_engine.run_dynamic_analysis_command() # 此方法内部更新状态
-        # print("      -> 正在运行 [形态智能引擎]...")
+        self.mechanics_engine.run_dynamic_analysis_command()
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         
-        # print("    - [阶段 1.5/4] 正在运行统一过程诊断中心，分析跨域背离与共振...")
-        process_meta_states = self.process_intel.run_process_diagnostics()
-        update_states(process_meta_states)
+        # [代码修改] --- 新增：阶段 2.5: 战略过程诊断 ---
+        # print("    - [阶段 2.5/5] 正在执行战略过程诊断 (分析高阶信号)...")
+        # 这个 process_intel 实例现在可以安全地消费所有状态引擎的输出了
+        strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
+        update_states(strategy_process_states)
+        # [代码修改结束]
         
-        # --- 阶段二: 跨域认知融合 ---
-        # print("    - [阶段 2/4] 正在执行认知层跨域元融合...")
+        # --- 阶段三: 跨域认知融合 ---
+        # print("    - [阶段 3/5] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
 
-        # --- 阶段三: 最终战法与剧本生成 ---
-        # print("    - [阶段 3/4] 正在生成最终战法与剧本...")
+        # --- 阶段四: 最终战法与剧本生成 ---
+        # print("    - [阶段 4/5] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
         
-        # --- 阶段四: 硬性离场信号生成 ---
-        # print("    - [阶段 4/4] 正在生成硬性离场信号...")
+        # --- 阶段五: 硬性离场信号生成 ---
+        # print("    - [阶段 5/5] 正在生成硬性离场信号...")
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
 
         self.deploy_forensic_probes()
         
-        print("--- [情报层总指挥官 V410.0] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V411.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):

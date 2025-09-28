@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 ## 修改开始: 导入新的归一化工具 ##
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar
@@ -45,6 +45,8 @@ class ProcessIntelligence:
             return {}
         # 遍历所有诊断配置，执行元分析
         for config in self.diagnostics_config:
+            if task_type_filter and config.get('task_type') != task_type_filter:
+                continue
             signal_name = config.get('name')
             signal_type = config.get('type')
             if not signal_name or signal_type != 'meta_analysis':
@@ -64,11 +66,30 @@ class ProcessIntelligence:
         df_index = df.index
         signal_a = df.get(signal_a_name)
         signal_b = df.get(signal_b_name)
+        
+        def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
+            if source_type == 'atomic_states':
+                return self.strategy.atomic_states.get(signal_name)
+            # 默认为 df_indicators
+            return df.get(signal_name)
+
+        signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
+        signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
+        
         if signal_a is None or signal_b is None:
             print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
-        change_a = ta.percent_return(signal_a, length=1).fillna(0)
-        change_b = ta.percent_return(signal_b, length=1).fillna(0)
+
+        # [代码修改] 自适应物理模型：根据 change_type 选择计算方法
+        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
+            if change_type == 'diff':
+                # 对归一化分数使用差值
+                return series.diff(1).fillna(0)
+            # 默认对原始数据使用百分比变化
+            return ta.percent_return(series, length=1).fillna(0)
+
+        change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
+        change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
         momentum_a = normalize_to_bipolar(
             series=change_a,
             target_index=df_index,
