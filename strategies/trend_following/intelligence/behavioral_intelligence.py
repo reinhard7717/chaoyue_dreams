@@ -15,29 +15,36 @@ class BehavioralIntelligence:
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
-    def run_behavioral_analysis_command(self) -> None:
+    def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]: # 修正返回类型注解，并移除 -> None
         """
-        【V3.1 · 原子信号暴露版】行为情报模块总指挥
-        - 核心修复: 将内部生成的原子信号(internal_atomic_signals)显式更新到全局状态(self.strategy.atomic_states)，
-                      以确保它们能被法医探针等下游模块正确访问，彻底修复探针因找不到中间信号而崩溃的BUG。
+        【V3.2 · 协议统一版】行为情报模块总指挥
+        - 核心重构: 不再返回None，而是返回一个包含所有生成信号的字典，遵循标准汇报协议。
         """
-        # print("      -> [行为情报模块总指挥 V3.1 · 原子信号暴露版] 启动...")
+        # print("      -> [行为情报模块总指挥 V3.2 · 协议统一版] 启动...") # 更新版本号
         df = self.strategy.df_indicators
         
+        # 创建一个局部字典来收集所有状态
+        all_behavioral_states = {}
+
         # 步骤1: 生成内部原子信号
         internal_atomic_signals = self._generate_all_atomic_signals(df)
         
-        # 步骤2: 立即将内部原子信号暴露到全局状态，供下游消费
+        # 步骤2: 立即将内部原子信号暴露到全局状态，并收集到局部字典
         if internal_atomic_signals:
             self.strategy.atomic_states.update(internal_atomic_signals)
+            all_behavioral_states.update(internal_atomic_signals)
         
         # 步骤3: 调用终极信号引擎，并传入已计算的原子信号以避免重复计算
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df, atomic_signals=internal_atomic_signals)
         
-        # 步骤4: 更新终极信号到全局状态
+        # 步骤4: 更新终极信号到全局状态，并收集到局部字典
         if ultimate_behavioral_states:
-            self.strategy.atomic_states.update(ultimate_behavioral_states)
-            # print(f"      -> [行为情报模块总指挥 V3.1] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
+            # self.strategy.atomic_states.update(ultimate_behavioral_states) # IntelligenceLayer会做这个
+            all_behavioral_states.update(ultimate_behavioral_states)
+            # print(f"      -> [行为情报模块总指挥 V3.2] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
+
+        # 核心修复：返回包含所有状态的单一字典
+        return all_behavioral_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """

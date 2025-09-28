@@ -13,16 +13,19 @@ class DynamicMechanicsEngine:
         """
         self.strategy = strategy_instance
 
-    def run_dynamic_analysis_command(self) -> None:
+    def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]: # 修正返回类型注解，并移除 -> None
         """
-        【V4.0 · 终极信号版】动态力学引擎总指挥
-        - 核心重构: 遵循终极信号范式，调用唯一的终极信号引擎并更新状态。
+        【V4.1 · 协议统一版】动态力学引擎总指挥
+        - 核心重构: 不再返回None，而是返回一个包含所有生成信号的字典，遵循标准汇报协议。
         """
-        # print("    -> [动态力学引擎总指挥 V4.0 终极信号版] 启动...")
+        # print("    -> [动态力学引擎总指挥 V4.1 · 协议统一版] 启动...") # 更新版本号
         ultimate_dynamic_states = self.diagnose_ultimate_dynamic_mechanics_signals(self.strategy.df_indicators)
         if ultimate_dynamic_states:
-            self.strategy.atomic_states.update(ultimate_dynamic_states)
-            # print(f"    -> [动态力学引擎总指挥 V4.0] 分析完毕，共生成 {len(ultimate_dynamic_states)} 个终极动态力学信号。")
+            # self.strategy.atomic_states.update(ultimate_dynamic_states) # IntelligenceLayer会做这个
+            # print(f"    -> [动态力学引擎总指挥 V4.1] 分析完毕，共生成 {len(ultimate_dynamic_states)} 个终极动态力学信号。")
+            # 核心修复：返回包含所有状态的单一字典
+            return ultimate_dynamic_states
+        return {} # 如果没有生成信号，返回一个空字典
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

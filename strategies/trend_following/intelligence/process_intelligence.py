@@ -33,12 +33,12 @@ class ProcessIntelligence:
         ## 修改结束 ##
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
-    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]: # [代码修改] 增加可选参数 task_type_filter
+    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]: # 增加可选参数 task_type_filter
         """
         运行所有在配置中定义的元分析诊断任务。
         - 新增参数 task_type_filter: 可选 'base' 或 'strategy'，用于执行特定类型的任务。
         """
-        # [代码修改] 更新版本号和日志，以反映当前执行模式
+        # 更新版本号和日志，以反映当前执行模式
         print(f"      -> [过程情报引擎 V2.1.0 · 自适应版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
@@ -58,7 +58,7 @@ class ProcessIntelligence:
             meta_states = self._diagnose_meta_relationship(df, config)
             if meta_states:
                 all_process_states.update(meta_states)
-        # [代码修改] 更新版本号和日志
+        # 更新版本号和日志
         print(f"      -> [过程情报引擎 V2.1.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
         return all_process_states
 

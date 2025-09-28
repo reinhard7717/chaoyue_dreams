@@ -57,7 +57,7 @@ class IntelligenceLayer:
                     1. 基础过程诊断: 在所有引擎之前运行，分析原始数据（价、量等），为其他引擎提供基础情景分。
                     2. 战略过程诊断: 在所有状态引擎之后运行，分析它们产出的高阶信号，生成最终的战略协同分。
         """
-        # print("--- [情报层总指挥官 V411.0 · 两阶段过程诊断版] 开始执行所有诊断模块... ---") # [代码修改] 更新版本号
+        # print("--- [情报层总指挥官 V411.0 · 两阶段过程诊断版] 开始执行所有诊断模块... ---") # 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -74,7 +74,7 @@ class IntelligenceLayer:
         # 1. 首先运行周期引擎
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
-        # [代码修改] --- 新增：阶段 1.5: 基础过程诊断 ---
+        # --- 新增：阶段 1.5: 基础过程诊断 ---
         # print("    - [阶段 1.5/5] 正在执行基础过程诊断 (分析原始数据)...")
         # 这个 process_intel 实例只处理原始数据层面的诊断
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
@@ -91,7 +91,7 @@ class IntelligenceLayer:
         self.mechanics_engine.run_dynamic_analysis_command()
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         
-        # [代码修改] --- 新增：阶段 2.5: 战略过程诊断 ---
+        # --- 新增：阶段 2.5: 战略过程诊断 ---
         # print("    - [阶段 2.5/5] 正在执行战略过程诊断 (分析高阶信号)...")
         # 这个 process_intel 实例现在可以安全地消费所有状态引擎的输出了
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
@@ -1199,7 +1199,7 @@ class IntelligenceLayer:
         【探针V2.1.0 · 心电图检测版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
         - 核心升级: 新增“心电图检测”功能，如果输入信号是恒定值，将直接报告根本原因。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.1.0】 ---") # [代码修改] 更新版本号
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.1.0】 ---") # 更新版本号
         
         df = self.strategy.df_indicators
         engine = self.process_intel

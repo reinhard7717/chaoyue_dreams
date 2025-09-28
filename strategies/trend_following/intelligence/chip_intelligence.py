@@ -15,17 +15,12 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def run_chip_intelligence_command(self, df: pd.DataFrame) -> Tuple[Dict[str, pd.Series], Dict[str, pd.Series]]:
+    def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 修正返回类型注解
         """
-        【V500.0 · 统一范式版】筹码情报最高司令部
-        - 核心重构 (本次修改):
-          - [架构统一] 废除所有旧的、各自为战的诊断引擎，统一调用唯一的终极信号引擎 `diagnose_unified_chip_signals`。
-          - [哲学统一] 所有信号生成逻辑均遵循“上下文门控”范式，实现了整个模块内部思想的完全统一。
-          - [保留特例] 保留了 `diagnose_accumulation_playbooks` 和 `_synthesize_playbook_capitulation_reversal` 等
-                        具有特殊战术意义的“剧本”诊断模块，它们作为终极信号的补充而存在。
-        - 收益: 实现了前所未有的架构清晰度、逻辑一致性和哲学完备性。
+        【V500.1 · 协议统一版】筹码情报最高司令部
+        - 核心修复: 修正了方法签名，确保返回一个单一的字典，而不是元组，以修复与IntelligenceLayer的数据流中断问题。
         """
-        # print("        -> [筹码情报最高司令部 V500.0 · 统一范式版] 启动...") # 更新版本号
+        # print("        -> [筹码情报最高司令部 V500.1 · 协议统一版] 启动...") # 更新版本号
         
         all_chip_states = {}
         
@@ -40,14 +35,23 @@ class ChipIntelligence:
         # 步骤 3: 执行独立的“恐慌投降”原子状态与剧本诊断 (作为补充)
         setup_states = self._diagnose_setup_capitulation_ready(df)
         all_chip_states.update(setup_states)
-        trigger_states = self._diagnose_trigger_capitulation_fire(df)
+        
+        # 为了让下游的 _synthesize_playbook_capitulation_reversal 能消费到最新的信号，
+        # 我们需要临时将当前状态合并到 df 中。这是一个可以未来优化的点。
+        temp_df_for_playbook = df.assign(**all_chip_states)
+        
+        trigger_states = self._diagnose_trigger_capitulation_fire(temp_df_for_playbook)
         all_chip_states.update(trigger_states)
-        df = df.assign(**all_chip_states) # 确保原子状态可被下游消费
-        playbook_states = self._synthesize_playbook_capitulation_reversal(df)
+        
+        temp_df_for_playbook = temp_df_for_playbook.assign(**trigger_states)
+        
+        playbook_states = self._synthesize_playbook_capitulation_reversal(temp_df_for_playbook)
         all_chip_states.update(playbook_states)
 
-        # print(f"        -> [筹码情报最高司令部 V500.0] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。") # 更新版本号
-        return all_chip_states, {}
+        # print(f"        -> [筹码情报最高司令部 V500.1] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
+        
+        # 核心修复：只返回包含所有状态的单一字典
+        return all_chip_states
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -173,7 +177,7 @@ class ChipIntelligence:
             'SCORE_CHIP_BULLISH_RESONANCE': overall_bullish_resonance,
             'SCORE_CHIP_BOTTOM_REVERSAL': final_bottom_reversal_score,
             'SCORE_CHIP_BEARISH_RESONANCE': overall_bearish_resonance,
-            'SCORE_CHIP_TOP_REversal': final_top_reversal_score
+            'SCORE_CHIP_TOP_REVERSAL': final_top_reversal_score
         }
 
         for signal_name, score in final_signal_map.items():
