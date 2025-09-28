@@ -248,47 +248,72 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V5.0 · 过程风险修正版】计算成交量维度的四维健康度
-        - 核心重构: 引入了对“过程风险”的识别和修正。
-          - 阴 (Yin) 路径的逻辑被修正为: (1 - static_bear_score) * (1 - SCORE_RISK_LIQUIDITY_DRAIN)。
-          - 这意味着，一个非上涨日，即使没有当天的看跌信号，如果它处于一个“流动性枯竭”的过程中，其健康度也会被显著惩罚。
-          - 这使得模型具备了“记忆”，能够识别从“健康回调”到“市场遗忘”的质变过程。
+        【V6.0 · 势能转化模型版】计算成交量维度的四维健康度
+        - 核心重构: 引入终极的“三重 Litmus 测试”哲学，使模型能够理解市场“势能”的转化，区分“反转前夜”与“流动性枯竭”。
+        - 看涨静态分 (static_bull_score) 由三条路径的最高分决定:
+          1. 阳 (Yang) 路径: 评估“量价齐升”的主动进攻信号。
+          2. 阴 (Yin) 路径: 评估“健康回调”，其健康度受“流动性枯竭”过程风险的制约。
+          3. 极 (Ji) 路径: 评估“衰竭反转”，专门捕捉卖盘力量衰竭、即将反转的“地量”形态。
+        - 这种三路径融合的逻辑，使得模型在评估成交量健康度时，达到了前所未有的完备性与智慧。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
+        # --- 模型所需基础数据 ---
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
+            # 如果缺少关键数据，返回默认中性值
             for p in periods:
                 s_bull[p] = s_bear[p] = d_bull[p] = d_bear[p] = pd.Series(0.5, index=df.index)
             return s_bull, d_bull, s_bear, d_bear
 
+        # ==================== 看跌静态分 (Static Bear Score) - 优先计算 ====================
+        # 成交量放大强度分 (后续多处复用)
         volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
         
+        # --- 看跌路径1: 天量滞涨 (Huge Volume Stagnation) ---
         price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
         stagnation_path_score = volume_increase_score * price_stagnation_score
 
+        # --- 看跌路径2: 放量下跌 (High Volume Breakdown) ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
         breakdown_path_score = (price_drop_score * volume_increase_score).where(df['pct_change_D'] < 0, 0)
 
+        # --- 最终看跌分融合 ---
         static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
 
+        # ==================== 看涨静态分 (Static Bull Score) - 三路径融合 ====================
+        
+        # --- 路径1: 阳 (Yang) - 量价齐升 ---
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
         yang_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
 
-        # [代码修改] 引入“过程风险”修正
+        # --- 路径2: 阴 (Yin) - 健康回调 (受过程风险修正) ---
         # 从原子状态中获取“流动性枯竭风险”信号
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
-        # 修正“阴”路径逻辑：健康度 = (1 - 当日风险) * (1 - 过程风险)
+        # 健康度 = (1 - 当日风险) * (1 - 过程风险)
         yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk)).where(df['pct_change_D'] <= 0, 0)
 
-        static_bull_score = np.maximum(yang_score, yin_score)
+        # --- 路径3: 极 (Ji) - 衰竭反转 ---
+        # [代码修改] 引入全新的“衰竭反转”信号路径
+        # 从原子状态中获取“衰竭反转”信号
+        exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
 
+        # --- 最终看涨分融合：取三种看涨情景中的最强者 ---
+        static_bull_score = np.maximum.reduce([
+            yang_score,                 # 阳：量价齐升
+            yin_score,                  # 阴：健康回调
+            exhaustion_reversal_score   # 极：衰竭反转
+        ])
+
+        # ==================== 动态分 (Dynamic Scores) ====================
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
             
+            # 成交量的动量与加速度，代表成交量的活跃趋势
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             
+            # 动态分本身是中性的，反映活跃度
             d_bull[p] = (vol_mom * vol_accel)**0.5
             d_bear[p] = (vol_mom * vol_accel)**0.5
             
@@ -477,6 +502,8 @@ class BehavioralIntelligence:
         if not get_param_value(p.get('enabled'), True): return states
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
+        
+        # ... [保留SCORE_PRICE_POSITION_IN_RECENT_RANGE和SCORE_VOL_WEAKENING_DROP的计算] ...
         lookback_period = get_param_value(p.get('range_lookback'), 20)
         rolling_high = df['high_D'].rolling(window=lookback_period).max()
         rolling_low = df['low_D'].rolling(window=lookback_period).min()
@@ -490,19 +517,29 @@ class BehavioralIntelligence:
             volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
-        
-        # [代码新增] 创建全新的“流动性枯竭风险”信号
+
+        # [代码修改] 修正“流动性枯竭风险”信号，使其更关注长期趋势
         p_drain = p.get('liquidity_drain_params', {})
-        drain_window = get_param_value(p_drain.get('window'), 13)
-        # 条件1: 价格在N日内持续下跌 (用斜率衡量)
-        price_trend_down = (df[f'SLOPE_{drain_window}_close_D'] < 0).astype(int)
-        # 条件2: 成交量在N日内持续萎缩 (用斜率衡量)
-        volume_trend_down = (df[f'SLOPE_{drain_window}_volume_D'] < 0).astype(int)
-        # 条件3: 当前成交量低于N日均量
-        is_low_volume = (df['volume_D'] < df[f'VOL_MA_{drain_window}_D']).astype(int)
-        # 风险分 = 三个条件相乘，只有全部满足时才为1
-        liquidity_drain_score = (price_trend_down * volume_trend_down * is_low_volume).astype(np.float32)
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score
+        drain_window = get_param_value(p_drain.get('window'), 20) # 使用更长的窗口(例如20天)来捕捉“慢性”特征
+        price_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_close_D'), df.index, norm_window, ascending=False)
+        volume_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_volume_D'), df.index, norm_window, ascending=False)
+        liquidity_drain_score = (price_trend_score * volume_trend_score)**0.5 # 简化为价格和成交量的长期趋势
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score.astype(np.float32)
+
+        # [代码新增] 创建全新的“衰竭反转”看涨信号
+        p_rev = p.get('exhaustion_reversal_params', {})
+        rev_window = get_param_value(p_rev.get('window'), 5) # 使用较短窗口(例如5天)捕捉“企稳”特征
+        # 姿态测试: 价格在短期内拒绝创新低，波动收窄
+        is_stabilizing = (df['low_D'] >= df['low_D'].rolling(rev_window).min()).astype(int)
+        price_volatility = df['tr_D'].rolling(rev_window).mean()
+        stabilization_score = is_stabilizing * normalize_score(price_volatility, df.index, norm_window, ascending=False)
+        # 极态测试: 成交量达到近期地量水平
+        volume_dry_up_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
+        # 上下文: 发生在深跌之后更有意义 (复用之前的close_position_in_range)
+        context_score = 1 - close_position_in_range
+        # 融合三个测试，得到最终的衰竭反转分
+        exhaustion_reversal_score = (stabilization_score * volume_dry_up_score * context_score)
+        states['SCORE_BULLISH_EXHAUSTION_REVERSAL'] = exhaustion_reversal_score.astype(np.float32)
         
         return states
 

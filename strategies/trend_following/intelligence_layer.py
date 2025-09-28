@@ -219,13 +219,10 @@ class IntelligenceLayer:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
-            
         probe_date_str = debug_params.get('probe_date')
         if not probe_date_str:
             return
-            
         probe_date = pd.to_datetime(probe_date_str)
-        
         # 时区校准逻辑
         if self.strategy.df_indicators.index.tz is not None:
             try:
@@ -236,21 +233,18 @@ class IntelligenceLayer:
                 except Exception as e_conv:
                      print(f"    -> [法医探针] 错误: 转换探针日期时区也失败: {e_conv}。")
                      return
-
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
-
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.3] 正在解剖 {probe_date_str} " + "="*30) # [代码修改] 更新版本号
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.3] 正在解剖 {probe_date_str} " + "="*30)
         
         # [代码新增] 部署全新的“终极信号钻透式探针”，专门用于解决“信号躺平”问题
         # 您可以修改这里的参数，来解剖任何一个“躺平”的信号
         self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='CHIP', signal_type='BULLISH_RESONANCE')
         self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='BEHAVIOR', signal_type='BULLISH_RESONANCE')
-        
         # 您也可以解剖看跌信号
         # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='DYN', signal_type='BEARISH_RESONANCE')
-        
+        self._deploy_process_intelligence_probe(probe_date)
         print("="*95 + "\n")
 
     # 全新的“动态力学否决权”探针
