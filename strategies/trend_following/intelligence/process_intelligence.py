@@ -33,20 +33,24 @@ class ProcessIntelligence:
         ## 修改结束 ##
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
-    def run_process_diagnostics(self) -> Dict[str, pd.Series]:
+    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]: # [代码修改] 增加可选参数 task_type_filter
         """
         运行所有在配置中定义的元分析诊断任务。
+        - 新增参数 task_type_filter: 可选 'base' 或 'strategy'，用于执行特定类型的任务。
         """
-        print("      -> [过程情报引擎 V2.0.0 · 全息四象限引擎] 启动...") # 更新版本号
+        # [代码修改] 更新版本号和日志，以反映当前执行模式
+        print(f"      -> [过程情报引擎 V2.1.0 · 自适应版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
-            print("      -> [过程情报引擎 V2.0.0] 警告: 数据量不足，跳过诊断。")
+            print(f"      -> [过程情报引擎 V2.1.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
             return {}
-        # 遍历所有诊断配置，执行元分析
+            
         for config in self.diagnostics_config:
+            # [代码新增] 根据过滤器执行任务。如果设置了过滤器，但任务类型不匹配，则跳过。
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
+
             signal_name = config.get('name')
             signal_type = config.get('type')
             if not signal_name or signal_type != 'meta_analysis':
@@ -54,23 +58,26 @@ class ProcessIntelligence:
             meta_states = self._diagnose_meta_relationship(df, config)
             if meta_states:
                 all_process_states.update(meta_states)
-        print(f"      -> [过程情报引擎 V2.0.0] 分析完毕，共生成 {len(all_process_states)} 个高维度过程元状态。")
+        # [代码修改] 更新版本号和日志
+        print(f"      -> [过程情报引擎 V2.1.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.0.0 核心工具 - 第一维】基于“量化力学模型”计算任意两个信号的“瞬时关系分”。
+        【V2.1.0 核心工具 - 自适应版】
+        - 新增: 根据配置中的 'source' 字段，智能选择数据源 (df_indicators 或 atomic_states)。
+        - 新增: 根据配置中的 'change_type' 字段，智能选择变化率计算方法 ('pct' 或 'diff')。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
-        signal_a = df.get(signal_a_name)
-        signal_b = df.get(signal_b_name)
-        
+
+        # [代码新增] 智能数据源选择
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
+                # 从 self.strategy.atomic_states 获取高阶信号
                 return self.strategy.atomic_states.get(signal_name)
-            # 默认为 df_indicators
+            # 默认从 df_indicators 获取原始指标
             return df.get(signal_name)
 
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
@@ -80,7 +87,7 @@ class ProcessIntelligence:
             print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
 
-        # [代码修改] 自适应物理模型：根据 change_type 选择计算方法
+        # [代码新增] 自适应物理模型：根据 change_type 选择计算方法
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if change_type == 'diff':
                 # 对归一化分数使用差值
@@ -90,17 +97,12 @@ class ProcessIntelligence:
 
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
+        
         momentum_a = normalize_to_bipolar(
-            series=change_a,
-            target_index=df_index,
-            window=self.std_window,
-            sensitivity=self.bipolar_sensitivity
+            series=change_a, target_index=df_index, window=self.std_window, sensitivity=self.bipolar_sensitivity
         )
         thrust_b = normalize_to_bipolar(
-            series=change_b,
-            target_index=df_index,
-            window=self.std_window,
-            sensitivity=self.bipolar_sensitivity
+            series=change_b, target_index=df_index, window=self.std_window, sensitivity=self.bipolar_sensitivity
         )
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
@@ -123,8 +125,7 @@ class ProcessIntelligence:
         # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
         relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
         relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-        
-        ## 修改开始: 使用双极归一化和加权平均法，生成[-1, 1]的最终分数 ##
+
         # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
         bipolar_trend_strength = normalize_to_bipolar(
             series=relationship_trend,
@@ -138,13 +139,21 @@ class ProcessIntelligence:
             window=self.norm_window,
             sensitivity=self.bipolar_sensitivity
         )
-        
+
         # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
         trend_weight = self.meta_score_weights[0]
         accel_weight = self.meta_score_weights[1]
-        
+
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
         meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险
-        ## 修改结束 ##
-        
+
         return {signal_name: meta_score}
+
+
+
+
+
+
+
+
+
