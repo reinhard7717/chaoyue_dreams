@@ -767,7 +767,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
         if 'ratio' in name or 'pressure' in name or 'index' in name:
-            vars()[name] = models.DecimalField(max_digits=10, decimal_places=6, verbose_name=verbose, null=True, blank=True)
+            vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
     
@@ -782,7 +782,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         # --- 4.1 累计指标 (仅对金额类指标，且周期>1) ---
         if p > 1:
             for name, verbose in CORE_METRICS.items():
-                if 'ratio' not in name and 'divergence' not in name: # 强度比率和分歧度通常不计算累计值
+                if name == 'avg_order_value':
+                     vars()[f'{name}_sum_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
+                elif 'ratio' not in name and 'divergence' not in name: # 强度比率和分歧度通常不计算累计值
                     vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
 
         # --- 4.2 斜率指标 ---

@@ -883,7 +883,7 @@ async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFram
                 后续迭代在原生Python字典上进行，显著提升了对象创建的速度。
     """
     stock_code = stock_info.stock_code
-    print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
+    # print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
     # 筛选出需要保存的新计算或更新的记录
     records_to_save_df = final_df.loc[new_df_index]
     records_to_create = []
