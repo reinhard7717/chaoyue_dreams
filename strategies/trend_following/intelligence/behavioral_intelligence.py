@@ -41,10 +41,10 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V9.9 · 哲学升维版】终极行为信号诊断模块
-        - 核心修复: 遵照指挥官指令，彻底重塑“底部反转”信号的哲学。
-          - 新哲学: 底部反转 = 高质量的底部形态(新原子信号) * 强劲的向上动能(d_bull)。
-                      这实现了“情景”、“状态”与“动态”的三位一体融合。
+        【V10.0 · 信号净化版】终极行为信号诊断模块
+        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
+                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
+        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -60,9 +60,7 @@ class BehavioralIntelligence:
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        # 不再使用旧的、宽泛的 context_score，而是直接获取新的、精准的原子信号
         bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION_S', pd.Series(0.0, index=df.index))
-        # 顶部情景分暂时保留旧逻辑
         _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
         price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), {}, periods)
@@ -89,35 +87,37 @@ class BehavioralIntelligence:
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
         
+        # 创建一个标准的默认Series，用于健壮性处理
+        default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
-        bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
-        bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
-        bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
+        bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
+        bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
         overall_bullish_resonance = (
             (bullish_short_force_res ** resonance_tf_weights['short']) *
             (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        # 哲学升维：底部反转 = 高质量底部形态 * 向上动能
         bullish_reversal_health = {p: bottom_formation_score * overall_health['d_bull'][p] for p in periods}
-        
-        bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
-        bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
+        bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
+        bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
         overall_bullish_reversal_trigger = (
             (bullish_short_force_rev ** reversal_tf_weights['short']) *
             (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bullish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        # 这里的奖励因子现在是对“高质量底部形态”的二次加强，逻辑上是合理的。
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        # ... (后续的看跌逻辑保持不变) ...
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
-        bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
-        bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
-        bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
+        bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
+        bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
         overall_bearish_resonance = (
             (bearish_short_force_res ** resonance_tf_weights['short']) *
             (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
@@ -125,9 +125,10 @@ class BehavioralIntelligence:
         )
 
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
-        bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
-        bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
-        bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
+        bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
+        bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
         overall_bearish_reversal_trigger = (
             (bearish_short_force_rev ** reversal_tf_weights['short']) *
             (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
@@ -135,12 +136,17 @@ class BehavioralIntelligence:
         )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
-        for prefix, score in [('SCORE_BEHAVIOR_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_BEHAVIOR_BOTTOM_REVERSAL', final_bottom_reversal_score),
-                              ('SCORE_BEHAVIOR_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_BEHAVIOR_TOP_REVERSAL', final_top_reversal_score)]:
-            states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
-            states[f'{prefix}_S'] = (score * 0.8).astype(np.float32)
-            states[f'{prefix}_A'] = (score * 0.6).astype(np.float32)
-            states[f'{prefix}_B'] = (score * 0.4).astype(np.float32)
+        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
+        final_signal_map = {
+            'SCORE_BEHAVIOR_BULLISH_RESONANCE': overall_bullish_resonance,
+            'SCORE_BEHAVIOR_BOTTOM_REVERSAL': final_bottom_reversal_score,
+            'SCORE_BEHAVIOR_BEARISH_RESONANCE': overall_bearish_resonance,
+            'SCORE_BEHAVIOR_TOP_REVERSAL': final_top_reversal_score
+        }
+
+        for signal_name, score in final_signal_map.items():
+            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
+            states[signal_name] = score.astype(np.float32)
         
         return states
 
@@ -153,7 +159,7 @@ class BehavioralIntelligence:
         atomic_signals = {}
         params = self.strategy.params
         
-        # [代码新增] 首先调用全新的底部形态诊断引擎
+        # 首先调用全新的底部形态诊断引擎
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         
         atomic_signals.update(self._diagnose_kline_patterns(df))

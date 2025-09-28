@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
 from enum import Enum
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, fuse_multi_level_scores
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score
 from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 
@@ -37,32 +37,27 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.3 · 认知升级版】顶层认知总分合成模块
+        【V2.5 · 信号净化版】顶层认知总分合成模块
         - 核心重构 (本次修改):
-          - [信号消费] 全面审查并更新了所有认知融合模块，确保它们消费的是最新、最可靠的终极原子信号。
-          - [周期整合] 将 `CyclicalIntelligence` 产出的FFT周期信号整合到“趋势质量”和“回踩”诊断中。
-        - 收益: 认知层的决策质量实现了质的飞跃，能够更深刻地理解市场状态。
+          - [信号消费] 全面审查并更新了所有认知融合模块，确保它们消费的是最新的、唯一的、归一化的终极信号。
+          - [命名净化] 移除了本模块产出的所有认知信号的 '_S' 等级后缀。
+          - [新增] 新增了 synthesize_state_process_synergy 方法，用于融合“状态分”和“过程分”。
         """
-        # print("        -> [顶层认知总分合成模块 V2.3 · 认知升级版] 启动...") # 更新版本号
-        
+        # print("        -> [顶层认知总分合成模块 V2.5 · 信号净化版] 启动...") # 更新版本号
         # --- 步骤 0: 预处理，确保所有底层信号已就绪 ---
         # 在一个理想的架构中，这一步由更高层的 `IntelligenceLayer` 保证。
         # 此处我们假设 `self.strategy.atomic_states` 已被所有底层引擎填充。
-
         # --- 步骤 1: 调用微观行为引擎，生成深层行为模式信号 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
-
         # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         self.strategy.atomic_states.update(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-
         # --- 步骤 3: 执行本模块的核心认知融合任务 ---
         # 首先调用新的波动率合成器，确保其信号可被下游消费
         volatility_states = self._synthesize_volatility_signals(df)
         self.strategy.atomic_states.update(volatility_states)
-
         # 确保后续调用顺序正确
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
@@ -72,16 +67,19 @@ class CognitiveIntelligence:
         df = self.synthesize_reversal_resonance_scores(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
-        
-        # --- 步骤 4: 汇总所有S级的“机会”与“风险”类认知分数 ---
+        # 调用新的状态-过程协同融合引擎
+        df = self.synthesize_state_process_synergy(df)
+        # --- 步骤 4: 汇总所有“机会”与“风险”类认知分数 ---
+        # 更新所有信号名为净化后的名称 (移除_S后缀)
         bullish_scores = [
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE_S').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_CONSOLIDATION_BREAKOUT_OPP_A').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S').values,
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE').values,
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
+            # 将新的状态-过程协同分加入看涨总分
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
@@ -89,18 +87,67 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         
-        # print("        -> [顶层认知总分合成模块 V2.3] 认知升级完成。")
+        # print("        -> [顶层认知总分合成模块 V2.5] 认知升级完成。")
+        return df
+
+    def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.1 · 信号净化版】状态-过程协同融合引擎
+        - 核心哲学: 终极信号 = 高质量的“状态” * 强劲的“过程”
+        - 算法: 将所有领域的“看涨状态分”与所有维度的“看涨过程分”进行融合。
+        """
+        states = {}
+        
+        # 1. 融合所有“状态”看涨信号，得到一个总的“状态共识分”
+        # 更新所有信号名为净化后的名称 (移除_S_PLUS后缀)
+        state_bullish_signals = [
+            'SCORE_CHIP_BULLISH_RESONANCE',
+            'SCORE_BEHAVIOR_BULLISH_RESONANCE',
+            'SCORE_FF_BULLISH_RESONANCE',
+            'SCORE_STRUCTURE_BULLISH_RESONANCE',
+            'SCORE_DYN_BULLISH_RESONANCE',
+            'SCORE_FOUNDATION_BULLISH_RESONANCE'
+        ]
+        state_scores = [self._get_atomic_score(df, sig, 0.5).values for sig in state_bullish_signals]
+        # 使用几何平均进行融合，要求所有领域都不能太差
+        state_consensus_score = pd.Series(
+            np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
+            index=df.index, dtype=np.float32
+        )
+        states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
+
+        # 2. 融合所有“过程”看涨信号，得到一个总的“过程共识分”
+        process_bullish_signals = [
+            'PROCESS_META_PV_REL_BULLISH_TURN',
+            'PROCESS_META_PF_REL_BULLISH_TURN',
+            'PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC' # 消费我们新定义的战略信号
+        ]
+        # 过程信号是[-1, 1]的，先映射到[0, 1]再融合
+        process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
+        process_consensus_score = pd.Series(
+            np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
+            index=df.index, dtype=np.float32
+        )
+        states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
+
+        # 3. 终极融合：状态 * 过程
+        synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
+        
+        self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.4 · 终极哲学统一版】趋势质量融合评分模块
-        - 核心修复: 将所有维度的融合逻辑从“加权求和”彻底修改为“加权几何平均”。
+        【V2.5 · 信号净化版】趋势质量融合评分模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号。
         """
-        behavior_health_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
-        fund_flow_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
-        structural_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
-        mechanics_health_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
+        # 使用新的 get_unified_score 函数
+        behavior_health_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
+        fund_flow_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
+        structural_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
+        mechanics_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
         
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
@@ -163,7 +210,8 @@ class CognitiveIntelligence:
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.5 · 重构版】认知层回踩状态合成模块
+        【V2.6 · 信号净化版】认知层回踩状态合成模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
         states = {}
         is_pullback_day = (df['pct_change_D'] < 0).astype(float)
@@ -174,9 +222,9 @@ class CognitiveIntelligence:
         
         cycle_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0).fillna(0.0)) / 2.0 
         
-        # 调用 utils.fuse_multi_level_scores
-        winner_holding_tight_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'TOP_REVERSAL')
-        chip_stable_score = 1.0 - fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FALLING_RESONANCE')
+        # 使用新的 get_unified_score 函数，并假设使用CHIP领域信号作为判断依据
+        winner_holding_tight_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL')
+        chip_stable_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         
         healthy_pullback_score = (
             is_pullback_day * constructive_context_score *
@@ -184,16 +232,18 @@ class CognitiveIntelligence:
             winner_holding_tight_score * chip_stable_score *
             (1 + cycle_trough_score * 0.5)
         )
-        states['COGNITIVE_SCORE_PULLBACK_HEALTHY_S'] = healthy_pullback_score.astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_PULLBACK_HEALTHY'] = healthy_pullback_score.astype(np.float32)
         
         significant_drop_score = (df['pct_change_D'].abs() / 0.07).clip(0, 1).fillna(0.0)
-        # 调用 utils.fuse_multi_level_scores
-        panic_selling_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
+        # 使用新的 get_unified_score 函数
+        panic_selling_score = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
         suppressive_pullback_score = (
             is_pullback_day * constructive_context_score *
             significant_drop_score * panic_selling_score * winner_holding_tight_score
         )
-        states['COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE_S'] = suppressive_pullback_score.astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE'] = suppressive_pullback_score.astype(np.float32)
         
         self.strategy.atomic_states.update(states)
         return df
@@ -299,23 +349,27 @@ class CognitiveIntelligence:
 
     def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.4 终极结构层信号适配版】结构化元信号融合模块
+        【V2.5 · 信号净化版】结构化元信号融合模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
-        # print("        -> [结构化元信号融合模块 V2.4 终极结构层信号适配版] 启动...")
+        # print("        -> [结构化元信号融合模块 V2.5 信号净化版] 启动...")
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        foundation_bullish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BULLISH_RESONANCE')
-        foundation_bearish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BEARISH_RESONANCE')
-        foundation_bottom = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL')
-        foundation_top = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL')
-        structure_bullish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
-        structure_bearish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BEARISH_RESONANCE')
-        structure_bottom = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
-        structure_top = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
-        behavior_bullish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE')
-        behavior_bearish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
-        behavior_bottom = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        behavior_top = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
+        
+        # 全面使用 get_unified_score 消费净化后的信号
+        foundation_bullish = get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_BULLISH_RESONANCE')
+        foundation_bearish = get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_BEARISH_RESONANCE')
+        foundation_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL')
+        foundation_top = get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL')
+        structure_bullish = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
+        structure_bearish = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BEARISH_RESONANCE')
+        structure_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
+        structure_top = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
+        behavior_bullish = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE')
+        behavior_bearish = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE')
+        behavior_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
+        behavior_top = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
+        
         all_scores = [
             foundation_bullish, foundation_bearish, foundation_bottom, foundation_top,
             structure_bullish, structure_bearish, structure_bottom, structure_top,
@@ -329,58 +383,72 @@ class CognitiveIntelligence:
         (foundation_bullish, foundation_bearish, foundation_bottom, foundation_top,
          structure_bullish, structure_bearish, structure_bottom, structure_top,
          behavior_bullish, behavior_bearish, behavior_bottom, behavior_top) = all_scores
-        states['COGNITIVE_FUSION_BULLISH_RESONANCE_S'] = (foundation_bullish * structure_bullish * behavior_bullish).astype(np.float32)
-        states['COGNITIVE_FUSION_BEARISH_RESONANCE_S'] = (foundation_bearish * structure_bearish * behavior_bearish).astype(np.float32)
-        states['COGNITIVE_FUSION_BOTTOM_REVERSAL_S'] = (foundation_bottom * structure_bottom * behavior_bottom).astype(np.float32)
-        states['COGNITIVE_FUSION_TOP_REVERSAL_S'] = (foundation_top * structure_top * behavior_top).astype(np.float32)
+        
+        # 移除所有输出信号名中的_S后缀
+        states['COGNITIVE_FUSION_BULLISH_RESONANCE'] = (foundation_bullish * structure_bullish * behavior_bullish).astype(np.float32)
+        states['COGNITIVE_FUSION_BEARISH_RESONANCE'] = (foundation_bearish * structure_bearish * behavior_bearish).astype(np.float32)
+        states['COGNITIVE_FUSION_BOTTOM_REVERSAL'] = (foundation_bottom * structure_bottom * behavior_bottom).astype(np.float32)
+        states['COGNITIVE_FUSION_TOP_REVERSAL'] = (foundation_top * structure_top * behavior_top).astype(np.float32)
         self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V1.2 架构统一版】终极确认融合模块
+        【V1.3 · 信号净化版】终极确认融合模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
-        # print("        -> [终极确认融合模块 V1.2 架构统一版] 启动...")
+        # print("        -> [终极确认融合模块 V1.3 信号净化版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
+        # 更新依赖信号名，移除_S后缀
         required_fusion_signals = [
-            'COGNITIVE_FUSION_BULLISH_RESONANCE_S', 'COGNITIVE_FUSION_BEARISH_RESONANCE_S',
-            'COGNITIVE_FUSION_BOTTOM_REVERSAL_S', 'COGNITIVE_FUSION_TOP_REVERSAL_S'
+            'COGNITIVE_FUSION_BULLISH_RESONANCE', 'COGNITIVE_FUSION_BEARISH_RESONANCE',
+            'COGNITIVE_FUSION_BOTTOM_REVERSAL', 'COGNITIVE_FUSION_TOP_REVERSAL'
         ]
         missing_fusion_signals = [s for s in required_fusion_signals if s not in atomic]
         if missing_fusion_signals:
             return df
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE_S', default_series)
-        fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE_S', default_series)
-        fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL_S', default_series)
-        fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL_S', default_series)
-        pattern_bullish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_BULLISH_RESONANCE')
-        pattern_bearish = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_BEARISH_RESONANCE')
-        pattern_bottom = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_BOTTOM_REVERSAL')
-        pattern_top = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'PATTERN_TOP_REVERSAL')
-        states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION_S'] = (fusion_bullish * pattern_bullish).astype(np.float32)
-        states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION_S'] = (fusion_bearish * pattern_bearish).astype(np.float32)
-        states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION_S'] = (fusion_bottom * pattern_bottom).astype(np.float32)
-        states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION_S'] = (fusion_top * pattern_top).astype(np.float32)
+        # 更新获取的信号名，移除_S后缀
+        fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE', default_series)
+        fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE', default_series)
+        fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL', default_series)
+        fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL', default_series)
+        
+        # 使用新的 get_unified_score 函数
+        pattern_bullish = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BULLISH_RESONANCE')
+        pattern_bearish = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BEARISH_RESONANCE')
+        pattern_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BOTTOM_REVERSAL')
+        pattern_top = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_TOP_REVERSAL')
+        
+        # 移除所有输出信号名中的_S后缀
+        states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION'] = (fusion_bullish * pattern_bullish).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION'] = (fusion_bearish * pattern_bearish).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION'] = (fusion_bottom * pattern_bottom).astype(np.float32)
+        states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION'] = (fusion_top * pattern_top).astype(np.float32)
         self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_ignition_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 王牌信号增强版】多域点火共振分数合成模块
+        【V2.1 · 信号净化版】多域点火共振分数合成模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
-        # print("        -> [多域点火共振分数合成模块 V2.0 王牌信号增强版] 启动...")
+        # print("        -> [多域点火共振分数合成模块 V2.1 信号净化版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         chip_playbook_ignition = self._get_atomic_score(df, 'SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT', 0.0)
-        chip_consensus_ignition = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
-        behavioral_ignition = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE')
-        structural_breakout = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
-        mechanics_ignition = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
-        volatility_breakout = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_BREAKOUT')
-        fund_flow_ignition_old = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
+        
+        # 全面使用 get_unified_score 消费净化后的信号
+        chip_consensus_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
+        behavioral_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE')
+        structural_breakout = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
+        mechanics_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
+        # VOL_BREAKOUT 信号名本身不规范，暂时保留，但推荐未来统一为 SCORE_VOL_BREAKOUT
+        volatility_breakout = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
+        fund_flow_ignition_old = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
+        
         fund_flow_conviction_breakout = self._get_atomic_score(df, 'SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', 0.0)
         general_ignition_resonance = (
             behavioral_ignition * structural_breakout * mechanics_ignition *
@@ -391,14 +459,16 @@ class CognitiveIntelligence:
             general_ignition_resonance.values,
             fund_flow_conviction_breakout.values
         ]).astype(np.float32)
-        states['COGNITIVE_SCORE_IGNITION_RESONANCE_S'] = pd.Series(ignition_resonance_score, index=df.index)
+        
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_IGNITION_RESONANCE'] = pd.Series(ignition_resonance_score, index=df.index)
         self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.7 · 终极哲学统一版】多域反转共振分数合成模块
-        - 核心修复: 将所有维度的融合逻辑从“加权求和”彻底修改为“加权几何平均”。
+        【V2.8 · 信号净化版】多域反转共振分数合成模块
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
         states = {}
         default_score = pd.Series(0.5, index=df.index, dtype=np.float32) # 默认值改为0.5
@@ -406,12 +476,13 @@ class CognitiveIntelligence:
         bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         
+        # 全面使用 get_unified_score 消费净化后的信号
         bottom_sources = {
-            'mechanics': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
-            'chip': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
-            'foundation': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL'),
-            'behavior': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
-            'structure': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
+            'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
+            'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
+            'foundation': get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL'),
+            'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
+            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
         }
         
         # 底部反转融合从加法改为乘法
@@ -431,14 +502,16 @@ class CognitiveIntelligence:
         else:
             bottom_reversal_score = default_score
 
-        states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE_S'] = bottom_reversal_score.astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = bottom_reversal_score.astype(np.float32)
         
+        # 全面使用 get_unified_score 消费净化后的信号
         top_sources = {
-            'mechanics': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
-            'chip': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
-            'foundation': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL'),
-            'behavior': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
-            'structure': fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
+            'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
+            'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
+            'foundation': get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL'),
+            'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
+            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
         }
 
         # 顶部反转融合从加法改为乘法
@@ -458,13 +531,15 @@ class CognitiveIntelligence:
         else:
             top_reversal_score = default_score
 
-        states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE_S'] = top_reversal_score.astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = top_reversal_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 返回值修复版】行业-个股协同元融合引擎
+        【V1.2 · 信号净化版】行业-个股协同元融合引擎
+        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
         """
         states = {}
         atomic = self.strategy.atomic_states
@@ -475,16 +550,22 @@ class CognitiveIntelligence:
         score_stagnation = atomic.get('SCORE_INDUSTRY_STAGNATION', default_score)
         score_downtrend = atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
         industry_bearish_score = np.maximum(score_stagnation, score_downtrend)
-        stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE_S', default_score)
-        stock_breakout_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_BREAKOUT')
+        
+        # 更新消费的信号名
+        stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE', default_score)
+        stock_breakout_score = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
+        
         stock_bullish_score = np.maximum(stock_ignition_score, stock_breakout_score)
         stock_breakdown_score = atomic.get('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', default_score)
         stock_distribution_score = atomic.get('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', default_score)
         stock_bearish_score = np.maximum(stock_breakdown_score, stock_distribution_score)
         synergy_offense_score = pd.Series(industry_bullish_score, index=df.index) * pd.Series(stock_bullish_score, index=df.index)
-        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE_S'] = synergy_offense_score.astype(np.float32)
+        
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE'] = synergy_offense_score.astype(np.float32)
         synergy_risk_score = pd.Series(industry_bearish_score, index=df.index) * pd.Series(stock_bearish_score, index=df.index)
-        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK_S'] = synergy_risk_score.astype(np.float32)
+        # 移除信号名中的_S后缀
+        states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK'] = synergy_risk_score.astype(np.float32)
         
         # 更新 atomic_states 并返回 df 以维持调用链
         self.strategy.atomic_states.update(states)
@@ -517,12 +598,11 @@ class CognitiveIntelligence:
     # 新增一个专门的波动率认知信号合成方法
     def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 终极哲学统一版】波动率认知信号合成模块
-        - 核心修复: 将融合逻辑从“加权求和”彻底修改为“几何平均”。
+        【V1.2 · 信号净化版】波动率认知信号合成模块
+        - 核心重构: 净化输出信号名，移除_S后缀。
         """
         states = {}
         norm_window = 120
-
         # 1. 波动压缩分 (Fused Compression Score)
         atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
         vol_compression_atr = 1 - normalize_score(atr_ratio, df.index, norm_window)
@@ -530,19 +610,15 @@ class CognitiveIntelligence:
         vol_compression_bbw = 1 - normalize_score(bbw, df.index, norm_window)
         # 融合从加法改为乘法
         fused_compression_score = (vol_compression_atr * vol_compression_bbw)**0.5
-        
         # 2. 波动突破潜力 (Volatility Breakout Potential)
         bbw_slope_score = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
         bbw_accel_score = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-        
         # 融合从加法改为乘法
         expansion_score = (bbw_slope_score * bbw_accel_score)**0.5
-        
         breakout_potential = (fused_compression_score * expansion_score)**0.5
-
         states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = fused_compression_score.astype(np.float32)
-        states['SCORE_VOL_BREAKOUT_POTENTIAL_S'] = breakout_potential.astype(np.float32)
-        
+        # 移除信号名中的_S后缀
+        states['SCORE_VOL_BREAKOUT_POTENTIAL'] = breakout_potential.astype(np.float32)
         return states
 
 

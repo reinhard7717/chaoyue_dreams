@@ -53,37 +53,53 @@ def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
         # print("      -> 所有数值列类型正常，无需转换。")
     return df
 
-def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+# def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
+#     """
+#     【新增辅助函数】融合S/A/B等多层置信度分数。
+#     - 逻辑: 根据给定的权重，将 'SCORE_..._S', 'SCORE_..._A', 'SCORE_..._B' 等分数
+#             加权融合成一个单一的综合分数。
+#     - :param atomic_states: 包含所有原子状态的字典。
+#     - :param df_index: DataFrame的索引，用于创建Series。
+#     - :param base_name: 分数的基础名称 (例如 'MA_BULLISH_RESONANCE').
+#     - :param weights: 一个字典，定义了 'S', 'A', 'B' 等级的权重。
+#     - :return: 融合后的分数 (pd.Series).
+#     """
+#     if weights is None:
+#         weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
+#     total_score = pd.Series(0.0, index=df_index)
+#     total_weight = 0.0
+#     # 动态地获取并加权S/A/B等级的分数
+#     for level, weight in weights.items():
+#         score_name = f"SCORE_{base_name}_{level}"
+#         if score_name in atomic_states:
+#             score_series = atomic_states[score_name]
+#             total_score += score_series * weight
+#             total_weight += weight
+#     # 如果没有找到任何等级的分数，返回一个中性分数
+#     if total_weight == 0:
+#         # 尝试获取没有等级的单一分数
+#         single_score_name = f"SCORE_{base_name}"
+#         if single_score_name in atomic_states:
+#             return atomic_states[single_score_name]
+#         return pd.Series(0.5, index=df_index)
+#     # 归一化处理
+#     return (total_score / total_weight).clip(0, 1)
+
+def get_unified_score(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str) -> pd.Series:
     """
-    【新增辅助函数】融合S/A/B等多层置信度分数。
-    - 逻辑: 根据给定的权重，将 'SCORE_..._S', 'SCORE_..._A', 'SCORE_..._B' 等分数
-            加权融合成一个单一的综合分数。
-    - :param atomic_states: 包含所有原子状态的字典。
-    - :param df_index: DataFrame的索引，用于创建Series。
-    - :param base_name: 分数的基础名称 (例如 'MA_BULLISH_RESONANCE').
-    - :param weights: 一个字典，定义了 'S', 'A', 'B' 等级的权重。
-    - :return: 融合后的分数 (pd.Series).
+    【V1.0 · 净化版】获取唯一的、归一化的终极信号分数。
+    - 核心职责: 根据基础名称 (如 'CHIP_BULLISH_RESONANCE')，直接查找并返回唯一的终极信号
+                  (如 'SCORE_CHIP_BULLISH_RESONANCE')。
+    - 替代目标: 完全取代过时的、复杂的 fuse_multi_level_scores 函数。
     """
-    if weights is None:
-        weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
-    total_score = pd.Series(0.0, index=df_index)
-    total_weight = 0.0
-    # 动态地获取并加权S/A/B等级的分数
-    for level, weight in weights.items():
-        score_name = f"SCORE_{base_name}_{level}"
-        if score_name in atomic_states:
-            score_series = atomic_states[score_name]
-            total_score += score_series * weight
-            total_weight += weight
-    # 如果没有找到任何等级的分数，返回一个中性分数
-    if total_weight == 0:
-        # 尝试获取没有等级的单一分数
-        single_score_name = f"SCORE_{base_name}"
-        if single_score_name in atomic_states:
-            return atomic_states[single_score_name]
-        return pd.Series(0.5, index=df_index)
-    # 归一化处理
-    return (total_score / total_weight).clip(0, 1)
+    # 直接构建唯一的、简化的信号全名
+    signal_name = f"SCORE_{base_name}"
+    
+    # 直接从原子状态中获取这个唯一的信号，如果找不到，则返回一个包含默认值0.0的Series
+    score_series = atomic_states.get(signal_name, pd.Series(0.0, index=df_index))
+    
+    # 确保返回的Series索引正确并填充缺失值
+    return score_series.reindex(df_index).fillna(0.0).astype(np.float32)
 
 def format_debug_dates(signal_series: pd.Series, display_limit: int = 10) -> str:
     if not isinstance(signal_series, pd.Series) or signal_series.dtype != bool:

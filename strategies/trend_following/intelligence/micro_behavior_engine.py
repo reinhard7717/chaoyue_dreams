@@ -196,7 +196,7 @@ class MicroBehaviorEngine:
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
-        epsilon = 1e-9 # [代码新增] 定义一个极小值用于防止除以零
+        epsilon = 1e-9 # 定义一个极小值用于防止除以零
 
         # --- 步骤 1: 【智能上下文】计算以MA55为基准的“波段伸展度” ---
         ma55 = df.get('EMA_55_D', df['close_D'])

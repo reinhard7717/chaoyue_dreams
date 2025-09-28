@@ -214,6 +214,30 @@
             "signal_B": "flow_divergence_mf_vs_retail_D",
             "signal_b_factor_k": 2.5,
             "comment": "【博弈-主力散户背离】诊断'价格-主力散户行为背离'关系。该指标为正代表主力买入强于散户。寻找'价跌但主力买'的终极底部背离。此为高阶信号，权重设为2.5。"
+          },
+          {
+            "name": "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC",
+            "type": "meta_analysis",
+            "signal_A": "SCORE_CHIP_BULLISH_RESONANCE",
+            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE",
+            "signal_b_factor_k": 1.0,
+            "comment": "【战略元分析】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。高分代表行为正在快速追赶或超越筹码，是强确认信号。"
+          },
+          {
+            "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
+            "type": "meta_analysis",
+            "signal_A": "SCORE_FF_BULLISH_RESONANCE",
+            "signal_B": "SCORE_STRUCTURE_BULLISH_RESONANCE",
+            "signal_b_factor_k": -1.0,
+            "comment": "【战略元分析】诊断'资金流'是否领先于'结构'。高分代表资金已大幅领先于结构改善，预示结构可能即将突破。k=-1.0用于捕捉领先关系。"
+          },
+          {
+            "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY",
+            "type": "meta_analysis",
+            "signal_A": "SCORE_DYN_BEARISH_RESONANCE",
+            "signal_B": "SCORE_CHIP_BEARISH_RESONANCE",
+            "signal_b_factor_k": 1.0,
+            "comment": "【战略元分析-风险】诊断'力学看跌'与'筹码看跌'的共振过程。高分代表风险正在从一个领域向另一个领域快速传导和放大。"
           }
         ]
       },
@@ -382,19 +406,19 @@
         "playbook_synergy_scoring": {
           "说明": "【剧本协同分】剧本作为独立的战术加分项。",
           "positive_signals": {
-            "PLAYBOOK_V_REVERSAL_ACE_S_PLUS": 800,
+            "PLAYBOOK_V_REVERSAL_ACE": 800,
             "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS": 700,
-            "PLAYBOOK_PERFECT_STORM_BOTTOM_S_PLUS": 650,
-            "PLAYBOOK_CRUISE_PIT_REVERSAL_S_PLUS": 600,
-            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL_S_PLUS": 500,
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS": 450,
-            "PLAYBOOK_BREAKOUT_EVE_S": 400,
-            "PLAYBOOK_CHIP_PRICE_LAG_S": 350,
+            "PLAYBOOK_PERFECT_STORM_BOTTOM": 650,
+            "PLAYBOOK_CRUISE_PIT_REVERSAL": 600,
+            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": 500,
+            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": 450,
+            "PLAYBOOK_BREAKOUT_EVE": 400,
+            "PLAYBOOK_CHIP_PRICE_LAG": 350,
             "PLAYBOOK_ASCENT_PIT_REVERSAL_A_PLUS": 300,
-            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL_A": 250,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A": 200,
-            "PLAYBOOK_MEAN_REVERSION_GRID_A": 180,
-            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING_A": 220
+            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": 250,
+            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": 200,
+            "PLAYBOOK_MEAN_REVERSION_GRID": 180,
+            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": 220
           }
         },
         "judgment_params": {
@@ -409,28 +433,28 @@
         "说明": "【V1.0】风险元融合模块的配置，用于合成顶层风险分。",
         "risk_categories": {
           "behavioral_risk": {
-            "SCORE_BEHAVIOR_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_BEHAVIOR_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_BEHAVIOR_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 }
           },
           "chip_risk": {
-            "SCORE_CHIP_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_CHIP_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_CHIP_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_CHIP_TOP_REVERSAL": { "weight": 1.2 }
           },
           "fund_flow_risk": {
-            "SCORE_FF_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_FF_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_FF_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_FF_TOP_REVERSAL": { "weight": 1.2 }
           },
           "dynamic_mechanics_risk": {
-            "SCORE_DYN_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_DYN_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_DYN_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_DYN_TOP_REVERSAL": { "weight": 1.2 }
           },
           "structural_risk": {
-            "SCORE_STRUCTURE_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_STRUCTURE_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_STRUCTURE_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_STRUCTURE_TOP_REVERSAL": { "weight": 1.2 }
           },
           "foundation_risk": {
-            "SCORE_FOUNDATION_BEARISH_RESONANCE_S_PLUS": { "weight": 1.0 },
-            "SCORE_FOUNDATION_TOP_REVERSAL_S_PLUS": { "weight": 1.2 }
+            "SCORE_FOUNDATION_BEARISH_RESONANCE": { "weight": 1.0 },
+            "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 }
           },
           "cognitive_risk": {
             "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },

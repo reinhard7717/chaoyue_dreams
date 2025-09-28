@@ -51,9 +51,10 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V11.0 · 终极哲学统一版】统一筹码信号诊断引擎
-        - 核心修复: 1. 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
-                      2. 将所有动态健康度(d_bull/d_bear)的计算从“加法模型”修改为“几何平均”。
+        【V12.0 · 信号净化版】统一筹码信号诊断引擎
+        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
+                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
+        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -94,7 +95,6 @@ class ChipIntelligence:
             print(f"        -> [筹码情报引擎] 警告: 'pillar_weights' 在配置文件中缺失或总和为0。将临时采用等权重融合。")
             use_equal_weights = True
 
-        
         for health_type, health_sources in [
             ('s_bull', health_data['s_bull']),
             ('d_bull', health_data['d_bull']),
@@ -118,11 +118,15 @@ class ChipIntelligence:
 
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
         
+        # 创建一个标准的默认Series，用于健壮性处理
+        default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+
         # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bull', {})}
-        bullish_short_force_res = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
-        bullish_medium_trend_res = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
-        bullish_long_inertia_res = bullish_resonance_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
+        bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
+        bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
         overall_bullish_resonance = (
             (bullish_short_force_res ** resonance_tf_weights['short']) *
             (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
@@ -130,9 +134,10 @@ class ChipIntelligence:
         )
         
         bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bull', {})}
-        bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
-        bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
+        bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
+        bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
         overall_bullish_reversal_trigger = (
             (bullish_short_force_rev ** reversal_tf_weights['short']) *
             (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
@@ -141,9 +146,10 @@ class ChipIntelligence:
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bear', {})}
-        bearish_short_force_res = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
-        bearish_medium_trend_res = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
-        bearish_long_inertia_res = bearish_resonance_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
+        bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
+        bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
         overall_bearish_resonance = (
             (bearish_short_force_res ** resonance_tf_weights['short']) *
             (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
@@ -151,23 +157,28 @@ class ChipIntelligence:
         )
         
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bear', {})}
-        bearish_short_force_rev = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
-        bearish_medium_trend_rev = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
-        bearish_long_inertia_rev = bearish_reversal_health.get(55, 0.5)
+        # 使用 default_series 替换浮点数 0.5
+        bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
+        bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
+        bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
         overall_bearish_reversal_trigger = (
             (bearish_short_force_rev ** reversal_tf_weights['short']) *
             (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bearish_long_inertia_rev ** reversal_tf_weights['long'])
         )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
-        
 
-        for prefix, score in [('SCORE_CHIP_BULLISH_RESONANCE', overall_bullish_resonance), ('SCORE_CHIP_BOTTOM_REVERSAL', final_bottom_reversal_score),
-                              ('SCORE_CHIP_BEARISH_RESONANCE', overall_bearish_resonance), ('SCORE_CHIP_TOP_REVERSAL', final_top_reversal_score)]:
-            states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
-            states[f'{prefix}_S'] = (score * 0.8).astype(np.float32)
-            states[f'{prefix}_A'] = (score * 0.6).astype(np.float32)
-            states[f'{prefix}_B'] = (score * 0.4).astype(np.float32)
+        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
+        final_signal_map = {
+            'SCORE_CHIP_BULLISH_RESONANCE': overall_bullish_resonance,
+            'SCORE_CHIP_BOTTOM_REVERSAL': final_bottom_reversal_score,
+            'SCORE_CHIP_BEARISH_RESONANCE': overall_bearish_resonance,
+            'SCORE_CHIP_TOP_REversal': final_top_reversal_score
+        }
+
+        for signal_name, score in final_signal_map.items():
+            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
+            states[signal_name] = score.astype(np.float32)
         
         return states
 

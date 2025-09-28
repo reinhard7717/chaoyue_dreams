@@ -198,8 +198,13 @@ class FundFlowIntelligence:
         return final_scores
 
     def _assign_graded_states(self, final_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """将最终信号转换为 S+/S/A/B 四个等级。"""
+        """
+        【V2.6 · 信号净化版】将最终信号赋值给状态字典。
+        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
+                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
+        """
         states = {}
+        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         prefix_map = {
             'bullish_resonance': 'SCORE_FF_BULLISH_RESONANCE',
             'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
@@ -207,11 +212,9 @@ class FundFlowIntelligence:
             'top_reversal': 'SCORE_FF_TOP_REVERSAL',
         }
         for key, score in final_scores.items():
-            prefix = prefix_map[key]
-            states[f'{prefix}_S_PLUS'] = score.astype(np.float32)
-            states[f'{prefix}_S'] = (score * 0.8).astype(np.float32)
-            states[f'{prefix}_A'] = (score * 0.6).astype(np.float32)
-            states[f'{prefix}_B'] = (score * 0.4).astype(np.float32)
+            signal_name = prefix_map[key]
+            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
+            states[signal_name] = score.astype(np.float32)
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:

@@ -247,7 +247,7 @@ class IntelligenceLayer:
 
         print("\n" + "="*30 + f" [法医探针部署中心 V1.2] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
         
-        # [代码新增] 部署全新的“过程情报引擎”探针
+        # 部署全新的“过程情报引擎”探针
         self._deploy_process_intelligence_probe(probe_date)
         # # 部署全新的“全面进攻信号超级探针”
         # self._deploy_comprehensive_super_probe(probe_date)
@@ -1203,7 +1203,7 @@ class IntelligenceLayer:
                     1. 使用 normalize_to_bipolar 替换 normalize_score。
                     2. 使用加权平均法替换乘法来融合趋势和加速度。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.0.0】 ---") # [代码修改] 更新版本号和注释
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.0.0】 ---") # 更新版本号和注释
         
         df = self.strategy.df_indicators
         engine = self.process_intel
@@ -1221,7 +1221,7 @@ class IntelligenceLayer:
             # --- 解剖第一维：瞬时关系分 ---
             print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于量化力学模型) ---")
             
-            # [代码修改] 探针现在从 V2.0.0 引擎获取动量和推力
+            # 探针现在从 V2.0.0 引擎获取动量和推力
             momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
             thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
             relationship_score_today = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
@@ -1233,7 +1233,7 @@ class IntelligenceLayer:
             signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
 
             print(f"       - 原始变化率: {signal_a_name}({change_a:+.2%}), {signal_b_name}({change_b:+.2%})")
-            print(f"       - 双极归一化动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})") # [代码修改] 更新注释
+            print(f"       - 双极归一化动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})") # 更新注释
             print(f"       - 力学公式: 关系分 = 动量A * (1 + {signal_b_factor_k} * 推力B)")
             print(f"       - [代入计算]: {momentum_a:.4f} * (1 + {signal_b_factor_k:.1f} * {thrust_b:.4f}) = {relationship_score_today:.4f}")
             
@@ -1253,7 +1253,7 @@ class IntelligenceLayer:
             print(f"       - “关系分”的趋势 (斜率): {relationship_trend_today:.4f}")
             print(f"       - “关系分”的加速度: {relationship_accel_today:.4f}")
 
-            # [代码修改] 探针的核心升级：使用双极归一化和加权平均法进行重算
+            # 探针的核心升级：使用双极归一化和加权平均法进行重算
             bipolar_trend_strength = normalize_to_bipolar(
                 series=relationship_trend_series,
                 target_index=df.index,
@@ -1277,7 +1277,7 @@ class IntelligenceLayer:
             print(f"       - 加速度强度分 (双极归一化): {bipolar_accel_strength:.4f}")
             print(f"       - 融合逻辑: (趋势分 * {trend_weight}) + (加速度分 * {accel_weight})")
             print(f"       - [探针重算结果]: {recalculated_score:.4f}")
-            # [代码修改] 结束
+            # 结束
 
             print(f"       - [最终信号实际值]: {self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan):.4f}")
 
