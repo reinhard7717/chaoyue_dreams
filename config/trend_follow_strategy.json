@@ -164,6 +164,8 @@
         "std_window": 21,
         "meta_window": 5,
         "norm_window": 55,
+        "bipolar_sensitivity": 1.0,
+        "meta_score_weights": [0.6, 0.4], "说明_meta_score_weights": "趋势权重60%，加速度权重40%",
         "diagnostics": [
           {
             "name": "PROCESS_META_PV_REL_BULLISH_TURN",
