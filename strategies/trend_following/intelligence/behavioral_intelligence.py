@@ -48,10 +48,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V10.0 · 信号净化版】终极行为信号诊断模块
-        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
-                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
-        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
+        【V10.1 · 接口简化版】终极行为信号诊断模块
+        - 核心修复: 更新了对 `_calculate_price_health` 和 `_calculate_volume_health` 的调用，
+                      以匹配它们被简化后的新函数签名（移除了无用的 `dynamic_weights` 参数）。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -67,11 +66,12 @@ class BehavioralIntelligence:
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION_S', pd.Series(0.0, index=df.index))
+        bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), {}, periods)
-        vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), {}, periods)
+        # [代码修改] 核心修复：使用新的、简化后的函数签名进行调用
+        price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
+        vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
         
         overall_health = {}
@@ -86,19 +86,21 @@ class BehavioralIntelligence:
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                stacked_values = np.stack([
-                    health_sources[0][p].values, health_sources[1][p].values, health_sources[2][p].values
-                ], axis=0)
-                fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
+                # [代码新增] 增加健壮性检查，确保所有健康度源都有效
+                if not all(health_sources) or not all(p in h for h in health_sources):
+                    fused_values = np.full(len(df.index), 0.5)
+                else:
+                    stacked_values = np.stack([
+                        health_sources[0][p].values, health_sources[1][p].values, health_sources[2][p].values
+                    ], axis=0)
+                    fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
         
-        # 创建一个标准的默认Series，用于健壮性处理
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
@@ -109,7 +111,6 @@ class BehavioralIntelligence:
         )
         
         bullish_reversal_health = {p: bottom_formation_score * overall_health['d_bull'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
@@ -121,7 +122,6 @@ class BehavioralIntelligence:
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
@@ -132,7 +132,6 @@ class BehavioralIntelligence:
         )
 
         bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
@@ -143,7 +142,6 @@ class BehavioralIntelligence:
         )
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
-        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         final_signal_map = {
             'SCORE_BEHAVIOR_BULLISH_RESONANCE': overall_bullish_resonance,
             'SCORE_BEHAVIOR_BOTTOM_REVERSAL': final_bottom_reversal_score,
@@ -152,7 +150,6 @@ class BehavioralIntelligence:
         }
 
         for signal_name, score in final_signal_map.items():
-            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
             states[signal_name] = score.astype(np.float32)
         
         return states
@@ -184,22 +181,19 @@ class BehavioralIntelligence:
         
         return atomic_signals
 
-    def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.4 · 终极净化版】计算价格维度的四维健康度
-        - 核心修复: 对BBP指标进行严格的[0, 1]区间裁剪，彻底杜绝静态分大于1的可能性。
+    def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
+        """
+        【V1.5 · 接口简化版】计算价格维度的四维健康度
+        - 核心修复: 移除了未被使用的 `dynamic_weights` 参数，简化了函数签名。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # 对BBP指标进行严格的[0, 1]区间裁剪
         bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
         
-        # 看涨静态分：价格在布林带上轨附近为强
         static_bull_score = bbp_score
-        # 看跌静态分：价格在布林带下轨附近为弱 (超卖)
         static_bear_score = 1.0 - bbp_score
 
         for p in periods:
-            # 为所有周期分配同一个、真正的静态分
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
 
@@ -212,37 +206,25 @@ class BehavioralIntelligence:
             d_bear[p] = (price_mom_neg * price_accel_neg)**0.5
         return s_bull, d_bull, s_bear, d_bear
 
-    def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, dynamic_weights: Dict, periods: list) -> tuple:
-        """【V1.5 · 哲学重塑版】计算成交量维度的四维健康度
-        - 核心修复: 彻底废除之前脱离价格背景的、错误的成交量健康度评估逻辑。
-        - 新哲学:
-          - 静态看涨分: 来源于“缩量下跌”这一健康的原子信号 (SCORE_VOL_WEAKENING_DROP)。
-          - 静态看跌分: 来源于“放量滞涨”这一危险的原子信号 (SCORE_RISK_VPA_STAGNATION)。
-          - 动态分: 保持不变，衡量成交量趋势的活跃度，其好坏由静态分和价格背景决定。
+    def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
+        """
+        【V1.6 · 接口简化版】计算成交量维度的四维健康度
+        - 核心修复: 移除了未被使用的 `dynamic_weights` 参数，简化了函数签名。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        # 使用更智能的、包含价格背景的原子信号作为静态分
-        # 静态看涨分: 缩量下跌是健康的。我们从原子信号库中获取这个分数。
-        # 注意：这个信号本身是“缩量+下跌”的强度，所以它越高，代表调整越健康，是看涨的。
         static_bull_score = self.strategy.atomic_states.get('SCORE_VOL_WEAKENING_DROP', pd.Series(0.5, index=df.index))
-        
-        # 静态看跌分: 放量滞涨是危险的。我们从原子信号库中获取这个分数。
         static_bear_score = self.strategy.atomic_states.get('SCORE_RISK_VPA_STAGNATION', pd.Series(0.5, index=df.index))
 
         for p in periods:
-            # 为所有周期分配同一个、真正的静态分
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 动态分衡量成交量的“活跃度”，其本身是中性的。
-            # 活跃度上升，既可以助涨（d_bull），也可以助跌（d_bear）。
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             
-            # 看涨动态和看跌动态都受益于成交量的活跃。
             d_bull[p] = (vol_mom * vol_accel)**0.5
-            d_bear[p] = (vol_mom * vol_accel)**0.5 # 明确d_bear逻辑：成交量活跃本身对看跌也是一种能量
+            d_bear[p] = (vol_mom * vol_accel)**0.5
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:

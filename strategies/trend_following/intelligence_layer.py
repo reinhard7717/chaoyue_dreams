@@ -825,9 +825,9 @@ class IntelligenceLayer:
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【探针V1.2 · 签名适配版】终极信号钻透式法医探针
-        - 核心修复: 增加了对不同情报引擎（特别是BehavioralIntelligence）的特殊函数签名的适配处理，
-                      确保探针在调用其健康度计算方法时传递正确的参数，避免崩溃。
+        【探针V1.3 · 终极适配版】终极信号钻透式法医探针
+        - 核心修复: 彻底重构了对各领域健康度计算器的调用逻辑，使其能够智能适配每种方法独特的函数签名，
+                      完全解决了因参数不匹配导致的探针崩溃问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -922,10 +922,13 @@ class IntelligenceLayer:
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     min_periods = max(1, norm_window // 5)
-                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
+                    if calc_func_name == '_calculate_kline_pattern_health':
+                        s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
+                    else: # for _calculate_price_health and _calculate_volume_health
+                        s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, min_periods, [period_to_probe])
                 elif domain_upper == 'STRUCTURE':
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, [period_to_probe], norm_window, {})
-                else:
+                else: # CHIP, DYN, FOUNDATION, FF
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, {}, [period_to_probe])
 
                 pillar_s_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
