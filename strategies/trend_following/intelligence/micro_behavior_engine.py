@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, fuse_multi_level_scores, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score
 
 class MicroBehaviorEngine:
     """
@@ -77,7 +77,7 @@ class MicroBehaviorEngine:
         if not get_param_value(p.get('enabled'), True): return states
         
         norm_window = get_param_value(p.get('norm_window'), 120)
-        retail_inflow_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'FF_BEARISH_RESONANCE')
+        retail_inflow_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BEARISH_RESONANCE')
         
         # 调用 utils.normalize_score 并传入 df.index
         chip_concentration_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
@@ -142,8 +142,8 @@ class MicroBehaviorEngine:
         background_score = np.maximum(deep_bottom_context_score, rsi_w_oversold_score).astype(np.float32)
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
         
-        chip_accumulation_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
-        chip_reversal_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL')
+        chip_accumulation_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
+        chip_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL')
         conviction_strengthening_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING')
         
         shareholder_turnover_score = np.maximum.reduce([
@@ -159,7 +159,7 @@ class MicroBehaviorEngine:
         trend_potential_score = normalize_score(fft_trend_slope.clip(lower=0), df.index, window=norm_window, ascending=True, default_value=0.0)
         states['INTERNAL_SCORE_TREND_POTENTIAL'] = trend_potential_score.astype(np.float32)
         
-        vol_compression_score = fuse_multi_level_scores(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
+        vol_compression_score = get_unified_score(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
         
         if len(early_ignition_score) != len(df.index):
