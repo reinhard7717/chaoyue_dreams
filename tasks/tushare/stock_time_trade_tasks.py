@@ -1451,19 +1451,19 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
     """
     【数据修复执行器】
     检查并修复单个股票缺失的 'cyq_perf' 和 'cyq_chips' 数据。
-    以 'stock_daily_data' 表作为交易日期的基准。
+    以 'stock_daily_data' 表作为交易日期的基准，并与交易日历进行核对。
     Args:
         stock_code (str): 股票代码。
         cache_manager (CacheManager): 缓存管理器实例。
     """
     # print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
-    
     async def _async_repair():
+        # 【代码修改】导入 TradeCalendar 模型，以支持交易日核对
+        from stock.models.index import TradeCalendar
         # 1. 获取所需模型
         daily_model = get_daily_data_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
         perf_model = StockCyqPerf # 该模型未分表
-
         # 2. 异步获取所有相关交易日期
         @sync_to_async(thread_sensitive=True)
         def get_dates(model, is_chips=False):
@@ -1472,22 +1472,38 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                 # 对于筹码分布表，每天有多条记录，需要去重
                 return set(qs.values_list('trade_time', flat=True).distinct())
             return set(qs.values_list('trade_time', flat=True))
-
+        # 【代码新增】获取指定范围内的交易日历的辅助函数
+        @sync_to_async(thread_sensitive=True)
+        def get_trade_calendar_dates(min_date, max_date):
+            """从交易日历中获取指定范围内的所有开市日期"""
+            print(f"[{stock_code}] [数据修复] 正在查询交易日历，范围: {min_date} 到 {max_date}...")
+            return set(TradeCalendar.objects.filter(
+                cal_date__gte=min_date,
+                cal_date__lte=max_date,
+                is_open=True
+            ).values_list('cal_date', flat=True))
         # 并发获取所有日期集合
         daily_dates, perf_dates, chips_dates = await asyncio.gather(
             get_dates(daily_model),
             get_dates(perf_model),
             get_dates(chips_model, is_chips=True)
         )
-
         if not daily_dates:
             print(f"[{stock_code}] [数据修复] 警告: 核心日线数据(daily_data)为空，无法进行比较和修复。")
             return
-
+        # 【代码修改】重构缺失日期的计算逻辑
         # 3. 计算缺失的日期
-        missing_perf_dates = list(daily_dates - perf_dates)
-        missing_chips_dates = list(daily_dates - chips_dates)
-
+        # 3.1 首先根据 stock_daily_data 计算出原始的缺失日期集合
+        missing_perf_dates_raw = daily_dates - perf_dates
+        missing_chips_dates_raw = daily_dates - chips_dates
+        # 3.2 获取当前股票数据时间范围内的所有真实交易日
+        min_date, max_date = min(daily_dates), max(daily_dates)
+        trade_calendar_dates = await get_trade_calendar_dates(min_date, max_date)
+        print(f"[{stock_code}] [数据修复] 股票数据范围 {min_date} 到 {max_date}，从交易日历获取到 {len(trade_calendar_dates)} 个交易日。")
+        # 3.3 将原始缺失日期与交易日历取交集，以过滤掉任何潜在的非交易日，得到最终的缺失日期列表
+        missing_perf_dates = sorted(list(missing_perf_dates_raw & trade_calendar_dates))
+        missing_chips_dates = sorted(list(missing_chips_dates_raw & trade_calendar_dates))
+        # 【代码修改】结束
         # 4. 修复缺失的 'cyq_perf' 数据
         if missing_perf_dates:
             print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_perf_dates)} 天的 'cyq_perf' 数据。")
@@ -1505,7 +1521,6 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                 )
         # else:
             # print(f"[{stock_code}] [数据修复] 'cyq_perf' 数据完整，无需修复。")
-
         # 5. 修复缺失的 'cyq_chips' 数据
         if missing_chips_dates:
             print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_chips_dates)} 天的 'cyq_chips' 数据。")
@@ -1523,7 +1538,6 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                 )
         # else:
             # print(f"[{stock_code}] [数据修复] 'cyq_chips' 数据完整，无需修复。")
-
     try:
         async_to_sync(_async_repair)()
         # print(f"[{stock_code}] [数据修复] 检查和修复任务派发完成。")
