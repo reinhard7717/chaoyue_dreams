@@ -56,7 +56,7 @@ class IntelligenceLayer:
         - 核心修复: 确保 IntelligenceLayer 正确接收并更新所有情报引擎返回的信号字典，
                       彻底修复因部分引擎返回结果被忽略而导致的数据流中断问题。
         """
-        print("--- [情报层总指挥官 V411.1 · 指挥链修复版] 开始执行所有诊断模块... ---") # [代码修改] 更新版本号
+        print("--- [情报层总指挥官 V411.1 · 指挥链修复版] 开始执行所有诊断模块... ---") # 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -87,12 +87,12 @@ class IntelligenceLayer:
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
         
-        # [代码修改] 核心修复：使用 update_states 接收 behavioral_intel 返回的战报
+        # 核心修复：使用 update_states 接收 behavioral_intel 返回的战报
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         
-        # [代码修改] 核心修复：使用 update_states 接收 mechanics_engine 返回的战报
+        # 核心修复：使用 update_states 接收 mechanics_engine 返回的战报
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         
         update_states(self.pattern_intel.run_pattern_analysis_command(df))

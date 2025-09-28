@@ -57,8 +57,8 @@ class PlaybookEngine:
                 'comment': 'S++级(王牌) - [V型反转] 在前一日确认的“恐慌抛售”后，由当日强劲的“显性反转K线”确认的最高确定性反转剧本。'
             },
             {
-                'name': 'PLAYBOOK_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS',
-                'trigger': ['TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS'],
+                'name': 'PLAYBOOK_PRIME_STRUCTURE_BREAKOUT',
+                'trigger': ['TACTIC_PRIME_STRUCTURE_BREAKOUT'],
                 'comment': 'S++级(王牌) - [黄金结构突破] 在“黄金筹码+波动压缩+能量优势”的完美战备后，由点火共振确认的突破。'
             },
             {
@@ -95,8 +95,8 @@ class PlaybookEngine:
             },
             # A+级 优势战术剧本
             {
-                'name': 'PLAYBOOK_ASCENT_PIT_REVERSAL_A_PLUS',
-                'trigger': ['TACTIC_ASCENT_PIT_REVERSAL_A_PLUS'],
+                'name': 'PLAYBOOK_ASCENT_PIT_REVERSAL',
+                'trigger': ['TACTIC_ASCENT_PIT_REVERSAL'],
                 'comment': 'A+级 - [初升浪深坑反转] 在初升浪阶段，出现“打压式”回踩后，由反转信号确认的买点。'
             },
             # A级 战术剧本
@@ -177,10 +177,10 @@ class PlaybookEngine:
             'PLAYBOOK_BREAKOUT_EVE_S',
             'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A',
             'PLAYBOOK_CHIP_PRICE_LAG_S',
-            'TACTIC_PRIME_STRUCTURE_BREAKOUT_S_PLUS_PLUS',
+            'TACTIC_PRIME_STRUCTURE_BREAKOUT',
             'TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS',
             'TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS',
-            'TACTIC_ASCENT_PIT_REVERSAL_A_PLUS',
+            'TACTIC_ASCENT_PIT_REVERSAL',
             'TACTIC_ASCENT_PULLBACK_REVERSAL_A',
         ]
         for signal_name in playbook_signals:
