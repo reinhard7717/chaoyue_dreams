@@ -61,17 +61,12 @@ class PatternIntelligence:
 
         # 看涨共振形态逻辑保持不变
         bullish_pattern_score = (rsi > 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
-
         states = {
-            
             'SCORE_PATTERN_BOTTOM_REVERSAL': bottom_pattern_score.astype(np.float32),
-            
             'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
         }
         
-        
         states['SCORE_PATTERN_TOP_REVERSAL'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         states['SCORE_PATTERN_BEARISH_RESONANCE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
 
         return states

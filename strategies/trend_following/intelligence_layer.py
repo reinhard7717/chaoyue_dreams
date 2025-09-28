@@ -213,8 +213,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.1 · 时区校准修复版】法医探针调度中心
-        - 核心修复: 解决了因探针日期(tz-naive)与数据索引(tz-aware)时区不匹配导致的探针跳过问题。
+        【V1.3 · 终极探针部署版】法医探针调度中心
+        - 核心升级: 部署了全新的“终极信号钻透式探针”，用于解剖“信号躺平”问题。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -227,43 +227,29 @@ class IntelligenceLayer:
         probe_date = pd.to_datetime(probe_date_str)
         
         # 时区校准逻辑
-        # 检查数据索引是否为“时区感知”类型
         if self.strategy.df_indicators.index.tz is not None:
-            # 如果是，则将“天真”的探针日期本地化到与索引相同的时区
             try:
                 probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
-            except Exception as e:
-                # 处理重复本地化等异常情况
-                print(f"    -> [法医探针] 警告: 在本地化探针日期时发生异常: {e}。可能日期已有时区。")
-                # 尝试直接转换时区
+            except Exception:
                 try:
                     probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
                 except Exception as e_conv:
                      print(f"    -> [法医探针] 错误: 转换探针日期时区也失败: {e_conv}。")
                      return
 
-        # 现在，这里的检查是在两个时区类型相同的对象之间进行的
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
 
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.2] 正在解剖 {probe_date_str} " + "="*30) # 更新版本号
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.3] 正在解剖 {probe_date_str} " + "="*30) # [代码修改] 更新版本号
         
-        # 部署全新的“过程情报引擎”探针
-        self._deploy_process_intelligence_probe(probe_date)
-        # # 部署全新的“全面进攻信号超级探针”
-        # self._deploy_comprehensive_super_probe(probe_date)
+        # [代码新增] 部署全新的“终极信号钻透式探针”，专门用于解决“信号躺平”问题
+        # 您可以修改这里的参数，来解剖任何一个“躺平”的信号
+        self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='CHIP', signal_type='BULLISH_RESONANCE')
+        self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='BEHAVIOR', signal_type='BULLISH_RESONANCE')
         
-        # # 保留风险探针，但注释掉重复的进攻探针
-        # self._deploy_risk_resonance_probe(probe_date, 'DYN')
-        # self._deploy_risk_resonance_probe(probe_date, 'BEHAVIOR')
-        # self._deploy_risk_resonance_probe(probe_date, 'FF')
-        # self._deploy_risk_resonance_probe(probe_date, 'CHIP')
-        # self._deploy_risk_resonance_probe(probe_date, 'STRUCTURE')
-        # self._deploy_risk_resonance_probe(probe_date, 'FOUNDATION')
-        
-        # if debug_params.get('enabled', False) and probe_date_str:
-        #     self._deploy_pillar_fusion_probe(probe_date, 'BEHAVIOR', 's_bull', 13)
+        # 您也可以解剖看跌信号
+        # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='DYN', signal_type='BEARISH_RESONANCE')
         
         print("="*95 + "\n")
 
@@ -733,471 +719,6 @@ class IntelligenceLayer:
         
         print(f"  - [最终诊断] {domain_upper} 风险分低，根源在于其构成支柱的【{bottleneck_type}】分数，在现有“相对归一化”逻辑下被历史数据“平均化”，无法体现当日的绝对风险。")
 
-    def _deploy_comprehensive_super_probe(self, probe_date: pd.Timestamp):
-        """
-        【超级探针 V2.0】全面进攻信号钻透式探针
-        - 核心功能: 响应指挥官“全面数据支持”的要求，一次性解剖所有核心进攻信号，
-                      包括所有领域的“底部反转”和“看涨共振”信号。
-        """
-        print(f"\n{'='*25} [全面进攻信号超级探针 V2.0] 启动 {'='*25}")
-        
-        # 定义所有需要全面解剖的核心进攻信号
-        target_signals = [
-            # 认知层
-            'COGNITIVE_SCORE_REVERSAL_RELIABILITY',
-            'COGNITIVE_SCORE_IGNITION_RESONANCE_S',
-            # 行为层
-            'SCORE_BEHAVIOR_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_BEHAVIOR_BULLISH_RESONANCE_S_PLUS',
-            # 筹码层
-            'SCORE_CHIP_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_CHIP_BULLISH_RESONANCE_S_PLUS',
-            # 资金流层
-            'SCORE_FF_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_FF_BULLISH_RESONANCE_S_PLUS',
-            # 结构层
-            'SCORE_STRUCTURE_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_STRUCTURE_BULLISH_RESONANCE_S_PLUS',
-            # 力学层
-            'SCORE_DYN_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_DYN_BULLISH_RESONANCE_S_PLUS',
-            # 基础层
-            'SCORE_FOUNDATION_BOTTOM_REVERSAL_S_PLUS',
-            'SCORE_FOUNDATION_BULLISH_RESONANCE_S_PLUS',
-            # 战法
-            'SCORE_PLAYBOOK_V_REVERSAL_ACE_S_PLUS'
-        ]
-        
-        for signal in target_signals:
-            # 复用已有的、强大的终极反转探针和点火共振探针
-            if "BOTTOM_REVERSAL" in signal:
-                domain = signal.split('_')[1]
-                self._deploy_ultimate_reversal_probe(probe_date, domain)
-            elif "BULLISH_RESONANCE" in signal:
-                # 此处可以为共振信号也创建一个专用的钻透式探针，暂时先打印最终值
-                final_score = self.strategy.atomic_states.get(signal, pd.Series(0.0)).get(probe_date, 0.0)
-                print(f"\n--- [简易探针] 正在检查: 【{signal}】 ---")
-                print(f"  - 当日最终得分: {final_score:.4f}")
-            elif "REVERSAL_RELIABILITY" in signal:
-                 final_score = self.strategy.atomic_states.get(signal, pd.Series(0.0)).get(probe_date, 0.0)
-                 print(f"\n--- [简易探针] 正在检查: 【{signal}】 ---")
-                 print(f"  - 当日最终得分: {final_score:.4f}")
-            elif "V_REVERSAL_ACE" in signal:
-                self._deploy_v_reversal_ace_probe(probe_date)
-
-        print(f"\n{'='*28} [超级探针执行完毕] {'='*28}")
-
-    def _deploy_drill_down_probe(self, probe_date: pd.Timestamp, target_signal: str):
-        """
-        【超级探针 V1.0】钻透式法医探针
-        - 核心功能: 对任何一个终极信号，从最终结果开始，逐层向下钻透，
-                      打印出其完整计算链路上的每一个中间值，直至最底层的原子输入。
-        - 使用方法: 在 `deploy_forensic_probes` 中调用此方法，并指定日期和目标信号名。
-        """
-        print(f"\n--- [钻透式探针] 正在对信号【{target_signal}】在【{probe_date.date()}】进行终极解剖 ---")
-        
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        
-        final_score = atomic.get(target_signal, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-        print(f"【顶层】最终信号得分: {final_score:.4f}")
-
-        if "BOTTOM_REVERSAL" in target_signal:
-            # --- 解剖 Bottom Reversal ---
-            print("\n  [链路回溯] final_score = trigger_score * (1 + context_score * bonus_factor)")
-            
-            context_score, _ = calculate_context_scores(df, atomic)
-            context_score_today = context_score.get(probe_date, 0.0)
-            bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-            trigger_denominator = 1 + context_score_today * bonus_factor
-            trigger_score = final_score / trigger_denominator if trigger_denominator != 0 else 0.0
-            print(f"    - 触发分 (Trigger): {trigger_score:.4f}")
-            print(f"    - 情景分 (Context): {context_score_today:.4f}")
-            print(f"    - 奖励因子 (Bonus): {bonus_factor:.2f}")
-
-            print("\n  [链路回溯] trigger_score 是由 short, medium, long 三股力量的加权几何平均构成")
-            overall_health = atomic.get('__BEHAVIOR_overall_health')
-            reversal_health = {p: overall_health['s_bear'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
-            short_force = (reversal_health.get(1, 0.5) * reversal_health.get(5, 0.5))**0.5
-            medium_force = (reversal_health.get(13, 0.5) * reversal_health.get(21, 0.5))**0.5
-            long_force = reversal_health.get(55, 0.5)
-            print(f"    - 短期反转力: {short_force:.4f}")
-            print(f"    - 中期反转力: {medium_force:.4f}")
-            print(f"    - 长期反转力: {long_force:.4f}")
-
-            print(f"\n  [链路回溯] 短期反转力 ({short_force:.4f}) 由 1日和5日的'反转健康度'融合得到")
-            print(f"    - 1日反转健康度: {reversal_health.get(1, 0.5):.4f} = 1日s_bear * 1日d_bull")
-            s_bear_1 = overall_health['s_bear'][1].get(probe_date, 0.5)
-            d_bull_1 = overall_health['d_bull'][1].get(probe_date, 0.5)
-            print(f"      - 1日 overall_health['s_bear']: {s_bear_1:.4f}")
-            print(f"      - 1日 overall_health['d_bull']: {d_bull_1:.4f}")
-
-            print(f"\n  [链路回溯] 1日 overall_health['s_bear'] ({s_bear_1:.4f}) 由三大支柱融合得到")
-            pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
-            
-            # 重新计算一次，确保探针独立性
-            price_s_bull, _, price_s_bear, _ = self.behavioral_intel._calculate_price_health(df, 55, 11, {}, [1])
-            vol_s_bull, _, vol_s_bear, _ = self.behavioral_intel._calculate_volume_health(df, 55, 11, {}, [1])
-            kline_s_bull, _, kline_s_bear, _ = self.behavioral_intel._calculate_kline_pattern_health(df, atomic, 55, 11, [1])
-            
-            price_s_bear_1 = price_s_bear[1].get(probe_date, 0.5)
-            vol_s_bear_1 = vol_s_bear[1].get(probe_date, 0.5)
-            kline_s_bear_1 = kline_s_bear[1].get(probe_date, 0.5)
-            print(f"    - 价格支柱 s_bear (权重 {pillar_weights['price']}): {price_s_bear_1:.4f}")
-            print(f"    - 成交量支柱 s_bear (权重 {pillar_weights['volume']}): {vol_s_bear_1:.4f}")
-            print(f"    - K线支柱 s_bear (权重 {pillar_weights['kline']}): {kline_s_bear_1:.4f}")
-            
-            print(f"\n  [根源诊断] 价格支柱 s_bear ({price_s_bear_1:.4f}) 的计算过程:")
-            bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
-            bbp_today = bbp.get(probe_date, 0.5)
-            print(f"    - price_s_bear = 1.0 - bbp_score")
-            print(f"    - 当日 bbp_score (BBP_21_2.0_D): {bbp_today:.4f}")
-            print(f"    - [结论] 由于当日大涨，收盘价靠近布林线上轨，BBP分数高，导致'静态看跌分'极低。这是'底部反转'信号哑火的【核心原因】。")
-
-        elif "BULLISH_RESONANCE" in target_signal:
-            # --- 解剖 Bullish Resonance ---
-            print("\n  [链路回溯] final_score 是由 short, medium, long 三股力量的加权几何平均构成")
-            overall_health = atomic.get('__BEHAVIOR_overall_health')
-            resonance_health = {p: overall_health['s_bull'][p].get(probe_date, 0.5) * overall_health['d_bull'][p].get(probe_date, 0.5) for p in periods}
-            short_force = (resonance_health.get(1, 0.5) * resonance_health.get(5, 0.5))**0.5
-            medium_force = (resonance_health.get(13, 0.5) * resonance_health.get(21, 0.5))**0.5
-            long_force = resonance_health.get(55, 0.5)
-            print(f"    - 短期共振力: {short_force:.4f}")
-            print(f"    - 中期共振力: {medium_force:.4f}")
-            print(f"    - 长期共振力: {long_force:.4f}")
-
-            print(f"\n  [链路回溯] 短期共振力 ({short_force:.4f}) 由 1日和5日的'共振健康度'融合得到")
-            print(f"    - 1日共振健康度: {resonance_health.get(1, 0.5):.4f} = 1日s_bull * 1日d_bull")
-            s_bull_1 = overall_health['s_bull'][1].get(probe_date, 0.5)
-            d_bull_1 = overall_health['d_bull'][1].get(probe_date, 0.5)
-            print(f"      - 1日 overall_health['s_bull']: {s_bull_1:.4f}")
-            print(f"      - 1日 overall_health['d_bull']: {d_bull_1:.4f}")
-            
-            print(f"\n  [根源诊断] '看涨共振'分数低，通常是因为'静态看涨分'(s_bull)和'动态看涨分'(d_bull)未能同时处于高位。")
-            print(f"    - s_bull高，代表当前状态好（如收盘价高、成交量健康）。")
-            print(f"    - d_bull高，代表当前趋势好（如价格、成交量斜率和加速度都在提升）。")
-            print(f"    - 在【{probe_date.date()}】，s_bull({s_bull_1:.2f})和d_bull({d_bull_1:.2f})中可能有一项或多项不高，导致乘积较低。")
-
-        print(f"--- 信号【{target_signal}】解剖完毕 ---")
-
-    def _super_probe_ff_period_13(self, probe_date: pd.Timestamp):
-        """
-        【FF-13 超级探针 V1.0】
-        这是一个专为解剖“FF领域overall_health缺少周期13数据”问题而设计的终极诊断工具。
-        它将一步步、无死角地回溯计算链路，定位导致数据缺失的根本原因。
-        """
-        print("\n" + "="*30 + " [FF-13 超级探针 V1.0 启动] " + "="*30)
-        
-        domain_upper = 'FF'
-        period_to_probe = 13
-        
-        atomic = self.strategy.atomic_states
-        df = self.strategy.df_indicators
-        
-        # --- 步骤 1: 检查最顶层的缓存 `__FF_overall_health` ---
-        print(f"--- 步骤 1: 检查顶层缓存 `__FF_overall_health` 在周期 {period_to_probe} 的状态 ---")
-        overall_health_cache_key = f'__{domain_upper}_overall_health'
-        overall_health = atomic.get(overall_health_cache_key)
-        
-        if not overall_health:
-            print(f"  - [致命错误] 探针失败: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。")
-            print("    -> 这意味着 `fund_flow_intel._fuse_health_with_intent_weights` 方法未能成功缓存其结果。")
-            print("="*95 + "\n")
-            return
-
-        # --- 步骤 2: 检查构成 `overall_health` 的四个核心健康度分量 ---
-        print(f"\n--- 步骤 2: 检查 `overall_health` 的四个核心分量在周期 {period_to_probe} 的数据 ---")
-        is_missing = False
-        for health_type in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
-            health_series = overall_health.get(health_type, {}).get(period_to_probe)
-            if health_series is None:
-                print(f"  - [关键发现] 在 `overall_health['{health_type}']` 中, 周期 {period_to_probe} 的键不存在！")
-                is_missing = True
-            elif health_series.empty:
-                print(f"  - [关键发现] `overall_health['{health_type}'][{period_to_probe}]` 是一个空的 Series！")
-                is_missing = True
-            else:
-                score_at_probe_date = health_series.get(probe_date, np.nan)
-                print(f"  - `overall_health['{health_type}'][{period_to_probe}]` 存在。当日分值: {score_at_probe_date:.4f}")
-        
-        if not is_missing:
-            print("  - [初步结论] `overall_health` 自身结构完整，问题可能出在下游的信号合成步骤。但这与错误日志不符，继续深入。")
-        else:
-            print(f"  - [初步结论] 核心问题确认: `overall_health` 在周期 {period_to_probe} 的数据结构不完整。")
-
-        # --- 步骤 3: 钻透式解剖，重新计算 `overall_health` 并检查每一个支柱的贡献 ---
-        print(f"\n--- 步骤 3: 钻透式解剖 - 检查构成 `overall_health` 的每一个【支柱】在周期 {period_to_probe} 的健康度 ---")
-        
-        # 获取计算所需的参数
-        params = self.fund_flow_intel._initialize_ff_params()
-        pillar_configs = params['pillar_configs']
-        
-        # 重新计算所有支柱的健康度，这一次我们只关心周期13
-        pillar_health_at_13 = {}
-        print("  -> 正在重新计算所有支柱在周期13的健康度...")
-        for name, config in pillar_configs.items():
-            # 调用您系统中最新的 _calculate_pillar_health 方法
-            health_dict = self.fund_flow_intel._calculate_pillar_health(
-                df, name, config, params['norm_window'], params['dynamic_weights'], [period_to_probe]
-            )
-            pillar_health_at_13[name] = health_dict
-
-        # --- 步骤 4: 打印每个支柱在周期13的健康度，寻找 NaN 或空值 ---
-        print(f"\n--- 步骤 4: 展示各支柱在周期 {period_to_probe} 的健康度得分，寻找异常值 ---")
-        culprit_pillars = []
-        for name, health_dict in pillar_health_at_13.items():
-            print(f"  - 支柱: {name:<20}")
-            is_pillar_faulty = False
-            for health_type in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
-                series = health_dict.get(health_type, {}).get(period_to_probe)
-                if series is None or series.empty:
-                    print(f"    - {health_type:<10}: [!!! 致命错误 !!!] 未能计算出 Series。")
-                    is_pillar_faulty = True
-                else:
-                    score = series.get(probe_date, np.nan)
-                    if pd.isna(score):
-                        print(f"    - {health_type:<10}: [!!! 关键发现 !!!] 值为 NaN。")
-                        is_pillar_faulty = True
-                    else:
-                        print(f"    - {health_type:<10}: {score:.4f}")
-            if is_pillar_faulty:
-                culprit_pillars.append(name)
-
-        # --- 步骤 5: 最终诊断 ---
-        print("\n--- 步骤 5: 最终诊断结论 ---")
-        if not culprit_pillars:
-            print("  - [诊断结论] 所有支柱在周期13的健康度均计算正常。问题可能极其罕见，出在 `_fuse_health_with_intent_weights` 的融合逻辑中。")
-        else:
-            print(f"  - [根本原因定位] 定位到以下【问题支柱】在周期13的计算中产生NaN或空值: {', '.join(culprit_pillars)}")
-            print("  - [下一步行动] 请检查这些问题支柱的 `_calculate_pillar_health` 方法在执行时，其内部打印的 `[FF探针-警告]` 日志。")
-            print("    日志会明确指出是哪个 `static_col`, `slope_col`, 或 `accel_col` 在数据层中找不到，这便是问题的根源。")
-
-        print("="*95 + "\n")
-
-    def _deploy_normalization_dissection_probe(self, probe_date: pd.Timestamp, indicator_name: str, norm_window: int, ascending: bool):
-        """
-        【归一化解剖探针 V1.0】
-        - 核心职责: 彻底解剖 normalize_score 函数的内部工作原理，展示一个指标在特定日期
-                      的历史排名和最终得分的完整计算过程。
-        """
-        print(f"\n--- [归一化解剖探针 V1.0] 正在解剖指标: {indicator_name} ---")
-        df = self.strategy.df_indicators
-        
-        # 1. 获取完整的指标序列
-        indicator_series = df.get(indicator_name)
-        if indicator_series is None:
-            print(f"  - [探针错误] 无法在 df_indicators 中找到指标 '{indicator_name}'。")
-            return
-
-        # 2. 定位探针日期和历史窗口
-        if probe_date not in indicator_series.index:
-            print(f"  - [探针错误] 探针日期 {probe_date.date()} 不在数据索引中。")
-            return
-            
-        end_loc = indicator_series.index.get_loc(probe_date)
-        start_loc = max(0, end_loc - norm_window + 1)
-        window_series = indicator_series.iloc[start_loc:end_loc + 1]
-        
-        if len(window_series) < norm_window * 0.2: # 检查数据是否过少
-            print(f"  - [探针警告] 历史窗口内数据点过少 ({len(window_series)}个)，解剖可能无意义。")
-            return
-
-        # 3. 提取关键值
-        current_value = window_series.iloc[-1]
-        min_val = window_series.min()
-        max_val = window_series.max()
-        mean_val = window_series.mean()
-        
-        # 4. 计算排名
-        # 使用 rank 方法，method='min' 确保排名从1开始
-        ranks = window_series.rank(method='min', ascending=ascending)
-        current_rank = ranks.iloc[-1]
-        
-        # 5. 计算最终的百分比排名分数
-        # 这是 normalize_score 的核心逻辑
-        pct_rank_score = window_series.rank(pct=True, ascending=ascending).iloc[-1]
-
-        # 6. 打印解剖报告
-        print(f"  - 观察窗口: {norm_window} 天 (从 {window_series.index.min().date()} 到 {probe_date.date()})")
-        print(f"  - 归一化方向: {'升序 (值越大, 分数越高)' if ascending else '降序 (值越小, 分数越高)'}")
-        print("-" * 60)
-        print(f"  - 当日 ({probe_date.date()}) 原始值: {current_value:.4f}")
-        print(f"  - 窗口期内统计:")
-        print(f"    - 最小值: {min_val:.4f}")
-        print(f"    - 最大值: {max_val:.4f}")
-        print(f"    - 平均值: {mean_val:.4f}")
-        print("-" * 60)
-        print(f"  - 排名计算:")
-        print(f"    - 当日原始值在 {len(window_series)} 个数据点中，排名第 {int(current_rank)} 位。")
-        print(f"  - 最终得分 (rank(pct=True)): {pct_rank_score:.4f}")
-        print("-" * 60)
-        
-        if pct_rank_score < 0.3:
-            print(f"  - [探针结论] 得分低 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中排名非常靠后，不被认为是显著信号。")
-        elif pct_rank_score > 0.7:
-            print(f"  - [探针结论] 得分高 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中排名非常靠前，被认为是显著信号。")
-        else:
-            print(f"  - [探针结论] 得分中等 ({pct_rank_score:.2f}) 的原因是：当日的原始值 ({current_value:.2f}) 在最近 {norm_window} 天的历史数据中处于中游水平。")
-
-    def _deploy_ranking_forensics_probe(self, probe_date: pd.Timestamp, domain: str, bottleneck_type: str, pillar_cn_name: str):
-        """
-        【探针V5.1 · 多源感知版】
-        - 核心升级: 探针现在可以智能地从 df_indicators 和 atomic_states 两个数据源中查找原始指标。
-        - BUG修复: 修复了因无法找到 SCORE_RISK_UPTHRUST_DISTRIBUTION 等中间信号而导致的探针崩溃问题。
-        """
-        print(f"\n--- [排名法医探针 V5.1] 正在对【{domain}领域-{pillar_cn_name}支柱】的【{bottleneck_type}】分数进行排名溯源 ---")
-        
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        p_conf = get_params_block(self.strategy, f'{domain.lower()}_ultimate_params', {})
-        if not p_conf: p_conf = get_params_block(self.strategy, f'{domain.lower()}_dynamics_params', {})
-        
-        norm_window = get_param_value(p_conf.get('norm_window'), 55)
-
-        # 支柱映射表现在包含数据源信息 ('df' 或 'atomic')
-        pillar_to_indicator_map = {
-            'DYN': {
-                '波动率': ('BBW_21_2.0_D', {'s_bear': True}, 'df'), # s_bear看扩张，asc=True
-                '效率': ('VPA_EFFICIENCY_D', {'s_bear': False}, 'df'),
-                '动能': ('ATR_14_D', {'s_bear': False}, 'df'),
-                '惯性': ('ADX_14_D', {'s_bear': False}, 'df')
-            },
-            'BEHAVIOR': {
-                '价格': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
-                '成交量': ('volume_vs_ma_13_D', {'s_bear': False}, 'df'),
-                'K线形态': ('SCORE_RISK_UPTHRUST_DISTRIBUTION', {'s_bear': True}, 'atomic') # 数据源是 atomic_states
-            },
-            'STRUCTURE': {
-                '均线': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
-                '力学': ('energy_ratio_D', {'s_bear': False}, 'df'),
-                '多周期': ('EMA_5_W', {'s_bear': False}, 'df'),
-                '形态': ('is_distribution_D', {'s_bear': True}, 'df')
-            },
-            'FOUNDATION': {
-                'EMA': ('price_vs_ma_13_D', {'s_bear': False}, 'df'),
-                'RSI': ('RSI_13_D', {'s_bear': False}, 'df'),
-                'MACD': ('MACDh_13_34_8_D', {'s_bear': False}, 'df'),
-                'CMF': ('CMF_21_D', {'s_bear': False}, 'df')
-            }
-        }
-        
-        indicator_map = pillar_to_indicator_map.get(domain, {}).get(pillar_cn_name)
-        if not indicator_map:
-            print(f"  - [探针错误] 未找到 {domain}-{pillar_cn_name} 的指标映射。")
-            return
-            
-        indicator_name, ascending_map, source_type = indicator_map
-        ascending = ascending_map.get(bottleneck_type, True)
-
-        # 根据 source_type 决定从哪里获取数据
-        source_df = df if source_type == 'df' else pd.DataFrame(atomic)
-        if indicator_name not in source_df.columns:
-            print(f"  - [探针错误] 原始指标 '{indicator_name}' 在数据源 '{source_type}' 中不存在。")
-            # 额外诊断：检查atomic_states中是否存在该信号
-            if source_type == 'df' and indicator_name in atomic:
-                 print(f"    -> [补充诊断] 信号 '{indicator_name}' 存在于 atomic_states 中，但探针配置错误地指向了 df_indicators。请修正探针配置。")
-            return
-
-        # 1. 提取窗口数据
-        # 确保即使是atomic_states也能正确处理日期窗口
-        full_series = source_df[indicator_name].reindex(df.index)
-        
-        # 找到探针日期在完整索引中的位置
-        probe_date_loc = df.index.get_loc(probe_date)
-        start_loc = max(0, probe_date_loc - norm_window + 1)
-        window_series = full_series.iloc[start_loc:probe_date_loc+1]
-
-        if window_series.empty or window_series.isnull().all():
-            print(f"  - [探针警告] 在 {norm_window} 天窗口内未找到 '{indicator_name}' 的有效数据。")
-            return
-
-        current_value = window_series.get(probe_date)
-        if pd.isna(current_value):
-            print(f"  - [探针警告] 当日 '{indicator_name}' 值为 NaN。")
-            return
-
-        # 2. 分析窗口内数据
-        min_val = window_series.min()
-        max_val = window_series.max()
-        mean_val = window_series.mean()
-        
-        # 3. 计算排名
-        ranks = window_series.rank(pct=True, ascending=ascending)
-        current_rank_pct = ranks.get(probe_date)
-        
-        print(f"  - 溯源指标: {indicator_name} (来源: {source_type})")
-        print(f"  - 归一化逻辑: 历史排名周期={norm_window}天, 排序方式 ascending={ascending}")
-        print(f"  - 窗口期: {window_series.index.min().date()} 至 {window_series.index.max().date()}")
-        print(f"  - 当日({probe_date.date()})原始值: {current_value:.4f}")
-        print(f"  - 窗口期内统计: 最大值={max_val:.4f}, 最小值={min_val:.4f}, 平均值={mean_val:.4f}")
-        print(f"  - [核心证据] 当日值在 {len(window_series.dropna())} 个有效样本中的归一化排名 (0-1): {current_rank_pct:.4f}")
-        
-        # 4. 最终诊断
-        if current_rank_pct < 0.1:
-            print(f"  - [最终诊断] 排名得分极低。尽管当日原始值可能不小，但在最近{norm_window}天内，它处于垫底水平。")
-            if ascending:
-                print(f"    -> 因为是升序排名，说明当日值远小于窗口期内的其他值。")
-            else:
-                print(f"    -> 因为是降序排名，说明当日值远大于窗口期内的其他值。")
-        elif current_rank_pct < 0.4:
-             print(f"  - [最终诊断] 排名得分偏低。这证明了“相对排名陷阱”：当日的风险/机会信号在近期历史中并不突出，因此被“平均化”。")
-        else:
-             print(f"  - [最终诊断] 排名得分正常。如果最终信号分依然很低，问题可能出在更高层级的权重融合上。")
-
-    def _deploy_pillar_fusion_probe(self, probe_date: pd.Timestamp, domain: str, health_type: str, period: int):
-        """
-        【探针V1.1 · 属性名修复版】支柱融合层法医探针
-        - 核心职责: 钻透式解剖 `overall_health` 的计算过程，揭示支柱分数是如何被融合成一个最终值的。
-        - 本次修复: 修正了访问动态力学引擎时使用了错误的属性名 `dynamic_mechanics_engine` 的BUG。
-        """
-        domain_upper = domain.upper()
-        print(f"\n--- [支柱融合探针 V1.1] 正在解剖【{domain_upper}领域】的【{health_type}】在周期【{period}】的融合逻辑 ---")
-
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        
-        overall_health_cache_key = f'__{domain_upper}_overall_health'
-        overall_health = atomic.get(overall_health_cache_key)
-        
-        if not overall_health or health_type not in overall_health or period not in overall_health[health_type]:
-            print(f"  - [探针错误] 无法在缓存 '{overall_health_cache_key}' 中找到路径 '{health_type}.{period}'。")
-            return
-
-        final_fused_score = overall_health[health_type][period].get(probe_date, np.nan)
-        print(f"  - 当日最终融合分 (overall_health['{health_type}'][{period}]): {final_fused_score:.4f}")
-        
-        # 修正了 DYN 键对应的值，将 self.dynamic_mechanics_engine 改为 self.mechanics_engine
-        engine_map = {
-            'BEHAVIOR': (self.behavioral_intel, get_params_block(self.strategy, 'behavioral_dynamics_params').get('pillar_weights')),
-            'CHIP': (self.chip_intel, get_params_block(self.strategy, 'chip_ultimate_params').get('pillar_weights')),
-            'DYN': (self.mechanics_engine, get_params_block(self.strategy, 'dynamic_mechanics_params').get('pillar_weights')),
-            'STRUCTURE': (self.structural_intel, None), # 使用等权重
-            'FOUNDATION': (self.foundation_intel, None) # 使用等权重
-        }
-        
-        
-        calc_map = {
-            'BEHAVIOR': [('_calculate_price_health', '价格'), ('_calculate_volume_health', '成交量'), ('_calculate_kline_pattern_health', 'K线形态')],
-            'CHIP': [('_calculate_quantitative_health', '量化'), ('_calculate_advanced_dynamics_health', '高级'), ('_calculate_internal_structure_health', '内部'), ('_calculate_holder_behavior_health', '持仓'), ('_calculate_fault_health', '断层')],
-            'DYN': [('_calculate_volatility_health', '波动率'), ('_calculate_efficiency_health', '效率'), ('_calculate_kinetic_energy_health', '动能'), ('_calculate_inertia_health', '惯性')],
-            'STRUCTURE': [('_calculate_ma_health', '均线'), ('_calculate_mechanics_health', '力学'), ('_calculate_mtf_health', '多周期'), ('_calculate_pattern_health', '形态')],
-            'FOUNDATION': [('_calculate_ema_health', 'EMA'), ('_calculate_rsi_health', 'RSI'), ('_calculate_macd_health', 'MACD'), ('_calculate_cmf_health', 'CMF')]
-        }
-
-        engine_instance, pillar_weights = engine_map.get(domain_upper)
-        pillar_calculators = calc_map.get(domain_upper)
-        
-        if not engine_instance or not pillar_calculators:
-            print(f"  - [探针错误] 未找到领域 '{domain_upper}' 的引擎或计算器映射。")
-            return
-
-        print("  - 开始回溯计算各支柱的贡献分...")
-        pillar_scores = []
-        pillar_names = []
-        # ... (后续代码保持不变) ...
-
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """
         【探针V2.1.0 · 心电图检测版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
@@ -1302,6 +823,120 @@ class IntelligenceLayer:
 
             print(f"       - [最终信号实际值]: {self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan):.4f}")
 
+    def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
+        """
+        【探针V1.0 · 新增】终极信号钻透式法医探针
+        - 核心功能: 对任何一个终极信号，从最终结果开始，逐层向下钻透，
+                      打印出其完整计算链路上的每一个中间值，直至最底层的原子输入。
+        - 使用方法: 在 `deploy_forensic_probes` 中调用此方法，并指定日期、领域(domain)和信号类型。
+        """
+        domain_upper = domain.upper()
+        signal_name = f'SCORE_{domain_upper}_{signal_type}'
+        print(f"\n--- [钻透式探针] 正在对信号【{signal_name}】在【{probe_date.date()}】进行终极解剖 ---")
+        
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        
+        # 动态获取参数
+        params_key_map = {
+            'CHIP': 'chip_ultimate_params', 'BEHAVIOR': 'behavioral_dynamics_params', 'FF': 'fund_flow_ultimate_params',
+            'STRUCTURE': 'structural_ultimate_params', 'DYN': 'dynamic_mechanics_params', 'FOUNDATION': 'foundation_ultimate_params'
+        }
+        p_conf = get_params_block(self.strategy, params_key_map.get(domain_upper, ''), {})
+        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
+        
+        final_score = atomic.get(signal_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        print(f"【顶层】最终信号得分: {final_score:.4f}")
+
+        if final_score == 0.0:
+            print("  - [初步诊断] 最终得分为0.0，极有可能是因为计算链路中某个环节的几何平均结果为0。开始向下钻透...")
+        
+        # 1. 反推到多周期力
+        overall_health_cache_key = f'__{domain_upper}_overall_health'
+        overall_health = atomic.get(overall_health_cache_key)
+        if not overall_health:
+            print(f"  - [探针错误] 致命错误: 未能在 atomic_states 中找到缓存 '{overall_health_cache_key}'。解剖终止。")
+            return
+
+        print("\n  [链路层 1] 反推 -> 短/中/长 三股力量")
+        
+        health_components = {}
+        if signal_type == 'BULLISH_RESONANCE':
+            health_components = {p: overall_health['s_bull'].get(p, pd.Series(0.5)) * overall_health['d_bull'].get(p, pd.Series(0.5)) for p in periods}
+        elif signal_type == 'BEARISH_RESONANCE':
+            health_components = {p: overall_health['s_bear'].get(p, pd.Series(0.5)) * overall_health['d_bear'].get(p, pd.Series(0.5)) for p in periods}
+        # 可以为 BOTTOM_REVERSAL 和 TOP_REVERSAL 添加更多逻辑
+        else:
+            print(f"  - [探针警告] 未知的信号类型 '{signal_type}'，无法继续解剖。")
+            return
+            
+        default_series = pd.Series(0.5, index=df.index)
+        short_force = (health_components.get(1, default_series).get(probe_date, 0.5) * health_components.get(5, default_series).get(probe_date, 0.5))**0.5
+        medium_force = (health_components.get(13, default_series).get(probe_date, 0.5) * health_components.get(21, default_series).get(probe_date, 0.5))**0.5
+        long_force = health_components.get(55, default_series).get(probe_date, 0.5)
+        print(f"    - 短期力: {short_force:.4f}")
+        print(f"    - 中期力: {medium_force:.4f}")
+        print(f"    - 长期力: {long_force:.4f}")
+        
+        if short_force == 0 or medium_force == 0 or long_force == 0:
+             print("    - [关键发现] 至少有一股力量为0，这是导致最终得分为0的直接原因。")
+
+        # 2. 反推到健康度
+        period_to_probe = 1 # 以最短周期为例进行钻透
+        print(f"\n  [链路层 2] 反推 -> {period_to_probe}日健康度")
+        health_score = health_components.get(period_to_probe, default_series).get(probe_date, 0.5)
+        
+        s_type = 's_bull' if signal_type == 'BULLISH_RESONANCE' else 's_bear'
+        d_type = 'd_bull' if signal_type == 'BULLISH_RESONANCE' else 'd_bear'
+        
+        s_score = overall_health[s_type][period_to_probe].get(probe_date, 0.5)
+        d_score = overall_health[d_type][period_to_probe].get(probe_date, 0.5)
+        print(f"    - {period_to_probe}日健康度 ({health_score:.4f}) = {s_type} ({s_score:.4f}) * {d_type} ({d_score:.4f})")
+        
+        if s_score == 0 or d_score == 0:
+             print(f"    - [关键发现] {s_type} 或 {d_type} 为0，这是导致健康度为0的原因。")
+
+        # 3. 反推到支柱融合
+        print(f"\n  [链路层 3] 反推 -> 构成 {s_type} 和 {d_type} 的各个支柱分数")
+        
+        engine_map = {
+            'CHIP': (self.chip_intel, list(get_params_block(self.strategy, 'chip_ultimate_params').get('pillar_weights', {}).keys())),
+            'BEHAVIOR': (self.behavioral_intel, list(get_params_block(self.strategy, 'behavioral_dynamics_params').get('pillar_weights', {}).keys())),
+            'FF': (self.fund_flow_intel, list(get_params_block(self.strategy, 'fund_flow_ultimate_params').get('resonance_pillar_weights', {}).keys())),
+            'STRUCTURE': (self.structural_intel, ['ma', 'mechanics', 'mtf', 'pattern']),
+            'DYN': (self.mechanics_engine, list(get_params_block(self.strategy, 'dynamic_mechanics_params').get('pillar_weights', {}).keys())),
+            'FOUNDATION': (self.foundation_intel, list(get_params_block(self.strategy, 'foundation_ultimate_params').get('pillar_weights', {}).keys()))
+        }
+        calc_map = {
+            'CHIP': [('_calculate_quantitative_health', 'quantitative'), ('_calculate_advanced_dynamics_health', 'advanced'), ('_calculate_internal_structure_health', 'internal'), ('_calculate_holder_behavior_health', 'holder'), ('_calculate_fault_health', 'fault')],
+            'BEHAVIOR': [('_calculate_price_health', 'price'), ('_calculate_volume_health', 'volume'), ('_calculate_kline_pattern_health', 'kline')],
+            'DYN': [('_calculate_volatility_health', 'volatility'), ('_calculate_efficiency_health', 'efficiency'), ('_calculate_kinetic_energy_health', 'momentum'), ('_calculate_inertia_health', 'inertia')],
+            'STRUCTURE': [('_calculate_ma_health', 'ma'), ('_calculate_mechanics_health', 'mechanics'), ('_calculate_mtf_health', 'mtf'), ('_calculate_pattern_health', 'pattern')],
+            'FOUNDATION': [('_calculate_ema_health', 'ema'), ('_calculate_rsi_health', 'rsi'), ('_calculate_macd_health', 'macd'), ('_calculate_cmf_health', 'cmf')]
+        }
+        
+        engine_instance, pillar_names = engine_map.get(domain_upper, (None, []))
+        pillar_calculators = calc_map.get(domain_upper, [])
+
+        if not engine_instance:
+            print(f"  - [探针错误] 未找到领域 '{domain_upper}' 的引擎实例。")
+            return
+
+        print(f"    --- 解剖 {s_type} ({s_score:.4f}) ---")
+        for calc_func_name, pillar_name in pillar_calculators:
+            try:
+                calculator = getattr(engine_instance, calc_func_name)
+                # 重新计算以获取独立的支柱分数
+                s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, p_conf.get('norm_window', 120), {}, [period_to_probe])
+                
+                pillar_s_score = s_bull_pillar[period_to_probe].get(probe_date, 0.5) if s_type == 's_bull' else s_bear_pillar[period_to_probe].get(probe_date, 0.5)
+                print(f"      - {pillar_name} 支柱贡献分: {pillar_s_score:.4f}")
+                if pillar_s_score == 0:
+                    print(f"        - [!!! 根本原因嫌疑 !!!] {pillar_name} 支柱的 {s_type} 分数为0，这可能是导致上层融合结果为0的根源！")
+            except Exception as e:
+                print(f"       - [探针错误] 解剖支柱 '{pillar_name}' 的 {s_type} 失败: {e}")
+
+        print(f"--- 信号【{signal_name}】解剖完毕 ---")
 
 
 
