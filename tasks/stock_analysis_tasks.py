@@ -1053,7 +1053,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-        # [代码修改] 修正 daily 源的查询字段，移除不存在的 'trade_count'
+        # 修正 daily 源的查询字段，移除不存在的 'trade_count'
         "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount'), start_date=fetch_start_date),
     }
     results = await asyncio.gather(*data_tasks.values())
@@ -1072,7 +1072,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
             df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
-            # [代码修改] 在返回的列中加入 'trade_count'，确保其从 tushare 源传递下去
+            # 在返回的列中加入 'trade_count'，确保其从 tushare 源传递下去
             required_cols = [
                 'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 
                 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare', 
@@ -1105,7 +1105,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     if not df_daily.empty:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
         df_daily['amount'] = pd.to_numeric(df_daily['amount'], errors='coerce')
-        # [代码修改] 修正 join 逻辑，daily 数据源只提供 amount
+        # 修正 join 逻辑，daily 数据源只提供 amount
         merged_df = merged_df.join(df_daily.set_index('trade_time')['amount'])
     return merged_df
 
@@ -1147,14 +1147,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
         valid_amount = df['amount'].astype(float).replace(0, np.nan)
         df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] * 10 / valid_amount) * 100 # 乘以10将万元转换为千元
     # --- 4. 修正 avg_order_value 计算 ---
-    # [代码新增] 增加调试信息，检查 avg_order_value 的输入数据
-    print(f"--- [{stock_code}] 调试信息：avg_order_value 计算详情 (最近5条) ---")
-    if 'amount' in df.columns and 'trade_count' in df.columns:
-        print("输入数据 (amount单位: 千元, trade_count单位: 笔):")
-        print(df[['amount', 'trade_count']].tail())
-    else:
-        print("警告: 'amount' 或 'trade_count' 列不存在于DataFrame中。")
-    # [代码修改] 修正单位换算：'amount' 单位是千元，应乘以 1000 得到元。
+    # 修正单位换算：'amount' 单位是千元，应乘以 1000 得到元。
     total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0) * 1000
     trade_count = df.get('trade_count', pd.Series(dtype=float))
     # 创建一个分母 Series，将0和NaN替换为NaN以进行安全除法
@@ -1213,7 +1206,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
 
         for col in CORE_METRICS_TO_DERIVE:
             if col in final_df.columns:
-                # [代码修改] 修正 pandas_ta 调用语法，在 DataFrame 上调用 .ta，并通过 close 参数传递 Series
+                # 修正 pandas_ta 调用语法，在 DataFrame 上调用 .ta，并通过 close 参数传递 Series
                 final_df[f'{col}_slope_{p}d'] = final_df.ta.slope(close=final_df[col], length=calc_window)
         
         if p > 1:
@@ -1225,13 +1218,13 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
             for col in sum_slope_cols:
                 sum_col_name = f'{col}_sum_{p}d'
                 if sum_col_name in final_df.columns:
-                    # [代码修改] 修正 pandas_ta 调用语法
+                    # 修正 pandas_ta 调用语法
                     final_df[f'{sum_col_name}_slope_{p}d'] = final_df.ta.slope(close=final_df[sum_col_name], length=p)
 
         for col in CORE_METRICS_TO_DERIVE:
             source_slope_col = f'{col}_slope_{p}d'
             if source_slope_col in final_df.columns:
-                # [代码修改] 修正 pandas_ta 调用语法
+                # 修正 pandas_ta 调用语法
                 final_df[f'{col}_accel_{p}d'] = final_df.ta.slope(close=final_df[source_slope_col], length=calc_window)
                 
     return final_df

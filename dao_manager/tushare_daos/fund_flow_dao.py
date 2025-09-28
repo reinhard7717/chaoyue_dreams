@@ -127,7 +127,7 @@ class FundFlowDao(BaseDAO):
                         "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", 
                         "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", 
                         "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount", 
-                        "net_mf_vol", "net_mf_amount", "trade_count"  # [代码修改] 新增 trade_count 字段，以获取交易笔数
+                        "net_mf_vol", "net_mf_amount", "trade_count"  # 新增 trade_count 字段，以获取交易笔数
                     ])
                     await asyncio.sleep(0.55)
                 except Exception as e:
