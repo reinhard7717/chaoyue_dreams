@@ -248,23 +248,59 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V1.6 · 接口简化版】计算成交量维度的四维健康度
-        - 核心修复: 移除了未被使用的 `dynamic_weights` 参数，简化了函数签名。
+        【V3.0 · 三体量价模型版】计算成交量维度的四维健康度
+        - 核心重构: 采纳指挥官的最终指令，引入完备的“三体量价模型”，使其能识别所有核心量价关系。
+          - 看涨路径: 融合了“量价齐升”和“缩量回调”两种健康的看涨形态。
+          - 看跌路径: 融合了“天量滞涨”(最危险的出货信号)和“放量下跌”两种危险的看跌形态。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        static_bull_score = self.strategy.atomic_states.get('SCORE_VOL_WEAKENING_DROP', pd.Series(0.5, index=df.index))
-        static_bear_score = self.strategy.atomic_states.get('SCORE_RISK_VPA_STAGNATION', pd.Series(0.5, index=df.index))
+        # --- 模型所需基础数据 ---
+        vol_ma_col = 'VOL_MA_21_D'
+        if vol_ma_col not in df.columns or 'pct_change_D' not in df.columns:
+            for p in periods:
+                s_bull[p] = s_bear[p] = d_bull[p] = d_bear[p] = pd.Series(0.5, index=df.index)
+            return s_bull, d_bull, s_bear, d_bear
 
+        # ==================== 看涨静态分 (Static Bull Score) ====================
+        # --- 看涨路径1: 量价齐升 (Confirmation) ---
+        price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
+        volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
+        confirmation_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
+
+        # --- 看涨路径2: 缩量回调 (Pullback) ---
+        pullback_score = self.strategy.atomic_states.get('SCORE_VOL_WEAKENING_DROP', pd.Series(0.0, index=df.index))
+        pullback_score = pullback_score.where(df['pct_change_D'] <= 0, 0)
+
+        # --- 最终看涨分融合 ---
+        static_bull_score = np.maximum(confirmation_score, pullback_score)
+        
+        # ==================== 看跌静态分 (Static Bear Score) ====================
+        # [代码修改] 引入全新的双路径看跌模型
+        # --- 看跌路径1: 天量滞涨 (Huge Volume Stagnation) ---
+        huge_volume_score = volume_increase_score # 复用上面计算的成交量放大分
+        price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
+        stagnation_path_score = huge_volume_score * price_stagnation_score
+
+        # --- 看跌路径2: 放量下跌 (High Volume Breakdown) ---
+        price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
+        breakdown_path_score = (price_drop_score * huge_volume_score).where(df['pct_change_D'] < 0, 0)
+
+        # --- 最终看跌分融合 ---
+        static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
+
+        # ==================== 动态分 (Dynamic Scores) ====================
         for p in periods:
-            s_bull[p] = static_bull_score
-            s_bear[p] = static_bear_score
+            s_bull[p] = static_bull_score.astype(np.float32)
+            s_bear[p] = static_bear_score.astype(np.float32)
             
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             
+            # 动态分代表成交量的活跃度，其本身是中性的
             d_bull[p] = (vol_mom * vol_accel)**0.5
             d_bear[p] = (vol_mom * vol_accel)**0.5
+            
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
