@@ -1196,12 +1196,10 @@ class IntelligenceLayer:
 
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """
-        【探针V2.0.0 · 四象限同步版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
-        - 核心升级: 全面同步 V2.0.0 引擎的 [-1, 1] 双极分数逻辑。
-                    1. 使用 normalize_to_bipolar 替换 normalize_score。
-                    2. 使用加权平均法替换乘法来融合趋势和加速度。
+        【探针V2.1.0 · 心电图检测版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
+        - 核心升级: 新增“心电图检测”功能，如果输入信号是恒定值，将直接报告根本原因。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.0.0】 ---") # 更新版本号和注释
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.1.0】 ---") # [代码修改] 更新版本号
         
         df = self.strategy.df_indicators
         engine = self.process_intel
@@ -1219,9 +1217,30 @@ class IntelligenceLayer:
             # --- 解剖第一维：瞬时关系分 ---
             print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于量化力学模型) ---")
             
-            # 探针现在从 V2.0.0 引擎获取动量和推力
             momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
             thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+            
+            # [代码新增] --- 心电图检测 ---
+            if pd.isna(momentum_a) or pd.isna(thrust_b):
+                # 智能数据源选择逻辑
+                def get_signal_series(sig_name: str, source_type: str):
+                    if source_type == 'atomic_states':
+                        return self.strategy.atomic_states.get(sig_name)
+                    return df.get(sig_name)
+
+                series_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
+                series_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
+
+                if series_a is not None and series_a.nunique() <= 1:
+                    print(f"       - [!!! 根本原因定位 !!!] 信号 '{signal_a_name}' 在近期是一个恒定值，其变化量为0，导致动量A无法计算(NaN)。")
+                    print(f"       - [诊断建议] 请检查生成 '{signal_a_name}' 的情报引擎，是否存在因数据缺失而返回固定默认值的BUG。")
+                    continue # 跳到下一个任务的解剖
+                if series_b is not None and series_b.nunique() <= 1:
+                    print(f"       - [!!! 根本原因定位 !!!] 信号 '{signal_b_name}' 在近期是一个恒定值，其变化量为0，导致推力B无法计算(NaN)。")
+                    print(f"       - [诊断建议] 请检查生成 '{signal_b_name}' 的情报引擎，是否存在因数据缺失而返回固定默认值的BUG。")
+                    continue # 跳到下一个任务的解剖
+            # [代码新增结束]
+
             relationship_score_today = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
             
             series_a = df.get(signal_a_name, pd.Series(dtype=float))
