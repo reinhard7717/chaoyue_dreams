@@ -247,47 +247,44 @@ class BehavioralIntelligence:
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
         """
-        【V2.3 · 回归本源版】
-        - 核心修复: 彻底废除之前将K线动态分与MA信号错误关联的灾难性设计。
-        - 新哲学: K线动态健康度回归本源，定义为其“静态健康度”自身的变化趋势（斜率）。
-                      这确保了动态分逻辑的内聚性、正确性和范围约束。
+        【V2.4 · 数据流重建版】
+        - 核心修复: 全面修正了本方法消费的原子信号名称，使其与 `_generate_all_atomic_signals` 实际产出的信号完全对齐，
+                      彻底解决了因消费“幽灵信号”导致的计算错误和分数异常问题。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        # --- 静态分计算 (逻辑保持不变) ---
-        strong_close = normalize_score(atomic_signals.get('SCORE_ATOMIC_STRONG_CLOSE'), df.index, norm_window, True, min_periods)
-        gap_support = normalize_score(atomic_signals.get('SCORE_ATOMIC_GAP_SUPPORT'), df.index, norm_window, True, min_periods)
-        earth_heaven = normalize_score(atomic_signals.get('SCORE_OPP_EARTH_HEAVEN_BOARD'), df.index, norm_window, True, min_periods)
-        gentle_rise = normalize_score(atomic_signals.get('SCORE_ATOMIC_GENTLE_RISE'), df.index, norm_window, True, min_periods)
+        # [代码修改] 核心修复：全面修正消费的原子信号名称，确保与生产者一致
+        # --- 静态分计算 (逻辑保持不变，信号名修正) ---
+        strong_close = normalize_score(atomic_signals.get('SCORE_PRICE_POSITION_IN_RANGE', pd.Series(0.5, index=df.index)), df.index, norm_window, True, min_periods)
+        gap_support = normalize_score(atomic_signals.get('SCORE_GAP_SUPPORT_ACTIVE', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        earth_heaven = normalize_score(atomic_signals.get('SCORE_BOARD_EARTH_HEAVEN', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        # 为 gentle_rise 创建一个合理的代理：涨幅不大但为正
+        gentle_rise_raw = df['pct_change_D'].clip(0, 0.03) / 0.03
+        gentle_rise = normalize_score(gentle_rise_raw, df.index, norm_window, True, min_periods)
+        
         static_bull_score = pd.Series(np.maximum.reduce([
             strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values
         ]), index=df.index).astype(np.float32)
 
-        weak_close = normalize_score(atomic_signals.get('SCORE_ATOMIC_WEAK_CLOSE'), df.index, norm_window, True, min_periods)
-        upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION'), df.index, norm_window, True, min_periods)
-        heaven_earth = normalize_score(atomic_signals.get('SCORE_RISK_HEAVEN_EARTH_BOARD'), df.index, norm_window, True, min_periods)
-        sharp_drop = normalize_score(atomic_signals.get('SCORE_ATOMIC_SHARP_DROP'), df.index, norm_window, True, min_periods)
+        weak_close = 1.0 - strong_close
+        upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        heaven_earth = normalize_score(atomic_signals.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        sharp_drop = normalize_score(atomic_signals.get('SCORE_KLINE_SHARP_DROP', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        
         static_bear_score = pd.Series(np.maximum.reduce([
             weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
         ]), index=df.index).astype(np.float32)
 
-        # 动态分回归本源：基于静态分自身的斜率计算
-        # --- 动态分计算 (全新逻辑) ---
+        # --- 动态分计算 (逻辑保持不变) ---
         for p in periods:
-            # 静态分赋值
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 计算静态分的p周期斜率
             bull_slope = static_bull_score.diff(p).fillna(0)
             bear_slope = static_bear_score.diff(p).fillna(0)
             
-            # 归一化斜率作为动态分
-            # 看涨动态：静态看涨分斜率越大越好
             d_bull[p] = normalize_score(bull_slope, df.index, norm_window, ascending=True)
-            # 看跌动态：静态看跌分斜率越大越糟 (风险增加)
             d_bear[p] = normalize_score(bear_slope, df.index, norm_window, ascending=True)
-        # [代码修改结束]
             
         return s_bull, d_bull, s_bear, d_bear
 

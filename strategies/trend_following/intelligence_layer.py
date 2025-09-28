@@ -825,7 +825,7 @@ class IntelligenceLayer:
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【探针V1.1 · 签名适配版】终极信号钻透式法医探针
+        【探针V1.2 · 签名适配版】终极信号钻透式法医探针
         - 核心修复: 增加了对不同情报引擎（特别是BehavioralIntelligence）的特殊函数签名的适配处理，
                       确保探针在调用其健康度计算方法时传递正确的参数，避免崩溃。
         """
@@ -920,14 +920,12 @@ class IntelligenceLayer:
                 
                 # [代码修改] 核心修复：为不同引擎的 calculator 提供正确的参数
                 if domain_upper == 'BEHAVIOR':
-                    # BehavioralIntelligence 的方法需要额外的 atomic_signals 参数
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
-                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, max(1, norm_window // 5), [period_to_probe])
+                    min_periods = max(1, norm_window // 5)
+                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
                 elif domain_upper == 'STRUCTURE':
-                    # StructuralIntelligence 的方法签名不同
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, [period_to_probe], norm_window, {})
                 else:
-                    # CHIP, DYN, FOUNDATION, FF 等引擎的通用签名
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, {}, [period_to_probe])
 
                 pillar_s_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
