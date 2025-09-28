@@ -43,98 +43,35 @@ class PlaybookEngine:
 
     def _get_playbook_blueprints(self) -> List[Dict]:
         """
-        【V7.0 · 终极信号适配版】剧本蓝图知识库
-        - 核心重构 (本次修改):
-          - [全面适配] 全面更新了所有剧本的触发器引用，使其与 `define_trigger_events` V9.0 版本完全同步。
-          - [新增剧本] 新增了基于周期信号的 `PLAYBOOK_CYCLICAL_BOTTOM_FISHING_A` 等新战术。
-        - 收益: 剧本库与信号工厂完全对齐，确保所有战术意图都能被正确执行。
+        【V7.1 · 信号净化版】剧本蓝图知识库
+        - 核心修复: 全面净化了所有剧本的名称和其引用的触发器名称，移除了所有等级后缀。
         """
         return [
-            # S++级 王牌剧本 (Ace Playbooks)
-            {
-                'name': 'PLAYBOOK_V_REVERSAL_ACE_S_PLUS',
-                'trigger': ['TRIGGER_V_REVERSAL_ACE_S_PLUS'],
-                'comment': 'S++级(王牌) - [V型反转] 在前一日确认的“恐慌抛售”后，由当日强劲的“显性反转K线”确认的最高确定性反转剧本。'
-            },
-            {
-                'name': 'PLAYBOOK_PRIME_STRUCTURE_BREAKOUT',
-                'trigger': ['TACTIC_PRIME_STRUCTURE_BREAKOUT'],
-                'comment': 'S++级(王牌) - [黄金结构突破] 在“黄金筹码+波动压缩+能量优势”的完美战备后，由点火共振确认的突破。'
-            },
-            {
-                'name': 'PLAYBOOK_PERFECT_STORM_BOTTOM_S_PLUS',
-                'trigger': ['COGNITIVE_OPP_PERFECT_STORM_BOTTOM_S_PLUS'],
-                'comment': 'S++级(王牌) - [完美风暴·底] 行为层、结构层、基础层信号在底部同时共振。'
-            },
-            # S+级 核心增强剧本
-            {
-                'name': 'PLAYBOOK_CRUISE_PIT_REVERSAL_S_PLUS',
-                'trigger': ['TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS'],
-                'comment': 'S+级 - [巡航深坑反转] 在主升浪巡航阶段，出现“打压式”回踩后，由反转信号确认的黄金坑买点。'
-            },
-            {
-                'name': 'PLAYBOOK_CRUISE_PULLBACK_REVERSAL_S_PLUS',
-                'trigger': ['TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS'],
-                'comment': 'S+级 - [巡航回踩反转] 在主升浪巡航阶段，出现“健康”回踩后，由反转信号确认的买点。'
-            },
-            {
-                'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS',
-                'trigger': ['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS'],
-                'comment': 'S+级 - [极致压缩突破] 在波动率极致压缩后，由高强度的压缩突破信号确认。'
-            },
-            # S级 核心剧本
-            {
-                'name': 'PLAYBOOK_BREAKOUT_EVE_S',
-                'trigger': ['PLAYBOOK_BREAKOUT_EVE_S'],
-                'comment': 'S级 - [突破前夜] 在平台和波动率双重压缩的突破前夜，由最高级别的点火共振信号确认。'
-            },
-            {
-                'name': 'PLAYBOOK_CHIP_PRICE_LAG_S',
-                'trigger': ['PLAYBOOK_CHIP_PRICE_LAG_S'],
-                'comment': 'S级 - [筹码价格滞后] 在筹码高度共振、价格被压制的战备状态后，由温和点火信号确认的黄金突破口。'
-            },
-            # A+级 优势战术剧本
-            {
-                'name': 'PLAYBOOK_ASCENT_PIT_REVERSAL',
-                'trigger': ['TACTIC_ASCENT_PIT_REVERSAL'],
-                'comment': 'A+级 - [初升浪深坑反转] 在初升浪阶段，出现“打压式”回踩后，由反转信号确认的买点。'
-            },
-            # A级 战术剧本
-            {
-                'name': 'PLAYBOOK_ASCENT_PULLBACK_REVERSAL_A',
-                'trigger': ['TACTIC_ASCENT_PULLBACK_REVERSAL_A'],
-                'comment': 'A级 - [初升浪回踩反转] 在初升浪阶段，出现“健康”回踩后，由反转信号确认的买点。'
-            },
-            {
-                'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A',
-                'trigger': ['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A'],
-                'comment': 'A级 - [常规压缩突破] 在常规波动率压缩后，由任意压缩突破信号确认。'
-            },
-            {
-                'name': 'PLAYBOOK_MEAN_REVERSION_GRID_A',
-                'trigger': ['TRIGGER_MEAN_REVERSION_GRID_BUY_A'],
-                'comment': 'A级 - [均值回归网格] 在震荡市中，于价格触及统计下轨时买入。'
-            },
-            {
-                'name': 'PLAYBOOK_CYCLICAL_BOTTOM_FISHING_A',
-                'trigger': ['TRIGGER_CYCLICAL_BOTTOM_FISHING_A'],
-                'comment': 'A级(新增) - [周期底捞] 在FFT周期信号指示波谷，且出现反转K线时买入。'
-            },
+            # 全面净化剧本名称
+            {'name': 'PLAYBOOK_V_REVERSAL_ACE', 'trigger': ['TRIGGER_V_REVERSAL_ACE']},
+            {'name': 'PLAYBOOK_PRIME_STRUCTURE_BREAKOUT', 'trigger': ['TACTIC_PRIME_STRUCTURE_BREAKOUT']},
+            {'name': 'PLAYBOOK_PERFECT_STORM_BOTTOM', 'trigger': ['COGNITIVE_OPP_PERFECT_STORM_BOTTOM']},
+            {'name': 'PLAYBOOK_CRUISE_PIT_REVERSAL', 'trigger': ['TACTIC_CRUISE_PIT_REVERSAL']},
+            {'name': 'PLAYBOOK_CRUISE_PULLBACK_REVERSAL', 'trigger': ['TACTIC_CRUISE_PULLBACK_REVERSAL']},
+            {'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION', 'trigger': ['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION']},
+            {'name': 'PLAYBOOK_BREAKOUT_EVE', 'trigger': ['PLAYBOOK_BREAKOUT_EVE']},
+            {'name': 'PLAYBOOK_CHIP_PRICE_LAG', 'trigger': ['PLAYBOOK_CHIP_PRICE_LAG']},
+            {'name': 'PLAYBOOK_ASCENT_PIT_REVERSAL', 'trigger': ['TACTIC_ASCENT_PIT_REVERSAL']},
+            {'name': 'PLAYBOOK_ASCENT_PULLBACK_REVERSAL', 'trigger': ['TACTIC_ASCENT_PULLBACK_REVERSAL']},
+            {'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT', 'trigger': ['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT']},
+            {'name': 'PLAYBOOK_MEAN_REVERSION_GRID', 'trigger': ['TRIGGER_MEAN_REVERSION_GRID_BUY']},
+            {'name': 'PLAYBOOK_CYCLICAL_BOTTOM_FISHING', 'trigger': ['TRIGGER_CYCLICAL_BOTTOM_FISHING']},
         ]
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 终极信号适配版】战术触发事件定义中心
-        - 核心重构 (本次修改):
-          - [全面适配] 全面审查并更新了所有触发器的定义，使其消费最新的终极原子信号。
-          - [新增触发器] 新增了基于周期信号的 `TRIGGER_CYCLICAL_BOTTOM_FISHING_A` 等触发器。
-        - 收益: 触发器工厂与信号体系完全同步，确保剧本引擎的决策基于最可靠的情报。
+        【V9.1 · 信号净化版】战术触发事件定义中心
+        - 核心修复: 全面净化了所有触发器的定义，使其消费和生产的都是净化后的信号名。
         """
-        # print("      -> [战术触发事件定义中心 V9.0 · 终极信号适配版] 启动...") # 更新版本号
+        # print("      -> [战术触发事件定义中心 V9.1 · 信号净化版] 启动...") # 更新版本号
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        default_series = pd.Series(False, index=df.index)
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
         
         # --- 1. 定义核心触发器：显性反转K线 ---
@@ -150,48 +87,53 @@ class PlaybookEngine:
         price_position = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
         position_score = 1.0 - price_position
         
-        candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A', default_score)
+        # 消费净化后的信号名
+        candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', default_score)
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score > get_param_value(p_dominant.get('trigger_threshold'), 0.4)
 
         # --- 2. 定义剧本触发器 ---
         # V型反转王牌剧本
-        setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING_S')
+        # 消费净化后的信号名
+        setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING')
         was_setup_yesterday = setup_score.shift(1).fillna(0.0) > get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4)
-        triggers['TRIGGER_V_REVERSAL_ACE_S_PLUS'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL']
+        # 生产净化后的信号名
+        triggers['TRIGGER_V_REVERSAL_ACE'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL']
 
         # 均值回归剧本
-        mean_reversion_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A')
-        triggers['TRIGGER_MEAN_REVERSION_GRID_BUY_A'] = mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)
+        # 消费净化后的信号名
+        mean_reversion_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY')
+        # 生产净化后的信号名
+        triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)
 
         # 周期底捞剧本 (新增)
         p_cyclical = p_triggers.get('cyclical_bottom_fishing', {})
         is_in_trough = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE').fillna(0) < get_param_value(p_cyclical.get('phase_threshold'), -0.8)
         is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > get_param_value(p_cyclical.get('cyclical_regime_threshold'), 0.3)
-        triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING_A'] = is_in_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
+        # 生产净化后的信号名
+        triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_in_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
 
         # --- 3. 填充其他剧本的布尔状态 (这些剧本的逻辑已在TacticEngine中计算) ---
-        # 这些信号已经是布尔型，直接从 atomic_states 中获取
+        # 全面净化信号名
         playbook_signals = [
-            'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION_S_PLUS',
-            'PLAYBOOK_BREAKOUT_EVE_S',
-            'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT_A',
-            'PLAYBOOK_CHIP_PRICE_LAG_S',
+            'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION',
+            'PLAYBOOK_BREAKOUT_EVE',
+            'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT',
+            'PLAYBOOK_CHIP_PRICE_LAG',
             'TACTIC_PRIME_STRUCTURE_BREAKOUT',
-            'TACTIC_CRUISE_PIT_REVERSAL_S_TRIPLE_PLUS',
-            'TACTIC_CRUISE_PULLBACK_REVERSAL_S_PLUS',
+            'TACTIC_CRUISE_PIT_REVERSAL',
+            'TACTIC_CRUISE_PULLBACK_REVERSAL',
             'TACTIC_ASCENT_PIT_REVERSAL',
-            'TACTIC_ASCENT_PULLBACK_REVERSAL_A',
+            'TACTIC_ASCENT_PULLBACK_REVERSAL',
         ]
         for signal_name in playbook_signals:
             triggers[signal_name] = self._get_atomic_score(df, signal_name, default=False).astype(bool)
 
-        # --- 4. 填充旧的、兼容性的触发器 (如果需要) ---
-        # 这里的逻辑可以根据需要保留或逐步废弃
-        # 例如，旧的 'TRIGGER_UPTREND_IGNITION_RESONANCE_S'
-        ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE_S')
-        is_in_main_uptrend = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.5
-        triggers['TRIGGER_UPTREND_IGNITION_RESONANCE_S'] = is_in_main_uptrend & (ignition_score > get_param_value(p_triggers.get('ignition_s_threshold'), 0.5))
+        # --- 4. 填充旧的、兼容性的触发器 (废弃) ---
+        # 废弃所有旧的、带后缀的触发器，以保持系统纯净
+        # ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE')
+        # is_in_main_uptrend = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.5
+        # triggers['TRIGGER_UPTREND_IGNITION_RESONANCE'] = is_in_main_uptrend & (ignition_score > get_param_value(p_triggers.get('ignition_s_threshold'), 0.5))
 
         # 确保所有触发器都是布尔类型
         for key in list(triggers.keys()):

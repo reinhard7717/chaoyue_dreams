@@ -17,9 +17,10 @@ class PatternIntelligence:
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        形态分析总指挥。
+        【V2.2 · 信号净化版】形态分析总指挥
+        - 核心修复: 净化了所有输出信号的名称，移除了 '_S' 后缀，以完全对齐信号字典。
         """
-        # print("      -> 正在运行 [形态智能引擎 V2.1 · 预测能力版]...") # 更新版本号和说明
+        # print("      -> 正在运行 [形态智能引擎 V2.2 · 信号净化版]...") # 更新版本号
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
             return {}
@@ -62,12 +63,16 @@ class PatternIntelligence:
         bullish_pattern_score = (rsi > 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
 
         states = {
-            'SCORE_PATTERN_BOTTOM_REVERSAL_S': bottom_pattern_score.astype(np.float32),
-            'SCORE_PATTERN_BULLISH_RESONANCE_S': bullish_pattern_score.astype(np.float32),
+            
+            'SCORE_PATTERN_BOTTOM_REVERSAL': bottom_pattern_score.astype(np.float32),
+            
+            'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
         }
         
-        states['SCORE_PATTERN_TOP_REVERSAL_S'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        states['SCORE_PATTERN_BEARISH_RESONANCE_S'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+        
+        states['SCORE_PATTERN_TOP_REVERSAL'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+        
+        states['SCORE_PATTERN_BEARISH_RESONANCE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
 
         return states
 

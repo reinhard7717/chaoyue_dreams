@@ -43,7 +43,7 @@ class BehavioralIntelligence:
             all_behavioral_states.update(ultimate_behavioral_states)
             # print(f"      -> [行为情报模块总指挥 V3.2] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
 
-        # 核心修复：返回包含所有状态的单一字典
+        # 返回包含所有状态的单一字典
         return all_behavioral_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
@@ -448,26 +448,21 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 新增】原子级“底部形态”诊断引擎
-        - 核心哲学: 响应指挥官指令，融合“生命线支撑”、“悲观情绪衰竭”、“波动率压缩”
-                      三位一体，科学、严谨地定义“底部形态”。
+        【V1.1 · 信号净化版】原子级“底部形态”诊断引擎
+        - 核心修复: 净化了输出信号的名称，移除了 '_S' 后缀。
         """
         states = {}
-        norm_window = 60 # 使用一个中等长度的窗口来评估状态
+        norm_window = 60 
 
         # --- 支柱一: 生命线支撑 (Proximity to MA55 Lifeline) ---
         ma55 = df.get('EMA_55_D', df['close_D'])
-        # 计算收盘价在MA55上方的距离，越小越好；如果在下方，则惩罚
         distance_from_ma55 = (df['close_D'] - ma55) / ma55
-        # 使用一个非线性的函数来评分，-2%到+5%之间为最佳区域
         lifeline_proximity_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2)
         
         # --- 支柱二: 悲观情绪衰竭 (Pessimism Exhaustion) ---
-        # 近期RSI是否进入过超卖区
         rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         was_rsi_oversold = (rsi.rolling(window=10).min() < 35).astype(float)
         
-        # 价格是否处于年度低位区域
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
         deep_bottom_context_score = 1.0 - price_pos_yearly
         
@@ -477,9 +472,9 @@ class BehavioralIntelligence:
         vol_compression_score = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
 
         # --- 最终融合 ---
-        # 三大支柱相乘，形成最终的底部形态分数
         final_score = (lifeline_proximity_score * pessimism_exhaustion_score * vol_compression_score).astype(np.float32)
-        states['SCORE_ATOMIC_BOTTOM_FORMATION_S'] = final_score
+        
+        states['SCORE_ATOMIC_BOTTOM_FORMATION'] = final_score
         
         return states
 

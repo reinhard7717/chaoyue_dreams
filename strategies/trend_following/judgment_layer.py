@@ -55,7 +55,7 @@ class JudgmentLayer:
         vetoed_by_hard_exit = is_score_sufficient & is_hard_exit_veto & ~is_dynamic_veto
         df.loc[vetoed_by_hard_exit, 'signal_type'] = '趋势否决' # 更具体的否决原因
         
-        # 核心修复：对所有被否决的信号执行“分数清零”
+        # 对所有被否决的信号执行“分数清零”
         # 这一步确保了报告中的分数与最终决策严格一致
         all_veto_conditions = vetoed_by_dynamic | vetoed_by_hard_exit
         df.loc[all_veto_conditions, 'final_score'] = 0

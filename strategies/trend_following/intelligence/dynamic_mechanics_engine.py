@@ -23,7 +23,7 @@ class DynamicMechanicsEngine:
         if ultimate_dynamic_states:
             # self.strategy.atomic_states.update(ultimate_dynamic_states) # IntelligenceLayer会做这个
             # print(f"    -> [动态力学引擎总指挥 V4.1] 分析完毕，共生成 {len(ultimate_dynamic_states)} 个终极动态力学信号。")
-            # 核心修复：返回包含所有状态的单一字典
+            # 返回包含所有状态的单一字典
             return ultimate_dynamic_states
         return {} # 如果没有生成信号，返回一个空字典
 

@@ -87,12 +87,12 @@ class IntelligenceLayer:
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
         
-        # 核心修复：使用 update_states 接收 behavioral_intel 返回的战报
+        # 使用 update_states 接收 behavioral_intel 返回的战报
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         
-        # 核心修复：使用 update_states 接收 mechanics_engine 返回的战报
+        # 使用 update_states 接收 mechanics_engine 返回的战报
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         
         update_states(self.pattern_intel.run_pattern_analysis_command(df))

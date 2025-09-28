@@ -50,7 +50,7 @@ class ChipIntelligence:
 
         # print(f"        -> [筹码情报最高司令部 V500.1] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
         
-        # 核心修复：只返回包含所有状态的单一字典
+        # 只返回包含所有状态的单一字典
         return all_chip_states
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

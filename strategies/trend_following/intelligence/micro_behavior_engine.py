@@ -25,10 +25,10 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 风险升级版】微观行为诊断引擎总指挥
-        - 核心升级: 新增了 synthesize_post_peak_downturn_risk 模块，用于识别高位回落风险。
+        【V2.3 · 信号净化版】微观行为诊断引擎总指挥
+        - 核心修复: 净化了所有输出信号的名称，移除了等级后缀，以完全对齐信号字典。
         """
-        # print("      -> [微观行为诊断引擎 V2.2 · 风险升级版] 启动...") # 更新版本号
+        # print("      -> [微观行为诊断引擎 V2.3 · 信号净化版] 启动...") # 更新版本号
         all_states = {}
 
         def update_states(new_states: Dict[str, pd.Series]):
@@ -41,10 +41,10 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         
-        # 调用全新的“高位回落风险”诊断引擎
         update_states(self.synthesize_post_peak_downturn_risk(df))
         
-        early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A')
+        # 消费净化后的信号名
+        early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION')
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
@@ -54,10 +54,9 @@ class MicroBehaviorEngine:
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 纯粹形态版】早期动能点火诊断模块
-        - 核心职责: 作为一个纯粹的、强大的“大阳线质量分”识别器。
+        【V8.1 · 信号净化版】早期动能点火诊断模块
         """
-        # print("        -> [早期动能点火诊断模块 V8.0 · 纯粹形态版] 启动...")
+        # print("        -> [早期动能点火诊断模块 V8.1 · 信号净化版] 启动...") # 更新版本号
         states = {}
         candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         body_size = (df['close_D'] - df['open_D']).clip(lower=0)
@@ -65,12 +64,13 @@ class MicroBehaviorEngine:
         position_in_range_score = ((df['close_D'] - df['low_D']) / candle_range).fillna(0.0)
         momentum_strength_score = (df['pct_change_D'] / 0.10).clip(0, 1).fillna(0.0)
         final_score = (body_strength_score * position_in_range_score * momentum_strength_score).astype(np.float32)
-        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION_A'] = final_score
+        # 移除信号名中的 '_A' 后缀
+        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'] = final_score
         return states
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 重构版】伪装散户吸筹诊断引擎
+        【V2.3 · 信号净化版】伪装散户吸筹诊断引擎
         """
         states = {}
         p = get_params_block(self.strategy, 'deceptive_flow_params', {})
@@ -79,7 +79,6 @@ class MicroBehaviorEngine:
         norm_window = get_param_value(p.get('norm_window'), 120)
         retail_inflow_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BEARISH_RESONANCE')
         
-        # 调用 utils.normalize_score 并传入 df.index
         chip_concentration_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
         price_suppression_score = normalize_score(df.get('SLOPE_5_close_D').abs(), df.index, norm_window, ascending=False)
         vpa_inefficiency_score = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
@@ -88,7 +87,8 @@ class MicroBehaviorEngine:
             retail_inflow_score * chip_concentration_score *
             price_suppression_score * vpa_inefficiency_score
         ).astype(np.float32)
-        states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION_S'] = final_score
+        
+        states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION'] = final_score
         return states
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
