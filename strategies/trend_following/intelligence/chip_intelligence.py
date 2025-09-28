@@ -237,25 +237,30 @@ class ChipIntelligence:
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.2 · 终极哲学统一版】计算高级动态健康度"""
+        """
+        【V3.3 · 逻辑修复版】计算高级动态健康度
+        - 核心修复: 修正了静态看涨分(s_bull)的计算逻辑，将错误的惩罚项 `(1.0 - is_multi_peak_series)` 移除，
+                      彻底解决了因“多峰形态”导致看涨分被归零的问题。
+        """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
         required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             print(f"        -> [筹码情报-高级动态健康度] 警告: 缺少关键数据列 {missing_cols}，模块已跳过！")
-            return s_bull, d_bull, s_bear, d_bear
+            # [代码新增] 确保在跳过时返回空的字典，避免下游错误
+            return {}, {}, {}, {}
 
         is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
 
-        overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window) * (1.0 - is_multi_peak_series))**(1/4)
+        # [代码修改] 核心修复：从静态看涨分的计算中移除错误的惩罚项 `(1.0 - is_multi_peak_series)`
+        overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
         overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            # 根除所有动态分计算中的加法
             d_bull_control_slope = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), df.index, norm_window)
             d_bull_control_accel = normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), df.index, norm_window)
             d_bull_control = (d_bull_control_slope * d_bull_control_accel)**0.5
@@ -274,7 +279,6 @@ class ChipIntelligence:
             d_bear_stability = (d_bear_stability_slope * d_bear_stability_accel)**0.5
             d_bear[p] = (d_bear_control * d_bear_stability)**0.5
             
-
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:

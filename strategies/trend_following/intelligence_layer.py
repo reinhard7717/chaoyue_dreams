@@ -825,10 +825,9 @@ class IntelligenceLayer:
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【探针V1.0 · 新增】终极信号钻透式法医探针
-        - 核心功能: 对任何一个终极信号，从最终结果开始，逐层向下钻透，
-                      打印出其完整计算链路上的每一个中间值，直至最底层的原子输入。
-        - 使用方法: 在 `deploy_forensic_probes` 中调用此方法，并指定日期、领域(domain)和信号类型。
+        【探针V1.1 · 签名适配版】终极信号钻透式法医探针
+        - 核心修复: 增加了对不同情报引擎（特别是BehavioralIntelligence）的特殊函数签名的适配处理，
+                      确保探针在调用其健康度计算方法时传递正确的参数，避免崩溃。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -837,13 +836,13 @@ class IntelligenceLayer:
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # 动态获取参数
         params_key_map = {
             'CHIP': 'chip_ultimate_params', 'BEHAVIOR': 'behavioral_dynamics_params', 'FF': 'fund_flow_ultimate_params',
             'STRUCTURE': 'structural_ultimate_params', 'DYN': 'dynamic_mechanics_params', 'FOUNDATION': 'foundation_ultimate_params'
         }
         p_conf = get_params_block(self.strategy, params_key_map.get(domain_upper, ''), {})
         periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_conf.get('norm_window'), 120)
         
         final_score = atomic.get(signal_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"【顶层】最终信号得分: {final_score:.4f}")
@@ -851,7 +850,6 @@ class IntelligenceLayer:
         if final_score == 0.0:
             print("  - [初步诊断] 最终得分为0.0，极有可能是因为计算链路中某个环节的几何平均结果为0。开始向下钻透...")
         
-        # 1. 反推到多周期力
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         if not overall_health:
@@ -865,7 +863,6 @@ class IntelligenceLayer:
             health_components = {p: overall_health['s_bull'].get(p, pd.Series(0.5)) * overall_health['d_bull'].get(p, pd.Series(0.5)) for p in periods}
         elif signal_type == 'BEARISH_RESONANCE':
             health_components = {p: overall_health['s_bear'].get(p, pd.Series(0.5)) * overall_health['d_bear'].get(p, pd.Series(0.5)) for p in periods}
-        # 可以为 BOTTOM_REVERSAL 和 TOP_REVERSAL 添加更多逻辑
         else:
             print(f"  - [探针警告] 未知的信号类型 '{signal_type}'，无法继续解剖。")
             return
@@ -881,8 +878,7 @@ class IntelligenceLayer:
         if short_force == 0 or medium_force == 0 or long_force == 0:
              print("    - [关键发现] 至少有一股力量为0，这是导致最终得分为0的直接原因。")
 
-        # 2. 反推到健康度
-        period_to_probe = 1 # 以最短周期为例进行钻透
+        period_to_probe = 1
         print(f"\n  [链路层 2] 反推 -> {period_to_probe}日健康度")
         health_score = health_components.get(period_to_probe, default_series).get(probe_date, 0.5)
         
@@ -896,16 +892,11 @@ class IntelligenceLayer:
         if s_score == 0 or d_score == 0:
              print(f"    - [关键发现] {s_type} 或 {d_type} 为0，这是导致健康度为0的原因。")
 
-        # 3. 反推到支柱融合
         print(f"\n  [链路层 3] 反推 -> 构成 {s_type} 和 {d_type} 的各个支柱分数")
         
         engine_map = {
-            'CHIP': (self.chip_intel, list(get_params_block(self.strategy, 'chip_ultimate_params').get('pillar_weights', {}).keys())),
-            'BEHAVIOR': (self.behavioral_intel, list(get_params_block(self.strategy, 'behavioral_dynamics_params').get('pillar_weights', {}).keys())),
-            'FF': (self.fund_flow_intel, list(get_params_block(self.strategy, 'fund_flow_ultimate_params').get('resonance_pillar_weights', {}).keys())),
-            'STRUCTURE': (self.structural_intel, ['ma', 'mechanics', 'mtf', 'pattern']),
-            'DYN': (self.mechanics_engine, list(get_params_block(self.strategy, 'dynamic_mechanics_params').get('pillar_weights', {}).keys())),
-            'FOUNDATION': (self.foundation_intel, list(get_params_block(self.strategy, 'foundation_ultimate_params').get('pillar_weights', {}).keys()))
+            'CHIP': self.chip_intel, 'BEHAVIOR': self.behavioral_intel, 'FF': self.fund_flow_intel,
+            'STRUCTURE': self.structural_intel, 'DYN': self.mechanics_engine, 'FOUNDATION': self.foundation_intel
         }
         calc_map = {
             'CHIP': [('_calculate_quantitative_health', 'quantitative'), ('_calculate_advanced_dynamics_health', 'advanced'), ('_calculate_internal_structure_health', 'internal'), ('_calculate_holder_behavior_health', 'holder'), ('_calculate_fault_health', 'fault')],
@@ -915,7 +906,7 @@ class IntelligenceLayer:
             'FOUNDATION': [('_calculate_ema_health', 'ema'), ('_calculate_rsi_health', 'rsi'), ('_calculate_macd_health', 'macd'), ('_calculate_cmf_health', 'cmf')]
         }
         
-        engine_instance, pillar_names = engine_map.get(domain_upper, (None, []))
+        engine_instance = engine_map.get(domain_upper)
         pillar_calculators = calc_map.get(domain_upper, [])
 
         if not engine_instance:
@@ -926,10 +917,25 @@ class IntelligenceLayer:
         for calc_func_name, pillar_name in pillar_calculators:
             try:
                 calculator = getattr(engine_instance, calc_func_name)
-                # 重新计算以获取独立的支柱分数
-                s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, p_conf.get('norm_window', 120), {}, [period_to_probe])
                 
-                pillar_s_score = s_bull_pillar[period_to_probe].get(probe_date, 0.5) if s_type == 's_bull' else s_bear_pillar[period_to_probe].get(probe_date, 0.5)
+                # [代码修改] 核心修复：为不同引擎的 calculator 提供正确的参数
+                if domain_upper == 'BEHAVIOR':
+                    # BehavioralIntelligence 的方法需要额外的 atomic_signals 参数
+                    atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
+                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, max(1, norm_window // 5), [period_to_probe])
+                elif domain_upper == 'STRUCTURE':
+                    # StructuralIntelligence 的方法签名不同
+                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, [period_to_probe], norm_window, {})
+                else:
+                    # CHIP, DYN, FOUNDATION, FF 等引擎的通用签名
+                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, {}, [period_to_probe])
+
+                pillar_s_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
+                if pillar_s_score_series is None:
+                    print(f"      - {pillar_name} 支柱贡献分: [计算失败，未返回Series]")
+                    continue
+                
+                pillar_s_score = pillar_s_score_series.get(probe_date, 0.5)
                 print(f"      - {pillar_name} 支柱贡献分: {pillar_s_score:.4f}")
                 if pillar_s_score == 0:
                     print(f"        - [!!! 根本原因嫌疑 !!!] {pillar_name} 支柱的 {s_type} 分数为0，这可能是导致上层融合结果为0的根源！")
