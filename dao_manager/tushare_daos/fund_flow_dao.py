@@ -77,7 +77,7 @@ class FundFlowDao(BaseDAO):
 
     async def save_history_fund_flow_daily_data(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> None:
         """
-        保存历史日级资金流向数据 (终极优化版 V3 - 客户端分块策略)
+        保存历史日级资金流向数据 (终极优化版 V3.1 - 字段补全)
         1. [重构] 废弃低效的“10万行追溯”逻辑。
         2. 采用客户端分块策略，将大日期范围切分为多个小块（如90天/块）进行处理。
         3. [优化] 对每个小块使用 limit/offset 进行高效分页，避免Tushare的查询限制和性能瓶颈。
@@ -88,28 +88,25 @@ class FundFlowDao(BaseDAO):
             logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
             return
 
-        # 如果是范围查询
         if start_date and end_date:
             logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的数据采用客户端分块策略处理。")
-        # 如果是单日查询
         elif trade_date:
             start_date = end_date = trade_date
             logger.info(f"接收到单日任务: {trade_date}")
-        # 默认情况，获取当天
         else:
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
 
         # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
-        chunk_size_days = 10  # 每个分块的大小（天数），90天是一个比较安全且高效的选择
+        chunk_size_days = 10
         current_chunk_end = end_date
         while current_chunk_end >= start_date:
             current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
             date_chunks.append((current_chunk_start, current_chunk_end))
             current_chunk_end = current_chunk_start - timedelta(days=1)
         
-        all_dfs_for_market = [] # 用于收集所有分块的数据
+        all_dfs_for_market = []
 
         # --- 3. [重构] 遍历分块并使用分页获取数据 ---
         for chunk_start, chunk_end in date_chunks:
@@ -118,45 +115,42 @@ class FundFlowDao(BaseDAO):
             print(f"DAO: 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
 
             offset = 0
-            limit = 6000 # Tushare建议的单次最大limit
+            limit = 6000
             
-            # 内层分页循环 (此逻辑保持不变，但现在作用于小块)
             while True:
                 try:
-                    # API调用现在使用分块的起止日期
                     df = self.ts_pro.moneyflow(**{
-                        "ts_code": "", "trade_date": "", # 范围查询时，trade_date应为空
+                        "ts_code": "", "trade_date": "",
                         "start_date": chunk_start_str, "end_date": chunk_end_str, 
                         "limit": limit, "offset": offset
                     }, fields=[
                         "ts_code", "trade_date", "buy_sm_vol", "buy_sm_amount", "sell_sm_vol", "sell_sm_amount", 
                         "buy_md_vol", "buy_md_amount", "sell_md_vol", "sell_md_amount", "buy_lg_vol", "buy_lg_amount", 
                         "sell_lg_vol", "sell_lg_amount", "buy_elg_vol", "buy_elg_amount", "sell_elg_vol", "sell_elg_amount", 
-                        "net_mf_vol", "net_mf_amount"
+                        "net_mf_vol", "net_mf_amount", "trade_count"  # [代码修改] 新增 trade_count 字段，以获取交易笔数
                     ])
-                    await asyncio.sleep(0.55) # 保持友好的API调用频率
+                    await asyncio.sleep(0.55)
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (moneyflow, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
-                    await asyncio.sleep(5) # 出错时等待更长时间
+                    await asyncio.sleep(5)
                     df = pd.DataFrame()
 
                 if df.empty:
-                    break # 当前分块的当前分页无数据，结束此分块的分页
+                    break
                 
                 all_dfs_for_market.append(df)
                 
                 if len(df) < limit:
-                    break # 当前分块的数据已全部获取完毕
+                    break
                 
                 offset += limit
-                # 移除旧的10万行限制逻辑，因为分块策略使其不再必要
         
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何资金流向数据。")
             return
 
         # --- 4. [保留] 向量化数据处理与入库 (此部分逻辑完全不变) ---
-        print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
+        # print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
@@ -188,7 +182,7 @@ class FundFlowDao(BaseDAO):
             )
             total_rows += len(data_list)
 
-        print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
+        # print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
         return
 
     # ============== 个股日级资金流向数据 - 同花顺 ==============
