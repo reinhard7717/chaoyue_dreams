@@ -1419,7 +1419,6 @@ def cleanup_non_trade_day_data():
 #      数据修复任务 (Data Repair Tasks)
 # ===================================================
 
-# 【代码新增】
 def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.date, datetime.date]]:
     """
     辅助函数：将一个日期列表合并为连续的日期范围。
@@ -1444,7 +1443,6 @@ def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.
         
     return ranges
 
-# 【代码新增】
 @celery_app.task(name='tasks.stock_time_trade_tasks.repair_missing_cyq_data_for_stock', queue='SaveHistoryData_TimeTrade', bind=True)
 @with_cache_manager
 def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
@@ -1472,7 +1470,7 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
                 # 对于筹码分布表，每天有多条记录，需要去重
                 return set(qs.values_list('trade_time', flat=True).distinct())
             return set(qs.values_list('trade_time', flat=True))
-        # 【代码新增】获取指定范围内的交易日历的辅助函数
+        # 获取指定范围内的交易日历的辅助函数
         @sync_to_async(thread_sensitive=True)
         def get_trade_calendar_dates(min_date, max_date):
             """从交易日历中获取指定范围内的所有开市日期"""
@@ -1545,7 +1543,6 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
         logger.error(f"[{stock_code}] [数据修复] 执行修复任务时发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e)
 
-# 【代码新增】
 @celery_app.task(name='tasks.stock_time_trade_tasks.schedule_repair_missing_cyq_data', queue='celery', bind=True)
 @with_cache_manager
 def schedule_repair_missing_cyq_data(self, *, cache_manager: CacheManager):

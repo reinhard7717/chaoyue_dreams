@@ -284,7 +284,7 @@ class TradeCalendar(models.Model):
         next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
         return next_date
 
-    # --- 【代码新增】从这里开始添加三个新的类方法 ---
+    # --- 从这里开始添加三个新的类方法 ---
     @classmethod
     def get_trade_dates_between(cls, start_date: datetime.date, end_date: datetime.date, exchange: str = 'SSE') -> list[datetime.date]:
         """

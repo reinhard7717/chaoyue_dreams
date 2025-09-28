@@ -657,14 +657,14 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
 
 async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     """【辅助函数 V1.1 - 审计逻辑优化】异步加载所有原始数据源，并进行严格的数据审计。"""
-    # print(f"[{stock_info.stock_code}] [数据加载与审计] 开始加载所有数据源...") # 【代码新增】调试信息
+    # print(f"[{stock_info.stock_code}] [数据加载与审计] 开始加载所有数据源...") # 调试信息
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         qs = model.objects.filter(stock=stock_info_obj)
         if start_date:
             filter_kwargs = {f'{date_field}__gte': start_date}
             qs = qs.filter(**filter_kwargs)
-        # 【代码新增】增加对数据是否存在的整体检查
+        # 增加对数据是否存在的整体检查
         if not qs.exists():
             print(f"DEBUG: 数据源模型 {model.__name__} 中未找到股票 {stock_info_obj.stock_code} 的数据。")
             return pd.DataFrame() # 返回空的DataFrame
@@ -719,7 +719,7 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     if audit_warnings:
         full_warning_message = f"[{stock_info.stock_code}] [审计警告] 数据一致性检查发现非致命问题，任务将继续执行。详情如下：\n" + "\n".join(audit_warnings)
         logger.warning(full_warning_message) # 使用 warning 级别日志
-        print(full_warning_message) # 【代码新增】调试信息
+        print(full_warning_message) # 调试信息
     # print(f"[{stock_info.stock_code}] [数据加载与审计] 所有数据源加载并审计通过。") # 【代码修改】调整了消息文本
     return data_dfs
 
@@ -775,7 +775,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
 def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
     """【辅助函数 V1.0】逐日计算基础筹码指标。"""
     stock_code = merged_df['stock_code'].iloc[0] if 'stock_code' in merged_df.columns else 'UNKNOWN'
-    # print(f"[{stock_code}] [基础指标计算] 开始逐日计算基础筹码指标...") # 【代码新增】调试信息
+    # print(f"[{stock_code}] [基础指标计算] 开始逐日计算基础筹码指标...") # 调试信息
     all_metrics_list = []
     grouped_data = merged_df.groupby('trade_time')
     for trade_date, daily_full_df in grouped_data:
@@ -805,7 +805,7 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
     """【辅助函数 V1.3 - 健壮性与调试增强】自动化计算所有斜率、加速度和健康分等衍生指标。"""
     stock_code = stock_info.stock_code
-    # 【代码新增】在函数入口处增加整体存在性检查，如果DataFrame为空则直接跳过所有计算
+    # 在函数入口处增加整体存在性检查，如果DataFrame为空则直接跳过所有计算
     if final_metrics_df.empty:
         print(f"[{stock_code}] [衍生指标计算] 传入的DataFrame为空，跳过衍生指标计算。")
         return final_metrics_df
@@ -973,7 +973,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 @sync_to_async(thread_sensitive=True)
                 def get_past_data_async(model, s_info, start_date):
                     qs = model.objects.filter(stock=s_info, trade_time__gte=start_date)
-                    # 【代码新增】增加数据存在性检查
+                    # 增加数据存在性检查
                     if not qs.exists():
                         return pd.DataFrame()
                     return pd.DataFrame.from_records(qs.values())
