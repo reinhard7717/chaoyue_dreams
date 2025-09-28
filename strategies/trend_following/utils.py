@@ -202,8 +202,34 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict[str, pd.Serie
     
     return bottom_context_score, top_context_score
 
-
-
+def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
+    """
+    【V2.0.1 增强文档版】将序列归一化到 -1 到 1 的双极区间。
+    - 核心逻辑: 采用滚动Z-score并使用tanh函数进行平滑压缩，完美适用于四象限分析。
+    - 战略意义: 用于将一个指标的变化率或原始值，转化为一个同时蕴含【方向】和【强度】的标准化分数。
+                +1 代表极强的正向偏离，-1 代表极强的负向偏离，0 代表符合近期常态。
+                这对于构建“动量A vs 推力B”的力学模型至关重要。
+    - :param series: 原始数据序列。
+    - :param target_index: 目标DataFrame的索引。
+    - :param window: 滚动窗口大小，用于计算均值和标准差的“常态”区间。
+    - :param sensitivity: 敏感度因子。值越小，Z-score的绝对值越大，得分越快地趋近于±1，反应越灵敏。默认为1.0，代表标准Z-score。
+    - :param default_value: 默认填充值。
+    - :return: 归一化到(-1, 1)区间的pd.Series。
+    """
+    if series is None or series.isnull().all() or series.empty:
+        return pd.Series(default_value, index=target_index, dtype=np.float32)
+    series = series.reindex(target_index)
+    min_periods = max(1, int(window * 0.2))
+    # 计算滚动均值和标准差
+    rolling_mean = series.rolling(window=window, min_periods=min_periods).mean()
+    rolling_std = series.rolling(window=window, min_periods=min_periods).std()
+    # 避免除以零，如果窗口内值无波动，标准差为0，视为无偏离
+    rolling_std = rolling_std.replace(0, np.nan)
+    # 计算Z-score，sensitivity作为分母，调节敏感度
+    z_score = (series - rolling_mean) / (rolling_std * sensitivity)
+    # 使用tanh函数进行平滑压缩到(-1, 1)
+    bipolar_score = np.tanh(z_score)
+    return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
 
 
