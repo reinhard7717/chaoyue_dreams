@@ -497,13 +497,18 @@ class BehavioralIntelligence:
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V6.1 · 数据契约修正版】
+        - 核心修正: 修复了因依赖不存在的 'tr_D' 列而导致的 KeyError。
+        - 战术替换: 在“衰竭反转”信号的“姿态测试”中，使用数据层提供的标准指标 'ATR_14_D' 替代 'tr_D' 来衡量价格波动性。
+          这不仅解决了崩溃问题，还提升了代码的健壮性和专业性。
+        """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
         
-        # ... [保留SCORE_PRICE_POSITION_IN_RECENT_RANGE和SCORE_VOL_WEAKENING_DROP的计算] ...
         lookback_period = get_param_value(p.get('range_lookback'), 20)
         rolling_high = df['high_D'].rolling(window=lookback_period).max()
         rolling_low = df['low_D'].rolling(window=lookback_period).min()
@@ -518,26 +523,33 @@ class BehavioralIntelligence:
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
 
-        # [代码修改] 修正“流动性枯竭风险”信号，使其更关注长期趋势
         p_drain = p.get('liquidity_drain_params', {})
-        drain_window = get_param_value(p_drain.get('window'), 20) # 使用更长的窗口(例如20天)来捕捉“慢性”特征
+        drain_window = get_param_value(p_drain.get('window'), 20)
         price_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_close_D'), df.index, norm_window, ascending=False)
         volume_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_volume_D'), df.index, norm_window, ascending=False)
-        liquidity_drain_score = (price_trend_score * volume_trend_score)**0.5 # 简化为价格和成交量的长期趋势
+        liquidity_drain_score = (price_trend_score * volume_trend_score)**0.5
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score.astype(np.float32)
 
-        # [代码新增] 创建全新的“衰竭反转”看涨信号
         p_rev = p.get('exhaustion_reversal_params', {})
-        rev_window = get_param_value(p_rev.get('window'), 5) # 使用较短窗口(例如5天)捕捉“企稳”特征
-        # 姿态测试: 价格在短期内拒绝创新低，波动收窄
+        rev_window = get_param_value(p_rev.get('window'), 5)
+        
+        # --- 姿态测试: 价格在短期内拒绝创新低，波动收窄 ---
         is_stabilizing = (df['low_D'] >= df['low_D'].rolling(rev_window).min()).astype(int)
-        price_volatility = df['tr_D'].rolling(rev_window).mean()
+        
+        # [代码修改] 使用 'ATR_14_D' 替换不存在的 'tr_D'
+        # ATR_14_D 是一个更标准、更可靠的波动率指标
+        price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index)) # 使用get增加健壮性，如果ATR也没有，则用当日振幅作为备用
+        
+        # 波动率越低，企稳分数越高 (ascending=False)
         stabilization_score = is_stabilizing * normalize_score(price_volatility, df.index, norm_window, ascending=False)
-        # 极态测试: 成交量达到近期地量水平
+        
+        # --- 极态测试: 成交量达到近期地量水平 ---
         volume_dry_up_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        # 上下文: 发生在深跌之后更有意义 (复用之前的close_position_in_range)
+        
+        # --- 上下文: 发生在深跌之后更有意义 ---
         context_score = 1 - close_position_in_range
-        # 融合三个测试，得到最终的衰竭反转分
+        
+        # --- 融合三个测试，得到最终的衰竭反转分 ---
         exhaustion_reversal_score = (stabilization_score * volume_dry_up_score * context_score)
         states['SCORE_BULLISH_EXHAUSTION_REVERSAL'] = exhaustion_reversal_score.astype(np.float32)
         
