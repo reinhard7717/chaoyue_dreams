@@ -1110,7 +1110,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.2 · 修正版】计算共识指标和基础比率。"""
+    """【资金流辅助函数 V1.3 · avg_order_value 修正版】计算共识指标和基础比率。"""
     # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标...")
     df = merged_df.copy()
     # --- 1. 计算共识资金流 ---
@@ -1118,8 +1118,6 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['main_force_net_flow_consensus'] = df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
     df['retail_net_flow_consensus'] = df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
     df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
-    # [代码新增] 补全对大单、中单、小单净流入的共识计算
-    # 注意：目前只有tushare源提供了这些细分数据，所以这里的.mean()实际上只是取tushare的值，但保留了未来扩展性
     df['net_lg_amount_consensus'] = df[['net_lg_amount_tushare']].mean(axis=1)
     df['net_md_amount_consensus'] = df[['net_md_amount_tushare']].mean(axis=1)
     df['net_sh_amount_consensus'] = df[['net_sh_amount_tushare']].mean(axis=1)
@@ -1127,40 +1125,46 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
     # --- 3. 计算高级比率指标 (修正逻辑) ---
-    # 辅助函数，用于安全地处理除以0的情况
     safe_denom = lambda v: v.replace(0, np.nan)
     fill_na_safe = lambda series, fill_val: series.fillna(fill_val)
-    # [代码修改] 主力买入额现在从上游正确传递
     main_force_buy = df.get('main_force_active_buy_tushare', pd.Series(dtype=float))
-    # [代码修改] 散户卖出额现在从上游正确传递
     retail_sell = df.get('sell_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_md_amount', pd.Series(dtype=float)).fillna(0)
     df['active_buy_pressure'] = fill_na_safe((main_force_buy / safe_denom(retail_sell)), 0.5)
-    # [代码修改] 散户买卖额现在从上游正确传递
     retail_sell_amount = df.get('sell_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_md_amount', pd.Series(dtype=float)).fillna(0)
     retail_buy_amount = df.get('buy_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('buy_md_amount', pd.Series(dtype=float)).fillna(0)
     df['retail_panic_index'] = fill_na_safe((retail_sell_amount / safe_denom(retail_buy_amount)), 1.0)
-    # [代码修改] 超大单买卖额现在从上游正确传递
     buy_elg = df.get('buy_elg_amount', pd.Series(dtype=float))
     sell_elg = df.get('sell_elg_amount', pd.Series(dtype=float))
     df['main_force_conviction_buy_ratio'] = fill_na_safe((buy_elg / safe_denom(buy_elg + sell_elg)), 0.5)
-    # [代码修改] 总成交额和超大单交易额现在都可用
     total_elg_trade = df.get('buy_elg_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_elg_amount', pd.Series(dtype=float)).fillna(0)
-    total_trade_amount = df.get('amount', pd.Series(dtype=float)) # amount单位是万元
-    df['trade_concentration_index'] = fill_na_safe((total_elg_trade / safe_denom(total_trade_amount)), 0.0)
-    # [代码修改] 总成交额(元)和交易笔数现在都可用
-    total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0) * 10000
-    trade_count = df.get('trade_count', pd.Series(dtype=float))
-    df['avg_order_value'] = fill_na_safe((total_turnover_yuan / safe_denom(trade_count)), 0)
-    # [代码修改] 大单和超大单买入额现在都可用
+    total_trade_amount = df.get('amount', pd.Series(dtype=float)) # amount单位是千元
+    df['trade_concentration_index'] = fill_na_safe((total_elg_trade * 10 / safe_denom(total_trade_amount)), 0.0) # 乘以10将万元转换为千元
     buy_lg = df.get('buy_lg_amount', pd.Series(dtype=float))
     df['main_force_conviction_ratio'] = fill_na_safe((buy_elg / safe_denom(buy_lg)), 0)
-    # [代码修改] 主力主动买卖额现在都可用
     total_active_flow = df.get('main_force_active_buy_tushare', pd.Series(dtype=float)).fillna(0) + df.get('main_force_active_sell_tushare', pd.Series(dtype=float)).fillna(0)
     df['main_force_flow_intensity_ratio'] = fill_na_safe((df.get('main_force_active_buy_tushare', pd.Series(dtype=float)) / safe_denom(total_active_flow)), 0.5)
     if 'amount' in df.columns and not df['amount'].isnull().all():
         valid_amount = df['amount'].astype(float).replace(0, np.nan)
-        df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] / valid_amount) * 100
-    # --- 4. 调试信息输出 ---
+        df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] * 10 / valid_amount) * 100 # 乘以10将万元转换为千元
+    # --- 4. 修正 avg_order_value 计算 ---
+    # [代码新增] 增加调试信息，检查 avg_order_value 的输入数据
+    print(f"--- [{stock_code}] 调试信息：avg_order_value 计算详情 (最近5条) ---")
+    if 'amount' in df.columns and 'trade_count' in df.columns:
+        print("输入数据 (amount单位: 千元, trade_count单位: 笔):")
+        print(df[['amount', 'trade_count']].tail())
+    else:
+        print("警告: 'amount' 或 'trade_count' 列不存在于DataFrame中。")
+    # [代码修改] 修正单位换算：'amount' 单位是千元，应乘以 1000 得到元。
+    total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0) * 1000
+    trade_count = df.get('trade_count', pd.Series(dtype=float))
+    # 创建一个分母 Series，将0和NaN替换为NaN以进行安全除法
+    denominator = trade_count.replace(0, np.nan)
+    # 使用 .loc 避免 SettingWithCopyWarning，并填充最终的NaN为0
+    df.loc[:, 'avg_order_value'] = (total_turnover_yuan / denominator).fillna(0)
+    print("计算结果 (avg_order_value):")
+    print(df['avg_order_value'].tail())
+    print("--------------------------------------------------------------------")
+    # --- 5. 调试信息输出 (active_buy_pressure) ---
     # print(f"--- [{stock_code}] 调试信息：active_buy_pressure 计算详情 (最近5条) ---")
     # debug_df = df[['main_force_active_buy_tushare', 'sell_sm_amount', 'sell_md_amount', 'active_buy_pressure']].copy()
     # debug_df['retail_sell_calc'] = debug_df['sell_sm_amount'].fillna(0) + debug_df['sell_md_amount'].fillna(0)
