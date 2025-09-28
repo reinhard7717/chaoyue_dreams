@@ -183,34 +183,58 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V1.6 · 二维健康度重塑版】计算价格维度的四维健康度
-        - 核心重构: 彻底废除一维的`bbp_score`模型，引入全新的“力量-姿态”二维评估体系。
-          - 力量分 (Strength): 沿用旧逻辑，衡量价格的绝对强势程度 (越高越好)。
-          - 姿态分 (Posture): 新增逻辑，使用高斯函数定义一个“甜点区”，衡量价格是否处于健康的、可持续的位置 (过高或过低都会被惩罚)。
-          - 最终静态分 = (力量分 * 姿态分) ^ 0.5，确保价格既有力量，又具姿态。
+        【V2.0 · 布林带三体模型版】计算价格维度的四维健康度
+        - 核心重构: 彻底废除旧模型，完全采纳指挥官的战术哲学，引入全新的“布林带三体模型”。
+                      该模型将健康度评估分解为三个核心情景：中轨收缩、轨道突破、轨道压制。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
-        bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
-        
-        # [代码修改] 引入全新的二维健康度模型
-        # 维度一：力量分 (Strength Score) - 沿用旧逻辑，代表绝对强度
-        strength_score = bbp_score
-        
-        # 维度二：姿态分 (Posture Score) - 新增逻辑，代表健康姿态
-        # 使用高斯函数定义一个“甜点区”，中心在0.75，标准差为0.25
-        # 这意味着BBP在0.75附近时得分最高，过高（>1）或过低（<0.5）都会被惩罚
-        posture_score = np.exp(-((bbp_score - 0.75) / 0.25)**2)
-        
-        # 最终静态看涨分是力量与姿态的融合
-        static_bull_score = (strength_score * posture_score)**0.5
-        
-        # 看跌静态分逻辑保持不变：价格在布林带下轨附近为弱 (超卖)
-        static_bear_score = 1.0 - bbp_score
+        # --- 模型所需基础数据 ---
+        bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
+        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
+        bbu = df.get('BBU_21_2.0_D', df['close_D'])
+        bbl = df.get('BBL_21_2.0_D', df['close_D'])
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
 
+        # --- 情景一: 中轨收缩 (Mid-Band Squeeze) ---
+        # 带宽越窄，变盘潜力越大，分数越高
+        squeeze_score = normalize_score(bbw, df.index, norm_window, ascending=False)
+
+        # --- 情景二: 轨道突破 (Band Breakout - 趋势延续) ---
+        # 看涨突破：收盘价超越上轨的强度
+        bullish_breakout_magnitude = (df['close_D'] - bbu).clip(lower=0) / bbu.replace(0, np.nan)
+        bullish_breakout_score = normalize_score(bullish_breakout_magnitude, df.index, norm_window, ascending=True)
+        
+        # 看跌突破：收盘价跌穿下轨的强度
+        bearish_breakout_magnitude = (bbl - df['close_D']).clip(lower=0) / bbl.replace(0, np.nan)
+        bearish_breakout_score = normalize_score(bearish_breakout_magnitude, df.index, norm_window, ascending=True)
+
+        # --- 情景三: 轨道压制 (Band Rejection - 反转) ---
+        # 看涨反转：在下轨处被支撑，形成长下影线
+        is_touching_lower = df['low_D'] <= bbl
+        bounce_back_strength = ((df['close_D'] - df['low_D']) / day_range).fillna(0)
+        bullish_rejection_score = (is_touching_lower * bounce_back_strength)
+        
+        # 看跌反转：在上轨处被压制，形成长上影线
+        is_touching_upper = df['high_D'] >= bbu
+        pull_back_strength = ((df['high_D'] - df['close_D']) / day_range).fillna(0)
+        bearish_rejection_score = (is_touching_upper * pull_back_strength)
+
+        # --- 最终静态分融合 ---
+        # 静态看涨分是三种看涨情景中的最强者
+        static_bull_score = np.maximum.reduce([
+            squeeze_score, 
+            bullish_breakout_score, 
+            bullish_rejection_score
+        ])
+        
+        # 静态看跌分是两种看跌情景中的最强者 (收缩是中性，不计入看跌)
+        static_bear_score = np.maximum(bearish_breakout_score, bearish_rejection_score)
+
+        # --- 动态分计算 (逻辑保持不变) ---
         for p in periods:
-            s_bull[p] = static_bull_score
-            s_bear[p] = static_bear_score
+            s_bull[p] = pd.Series(static_bull_score, index=df.index).astype(np.float32)
+            s_bear[p] = pd.Series(static_bear_score, index=df.index).astype(np.float32)
 
             price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
             price_accel = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=True)
@@ -219,6 +243,7 @@ class BehavioralIntelligence:
             price_mom_neg = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=False)
             price_accel_neg = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=False)
             d_bear[p] = (price_mom_neg * price_accel_neg)**0.5
+            
         return s_bull, d_bull, s_bear, d_bear
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
