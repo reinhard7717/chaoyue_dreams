@@ -1169,12 +1169,10 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.2 · 修正版】使用标准化周期计算所有衍生指标。"""
+    """【资金流辅助函数 V1.3 · pandas_ta 语法修正版】使用标准化周期计算所有衍生指标。"""
     # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
     
-    # [代码修改] 扩展核心指标列表，使其包含所有需要计算衍生指标的基础字段
-    # 这个列表应该与 BaseAdvancedFundFlowMetrics.CORE_METRICS 的键保持一致
     CORE_METRICS_TO_DERIVE = [
         'net_flow_consensus',
         'main_force_net_flow_consensus',
@@ -1197,12 +1195,9 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     
     for p in UNIFIED_PERIODS:
-        # 1日周期窗口特殊处理为2，以计算斜率和加速度
         calc_window = 2 if p == 1 else p
         
-        # --- 4.1 累计指标 (仅对金额类指标，且周期>1) ---
         if p > 1:
-            # [代码修改] 筛选出适合计算累计值的指标
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -1212,11 +1207,10 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
                 if col in final_df.columns:
                     final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p // 2)).sum()
 
-        # --- 4.2 斜率指标 ---
         for col in CORE_METRICS_TO_DERIVE:
             if col in final_df.columns:
-                # [代码修改] 使用 pandas_ta 计算斜率
-                final_df[f'{col}_slope_{p}d'] = final_df[col].ta.slope(length=calc_window)
+                # [代码修改] 修正 pandas_ta 调用语法，在 DataFrame 上调用 .ta，并通过 close 参数传递 Series
+                final_df[f'{col}_slope_{p}d'] = final_df.ta.slope(close=final_df[col], length=calc_window)
         
         if p > 1:
             sum_slope_cols = [
@@ -1227,15 +1221,14 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
             for col in sum_slope_cols:
                 sum_col_name = f'{col}_sum_{p}d'
                 if sum_col_name in final_df.columns:
-                    # [代码修改] 使用 pandas_ta 计算累计值的斜率
-                    final_df[f'{sum_col_name}_slope_{p}d'] = final_df[sum_col_name].ta.slope(length=p)
+                    # [代码修改] 修正 pandas_ta 调用语法
+                    final_df[f'{sum_col_name}_slope_{p}d'] = final_df.ta.slope(close=final_df[sum_col_name], length=p)
 
-        # --- 4.3 加速度指标 ---
         for col in CORE_METRICS_TO_DERIVE:
             source_slope_col = f'{col}_slope_{p}d'
             if source_slope_col in final_df.columns:
-                # [代码修改] 使用 pandas_ta 计算加速度 (斜率的斜率)
-                final_df[f'{col}_accel_{p}d'] = final_df[source_slope_col].ta.slope(length=calc_window)
+                # [代码修改] 修正 pandas_ta 调用语法
+                final_df[f'{col}_accel_{p}d'] = final_df.ta.slope(close=final_df[source_slope_col], length=calc_window)
                 
     return final_df
 
