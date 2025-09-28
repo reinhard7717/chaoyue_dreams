@@ -724,39 +724,52 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     return data_dfs
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
-    """【辅助函数 V1.0】对加载的数据进行预处理和合并。"""
-    # print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...") # 【代码新增】调试信息
+    """
+    【辅助函数 V1.1 - 性能优化版】对加载的数据进行预处理和合并。
+    - 核心优化: 优化了 'prev_20d_close' 的计算逻辑，使用 .map() 代替 .merge()，以提高处理效率和降低内存消耗。
+    - 代码整洁: 移除了重复的空DataFrame检查。
+    """
+    print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...")
+    # 提取并预处理各数据源
     cyq_chips_data = data_dfs['cyq_chips']
     cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
+    # 检查并标准化 'percent' 列的单位
     daily_sums = cyq_chips_data.groupby('trade_time')['percent'].transform('sum')
-    # 检查每日筹码百分比总和是否接近1.0（而不是100.0），这通常意味着数据是以小数形式存储的
     mask_sum_to_one = np.isclose(daily_sums, 1.0, atol=0.1)
     if mask_sum_to_one.any():
-        # 【代码新增】为这部分数据乘以100，将其单位从小数（如0.01）统一为百分比（如1.0）
+        # 将以小数形式存储的百分比（如0.01）统一转换为百分比数值（如1.0）
         cyq_chips_data.loc[mask_sum_to_one, 'percent'] *= 100
+    # 预处理每日行情数据
     daily_data = data_dfs['daily_data']
     daily_data['trade_time'] = pd.to_datetime(daily_data['trade_time']).dt.date
-    daily_data['daily_turnover_volume'] = daily_data['vol'] * 100
+    daily_data['daily_turnover_volume'] = daily_data['vol'] * 100 # 'vol'单位是手，乘以100得到股
     daily_data = daily_data.rename(columns={'close_qfq': 'close_price', 'high_qfq': 'high_price', 'low_qfq': 'low_price'})
+    # 预处理每日基本面数据
     daily_basic_data = data_dfs['daily_basic']
     daily_basic_data['trade_time'] = pd.to_datetime(daily_basic_data['trade_time']).dt.date
-    daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000
+    daily_basic_data['total_chip_volume'] = daily_basic_data['float_share'] * 10000 # 'float_share'单位是万股
     daily_basic_data = daily_basic_data.drop(columns=['float_share'])
+    # 预处理CYQ性能数据
     cyq_perf_data = data_dfs['cyq_perf']
     cyq_perf_data['trade_time'] = pd.to_datetime(cyq_perf_data['trade_time']).dt.date
-    # 核心合并逻辑
+    # 核心合并逻辑：使用内连接(inner join)确保所有数据源在同一天都存在数据
     merged_df = pd.merge(cyq_chips_data, daily_data, on='trade_time', how='inner')
     merged_df = pd.merge(merged_df, daily_basic_data, on='trade_time', how='inner')
     merged_df = pd.merge(merged_df, cyq_perf_data, on='trade_time', how='inner')
+    # 检查合并后结果是否为空
     if merged_df.empty:
-        raise ValueError("数据源在进行内连接(inner join)后结果为空，请检查各数据源的日期是否存在交集。")
-    if merged_df.empty:
-        raise ValueError("数据源在进行内连接(inner join)后结果为空，请检查各数据源的日期是否存在交集。")
+        raise ValueError("数据源在进行内连接(inner join)后结果为空，请检查各数据源的日期是否存在有效交集。")
+    # 按交易时间排序并重置索引
     merged_df = merged_df.sort_values('trade_time').reset_index(drop=True)
-    daily_close_prices = merged_df[['trade_time', 'close_price']].drop_duplicates().set_index('trade_time')
-    daily_close_prices['prev_20d_close'] = daily_close_prices['close_price'].shift(20)
-    merged_df = pd.merge(merged_df, daily_close_prices[['prev_20d_close']], on='trade_time', how='left')
-    # print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。") # 【代码修改】调整了消息文本
+    # 【代码修改】优化 prev_20d_close 的计算，避免使用 merge，提高效率
+    # 1. 创建一个从 trade_time 到 close_price 的映射，并去除每日重复数据
+    daily_close_map = merged_df.drop_duplicates('trade_time').set_index('trade_time')['close_price']
+    # 2. 将收盘价序列向前移动20个周期，得到每个交易日对应的20天前的收盘价
+    prev_20d_close_series = daily_close_map.shift(20)
+    # 3. 使用 map 方法将计算出的20日前收盘价高效地映射回主 DataFrame
+    #    对于这种单列查找的场景，map 通常比 merge 更快，内存占用更低。
+    merged_df['prev_20d_close'] = merged_df['trade_time'].map(prev_20d_close_series)
+    print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。")
     return merged_df
 
 def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
@@ -863,37 +876,62 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
     return final_metrics_df
 
 async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):
-    """【辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
+    """
+    【辅助函数 V1.1 - 性能优化版】准备并保存最终计算结果到数据库。
+    - 核心优化: 重构了数据行到模型实例的转换逻辑。放弃使用性能较低的 .iterrows()，
+                改为效率更高的 .to_dict('index') 方法。此方法一次性将DataFrame转换为字典，
+                后续迭代在原生Python字典上进行，显著提升了对象创建的速度。
+    """
     stock_code = stock_info.stock_code
-    # print(f"[{stock_code}] [数据保存] 开始准备并保存数据...") # 【代码新增】调试信息
+    print(f"[{stock_code}] [数据保存] 开始准备并保存数据...")
+    # 筛选出需要保存的新计算或更新的记录
     records_to_save_df = final_df.loc[new_df_index]
     records_to_create = []
+    # 获取模型所有字段名，用于后续数据匹配
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
-    for trade_date, row in records_to_save_df.iterrows():
+    # 【代码修改】优化记录创建过程，避免使用iterrows()，以大幅提高效率
+    # .to_dict('index') 将DataFrame转换为 {index -> {column -> value}} 的字典格式。
+    # 迭代这个字典的.items()，可以直接获取索引(trade_date)和行数据(row_data字典)，
+    # 这比 .iterrows() 每次迭代都生成一个Series对象要快得多。
+    for trade_date, row_data in records_to_save_df.to_dict('index').items():
         record_data = {}
+        # 遍历模型字段，从行数据字典中提取对应的值
         for field_name in model_fields:
-            if field_name in row.index:
-                value = row[field_name]
+            if field_name in row_data:
+                value = row_data[field_name]
+                # 对不同类型的值进行处理，确保符合数据库要求
                 if isinstance(value, float) and not np.isfinite(value):
+                    # 将无穷大或NaN浮点数转换成None
                     record_data[field_name] = None
                 elif pd.isna(value):
+                    # 将Pandas的NA值转换成None
                     record_data[field_name] = None
                 elif isinstance(value, float):
+                    # 为保证精度，将浮点数转换为Decimal类型。
+                    # 对极小值直接置零，避免不必要的精度问题。
                     record_data[field_name] = Decimal(str(round(value, 8))) if abs(value) > 1e-10 else Decimal('0.0')
                 else:
+                    # 其他类型的值直接使用
                     record_data[field_name] = value
+        # 移除字典中不属于模型构造函数的键
         record_data.pop('id', None)
         record_data.pop('stock', None)
+        # 如果记录数据非空，则创建模型实例
         if record_data:
             records_to_create.append(MetricsModel(stock=stock_info, trade_time=trade_date, **record_data))
+    # 异步保存数据到数据库
     @sync_to_async(thread_sensitive=True)
     def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
+        # 使用数据库事务保证数据一致性
         with transaction.atomic():
             if do_delete_first:
+                # 如果是全量刷新，先删除旧数据
                 model.objects.filter(stock=stock_info_obj).delete()
+            # 批量创建新记录，提高数据库写入效率
             model.objects.bulk_create(records_to_create_list, batch_size=5000)
+    # 执行异步保存
     await save_metrics_async(MetricsModel, stock_info, records_to_create, is_full_refresh)
-    # print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。") # 【代码修改】调整了消息文本
+    print(f"[{stock_code}] [数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级筹码指标。")
     return len(records_to_create)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
@@ -1002,7 +1040,7 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
-    """【资金流辅助函数 V1.1 · 数据补完版】加载、标准化并合并多源资金流数据。"""
+    """【资金流辅助函数 V1.2 · 修正版】加载、标准化并合并多源资金流数据。"""
     # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
@@ -1015,28 +1053,35 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-        "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount'), start_date=fetch_start_date),
+        "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'trade_count'), start_date=fetch_start_date), # [代码修改] 增加 trade_count 字段
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
         if df.empty: return df
+        # [代码修改] 将所有可能为Decimal的字段转换为数值型
         for col in df.columns:
-            if 'amount' in col or 'net' in col or 'trade_count' in col:
+            if 'amount' in col or 'net' in col or 'trade_count' in col or 'vol' in col:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         if source == 'tushare':
             df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
             df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
             df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
-            # 补全大单、中单、小单净额的计算
             df['net_lg_amount_tushare'] = df['buy_lg_amount'] - df['sell_lg_amount']
             df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
             df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
-            # [代码新增结束]
             df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
-            # 在返回的列中加入新计算的字段
-            return df[['trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare', 'net_md_amount_tushare', 'net_sh_amount_tushare', 'main_force_active_buy_tushare', 'main_force_active_sell_tushare']].rename(columns={'net_mf_amount': 'net_flow_tushare'})
+            # [代码修改] 扩展返回的列，包含所有下游计算需要的原始字段
+            required_cols = [
+                'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 
+                'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare', 
+                'net_md_amount_tushare', 'net_sh_amount_tushare', 'main_force_active_buy_tushare', 
+                'main_force_active_sell_tushare', 'buy_sm_amount', 'sell_sm_amount', 
+                'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount',
+                'buy_elg_amount', 'sell_elg_amount'
+            ]
+            return df[required_cols].rename(columns={'net_mf_amount': 'net_flow_tushare'})
         elif source == 'ths':
             df['retail_net_flow_ths'] = df['buy_sm_amount'] + df['buy_md_amount']
             return df[['trade_time', 'net_amount', 'buy_lg_amount', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths'})
@@ -1059,81 +1104,142 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     df_daily = data_dfs['daily']
     if not df_daily.empty:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
-        df_daily['amount'] = pd.to_numeric(df_daily['amount'], errors='coerce')
-        merged_df = merged_df.join(df_daily.set_index('trade_time')['amount'])
+        # [代码修改] 将daily中的所有列都转换为数值型
+        for col in ['amount', 'trade_count']:
+            if col in df_daily.columns:
+                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
+        # [代码修改] 使用join而不是直接赋值，以避免索引不匹配问题
+        merged_df = merged_df.join(df_daily.set_index('trade_time')[['amount', 'trade_count']])
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.1 · 数据补完版】计算共识指标和基础比率。"""
+    """【资金流辅助函数 V1.2 · 修正版】计算共识指标和基础比率。"""
     # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标...")
     df = merged_df.copy()
+    # --- 1. 计算共识资金流 ---
     df['net_flow_consensus'] = df[['net_flow_tushare', 'net_flow_ths', 'net_flow_dc']].mean(axis=1)
     df['main_force_net_flow_consensus'] = df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
     df['retail_net_flow_consensus'] = df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
-    df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
-    
-    # 补全对大单、中单、小单净流入的共识计算
+    # [代码新增] 补全对大单、中单、小单净流入的共识计算
     # 注意：目前只有tushare源提供了这些细分数据，所以这里的.mean()实际上只是取tushare的值，但保留了未来扩展性
     df['net_lg_amount_consensus'] = df[['net_lg_amount_tushare']].mean(axis=1)
     df['net_md_amount_consensus'] = df[['net_md_amount_tushare']].mean(axis=1)
     df['net_sh_amount_consensus'] = df[['net_sh_amount_tushare']].mean(axis=1)
-    # [代码新增结束]
-
+    # --- 2. 计算基础衍生指标 ---
+    df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
-    safe_denom = lambda v: v.replace(0, np.nan) if isinstance(v, pd.Series) else (np.nan if v == 0 else v)
-    fill_na_safe = lambda val, fill_val: val.fillna(fill_val) if isinstance(val, pd.Series) else (fill_val if pd.isna(val) else val)
-    main_force_buy = df.get('main_force_active_buy_tushare', 0)
-    retail_sell = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
+    # --- 3. 计算高级比率指标 (修正逻辑) ---
+    # 辅助函数，用于安全地处理除以0的情况
+    safe_denom = lambda v: v.replace(0, np.nan)
+    fill_na_safe = lambda series, fill_val: series.fillna(fill_val)
+    # [代码修改] 主力买入额现在从上游正确传递
+    main_force_buy = df.get('main_force_active_buy_tushare', pd.Series(dtype=float))
+    # [代码修改] 散户卖出额现在从上游正确传递
+    retail_sell = df.get('sell_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_md_amount', pd.Series(dtype=float)).fillna(0)
     df['active_buy_pressure'] = fill_na_safe((main_force_buy / safe_denom(retail_sell)), 0.5)
-    retail_sell_amount = df.get('sell_sm_amount', 0) + df.get('sell_md_amount', 0)
-    retail_buy_amount = df.get('buy_sm_amount', 0) + df.get('buy_md_amount', 0)
+    # [代码修改] 散户买卖额现在从上游正确传递
+    retail_sell_amount = df.get('sell_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_md_amount', pd.Series(dtype=float)).fillna(0)
+    retail_buy_amount = df.get('buy_sm_amount', pd.Series(dtype=float)).fillna(0) + df.get('buy_md_amount', pd.Series(dtype=float)).fillna(0)
     df['retail_panic_index'] = fill_na_safe((retail_sell_amount / safe_denom(retail_buy_amount)), 1.0)
-    buy_elg = df.get('buy_elg_amount', 0)
-    sell_elg = df.get('sell_elg_amount', 0)
+    # [代码修改] 超大单买卖额现在从上游正确传递
+    buy_elg = df.get('buy_elg_amount', pd.Series(dtype=float))
+    sell_elg = df.get('sell_elg_amount', pd.Series(dtype=float))
     df['main_force_conviction_buy_ratio'] = fill_na_safe((buy_elg / safe_denom(buy_elg + sell_elg)), 0.5)
-    total_elg_trade = df.get('buy_elg_amount', 0) + df.get('sell_elg_amount', 0)
-    total_trade_amount = df.get('amount', 0)
+    # [代码修改] 总成交额和超大单交易额现在都可用
+    total_elg_trade = df.get('buy_elg_amount', pd.Series(dtype=float)).fillna(0) + df.get('sell_elg_amount', pd.Series(dtype=float)).fillna(0)
+    total_trade_amount = df.get('amount', pd.Series(dtype=float)) # amount单位是万元
     df['trade_concentration_index'] = fill_na_safe((total_elg_trade / safe_denom(total_trade_amount)), 0.0)
-    total_turnover_yuan = df.get('amount', 0) * 10000
-    trade_count = df.get('trade_count', 0)
+    # [代码修改] 总成交额(元)和交易笔数现在都可用
+    total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0) * 10000
+    trade_count = df.get('trade_count', pd.Series(dtype=float))
     df['avg_order_value'] = fill_na_safe((total_turnover_yuan / safe_denom(trade_count)), 0)
-    buy_lg = df.get('buy_lg_amount', 0)
+    # [代码修改] 大单和超大单买入额现在都可用
+    buy_lg = df.get('buy_lg_amount', pd.Series(dtype=float))
     df['main_force_conviction_ratio'] = fill_na_safe((buy_elg / safe_denom(buy_lg)), 0)
-    total_active_flow = df.get('main_force_active_buy_tushare', 0) + df.get('main_force_active_sell_tushare', 0)
-    df['main_force_flow_intensity_ratio'] = fill_na_safe((df.get('main_force_active_buy_tushare', 0) / safe_denom(total_active_flow)), 0.5)
+    # [代码修改] 主力主动买卖额现在都可用
+    total_active_flow = df.get('main_force_active_buy_tushare', pd.Series(dtype=float)).fillna(0) + df.get('main_force_active_sell_tushare', pd.Series(dtype=float)).fillna(0)
+    df['main_force_flow_intensity_ratio'] = fill_na_safe((df.get('main_force_active_buy_tushare', pd.Series(dtype=float)) / safe_denom(total_active_flow)), 0.5)
     if 'amount' in df.columns and not df['amount'].isnull().all():
         valid_amount = df['amount'].astype(float).replace(0, np.nan)
         df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] / valid_amount) * 100
+    # --- 4. 调试信息输出 ---
+    print(f"--- [{stock_code}] 调试信息：active_buy_pressure 计算详情 (最近5条) ---")
+    debug_df = df[['main_force_active_buy_tushare', 'sell_sm_amount', 'sell_md_amount', 'active_buy_pressure']].copy()
+    debug_df['retail_sell_calc'] = debug_df['sell_sm_amount'].fillna(0) + debug_df['sell_md_amount'].fillna(0)
+    print(debug_df.tail())
+    print("--------------------------------------------------------------------")
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.1 · 数据补完版】使用标准化周期计算所有衍生指标。"""
+    """【资金流辅助函数 V1.2 · 修正版】使用标准化周期计算所有衍生指标。"""
     # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
-    # 在核心指标列表中补全缺失的指标
-    CORE_METRICS = [
-        'net_flow_consensus', 'main_force_net_flow_consensus', 
-        'retail_net_flow_consensus', 'net_xl_amount_consensus',
-        'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus', # 新增
-        'flow_divergence_mf_vs_retail', 'main_force_flow_intensity_ratio'
+    
+    # [代码修改] 扩展核心指标列表，使其包含所有需要计算衍生指标的基础字段
+    # 这个列表应该与 BaseAdvancedFundFlowMetrics.CORE_METRICS 的键保持一致
+    CORE_METRICS_TO_DERIVE = [
+        'net_flow_consensus',
+        'main_force_net_flow_consensus',
+        'retail_net_flow_consensus',
+        'net_xl_amount_consensus',
+        'net_lg_amount_consensus',
+        'net_md_amount_consensus',
+        'net_sh_amount_consensus',
+        'flow_divergence_mf_vs_retail',
+        'main_force_flow_intensity_ratio',
+        'main_force_vs_xl_divergence',
+        'active_buy_pressure',
+        'retail_panic_index',
+        'main_force_conviction_buy_ratio',
+        'trade_concentration_index',
+        'avg_order_value',
+        'main_force_conviction_ratio',
     ]
     
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    
     for p in UNIFIED_PERIODS:
+        # 1日周期窗口特殊处理为2，以计算斜率和加速度
         calc_window = 2 if p == 1 else p
+        
+        # --- 4.1 累计指标 (仅对金额类指标，且周期>1) ---
         if p > 1:
-            for col in [c for c in CORE_METRICS if 'ratio' not in c and 'divergence' not in c]:
-                final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p//2)).sum()
-        for col in CORE_METRICS:
-            final_df[f'{col}_slope_{p}d'] = _calculate_slope(final_df[col], calc_window)
+            # [代码修改] 筛选出适合计算累计值的指标
+            sum_cols = [
+                'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
+                'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
+                'net_sh_amount_consensus', 'active_buy_pressure', 'retail_panic_index', 'avg_order_value'
+            ]
+            for col in sum_cols:
+                if col in final_df.columns:
+                    final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p // 2)).sum()
+
+        # --- 4.2 斜率指标 ---
+        for col in CORE_METRICS_TO_DERIVE:
+            if col in final_df.columns:
+                # [代码修改] 使用 pandas_ta 计算斜率
+                final_df[f'{col}_slope_{p}d'] = final_df[col].ta.slope(length=calc_window)
+        
         if p > 1:
-            for col in [c for c in CORE_METRICS if 'ratio' not in c and 'divergence' not in c]:
-                final_df[f'{col}_sum_{p}d_slope_{p}d'] = _calculate_slope(final_df[f'{col}_sum_{p}d'], p)
-        for col in CORE_METRICS:
+            sum_slope_cols = [
+                'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
+                'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
+                'net_sh_amount_consensus', 'active_buy_pressure', 'retail_panic_index', 'avg_order_value'
+            ]
+            for col in sum_slope_cols:
+                sum_col_name = f'{col}_sum_{p}d'
+                if sum_col_name in final_df.columns:
+                    # [代码修改] 使用 pandas_ta 计算累计值的斜率
+                    final_df[f'{sum_col_name}_slope_{p}d'] = final_df[sum_col_name].ta.slope(length=p)
+
+        # --- 4.3 加速度指标 ---
+        for col in CORE_METRICS_TO_DERIVE:
             source_slope_col = f'{col}_slope_{p}d'
             if source_slope_col in final_df.columns:
-                final_df[f'{col}_accel_{p}d'] = _calculate_slope(final_df[source_slope_col], calc_window)
+                # [代码修改] 使用 pandas_ta 计算加速度 (斜率的斜率)
+                final_df[f'{col}_accel_{p}d'] = final_df[source_slope_col].ta.slope(length=calc_window)
+                
     return final_df
 
 async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
