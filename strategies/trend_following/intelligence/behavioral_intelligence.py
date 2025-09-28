@@ -493,7 +493,7 @@ class BehavioralIntelligence:
         
         # [代码新增] 创建全新的“流动性枯竭风险”信号
         p_drain = p.get('liquidity_drain_params', {})
-        drain_window = get_param_value(p_drain.get('window'), 10)
+        drain_window = get_param_value(p_drain.get('window'), 13)
         # 条件1: 价格在N日内持续下跌 (用斜率衡量)
         price_trend_down = (df[f'SLOPE_{drain_window}_close_D'] < 0).astype(int)
         # 条件2: 成交量在N日内持续萎缩 (用斜率衡量)
