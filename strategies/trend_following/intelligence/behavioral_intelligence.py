@@ -183,14 +183,29 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V1.5 · 接口简化版】计算价格维度的四维健康度
-        - 核心修复: 移除了未被使用的 `dynamic_weights` 参数，简化了函数签名。
+        【V1.6 · 二维健康度重塑版】计算价格维度的四维健康度
+        - 核心重构: 彻底废除一维的`bbp_score`模型，引入全新的“力量-姿态”二维评估体系。
+          - 力量分 (Strength): 沿用旧逻辑，衡量价格的绝对强势程度 (越高越好)。
+          - 姿态分 (Posture): 新增逻辑，使用高斯函数定义一个“甜点区”，衡量价格是否处于健康的、可持续的位置 (过高或过低都会被惩罚)。
+          - 最终静态分 = (力量分 * 姿态分) ^ 0.5，确保价格既有力量，又具姿态。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
         
         bbp_score = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
         
-        static_bull_score = bbp_score
+        # [代码修改] 引入全新的二维健康度模型
+        # 维度一：力量分 (Strength Score) - 沿用旧逻辑，代表绝对强度
+        strength_score = bbp_score
+        
+        # 维度二：姿态分 (Posture Score) - 新增逻辑，代表健康姿态
+        # 使用高斯函数定义一个“甜点区”，中心在0.75，标准差为0.25
+        # 这意味着BBP在0.75附近时得分最高，过高（>1）或过低（<0.5）都会被惩罚
+        posture_score = np.exp(-((bbp_score - 0.75) / 0.25)**2)
+        
+        # 最终静态看涨分是力量与姿态的融合
+        static_bull_score = (strength_score * posture_score)**0.5
+        
+        # 看跌静态分逻辑保持不变：价格在布林带下轨附近为弱 (超卖)
         static_bear_score = 1.0 - bbp_score
 
         for p in periods:

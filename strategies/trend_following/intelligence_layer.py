@@ -825,9 +825,9 @@ class IntelligenceLayer:
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【探针V1.3 · 终极适配版】终极信号钻透式法医探针
-        - 核心修复: 彻底重构了对各领域健康度计算器的调用逻辑，使其能够智能适配每种方法独特的函数签名，
-                      完全解决了因参数不匹配导致的探针崩溃问题。
+        【探针V1.4 · 终极钻透版】终极信号钻透式法医探针
+        - 核心升级: 赋予探针“终极钻透”能力，在解剖支柱贡献分后，会进一步钻透，
+                      展示计算该分数所依赖的最底层的原始指标值（如BBP, RSI等）。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -847,9 +847,6 @@ class IntelligenceLayer:
         final_score = atomic.get(signal_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"【顶层】最终信号得分: {final_score:.4f}")
 
-        if final_score == 0.0:
-            print("  - [初步诊断] 最终得分为0.0，极有可能是因为计算链路中某个环节的几何平均结果为0。开始向下钻透...")
-        
         overall_health_cache_key = f'__{domain_upper}_overall_health'
         overall_health = atomic.get(overall_health_cache_key)
         if not overall_health:
@@ -874,9 +871,6 @@ class IntelligenceLayer:
         print(f"    - 短期力: {short_force:.4f}")
         print(f"    - 中期力: {medium_force:.4f}")
         print(f"    - 长期力: {long_force:.4f}")
-        
-        if short_force == 0 or medium_force == 0 or long_force == 0:
-             print("    - [关键发现] 至少有一股力量为0，这是导致最终得分为0的直接原因。")
 
         period_to_probe = 1
         print(f"\n  [链路层 2] 反推 -> {period_to_probe}日健康度")
@@ -889,9 +883,6 @@ class IntelligenceLayer:
         d_score = overall_health[d_type][period_to_probe].get(probe_date, 0.5)
         print(f"    - {period_to_probe}日健康度 ({health_score:.4f}) = {s_type} ({s_score:.4f}) * {d_type} ({d_score:.4f})")
         
-        if s_score == 0 or d_score == 0:
-             print(f"    - [关键发现] {s_type} 或 {d_type} 为0，这是导致健康度为0的原因。")
-
         print(f"\n  [链路层 3] 反推 -> 构成 {s_type} 和 {d_type} 的各个支柱分数")
         
         engine_map = {
@@ -918,28 +909,39 @@ class IntelligenceLayer:
             try:
                 calculator = getattr(engine_instance, calc_func_name)
                 
-                # [代码修改] 核心修复：为不同引擎的 calculator 提供正确的参数
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     min_periods = max(1, norm_window // 5)
                     if calc_func_name == '_calculate_kline_pattern_health':
                         s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
-                    else: # for _calculate_price_health and _calculate_volume_health
+                    else:
                         s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, min_periods, [period_to_probe])
                 elif domain_upper == 'STRUCTURE':
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, [period_to_probe], norm_window, {})
-                else: # CHIP, DYN, FOUNDATION, FF
+                else:
                     s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, {}, [period_to_probe])
 
-                pillar_s_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
-                if pillar_s_score_series is None:
+                pillar_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
+                if pillar_score_series is None:
                     print(f"      - {pillar_name} 支柱贡献分: [计算失败，未返回Series]")
                     continue
                 
-                pillar_s_score = pillar_s_score_series.get(probe_date, 0.5)
+                pillar_s_score = pillar_score_series.get(probe_date, 0.5)
                 print(f"      - {pillar_name} 支柱贡献分: {pillar_s_score:.4f}")
-                if pillar_s_score == 0:
-                    print(f"        - [!!! 根本原因嫌疑 !!!] {pillar_name} 支柱的 {s_type} 分数为0，这可能是导致上层融合结果为0的根源！")
+                
+                # [代码新增] 终极钻透逻辑
+                if pillar_s_score < 0.2 and domain_upper == 'BEHAVIOR' and pillar_name == 'price':
+                    print(f"        - [终极钻透] 正在解剖 'price' 支柱的根源...")
+                    bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(probe_date, np.nan)
+                    print(f"          - 原始指标 BBP_21_2.0_D: {bbp_val:.4f}")
+                    strength_score = np.clip(bbp_val, 0, 1)
+                    posture_score = np.exp(-((bbp_val - 0.75) / 0.25)**2)
+                    recalc_score = (strength_score * posture_score)**0.5
+                    print(f"          - 力量分: {strength_score:.4f}, 姿态分: {posture_score:.4f}")
+                    print(f"          - 重算结果: ({strength_score:.4f} * {posture_score:.4f})**0.5 = {recalc_score:.4f}")
+                    if bbp_val < 0.5:
+                        print("          - [诊断] BBP值远低于0.75的甜点区，导致'姿态分'极低，拉低了最终分数。")
+
             except Exception as e:
                 print(f"       - [探针错误] 解剖支柱 '{pillar_name}' 的 {s_type} 失败: {e}")
 
