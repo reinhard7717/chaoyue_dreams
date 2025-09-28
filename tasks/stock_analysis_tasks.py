@@ -1040,7 +1040,7 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
-    """【资金流辅助函数 V1.2 · 修正版】加载、标准化并合并多源资金流数据。"""
+    """【资金流辅助函数 V1.3 · 字段来源修正版】加载、标准化并合并多源资金流数据。"""
     # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
@@ -1053,13 +1053,13 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-        "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'trade_count'), start_date=fetch_start_date), # [代码修改] 增加 trade_count 字段
+        # [代码修改] 修正 daily 源的查询字段，移除不存在的 'trade_count'
+        "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount'), start_date=fetch_start_date),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
         if df.empty: return df
-        # [代码修改] 将所有可能为Decimal的字段转换为数值型
         for col in df.columns:
             if 'amount' in col or 'net' in col or 'trade_count' in col or 'vol' in col:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -1072,14 +1072,14 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
             df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
-            # [代码修改] 扩展返回的列，包含所有下游计算需要的原始字段
+            # [代码修改] 在返回的列中加入 'trade_count'，确保其从 tushare 源传递下去
             required_cols = [
                 'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare', 
                 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare', 
                 'net_md_amount_tushare', 'net_sh_amount_tushare', 'main_force_active_buy_tushare', 
                 'main_force_active_sell_tushare', 'buy_sm_amount', 'sell_sm_amount', 
                 'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount',
-                'buy_elg_amount', 'sell_elg_amount'
+                'buy_elg_amount', 'sell_elg_amount', 'trade_count'
             ]
             return df[required_cols].rename(columns={'net_mf_amount': 'net_flow_tushare'})
         elif source == 'ths':
@@ -1104,12 +1104,9 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     df_daily = data_dfs['daily']
     if not df_daily.empty:
         df_daily['trade_time'] = pd.to_datetime(df_daily['trade_time'])
-        # [代码修改] 将daily中的所有列都转换为数值型
-        for col in ['amount', 'trade_count']:
-            if col in df_daily.columns:
-                df_daily[col] = pd.to_numeric(df_daily[col], errors='coerce')
-        # [代码修改] 使用join而不是直接赋值，以避免索引不匹配问题
-        merged_df = merged_df.join(df_daily.set_index('trade_time')[['amount', 'trade_count']])
+        df_daily['amount'] = pd.to_numeric(df_daily['amount'], errors='coerce')
+        # [代码修改] 修正 join 逻辑，daily 数据源只提供 amount
+        merged_df = merged_df.join(df_daily.set_index('trade_time')['amount'])
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
