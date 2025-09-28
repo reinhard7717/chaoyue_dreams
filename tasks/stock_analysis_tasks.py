@@ -729,7 +729,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     - 核心优化: 优化了 'prev_20d_close' 的计算逻辑，使用 .map() 代替 .merge()，以提高处理效率和降低内存消耗。
     - 代码整洁: 移除了重复的空DataFrame检查。
     """
-    print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...")
+    # print(f"[{stock_code}] [数据预处理] 开始预处理与合并数据...")
     # 提取并预处理各数据源
     cyq_chips_data = data_dfs['cyq_chips']
     cyq_chips_data['trade_time'] = pd.to_datetime(cyq_chips_data['trade_time']).dt.date
@@ -769,7 +769,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     # 3. 使用 map 方法将计算出的20日前收盘价高效地映射回主 DataFrame
     #    对于这种单列查找的场景，map 通常比 merge 更快，内存占用更低。
     merged_df['prev_20d_close'] = merged_df['trade_time'].map(prev_20d_close_series)
-    print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。")
+    # print(f"[{stock_code}] [数据预处理] 数据合并完成，生成 {len(merged_df)} 行记录。")
     return merged_df
 
 def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
@@ -1161,11 +1161,11 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
         valid_amount = df['amount'].astype(float).replace(0, np.nan)
         df['main_force_buy_rate_consensus'] = (df['main_force_net_flow_consensus'] / valid_amount) * 100
     # --- 4. 调试信息输出 ---
-    print(f"--- [{stock_code}] 调试信息：active_buy_pressure 计算详情 (最近5条) ---")
-    debug_df = df[['main_force_active_buy_tushare', 'sell_sm_amount', 'sell_md_amount', 'active_buy_pressure']].copy()
-    debug_df['retail_sell_calc'] = debug_df['sell_sm_amount'].fillna(0) + debug_df['sell_md_amount'].fillna(0)
-    print(debug_df.tail())
-    print("--------------------------------------------------------------------")
+    # print(f"--- [{stock_code}] 调试信息：active_buy_pressure 计算详情 (最近5条) ---")
+    # debug_df = df[['main_force_active_buy_tushare', 'sell_sm_amount', 'sell_md_amount', 'active_buy_pressure']].copy()
+    # debug_df['retail_sell_calc'] = debug_df['sell_sm_amount'].fillna(0) + debug_df['sell_md_amount'].fillna(0)
+    # print(debug_df.tail())
+    # print("--------------------------------------------------------------------")
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
