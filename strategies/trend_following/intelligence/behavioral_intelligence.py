@@ -248,72 +248,53 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.0 · 势能转化模型版】计算成交量维度的四维健康度
-        - 核心重构: 引入终极的“三重 Litmus 测试”哲学，使模型能够理解市场“势能”的转化，区分“反转前夜”与“流动性枯竭”。
-        - 看涨静态分 (static_bull_score) 由三条路径的最高分决定:
-          1. 阳 (Yang) 路径: 评估“量价齐升”的主动进攻信号。
-          2. 阴 (Yin) 路径: 评估“健康回调”，其健康度受“流动性枯竭”过程风险的制约。
-          3. 极 (Ji) 路径: 评估“衰竭反转”，专门捕捉卖盘力量衰竭、即将反转的“地量”形态。
-        - 这种三路径融合的逻辑，使得模型在评估成交量健康度时，达到了前所未有的完备性与智慧。
+        【V6.2 · 数据类型净化版】
+        - 核心修正: 修复了因 np.maximum.reduce 返回 numpy.ndarray 导致的数据类型污染问题。
+        - 解决方案: 在使用 np.maximum.reduce 融合三条路径后，立即将返回的 numpy 数组重新包装成一个带有原始索引的 pandas.Series。
+          这确保了本函数遵守其输出 Pandas Series 的数据契约，从而解决了上层调用者的 AttributeError。
         """
         s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
 
-        # --- 模型所需基础数据 ---
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
-            # 如果缺少关键数据，返回默认中性值
             for p in periods:
                 s_bull[p] = s_bear[p] = d_bull[p] = d_bear[p] = pd.Series(0.5, index=df.index)
             return s_bull, d_bull, s_bear, d_bear
 
-        # ==================== 看跌静态分 (Static Bear Score) - 优先计算 ====================
-        # 成交量放大强度分 (后续多处复用)
         volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
         
-        # --- 看跌路径1: 天量滞涨 (Huge Volume Stagnation) ---
         price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
         stagnation_path_score = volume_increase_score * price_stagnation_score
 
-        # --- 看跌路径2: 放量下跌 (High Volume Breakdown) ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
         breakdown_path_score = (price_drop_score * volume_increase_score).where(df['pct_change_D'] < 0, 0)
 
-        # --- 最终看跌分融合 ---
         static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
 
-        # ==================== 看涨静态分 (Static Bull Score) - 三路径融合 ====================
-        
-        # --- 路径1: 阳 (Yang) - 量价齐升 ---
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
         yang_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
 
-        # --- 路径2: 阴 (Yin) - 健康回调 (受过程风险修正) ---
-        # 从原子状态中获取“流动性枯竭风险”信号
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
-        # 健康度 = (1 - 当日风险) * (1 - 过程风险)
         yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk)).where(df['pct_change_D'] <= 0, 0)
 
-        # --- 路径3: 极 (Ji) - 衰竭反转 ---
-        # [代码修改] 引入全新的“衰竭反转”信号路径
-        # 从原子状态中获取“衰竭反转”信号
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
 
-        # --- 最终看涨分融合：取三种看涨情景中的最强者 ---
-        static_bull_score = np.maximum.reduce([
-            yang_score,                 # 阳：量价齐升
-            yin_score,                  # 阴：健康回调
-            exhaustion_reversal_score   # 极：衰竭反转
+        # [代码修改] 修复数据类型污染的关键步骤
+        # np.maximum.reduce 返回的是一个 numpy 数组，丢失了索引
+        static_bull_score_np = np.maximum.reduce([
+            yang_score,
+            yin_score,
+            exhaustion_reversal_score
         ])
+        # 必须将其重新包装成带有正确索引的 Pandas Series，以遵守数据契约
+        static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
-        # ==================== 动态分 (Dynamic Scores) ====================
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
             
-            # 成交量的动量与加速度，代表成交量的活跃趋势
             vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
             vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
             
-            # 动态分本身是中性的，反映活跃度
             d_bull[p] = (vol_mom * vol_accel)**0.5
             d_bear[p] = (vol_mom * vol_accel)**0.5
             
