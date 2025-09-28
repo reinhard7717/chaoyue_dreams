@@ -1154,15 +1154,6 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     denominator = trade_count.replace(0, np.nan)
     # 使用 .loc 避免 SettingWithCopyWarning，并填充最终的NaN为0
     df.loc[:, 'avg_order_value'] = (total_turnover_yuan / denominator).fillna(0)
-    print("计算结果 (avg_order_value):")
-    print(df['avg_order_value'].tail())
-    print("--------------------------------------------------------------------")
-    # --- 5. 调试信息输出 (active_buy_pressure) ---
-    # print(f"--- [{stock_code}] 调试信息：active_buy_pressure 计算详情 (最近5条) ---")
-    # debug_df = df[['main_force_active_buy_tushare', 'sell_sm_amount', 'sell_md_amount', 'active_buy_pressure']].copy()
-    # debug_df['retail_sell_calc'] = debug_df['sell_sm_amount'].fillna(0) + debug_df['sell_md_amount'].fillna(0)
-    # print(debug_df.tail())
-    # print("--------------------------------------------------------------------")
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
