@@ -82,6 +82,7 @@ class CognitiveIntelligence:
 
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
+        self.synthesize_chimera_conflict_score(df)
         
         print("        -> [顶层认知总分合成模块 V2.7] 认知升级完成。")
         return df
@@ -671,6 +672,25 @@ class CognitiveIntelligence:
         
         self.strategy.atomic_states.update(states)
 
+    def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
+        """
+        【V1.0 · 新增】奇美拉冲突诊断引擎
+        - 核心职责: 量化市场中“牛”与“熊”力量的冲突程度，作为最终决策的“信心阻尼器”。
+        - 算法: 冲突分 = min(认知看涨总分, 认知融合风险总分)
+        """
+        states = {}
+        
+        # 将分数从 [0, 1000] 映射到 [0, 1] 区间进行比较
+        bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0) / 1000.0
+        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0) / 1000.0
+        
+        # 核心公式：取两者的最小值，代表冲突的激烈程度
+        conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
+        
+        # 将其作为一种特殊的风险信号存入原子状态
+        states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
+        
+        self.strategy.atomic_states.update(states)
 
 
 

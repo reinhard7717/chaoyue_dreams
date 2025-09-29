@@ -11,14 +11,12 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V513.0 · 指挥链重塑版】
-        - 核心重构: 彻底重塑决策逻辑，授予硬性离场信号最高否决权。
-          1. 硬性离场信号（如趋势破位）的判断与分数计算完全分离。
-          2. 如果硬性离场触发，则无条件覆盖任何潜在的买入信号，并将 signal_type 明确标记为具体的离场原因。
-          3. 只有在没有硬性离场的前提下，才根据分数和动态力学信号判断是否买入。
-        - 收益: 彻底消除了“高分卖出”的报告悖论，确保决策逻辑的绝对清晰与统一。
+        【V514.0 · 奇美拉版】
+        - 核心升级: 引入“信心阻尼器”机制。在计算最终得分时，使用“奇美拉冲突分”对进攻分进行压制。
+                      最终得分 = (进攻分 * (1 - 冲突分)) - 防御分。
+        - 收益: 实现了对“牛熊冲突”行情的动态风险管理，在矛盾的市场中采取更审慎的进攻姿态。
         """
-        print("    --- [最高作战指挥部 V513.0 · 指挥链重塑版] 启动...")
+        print("    --- [最高作战指挥部 V514.0 · 奇美拉版] 启动...")
         df = self.strategy.df_indicators
         
         df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
@@ -27,45 +25,40 @@ class JudgmentLayer:
             reportable_risk_df.update(penalty_components_df)
 
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        df['final_score'] = df['entry_score'] - df['risk_penalty_score']
+        
+        # [代码新增] 获取“奇美拉冲突分”并计算“信心阻尼器”
+        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
+        confidence_damper = 1.0 - chimera_conflict_score
+        
+        # [代码修改] 将“信心阻尼器”应用于最终得分计算
+        df['final_score'] = (df['entry_score'] * confidence_damper) - df['risk_penalty_score']
         
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         
-        # 决策逻辑重构
-        # 步骤1: 初始化默认信号类型
         df['signal_type'] = '无信号'
         
-        # 步骤2: 判断潜在的买入条件（分数足够且未被动态力学否决）
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_dynamic_veto = df['dynamic_action'] == 'AVOID'
         potential_buy_condition = is_score_sufficient & ~is_dynamic_veto
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
-        # 步骤3: 判断硬性离场信号，它拥有覆盖一切的最高优先级
         exit_triggers_df = self.strategy.exit_triggers
-        # 检查是否有任何一个硬性离场信号被触发
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         
-        # 如果硬性离场被触发，则无条件覆盖之前的任何信号
         if is_hard_exit_veto.any():
-            # 找出具体的离场原因，优先处理战略失效
             strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
             tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
             
-            # 根据不同的离场原因，设置更具体的信号类型
             df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
             df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
             
-            # 对所有被硬性离场否决的日子，强制将最终分数清零，以确保报告的清晰性
             df.loc[is_hard_exit_veto, 'final_score'] = 0
             
-        # 步骤4: 处理被动态力学否决的情况（在没有硬性离场的前提下）
         dynamic_veto_condition = is_score_sufficient & is_dynamic_veto & ~is_hard_exit_veto
         df.loc[dynamic_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[dynamic_veto_condition, 'final_score'] = 0 # 同样清零分数
+        df.loc[dynamic_veto_condition, 'final_score'] = 0
 
-        # 步骤5: 生成报告并完成
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
 
