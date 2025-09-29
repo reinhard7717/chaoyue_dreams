@@ -48,9 +48,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V19.0 · 权柄交接版】
-        - 核心革命: 1. 看涨共振公式修改为 max(静态分, 关系动力) * 动态分，彻底打破旧指标的否决权。
-                      2. 底部反转公式修改为 形态分 * 关系动力 * 动态分，使其更纯粹、更强大。
+        【V20.0 · 双核驱动版】
+        - 核心革命: 1. 将“关系动力”升级为“双核”模型：“风暴降生”与“静水流深”，取其强者。
+                      2. 彻底解决了不同底部形态（V反 vs 盘整）下，过程信号互相否决的问题。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -72,11 +72,22 @@ class BehavioralIntelligence:
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
 
+        # [代码修改] 关系动力引擎从“单核”升级为“双核”
         power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        relational_dynamics_power = (power_transfer * stealth_accumulation * winner_conviction * loser_capitulation)**(1/4)
+        
+        # 核心1: “风暴降生”原型 (适用于V型反转)
+        stormborn_power = (power_transfer * loser_capitulation)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
+        
+        # 核心2: “静水流深”原型 (适用于盘整吸筹)
+        still_waters_power = (stealth_accumulation * winner_conviction)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
+        
+        # 最终裁定: 强者为王
+        relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
@@ -106,7 +117,6 @@ class BehavioralIntelligence:
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 权柄交接：看涨共振公式革命
         bullish_resonance_health = {p: np.maximum(overall_health['s_bull'][p], relational_dynamics_power) * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
@@ -117,7 +127,6 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        # 权柄交接：底部反转公式革命
         bullish_reversal_health = {p: bottom_formation_score * relational_dynamics_power * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5

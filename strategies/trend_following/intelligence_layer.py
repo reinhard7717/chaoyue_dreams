@@ -230,36 +230,48 @@ class IntelligenceLayer:
 
     def _deploy_genesis_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“创世纪”法医探针，用于深度解剖关系动力学。
-        - 核心功能: 穿透式地展示“关系动力分”的构成，并揭示它是如何赋能最终信号的。
+        【V2.0 · 双核解剖版】“创世纪”法医探针
+        - 核心升级: 能够清晰地解剖“风暴降生”与“静水流深”双核动力源，并展示“强者为王”的最终裁定过程。
         """
-        print("\n--- [探针] 正在解剖: 【创世纪 · 关系动力学引擎】 ---")
+        print("\n--- [探针] 正在解剖: 【创世纪 III · 双核驱动引擎】 ---")
         atomic = self.strategy.atomic_states
         
         def get_val(name, date, default=np.nan):
-            return atomic.get(name, pd.Series(default, index=atomic.get(next(iter(atomic)), pd.Series()).index)).get(date, default)
+            # 确保即使atomic字典为空也能安全运行
+            first_key = next(iter(atomic), None)
+            if first_key is None:
+                return default
+            return atomic.get(name, pd.Series(default, index=atomic.get(first_key).index)).get(date, default)
 
         # --- 步骤 1: 解剖关系动力分的构成 ---
         print("\n  [链路层 1] 解剖 -> 关系动力分 (SCORE_ATOMIC_RELATIONAL_DYNAMICS)")
-        relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
-        print(f"    - 【最终融合值】: {relational_power:.4f}")
         
-        process_signals = {
-            "权力转移": "PROCESS_META_POWER_TRANSFER",
-            "隐秘吸筹": "PROCESS_META_STEALTH_ACCUMULATION",
-            "赢家信念": "PROCESS_META_WINNER_CONVICTION",
-            "投降仪式": "PROCESS_META_LOSER_CAPITULATION"
-        }
+        # [代码修改] 分别获取两个核心动力源和最终裁定值
+        stormborn_power = get_val('SCORE_ATOMIC_STORM_BORN_POWER', probe_date, 0.0)
+        still_waters_power = get_val('SCORE_ATOMIC_STILL_WATERS_POWER', probe_date, 0.0)
+        relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.0)
         
-        components = {}
-        for cn_name, sig_name in process_signals.items():
-            raw_val = get_val(sig_name, probe_date, 0.0)
-            mapped_val = np.clip(raw_val, -1, 1) * 0.5 + 0.5
-            components[cn_name] = mapped_val
-            print(f"      - {cn_name} ({sig_name}): raw={raw_val:.4f} -> mapped={mapped_val:.4f}")
+        print(f"    - 【最终裁定值】: {relational_power:.4f}  <-- (取双核中更强者)")
         
-        recalc = (components['权力转移'] * components['隐秘吸筹'] * components['赢家信念'] * components['投降仪式'])**(1/4)
-        print(f"    - [探针重算]: ({components['权力转移']:.2f} * {components['隐秘吸筹']:.2f} * {components['赢家信念']:.2f} * {components['投降仪式']:.2f})^(1/4) = {recalc:.4f}")
+        # [代码修改] 解剖“风暴降生”核心
+        print(f"\n    --- 双核之一: “风暴降生”原型 (V反) ---")
+        print(f"      - 得分: {stormborn_power:.4f}")
+        power_transfer_raw = get_val('PROCESS_META_POWER_TRANSFER', probe_date, 0.0)
+        power_transfer_map = np.clip(power_transfer_raw, -1, 1) * 0.5 + 0.5
+        loser_capitulation_raw = get_val('PROCESS_META_LOSER_CAPITULATION', probe_date, 0.0)
+        loser_capitulation_map = np.clip(loser_capitulation_raw, -1, 1) * 0.5 + 0.5
+        print(f"        - 权力转移: raw={power_transfer_raw:.2f} -> mapped={power_transfer_map:.2f}")
+        print(f"        - 投降仪式: raw={loser_capitulation_raw:.2f} -> mapped={loser_capitulation_map:.2f}")
+        
+        # [代码修改] 解剖“静水流深”核心
+        print(f"\n    --- 双核之二: “静水流深”原型 (盘整) ---")
+        print(f"      - 得分: {still_waters_power:.4f}")
+        stealth_accumulation_raw = get_val('PROCESS_META_STEALTH_ACCUMULATION', probe_date, 0.0)
+        stealth_accumulation_map = np.clip(stealth_accumulation_raw, -1, 1) * 0.5 + 0.5
+        winner_conviction_raw = get_val('PROCESS_META_WINNER_CONVICTION', probe_date, 0.0)
+        winner_conviction_map = np.clip(winner_conviction_raw, -1, 1) * 0.5 + 0.5
+        print(f"        - 隐秘吸筹: raw={stealth_accumulation_raw:.2f} -> mapped={stealth_accumulation_map:.2f}")
+        print(f"        - 赢家信念: raw={winner_conviction_raw:.2f} -> mapped={winner_conviction_map:.2f}")
 
         # --- 步骤 2: 解剖一个典型的终极信号，看其如何被赋能 ---
         print("\n  [链路层 2] 解剖 -> 典型终极信号 (以 SCORE_BEHAVIOR_BULLISH_RESONANCE 为例)")
@@ -271,7 +283,6 @@ class IntelligenceLayer:
             print("    - [探针错误] 无法找到 __BEHAVIOR_overall_health 缓存。")
             return
             
-        # 以短期力量为例
         s_bull_5 = overall_health.get('s_bull', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
         d_intensity_5 = overall_health.get('d_intensity', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
         
