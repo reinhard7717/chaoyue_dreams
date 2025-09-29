@@ -48,8 +48,8 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V11.0 · 动态分统一版】终极行为信号诊断模块
-        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
+        【V12.0 · 双核驱动版】终极行为信号诊断模块
+        - 核心升级: 底部形态判断升级为“双核驱动”，能够同时识别“磨底”和“V型反转底”。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -65,10 +65,16 @@ class BehavioralIntelligence:
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
+        # [代码修改] 升级为“双核驱动”的底部形态判断
+        # 核一：识别“磨底”形态
+        grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
+        # 核二：识别“V型反转”形态
+        rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
+        # 融合：取两种底部形态中更强的一个作为最终的底部形态分数
+        bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
+
         _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        # 更新调用签名，接收三元组
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
@@ -77,7 +83,6 @@ class BehavioralIntelligence:
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
         
-        # 更新健康度融合逻辑，使用 d_intensity
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
@@ -98,7 +103,6 @@ class BehavioralIntelligence:
         
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 所有动态分均使用 d_intensity
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
@@ -158,12 +162,13 @@ class BehavioralIntelligence:
     # ==============================================================================
 
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.1 · 数据流修复版】原子信号中心，负责生产所有基础行为信号。"""
+        """【V1.2 · V型反转感知版】原子信号中心，负责生产所有基础行为信号。"""
         atomic_signals = {}
         params = self.strategy.params
         
-        # 首先调用全新的底部形态诊断引擎
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
+        # [代码新增] 调用新增的“探底回升”诊断引擎
+        atomic_signals.update(self._diagnose_atomic_rebound_reversal(df))
         
         atomic_signals.update(self._diagnose_kline_patterns(df))
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
@@ -174,7 +179,6 @@ class BehavioralIntelligence:
         upthrust_score = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score.name] = upthrust_score
         
-        # 将 df 作为参数传递给 _diagnose_ma_breakdown 方法
         ma_breakdown_score = self._diagnose_ma_breakdown(df, params)
         atomic_signals[ma_breakdown_score.name] = ma_breakdown_score
         
@@ -529,6 +533,32 @@ class BehavioralIntelligence:
         
         states['SCORE_ATOMIC_BOTTOM_FORMATION'] = final_score
         
+        return states
+
+    def _diagnose_atomic_rebound_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】原子级“探底回升”诊断引擎
+        - 核心职责: 专门识别在经历恐慌性下跌后，次日出现长下影线的V型反转形态。
+        - 算法:
+          1. 上下文: 前一日是大幅下跌日。
+          2. 形态: 当日收出长下影线 (close_position_in_range 很高)。
+          3. 确认: 当日最终收盘价企稳（跌幅不大或收涨）。
+        """
+        states = {}
+        # 支柱一: 昨日恐慌 - 确认前一日是下跌超过4%的恐慌日
+        was_panic_yesterday = (df['pct_change_D'].shift(1) < -0.04).astype(float)
+
+        # 支柱二: 今日长下影线 - 收盘价在日内K线的位置，越高代表下影线越长
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
+
+        # 支柱三: 今日企稳 - 确认今日没有继续大跌
+        is_recovering_today = (df['pct_change_D'] > -0.01).astype(float)
+
+        # 融合: 三者皆备，方为有效的探底回升
+        rebound_reversal_score = (was_panic_yesterday * close_position_in_range * is_recovering_today).astype(np.float32)
+        
+        states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
         return states
 
 

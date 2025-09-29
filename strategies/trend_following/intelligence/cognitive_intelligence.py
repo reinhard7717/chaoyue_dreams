@@ -37,28 +37,20 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.5 · 信号净化版】顶层认知总分合成模块
-        - 核心重构 (本次修改):
-          - [信号消费] 全面审查并更新了所有认知融合模块，确保它们消费的是最新的、唯一的、归一化的终极信号。
-          - [命名净化] 移除了本模块产出的所有认知信号的 '_S' 等级后缀。
-          - [新增] 新增了 synthesize_state_process_synergy 方法，用于融合“状态分”和“过程分”。
+        【V2.6 · 过程协同版】顶层认知总分合成模块
+        - 核心升级: 新增并调用 synthesize_state_process_synergy 方法，将“状态-过程协同分”纳入最终的看涨总分。
         """
-        # print("        -> [顶层认知总分合成模块 V2.5 · 信号净化版] 启动...") # 更新版本号
-        # --- 步骤 0: 预处理，确保所有底层信号已就绪 ---
-        # 在一个理想的架构中，这一步由更高层的 `IntelligenceLayer` 保证。
-        # 此处我们假设 `self.strategy.atomic_states` 已被所有底层引擎填充。
-        # --- 步骤 1: 调用微观行为引擎，生成深层行为模式信号 ---
+        print("        -> [顶层认知总分合成模块 V2.6 · 过程协同版] 启动...")
+        # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
-        # --- 步骤 2: 调用战术引擎，生成具体战术信号 ---
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         self.strategy.atomic_states.update(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-        # --- 步骤 3: 执行本模块的核心认知融合任务 ---
-        # 首先调用新的波动率合成器，确保其信号可被下游消费
+        
+        # --- 步骤 1: 执行本模块的核心认知融合任务 ---
         volatility_states = self._synthesize_volatility_signals(df)
         self.strategy.atomic_states.update(volatility_states)
-        # 确保后续调用顺序正确
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
         df = self.synthesize_structural_fusion_scores(df)
@@ -67,10 +59,11 @@ class CognitiveIntelligence:
         df = self.synthesize_reversal_resonance_scores(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
-        # 调用新的状态-过程协同融合引擎
+        
+        # [代码新增] 调用全新的状态-过程协同融合引擎
         df = self.synthesize_state_process_synergy(df)
-        # --- 步骤 4: 汇总所有“机会”与“风险”类认知分数 ---
-        # 更新所有信号名为净化后的名称 (移除_S后缀)
+        
+        # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE').values,
@@ -78,7 +71,7 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
-            # 将新的状态-过程协同分加入看涨总分
+            # [代码新增] 将新的状态-过程协同分加入看涨总分
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
@@ -87,7 +80,7 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         
-        # print("        -> [顶层认知总分合成模块 V2.5] 认知升级完成。")
+        print("        -> [顶层认知总分合成模块 V2.6] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -592,6 +585,56 @@ class CognitiveIntelligence:
         states['SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A'] = final_playbook_score.astype(np.float32)
         
         # 更新 atomic_states 并返回 df 以维持调用链
+        self.strategy.atomic_states.update(states)
+        return df
+
+    def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 · 新增】状态-过程协同融合引擎
+        - 核心哲学: 终极信号 = 高质量的“状态” * 强劲的“过程”
+        - 算法: 将所有领域的“看涨状态分”与所有维度的“看涨过程分”进行融合。
+        """
+        states = {}
+        
+        # 1. 融合所有“状态”看涨信号，得到一个总的“状态共识分”
+        state_bullish_signals = [
+            'SCORE_CHIP_BULLISH_RESONANCE',
+            'SCORE_BEHAVIOR_BULLISH_RESONANCE',
+            'SCORE_FF_BULLISH_RESONANCE',
+            'SCORE_STRUCTURE_BULLISH_RESONANCE',
+            'SCORE_DYN_BULLISH_RESONANCE',
+            'SCORE_FOUNDATION_BULLISH_RESONANCE'
+        ]
+        # 使用 get_unified_score 安全获取所有状态分
+        state_scores = [get_unified_score(self.strategy.atomic_states, df.index, sig.replace('SCORE_', '')).values for sig in state_bullish_signals]
+        
+        # 使用几何平均进行融合，要求所有领域都不能太差
+        state_consensus_score = pd.Series(
+            np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
+            index=df.index, dtype=np.float32
+        )
+        states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
+
+        # 2. 融合所有“过程”看涨信号，得到一个总的“过程共识分”
+        process_bullish_signals = [
+            'PROCESS_META_PV_REL_BULLISH_TURN',
+            'PROCESS_META_PF_REL_BULLISH_TURN',
+            'PROCESS_META_PC_REL_BULLISH_TURN',
+            'PROCESS_META_PRICE_VS_RETAIL_PANIC',
+            'PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC'
+        ]
+        # 过程信号是[-1, 1]的，先映射到[0, 1]再融合
+        process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
+        process_consensus_score = pd.Series(
+            np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
+            index=df.index, dtype=np.float32
+        )
+        states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
+
+        # 3. 终极融合：状态 * 过程
+        synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
+        states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
+        
         self.strategy.atomic_states.update(states)
         return df
 

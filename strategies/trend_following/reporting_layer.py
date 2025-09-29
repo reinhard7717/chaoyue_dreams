@@ -31,8 +31,9 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V512.0 · 终极信号适配版】
-        - 核心重构: 更新了所有内部逻辑，以正确处理和记录新的终极信号。
+        【V513.0 · 语义统一版】
+        - 核心升级: 扩展了信号类型字典，使其能够正确识别和分类所有新的、更具描述性的信号类型
+                      （如'趋势破位离场', '战略失效离场', '风险否决'），确保报告与决策的语义完全统一。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -42,12 +43,26 @@ class ReportingLayer:
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         
-        signal_days_df = result_df[result_df['signal_type'].isin(['买入信号', '卖出信号', '风险预警'])].copy()
+        # [代码修改] 扩展信号类型字典，使其能够理解新的、更具体的信号
+        signal_type_map_enum = {
+            '买入信号': TradingSignal.SignalType.BUY,
+            '卖出信号': TradingSignal.SignalType.SELL,
+            '风险预警': TradingSignal.SignalType.WARN,
+            '趋势破位离场': TradingSignal.SignalType.SELL, # [代码新增] 映射为 SELL 类型
+            '战略失效离场': TradingSignal.SignalType.SELL, # [代码新增] 映射为 SELL 类型
+            '风险否决': TradingSignal.SignalType.WARN,   # [代码新增] 映射为 WARN 类型
+        }
+        
+        # [代码修改] 筛选条件现在包含所有已知的信号类型
+        known_signal_types = list(signal_type_map_enum.keys())
+        signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
+
         for trade_time, row in signal_days_df.iterrows():
-            signal_type_map_enum = {'买入信号': TradingSignal.SignalType.BUY, '卖出信号': TradingSignal.SignalType.SELL, '风险预警': TradingSignal.SignalType.WARN}
+            # [代码修改] 使用 get 方法安全获取，如果找不到则默认为 WARN
+            signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
-                signal_type=signal_type_map_enum.get(row['signal_type']),
+                signal_type=signal_enum,
                 entry_score=row.get('entry_score', 0.0), risk_score=row.get('risk_score', 0.0), final_score=row.get('final_score', 0.0),
                 close_price=row.get('close_D', 0.0)
             )
@@ -97,3 +112,17 @@ class ReportingLayer:
                             daily_states_to_create.append(StrategyDailyState(daily_score=daily_score_map[trade_time], playbook=playbook_obj))
                             
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
