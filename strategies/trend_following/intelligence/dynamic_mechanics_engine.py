@@ -125,18 +125,18 @@ class DynamicMechanicsEngine:
     # ==============================================================================
 
     def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V2.0 · 全息动态升级版】计算波动率(BBW)维度的三维健康度"""
+        """【V2.1 · 调用适配版】计算波动率(BBW)维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
         static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'BBW_21_2.0_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'BBW_21_2.0', norm_window)
+        unified_d_intensity = (bull_holo + bear_holo) / 2.0
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 仅对短中期应用动态分，长期使用默认值
             if p in [1, 5, 13]:
                 d_intensity[p] = unified_d_intensity
             else:
@@ -145,52 +145,52 @@ class DynamicMechanicsEngine:
         return s_bull, s_bear, d_intensity
 
     def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V2.0 · 全息动态升级版】计算效率(VPA)维度的三维健康度"""
+        """【V2.1 · 调用适配版】计算效率(VPA)维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
         static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'VPA_EFFICIENCY_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'VPA_EFFICIENCY', norm_window)
+        unified_d_intensity = (bull_holo + bear_holo) / 2.0
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V2.0 · 全息动态升级版】计算动能(ATR)维度的三维健康度"""
+        """【V2.1 · 调用适配版】计算动能(ATR)维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-        static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window) # 动能放大为好
-        static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False) # 动能萎缩为坏
+        static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window)
+        static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'ATR_14_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'ATR_14', norm_window)
+        unified_d_intensity = (bull_holo + bear_holo) / 2.0
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
 
         return s_bull, s_bear, d_intensity
 
     def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V2.0 · 全息动态升级版】计算惯性(ADX)维度的三维健康度"""
+        """【V2.1 · 调用适配版】计算惯性(ADX)维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-        static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window) # 惯性强为好
-        static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) # 惯性弱为坏
+        static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
+        static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'ADX_14_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'ADX_14', norm_window)
+        unified_d_intensity = (bull_holo + bear_holo) / 2.0
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity

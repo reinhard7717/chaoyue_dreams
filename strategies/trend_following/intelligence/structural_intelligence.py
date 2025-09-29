@@ -118,7 +118,7 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V3.0 · 全息动态升级版】计算MA支柱的三维健康度"""
+        """【V3.1 · 调用适配版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         ma_periods = [5, 10, 20, 60, 120]
@@ -142,27 +142,31 @@ class StructuralIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            static_col = f'EMA_{p}_D' if p > 1 else 'close_D'
-            # 使用全新的全息动态引擎计算动态强度分
-            d_intensity[p] = calculate_holographic_dynamics(df, static_col, norm_window)
+            static_col = f'EMA_{p}' if p > 1 else 'close'
+            # 调用中央引擎获取元组，然后在调用处进行融合
+            bull_holo, bear_holo = calculate_holographic_dynamics(df, static_col, norm_window)
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
 
         return s_bull, s_bear, d_intensity
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V3.0 · 全息动态升级版】计算力学支柱的三维健康度"""
+        """【V3.1 · 调用适配版】计算力学支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         static_bear_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
         
-        # 使用全新的全息动态引擎计算动态强度分
-        cost_mom_strength = calculate_holographic_dynamics(df, 'peak_cost_D', norm_window)
-        conc_mom_strength = calculate_holographic_dynamics(df, 'concentration_90pct_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_cost, bear_cost = calculate_holographic_dynamics(df, 'peak_cost', norm_window)
+        cost_mom_strength = (bull_cost + bear_cost) / 2.0
+        
+        bull_conc, bear_conc = calculate_holographic_dynamics(df, 'concentration_90pct', norm_window)
+        conc_mom_strength = (bull_conc + bear_conc) / 2.0
+        
         unified_d_intensity = (cost_mom_strength * conc_mom_strength)**0.5
 
         for p in periods:
             s_bull[p] = static_bull_energy
             s_bear[p] = static_bear_energy
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity

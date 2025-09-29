@@ -261,27 +261,29 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     bipolar_score = np.tanh(z_score)
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
-def calculate_holographic_dynamics(self, df: pd.DataFrame, base_name: str, norm_window: int) -> pd.Series:
+def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
     """
-    【V1.0 · 新增】全息动态计算引擎
+    【V2.1 · 职责简化版】全息动态计算引擎
     - 核心逻辑: 融合“速度变化”(加速度)和“力量变化”(加加速度/Jerk)。
+    - 本次升级: 移除 return_unified 参数，函数职责简化为始终返回最原始的 (看涨分, 看跌分) 元组。
     """
+    # 简化函数签名和返回类型注解
     # 维度一：速度变化 (加速度)
-    slope_diff = df.get(f'SLOPE_1_{base_name}', 0.0) - df.get(f'SLOPE_5_{base_name}', 0.0)
+    slope_diff = df.get(f'SLOPE_1_{base_name}_D', 0.0) - df.get(f'SLOPE_5_{base_name}_D', 0.0)
     velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
 
     # 维度二：力量变化 (加加速度 / Jerk)
-    accel_diff = df.get(f'ACCEL_1_{base_name}', 0.0) - df.get(f'ACCEL_5_{base_name}', 0.0)
+    accel_diff = df.get(f'ACCEL_1_{base_name}_D', 0.0) - df.get(f'ACCEL_5_{base_name}_D', 0.0)
     jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
     
-    # 融合：两大维度必须共振，并取其综合强度
+    # 融合：两大维度必须共振
     bullish_holographic_score = (velocity_accel_score * jerk_accel_score)**0.5
     bearish_holographic_score = (velocity_decel_score * jerk_decel_score)**0.5
     
-    # 返回一个统一的、中性的动态强度分
-    return (bullish_holographic_score + bearish_holographic_score) / 2.0
+    # 始终返回分离的看涨和看跌动态分
+    return bullish_holographic_score, bearish_holographic_score
 
 
 

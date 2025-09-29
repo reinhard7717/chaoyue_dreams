@@ -157,7 +157,7 @@ class ChipIntelligence:
     # ==============================================================================
 
     def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.0 · 全息动态升级版】计算基础量化维度的三维健康度"""
+        """【V4.1 · 调用适配版】计算基础量化维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
@@ -168,22 +168,27 @@ class ChipIntelligence:
         static_bear_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=False)
         overall_static_bear = (static_bear_conc * static_bear_health)**0.5
 
-        # 使用全新的全息动态引擎计算动态强度分
-        dynamic_conc = calculate_holographic_dynamics(df, 'concentration_90pct_D', norm_window)
-        dynamic_cost = calculate_holographic_dynamics(df, 'peak_cost_D', norm_window)
-        dynamic_health = calculate_holographic_dynamics(df, 'chip_health_score_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_conc, bear_conc = calculate_holographic_dynamics(df, 'concentration_90pct', norm_window)
+        dynamic_conc = (bull_conc + bear_conc) / 2.0
+        
+        bull_cost, bear_cost = calculate_holographic_dynamics(df, 'peak_cost', norm_window)
+        dynamic_cost = (bull_cost + bear_cost) / 2.0
+        
+        bull_health, bear_health = calculate_holographic_dynamics(df, 'chip_health_score', norm_window)
+        dynamic_health = (bull_health + bear_health) / 2.0
+        
         unified_d_intensity = (dynamic_conc * dynamic_cost * dynamic_health)**(1/3)
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
         
         return s_bull, s_bear, d_intensity
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.0 · 全息动态升级版】计算高级动态维度的三维健康度"""
+        """【V4.1 · 调用适配版】计算高级动态维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
         if any(col not in df.columns for col in required_cols):
@@ -193,79 +198,94 @@ class ChipIntelligence:
         overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
         overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        dynamic_control = calculate_holographic_dynamics(df, 'peak_control_ratio_D', norm_window)
-        dynamic_stability = calculate_holographic_dynamics(df, 'peak_stability_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_control, bear_control = calculate_holographic_dynamics(df, 'peak_control_ratio', norm_window)
+        dynamic_control = (bull_control + bear_control) / 2.0
+        
+        bull_stability, bear_stability = calculate_holographic_dynamics(df, 'peak_stability', norm_window)
+        dynamic_stability = (bull_stability + bear_stability) / 2.0
+        
         unified_d_intensity = (dynamic_control * dynamic_stability)**0.5
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.0 · 全息动态升级版】计算内部结构维度的三维健康度"""
+        """【V4.1 · 调用适配版】计算内部结构维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
         overall_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
 
-        # 使用全新的全息动态引擎计算动态强度分
-        dynamic_core_conc = calculate_holographic_dynamics(df, 'concentration_70pct_D', norm_window)
-        dynamic_support = calculate_holographic_dynamics(df, 'support_below_D', norm_window)
-        dynamic_pressure = calculate_holographic_dynamics(df, 'pressure_above_D', norm_window)
-        # 融合支撑和压力的动态变化
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_core_conc, bear_core_conc = calculate_holographic_dynamics(df, 'concentration_70pct', norm_window)
+        dynamic_core_conc = (bull_core_conc + bear_core_conc) / 2.0
+        
+        bull_support, bear_support = calculate_holographic_dynamics(df, 'support_below', norm_window)
+        dynamic_support = (bull_support + bear_support) / 2.0
+        
+        bull_pressure, bear_pressure = calculate_holographic_dynamics(df, 'pressure_above', norm_window)
+        dynamic_pressure = (bull_pressure + bear_pressure) / 2.0
+        
         dynamic_net_support = (dynamic_support * dynamic_pressure)**0.5
         unified_d_intensity = (dynamic_core_conc * dynamic_net_support)**0.5
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_holder_behavior_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.0 · 全息动态升级版】计算持仓者行为维度的三维健康度"""
+        """【V4.1 · 调用适配版】计算持仓者行为维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
         overall_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
 
-        # 使用全新的全息动态引擎计算动态强度分
-        dynamic_cost_div = calculate_holographic_dynamics(df, 'cost_divergence_D', norm_window)
-        dynamic_margin = calculate_holographic_dynamics(df, 'winner_profit_margin_D', norm_window)
-        dynamic_turnover = calculate_holographic_dynamics(df, 'turnover_from_winners_ratio_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_cost_div, bear_cost_div = calculate_holographic_dynamics(df, 'cost_divergence', norm_window)
+        dynamic_cost_div = (bull_cost_div + bear_cost_div) / 2.0
+        
+        bull_margin, bear_margin = calculate_holographic_dynamics(df, 'winner_profit_margin', norm_window)
+        dynamic_margin = (bull_margin + bear_margin) / 2.0
+        
+        bull_turnover, bear_turnover = calculate_holographic_dynamics(df, 'turnover_from_winners_ratio', norm_window)
+        dynamic_turnover = (bull_turnover + bear_turnover) / 2.0
+        
         unified_d_intensity = (dynamic_cost_div * dynamic_margin * dynamic_turnover)**(1/3)
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_fault_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.0 · 全息动态升级版】计算筹码断层维度的三维健康度"""
+        """【V3.1 · 调用适配版】计算筹码断层维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
         overall_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
 
-        # 使用全新的全息动态引擎计算动态强度分
-        dynamic_strength = calculate_holographic_dynamics(df, 'chip_fault_strength_D', norm_window)
-        dynamic_vacuum = calculate_holographic_dynamics(df, 'chip_fault_vacuum_percent_D', norm_window)
+        # 调用中央引擎获取元组，然后在调用处进行融合
+        bull_strength, bear_strength = calculate_holographic_dynamics(df, 'chip_fault_strength', norm_window)
+        dynamic_strength = (bull_strength + bear_strength) / 2.0
+        
+        bull_vacuum, bear_vacuum = calculate_holographic_dynamics(df, 'chip_fault_vacuum_percent', norm_window)
+        dynamic_vacuum = (bull_vacuum + bear_vacuum) / 2.0
+        
         unified_d_intensity = (dynamic_strength * dynamic_vacuum)**0.5
 
         for p in periods:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
-            # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity

@@ -125,7 +125,7 @@ class FoundationIntelligence:
     # ==============================================================================
 
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V4.0 · 全息动态升级版】计算EMA维度的三维健康度"""
+        """【V4.1 · 调用适配版】计算EMA维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         
         ma_periods = [5, 10, 20, 60, 120]
@@ -150,8 +150,9 @@ class FoundationIntelligence:
             s_bear[p] = static_bear_score
             
             ema_col = f'EMA_{p}_D' if p > 1 else 'close_D'
-            # 使用全新的全息动态引擎计算动态强度分
-            d_intensity[p] = calculate_holographic_dynamics(df, ema_col, norm_window)
+            # 调用中央引擎获取元组，然后在调用处进行融合
+            bull_holo, bear_holo = calculate_holographic_dynamics(df, ema_col, norm_window)
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
         
         return s_bull, s_bear, d_intensity
 
@@ -163,13 +164,13 @@ class FoundationIntelligence:
         static_bear_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=False)
 
         # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'RSI_13_D', norm_window)
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'RSI_13_D', norm_window)
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             # 所有周期共享同一个、更高级的动态强度分
-            d_intensity[p] = unified_d_intensity
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
         
         return s_bull, s_bear, d_intensity
 
@@ -181,13 +182,13 @@ class FoundationIntelligence:
         static_bear_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
 
         # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'MACDh_13_34_8_D', norm_window)
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'MACDh_13_34_8_D', norm_window)
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             # 所有周期共享同一个、更高级的动态强度分
-            d_intensity[p] = unified_d_intensity
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
         
         return s_bull, s_bear, d_intensity
 
@@ -199,13 +200,13 @@ class FoundationIntelligence:
         static_bear_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=False)
 
         # 使用全新的全息动态引擎计算动态强度分
-        unified_d_intensity = calculate_holographic_dynamics(df, 'CMF_21_D', norm_window)
+        bull_holo, bear_holo = calculate_holographic_dynamics(df, 'CMF_21_D', norm_window)
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             # 所有周期共享同一个、更高级的动态强度分
-            d_intensity[p] = unified_d_intensity
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
         
         return s_bull, s_bear, d_intensity
 
