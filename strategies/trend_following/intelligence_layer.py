@@ -52,12 +52,10 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V412.0 · 指挥链重塑版】情报层总入口。
-        - 核心重构: 调整了情报引擎的调用顺序，确保“反转基因”的正确传递。
-                      现在，行为引擎将作为先导首先执行，其产出的权威底部形态信号
-                      `SCORE_UNIVERSAL_BOTTOM_PATTERN` 将被其他所有引擎消费。
+        【V413.0 · 涡轮增压版】情报层总指挥官
+        - 核心升级: 在认知层融合的最后阶段，调用新的“涡轮增压”引擎，诊断趋势的级联加速效应。
         """
-        print("--- [情报层总指挥官 V412.0 · 指挥链重塑版] 开始执行所有诊断模块... ---") # 更新版本号
+        print("--- [情报层总指挥官 V413.0 · 涡轮增压版] 开始执行所有诊断模块... ---") # 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -69,31 +67,20 @@ class IntelligenceLayer:
                 self.strategy.atomic_states.update(new_states)
 
         # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
-        
-        # 1. 首先运行周期引擎
+        print("    - [阶段 1/5] 正在执行周期与基础过程诊断...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        
-        # --- 阶段 1.5: 基础过程诊断 ---
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
 
-        # 2. 运行其他所有状态情报引擎
-        
-        # 指挥链重塑：优先执行行为引擎，以生产“反转基因”
-        print("    - [阶段 2.1/5] 正在执行先导引擎 (行为情报)...")
+        # --- 阶段二: 状态情报与战略过程诊断 ---
+        print("    - [阶段 2/5] 正在执行状态情报与战略过程诊断...")
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
-        
-        # 确保其他引擎在行为引擎之后执行
-        print("    - [阶段 2.2/5] 正在执行状态情报引擎 (消费反转基因)...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
-        
-        # --- 阶段 2.5: 战略过程诊断 ---
-        print("    - [阶段 2.5/5] 正在执行战略过程诊断 (分析高阶信号)...")
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
         
@@ -115,7 +102,7 @@ class IntelligenceLayer:
 
         self.deploy_forensic_probes()
         
-        print("--- [情报层总指挥官 V412.0] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V413.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
