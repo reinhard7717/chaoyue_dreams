@@ -79,11 +79,11 @@ class IntelligenceLayer:
 
         # 2. 运行其他所有状态情报引擎
         
-        # [代码修改] 指挥链重塑：优先执行行为引擎，以生产“反转基因”
+        # 指挥链重塑：优先执行行为引擎，以生产“反转基因”
         print("    - [阶段 2.1/5] 正在执行先导引擎 (行为情报)...")
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         
-        # [代码修改] 确保其他引擎在行为引擎之后执行
+        # 确保其他引擎在行为引擎之后执行
         print("    - [阶段 2.2/5] 正在执行状态情报引擎 (消费反转基因)...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -154,12 +154,12 @@ class IntelligenceLayer:
             print("  --> 检测到终极信号，开始解剖...")
             print("  --> 正在检查所有支柱的健康度贡献...")
             
-            # [代码修改] 废除脆弱的__defaults__内省方式
-            # [代码新增] 采用与主逻辑相同的、健壮的方式从参数块获取 periods
+            # 废除脆弱的__defaults__内省方式
+            # 采用与主逻辑相同的、健壮的方式从参数块获取 periods
             p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
             periods_to_probe = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
 
-            # [代码修改] 使用从参数中安全获取的 periods_to_probe
+            # 使用从参数中安全获取的 periods_to_probe
             for p in periods_to_probe:
                 for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
                     pass

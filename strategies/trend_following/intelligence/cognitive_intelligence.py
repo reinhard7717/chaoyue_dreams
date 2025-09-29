@@ -85,37 +85,34 @@ class CognitiveIntelligence:
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 信号净化版】状态-过程协同融合引擎
-        - 核心哲学: 终极信号 = 高质量的“状态” * 强劲的“过程”
-        - 算法: 将所有领域的“看涨状态分”与所有维度的“看涨过程分”进行融合。
+        【V1.3 · 创世纪版】状态-过程协同融合引擎
+        - 核心升级: 将四个全新的“创世纪”过程信号全部纳入“过程共识分”的计算，
+                      使顶层认知能够理解市场的真实博弈。
         """
         states = {}
         
-        # 1. 融合所有“状态”看涨信号，得到一个总的“状态共识分”
-        # 更新所有信号名为净化后的名称 (移除_S_PLUS后缀)
         state_bullish_signals = [
-            'SCORE_CHIP_BULLISH_RESONANCE',
-            'SCORE_BEHAVIOR_BULLISH_RESONANCE',
-            'SCORE_FF_BULLISH_RESONANCE',
-            'SCORE_STRUCTURE_BULLISH_RESONANCE',
-            'SCORE_DYN_BULLISH_RESONANCE',
-            'SCORE_FOUNDATION_BULLISH_RESONANCE'
+            'SCORE_CHIP_BULLISH_RESONANCE', 'SCORE_BEHAVIOR_BULLISH_RESONANCE',
+            'SCORE_FF_BULLISH_RESONANCE', 'SCORE_STRUCTURE_BULLISH_RESONANCE',
+            'SCORE_DYN_BULLISH_RESONANCE', 'SCORE_FOUNDATION_BULLISH_RESONANCE'
         ]
         state_scores = [self._get_atomic_score(df, sig, 0.5).values for sig in state_bullish_signals]
-        # 使用几何平均进行融合，要求所有领域都不能太差
         state_consensus_score = pd.Series(
             np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
             index=df.index, dtype=np.float32
         )
         states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
 
-        # 2. 融合所有“过程”看涨信号，得到一个总的“过程共识分”
+        # 引入所有“创世纪”过程信号
         process_bullish_signals = [
             'PROCESS_META_PV_REL_BULLISH_TURN',
             'PROCESS_META_PF_REL_BULLISH_TURN',
-            'PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC' # 消费我们新定义的战略信号
+            'PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC',
+            'PROCESS_META_POWER_TRANSFER',
+            'PROCESS_META_STEALTH_ACCUMULATION',
+            'PROCESS_META_WINNER_CONVICTION',
+            'PROCESS_META_LOSER_CAPITULATION'
         ]
-        # 过程信号是[-1, 1]的，先映射到[0, 1]再融合
         process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
         process_consensus_score = pd.Series(
             np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
@@ -123,9 +120,7 @@ class CognitiveIntelligence:
         )
         states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
 
-        # 3. 终极融合：状态 * 过程
         synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
-        # 移除信号名中的_S后缀
         states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
         
         self.strategy.atomic_states.update(states)

@@ -267,7 +267,7 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     - 核心逻辑: 融合“速度变化”(加速度)和“力量变化”(加加速度/Jerk)。
     - 本次加固: 无论上游数据是否存在，都确保本函数内部处理的是Series，彻底杜绝类型错误。
     """
-    # [代码新增] 创建一个默认的Series，用于在df.get找不到列时返回，确保类型安全
+    # 创建一个默认的Series，用于在df.get找不到列时返回，确保类型安全
     default_series = pd.Series(0.0, index=df.index)
 
     # 维度一：速度变化 (加速度)

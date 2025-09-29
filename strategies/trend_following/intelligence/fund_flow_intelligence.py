@@ -134,9 +134,8 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.8 · 基因注入版】
-        - 核心升级: 注入“反转基因”，底部反转逻辑不再依赖于被动的 s_bear，而是由主动的
-                      `SCORE_UNIVERSAL_BOTTOM_PATTERN` 权威信号驱动。
+        【V2.9 · 关系动力赋能版】
+        - 核心升级: 引入权威的“关系动力分”，为本模块的看涨信号进行最终赋能。
         """
         final_scores = {}
         periods = params['periods']
@@ -145,13 +144,16 @@ class FundFlowIntelligence:
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         
-        # [代码新增] 接收来自行为引擎的权威“反转基因”
         universal_bottom_pattern_score = self.strategy.atomic_states.get('SCORE_UNIVERSAL_BOTTOM_PATTERN', pd.Series(0.0, index=fused_health['resonance']['s_bull'][periods[0]].index))
+        
+        # 获取权威的“关系动力分”
+        relational_dynamics_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=fused_health['resonance']['s_bull'][periods[0]].index))
 
         resonance_health = fused_health['resonance']
         reversal_health = fused_health['reversal']
         
-        bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_intensity'][p] for p in periods}
+        # 使用“关系动力分”对看涨共振进行赋能
+        bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_intensity'][p] * relational_dynamics_power for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bull_res_long = bullish_resonance_health.get(55, 0.5)
@@ -161,8 +163,11 @@ class FundFlowIntelligence:
             (bull_res_long ** res_tw['long'])
         )
         
-        # 逻辑重塑：使用“反转基因”驱动底部反转信号
-        bullish_reversal_health = {p: (universal_bottom_pattern_score * reversal_health['s_bull'][p]) * reversal_health['d_intensity'][p] for p in periods}
+        # 使用“关系动力分”对底部反转进行赋能
+        bullish_reversal_health = {
+            p: np.maximum(universal_bottom_pattern_score * reversal_health['s_bull'][p], reversal_health['s_bear'][p]) * reversal_health['d_intensity'][p] * relational_dynamics_power
+            for p in periods
+        }
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bull_rev_long = bullish_reversal_health.get(55, 0.5)
