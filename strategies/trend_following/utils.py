@@ -271,7 +271,7 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     default_series = pd.Series(0.0, index=df.index)
 
     # 维度一：速度变化 (加速度)
-    # [代码修改] 使用 default_series 作为 df.get 的备用返回值
+    # 使用 default_series 作为 df.get 的备用返回值
     slope_1 = df.get(f'SLOPE_1_{base_name}', default_series)
     slope_5 = df.get(f'SLOPE_5_{base_name}', default_series)
     slope_diff = slope_1 - slope_5
@@ -279,7 +279,7 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
 
     # 维度二：力量变化 (加加速度 / Jerk)
-    # [代码修改] 使用 default_series 作为 df.get 的备用返回值
+    # 使用 default_series 作为 df.get 的备用返回值
     accel_1 = df.get(f'ACCEL_1_{base_name}', default_series)
     accel_5 = df.get(f'ACCEL_5_{base_name}', default_series)
     accel_diff = accel_1 - accel_5

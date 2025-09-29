@@ -216,7 +216,7 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V3.0 · 全息动态升级版】计算单个资金流支柱的三维健康度"""
+        """【V3.1 · 调用适配版】计算单个资金流支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
@@ -229,9 +229,11 @@ class FundFlowIntelligence:
                 static_col = f"{base_col_name}_D"
 
             if col_type == 'sum' and p > 1:
-                slope_base_col = f"{base_col_name}_sum_{p}d_D"
+                # 修正 base_name，移除末尾的 '_D'
+                slope_base_col = f"{base_col_name}_sum_{p}d"
             else:
-                slope_base_col = f"{base_col_name}_D"
+                # 修正 base_name，移除末尾的 '_D'
+                slope_base_col = f"{base_col_name}"
             
             default_series = pd.Series(0.5, index=df.index)
             
@@ -240,8 +242,9 @@ class FundFlowIntelligence:
             s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
             s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
             
-            # 使用全新的全息动态引擎计算动态强度分
-            d_intensity[p] = calculate_holographic_dynamics(df, slope_base_col, norm_window)
+            # 调用中央引擎获取元组，然后在调用处进行融合
+            bull_holo, bear_holo = calculate_holographic_dynamics(df, slope_base_col, norm_window)
+            d_intensity[p] = (bull_holo + bear_holo) / 2.0
 
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
