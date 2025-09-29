@@ -101,7 +101,7 @@ class ProcessIntelligence:
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
         
-        # [代码修改] 增加范围约束，防止数学溢出
+        # 增加范围约束，防止数学溢出
         relationship_score = relationship_score.clip(-1, 1)
 
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
@@ -206,7 +206,7 @@ class ProcessIntelligence:
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
         
-        # [代码修改] 增加范围约束，防止数学溢出
+        # 增加范围约束，防止数学溢出
         relationship_score = relationship_score.clip(-1, 1)
         
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a

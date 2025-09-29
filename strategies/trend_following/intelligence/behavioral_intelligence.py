@@ -209,8 +209,8 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.6 · 条件融合版】计算成交量维度的三维健康度
-        - 核心修复: 重构 static_bull_score 的融合逻辑，使用 np.where 根据涨跌条件分别计算，彻底解决下跌日看涨信号被压制的问题。
+        【V6.7 · 终极逻辑版】计算成交量维度的三维健康度
+        - 核心修复: 彻底重构下跌日的看涨分计算逻辑。将'下跌抵抗'和'卖盘衰竭'从相乘改为取最大值，解决了逻辑内耗问题。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
 
@@ -238,14 +238,14 @@ class BehavioralIntelligence:
 
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
         
-        # [代码修改] 使用条件融合逻辑重构看涨分计算
+        # 使用条件融合逻辑，并修正下跌日看涨分的融合方式
         is_positive_day = df['pct_change_D'] > 0
-        # 在下跌或平盘日，将“下跌抵抗分”和“卖盘衰竭分”进行几何平均融合，再与外部的“衰竭反转分”取最大值
-        bullish_score_on_down_day = np.maximum(
-            (yin_score * selling_exhaustion_score)**0.5,
+        # 在下跌日，看涨分由多个独立的看涨逻辑（抵抗、衰竭、反转）中的最强者决定，而不是相乘
+        bullish_score_on_down_day = np.maximum.reduce([
+            yin_score, 
+            selling_exhaustion_score,
             exhaustion_reversal_score
-        )
-        # 根据当天是上涨还是下跌，选择不同的计算路径
+        ])
         static_bull_score_np = np.where(is_positive_day, yang_score, bullish_score_on_down_day)
         static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
