@@ -715,65 +715,51 @@ class IntelligenceLayer:
 
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """
-        【探针V2.1.0 · 心电图检测版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
-        - 核心升级: 新增“心电图检测”功能，如果输入信号是恒定值，将直接报告根本原因。
+        【探针V2.2.0 · 战略协同解剖版】为 ProcessIntelligence 引擎定制的钻透式法医探针。
+        - 核心升级: 新增对 'strategy_sync' 任务类型的解剖能力，使其能正确展示高阶战略信号的分析过程。
         """
-        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.1.0】 ---") # 更新版本号
+        print("\n--- [探针] 正在解剖: 【过程情报引擎 V2.2.0】 ---")
         
         df = self.strategy.df_indicators
         engine = self.process_intel
         
         for config in engine.diagnostics_config:
-            if config.get('type') != 'meta_analysis':
-                continue
-            
             signal_name = config.get('name')
+            signal_type = config.get('type')
             signal_a_name = config.get('signal_A')
             signal_b_name = config.get('signal_B')
             
             print(f"\n  -> 正在解剖元分析任务: 【{signal_name}】 ({signal_a_name} vs {signal_b_name})")
             
-            # --- 解剖第一维：瞬时关系分 ---
-            print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于量化力学模型) ---")
-            
-            momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
-            thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
-            
-            # [代码新增] --- 心电图检测 ---
-            if pd.isna(momentum_a) or pd.isna(thrust_b):
-                # 智能数据源选择逻辑
-                def get_signal_series(sig_name: str, source_type: str):
-                    if source_type == 'atomic_states':
-                        return self.strategy.atomic_states.get(sig_name)
-                    return df.get(sig_name)
+            # 增加对 strategy_sync 任务类型的专属解剖逻辑
+            if signal_type == 'strategy_sync':
+                print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于战略信号映射) ---")
+                momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+                thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+                
+                signal_a_val = self.strategy.atomic_states.get(signal_a_name, pd.Series(np.nan)).get(probe_date, np.nan)
+                signal_b_val = self.strategy.atomic_states.get(signal_b_name, pd.Series(np.nan)).get(probe_date, np.nan)
 
-                series_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
-                series_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
-
-                if series_a is not None and series_a.nunique() <= 1:
-                    print(f"       - [!!! 根本原因定位 !!!] 信号 '{signal_a_name}' 在近期是一个恒定值，其变化量为0，导致动量A无法计算(NaN)。")
-                    print(f"       - [诊断建议] 请检查生成 '{signal_a_name}' 的情报引擎，是否存在因数据缺失而返回固定默认值的BUG。")
-                    continue # 跳到下一个任务的解剖
-                if series_b is not None and series_b.nunique() <= 1:
-                    print(f"       - [!!! 根本原因定位 !!!] 信号 '{signal_b_name}' 在近期是一个恒定值，其变化量为0，导致推力B无法计算(NaN)。")
-                    print(f"       - [诊断建议] 请检查生成 '{signal_b_name}' 的情报引擎，是否存在因数据缺失而返回固定默认值的BUG。")
-                    continue # 跳到下一个任务的解剖
-            # [代码新增结束]
+                print(f"       - 原始信号值: {signal_a_name}({signal_a_val:.4f}), {signal_b_name}({signal_b_val:.4f})")
+                print(f"       - 映射后动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})")
+            else: # 保持对 meta_analysis 的原有解剖逻辑
+                print("\n     --- [第一维] 解剖当日的“瞬时关系分”(基于量化力学模型) ---")
+                momentum_a = self.strategy.atomic_states.get(f"_DEBUG_momentum_{signal_a_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+                thrust_b = self.strategy.atomic_states.get(f"_DEBUG_thrust_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
+                
+                series_a = df.get(signal_a_name, pd.Series(dtype=float))
+                series_b = df.get(signal_b_name, pd.Series(dtype=float))
+                change_a = ta.percent_return(series_a, length=1).get(probe_date, 0) if not series_a.empty else 0
+                change_b = ta.percent_return(series_b, length=1).get(probe_date, 0) if not series_b.empty else 0
+                print(f"       - 原始变化率: {signal_a_name}({change_a:+.2%}), {signal_b_name}({change_b:+.2%})")
+                print(f"       - 双极归一化动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})")
 
             relationship_score_today = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}", pd.Series(np.nan)).get(probe_date, np.nan)
-            
-            series_a = df.get(signal_a_name, pd.Series(dtype=float))
-            series_b = df.get(signal_b_name, pd.Series(dtype=float))
-            change_a = ta.percent_return(series_a, length=1).get(probe_date, 0) if not series_a.empty else 0
-            change_b = ta.percent_return(series_b, length=1).get(probe_date, 0) if not series_b.empty else 0
             signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-
-            print(f"       - 原始变化率: {signal_a_name}({change_a:+.2%}), {signal_b_name}({change_b:+.2%})")
-            print(f"       - 双极归一化动量: 动量A({momentum_a:.4f}), 推力B({thrust_b:.4f})") # 更新注释
             print(f"       - 力学公式: 关系分 = 动量A * (1 + {signal_b_factor_k} * 推力B)")
             print(f"       - [代入计算]: {momentum_a:.4f} * (1 + {signal_b_factor_k:.1f} * {thrust_b:.4f}) = {relationship_score_today:.4f}")
             
-            # --- 解剖第二维：元分析过程 ---
+            # --- 第二维解剖逻辑保持不变，因为对所有类型都适用 ---
             print(f"\n     --- [第二维] 解剖“关系分”在 {engine.meta_window} 日窗口内的趋势 ---")
             relationship_series = self.strategy.atomic_states.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}")
             if relationship_series is None:
@@ -789,32 +775,17 @@ class IntelligenceLayer:
             print(f"       - “关系分”的趋势 (斜率): {relationship_trend_today:.4f}")
             print(f"       - “关系分”的加速度: {relationship_accel_today:.4f}")
 
-            # 探针的核心升级：使用双极归一化和加权平均法进行重算
-            bipolar_trend_strength = normalize_to_bipolar(
-                series=relationship_trend_series,
-                target_index=df.index,
-                window=engine.norm_window,
-                sensitivity=engine.bipolar_sensitivity
-            ).get(probe_date, np.nan)
-            
-            bipolar_accel_strength = normalize_to_bipolar(
-                series=relationship_accel_series,
-                target_index=df.index,
-                window=engine.norm_window,
-                sensitivity=engine.bipolar_sensitivity
-            ).get(probe_date, np.nan)
+            bipolar_trend_strength = normalize_to_bipolar(relationship_trend_series, df.index, engine.norm_window, engine.bipolar_sensitivity).get(probe_date, np.nan)
+            bipolar_accel_strength = normalize_to_bipolar(relationship_accel_series, df.index, engine.norm_window, engine.bipolar_sensitivity).get(probe_date, np.nan)
             
             trend_weight = engine.meta_score_weights[0]
             accel_weight = engine.meta_score_weights[1]
-            recalculated_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-            recalculated_score = np.clip(recalculated_score, -1, 1) # 保持与引擎逻辑一致
+            recalculated_score = np.clip((bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight), -1, 1)
             
             print(f"       - 趋势强度分 (双极归一化): {bipolar_trend_strength:.4f}")
             print(f"       - 加速度强度分 (双极归一化): {bipolar_accel_strength:.4f}")
             print(f"       - 融合逻辑: (趋势分 * {trend_weight}) + (加速度分 * {accel_weight})")
             print(f"       - [探针重算结果]: {recalculated_score:.4f}")
-            # 结束
-
             print(f"       - [最终信号实际值]: {self.strategy.atomic_states.get(signal_name, pd.Series(np.nan)).get(probe_date, np.nan):.4f}")
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):

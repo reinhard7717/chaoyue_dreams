@@ -209,8 +209,8 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.4 · 逻辑完备版】计算成交量维度的三维健康度
-        - 核心修复: 新增 selling_exhaustion_score，专门用于奖励“缩量下跌”这一卖盘衰竭的看涨信号。
+        【V6.5 · 融合逻辑重构版】计算成交量维度的三维健康度
+        - 核心修复: 重构 static_bull_score 的融合逻辑，使用 np.where 根据涨跌条件分别计算，彻底解决下跌日看涨信号被压制的问题。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
 
@@ -228,19 +228,25 @@ class BehavioralIntelligence:
         static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
         
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
-        yang_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
+        yang_score = (price_increase_score * volume_increase_score)
         
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
-        yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk)).where(df['pct_change_D'] <= 0, 0)
+        yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk))
         
-        # [代码新增] 定义一个专门的“卖盘衰竭”分数，用于奖励“缩量下跌”
-        shrinking_volume_score = 1.0 - volume_increase_score # 成交量越小，分数越高
-        selling_exhaustion_score = (shrinking_volume_score * price_drop_score).where(df['pct_change_D'] < 0, 0)
+        shrinking_volume_score = 1.0 - volume_increase_score
+        selling_exhaustion_score = (shrinking_volume_score * price_drop_score)
 
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
         
-        # [代码修改] 将新的卖盘衰竭分数加入到最终看涨分的计算中
-        static_bull_score_np = np.maximum.reduce([yang_score, yin_score, exhaustion_reversal_score, selling_exhaustion_score])
+        # 使用条件融合逻辑重构看涨分计算
+        # 在上涨日，看涨分主要由上涨能量（yang_score）决定
+        # 在下跌或平盘日，看涨分由“下跌抵抗分”和“卖盘衰竭分”融合决定
+        is_positive_day = df['pct_change_D'] > 0
+        bullish_score_on_down_day = np.maximum.reduce([
+            (yin_score * selling_exhaustion_score)**0.5, # 融合下跌抵抗与卖盘衰竭
+            exhaustion_reversal_score
+        ])
+        static_bull_score_np = np.where(is_positive_day, yang_score, bullish_score_on_down_day)
         static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
         for p in periods:

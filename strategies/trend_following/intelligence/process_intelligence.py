@@ -54,7 +54,7 @@ class ProcessIntelligence:
             if not signal_name:
                 continue
 
-            # [代码修改] 增加对新任务类型的路由，为 'strategy_sync' 调用专属诊断方法
+            # 增加对新任务类型的路由，为 'strategy_sync' 调用专属诊断方法
             if signal_type == 'meta_analysis':
                 meta_states = self._diagnose_meta_relationship(df, config)
                 if meta_states:

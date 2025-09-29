@@ -97,35 +97,34 @@ class FundFlowIntelligence:
 
     def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
         """
-        【V2.4 · 终极哲学统一版】执行意图驱动的加权融合。
-        - 核心修复: 将融合逻辑从“加权求和”彻底修改为“加权几何平均”。
+        【V2.5 · 动态分统一版】执行意图驱动的加权融合。
         """
+        # 更新数据结构以适配三维健康度
         fused_results = {
-            'resonance': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}},
-            'reversal': {'s_bull': {}, 'd_bull': {}, 's_bear': {}, 'd_bear': {}}
+            'resonance': {'s_bull': {}, 's_bear': {}, 'd_intensity': {}},
+            'reversal': {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
         }
         pillar_names = list(params['pillar_configs'].keys())
         
         for intent_type, weights_key in [('resonance', 'resonance_pillar_weights'), ('reversal', 'reversal_pillar_weights')]:
             weights_config = params[weights_key]
             
-            # 准备加权几何平均所需的权重
             valid_weights = [weights_config.get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names]
             weights_array = np.array(valid_weights)
             total_weights = weights_array.sum()
             if total_weights > 0:
-                weights_array /= total_weights # 归一化权重
+                weights_array /= total_weights
             else:
-                weights_array = np.full_like(weights_array, 1.0 / len(weights_array)) # 等权重
+                weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
 
-            for health_key in ['s_bull', 'd_bull', 's_bear', 'd_bear']:
+            # 循环遍历新的三维健康度类型
+            for health_key in ['s_bull', 's_bear', 'd_intensity']:
                 for p in params['periods']:
                     pillar_scores_matrix = np.stack([
                         pillar_health[name][health_key].get(p, pd.Series(0.5, index=pillar_health[pillar_names[0]]['s_bull'][p].index)).values 
                         for name in pillar_names
                     ], axis=0)
                     
-                    # 使用加权几何平均替换加权求和
                     fused_values = np.prod(pillar_scores_matrix ** weights_array[:, np.newaxis], axis=0)
                     sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
                     fused_results[intent_type][health_key][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
@@ -135,8 +134,7 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.5 · 终极哲学统一版】合成最终的共振与反转信号
-        - 核心修复: 将最终信号合成逻辑从“加法模型”彻底修改为“加权几何平均”。
+        【V2.6 · 动态分统一版】合成最终的共振与反转信号
         """
         final_scores = {}
         periods = params['periods']
@@ -149,9 +147,9 @@ class FundFlowIntelligence:
         resonance_health = fused_health['resonance']
         reversal_health = fused_health['reversal']
         
-        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
+        # 全面使用 d_intensity 替换 d_bull 和 d_bear
         # --- 看涨信号合成 ---
-        bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_bull'][p] for p in periods}
+        bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_intensity'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
         bull_res_long = bullish_resonance_health.get(55, 0.5)
@@ -161,7 +159,7 @@ class FundFlowIntelligence:
             (bull_res_long ** res_tw['long'])
         )
         
-        bullish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_bull'][p] for p in periods}
+        bullish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_intensity'][p] for p in periods}
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bull_rev_long = bullish_reversal_health.get(55, 0.5)
@@ -173,7 +171,7 @@ class FundFlowIntelligence:
         final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
 
         # --- 看跌信号合成 ---
-        bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_bear'][p] for p in periods}
+        bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_intensity'][p] for p in periods}
         bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
         bear_res_long = bearish_resonance_health.get(55, 0.5)
@@ -183,7 +181,7 @@ class FundFlowIntelligence:
             (bear_res_long ** res_tw['long'])
         )
         
-        bearish_reversal_health = {p: reversal_health['s_bull'][p] * reversal_health['d_bear'][p] for p in periods}
+        bearish_reversal_health = {p: reversal_health['s_bull'][p] * reversal_health['d_intensity'][p] for p in periods}
         bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bear_rev_long = bearish_reversal_health.get(55, 0.5)
@@ -193,7 +191,6 @@ class FundFlowIntelligence:
             (bear_rev_long ** rev_tw['long'])
         )
         final_scores['top_reversal'] = (bearish_trigger * (1 + context_scores['top_context'] * top_context_bonus_factor)).clip(0, 1)
-        
         
         return final_scores
 
@@ -218,8 +215,9 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.6 · 终极哲学统一版】计算单个资金流支柱的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        """【V2.7 · 动态分统一版】计算单个资金流支柱的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
@@ -247,17 +245,13 @@ class FundFlowIntelligence:
             s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
             s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
             
-            # 根除所有动态分计算中的加法
-            d_bull_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == 1))
-            d_bull_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == 1))
-            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
-            
-            d_bear_slope = normalize_score(slope_series, df.index, norm_window, ascending=(polarity == -1))
-            d_bear_accel = normalize_score(accel_series, df.index, norm_window, ascending=(polarity == -1))
-            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
-            
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(slope_series.abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(accel_series.abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
 
-        return {'s_bull': s_bull, 'd_bull': d_bull, 's_bear': s_bear, 'd_bear': d_bear}
+        # 返回符合新协议的三元组
+        return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
 
 
