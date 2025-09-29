@@ -131,13 +131,13 @@ class MicroBehaviorEngine:
             slope_1 = normalize_score(df.get(f'SLOPE_1_{base_name}_D'), df.index, norm_window, ascending=False)
             accel_1 = normalize_score(df.get(f'ACCEL_1_{base_name}_D'), df.index, norm_window, ascending=False)
             risk_1_day = (slope_1 * accel_1)**0.5
-            print(f"slope_1: {slope_1}, accel_1: {accel_1}, risk_1_day: {risk_1_day}")
+            print(f"SLOPE_1_{base_name}_D: {slope_1}, ACCEL_1_{base_name}_D: {accel_1}, risk_1_day: {risk_1_day}")
             
             # 计算5日周期的风险分
             slope_5 = normalize_score(df.get(f'SLOPE_5_{base_name}_D'), df.index, norm_window, ascending=False)
             accel_5 = normalize_score(df.get(f'ACCEL_5_{base_name}_D'), df.index, norm_window, ascending=False)
             risk_5_day = (slope_5 * accel_5)**0.5
-            print(f"slope_5: {slope_5}, accel_5: {accel_5}, risk_5_day: {risk_5_day}")
+            print(f"SLOPE_5_{base_name}_D: {slope_5}, ACCEL_5_{base_name}_D: {accel_5}, risk_5_day: {risk_5_day}")
             
             # 使用动态权重进行融合
             return (risk_1_day * w_instant) + (risk_5_day * w_short_term)
