@@ -65,7 +65,7 @@ class BehavioralIntelligence:
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        # [代码修改] 升级为“双核驱动”的底部形态判断
+        # 升级为“双核驱动”的底部形态判断
         # 核一：识别“磨底”形态
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         # 核二：识别“V型反转”形态
@@ -195,16 +195,9 @@ class BehavioralIntelligence:
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.5)
 
-        # [代码修改] 重新定义静态看涨分的计算逻辑
         is_positive_day = df['pct_change_D'] > 0
-        
-        # 上涨日的看涨分：由BBP和日内收盘位置共同决定
         bullish_score_on_up_day = (bbp * close_position_in_range)**0.5
-        
-        # [代码新增] 下跌日的看涨分：专门奖励“反转潜力”，即下跌但收盘位置高（长下影线）
         reversal_potential_score = close_position_in_range.where(df['pct_change_D'] < 0, 0)
-        
-        # 使用条件逻辑，为不同市场日选择不同的评分模型
         static_bull_score = pd.Series(
             np.where(is_positive_day, bullish_score_on_up_day, reversal_potential_score),
             index=df.index
@@ -216,6 +209,8 @@ class BehavioralIntelligence:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
 
+            # 计算统一的、中性的动态强度分 d_intensity
+            # 使用 .abs() 来获取变化的强度，而不是方向
             price_mom_strength = normalize_score(df.get(f'SLOPE_{p}_close_D').abs(), df.index, norm_window, ascending=True)
             price_accel_strength = normalize_score(df.get(f'ACCEL_{p}_close_D').abs(), df.index, norm_window, ascending=True)
             d_intensity[p] = (price_mom_strength * price_accel_strength)**0.5

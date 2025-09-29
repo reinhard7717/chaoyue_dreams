@@ -43,7 +43,7 @@ class ReportingLayer:
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         
-        # [代码修改] 扩展信号类型字典，使其能够理解新的、更具体的信号
+        # 扩展信号类型字典，使其能够理解新的、更具体的信号
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -53,12 +53,12 @@ class ReportingLayer:
             '风险否决': TradingSignal.SignalType.WARN,   # [代码新增] 映射为 WARN 类型
         }
         
-        # [代码修改] 筛选条件现在包含所有已知的信号类型
+        # 筛选条件现在包含所有已知的信号类型
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
 
         for trade_time, row in signal_days_df.iterrows():
-            # [代码修改] 使用 get 方法安全获取，如果找不到则默认为 WARN
+            # 使用 get 方法安全获取，如果找不到则默认为 WARN
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,

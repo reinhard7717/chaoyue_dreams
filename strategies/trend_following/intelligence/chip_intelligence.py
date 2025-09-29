@@ -158,7 +158,6 @@ class ChipIntelligence:
 
     def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
         """【V3.4 · 动态分统一版】计算基础量化维度的三维健康度"""
-        # 更新方法签名和初始化
         s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
@@ -174,6 +173,7 @@ class ChipIntelligence:
             s_bear[p] = overall_static_bear
 
             # 计算统一的、中性的动态强度分 d_intensity
+            # 使用 .abs() 来获取变化的强度，而不是方向
             conc_mom_strength = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
             conc_accel_strength = normalize_score(df.get(f'ACCEL_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
             dynamic_conc = (conc_mom_strength * conc_accel_strength)**0.5
@@ -188,7 +188,6 @@ class ChipIntelligence:
             
             d_intensity[p] = (dynamic_conc * dynamic_cost * dynamic_health)**(1/3)
         
-        # 返回三元组
         return s_bull, s_bear, d_intensity
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:

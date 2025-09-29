@@ -25,7 +25,7 @@ class ExitLayer:
         triggers_df['EXIT_RISK_OVERFLOW'] = pd.Series(False, index=df.index)
         triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
         
-        # [代码修改] 构建双均线立体防御体系
+        # 构建双均线立体防御体系
         p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
         p_trailing = p_pos_mgmt.get('trailing_stop', {})
         

@@ -32,7 +32,7 @@ class JudgmentLayer:
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         
-        # [代码修改] 决策逻辑重构
+        # 决策逻辑重构
         # 步骤1: 初始化默认信号类型
         df['signal_type'] = '无信号'
         

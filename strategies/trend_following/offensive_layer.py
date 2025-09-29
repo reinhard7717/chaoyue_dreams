@@ -31,7 +31,7 @@ class OffensiveLayer:
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
-            # [代码修改] 在计分类型中增加 'process'
+            # 在计分类型中增加 'process'
             # 这样，进攻层就能识别并处理我们新定义的过程信号了
             if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process']:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))

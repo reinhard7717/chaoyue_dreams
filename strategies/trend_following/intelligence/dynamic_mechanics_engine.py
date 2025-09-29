@@ -126,24 +126,22 @@ class DynamicMechanicsEngine:
 
     def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
         """【V1.5 · 动态分统一版】计算波动率(BBW)维度的三维健康度"""
-        # 更新方法签名和初始化，统一返回 d_intensity
         s_bull, s_bear, d_intensity = {}, {}, {}
-        static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) # 压缩为好
-        static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)  # 扩张为坏
+        static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+        static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
             if p in [1, 5, 13]:
                 # 计算统一的、中性的动态强度分 d_intensity
+                # 使用 .abs() 来获取变化的强度，而不是方向
                 mom_strength = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D').abs(), df.index, norm_window, ascending=True)
                 accel_strength = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D').abs(), df.index, norm_window, ascending=True)
                 d_intensity[p] = (mom_strength * accel_strength)**0.5
             else:
-                # 确保在不计算时，d_intensity 也有默认值
                 d_intensity[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 返回符合新协议的三元组
         return s_bull, s_bear, d_intensity
 
     def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:

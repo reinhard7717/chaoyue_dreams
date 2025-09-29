@@ -38,16 +38,15 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V402.0 · 终极信号适配版】策略应用主流程
-        - 核心重构: 极大简化了主流程。现在只调用 IntelligenceLayer 的总入口，然后依次执行进攻、预警、判断等层。
+        【V403.0 · 指挥链肃清版】
+        - 核心修复: 删除了在 JudgmentLayer 之后，强行将硬性离场信号改写为'卖出信号'的越权代码。
+                      现在完全尊重并保留 JudgmentLayer 的精细化决策结果。
         """
         self.params = params
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-        # 将所有时间框架的数据注入到 df_indicators 中
-        # IntelligenceLayer 内部会根据需要选择使用哪个时间框架的数据
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         
         # --- 指挥链 1/7: 情报层 (唯一入口) ---
@@ -60,13 +59,14 @@ class TrendFollowStrategy:
         # --- 指挥链 3/7: 预警层 ---
         risk_details_df = self.warning_layer.run_all_warnings()
         
-        # --- 指挥链 4/7: 统合判断层 ---
+        # --- 指挥链 4/7: 统合判断层 (现在是最终决策者) ---
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
         
-        # --- 指挥链 5/7: 离场层 ---
-        hard_exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
-        is_hard_exit_triggered = hard_exit_triggers_df.any(axis=1)
-        self.df_indicators.loc[is_hard_exit_triggered, 'signal_type'] = '卖出信号'
+        # --- 指挥链 5/7: 离场层 (仅生成触发器，不直接决策) ---
+        # [代码删除] 删除了下面两行越权代码，确保 JudgmentLayer 的决策不被覆盖
+        # hard_exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
+        # is_hard_exit_triggered = hard_exit_triggers_df.any(axis=1)
+        # self.df_indicators.loc[is_hard_exit_triggered, 'signal_type'] = '卖出信号'
         
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
