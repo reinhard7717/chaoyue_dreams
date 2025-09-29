@@ -120,10 +120,11 @@ class IntelligenceLayer:
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
         """
-        【V1.0 新增】NaN 值法医探针。
-        当检测到 NaN 时，此方法被调用，以追溯并解剖导致问题的信号计算链。
+        【V1.1 · 探针修复版】NaN 值法医探针。
+        - 核心修复: 修复了探针在尝试获取 `periods` 列表时因脆弱的内省逻辑而崩溃的问题。
+                      现在探针采用与主逻辑相同的、健壮的方式从参数块中读取配置。
         """
-        print("\n" + "="*30 + f" [NaN 法医探针 V1.0 启动] " + "="*30)
+        print("\n" + "="*30 + f" [NaN 法医探针 V1.1 启动] " + "="*30)
         print(f"  - 案发时间: {nan_date.strftime('%Y-%m-%d')}")
         print(f"  - 可疑信号: {nan_signal_name}")
         print("  - 开始进行计算链路回溯解剖...")
@@ -140,13 +141,7 @@ class IntelligenceLayer:
 
         def probe_pillar_health(engine_intel, date, period, health_type):
             """通用支柱健康度探针"""
-            # 这是一个简化的示例，实际需要根据每个引擎的结构来定制
-            # 这里我们假设可以访问到引擎的内部计算方法或存储的中间结果
-            # 为了简化，我们直接从 atomic_states 或 df_indicators 中读取最终的指标
             print(f"  ---> 解剖 {health_type} 健康度 (周期 {period})...")
-            # 示例：追溯到最原始的 slope 和 accel 指标
-            # 这需要根据具体信号的计算逻辑来确定原始指标名
-            # 例如，对于 DYN 引擎的波动率健康度
             if "DYN" in nan_signal_name:
                 raw_slope = df.get(f'SLOPE_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
                 raw_accel = df.get(f'ACCEL_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
@@ -155,18 +150,20 @@ class IntelligenceLayer:
                 if pd.isna(raw_slope) or pd.isna(raw_accel):
                     print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
 
-        # 根据信号名选择解剖路径
         if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
-            print("  --> 检测到筹码层信号，开始解剖 ChipIntelligence...")
-            # 简化解剖过程：直接检查构成 overall_health 的所有 pillar health
-            # 这是一个示例，实际探针可以做得更精细
-            print("  --> 正在检查所有筹码支柱的健康度贡献...")
-            for p in self.chip_intel.diagnose_unified_chip_signals.__defaults__[2]: # 获取默认periods
+            print("  --> 检测到终极信号，开始解剖...")
+            print("  --> 正在检查所有支柱的健康度贡献...")
+            
+            # [代码修改] 废除脆弱的__defaults__内省方式
+            # [代码新增] 采用与主逻辑相同的、健壮的方式从参数块获取 periods
+            p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+            periods_to_probe = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
+
+            # [代码修改] 使用从参数中安全获取的 periods_to_probe
+            for p in periods_to_probe:
                 for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
-                    # 模拟计算 overall_health 的过程并打印
-                    # 此处仅为示意，实际需要更精细的逻辑来重现计算
                     pass
-            print("  --> 提示: 请检查 chip_intelligence.py 中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
+            print("  --> 提示: 请检查相关情报引擎中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
 
         elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
             print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
@@ -174,14 +171,12 @@ class IntelligenceLayer:
             if nan_signal_name == 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A':
                 print("  ---> 解剖路径: final_score = context * opportunity")
                 
-                # 1. 解剖 context_is_ranging_market
                 print("  -----> 正在解剖 context_is_ranging_market...")
-                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4 # 假设阈值
-                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45 # 假设阈值
+                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4
+                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45
                 context_val = float(is_cyclical_regime and is_not_trending_regime)
                 print(f"      - context_is_ranging_market = {context_val}")
 
-                # 2. 解剖 buy_opportunity_score
                 print("  -----> 正在解剖 buy_opportunity_score...")
                 bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(nan_date)
                 print(f"      - 原始指标 BBP_21_2.0_D: {bbp_val}")
@@ -190,12 +185,8 @@ class IntelligenceLayer:
                 opportunity_val = 1 - np.clip(bbp_val, 0, 1) if pd.notna(bbp_val) else np.nan
                 print(f"      - buy_opportunity_score = {opportunity_val}")
 
-                # 3. 最终计算
                 final_val = context_val * opportunity_val
                 print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
-
-        # 可以为其他引擎添加 elif 分支
-        # ...
 
         else:
             print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
