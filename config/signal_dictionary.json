@@ -1,6 +1,6 @@
 {
     "score_type_map": {
-        "说明": "【V85.0 · 信号净化版】这是一个信号命名完成终极简化的权威字典。所有终极信号均采用'SCORE_[领域]_[类型]'或类似的纯粹命名法，不再包含任何S/A/B等级后缀。",
+        "说明": "【V86.0 · 过程感知版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。新增并正确配置了所有 process 类型信号。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
         "SCORE_REVERSAL_OFFENSE": {
             "cn_name": "【汇总】反转进攻分",
@@ -21,32 +21,70 @@
             "description": "第三层：剧本协同奖励分的汇总得分。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
-        "PROCESS_DIVERGENCE_PRICE_VS_CHIP_BULLISH": {
-            "cn_name": "【过程】价跌筹码聚(看涨)",
-            "category": "过程层-背离",
-            "type": "context",
-            "description": "价格趋势向下，但90%筹码集中度趋势向上。经典的底部看涨背离信号。"
+        "PROCESS_META_PV_REL_BULLISH_TURN": {
+            "cn_name": "【过程】价量关系看涨拐点",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 100,
+            "description": "诊断'价格-成交量'关系是否出现看涨拐点。"
         },
-        "PROCESS_RESONANCE_PRICE_VS_VOLUME_BULLISH": {
-            "cn_name": "【过程】价升量增(看涨)",
-            "category": "过程层-共振",
-            "type": "context",
-            "description": "价格趋势向上，成交量趋势也向上。经典的看涨共振信号。"
+        "PROCESS_META_PF_REL_BULLISH_TURN": {
+            "cn_name": "【过程】价资关系看涨拐点",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 120,
+            "description": "诊断'价格-资金流'关系是否出现看涨拐点。"
         },
-        "PROCESS_DIVERGENCE_PRICE_VS_RSI_BULLISH": {
-            "cn_name": "【过程】价格RSI底背离(看涨)",
-            "category": "过程层-背离",
-            "type": "context",
-            "description": "价格趋势向下，但RSI指标趋势向上。经典的指标看涨背离信号。"
+        "PROCESS_META_PC_REL_BULLISH_TURN": {
+            "cn_name": "【过程】价筹关系看涨拐点",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 150,
+            "description": "诊断'价格-筹码集中度'关系是否出现看涨拐点。"
         },
-        "PROCESS_DIVERGENCE_FF_INTERNAL_COVERT_ACCUM": {
-            "cn_name": "【过程】资金隐蔽吸筹(看涨)",
-            "category": "过程层-背离",
-            "type": "context",
-            "description": "超大单趋势向下（可能在砸盘），但中单趋势向上（在接盘）。主力隐蔽吸筹的迹象。"
+        "PROCESS_META_PRICE_VS_RETAIL_PANIC": {
+            "cn_name": "【过程】散户恐慌投降",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 180,
+            "description": "诊断是否出现'散户恐慌投降'的底部特征。"
+        },
+        "PROCESS_META_PE_EFFICIENCY_TURN": {
+            "cn_name": "【过程】VPA效率看涨拐点",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 80,
+            "description": "诊断'价格-VPA效率'关系是否出现看涨拐点。"
+        },
+        "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
+            "cn_name": "【过程】主力散户背离确认",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 160,
+            "description": "诊断'价格-主力散户行为背离'关系。"
+        },
+        "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC": {
+            "cn_name": "【过程】筹码行为同步",
+            "category": "过程层-战略",
+            "type": "process",
+            "score": 100,
+            "description": "诊断'筹码看涨共振'与'行为看涨共振'的同步过程。"
+        },
+        "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
+            "cn_name": "【过程】资金领先结构",
+            "category": "过程层-战略",
+            "type": "process",
+            "score": 120,
+            "description": "诊断'资金流'是否领先于'结构'。"
+        },
+        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
+            "cn_name": "【过程风险】力学筹码共振看跌",
+            "category": "过程层-战略",
+            "type": "process",
+            "score": -100,
+            "description": "诊断'力学看跌'与'筹码看跌'的共振过程。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
-        "说明_cognitive_synthesis": "--- 认知层-合成机会与风险 ---",
         "COGNITIVE_BULLISH_SCORE": {
             "cn_name": "【认知】看涨总分",
             "category": "认知层-机会",
@@ -76,12 +114,14 @@
             "cn_name": "【认知】健康回踩",
             "category": "认知层-机会",
             "type": "positional",
+            "score": 200,
             "description": "在建设性背景下，出现缩量、温和下跌，且筹码稳定、周期配合的回踩行为。"
         },
         "COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE": {
             "cn_name": "【认知】打压回踩",
             "category": "认知层-机会",
             "type": "positional",
+            "score": 250,
             "description": "在建设性背景下，出现放量、急跌的洗盘式回踩行为，通常是强庄所为。"
         },
         "COGNITIVE_SCORE_IGNITION_RESONANCE": {
@@ -95,18 +135,27 @@
             "cn_name": "【认知】多域反转共振",
             "category": "认知层-机会",
             "type": "positional",
+            "score": 500,
             "description": "多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。"
         },
         "COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE": {
             "cn_name": "【认知】行业协同进攻",
             "category": "认知层-机会",
             "type": "dynamic",
+            "score": 200,
             "description": "行业景气周期与个股进攻信号形成共振，是“戴维斯双击”的体现。"
         },
-        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { 
-            "cn_name": "【认知风险】亢奋加速", 
-            "category": "认知层-风险", 
-            "type": "risk", 
+        "COGNITIVE_SCORE_STATE_PROCESS_SYNERGY": {
+            "cn_name": "【认知】状态过程协同",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 400,
+            "description": "【核心信号】融合所有领域的“状态分”和“过程分”，代表状态与过程的协同共振强度。"
+        },
+        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": {
+            "cn_name": "【认知风险】亢奋加速",
+            "category": "认知层-风险",
+            "type": "risk",
             "penalty_weight": 2500,
             "description": "【重大风险】融合高乖离度、天量、巨幅振动和冲高回落四大特征，识别趋势末端的“高潮式”加速上涨风险。此信号会施加严厉的惩罚。"
         },
@@ -145,25 +194,27 @@
             "penalty_weight": 250,
             "description": "融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
         },
-
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
         "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION": {
-             "cn_name": "【微观】早期动能点火",
-             "category": "微观行为-机会",
-             "type": "dynamic",
-             "description": "纯粹的“大阳线质量分”，融合K线实体、位置、动能，捕捉“东风初起”的精确时点。"
+            "cn_name": "【微观】早期动能点火",
+            "category": "微观行为-机会",
+            "type": "dynamic",
+            "score": 150,
+            "description": "纯粹的“大阳线质量分”，融合K线实体、位置、动能，捕捉“东风初起”的精确时点。"
         },
         "SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION": {
-             "cn_name": "【微观】伪装散户吸筹",
-             "category": "微观行为-机会",
-             "type": "dynamic",
-             "description": "四维交叉验证信号：融合'散户资金流入'、'筹码持续集中'、'价格波动压制'和'VPA效率低下'四大特征，高置信度识别主力通过分单进行隐蔽吸筹的行为。"
+            "cn_name": "【微观】伪装散户吸筹",
+            "category": "微观行为-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "四维交叉验证信号：融合'散户资金流入'、'筹码持续集中'、'价格波动压制'和'VPA效率低下'四大特征，高置信度识别主力通过分单进行隐蔽吸筹的行为。"
         },
         "COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE": {
-             "cn_name": "【微观机会】主导权转移(主力)",
-             "category": "微观行为-机会",
-             "type": "dynamic",
-             "description": "交易颗粒度与集中度加速提升，市场主导权正从散户向主力转移，是潜在的建仓或启动信号。"
+            "cn_name": "【微观机会】主导权转移(主力)",
+            "category": "微观行为-机会",
+            "type": "dynamic",
+            "score": 250,
+            "description": "交易颗粒度与集中度加速提升，市场主导权正从散户向主力转移，是潜在的建仓或启动信号。"
         },
         "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": {
             "cn_name": "【微观风险】主导权转移(散户)",
@@ -176,6 +227,7 @@
             "cn_name": "【微观机会】主力信念加强",
             "category": "微观行为-机会",
             "type": "dynamic",
+            "score": 280,
             "description": "核心主力(特大单)的买入意愿正在加速增强，是趋势健康和即将加速的强确认信号。"
         },
         "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": {
@@ -192,7 +244,6 @@
             "penalty_weight": 2800,
             "description": "【重大风险】识别股价在经历上涨到达高位后，开始下跌的风险。此信号会施加严厉的惩罚。"
         },
-
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
         "SCORE_SETUP_PANIC_SELLING": {
             "cn_name": "【战法】恐慌抛售",
@@ -235,7 +286,6 @@
             "score": 180,
             "description": "融合了震荡市环境和价格位置的最终均值回归买入剧本分数。"
         },
-
         "说明_playbook_engine": "--- 剧本引擎信号 (Playbook Engine) ---",
         "PLAYBOOK_V_REVERSAL_ACE": {
             "cn_name": "【剧本】V型反转王牌",
@@ -328,7 +378,6 @@
             "score": 220,
             "description": "执行“周期底捞”剧本。"
         },
-
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 ---",
         "SCORE_CHIP_BULLISH_RESONANCE": {
@@ -504,7 +553,6 @@
             "penalty_weight": 150,
             "description": "基础指标动态健康度在顶部形成强力反转风险。"
         },
-        
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "说明_cyclical_intelligence": "--- 周期层信号 (Cyclical Intelligence) ---",
         "SCORE_TRENDING_REGIME_FFT": {
