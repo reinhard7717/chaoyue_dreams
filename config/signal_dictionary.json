@@ -20,6 +20,18 @@
             "type": "subtotal",
             "description": "第三层：剧本协同奖励分的汇总得分。"
         },
+        "SCORE_ATOMIC_STORM_BORN_POWER": {
+            "cn_name": "【内部】风暴降生之力",
+            "category": "内部计分-过程",
+            "type": "context",
+            "description": "关系动力双核之一：衡量V型反转的博弈强度，融合了“权力转移”和“投降仪式”。"
+        },
+        "SCORE_ATOMIC_STILL_WATERS_POWER": {
+            "cn_name": "【内部】静水流深之力",
+            "category": "内部计分-过程",
+            "type": "context",
+            "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
+        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",
@@ -221,6 +233,13 @@
             "type": "risk",
             "penalty_weight": 250,
             "description": "融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
+        },
+        "COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE": {
+            "cn_name": "【认知】趋势加速级联",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 600,
+            "description": "【涡轮增压】诊断看涨共振是否正在形成“时序级联”（短期->中长期）和“领域级联”（行为->筹码->资金），是识别趋势进入主升浪的王牌信号。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
         "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION": {

@@ -5,7 +5,7 @@ import logging
 import datetime
 from django.utils import timezone
 from utils.task_helpers import with_cache_manager
-from celery import group, current_task
+from celery import group, chord, current_task # 【修改】新增导入 chord
 from django.db.models import Q
 from typing import List, Dict, Any # 引入 List, Dict, Any
 from chaoyue_dreams.celery import app as celery_app
@@ -78,7 +78,7 @@ def execute_save_today_fund_flow_method(method_name: str, trade_date: datetime.d
 def save_fund_flow_daily_data_today():
     """
     【无绑定版】
-    调度器任务（编排者）：负责并行分派获取当日三种渠道资金流数据的子任务。
+    调度器任务（编排者）：负责并行分派获取当日三种渠道资金流数据的子任务，并在完成后记录日志。
     """
     # 使用 current_task.request.id 获取任务ID
     task_id = current_task.request.id
@@ -95,17 +95,32 @@ def save_fund_flow_daily_data_today():
             execute_save_today_fund_flow_method.s(method_name=method, trade_date=today_date)
             for method in target_methods
         ]
-        task_group = group(task_signatures)
-        result = task_group.apply_async()
-        logger.info(f"任务组成功分派. Group ID: {result.id}. 包含 {len(target_methods)} 个子任务.")
-        print(f"调试信息：任务组 {result.id} 已成功分派，包含 {len(target_methods)} 个子任务。")
-        result.get()
-        logger.info(f"所有资金流子任务已全部完成。")
-        print(f"调试信息：任务组 {result.id} 所有子任务已完成。")
-        return {"status": "success", "group_id": result.id, "dispatched_tasks": len(target_methods)}
+        # 【修改】使用 chord 替代 group().get() 以避免在任务中阻塞。
+        # chord 结构: chord(并行任务组)(完成后执行的回调任务)
+        # 当 task_signatures 中的所有任务完成后，会自动调用 log_fund_flow_group_completion 任务。
+        callback = log_fund_flow_group_completion.s()
+        task_chord = chord(task_signatures, callback)
+        result = task_chord.apply_async()
+        # 【修改】日志记录分派动作，而不是等待完成。result.id 是回调任务的ID。
+        logger.info(f"任务弦(Chord)成功分派. 包含 {len(target_methods)} 个并行子任务和一个回调任务. Callback Task ID: {result.id}")
+        print(f"调试信息：任务弦(Chord) {result.id} 已成功分派，包含 {len(target_methods)} 个子任务和一个回调任务。")
+        # 【修改】主任务分派后立即返回，实现真正的异步。返回状态改为 "dispatched"。
+        return {"status": "dispatched", "callback_task_id": result.id, "dispatched_tasks": len(target_methods)}
     except Exception as e:
         logger.error(f"执行 save_fund_flow_daily_data_today (编排者模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
+
+# 【新增】用于 chord 的回调任务，在任务组完成后执行
+@celery_app.task(queue='SaveHistoryData_TimeTrade', ignore_result=True)
+def log_fund_flow_group_completion(results):
+    """
+    Chord callback: 记录每日资金流任务组的完成情况。
+    'results' 参数是组中所有任务返回值的列表，由Celery自动传入。
+    """
+    # 【新增】这部分逻辑是从原 save_fund_flow_daily_data_today 任务中移动过来的
+    logger.info(f"所有当日资金流子任务已全部完成。收到了 {len(results)} 个子任务的结果。")
+    print(f"调试信息：当日资金流数据获取任务组所有子任务已完成。")
+
 
 @celery_app.task(name='tasks.tushare.fund_flow_tasks.save_hm_detail_data_today', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager

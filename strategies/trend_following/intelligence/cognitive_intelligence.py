@@ -37,10 +37,11 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.6 · 过程协同版】顶层认知总分合成模块
-        - 核心升级: 新增并调用 synthesize_state_process_synergy 方法，将“状态-过程协同分”纳入最终的看涨总分。
+        【V2.7 · 涡轮增压版】顶层认知总分合成模块
+        - 核心升级: 1. 调用全新的 synthesize_trend_acceleration_cascade 方法，诊断趋势的“级联加速”效应。
+                      2. 将“趋势加速级联分”纳入最终的看涨总分计算，作为主升浪的强力确认。
         """
-        print("        -> [顶层认知总分合成模块 V2.6 · 过程协同版] 启动...")
+        print("        -> [顶层认知总分合成模块 V2.7 · 涡轮增压版] 启动...")
         # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -59,9 +60,10 @@ class CognitiveIntelligence:
         df = self.synthesize_reversal_resonance_scores(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
-        
-        # 调用全新的状态-过程协同融合引擎
         df = self.synthesize_state_process_synergy(df)
+        
+        # [代码新增] 调用全新的“涡轮增压”引擎
+        self.synthesize_trend_acceleration_cascade(df)
         
         # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
         bullish_scores = [
@@ -71,8 +73,9 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
-            # 将新的状态-过程协同分加入看涨总分
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
+            # [代码新增] 将新的“趋势加速级联分”加入看涨总分
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
@@ -80,7 +83,7 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         
-        print("        -> [顶层认知总分合成模块 V2.6] 认知升级完成。")
+        print("        -> [顶层认知总分合成模块 V2.7] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -609,6 +612,64 @@ class CognitiveIntelligence:
         states['SCORE_VOL_BREAKOUT_POTENTIAL'] = breakout_potential.astype(np.float32)
         return states
 
+    def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
+        """
+        【V1.0 · 新增】趋势加速级联 (涡轮增压) 诊断引擎
+        - 核心职责: 诊断看涨共振是否正在形成“时序级联”和“领域级联”，以识别趋势的主升浪。
+        """
+        states = {}
+        norm_window = 55
+        slope_period = 3 # 使用较短周期捕捉“刚刚启动”的势头
+
+        # --- 1. 时序级联诊断 (Temporal Cascade) ---
+        # 核心逻辑: 短期共振已经启动，并正在向中长期传导
+        health_cache = self.strategy.atomic_states.get('__BEHAVIOR_overall_health', {})
+        s_bull = health_cache.get('s_bull', {})
+        d_intensity = health_cache.get('d_intensity', {})
+        relational_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
+
+        # 重新计算短、中期健康度，以获取最原始的动态
+        short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
+        medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
+        
+        short_term_slope = short_term_health.diff(slope_period).fillna(0)
+        medium_term_slope = medium_term_health.diff(slope_period).fillna(0)
+
+        short_term_accel_score = normalize_score(short_term_slope, df.index, norm_window)
+        medium_term_accel_score = normalize_score(medium_term_slope, df.index, norm_window)
+        
+        temporal_cascade_score = (short_term_accel_score * medium_term_accel_score)**0.5
+        states['COGNITIVE_INTERNAL_TEMPORAL_CASCADE'] = temporal_cascade_score.astype(np.float32)
+
+        # --- 2. 领域级联诊断 (Domain Cascade) ---
+        # 核心逻辑: 看涨共振正在跨领域扩散
+        resonance_signals = {
+            'behavior': self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE'),
+            'chip': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
+            'ff': self._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE'),
+            'structure': self._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE'),
+            'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
+        }
+        
+        domain_accel_scores = []
+        for name, signal in resonance_signals.items():
+            slope = signal.diff(slope_period).fillna(0)
+            accel_score = normalize_score(slope, df.index, norm_window)
+            domain_accel_scores.append(accel_score.values)
+            states[f'COGNITIVE_INTERNAL_ACCEL_{name.upper()}'] = accel_score.astype(np.float32)
+            
+        if domain_accel_scores:
+            stacked_scores = np.stack(domain_accel_scores, axis=0)
+            domain_cascade_score = pd.Series(np.linalg.norm(stacked_scores, ord=2, axis=0) / np.sqrt(len(domain_accel_scores)), index=df.index)
+        else:
+            domain_cascade_score = pd.Series(0.0, index=df.index)
+        states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
+
+        # --- 3. 最终融合 ---
+        final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
+        states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
+        
+        self.strategy.atomic_states.update(states)
 
 
 

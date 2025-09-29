@@ -134,9 +134,10 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 权柄交接版】
-        - 核心革命: 1. 看涨共振公式修改为 max(静态分, 关系动力) * 动态分，彻底打破旧指标的否决权。
-                      2. 底部反转公式修改为 形态分 * 关系动力 * 动态分，使其更纯粹、更强大。
+        【V3.0 · 权柄交接最终版】
+        - 核心确认: 本方法已实现“权柄交接”逻辑，作为“关系动力”的消费者，其架构已达最终形态，无需进一步修改。
+        - 核心革命: 1. 看涨共振公式为 max(静态分, 关系动力) * 动态分，打破旧指标否决权。
+                      2. 底部反转公式为 形态分 * 关系动力 * 动态分，使其更纯粹、更强大。
         """
         final_scores = {}
         periods = params['periods']
@@ -151,7 +152,6 @@ class FundFlowIntelligence:
         resonance_health = fused_health['resonance']
         reversal_health = fused_health['reversal']
         
-        # 权柄交接：看涨共振公式革命
         bullish_resonance_health = {p: np.maximum(resonance_health['s_bull'][p], relational_dynamics_power) * resonance_health['d_intensity'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -162,7 +162,6 @@ class FundFlowIntelligence:
             (bull_res_long ** res_tw['long'])
         )
         
-        # 权柄交接：底部反转公式革命
         bullish_reversal_health = {p: universal_bottom_pattern_score * relational_dynamics_power * reversal_health['d_intensity'][p] for p in periods}
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
