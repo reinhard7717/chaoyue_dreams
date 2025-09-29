@@ -588,56 +588,6 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(states)
         return df
 
-    def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V1.0 · 新增】状态-过程协同融合引擎
-        - 核心哲学: 终极信号 = 高质量的“状态” * 强劲的“过程”
-        - 算法: 将所有领域的“看涨状态分”与所有维度的“看涨过程分”进行融合。
-        """
-        states = {}
-        
-        # 1. 融合所有“状态”看涨信号，得到一个总的“状态共识分”
-        state_bullish_signals = [
-            'SCORE_CHIP_BULLISH_RESONANCE',
-            'SCORE_BEHAVIOR_BULLISH_RESONANCE',
-            'SCORE_FF_BULLISH_RESONANCE',
-            'SCORE_STRUCTURE_BULLISH_RESONANCE',
-            'SCORE_DYN_BULLISH_RESONANCE',
-            'SCORE_FOUNDATION_BULLISH_RESONANCE'
-        ]
-        # 使用 get_unified_score 安全获取所有状态分
-        state_scores = [get_unified_score(self.strategy.atomic_states, df.index, sig.replace('SCORE_', '')).values for sig in state_bullish_signals]
-        
-        # 使用几何平均进行融合，要求所有领域都不能太差
-        state_consensus_score = pd.Series(
-            np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
-            index=df.index, dtype=np.float32
-        )
-        states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
-
-        # 2. 融合所有“过程”看涨信号，得到一个总的“过程共识分”
-        process_bullish_signals = [
-            'PROCESS_META_PV_REL_BULLISH_TURN',
-            'PROCESS_META_PF_REL_BULLISH_TURN',
-            'PROCESS_META_PC_REL_BULLISH_TURN',
-            'PROCESS_META_PRICE_VS_RETAIL_PANIC',
-            'PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC'
-        ]
-        # 过程信号是[-1, 1]的，先映射到[0, 1]再融合
-        process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
-        process_consensus_score = pd.Series(
-            np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
-            index=df.index, dtype=np.float32
-        )
-        states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
-
-        # 3. 终极融合：状态 * 过程
-        synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
-        states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
-        
-        self.strategy.atomic_states.update(states)
-        return df
-
     # 新增一个专门的波动率认知信号合成方法
     def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
