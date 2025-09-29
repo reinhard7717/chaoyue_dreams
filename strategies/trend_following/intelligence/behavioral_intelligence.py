@@ -182,29 +182,40 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V3.1 · 动态分统一版】计算价格维度的三维健康度
-        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
+        【V3.2 · 终极优化版】计算价格维度的三维健康度
+        - 核心优化: 引入 reversal_potential_score，使价格支柱能够识别并奖励下跌日出现的“反转潜力形态”（如长下影线）。
         """
-        # 更新方法签名和初始化
         s_bull, s_bear, d_intensity = {}, {}, {}
         
         bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.5)
 
-        static_bull_score = (bbp * close_position_in_range)**0.5
+        # [代码修改] 重新定义静态看涨分的计算逻辑
+        is_positive_day = df['pct_change_D'] > 0
+        
+        # 上涨日的看涨分：由BBP和日内收盘位置共同决定
+        bullish_score_on_up_day = (bbp * close_position_in_range)**0.5
+        
+        # [代码新增] 下跌日的看涨分：专门奖励“反转潜力”，即下跌但收盘位置高（长下影线）
+        reversal_potential_score = close_position_in_range.where(df['pct_change_D'] < 0, 0)
+        
+        # 使用条件逻辑，为不同市场日选择不同的评分模型
+        static_bull_score = pd.Series(
+            np.where(is_positive_day, bullish_score_on_up_day, reversal_potential_score),
+            index=df.index
+        )
+
         static_bear_score = ((1.0 - bbp) * (1.0 - close_position_in_range))**0.5
 
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
 
-            # 计算统一的、中性的动态强度分 d_intensity
             price_mom_strength = normalize_score(df.get(f'SLOPE_{p}_close_D').abs(), df.index, norm_window, ascending=True)
             price_accel_strength = normalize_score(df.get(f'ACCEL_{p}_close_D').abs(), df.index, norm_window, ascending=True)
             d_intensity[p] = (price_mom_strength * price_accel_strength)**0.5
             
-        # 返回三元组
         return s_bull, s_bear, d_intensity
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
