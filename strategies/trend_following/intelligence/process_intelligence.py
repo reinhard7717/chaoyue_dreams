@@ -54,7 +54,7 @@ class ProcessIntelligence:
             if not signal_name:
                 continue
 
-            # [代码修改] 增加对新任务类型的路由
+            # [代码修改] 增加对新任务类型的路由，为 'strategy_sync' 调用专属诊断方法
             if signal_type == 'meta_analysis':
                 meta_states = self._diagnose_meta_relationship(df, config)
                 if meta_states:
@@ -191,6 +191,33 @@ class ProcessIntelligence:
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
 
         return {signal_name: meta_score}
+
+    def _calculate_strategy_sync_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】计算高阶战略信号之间的瞬时关系。
+        - 核心逻辑: 不计算变化率，直接将分数映射为动量。
+        """
+        signal_a_name = config.get('signal_A')
+        signal_b_name = config.get('signal_B')
+
+        signal_a = self.strategy.atomic_states.get(signal_a_name)
+        signal_b = self.strategy.atomic_states.get(signal_b_name)
+        
+        if signal_a is None or signal_b is None:
+            print(f"        -> [战略同步] 警告: 缺少战略信号 '{signal_a_name}' 或 '{signal_b_name}'。")
+            return pd.Series(dtype=np.float32)
+
+        # 直接将 [0, 1] 的分数映射到 [-1, 1] 作为动量
+        momentum_a = (signal_a - 0.5) * 2
+        thrust_b = (signal_b - 0.5) * 2
+        
+        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
+        relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        
+        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
+        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
+        
+        return relationship_score
 
 
 

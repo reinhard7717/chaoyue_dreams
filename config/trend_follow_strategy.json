@@ -223,7 +223,7 @@
           },
           {
             "name": "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC",
-            "type": "meta_analysis",
+            "type": "strategy_sync",
             "task_type": "strategy",
             "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
@@ -232,7 +232,7 @@
           },
           {
             "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
-            "type": "meta_analysis",
+            "type": "strategy_sync",
             "task_type": "strategy",
             "signal_A": "SCORE_FF_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_STRUCTURE_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
@@ -241,7 +241,7 @@
           },
           {
             "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY",
-            "type": "meta_analysis",
+            "type": "strategy_sync",
             "task_type": "strategy",
             "signal_A": "SCORE_DYN_BEARISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_CHIP_BEARISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
