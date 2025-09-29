@@ -531,7 +531,14 @@
     "说明": "【V100.0 标准作战条例】仓位管理参数保持不变。",
     "initial_sizing": { "enabled": true, "risk_per_trade_percent": 2.0 },
     "stop_loss": { "enabled": true, "initial_stop_model": "PLATFORM_SUPPORT", "atr_multiplier_for_platform": 0.5, "min_stop_loss_percent": 4.0 },
-    "trailing_stop": { "enabled": true, "trailing_model": "MOVING_AVERAGE", "ma_period": 21 },
+    "trailing_stop": { 
+        "enabled": true, 
+        "trailing_model": "MOVING_AVERAGE", 
+        "tactical_ma_type": "EMA", "说明_tactical_ma_type": "战术均线类型",
+        "tactical_ma_period": 21, "说明_tactical_ma_period": "战术均线周期",
+        "strategic_ma_type": "EMA", "说明_strategic_ma_type": "战略均线类型",
+        "strategic_ma_period": 55, "说明_strategic_ma_period": "战略均线周期"
+    },
     "pyramiding": { "enabled": true, "add_size_ratio": 0.5, "max_pyramid_count": 2 }
   }
 }

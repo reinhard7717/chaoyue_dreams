@@ -25,7 +25,7 @@ class ExitLayer:
         triggers_df['EXIT_RISK_OVERFLOW'] = pd.Series(False, index=df.index)
         triggers_df['EXIT_PROFIT_PROTECT'] = pd.Series(False, index=df.index)
         
-        # --- 核心修改：构建双均线立体防御体系 ---
+        # [代码修改] 构建双均线立体防御体系
         p_pos_mgmt = get_params_block(self.strategy, 'position_management_params')
         p_trailing = p_pos_mgmt.get('trailing_stop', {})
         
@@ -34,7 +34,7 @@ class ExitLayer:
         triggers_df['EXIT_STRATEGY_INVALIDATED'] = pd.Series(False, index=df.index) # 战略失效
 
         if get_param_value(p_trailing.get('enabled'), False):
-            # 防线一：战术止损线 (例如 EMA21)
+            # [代码新增] 从配置中读取战术和战略均线参数
             tactical_ma_type = get_param_value(p_trailing.get('tactical_ma_type'), 'EMA').upper()
             tactical_ma_period = get_param_value(p_trailing.get('tactical_ma_period'), 21)
             tactical_ma_col = f'{tactical_ma_type}_{tactical_ma_period}_D'
@@ -42,11 +42,11 @@ class ExitLayer:
             if tactical_ma_col in df.columns:
                 # 当日收盘价低于战术移动平均线，触发趋势破位信号
                 triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[tactical_ma_col]
-                # print(f"    -> [离场层] 战术破位监控已激活 (基于 {tactical_ma_col})。")
+                print(f"    -> [离场层] 战术破位监控已激活 (基于 {tactical_ma_col})。")
             else:
                 print(f"    -> [离场层-警告] 无法找到战术移动平均线列: {tactical_ma_col}，战术破位监控未激活。")
 
-            # 防线二：战略生命线 (例如 EMA55)
+            # [代码新增] 增加战略生命线（如EMA55）的判断
             strategic_ma_type = get_param_value(p_trailing.get('strategic_ma_type'), 'EMA').upper()
             strategic_ma_period = get_param_value(p_trailing.get('strategic_ma_period'), 55)
             strategic_ma_col = f'{strategic_ma_type}_{strategic_ma_period}_D'
@@ -54,7 +54,7 @@ class ExitLayer:
             if strategic_ma_col in df.columns:
                 # 当日收盘价低于战略移动平均线，触发战略失效信号
                 triggers_df['EXIT_STRATEGY_INVALIDATED'] = df['close_D'] < df[strategic_ma_col]
-                # print(f"    -> [离场层] 战略失效监控已激活 (基于 {strategic_ma_col})。")
+                print(f"    -> [离场层] 战略失效监控已激活 (基于 {strategic_ma_col})。")
             else:
                 print(f"    -> [离场层-警告] 无法找到战略移动平均线列: {strategic_ma_col}，战略失效监控未激活。")
 
