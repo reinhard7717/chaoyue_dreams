@@ -48,10 +48,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V14.0 · 顶部守卫版】
-        - 核心升级 (治本之道): 废除了后置的“抑制因子”，引入了前置的“顶部上下文守卫”。
-                              现在，“顶部反转”信号的计算结果将直接乘以“顶部上下文分数”。
-                              如果不在顶部区域，该信号将从源头上被置零，彻底解决逻辑悖论。
+        【V15.0 · 基因提取版】
+        - 核心升级: 将内部计算的 `bottom_formation_score` 提升为全军通用的原子信号
+                      `SCORE_UNIVERSAL_BOTTOM_PATTERN`，为其他引擎提供权威的反转“基因”。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -66,12 +65,14 @@ class BehavioralIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         
-        # 调用升级后的上下文计算器，获取智能的“顶部上下文分数”
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
+
+        # [代码新增] 基因提取：将最权威的底部形态判断提升为全军通用信号
+        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
 
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
@@ -110,6 +111,7 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
+        # 行为引擎自身也使用这个权威信号，保持逻辑统一
         bullish_reversal_health = {p: bottom_formation_score * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
@@ -131,8 +133,6 @@ class BehavioralIntelligence:
             (bearish_long_inertia_res ** resonance_tf_weights['long'])
         )
 
-        # 修正顶部反转的计算哲学，并应用“顶部守卫”
-        # 1. 顶部反转由看跌静态分 s_bear 驱动
         bearish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
@@ -142,7 +142,6 @@ class BehavioralIntelligence:
             (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bearish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        # 2. 将触发分与“顶部上下文分数”相乘，实现门控
         final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
         
         final_signal_map = {

@@ -52,11 +52,12 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V411.1 · 指挥链修复版】情报层总入口。
-        - 核心修复: 确保 IntelligenceLayer 正确接收并更新所有情报引擎返回的信号字典，
-                      彻底修复因部分引擎返回结果被忽略而导致的数据流中断问题。
+        【V412.0 · 指挥链重塑版】情报层总入口。
+        - 核心重构: 调整了情报引擎的调用顺序，确保“反转基因”的正确传递。
+                      现在，行为引擎将作为先导首先执行，其产出的权威底部形态信号
+                      `SCORE_UNIVERSAL_BOTTOM_PATTERN` 将被其他所有引擎消费。
         """
-        print("--- [情报层总指挥官 V411.1 · 指挥链修复版] 开始执行所有诊断模块... ---") # 更新版本号
+        print("--- [情报层总指挥官 V412.0 · 指挥链重塑版] 开始执行所有诊断模块... ---") # 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -66,61 +67,55 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-            # 增加一个调试打印，用于追踪信号来源
-            # else:
-            #     print(f"[IntelligenceLayer 警告] update_states 收到非字典类型: {type(new_states)}")
 
         # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
-        # print("    - [阶段 1/5] 正在执行基础信号生成...")
         
         # 1. 首先运行周期引擎
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         
         # --- 阶段 1.5: 基础过程诊断 ---
-        # print("    - [阶段 1.5/5] 正在执行基础过程诊断 (分析原始数据)...")
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
 
         # 2. 运行其他所有状态情报引擎
-        # print("    - [阶段 2/5] 正在执行状态情报引擎...")
+        
+        # [代码修改] 指挥链重塑：优先执行行为引擎，以生产“反转基因”
+        print("    - [阶段 2.1/5] 正在执行先导引擎 (行为情报)...")
+        update_states(self.behavioral_intel.run_behavioral_analysis_command())
+        
+        # [代码修改] 确保其他引擎在行为引擎之后执行
+        print("    - [阶段 2.2/5] 正在执行状态情报引擎 (消费反转基因)...")
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
-        
-        # 使用 update_states 接收 behavioral_intel 返回的战报
-        update_states(self.behavioral_intel.run_behavioral_analysis_command())
-        
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
-        
-        # 使用 update_states 接收 mechanics_engine 返回的战报
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
-        
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         
         # --- 阶段 2.5: 战略过程诊断 ---
-        # print("    - [阶段 2.5/5] 正在执行战略过程诊断 (分析高阶信号)...")
+        print("    - [阶段 2.5/5] 正在执行战略过程诊断 (分析高阶信号)...")
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
         
         # --- 阶段三: 跨域认知融合 ---
-        # print("    - [阶段 3/5] 正在执行认知层跨域元融合...")
+        print("    - [阶段 3/5] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
 
         # --- 阶段四: 最终战法与剧本生成 ---
-        # print("    - [阶段 4/5] 正在生成最终战法与剧本...")
+        print("    - [阶段 4/5] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
         
         # --- 阶段五: 硬性离场信号生成 ---
-        # print("    - [阶段 5/5] 正在生成硬性离场信号...")
+        print("    - [阶段 5/5] 正在生成硬性离场信号...")
         exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
 
         self.deploy_forensic_probes()
         
-        print("--- [情报层总指挥官 V411.1] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V412.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):

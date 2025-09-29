@@ -39,9 +39,9 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 顶部守卫版】
-        - 核心升级 (治本之道): 引入“顶部上下文守卫”，将“顶部反转”信号与“顶部上下文分数”相乘，
-                              从源头上杜绝在底部区域误报顶部风险。
+        【V7.0 · 基因注入版】
+        - 核心升级: 注入“反转基因”，底部反转逻辑不再依赖于被动的 s_bear，而是由主动的
+                      `SCORE_UNIVERSAL_BOTTOM_PATTERN` 权威信号驱动。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -54,8 +54,10 @@ class FoundationIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
 
-        # 调用升级后的上下文计算器
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+
+        # [代码新增] 接收来自行为引擎的权威“反转基因”
+        universal_bottom_pattern_score = self.strategy.atomic_states.get('SCORE_UNIVERSAL_BOTTOM_PATTERN', pd.Series(0.0, index=df.index))
 
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = { 'ema': self._calculate_ema_health, 'rsi': self._calculate_rsi_health, 'macd': self._calculate_macd_health, 'cmf': self._calculate_cmf_health }
@@ -87,7 +89,8 @@ class FoundationIntelligence:
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
         overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
+        # 逻辑重塑：使用“反转基因”驱动底部反转信号
+        bullish_reversal_health = {p: (universal_bottom_pattern_score * overall_health['s_bull'][p]) * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
@@ -100,14 +103,11 @@ class FoundationIntelligence:
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
         overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
 
-        # 修正顶部反转的计算哲学，并应用“顶部守卫”
-        # 1. 顶部反转由看跌静态分 s_bear 驱动
         bearish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
         overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
-        # 2. 将触发分与“顶部上下文分数”相乘，实现门控
         final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
         
         final_signal_map = {
