@@ -849,7 +849,7 @@ class IntelligenceLayer:
         print("\n  [链路层 1] 反推 -> 短/中/长 三股力量")
         
         health_components = {}
-        # [代码修改] 更新健康度计算逻辑，统一使用 d_intensity
+        # 更新健康度计算逻辑，统一使用 d_intensity
         s_type = 's_bull' if signal_type == 'BULLISH_RESONANCE' else 's_bear'
         if signal_type in ['BULLISH_RESONANCE', 'BEARISH_RESONANCE']:
             health_components = {p: overall_health[s_type].get(p, pd.Series(0.5)) * overall_health['d_intensity'].get(p, pd.Series(0.5)) for p in periods}
@@ -869,7 +869,7 @@ class IntelligenceLayer:
         print(f"\n  [链路层 2] 反推 -> {period_to_probe}日健康度")
         health_score = health_components.get(period_to_probe, default_series).get(probe_date, 0.5)
         
-        # [代码修改] 更新解剖逻辑，展示 s_type 和 d_intensity
+        # 更新解剖逻辑，展示 s_type 和 d_intensity
         s_score = overall_health[s_type][period_to_probe].get(probe_date, 0.5)
         d_intensity_score = overall_health['d_intensity'][period_to_probe].get(probe_date, 0.5)
         print(f"    - {period_to_probe}日健康度 ({health_score:.4f}) = {s_type} ({s_score:.4f}) * d_intensity ({d_intensity_score:.4f})")
@@ -900,7 +900,7 @@ class IntelligenceLayer:
             try:
                 calculator = getattr(engine_instance, calc_func_name)
                 
-                # [代码修改] 更新所有 calculator 的调用和解包逻辑
+                # 更新所有 calculator 的调用和解包逻辑
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     min_periods = max(1, norm_window // 5)
@@ -921,7 +921,7 @@ class IntelligenceLayer:
                 pillar_s_score = pillar_score_series.get(probe_date, 0.5)
                 print(f"      - {pillar_name} 支柱贡献分: {pillar_s_score:.4f}")
                 
-                # [代码修改] 移除旧的、错误的钻透逻辑
+                # 移除旧的、错误的钻透逻辑
                 # if pillar_s_score < 0.2 and domain_upper == 'BEHAVIOR' and pillar_name == 'price':
                 #     ... (旧逻辑)
 

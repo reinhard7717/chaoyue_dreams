@@ -124,9 +124,10 @@ class FoundationIntelligence:
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
 
-    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.3 · 终极哲学统一版】计算EMA健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V3.5 · 动态分统一版】计算EMA维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
         ma_periods = [5, 10, 20, 60, 120]
         bull_alignment_scores = []
@@ -150,21 +151,18 @@ class FoundationIntelligence:
             s_bear[p] = static_bear_score
             
             ema_col = f'EMA_{p}_D' if p > 1 else 'close_D'
-            # 根除所有动态分计算中的加法
-            slope = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=True)
-            d_bull[p] = (slope * accel)**0.5
-            
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_{ema_col}'), df.index, norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_{ema_col}'), df.index, norm_window, ascending=False)
-            d_bear[p] = (slope_neg * accel_neg)**0.5
-            
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_{ema_col}').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_{ema_col}').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
         
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.1 · 终极哲学统一版】计算RSI健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V3.3 · 动态分统一版】计算RSI维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=True)
         static_bear_score = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=False)
@@ -173,21 +171,18 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 根除所有动态分计算中的加法
-            slope = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = (slope * accel)**0.5
-            
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (slope_neg * accel_neg)**0.5
-            
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_RSI_13_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_RSI_13_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
         
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.1 · 终极哲学统一版】计算MACD健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V3.3 · 动态分统一版】计算MACD维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
         static_bear_score = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
@@ -196,21 +191,18 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 根除所有动态分计算中的加法
-            slope = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = (slope * accel)**0.5
-            
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (slope_neg * accel_neg)**0.5
-            
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_MACDh_13_34_8_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_MACDh_13_34_8_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
         
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V3.1 · 终极哲学统一版】计算CMF健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V3.3 · 动态分统一版】计算CMF维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=True)
         static_bear_score = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=False)
@@ -219,18 +211,13 @@ class FoundationIntelligence:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 根除所有动态分计算中的加法
-            slope = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
-            accel = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = (slope * accel)**0.5
-            
-            slope_neg = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
-            accel_neg = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (slope_neg * accel_neg)**0.5
-            
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_CMF_21_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_CMF_21_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
         
-        return s_bull, d_bull, s_bear, d_bear
-
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块
