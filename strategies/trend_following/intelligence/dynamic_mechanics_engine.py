@@ -29,10 +29,8 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 信号净化版】终极动态力学信号诊断模块
-        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
-                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
-        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
+        【V5.0 · 动态分统一版】终极动态力学信号诊断模块
+        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -49,7 +47,8 @@ class DynamicMechanicsEngine:
 
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
 
-        health_data = { 's_bull': [], 'd_bull': [], 's_bear': [], 'd_bear': [] } 
+        # 更新健康度数据结构
+        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'volatility': self._calculate_volatility_health,
             'efficiency': self._calculate_efficiency_health,
@@ -57,102 +56,68 @@ class DynamicMechanicsEngine:
             'inertia': self._calculate_inertia_health,
         }
         for name, calculator in calculators.items():
-            s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, dynamic_weights, periods)
+            # 更新调用签名，接收三元组
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
             health_data['s_bull'].append(s_bull) 
-            health_data['d_bull'].append(d_bull) 
             health_data['s_bear'].append(s_bear) 
-            health_data['d_bear'].append(d_bear) 
+            health_data['d_intensity'].append(d_intensity)
 
         overall_health = {}
-        pillar_names = list(pillar_weights.keys())
-        
-        if not pillar_weights:
-            print(f"        -> [动态力学引擎] 警告: 'pillar_weights' 在配置文件中缺失。将临时采用等权重融合。")
-            weights_array = np.full(len(calculators), 1.0 / len(calculators))
-        else:
-            weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
+        weights_array = np.array([pillar_weights.get(name, 0.25) for name in calculators.keys()])
 
-        
+        # 更新健康度融合逻辑，使用 d_intensity
         for health_type, health_sources in [
             ('s_bull', health_data['s_bull']),
-            ('d_bull', health_data['d_bull']),
             ('s_bear', health_data['s_bear']),
-            ('d_bear', health_data['d_bear'])
+            ('d_intensity', health_data['d_intensity'])
         ]:
-        
             overall_health[health_type] = {}
             for p in periods:
                 if not health_sources: continue
                 valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if not valid_pillars: continue
-                
                 stacked_values = np.stack(valid_pillars, axis=0)
                 fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
-        
-        # 创建一个标准的默认Series，用于健壮性处理
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bull', {})}
-        # 使用 default_series 替换浮点数 0.5
+        # 所有动态分均使用 d_intensity
+        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
-        overall_bullish_resonance = (
-            (bullish_short_force_res ** resonance_tf_weights['short']) *
-            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bullish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bull', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_intensity', {})}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-        overall_bullish_reversal_trigger = (
-            (bullish_short_force_rev ** reversal_tf_weights['short']) *
-            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
-        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bear', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_intensity', {})}
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
-        overall_bearish_resonance = (
-            (bearish_short_force_res ** resonance_tf_weights['short']) *
-            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bearish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bear', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
-        overall_bearish_reversal_trigger = (
-            (bearish_short_force_rev ** reversal_tf_weights['short']) *
-            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
         
-        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         final_signal_map = {
             'SCORE_DYN_BULLISH_RESONANCE': overall_bullish_resonance,
             'SCORE_DYN_BOTTOM_REVERSAL': final_bottom_reversal_score,
             'SCORE_DYN_BEARISH_RESONANCE': overall_bearish_resonance,
             'SCORE_DYN_TOP_REVERSAL': final_top_reversal_score
         }
-
         for signal_name, score in final_signal_map.items():
-            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
             states[signal_name] = score.astype(np.float32)
-        
         return states
 
     # ==============================================================================

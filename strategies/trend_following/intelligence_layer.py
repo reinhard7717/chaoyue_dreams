@@ -819,9 +819,8 @@ class IntelligenceLayer:
 
     def _deploy_ultimate_signal_drill_down_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【探针V1.4 · 终极钻透版】终极信号钻透式法医探针
-        - 核心升级: 赋予探针“终极钻透”能力，在解剖支柱贡献分后，会进一步钻透，
-                      展示计算该分数所依赖的最底层的原始指标值（如BBP, RSI等）。
+        【探针V1.5 · 动态分统一版】终极信号钻透式法医探针
+        - 核心重构: 彻底重写探针的解剖逻辑，以完全适配“静态分 + 动态强度分 (d_intensity)”的全新统一哲学。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -850,10 +849,10 @@ class IntelligenceLayer:
         print("\n  [链路层 1] 反推 -> 短/中/长 三股力量")
         
         health_components = {}
-        if signal_type == 'BULLISH_RESONANCE':
-            health_components = {p: overall_health['s_bull'].get(p, pd.Series(0.5)) * overall_health['d_bull'].get(p, pd.Series(0.5)) for p in periods}
-        elif signal_type == 'BEARISH_RESONANCE':
-            health_components = {p: overall_health['s_bear'].get(p, pd.Series(0.5)) * overall_health['d_bear'].get(p, pd.Series(0.5)) for p in periods}
+        # [代码修改] 更新健康度计算逻辑，统一使用 d_intensity
+        s_type = 's_bull' if signal_type == 'BULLISH_RESONANCE' else 's_bear'
+        if signal_type in ['BULLISH_RESONANCE', 'BEARISH_RESONANCE']:
+            health_components = {p: overall_health[s_type].get(p, pd.Series(0.5)) * overall_health['d_intensity'].get(p, pd.Series(0.5)) for p in periods}
         else:
             print(f"  - [探针警告] 未知的信号类型 '{signal_type}'，无法继续解剖。")
             return
@@ -870,14 +869,12 @@ class IntelligenceLayer:
         print(f"\n  [链路层 2] 反推 -> {period_to_probe}日健康度")
         health_score = health_components.get(period_to_probe, default_series).get(probe_date, 0.5)
         
-        s_type = 's_bull' if signal_type == 'BULLISH_RESONANCE' else 's_bear'
-        d_type = 'd_bull' if signal_type == 'BULLISH_RESONANCE' else 'd_bear'
-        
+        # [代码修改] 更新解剖逻辑，展示 s_type 和 d_intensity
         s_score = overall_health[s_type][period_to_probe].get(probe_date, 0.5)
-        d_score = overall_health[d_type][period_to_probe].get(probe_date, 0.5)
-        print(f"    - {period_to_probe}日健康度 ({health_score:.4f}) = {s_type} ({s_score:.4f}) * {d_type} ({d_score:.4f})")
+        d_intensity_score = overall_health['d_intensity'][period_to_probe].get(probe_date, 0.5)
+        print(f"    - {period_to_probe}日健康度 ({health_score:.4f}) = {s_type} ({s_score:.4f}) * d_intensity ({d_intensity_score:.4f})")
         
-        print(f"\n  [链路层 3] 反推 -> 构成 {s_type} 和 {d_type} 的各个支柱分数")
+        print(f"\n  [链路层 3] 反推 -> 构成 {s_type} 和 d_intensity 的各个支柱分数")
         
         engine_map = {
             'CHIP': self.chip_intel, 'BEHAVIOR': self.behavioral_intel, 'FF': self.fund_flow_intel,
@@ -903,17 +900,18 @@ class IntelligenceLayer:
             try:
                 calculator = getattr(engine_instance, calc_func_name)
                 
+                # [代码修改] 更新所有 calculator 的调用和解包逻辑
                 if domain_upper == 'BEHAVIOR':
                     atomic_signals_for_behavior = engine_instance._generate_all_atomic_signals(df)
                     min_periods = max(1, norm_window // 5)
                     if calc_func_name == '_calculate_kline_pattern_health':
-                        s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
+                        s_bull_pillar, s_bear_pillar, _ = calculator(df, atomic_signals_for_behavior, norm_window, min_periods, [period_to_probe])
                     else:
-                        s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, min_periods, [period_to_probe])
+                        s_bull_pillar, s_bear_pillar, _ = calculator(df, norm_window, min_periods, [period_to_probe])
                 elif domain_upper == 'STRUCTURE':
-                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, [period_to_probe], norm_window, {})
-                else:
-                    s_bull_pillar, d_bull_pillar, s_bear_pillar, d_bear_pillar = calculator(df, norm_window, {}, [period_to_probe])
+                    s_bull_pillar, s_bear_pillar, _ = calculator(df, [period_to_probe], norm_window, {})
+                else: # CHIP, DYN, FOUNDATION
+                    s_bull_pillar, s_bear_pillar, _ = calculator(df, norm_window, {}, [period_to_probe])
 
                 pillar_score_series = s_bull_pillar.get(period_to_probe) if s_type == 's_bull' else s_bear_pillar.get(period_to_probe)
                 if pillar_score_series is None:
@@ -923,18 +921,9 @@ class IntelligenceLayer:
                 pillar_s_score = pillar_score_series.get(probe_date, 0.5)
                 print(f"      - {pillar_name} 支柱贡献分: {pillar_s_score:.4f}")
                 
-                # [代码新增] 终极钻透逻辑
-                if pillar_s_score < 0.2 and domain_upper == 'BEHAVIOR' and pillar_name == 'price':
-                    print(f"        - [终极钻透] 正在解剖 'price' 支柱的根源...")
-                    bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(probe_date, np.nan)
-                    print(f"          - 原始指标 BBP_21_2.0_D: {bbp_val:.4f}")
-                    strength_score = np.clip(bbp_val, 0, 1)
-                    posture_score = np.exp(-((bbp_val - 0.75) / 0.25)**2)
-                    recalc_score = (strength_score * posture_score)**0.5
-                    print(f"          - 力量分: {strength_score:.4f}, 姿态分: {posture_score:.4f}")
-                    print(f"          - 重算结果: ({strength_score:.4f} * {posture_score:.4f})**0.5 = {recalc_score:.4f}")
-                    if bbp_val < 0.5:
-                        print("          - [诊断] BBP值远低于0.75的甜点区，导致'姿态分'极低，拉低了最终分数。")
+                # [代码修改] 移除旧的、错误的钻透逻辑
+                # if pillar_s_score < 0.2 and domain_upper == 'BEHAVIOR' and pillar_name == 'price':
+                #     ... (旧逻辑)
 
             except Exception as e:
                 print(f"       - [探针错误] 解剖支柱 '{pillar_name}' 的 {s_type} 失败: {e}")

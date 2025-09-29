@@ -55,10 +55,8 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 信号净化版】统一筹码信号诊断引擎
-        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
-                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
-        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
+        【V13.0 · 动态分统一版】统一筹码信号诊断引擎
+        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -75,7 +73,8 @@ class ChipIntelligence:
 
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
 
-        health_data = { 's_bull': [], 'd_bull': [], 's_bear': [], 'd_bear': [] } 
+        # 更新健康度数据结构，统一使用 d_intensity
+        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'quantitative': self._calculate_quantitative_health,
             'advanced': self._calculate_advanced_dynamics_health,
@@ -84,35 +83,28 @@ class ChipIntelligence:
             'fault': self._calculate_fault_health,
         }
         for name, calculator in calculators.items():
-            s_bull, d_bull, s_bear, d_bear = calculator(df, norm_window, dynamic_weights, periods)
+            # 更新调用签名，接收三元组
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
             health_data['s_bull'].append(s_bull) 
-            health_data['d_bull'].append(d_bull) 
             health_data['s_bear'].append(s_bear) 
-            health_data['d_bear'].append(d_bear) 
+            health_data['d_intensity'].append(d_intensity)
 
         overall_health = {}
         pillar_names = list(pillar_weights.keys())
         weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
+        use_equal_weights = not pillar_weights or weights_array.sum() == 0
 
-        use_equal_weights = False
-        if not pillar_weights or weights_array.sum() == 0:
-            print(f"        -> [筹码情报引擎] 警告: 'pillar_weights' 在配置文件中缺失或总和为0。将临时采用等权重融合。")
-            use_equal_weights = True
-
+        # 更新健康度融合逻辑，使用 d_intensity
         for health_type, health_sources in [
             ('s_bull', health_data['s_bull']),
-            ('d_bull', health_data['d_bull']),
             ('s_bear', health_data['s_bear']),
-            ('d_bear', health_data['d_bear'])
+            ('d_intensity', health_data['d_intensity'])
         ]:
-        
             overall_health[health_type] = {}
             for p in periods:
                 if not health_sources: continue
-                
                 valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if not valid_pillars: continue
-
                 stacked_values = np.stack(valid_pillars, axis=0)
                 if use_equal_weights:
                     fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
@@ -121,78 +113,53 @@ class ChipIntelligence:
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
-        
-        # 创建一个标准的默认Series，用于健壮性处理
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 将所有最终信号合成逻辑从加法改为乘法（加权几何平均）
-        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bull', {})}
-        # 使用 default_series 替换浮点数 0.5
+        # 所有动态分均使用 d_intensity
+        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
-        overall_bullish_resonance = (
-            (bullish_short_force_res ** resonance_tf_weights['short']) *
-            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bullish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bull', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_intensity', {})}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-        overall_bullish_reversal_trigger = (
-            (bullish_short_force_rev ** reversal_tf_weights['short']) *
-            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_bonus_factor * bottom_context_score)).clip(0, 1)
 
-        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_bear', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_intensity', {})}
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
-        overall_bearish_resonance = (
-            (bearish_short_force_res ** resonance_tf_weights['short']) *
-            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bearish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_bear', {})}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
-        overall_bearish_reversal_trigger = (
-            (bearish_short_force_rev ** reversal_tf_weights['short']) *
-            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
 
-        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         final_signal_map = {
             'SCORE_CHIP_BULLISH_RESONANCE': overall_bullish_resonance,
             'SCORE_CHIP_BOTTOM_REVERSAL': final_bottom_reversal_score,
             'SCORE_CHIP_BEARISH_RESONANCE': overall_bearish_resonance,
             'SCORE_CHIP_TOP_REVERSAL': final_top_reversal_score
         }
-
         for signal_name, score in final_signal_map.items():
-            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
             states[signal_name] = score.astype(np.float32)
-        
         return states
 
     # ==============================================================================
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
 
-    def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.2 · 终极哲学统一版】计算基础量化健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+        """【V3.4 · 动态分统一版】计算基础量化维度的三维健康度"""
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
         static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         static_bull_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=True)
@@ -206,54 +173,34 @@ class ChipIntelligence:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            # 根除所有动态分计算中的加法
-            d_bull_conc_slope = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
-            d_bull_conc_accel = normalize_score(df.get(f'ACCEL_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
-            d_bull_conc = (d_bull_conc_slope * d_bull_conc_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            conc_mom_strength = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
+            conc_accel_strength = normalize_score(df.get(f'ACCEL_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
+            dynamic_conc = (conc_mom_strength * conc_accel_strength)**0.5
 
-            d_bull_cost_slope = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=True)
-            d_bull_cost_accel = normalize_score(df.get(f'ACCEL_{p}_peak_cost_D'), df.index, norm_window, ascending=True)
-            d_bull_cost = (d_bull_cost_slope * d_bull_cost_accel)**0.5
+            cost_mom_strength = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D').abs(), df.index, norm_window, ascending=True)
+            cost_accel_strength = normalize_score(df.get(f'ACCEL_{p}_peak_cost_D').abs(), df.index, norm_window, ascending=True)
+            dynamic_cost = (cost_mom_strength * cost_accel_strength)**0.5
 
-            d_bull_health_slope = normalize_score(df.get(f'SLOPE_{p}_chip_health_score_D'), df.index, norm_window, ascending=True)
-            d_bull_health_accel = normalize_score(df.get(f'ACCEL_{p}_chip_health_score_D'), df.index, norm_window, ascending=True)
-            d_bull_health = (d_bull_health_slope * d_bull_health_accel)**0.5
-            d_bull[p] = (d_bull_conc * d_bull_cost * d_bull_health)**(1/3)
-
-            d_bear_conc_slope = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
-            d_bear_conc_accel = normalize_score(df.get(f'ACCEL_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
-            d_bear_conc = (d_bear_conc_slope * d_bear_conc_accel)**0.5
-
-            d_bear_cost_slope = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=False)
-            d_bear_cost_accel = normalize_score(df.get(f'ACCEL_{p}_peak_cost_D'), df.index, norm_window, ascending=False)
-            d_bear_cost = (d_bear_cost_slope * d_bear_cost_accel)**0.5
-
-            d_bear_health_slope = normalize_score(df.get(f'SLOPE_{p}_chip_health_score_D'), df.index, norm_window, ascending=False)
-            d_bear_health_accel = normalize_score(df.get(f'ACCEL_{p}_chip_health_score_D'), df.index, norm_window, ascending=False)
-            d_bear_health = (d_bear_health_slope * d_bear_health_accel)**0.5
-            d_bear[p] = (d_bear_conc * d_bear_cost * d_bear_health)**(1/3)
+            health_mom_strength = normalize_score(df.get(f'SLOPE_{p}_chip_health_score_D').abs(), df.index, norm_window, ascending=True)
+            health_accel_strength = normalize_score(df.get(f'ACCEL_{p}_chip_health_score_D').abs(), df.index, norm_window, ascending=True)
+            dynamic_health = (health_mom_strength * health_accel_strength)**0.5
             
+            d_intensity[p] = (dynamic_conc * dynamic_cost * dynamic_health)**(1/3)
         
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """
-        【V3.3 · 逻辑修复版】计算高级动态健康度
-        - 核心修复: 修正了静态看涨分(s_bull)的计算逻辑，将错误的惩罚项 `(1.0 - is_multi_peak_series)` 移除，
-                      彻底解决了因“多峰形态”导致看涨分被归零的问题。
-        """
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
-
+    def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+        """【V3.5 · 动态分统一版】计算高级动态维度的三维健康度"""
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"        -> [筹码情报-高级动态健康度] 警告: 缺少关键数据列 {missing_cols}，模块已跳过！")
-            # [代码新增] 确保在跳过时返回空的字典，避免下游错误
-            return {}, {}, {}, {}
+        if any(col not in df.columns for col in required_cols):
+            # 确保在跳过时返回符合新签名的空字典
+            return {}, {}, {}
 
         is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
-
-        # [代码修改] 核心修复：从静态看涨分的计算中移除错误的惩罚项 `(1.0 - is_multi_peak_series)`
         overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
         overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
@@ -261,29 +208,24 @@ class ChipIntelligence:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            d_bull_control_slope = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), df.index, norm_window)
-            d_bull_control_accel = normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), df.index, norm_window)
-            d_bull_control = (d_bull_control_slope * d_bull_control_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            control_mom_strength = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D').abs(), df.index, norm_window)
+            control_accel_strength = normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D').abs(), df.index, norm_window)
+            dynamic_control = (control_mom_strength * control_accel_strength)**0.5
 
-            d_bull_stability_slope = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), df.index, norm_window)
-            d_bull_stability_accel = normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), df.index, norm_window)
-            d_bull_stability = (d_bull_stability_slope * d_bull_stability_accel)**0.5
-            d_bull[p] = (d_bull_control * d_bull_stability)**0.5
-
-            d_bear_control_slope = normalize_score(df.get(f'SLOPE_{p}_peak_control_ratio_D'), df.index, norm_window, ascending=False)
-            d_bear_control_accel = normalize_score(df.get(f'ACCEL_{p}_peak_control_ratio_D'), df.index, norm_window, ascending=False)
-            d_bear_control = (d_bear_control_slope * d_bear_control_accel)**0.5
-
-            d_bear_stability_slope = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D'), df.index, norm_window, ascending=False)
-            d_bear_stability_accel = normalize_score(df.get(f'ACCEL_{p}_peak_stability_D'), df.index, norm_window, ascending=False)
-            d_bear_stability = (d_bear_stability_slope * d_bear_stability_accel)**0.5
-            d_bear[p] = (d_bear_control * d_bear_stability)**0.5
+            stability_mom_strength = normalize_score(df.get(f'SLOPE_{p}_peak_stability_D').abs(), df.index, norm_window)
+            stability_accel_strength = normalize_score(df.get(f'ACCEL_{p}_peak_stability_D').abs(), df.index, norm_window)
+            dynamic_stability = (stability_mom_strength * stability_accel_strength)**0.5
             
-        return s_bull, d_bull, s_bear, d_bear
+            d_intensity[p] = (dynamic_control * dynamic_stability)**0.5
+            
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.1 · 终极哲学统一版】计算内部结构健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+        """【V3.3 · 动态分统一版】计算内部结构维度的三维健康度"""
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
         overall_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
@@ -292,27 +234,24 @@ class ChipIntelligence:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            # 根除所有动态分计算中的加法
-            d_bull_core_conc_slope = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), df.index, norm_window, ascending=False)
-            d_bull_core_conc_accel = normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), df.index, norm_window, ascending=False)
-            d_bull_core_conc = (d_bull_core_conc_slope * d_bull_core_conc_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            core_conc_mom_strength = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D').abs(), df.index, norm_window)
+            core_conc_accel_strength = normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D').abs(), df.index, norm_window)
+            dynamic_core_conc = (core_conc_mom_strength * core_conc_accel_strength)**0.5
 
-            d_bull_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), df.index, norm_window) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), df.index, norm_window, ascending=False))**0.5
-            d_bull[p] = (d_bull_core_conc * d_bull_net_support)**0.5
-
-            d_bear_core_conc_slope = normalize_score(df.get(f'SLOPE_{p}_concentration_70pct_D'), df.index, norm_window, ascending=True)
-            d_bear_core_conc_accel = normalize_score(df.get(f'ACCEL_{p}_concentration_70pct_D'), df.index, norm_window, ascending=True)
-            d_bear_core_conc = (d_bear_core_conc_slope * d_bear_core_conc_accel)**0.5
-
-            d_bear_net_support = (normalize_score(df.get(f'SLOPE_{p}_support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_pressure_above_D'), df.index, norm_window, ascending=True))**0.5
-            d_bear[p] = (d_bear_core_conc * d_bear_net_support)**0.5
+            support_mom_strength = normalize_score(df.get(f'SLOPE_{p}_support_below_D').abs(), df.index, norm_window)
+            pressure_mom_strength = normalize_score(df.get(f'SLOPE_{p}_pressure_above_D').abs(), df.index, norm_window)
+            dynamic_net_support = (support_mom_strength * pressure_mom_strength)**0.5
             
+            d_intensity[p] = (dynamic_core_conc * dynamic_net_support)**0.5
+            
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
-        return s_bull, d_bull, s_bear, d_bear
-
-    def _calculate_holder_behavior_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.1 · 终极哲学统一版】计算持仓者行为与情绪健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_holder_behavior_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+        """【V3.3 · 动态分统一版】计算持仓者行为维度的三维健康度"""
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
         overall_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
@@ -321,39 +260,28 @@ class ChipIntelligence:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            # 根除所有动态分计算中的加法
-            d_bull_cost_div_slope = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window)
-            d_bull_cost_div_accel = normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), df.index, norm_window)
-            d_bull_cost_div = (d_bull_cost_div_slope * d_bull_cost_div_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            cost_div_mom_strength = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D').abs(), df.index, norm_window)
+            cost_div_accel_strength = normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D').abs(), df.index, norm_window)
+            dynamic_cost_div = (cost_div_mom_strength * cost_div_accel_strength)**0.5
 
-            d_bull_margin_slope = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), df.index, norm_window)
-            d_bull_margin_accel = normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), df.index, norm_window)
-            d_bull_margin = (d_bull_margin_slope * d_bull_margin_accel)**0.5
+            margin_mom_strength = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D').abs(), df.index, norm_window)
+            margin_accel_strength = normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D').abs(), df.index, norm_window)
+            dynamic_margin = (margin_mom_strength * margin_accel_strength)**0.5
 
-            d_bull_turnover_slope = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
-            d_bull_turnover_accel = normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
-            d_bull_turnover = (d_bull_turnover_slope * d_bull_turnover_accel)**0.5
-            d_bull[p] = (d_bull_cost_div * d_bull_margin * d_bull_turnover)**(1/3)
-
-            d_bear_cost_div_slope = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
-            d_bear_cost_div_accel = normalize_score(df.get(f'ACCEL_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
-            d_bear_cost_div = (d_bear_cost_div_slope * d_bear_cost_div_accel)**0.5
-
-            d_bear_margin_slope = normalize_score(df.get(f'SLOPE_{p}_winner_profit_margin_D'), df.index, norm_window, ascending=False)
-            d_bear_margin_accel = normalize_score(df.get(f'ACCEL_{p}_winner_profit_margin_D'), df.index, norm_window, ascending=False)
-            d_bear_margin = (d_bear_margin_slope * d_bear_margin_accel)**0.5
-
-            d_bear_turnover_slope = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True)
-            d_bear_turnover_accel = normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True)
-            d_bear_turnover = (d_bear_turnover_slope * d_bear_turnover_accel)**0.5
-            d_bear[p] = (d_bear_cost_div * d_bear_margin * d_bear_turnover)**(1/3)
+            turnover_mom_strength = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D').abs(), df.index, norm_window)
+            turnover_accel_strength = normalize_score(df.get(f'ACCEL_{p}_turnover_from_winners_ratio_D').abs(), df.index, norm_window)
+            dynamic_turnover = (turnover_mom_strength * turnover_accel_strength)**0.5
             
+            d_intensity[p] = (dynamic_cost_div * dynamic_margin * dynamic_turnover)**(1/3)
+            
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
-        return s_bull, d_bull, s_bear, d_bear
-
-    def _calculate_fault_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V2.1 · 终极哲学统一版】计算筹码断层健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_fault_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
+        """【V2.3 · 动态分统一版】计算筹码断层维度的三维健康度"""
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
 
         overall_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
         overall_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
@@ -362,27 +290,19 @@ class ChipIntelligence:
             s_bull[p] = overall_static_bull
             s_bear[p] = overall_static_bear
 
-            # 根除所有动态分计算中的加法
-            d_bull_strength_slope = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=False)
-            d_bull_strength_accel = normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=False)
-            d_bull_strength = (d_bull_strength_slope * d_bull_strength_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            strength_mom_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D').abs(), df.index, norm_window)
+            strength_accel_strength = normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D').abs(), df.index, norm_window)
+            dynamic_strength = (strength_mom_strength * strength_accel_strength)**0.5
 
-            d_bull_vacuum_slope = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False)
-            d_bull_vacuum_accel = normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False)
-            d_bull_vacuum = (d_bull_vacuum_slope * d_bull_vacuum_accel)**0.5
-            d_bull[p] = (d_bull_strength * d_bull_vacuum)**0.5
-
-            d_bear_strength_slope = normalize_score(df.get(f'SLOPE_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=True)
-            d_bear_strength_accel = normalize_score(df.get(f'ACCEL_{p}_chip_fault_strength_D'), df.index, norm_window, ascending=True)
-            d_bear_strength = (d_bear_strength_slope * d_bear_strength_accel)**0.5
-
-            d_bear_vacuum_slope = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True)
-            d_bear_vacuum_accel = normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True)
-            d_bear_vacuum = (d_bear_vacuum_slope * d_bear_vacuum_accel)**0.5
-            d_bear[p] = (d_bear_strength * d_bear_vacuum)**0.5
+            vacuum_mom_strength = normalize_score(df.get(f'SLOPE_{p}_chip_fault_vacuum_percent_D').abs(), df.index, norm_window)
+            vacuum_accel_strength = normalize_score(df.get(f'ACCEL_{p}_chip_fault_vacuum_percent_D').abs(), df.index, norm_window)
+            dynamic_vacuum = (vacuum_mom_strength * vacuum_accel_strength)**0.5
             
+            d_intensity[p] = (dynamic_strength * dynamic_vacuum)**0.5
             
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的“剧本”诊断模块

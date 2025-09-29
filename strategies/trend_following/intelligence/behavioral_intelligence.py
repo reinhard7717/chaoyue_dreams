@@ -48,9 +48,8 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V10.1 · 接口简化版】终极行为信号诊断模块
-        - 核心修复: 更新了对 `_calculate_price_health` 和 `_calculate_volume_health` 的调用，
-                      以匹配它们被简化后的新函数签名（移除了无用的 `dynamic_weights` 参数）。
+        【V11.0 · 动态分统一版】终极行为信号诊断模块
+        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -69,24 +68,23 @@ class BehavioralIntelligence:
         bottom_formation_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        # [代码修改] 核心修复：使用新的、简化后的函数签名进行调用
-        price_s_bull, price_d_bull, price_s_bear, price_d_bear = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
-        vol_s_bull, vol_d_bull, vol_s_bear, vol_d_bear = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
-        kline_s_bull, kline_d_bull, kline_s_bear, kline_d_bear = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
+        # 更新调用签名，接收三元组
+        price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
+        vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
+        kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
         
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
         
+        # 更新健康度融合逻辑，使用 d_intensity
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
-            ('d_bull', [price_d_bull, vol_d_bull, kline_d_bull]),
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
-            ('d_bear', [price_d_bear, vol_d_bear, kline_d_bear])
+            ('d_intensity', [price_d_intensity, vol_d_intensity, kline_d_intensity])
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                # [代码新增] 增加健壮性检查，确保所有健康度源都有效
                 if not all(health_sources) or not all(p in h for h in health_sources):
                     fused_values = np.full(len(df.index), 0.5)
                 else:
@@ -100,7 +98,8 @@ class BehavioralIntelligence:
         
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
+        # 所有动态分均使用 d_intensity
+        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
@@ -110,7 +109,7 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        bullish_reversal_health = {p: bottom_formation_score * overall_health['d_bull'][p] for p in periods}
+        bullish_reversal_health = {p: bottom_formation_score * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
@@ -121,7 +120,7 @@ class BehavioralIntelligence:
         )
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
+        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
@@ -131,7 +130,7 @@ class BehavioralIntelligence:
             (bearish_long_inertia_res ** resonance_tf_weights['long'])
         )
 
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
+        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
@@ -183,165 +182,106 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V2.0 · 布林带三体模型版】计算价格维度的四维健康度
-        - 核心重构: 彻底废除旧模型，完全采纳指挥官的战术哲学，引入全新的“布林带三体模型”。
-                      该模型将健康度评估分解为三个核心情景：中轨收缩、轨道突破、轨道压制。
+        【V3.1 · 动态分统一版】计算价格维度的三维健康度
+        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
         """
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
-        # --- 模型所需基础数据 ---
         bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
-        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5)
-        bbu = df.get('BBU_21_2.0_D', df['close_D'])
-        bbl = df.get('BBL_21_2.0_D', df['close_D'])
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.5)
 
-        # --- 情景一: 中轨收缩 (Mid-Band Squeeze) ---
-        # 带宽越窄，变盘潜力越大，分数越高
-        squeeze_score = normalize_score(bbw, df.index, norm_window, ascending=False)
+        static_bull_score = (bbp * close_position_in_range)**0.5
+        static_bear_score = ((1.0 - bbp) * (1.0 - close_position_in_range))**0.5
 
-        # --- 情景二: 轨道突破 (Band Breakout - 趋势延续) ---
-        # 看涨突破：收盘价超越上轨的强度
-        bullish_breakout_magnitude = (df['close_D'] - bbu).clip(lower=0) / bbu.replace(0, np.nan)
-        bullish_breakout_score = normalize_score(bullish_breakout_magnitude, df.index, norm_window, ascending=True)
-        
-        # 看跌突破：收盘价跌穿下轨的强度
-        bearish_breakout_magnitude = (bbl - df['close_D']).clip(lower=0) / bbl.replace(0, np.nan)
-        bearish_breakout_score = normalize_score(bearish_breakout_magnitude, df.index, norm_window, ascending=True)
-
-        # --- 情景三: 轨道压制 (Band Rejection - 反转) ---
-        # 看涨反转：在下轨处被支撑，形成长下影线
-        is_touching_lower = df['low_D'] <= bbl
-        bounce_back_strength = ((df['close_D'] - df['low_D']) / day_range).fillna(0)
-        bullish_rejection_score = (is_touching_lower * bounce_back_strength)
-        
-        # 看跌反转：在上轨处被压制，形成长上影线
-        is_touching_upper = df['high_D'] >= bbu
-        pull_back_strength = ((df['high_D'] - df['close_D']) / day_range).fillna(0)
-        bearish_rejection_score = (is_touching_upper * pull_back_strength)
-
-        # --- 最终静态分融合 ---
-        # 静态看涨分是三种看涨情景中的最强者
-        static_bull_score = np.maximum.reduce([
-            squeeze_score, 
-            bullish_breakout_score, 
-            bullish_rejection_score
-        ])
-        
-        # 静态看跌分是两种看跌情景中的最强者 (收缩是中性，不计入看跌)
-        static_bear_score = np.maximum(bearish_breakout_score, bearish_rejection_score)
-
-        # --- 动态分计算 (逻辑保持不变) ---
         for p in periods:
-            s_bull[p] = pd.Series(static_bull_score, index=df.index).astype(np.float32)
-            s_bear[p] = pd.Series(static_bear_score, index=df.index).astype(np.float32)
+            s_bull[p] = static_bull_score.astype(np.float32)
+            s_bear[p] = static_bear_score.astype(np.float32)
 
-            price_mom = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=True)
-            price_accel = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=True)
-            d_bull[p] = (price_mom * price_accel)**0.5
-
-            price_mom_neg = normalize_score(df.get(f'SLOPE_{p}_close_D'), df.index, norm_window, ascending=False)
-            price_accel_neg = normalize_score(df.get(f'ACCEL_{p}_close_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (price_mom_neg * price_accel_neg)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            price_mom_strength = normalize_score(df.get(f'SLOPE_{p}_close_D').abs(), df.index, norm_window, ascending=True)
+            price_accel_strength = normalize_score(df.get(f'ACCEL_{p}_close_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (price_mom_strength * price_accel_strength)**0.5
             
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.2 · 数据类型净化版】
-        - 核心修正: 修复了因 np.maximum.reduce 返回 numpy.ndarray 导致的数据类型污染问题。
-        - 解决方案: 在使用 np.maximum.reduce 融合三条路径后，立即将返回的 numpy 数组重新包装成一个带有原始索引的 pandas.Series。
-          这确保了本函数遵守其输出 Pandas Series 的数据契约，从而解决了上层调用者的 AttributeError。
+        【V6.3 · 动态分统一版】计算成交量维度的三维健康度
+        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
         """
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
 
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
             for p in periods:
-                s_bull[p] = s_bear[p] = d_bull[p] = d_bear[p] = pd.Series(0.5, index=df.index)
-            return s_bull, d_bull, s_bear, d_bear
+                s_bull[p] = s_bear[p] = pd.Series(0.5, index=df.index)
+                d_intensity[p] = pd.Series(0.5, index=df.index) # [代码修改]
+            return s_bull, s_bear, d_intensity # [代码修改]
 
         volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
-        
         price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
         stagnation_path_score = volume_increase_score * price_stagnation_score
-
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
         breakdown_path_score = (price_drop_score * volume_increase_score).where(df['pct_change_D'] < 0, 0)
-
         static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
-
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
         yang_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
-
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
         yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk)).where(df['pct_change_D'] <= 0, 0)
-
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
-
-        # [代码修改] 修复数据类型污染的关键步骤
-        # np.maximum.reduce 返回的是一个 numpy 数组，丢失了索引
-        static_bull_score_np = np.maximum.reduce([
-            yang_score,
-            yin_score,
-            exhaustion_reversal_score
-        ])
-        # 必须将其重新包装成带有正确索引的 Pandas Series，以遵守数据契约
+        static_bull_score_np = np.maximum.reduce([yang_score, yin_score, exhaustion_reversal_score])
         static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
             
-            vol_mom = normalize_score(df.get(f'SLOPE_{p}_volume_D'), df.index, norm_window, ascending=True)
-            vol_accel = normalize_score(df.get(f'ACCEL_{p}_volume_D'), df.index, norm_window, ascending=True)
+            # 计算统一的、中性的动态强度分 d_intensity
+            vol_mom_strength = normalize_score(df.get(f'SLOPE_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
+            vol_accel_strength = normalize_score(df.get(f'ACCEL_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (vol_mom_strength * vol_accel_strength)**0.5
             
-            d_bull[p] = (vol_mom * vol_accel)**0.5
-            d_bear[p] = (vol_mom * vol_accel)**0.5
-            
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
+    def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.4 · 数据流重建版】
-        - 核心修复: 全面修正了本方法消费的原子信号名称，使其与 `_generate_all_atomic_signals` 实际产出的信号完全对齐，
-                      彻底解决了因消费“幽灵信号”导致的计算错误和分数异常问题。
+        【V2.5 · 动态分统一版】计算K线形态维度的三维健康度
+        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
         """
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        # 更新方法签名和初始化
+        s_bull, s_bear, d_intensity = {}, {}, {}
         
-        # [代码修改] 核心修复：全面修正消费的原子信号名称，确保与生产者一致
-        # --- 静态分计算 (逻辑保持不变，信号名修正) ---
         strong_close = normalize_score(atomic_signals.get('SCORE_PRICE_POSITION_IN_RANGE', pd.Series(0.5, index=df.index)), df.index, norm_window, True, min_periods)
         gap_support = normalize_score(atomic_signals.get('SCORE_GAP_SUPPORT_ACTIVE', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         earth_heaven = normalize_score(atomic_signals.get('SCORE_BOARD_EARTH_HEAVEN', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
-        # 为 gentle_rise 创建一个合理的代理：涨幅不大但为正
         gentle_rise_raw = df['pct_change_D'].clip(0, 0.03) / 0.03
         gentle_rise = normalize_score(gentle_rise_raw, df.index, norm_window, True, min_periods)
-        
-        static_bull_score = pd.Series(np.maximum.reduce([
-            strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values
-        ]), index=df.index).astype(np.float32)
+        static_bull_score = pd.Series(np.maximum.reduce([strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values]), index=df.index).astype(np.float32)
 
         weak_close = 1.0 - strong_close
         upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         heaven_earth = normalize_score(atomic_signals.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         sharp_drop = normalize_score(atomic_signals.get('SCORE_KLINE_SHARP_DROP', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
-        
-        static_bear_score = pd.Series(np.maximum.reduce([
-            weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values
-        ]), index=df.index).astype(np.float32)
+        static_bear_score = pd.Series(np.maximum.reduce([weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values]), index=df.index).astype(np.float32)
 
-        # --- 动态分计算 (逻辑保持不变) ---
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            bull_slope = static_bull_score.diff(p).fillna(0)
-            bear_slope = static_bear_score.diff(p).fillna(0)
+            # 计算统一的、中性的动态强度分 d_intensity
+            # K线形态的动态分衡量的是“静态分自身的变化强度”
+            bull_slope_strength = static_bull_score.diff(p).fillna(0).abs()
+            bear_slope_strength = static_bear_score.diff(p).fillna(0).abs()
+            # 取两者中变化更剧烈的作为动态强度
+            intensity_slope = np.maximum(bull_slope_strength, bear_slope_strength)
+            d_intensity[p] = normalize_score(intensity_slope, df.index, norm_window, ascending=True)
             
-            d_bull[p] = normalize_score(bull_slope, df.index, norm_window, ascending=True)
-            d_bear[p] = normalize_score(bear_slope, df.index, norm_window, ascending=True)
-            
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回三元组
+        return s_bull, s_bear, d_intensity
 
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -517,7 +457,7 @@ class BehavioralIntelligence:
         # --- 姿态测试: 价格在短期内拒绝创新低，波动收窄 ---
         is_stabilizing = (df['low_D'] >= df['low_D'].rolling(rev_window).min()).astype(int)
         
-        # [代码修改] 使用 'ATR_14_D' 替换不存在的 'tr_D'
+        # 使用 'ATR_14_D' 替换不存在的 'tr_D'
         # ATR_14_D 是一个更标准、更可靠的波动率指标
         price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index)) # 使用get增加健壮性，如果ATR也没有，则用当日振幅作为备用
         

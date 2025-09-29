@@ -31,10 +31,8 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 信号净化版】终极结构信号诊断模块
-        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
-                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
-        - 健壮性加固: 统一了多周期力计算中的默认值类型，确保在数据缺失时使用 Series 而非 float。
+        【V9.0 · 动态分统一版】终极结构信号诊断模块
+        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -51,19 +49,20 @@ class StructuralIntelligence:
 
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
-        health_data = { 's_bull': [], 'd_bull': [], 's_bear': [], 'd_bear': [] } 
+        # 更新健康度数据结构
+        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = { 'ma': self._calculate_ma_health, 'mechanics': self._calculate_mechanics_health, 'mtf': self._calculate_mtf_health, 'pattern': self._calculate_pattern_health }
         for name, calculator in calculators.items():
-            s_bull, d_bull, s_bear, d_bear = calculator(df, periods, norm_window, dynamic_weights)
+            # 更新调用签名，接收三元组
+            s_bull, s_bear, d_intensity = calculator(df, periods, norm_window, dynamic_weights)
             health_data['s_bull'].append(s_bull) 
-            health_data['d_bull'].append(d_bull) 
             health_data['s_bear'].append(s_bear) 
-            health_data['d_bear'].append(d_bear) 
+            health_data['d_intensity'].append(d_intensity)
         
         overall_health = {}
         
-        for health_type, health_sources in [ ('s_bull', health_data['s_bull']), ('d_bull', health_data['d_bull']), ('s_bear', health_data['s_bear']), ('d_bear', health_data['d_bear']) ]:
-        
+        # 更新健康度融合逻辑，使用 d_intensity
+        for health_type, health_sources in [ ('s_bull', health_data['s_bull']), ('s_bear', health_data['s_bear']), ('d_intensity', health_data['d_intensity']) ]:
             overall_health[health_type] = {}
             for p in periods:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
@@ -75,68 +74,43 @@ class StructuralIntelligence:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
-
-        # 创建一个标准的默认Series，用于健壮性处理
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_bull'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
+        # 所有动态分均使用 d_intensity
+        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
-        overall_bullish_resonance = (
-            (bullish_short_force_res ** resonance_tf_weights['short']) *
-            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bullish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_bull'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
+        bullish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-        overall_bullish_reversal_trigger = (
-            (bullish_short_force_rev ** reversal_tf_weights['short']) *
-            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
         final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
 
-        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_bear'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
         bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
-        overall_bearish_resonance = (
-            (bearish_short_force_res ** resonance_tf_weights['short']) *
-            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bearish_long_inertia_res ** resonance_tf_weights['long'])
-        )
+        overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
 
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_bear'][p] for p in periods}
-        # 使用 default_series 替换浮点数 0.5
+        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
-        overall_bearish_reversal_trigger = (
-            (bearish_short_force_rev ** reversal_tf_weights['short']) *
-            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
+        overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
         final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
         
-        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         final_signal_map = {
             'SCORE_STRUCTURE_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
             'SCORE_STRUCTURE_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
             'SCORE_STRUCTURE_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
             'SCORE_STRUCTURE_TOP_REVERSAL': (final_top_reversal_score ** exponent)
         }
-
         for signal_name, score in final_signal_map.items():
-            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
             states[signal_name] = score.astype(np.float32)
-        
         return states
 
     # ==============================================================================
