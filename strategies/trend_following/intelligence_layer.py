@@ -186,8 +186,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.4 · 创世纪探针部署版】法医探针调度中心
-        - 核心升级: 新增并默认激活“创世纪”探针，用于深度解剖关系动力学信号。
+        【V1.5 · 涡轮增压探针部署版】法医探针调度中心
+        - 核心升级: 新增并默认激活“涡轮增压”探针，用于深度解剖趋势加速级联信号。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -208,12 +208,85 @@ class IntelligenceLayer:
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.4] 正在解剖 {probe_date_str} " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.5] 正在解剖 {probe_date_str} " + "="*30)
         
-        # [代码新增] 默认激活全新的“创世纪”法医探针
         self._deploy_genesis_probe(probe_date)
         
+        # [代码新增] 部署全新的“涡轮增压”法医探针
+        self._deploy_turbo_probe(probe_date)
+        
         print("="*95 + "\n")
+
+    def _deploy_turbo_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“涡轮增压”法医探针，用于深度解剖趋势加速级联效应。
+        - 核心功能: 穿透式地展示“时序级联”与“领域级联”的构成，揭示主升浪的确认过程。
+        """
+        print("\n--- [探针] 正在解剖: 【创世纪 IV · 涡轮增压引擎】 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        
+        def get_val(name, date, default=np.nan):
+            first_key = next(iter(atomic), None)
+            if first_key is None: return default
+            return atomic.get(name, pd.Series(default, index=atomic.get(first_key).index)).get(date, default)
+
+        # --- 步骤 1: 获取最终“涡轮增压”得分 ---
+        final_cascade_score = get_val('COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE', probe_date, 0.0)
+        print(f"\n  [链路层 1] 解剖 -> 最终得分 (COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE)")
+        print(f"    - 【最终融合值】: {final_cascade_score:.4f}")
+        print(f"    - [核心公式]: (时序级联分 * 领域级联分)")
+
+        # --- 步骤 2: 解剖“时序级联”分 ---
+        temporal_cascade_score = get_val('COGNITIVE_INTERNAL_TEMPORAL_CASCADE', probe_date, 0.0)
+        print(f"\n  [链路层 2] 解剖 -> 时序级联分 (Temporal Cascade)")
+        print(f"    - 【得分】: {temporal_cascade_score:.4f}")
+        print(f"    - [核心公式]: (短期健康度加速分 * 中期健康度加速分)**0.5")
+        
+        # 为了透明，重新计算其构成
+        norm_window = 55
+        slope_period = 3
+        health_cache = atomic.get('__BEHAVIOR_overall_health', {})
+        s_bull = health_cache.get('s_bull', {})
+        d_intensity = health_cache.get('d_intensity', {})
+        relational_power = atomic.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
+        
+        short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
+        medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
+        
+        short_term_slope = short_term_health.diff(slope_period).fillna(0)
+        medium_term_slope = medium_term_health.diff(slope_period).fillna(0)
+
+        short_term_accel_score = normalize_score(short_term_slope, df.index, norm_window).get(probe_date, 0.0)
+        medium_term_accel_score = normalize_score(medium_term_slope, df.index, norm_window).get(probe_date, 0.0)
+        
+        print(f"      - 短期健康度加速分: {short_term_accel_score:.4f} (基于5日周期健康度斜率)")
+        print(f"      - 中期健康度加速分: {medium_term_accel_score:.4f} (基于21日周期健康度斜率)")
+
+        # --- 步骤 3: 解剖“领域级联”分 ---
+        domain_cascade_score = get_val('COGNITIVE_INTERNAL_DOMAIN_CASCADE', probe_date, 0.0)
+        print(f"\n  [链路层 3] 解剖 -> 领域级联分 (Domain Cascade)")
+        print(f"    - 【得分】: {domain_cascade_score:.4f}")
+        print(f"    - [核心公式]: p-norm(各领域加速分) / sqrt(领域数量)")
+        
+        resonance_domains = ['behavior', 'chip', 'ff', 'structure', 'dyn']
+        domain_scores = []
+        for domain in resonance_domains:
+            signal_name = f'COGNITIVE_INTERNAL_ACCEL_{domain.upper()}'
+            score = get_val(signal_name, probe_date, 0.0)
+            domain_scores.append(score)
+            print(f"      - {domain.capitalize()} 领域加速分: {score:.4f}")
+        
+        # 验证计算
+        recalc_domain_score = np.linalg.norm(domain_scores, ord=2) / np.sqrt(len(domain_scores)) if domain_scores else 0.0
+        print(f"    - [探针重算]: {recalc_domain_score:.4f}")
+
+        # --- 步骤 4: 最终验证 ---
+        print("\n  [链路层 4] 最终验证")
+        recalc_final_score = temporal_cascade_score * domain_cascade_score
+        print(f"    - [探针重算]: {temporal_cascade_score:.4f} (时序) * {domain_cascade_score:.4f} (领域) = {recalc_final_score:.4f}")
+        print(f"    - [对比]: 实际值 {final_cascade_score:.4f} vs 重算值 {recalc_final_score:.4f}")
+        print("--- 涡轮增压探针解剖完毕 ---")
 
     def _deploy_genesis_probe(self, probe_date: pd.Timestamp):
         """
