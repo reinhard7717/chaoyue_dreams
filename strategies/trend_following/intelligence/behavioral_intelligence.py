@@ -209,17 +209,16 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.3 · 动态分统一版】计算成交量维度的三维健康度
-        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
+        【V6.4 · 逻辑完备版】计算成交量维度的三维健康度
+        - 核心修复: 新增 selling_exhaustion_score，专门用于奖励“缩量下跌”这一卖盘衰竭的看涨信号。
         """
-        # 更新方法签名和初始化
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
             for p in periods:
                 s_bull[p] = s_bear[p] = pd.Series(0.5, index=df.index)
-                d_intensity[p] = pd.Series(0.5, index=df.index) # [代码修改]
-            return s_bull, s_bear, d_intensity # [代码修改]
+                d_intensity[p] = pd.Series(0.5, index=df.index)
+            return s_bull, s_bear, d_intensity
 
         volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
         price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
@@ -227,24 +226,31 @@ class BehavioralIntelligence:
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
         breakdown_path_score = (price_drop_score * volume_increase_score).where(df['pct_change_D'] < 0, 0)
         static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
+        
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
         yang_score = (price_increase_score * volume_increase_score).where(df['pct_change_D'] > 0, 0)
+        
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
         yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk)).where(df['pct_change_D'] <= 0, 0)
+        
+        # [代码新增] 定义一个专门的“卖盘衰竭”分数，用于奖励“缩量下跌”
+        shrinking_volume_score = 1.0 - volume_increase_score # 成交量越小，分数越高
+        selling_exhaustion_score = (shrinking_volume_score * price_drop_score).where(df['pct_change_D'] < 0, 0)
+
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
-        static_bull_score_np = np.maximum.reduce([yang_score, yin_score, exhaustion_reversal_score])
+        
+        # [代码修改] 将新的卖盘衰竭分数加入到最终看涨分的计算中
+        static_bull_score_np = np.maximum.reduce([yang_score, yin_score, exhaustion_reversal_score, selling_exhaustion_score])
         static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
             
-            # 计算统一的、中性的动态强度分 d_intensity
             vol_mom_strength = normalize_score(df.get(f'SLOPE_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
             vol_accel_strength = normalize_score(df.get(f'ACCEL_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
             d_intensity[p] = (vol_mom_strength * vol_accel_strength)**0.5
             
-        # 返回三元组
         return s_bull, s_bear, d_intensity
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict]:

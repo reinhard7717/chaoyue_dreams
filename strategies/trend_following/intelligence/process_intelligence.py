@@ -33,33 +33,38 @@ class ProcessIntelligence:
         ## 修改结束 ##
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
-    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]: # 增加可选参数 task_type_filter
+    def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        运行所有在配置中定义的元分析诊断任务。
-        - 新增参数 task_type_filter: 可选 'base' 或 'strategy'，用于执行特定类型的任务。
+        【V2.2.0 · 架构升级版】运行所有在配置中定义的元分析诊断任务。
+        - 核心升级: 新增对 'strategy_sync' 任务类型的支持，调用专属的计算引擎。
         """
-        # 更新版本号和日志，以反映当前执行模式
-        print(f"      -> [过程情报引擎 V2.1.0 · 自适应版] 启动 (模式: {task_type_filter or 'all'})...")
+        print(f"      -> [过程情报引擎 V2.2.0 · 架构升级版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
-            print(f"      -> [过程情报引擎 V2.1.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
+            print(f"      -> [过程情报引擎 V2.2.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
             return {}
             
         for config in self.diagnostics_config:
-            # [代码新增] 根据过滤器执行任务。如果设置了过滤器，但任务类型不匹配，则跳过。
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
 
             signal_name = config.get('name')
             signal_type = config.get('type')
-            if not signal_name or signal_type != 'meta_analysis':
+            if not signal_name:
                 continue
-            meta_states = self._diagnose_meta_relationship(df, config)
-            if meta_states:
-                all_process_states.update(meta_states)
-        # 更新版本号和日志
-        print(f"      -> [过程情报引擎 V2.1.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
+
+            # [代码修改] 增加对新任务类型的路由
+            if signal_type == 'meta_analysis':
+                meta_states = self._diagnose_meta_relationship(df, config)
+                if meta_states:
+                    all_process_states.update(meta_states)
+            elif signal_type == 'strategy_sync':
+                sync_states = self._diagnose_strategy_sync(df, config)
+                if sync_states:
+                    all_process_states.update(sync_states)
+        
+        print(f"      -> [过程情报引擎 V2.2.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -149,6 +154,43 @@ class ProcessIntelligence:
 
         return {signal_name: meta_score}
 
+    def _diagnose_strategy_sync(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】诊断高阶战略信号之间的同步性。
+        - 核心逻辑: 直接将 [0, 1] 的分数映射为 [-1, 1] 的动量，分析其关系。
+        """
+        signal_name = config.get('name')
+        df_index = df.index
+
+        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
+        relationship_score = self._calculate_strategy_sync_relationship(df, config)
+        if relationship_score.empty:
+            return {}
+        
+        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
+        self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
+
+        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
+        relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
+        relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
+
+        # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
+        bipolar_trend_strength = normalize_to_bipolar(
+            series=relationship_trend, target_index=df_index,
+            window=self.norm_window, sensitivity=self.bipolar_sensitivity
+        )
+        bipolar_accel_strength = normalize_to_bipolar(
+            series=relationship_accel, target_index=df_index,
+            window=self.norm_window, sensitivity=self.bipolar_sensitivity
+        )
+
+        # --- 步骤4: 使用加权平均法融合 ---
+        trend_weight = self.meta_score_weights[0]
+        accel_weight = self.meta_score_weights[1]
+        meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        meta_score = meta_score.clip(-1, 1).astype(np.float32)
+
+        return {signal_name: meta_score}
 
 
 
