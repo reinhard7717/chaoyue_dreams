@@ -306,14 +306,14 @@ class IntelligenceLayer:
         # --- 步骤 1: 解剖关系动力分的构成 ---
         print("\n  [链路层 1] 解剖 -> 关系动力分 (SCORE_ATOMIC_RELATIONAL_DYNAMICS)")
         
-        # [代码修改] 分别获取两个核心动力源和最终裁定值
+        # 分别获取两个核心动力源和最终裁定值
         stormborn_power = get_val('SCORE_ATOMIC_STORM_BORN_POWER', probe_date, 0.0)
         still_waters_power = get_val('SCORE_ATOMIC_STILL_WATERS_POWER', probe_date, 0.0)
         relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.0)
         
         print(f"    - 【最终裁定值】: {relational_power:.4f}  <-- (取双核中更强者)")
         
-        # [代码修改] 解剖“风暴降生”核心
+        # 解剖“风暴降生”核心
         print(f"\n    --- 双核之一: “风暴降生”原型 (V反) ---")
         print(f"      - 得分: {stormborn_power:.4f}")
         power_transfer_raw = get_val('PROCESS_META_POWER_TRANSFER', probe_date, 0.0)
@@ -323,7 +323,7 @@ class IntelligenceLayer:
         print(f"        - 权力转移: raw={power_transfer_raw:.2f} -> mapped={power_transfer_map:.2f}")
         print(f"        - 投降仪式: raw={loser_capitulation_raw:.2f} -> mapped={loser_capitulation_map:.2f}")
         
-        # [代码修改] 解剖“静水流深”核心
+        # 解剖“静水流深”核心
         print(f"\n    --- 双核之二: “静水流深”原型 (盘整) ---")
         print(f"      - 得分: {still_waters_power:.4f}")
         stealth_accumulation_raw = get_val('PROCESS_META_STEALTH_ACCUMULATION', probe_date, 0.0)

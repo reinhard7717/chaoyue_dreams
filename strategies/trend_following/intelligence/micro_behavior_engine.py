@@ -93,49 +93,45 @@ class MicroBehaviorEngine:
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.1 · 优雅版】市场微观结构动态诊断引擎
-        - 核心升级: 废除本地私有计算逻辑，统一调用 `utils.py` 中的 `calculate_holographic_dynamics` 中央引擎。
+        【V7.2 · 回声版】市场微观结构动态诊断引擎
+        - 核心升级: 引入“风险抑制力场”。在“反转回声”的持续时间内，主动抑制“主力信念瓦解”等潜在的误判风险信号。
         """
         states = {}
         norm_window = 120
         
-        bottom_reversal_context = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        risk_suppression_factor = ((1.0 - bottom_reversal_context) ** 3).clip(0, 1)
+        # 获取“反转回声”信号，并创建抑制因子
+        recent_reversal_context = self._get_atomic_score(df, 'SCORE_CONTEXT_RECENT_REVERSAL', 0.0)
+        risk_suppression_factor = (1.0 - recent_reversal_context).clip(0, 1)
 
-        # --- 看涨信号计算 ---
+        # --- 看涨信号计算 (保持不变) ---
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
-        
-        # 调用中央引擎，它现在固定返回一个元组
         granularity_holo_up, _ = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
         dominance_holo_up, _ = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
-
         power_shift_to_main_force_score = (granularity_momentum_up * granularity_holo_up * dominance_momentum_up * dominance_holo_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE'] = power_shift_to_main_force_score
         
         conviction_momentum_strengthening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=True)
         conviction_holo_up, _ = calculate_holographic_dynamics(df, 'main_force_conviction_ratio', norm_window)
-        
         conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_holo_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
 
-        # --- 看跌风险信号计算 ---
+        # --- 看跌风险信号计算 (应用抑制力场) ---
         granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
         dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
-
         _, granularity_holo_down = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
         _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
-
         power_shift_to_retail_risk_raw = (granularity_momentum_down * granularity_holo_down * dominance_momentum_down * dominance_holo_down)
         
+        # 应用抑制力场
         power_shift_to_retail_risk = (power_shift_to_retail_risk_raw * risk_suppression_factor).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
         
         conviction_momentum_weakening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=False)
         _, conviction_holo_down = calculate_holographic_dynamics(df, 'main_force_conviction_ratio', norm_window)
-
         conviction_weakening_risk_raw = (conviction_momentum_weakening * conviction_holo_down)
         
+        # 应用抑制力场
         conviction_weakening_risk = (conviction_weakening_risk_raw * risk_suppression_factor).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
         

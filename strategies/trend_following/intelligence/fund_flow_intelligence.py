@@ -134,10 +134,8 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 权柄交接最终版】
-        - 核心确认: 本方法已实现“权柄交接”逻辑，作为“关系动力”的消费者，其架构已达最终形态，无需进一步修改。
-        - 核心革命: 1. 看涨共振公式为 max(静态分, 关系动力) * 动态分，打破旧指标否决权。
-                      2. 底部反转公式为 形态分 * 关系动力 * 动态分，使其更纯粹、更强大。
+        【V4.0 · 回声版】
+        - 核心升级: 使用“反转回声”信号 (SCORE_CONTEXT_RECENT_REVERSAL) 替代瞬时的底部形态分，为“底部反转”信号提供持续赋能。
         """
         final_scores = {}
         periods = params['periods']
@@ -146,7 +144,8 @@ class FundFlowIntelligence:
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
         
-        universal_bottom_pattern_score = self.strategy.atomic_states.get('SCORE_UNIVERSAL_BOTTOM_PATTERN', pd.Series(0.0, index=fused_health['resonance']['s_bull'][periods[0]].index))
+        # 消费“反转回声”信号
+        recent_reversal_context = self.strategy.atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=fused_health['resonance']['s_bull'][periods[0]].index))
         relational_dynamics_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=fused_health['resonance']['s_bull'][periods[0]].index))
 
         resonance_health = fused_health['resonance']
@@ -162,7 +161,8 @@ class FundFlowIntelligence:
             (bull_res_long ** res_tw['long'])
         )
         
-        bullish_reversal_health = {p: universal_bottom_pattern_score * relational_dynamics_power * reversal_health['d_intensity'][p] for p in periods}
+        # 使用“反转回声”替代瞬时的“底部形态分”
+        bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * reversal_health['d_intensity'][p] for p in periods}
         bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
         bull_rev_long = bullish_reversal_health.get(55, 0.5)

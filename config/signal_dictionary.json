@@ -608,6 +608,18 @@
             "description": "基础指标动态健康度在顶部形成强力反转风险。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
+        "SCORE_UNIVERSAL_BOTTOM_PATTERN": {
+            "cn_name": "【内部】通用底部形态",
+            "category": "内部计分-行为",
+            "type": "context",
+            "description": "融合了“磨底形态”和“探底回升”的原子级底部形态信号，是所有“底部反转”终极信号的形态基础。"
+        },
+        "SCORE_CONTEXT_RECENT_REVERSAL": {
+            "cn_name": "【内部】反转回声",
+            "category": "内部计分-行为",
+            "type": "context",
+            "description": "【回声机制】将瞬时的底部形态信号转化为一个持续数日的上下文状态，解决系统的“健忘症”问题。"
+        },
         "说明_cyclical_intelligence": "--- 周期层信号 (Cyclical Intelligence) ---",
         "SCORE_TRENDING_REGIME_FFT": {
             "cn_name": "【周期】FFT趋势政权",

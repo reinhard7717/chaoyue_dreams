@@ -48,9 +48,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V20.0 · 双核驱动版】
-        - 核心革命: 1. 将“关系动力”升级为“双核”模型：“风暴降生”与“静水流深”，取其强者。
-                      2. 彻底解决了不同底部形态（V反 vs 盘整）下，过程信号互相否决的问题。
+        【V21.0 · 回声版】
+        - 核心革命: 1. 新增“反转回声”机制，创造 SCORE_CONTEXT_RECENT_REVERSAL 信号，让底部形态的认知可以持续数日。
+                      2. 使用“反转回声”替代瞬时的底部形态分，为“底部反转”信号提供持续赋能。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -72,21 +72,22 @@ class BehavioralIntelligence:
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
 
-        # [代码修改] 关系动力引擎从“单核”升级为“双核”
+        # [代码新增] 创造“反转回声”信号，让底部形态认知持续3天
+        reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
+        recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
+        self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
+
         power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         
-        # 核心1: “风暴降生”原型 (适用于V型反转)
         stormborn_power = (power_transfer * loser_capitulation)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
         
-        # 核心2: “静水流深”原型 (适用于盘整吸筹)
         still_waters_power = (stealth_accumulation * winner_conviction)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
         
-        # 最终裁定: 强者为王
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
@@ -127,7 +128,8 @@ class BehavioralIntelligence:
             (bullish_long_inertia_res ** resonance_tf_weights['long'])
         )
         
-        bullish_reversal_health = {p: bottom_formation_score * relational_dynamics_power * overall_health['d_intensity'][p] for p in periods}
+        # 使用“反转回声”替代瞬时的“底部形态分”
+        bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
@@ -136,7 +138,8 @@ class BehavioralIntelligence:
             (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bullish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_formation_score * bottom_context_bonus_factor)).clip(0, 1)
+        # 奖励因子也使用“反转回声”
+        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
 
         bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5

@@ -30,7 +30,7 @@ class JudgmentLayer:
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
         
-        # [代码修改] 将“信心阻尼器”应用于最终得分计算
+        # 将“信心阻尼器”应用于最终得分计算
         df['final_score'] = (df['entry_score'] * confidence_damper) - df['risk_penalty_score']
         
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
