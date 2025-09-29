@@ -93,63 +93,83 @@ class MicroBehaviorEngine:
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 动态调权版】市场微观结构动态诊断引擎
-        - 核心升级 (治本之道): 废除后置的“抑制因子”，升级为前置的“动态调权”。
-                              利用底部反转信号，动态调整1日(瞬时)和5日(短期)风险计算的权重。
-                              在强反转信号下，系统将更相信1日数据，从而根本上解决历史数据污染问题。
+        【V6.0 · 全息动态引擎】市场微观结构动态诊断引擎
+        - 核心升级 (您的二次升维打击):
+          1. [全息感知] 同时计算“速度变化”(SLOPE_1-SLOPE_5)和“力量变化”(ACCEL_1-ACCEL_5)，构建对动能的“全息”感知。
+          2. [融合打击] 将“速度加速度”与“力量加加速度(Jerk)”两大信号融合，只有两者共振时才产生最强信号，兼具稳健与灵敏。
+          3. [逻辑统一] 所有动态评估均基于这个全新的“全息动态分”，逻辑高度统一。
+          4. [保留否决] 保留战略级“一票否决”抑制因子，作为最终安全保障。
         """
         states = {}
         norm_window = 120
         
-        # 步骤1: 获取上下文信号，它现在是“调权器”，而不是“抑制器”
+        # 步骤1: 获取战略级“底部反转”信号作为“否决”依据 (保留)
         bottom_reversal_context = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
+        risk_suppression_factor = ((1.0 - bottom_reversal_context) ** 3).clip(0, 1)
 
-        # --- 看涨信号计算 (保持不变) ---
+        # [代码新增] 步骤2: 构建全新的“全息动态”核心计算引擎
+        def _calculate_holographic_dynamics(base_name: str) -> Tuple[pd.Series, pd.Series]:
+            """
+            计算指定基础指标的全息动态分数。
+            融合了“速度变化”(加速度)和“力量变化”(加加速度/Jerk)。
+            返回: (看涨全息动态分, 看跌全息动态分)
+            """
+            # 维度一：速度变化 (加速度)
+            slope_diff = df.get(f'SLOPE_1_{base_name}_D', 0.0) - df.get(f'SLOPE_5_{base_name}_D', 0.0)
+            velocity_accel_score = normalize_score(slope_diff, df.index, norm_window, ascending=True)
+            velocity_decel_score = normalize_score(slope_diff, df.index, norm_window, ascending=False)
+
+            # 维度二：力量变化 (加加速度 / Jerk)
+            accel_diff = df.get(f'ACCEL_1_{base_name}_D', 0.0) - df.get(f'ACCEL_5_{base_name}_D', 0.0)
+            jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
+            jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
+            
+            # 融合：两大维度必须共振，才能产生最强信号
+            bullish_holographic_score = (velocity_accel_score * jerk_accel_score)**0.5
+            bearish_holographic_score = (velocity_decel_score * jerk_decel_score)**0.5
+            
+            return bullish_holographic_score, bearish_holographic_score
+
+        # --- [代码修改] 看涨信号计算 (基于新的全息动态分) ---
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
-        granularity_accel_up = normalize_score(df.get('ACCEL_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
-        dominance_accel_up = normalize_score(df.get('ACCEL_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
-        power_shift_to_main_force_score = (granularity_momentum_up * granularity_accel_up * dominance_momentum_up * dominance_accel_up).astype(np.float32)
+        
+        # 获取新的全息动态分
+        granularity_holo_up, _ = _calculate_holographic_dynamics('avg_order_value')
+        dominance_holo_up, _ = _calculate_holographic_dynamics('trade_concentration_index')
+
+        power_shift_to_main_force_score = (granularity_momentum_up * granularity_holo_up * dominance_momentum_up * dominance_holo_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE'] = power_shift_to_main_force_score
         
         conviction_momentum_strengthening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=True)
-        conviction_accel_strengthening = normalize_score(df.get('ACCEL_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=True)
-        conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_accel_strengthening).astype(np.float32)
+        # 获取新的全息动态分
+        conviction_holo_up, _ = _calculate_holographic_dynamics('main_force_conviction_ratio')
+        
+        conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_holo_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
 
-        # --- 看跌风险信号计算 (动态调权混合动力引擎) ---
-        # 步骤2: 根据上下文动态计算权重
-        base_w_instant = 0.6
-        base_w_short_term = 0.4
-        # 当底部反转信号增强时，将权重从5日周期动态转移到1日周期
-        # bottom_reversal_context 从 0 -> 1, w_instant 从 0.6 -> 1.0, w_short_term 从 0.4 -> 0.0
-        w_instant = base_w_instant + base_w_short_term * bottom_reversal_context
-        w_short_term = base_w_short_term - base_w_short_term * bottom_reversal_context
+        # --- [代码修改] 看跌风险信号计算 (基于新的全息动态分) ---
+        granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
+        dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
 
-        def get_hybrid_risk_score(base_name: str) -> pd.Series:
-            # 计算1日周期的风险分
-            slope_1 = normalize_score(df.get(f'SLOPE_1_{base_name}_D'), df.index, norm_window, ascending=False)
-            accel_1 = normalize_score(df.get(f'ACCEL_1_{base_name}_D'), df.index, norm_window, ascending=False)
-            risk_1_day = (slope_1 * accel_1)**0.5
-            print(f"SLOPE_1_{base_name}_D: {slope_1}, ACCEL_1_{base_name}_D: {accel_1}, risk_1_day: {risk_1_day}")
-            
-            # 计算5日周期的风险分
-            slope_5 = normalize_score(df.get(f'SLOPE_5_{base_name}_D'), df.index, norm_window, ascending=False)
-            accel_5 = normalize_score(df.get(f'ACCEL_5_{base_name}_D'), df.index, norm_window, ascending=False)
-            risk_5_day = (slope_5 * accel_5)**0.5
-            print(f"SLOPE_5_{base_name}_D: {slope_5}, ACCEL_5_{base_name}_D: {accel_5}, risk_5_day: {risk_5_day}")
-            
-            # 使用动态权重进行融合
-            return (risk_1_day * w_instant) + (risk_5_day * w_short_term)
+        # 获取新的全息动态分
+        _, granularity_holo_down = _calculate_holographic_dynamics('avg_order_value')
+        _, dominance_holo_down = _calculate_holographic_dynamics('trade_concentration_index')
 
-        granularity_risk = get_hybrid_risk_score('avg_order_value')
-        dominance_risk = get_hybrid_risk_score('trade_concentration_index')
-        # 移除后置的抑制因子，因为已在权重中体现
-        power_shift_to_retail_risk = ((granularity_risk * dominance_risk)**0.5).astype(np.float32)
+        power_shift_to_retail_risk_raw = (granularity_momentum_down * granularity_holo_down * dominance_momentum_down * dominance_holo_down)
+        
+        # 应用“一票否决”
+        power_shift_to_retail_risk = (power_shift_to_retail_risk_raw * risk_suppression_factor).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
         
-        # 移除后置的抑制因子，因为已在权重中体现
-        conviction_weakening_risk = get_hybrid_risk_score('main_force_conviction_ratio').astype(np.float32)
+        conviction_momentum_weakening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=False)
+        # 获取新的全息动态分
+        _, conviction_holo_down = _calculate_holographic_dynamics('main_force_conviction_ratio')
+
+        conviction_weakening_risk_raw = (conviction_momentum_weakening * conviction_holo_down)
+        
+        # 应用“一票否决”
+        conviction_weakening_risk = (conviction_weakening_risk_raw * risk_suppression_factor).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
         
         return states
