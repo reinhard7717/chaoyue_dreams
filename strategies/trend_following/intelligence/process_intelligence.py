@@ -69,20 +69,16 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.1.0 核心工具 - 自适应版】
-        - 新增: 根据配置中的 'source' 字段，智能选择数据源 (df_indicators 或 atomic_states)。
-        - 新增: 根据配置中的 'change_type' 字段，智能选择变化率计算方法 ('pct' 或 'diff')。
+        【V2.2.0 · 范围约束版】
+        - 核心修复: 对最终的 relationship_score 增加 .clip(-1, 1) 约束，彻底杜绝范围溢出问题。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
 
-        # [代码新增] 智能数据源选择
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
-                # 从 self.strategy.atomic_states 获取高阶信号
                 return self.strategy.atomic_states.get(signal_name)
-            # 默认从 df_indicators 获取原始指标
             return df.get(signal_name)
 
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
@@ -92,25 +88,22 @@ class ProcessIntelligence:
             print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
 
-        # [代码新增] 自适应物理模型：根据 change_type 选择计算方法
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if change_type == 'diff':
-                # 对归一化分数使用差值
                 return series.diff(1).fillna(0)
-            # 默认对原始数据使用百分比变化
             return ta.percent_return(series, length=1).fillna(0)
 
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
         
-        momentum_a = normalize_to_bipolar(
-            series=change_a, target_index=df_index, window=self.std_window, sensitivity=self.bipolar_sensitivity
-        )
-        thrust_b = normalize_to_bipolar(
-            series=change_b, target_index=df_index, window=self.std_window, sensitivity=self.bipolar_sensitivity
-        )
+        momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
+        thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        
+        # [代码修改] 增加范围约束，防止数学溢出
+        relationship_score = relationship_score.clip(-1, 1)
+
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
@@ -194,8 +187,8 @@ class ProcessIntelligence:
 
     def _calculate_strategy_sync_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V1.0 · 新增】计算高阶战略信号之间的瞬时关系。
-        - 核心逻辑: 不计算变化率，直接将分数映射为动量。
+        【V1.1 · 范围约束版】
+        - 核心修复: 对最终的 relationship_score 增加 .clip(-1, 1) 约束，彻底杜绝范围溢出问题。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
@@ -207,12 +200,14 @@ class ProcessIntelligence:
             print(f"        -> [战略同步] 警告: 缺少战略信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
 
-        # 直接将 [0, 1] 的分数映射到 [-1, 1] 作为动量
         momentum_a = (signal_a - 0.5) * 2
         thrust_b = (signal_b - 0.5) * 2
         
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        
+        # [代码修改] 增加范围约束，防止数学溢出
+        relationship_score = relationship_score.clip(-1, 1)
         
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
