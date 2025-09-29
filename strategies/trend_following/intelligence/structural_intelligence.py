@@ -117,12 +117,12 @@ class StructuralIntelligence:
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
 
-    def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.1 · 静态逻辑重构版】计算MA支柱的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
+        """【V2.3 · 动态分统一版】计算MA支柱的三维健康度"""
+        # [代码修改] 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
 
-        # 将静态分计算移出循环，使用所有均线的平均对齐度作为静态分
-        ma_periods = [5, 10, 20, 60, 120] # 使用一组固定的均线来评估整体结构
+        ma_periods = [5, 10, 20, 60, 120]
         bull_alignment_scores = []
         bear_alignment_scores = []
         for i in range(len(ma_periods) - 1):
@@ -140,7 +140,6 @@ class StructuralIntelligence:
             static_bear_score = pd.Series(0.5, index=df.index)
 
         for p in periods:
-            # 为所有周期分配同一个、真正的静态分
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
@@ -148,47 +147,42 @@ class StructuralIntelligence:
             slope_col = f'SLOPE_{p}_{static_col}'
             accel_col = f'ACCEL_{p}_{static_col}'
             
-            slope_score = normalize_score(df.get(slope_col), df.index, norm_window, ascending=True)
-            accel_score = normalize_score(df.get(accel_col), df.index, norm_window, ascending=True)
-            d_bull[p] = (slope_score * accel_score)**0.5
-            
-            slope_score_neg = normalize_score(df.get(slope_col), df.index, norm_window, ascending=False)
-            accel_score_neg = normalize_score(df.get(accel_col), df.index, norm_window, ascending=False)
-            d_bear[p] = (slope_score_neg * accel_score_neg)**0.5
-        return s_bull, d_bull, s_bear, d_bear
+            # [代码修改] 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(slope_col).abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(accel_col).abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
 
-    def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V2.1 · 终极哲学统一版】计算力学支柱的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+        # [代码修改] 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
+
+    def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
+        """【V2.3 · 动态分统一版】计算力学支柱的三维健康度"""
+        # [代码修改] 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         static_bear_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
         for p in periods:
             s_bull[p] = static_bull_energy
             s_bear[p] = static_bear_energy
             
-            # 根除所有动态分计算中的加法
-            cost_slope_bull = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=True)
-            conc_lock_bull = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
-            d_bull[p] = (cost_slope_bull * conc_lock_bull)**0.5
+            # [代码修改] 计算统一的、中性的动态强度分 d_intensity
+            cost_mom_strength = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D').abs(), df.index, norm_window, ascending=True)
+            conc_mom_strength = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (cost_mom_strength * conc_mom_strength)**0.5
             
-            cost_slope_bear = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D'), df.index, norm_window, ascending=False)
-            conc_lock_bear = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
-            d_bear[p] = (cost_slope_bear * conc_lock_bear)**0.5
-            
-        return s_bull, d_bull, s_bear, d_bear
+        # [代码修改] 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
+    def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.1 · 性能优化版】计算MTF(多时间框架)支柱的四维健康度
-        - 本次优化:
-          - [效率] 简化了 `get_avg_score` 辅助函数，使用列表推导式和 `np.mean` 提高效率。
-          - [效率] 将静态分和动态分的计算移出循环，一次性生成后通过字典推导式赋值给所有周期，
-                    避免了不必要的重复计算。
+        【V2.2 · 动态分统一版】计算MTF(多时间框架)支柱的三维健康度
+        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
         """
-        # 静态健康度：周线结构对齐度
+        # [代码修改] 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
+
         weekly_cols = [col for col in df.columns if 'EMA' in col and col.endswith('_W')]
         if len(weekly_cols) > 1:
-            # 使用列表推导式和np.mean进行向量化计算
             bull_align_matrix = np.stack([(df[weekly_cols[i]] > df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
             bear_align_matrix = np.stack([(df[weekly_cols[i]] < df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
             static_bull_score = pd.Series(np.mean(bull_align_matrix, axis=0), index=df.index, dtype=np.float32)
@@ -196,54 +190,52 @@ class StructuralIntelligence:
         else:
             static_bull_score = static_bear_score = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 简化的 get_avg_score 辅助函数
-        def get_avg_score(cols: list[str], asc: bool) -> pd.Series:
+        # [代码修改] 辅助函数现在计算中性的强度分
+        def get_avg_strength_score(cols: list[str]) -> pd.Series:
             if not cols: return pd.Series(0.5, index=df.index, dtype=np.float32)
-            # 使用列表推导式和np.mean进行向量化计算
-            scores_matrix = np.stack([normalize_score(df.get(c), df.index, norm_window, ascending=asc).values for c in cols], axis=0)
+            # 使用 .abs() 获取强度
+            scores_matrix = np.stack([normalize_score(df.get(c).abs(), df.index, norm_window, ascending=True).values for c in cols], axis=0)
             return pd.Series(np.mean(scores_matrix, axis=0), index=df.index, dtype=np.float32)
 
         weekly_slope_cols = [c for c in df.columns if 'SLOPE' in c and c.endswith('_W')]
         weekly_accel_cols = [c for c in df.columns if 'ACCEL' in c and c.endswith('_W')]
         
-        dynamic_bull_score = (get_avg_score(weekly_slope_cols, True) * get_avg_score(weekly_accel_cols, True))**0.5
-        dynamic_bear_score = (get_avg_score(weekly_slope_cols, False) * get_avg_score(weekly_accel_cols, False))**0.5
+        # [代码修改] 计算统一的、中性的动态强度分 d_intensity
+        dynamic_intensity_score = (get_avg_strength_score(weekly_slope_cols) * get_avg_strength_score(weekly_accel_cols))**0.5
 
-        # 使用字典推导式一次性生成所有周期的分数，避免在循环中重复赋值
         s_bull = {p: static_bull_score for p in periods}
         s_bear = {p: static_bear_score for p in periods}
-        d_bull = {p: dynamic_bull_score for p in periods}
-        d_bear = {p: dynamic_bear_score for p in periods}
+        d_intensity = {p: dynamic_intensity_score for p in periods}
         
-        return s_bull, d_bull, s_bear, d_bear
+        # [代码修改] 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict, Dict]:
+    def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.1 · 性能优化版】计算形态支柱的四维健康度
-        - 本次优化:
-          - [效率] 将静态分和动态分的计算移出循环，一次性生成后通过字典推导式赋值给所有周期，
-                    避免了不必要的重复计算。
+        【V2.2 · 动态分统一版】计算形态支柱的三维健康度
+        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
         """
-        # 静态健康度：是否存在吸筹/盘整形态 vs 派发形态
+        # [代码修改] 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
+
         is_accumulation = df.get('is_accumulation_D', 0).astype(float)
         is_consolidation = df.get('is_consolidation_D', 0).astype(float)
         is_distribution = df.get('is_distribution_D', 0).astype(float)
         static_bull_score = pd.Series(np.maximum(is_accumulation, is_consolidation), index=df.index).replace(0, 0.5)
         static_bear_score = pd.Series(is_distribution, index=df.index).replace(0, 0.5)
 
-        # 动态健康度：是否存在突破 vs 破位事件
+        # [代码修改] 动态强度分现在衡量“事件发生的强度”，而不是方向
         is_breakthrough = df.get('is_breakthrough_D', 0).astype(float)
         is_breakdown = df.get('is_breakdown_D', 0).astype(float)
-        dynamic_bull_score = pd.Series(is_breakthrough, index=df.index).replace(0, 0.5)
-        dynamic_bear_score = pd.Series(is_breakdown, index=df.index).replace(0, 0.5)
+        # 任何一种突破或破位事件都代表了动态强度的增加
+        dynamic_intensity_score = pd.Series(np.maximum(is_breakthrough, is_breakdown), index=df.index).replace(0, 0.5)
 
-        # 使用字典推导式一次性生成所有周期的分数，避免在循环中重复赋值
         s_bull = {p: static_bull_score for p in periods}
         s_bear = {p: static_bear_score for p in periods}
-        d_bull = {p: dynamic_bull_score for p in periods}
-        d_bear = {p: dynamic_bear_score for p in periods}
+        d_intensity = {p: dynamic_intensity_score for p in periods}
         
-        return s_bull, d_bull, s_bear, d_bear
+        # [代码修改] 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
 
 
