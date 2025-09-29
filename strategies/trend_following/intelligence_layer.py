@@ -199,8 +199,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.3 · 终极探针部署版】法医探针调度中心
-        - 核心升级: 部署了全新的“终极信号钻透式探针”，用于解剖“信号躺平”问题。
+        【V1.4 · 创世纪探针部署版】法医探针调度中心
+        - 核心升级: 新增并默认激活“创世纪”探针，用于深度解剖关系动力学信号。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -209,7 +209,6 @@ class IntelligenceLayer:
         if not probe_date_str:
             return
         probe_date = pd.to_datetime(probe_date_str)
-        # 时区校准逻辑
         if self.strategy.df_indicators.index.tz is not None:
             try:
                 probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
@@ -222,16 +221,97 @@ class IntelligenceLayer:
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.3] 正在解剖 {probe_date_str} " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.4] 正在解剖 {probe_date_str} " + "="*30)
         
-        # 部署全新的“终极信号钻透式探针”，专门用于解决“信号躺平”问题
-        # 您可以修改这里的参数，来解剖任何一个“躺平”的信号
-        # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='CHIP', signal_type='BULLISH_RESONANCE')
-        # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='BEHAVIOR', signal_type='BULLISH_RESONANCE')
-        # 您也可以解剖看跌信号
-        # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='DYN', signal_type='BEARISH_RESONANCE')
-        # self._deploy_process_intelligence_probe(probe_date)
+        # [代码新增] 默认激活全新的“创世纪”法医探针
+        self._deploy_genesis_probe(probe_date)
+        
         print("="*95 + "\n")
+
+    def _deploy_genesis_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“创世纪”法医探针，用于深度解剖关系动力学。
+        - 核心功能: 穿透式地展示“关系动力分”的构成，并揭示它是如何赋能最终信号的。
+        """
+        print("\n--- [探针] 正在解剖: 【创世纪 · 关系动力学引擎】 ---")
+        atomic = self.strategy.atomic_states
+        
+        def get_val(name, date, default=np.nan):
+            return atomic.get(name, pd.Series(default, index=atomic.get(next(iter(atomic)), pd.Series()).index)).get(date, default)
+
+        # --- 步骤 1: 解剖关系动力分的构成 ---
+        print("\n  [链路层 1] 解剖 -> 关系动力分 (SCORE_ATOMIC_RELATIONAL_DYNAMICS)")
+        relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
+        print(f"    - 【最终融合值】: {relational_power:.4f}")
+        
+        process_signals = {
+            "权力转移": "PROCESS_META_POWER_TRANSFER",
+            "隐秘吸筹": "PROCESS_META_STEALTH_ACCUMULATION",
+            "赢家信念": "PROCESS_META_WINNER_CONVICTION",
+            "投降仪式": "PROCESS_META_LOSER_CAPITULATION"
+        }
+        
+        components = {}
+        for cn_name, sig_name in process_signals.items():
+            raw_val = get_val(sig_name, probe_date, 0.0)
+            mapped_val = np.clip(raw_val, -1, 1) * 0.5 + 0.5
+            components[cn_name] = mapped_val
+            print(f"      - {cn_name} ({sig_name}): raw={raw_val:.4f} -> mapped={mapped_val:.4f}")
+        
+        recalc = (components['权力转移'] * components['隐秘吸筹'] * components['赢家信念'] * components['投降仪式'])**(1/4)
+        print(f"    - [探针重算]: ({components['权力转移']:.2f} * {components['隐秘吸筹']:.2f} * {components['赢家信念']:.2f} * {components['投降仪式']:.2f})^(1/4) = {recalc:.4f}")
+
+        # --- 步骤 2: 解剖一个典型的终极信号，看其如何被赋能 ---
+        print("\n  [链路层 2] 解剖 -> 典型终极信号 (以 SCORE_BEHAVIOR_BULLISH_RESONANCE 为例)")
+        behavior_resonance = get_val('SCORE_BEHAVIOR_BULLISH_RESONANCE', probe_date, 0.0)
+        print(f"    - 【最终信号值】: {behavior_resonance:.4f}")
+        
+        overall_health = atomic.get('__BEHAVIOR_overall_health', {})
+        if not overall_health:
+            print("    - [探针错误] 无法找到 __BEHAVIOR_overall_health 缓存。")
+            return
+            
+        # 以短期力量为例
+        s_bull_5 = overall_health.get('s_bull', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
+        d_intensity_5 = overall_health.get('d_intensity', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
+        
+        print("    - [核心公式]: health = np.maximum(s_bull, relational_power) * d_intensity")
+        recalc_health_5 = np.maximum(s_bull_5, relational_power) * d_intensity_5
+        print(f"      - 5日周期健康度: {recalc_health_5:.4f} = max({s_bull_5:.4f}, {relational_power:.4f}) * {d_intensity_5:.4f}")
+        print(f"        - s_bull (静态分): {s_bull_5:.4f}")
+        print(f"        - relational_power (关系动力): {relational_power:.4f}  <-- 【权柄交接发生处】")
+        print(f"        - d_intensity (动态分): {d_intensity_5:.4f}")
+
+        # --- 步骤 3: 进一步解剖 s_bull 的构成 ---
+        print("\n  [链路层 3] 解剖 -> 行为层 s_bull 的构成")
+        behavior_engine = self.behavioral_intel
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
+        
+        s_bull_pillars = {}
+        try:
+            price_s_bull, _, _ = behavior_engine._calculate_price_health(self.strategy.df_indicators, 55, 11, [5])
+            s_bull_pillars['price'] = price_s_bull[5].get(probe_date, 0.5)
+            
+            vol_s_bull, _, _ = behavior_engine._calculate_volume_health(self.strategy.df_indicators, 55, 11, [5])
+            s_bull_pillars['volume'] = vol_s_bull[5].get(probe_date, 0.5)
+            
+            kline_s_bull, _, _ = behavior_engine._calculate_kline_pattern_health(self.strategy.df_indicators, atomic, 55, 11, [5])
+            s_bull_pillars['kline'] = kline_s_bull[5].get(probe_date, 0.5)
+            
+            print(f"    - 融合公式: (price^{pillar_weights.get('price',0)}) * (volume^{pillar_weights.get('volume',0)}) * (kline^{pillar_weights.get('kline',0)})")
+            for name, val in s_bull_pillars.items():
+                print(f"      - {name} 支柱静态分: {val:.4f}")
+            
+            recalc_s_bull = (s_bull_pillars['price']**pillar_weights.get('price',0) * 
+                             s_bull_pillars['volume']**pillar_weights.get('volume',0) * 
+                             s_bull_pillars['kline']**pillar_weights.get('kline',0))
+            print(f"    - [探针重算 s_bull]: {recalc_s_bull:.4f} (实际值: {s_bull_5:.4f})")
+
+        except Exception as e:
+            print(f"    - [探针错误] 无法解剖 s_bull 构成: {e}")
+            
+        print("--- 创世纪探针解剖完毕 ---")
 
     def _deploy_process_intelligence_probe(self, probe_date: pd.Timestamp):
         """

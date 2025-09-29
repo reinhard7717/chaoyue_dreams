@@ -31,8 +31,9 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 关系动力赋能版】
-        - 核心升级: 引入权威的“关系动力分”，为本模块的看涨信号进行最终赋能。
+        【V13.0 · 权柄交接版】
+        - 核心革命: 1. 看涨共振公式修改为 max(静态分, 关系动力) * 动态分，彻底打破旧指标的否决权。
+                      2. 底部反转公式修改为 形态分 * 关系动力 * 动态分，使其更纯粹、更强大。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -47,8 +48,6 @@ class StructuralIntelligence:
 
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         universal_bottom_pattern_score = self.strategy.atomic_states.get('SCORE_UNIVERSAL_BOTTOM_PATTERN', pd.Series(0.0, index=df.index))
-        
-        # 获取权威的“关系动力分”
         relational_dynamics_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
 
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
@@ -75,18 +74,15 @@ class StructuralIntelligence:
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 使用“关系动力分”对看涨共振进行赋能
-        bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] * relational_dynamics_power for p in periods}
+        # 权柄交接：看涨共振公式革命
+        bullish_resonance_health = {p: np.maximum(overall_health['s_bull'][p], relational_dynamics_power) * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
         bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
         overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
         
-        # 使用“关系动力分”对底部反转进行赋能
-        bullish_reversal_health = {
-            p: np.maximum(universal_bottom_pattern_score * overall_health['s_bull'][p], overall_health['s_bear'][p]) * overall_health['d_intensity'][p] * relational_dynamics_power
-            for p in periods
-        }
+        # 权柄交接：底部反转公式革命
+        bullish_reversal_health = {p: universal_bottom_pattern_score * relational_dynamics_power * overall_health['d_intensity'][p] for p in periods}
         bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
         bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
