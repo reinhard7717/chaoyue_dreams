@@ -130,7 +130,7 @@ class MicroBehaviorEngine:
             
             return bullish_holographic_score, bearish_holographic_score
 
-        # --- [代码修改] 看涨信号计算 (基于新的全息动态分) ---
+        # --- 看涨信号计算 (基于新的全息动态分) ---
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
         
@@ -148,7 +148,7 @@ class MicroBehaviorEngine:
         conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_holo_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
 
-        # --- [代码修改] 看跌风险信号计算 (基于新的全息动态分) ---
+        # --- 看跌风险信号计算 (基于新的全息动态分) ---
         granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
         dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
 

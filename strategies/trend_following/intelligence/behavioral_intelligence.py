@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores, calculate_holographic_dynamics
 
 class BehavioralIntelligence:
     def __init__(self, strategy_instance):
@@ -186,8 +186,9 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V3.2 · 终极优化版】计算价格维度的三维健康度
-        - 核心优化: 引入 reversal_potential_score，使价格支柱能够识别并奖励下跌日出现的“反转潜力形态”（如长下影线）。
+        【V4.0 · 全息动态升级版】计算价格维度的三维健康度
+        - 核心升级: 将 d_intensity 的计算方式从旧的绝对值模式升级为全新的“全息动态”模式，
+                      使其能更灵敏地捕捉价格动能的真实变化。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
@@ -205,22 +206,24 @@ class BehavioralIntelligence:
 
         static_bear_score = ((1.0 - bbp) * (1.0 - close_position_in_range))**0.5
 
+        # 使用全新的全息动态引擎计算动态强度分
+        price_holo_bull, price_holo_bear = calculate_holographic_dynamics(df, 'close_D', norm_window)
+        # 动态强度分现在同时考虑看涨和看跌的动态变化
+        unified_d_intensity = (price_holo_bull + price_holo_bear) / 2.0
+
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
-
-            # 计算统一的、中性的动态强度分 d_intensity
-            # 使用 .abs() 来获取变化的强度，而不是方向
-            price_mom_strength = normalize_score(df.get(f'SLOPE_{p}_close_D').abs(), df.index, norm_window, ascending=True)
-            price_accel_strength = normalize_score(df.get(f'ACCEL_{p}_close_D').abs(), df.index, norm_window, ascending=True)
-            d_intensity[p] = (price_mom_strength * price_accel_strength)**0.5
+            # 所有周期共享同一个、更高级的动态强度分
+            d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V6.7 · 终极逻辑版】计算成交量维度的三维健康度
-        - 核心修复: 彻底重构下跌日的看涨分计算逻辑。将'下跌抵抗'和'卖盘衰竭'从相乘改为取最大值，解决了逻辑内耗问题。
+        【V7.0 · 全息动态升级版】计算成交量维度的三维健康度
+        - 核心升级: 将 d_intensity 的计算方式从旧的绝对值模式升级为全新的“全息动态”模式，
+                      使其能更灵敏地捕捉成交量能的真实变化。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
 
@@ -248,9 +251,7 @@ class BehavioralIntelligence:
 
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
         
-        # 使用条件融合逻辑，并修正下跌日看涨分的融合方式
         is_positive_day = df['pct_change_D'] > 0
-        # 在下跌日，看涨分由多个独立的看涨逻辑（抵抗、衰竭、反转）中的最强者决定，而不是相乘
         bullish_score_on_down_day = np.maximum.reduce([
             yin_score, 
             selling_exhaustion_score,
@@ -259,13 +260,16 @@ class BehavioralIntelligence:
         static_bull_score_np = np.where(is_positive_day, yang_score, bullish_score_on_down_day)
         static_bull_score = pd.Series(static_bull_score_np, index=df.index)
 
+        # 使用全新的全息动态引擎计算动态强度分
+        vol_holo_bull, vol_holo_bear = calculate_holographic_dynamics(df, 'volume_D', norm_window)
+        # 动态强度分现在同时考虑看涨和看跌的动态变化
+        unified_d_intensity = (vol_holo_bull + vol_holo_bear) / 2.0
+
         for p in periods:
             s_bull[p] = static_bull_score.astype(np.float32)
             s_bear[p] = static_bear_score.astype(np.float32)
-            
-            vol_mom_strength = normalize_score(df.get(f'SLOPE_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
-            vol_accel_strength = normalize_score(df.get(f'ACCEL_{p}_volume_D').abs(), df.index, norm_window, ascending=True)
-            d_intensity[p] = (vol_mom_strength * vol_accel_strength)**0.5
+            # 所有周期共享同一个、更高级的动态强度分
+            d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
@@ -555,7 +559,6 @@ class BehavioralIntelligence:
         
         states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
         return states
-
 
 
 

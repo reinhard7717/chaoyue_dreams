@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores
+from strategies.trend_following.utils import get_params_block, get_param_value, calculate_holographic_dynamics, normalize_score, calculate_context_scores
 
 class StructuralIntelligence:
     def __init__(self, strategy_instance, dynamic_thresholds: Dict):
@@ -118,7 +118,7 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V2.3 · 动态分统一版】计算MA支柱的三维健康度"""
+        """【V3.0 · 全息动态升级版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         ma_periods = [5, 10, 20, 60, 120]
@@ -143,33 +143,28 @@ class StructuralIntelligence:
             s_bear[p] = static_bear_score
             
             static_col = f'EMA_{p}_D' if p > 1 else 'close_D'
-            slope_col = f'SLOPE_{p}_{static_col}'
-            accel_col = f'ACCEL_{p}_{static_col}'
-            
-            # 计算统一的、中性的动态强度分 d_intensity
-            # 使用 .abs() 来获取变化的强度，而不是方向
-            mom_strength = normalize_score(df.get(slope_col).abs(), df.index, norm_window, ascending=True)
-            accel_strength = normalize_score(df.get(accel_col).abs(), df.index, norm_window, ascending=True)
-            d_intensity[p] = (mom_strength * accel_strength)**0.5
+            # 使用全新的全息动态引擎计算动态强度分
+            d_intensity[p] = calculate_holographic_dynamics(df, static_col, norm_window)
 
         return s_bull, s_bear, d_intensity
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V2.3 · 动态分统一版】计算力学支柱的三维健康度"""
-        # 更新方法签名和初始化，统一返回 d_intensity
+        """【V3.0 · 全息动态升级版】计算力学支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         static_bear_energy = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
+        
+        # 使用全新的全息动态引擎计算动态强度分
+        cost_mom_strength = calculate_holographic_dynamics(df, 'peak_cost_D', norm_window)
+        conc_mom_strength = calculate_holographic_dynamics(df, 'concentration_90pct_D', norm_window)
+        unified_d_intensity = (cost_mom_strength * conc_mom_strength)**0.5
+
         for p in periods:
             s_bull[p] = static_bull_energy
             s_bear[p] = static_bear_energy
+            # 所有周期共享同一个、更高级的动态强度分
+            d_intensity[p] = unified_d_intensity
             
-            # 计算统一的、中性的动态强度分 d_intensity
-            cost_mom_strength = normalize_score(df.get(f'SLOPE_{p}_peak_cost_D').abs(), df.index, norm_window, ascending=True)
-            conc_mom_strength = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D').abs(), df.index, norm_window, ascending=True)
-            d_intensity[p] = (cost_mom_strength * conc_mom_strength)**0.5
-            
-        # 返回符合新协议的三元组
         return s_bull, s_bear, d_intensity
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:

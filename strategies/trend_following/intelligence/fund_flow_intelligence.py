@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, calculate_context_scores
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, calculate_context_scores, calculate_holographic_dynamics
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -216,8 +216,7 @@ class FundFlowIntelligence:
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V2.7 · 动态分统一版】计算单个资金流支柱的三维健康度"""
-        # 更新方法签名和初始化，统一返回 d_intensity
+        """【V3.0 · 全息动态升级版】计算单个资金流支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
@@ -234,24 +233,16 @@ class FundFlowIntelligence:
             else:
                 slope_base_col = f"{base_col_name}_D"
             
-            slope_col = f"SLOPE_{p}_{slope_base_col}"
-            accel_col = f"ACCEL_{p}_{slope_base_col}"
-
             default_series = pd.Series(0.5, index=df.index)
             
             static_series = df.get(static_col, default_series)
-            slope_series = df.get(slope_col, default_series)
-            accel_series = df.get(accel_col, default_series)
 
             s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
             s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
             
-            # 计算统一的、中性的动态强度分 d_intensity
-            mom_strength = normalize_score(slope_series.abs(), df.index, norm_window, ascending=True)
-            accel_strength = normalize_score(accel_series.abs(), df.index, norm_window, ascending=True)
-            d_intensity[p] = (mom_strength * accel_strength)**0.5
+            # 使用全新的全息动态引擎计算动态强度分
+            d_intensity[p] = calculate_holographic_dynamics(df, slope_base_col, norm_window)
 
-        # 返回符合新协议的三元组
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
 
