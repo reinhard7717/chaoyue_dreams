@@ -124,9 +124,10 @@ class DynamicMechanicsEngine:
     # 以下为重构后的健康度组件计算器
     # ==============================================================================
 
-    def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.3 · 终极哲学统一版】计算波动率(BBW)维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V1.5 · 动态分统一版】计算波动率(BBW)维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) # 压缩为好
         static_bear = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)  # 扩张为坏
 
@@ -134,45 +135,39 @@ class DynamicMechanicsEngine:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
             if p in [1, 5, 13]:
-                # 根除所有动态分计算中的加法
-                d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
-                d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=False)
-                d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
-
-                d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-                d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-                d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
-                
+                # 计算统一的、中性的动态强度分 d_intensity
+                mom_strength = normalize_score(df.get(f'SLOPE_{p}_BBW_21_2.0_D').abs(), df.index, norm_window, ascending=True)
+                accel_strength = normalize_score(df.get(f'ACCEL_{p}_BBW_21_2.0_D').abs(), df.index, norm_window, ascending=True)
+                d_intensity[p] = (mom_strength * accel_strength)**0.5
             else:
-                d_bull[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
-                d_bear[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
+                # 确保在不计算时，d_intensity 也有默认值
+                d_intensity[p] = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.3 · 终极哲学统一版】计算效率(VPA)维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V1.5 · 动态分统一版】计算效率(VPA)维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
         static_bear = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 根除所有动态分计算中的加法
-            d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window)
-            d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window)
-            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
-
-            d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
-            d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_VPA_EFFICIENCY_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_VPA_EFFICIENCY_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
             
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-        return s_bull, d_bull, s_bear, d_bear
-
-    def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.4 · 哲学统一版】计算动能(ATR)维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V1.6 · 动态分统一版】计算动能(ATR)维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('ATR_14_D'), df.index, norm_window) # 动能放大为好
         static_bear = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False) # 动能萎缩为坏
 
@@ -180,38 +175,31 @@ class DynamicMechanicsEngine:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
             
-            d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window)
-            d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window)
-            # 根除加法，使用乘法（几何平均）
-            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_ATR_14_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
 
-            # 看跌动态：动能斜率、加速度减少为坏
-            d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_ATR_14_D'), df.index, norm_window, ascending=False)
-            d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_ATR_14_D'), df.index, norm_window, ascending=False)
-            # 根除加法，使用乘法（几何平均）
-            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
-    def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict, Dict]:
-        """【V1.3 · 终极哲学统一版】计算惯性(ADX)维度的四维健康度"""
-        s_bull, d_bull, s_bear, d_bear = {}, {}, {}, {}
+    def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """【V1.5 · 动态分统一版】计算惯性(ADX)维度的三维健康度"""
+        # 更新方法签名和初始化，统一返回 d_intensity
+        s_bull, s_bear, d_intensity = {}, {}, {}
         static_bull = normalize_score(df.get('ADX_14_D'), df.index, norm_window) # 惯性强为好
         static_bear = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) # 惯性弱为坏
 
         for p in periods:
             s_bull[p] = static_bull
             s_bear[p] = static_bear
-            # 根除所有动态分计算中的加法
-            d_bull_slope = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window)
-            d_bull_accel = normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window)
-            d_bull[p] = (d_bull_slope * d_bull_accel)**0.5
-
-            d_bear_slope = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D'), df.index, norm_window, ascending=False)
-            d_bear_accel = normalize_score(df.get(f'ACCEL_{p}_ADX_14_D'), df.index, norm_window, ascending=False)
-            d_bear[p] = (d_bear_slope * d_bear_accel)**0.5
+            # 计算统一的、中性的动态强度分 d_intensity
+            mom_strength = normalize_score(df.get(f'SLOPE_{p}_ADX_14_D').abs(), df.index, norm_window, ascending=True)
+            accel_strength = normalize_score(df.get(f'ACCEL_{p}_ADX_14_D').abs(), df.index, norm_window, ascending=True)
+            d_intensity[p] = (mom_strength * accel_strength)**0.5
             
-
-        return s_bull, d_bull, s_bear, d_bear
+        # 返回符合新协议的三元组
+        return s_bull, s_bear, d_intensity
 
 
 
