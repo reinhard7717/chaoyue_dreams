@@ -60,7 +60,7 @@ class CognitiveIntelligence:
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
         
-        # [代码新增] 调用全新的状态-过程协同融合引擎
+        # 调用全新的状态-过程协同融合引擎
         df = self.synthesize_state_process_synergy(df)
         
         # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
@@ -71,7 +71,7 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
-            # [代码新增] 将新的状态-过程协同分加入看涨总分
+            # 将新的状态-过程协同分加入看涨总分
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)

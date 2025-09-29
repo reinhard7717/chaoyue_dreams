@@ -48,9 +48,9 @@ class ReportingLayer:
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
             '风险预警': TradingSignal.SignalType.WARN,
-            '趋势破位离场': TradingSignal.SignalType.SELL, # [代码新增] 映射为 SELL 类型
-            '战略失效离场': TradingSignal.SignalType.SELL, # [代码新增] 映射为 SELL 类型
-            '风险否决': TradingSignal.SignalType.WARN,   # [代码新增] 映射为 WARN 类型
+            '趋势破位离场': TradingSignal.SignalType.SELL, # 映射为 SELL 类型
+            '战略失效离场': TradingSignal.SignalType.SELL, # 映射为 SELL 类型
+            '风险否决': TradingSignal.SignalType.WARN,   # 映射为 WARN 类型
         }
         
         # 筛选条件现在包含所有已知的信号类型

@@ -66,7 +66,7 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-            # [代码新增] 增加一个调试打印，用于追踪信号来源
+            # 增加一个调试打印，用于追踪信号来源
             # else:
             #     print(f"[IntelligenceLayer 警告] update_states 收到非字典类型: {type(new_states)}")
 
@@ -238,7 +238,7 @@ class IntelligenceLayer:
             return
         print("\n" + "="*30 + f" [法医探针部署中心 V1.3] 正在解剖 {probe_date_str} " + "="*30)
         
-        # [代码新增] 部署全新的“终极信号钻透式探针”，专门用于解决“信号躺平”问题
+        # 部署全新的“终极信号钻透式探针”，专门用于解决“信号躺平”问题
         # 您可以修改这里的参数，来解剖任何一个“躺平”的信号
         # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='CHIP', signal_type='BULLISH_RESONANCE')
         # self._deploy_ultimate_signal_drill_down_probe(probe_date, domain='BEHAVIOR', signal_type='BULLISH_RESONANCE')

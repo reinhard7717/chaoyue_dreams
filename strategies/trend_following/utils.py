@@ -187,34 +187,48 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
     # 使用 reindex 再次确保最终输出的索引是完整的 target_index
     return rank.reindex(target_index).fillna(default_value).astype(np.float32)
 
-def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict[str, pd.Series]) -> Tuple[pd.Series, pd.Series]:
+def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V1.0 公共函数】计算底部和顶部情景的上下文分数。
-    - 核心逻辑: 融合价格波段位置、周线RSI、FFT周期相位，生成一个综合的宏观位置评估。
-    - 价格波段位置: 采用以MA55为基准的智能评估，取代旧的滚动最低价方法。
-    - :param df: 包含指标的DataFrame。
-    - :param atomic_states: 包含原子状态的字典，用于获取周期信号。
-    - :return: 一个元组，包含 (bottom_context_score, top_context_score)。
+    【V2.0 · 顶部识别升级版】计算全局的底部和顶部上下文分数。
+    - 核心升级: 新增了对“顶部上下文”的精确识别。
+    - 顶部识别算法: 融合了“波段伸展度”（价格远离生命线MA55的程度）和“均线排列恶化”（短期均线开始下穿长期均线）两大特征。
     """
-    # --- 1. 计算以MA55为基准的波段位置 ---
-    ma55 = df.get('EMA_55_D', df['close_D'])
-    rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-    
-    # 价格在波段中的位置分数 (用于顶部反转)
-    wave_channel_height_top = (rolling_high_55d - ma55).replace(0, 1e-9)
-    top_context_score = ((df['close_D'] - ma55) / wave_channel_height_top).clip(0, 1).fillna(0.5)
-    
-    # 价格位置分 (用于底部反转)
-    price_pos_score = 1 - top_context_score
-    
-    # --- 2. 融合其他维度 ---
+    # --- 底部上下文分数计算 (保持不变) ---
+    price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
+    deep_bottom_context_score = 1.0 - price_pos_yearly
     rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
+    bottom_context_score_values = np.maximum.reduce([
+        deep_bottom_context_score.values,
+        rsi_w_oversold_score.values,
+        cycle_trough_score.values
+    ])
+    bottom_context_score = pd.Series(bottom_context_score_values, index=df.index, dtype=np.float32)
+
+    # --- 顶部上下文分数计算 ---
+    # 特征一：波段伸展度 (Overextension) - 价格大幅远离MA55生命线
+    ma55 = df.get('EMA_55_D', df['close_D'])
+    rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+    wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
+    stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+
+    # 特征二：均线排列恶化 (MA Misalignment) - 短期均线开始掉头向下
+    ma_periods = [5, 13, 21, 55]
+    misalignment_scores = []
+    for i in range(len(ma_periods) - 1):
+        short_ma = df.get(f'EMA_{ma_periods[i]}_D', df['close_D'])
+        long_ma = df.get(f'EMA_{ma_periods[i+1]}_D', df['close_D'])
+        # 当短期均线下穿长期均线时，分数变高
+        misalignment_scores.append((short_ma < long_ma).astype(float))
     
-    # --- 3. 融合生成最终的底部情景分 ---
-    bottom_context_score_values = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
-    bottom_context_score = pd.Series(bottom_context_score_values, index=df.index)
+    if misalignment_scores:
+        misalignment_score = pd.DataFrame(misalignment_scores).mean()
+    else:
+        misalignment_score = pd.Series(0.5, index=df.index)
+
+    # 融合两大特征，得到最终的顶部上下文分数
+    top_context_score = (stretch_score * misalignment_score).astype(np.float32)
     
     return bottom_context_score, top_context_score
 
@@ -246,6 +260,4 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
     # 使用tanh函数进行平滑压缩到(-1, 1)
     bipolar_score = np.tanh(z_score)
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
-
-
 

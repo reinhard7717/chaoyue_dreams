@@ -93,18 +93,18 @@ class MicroBehaviorEngine:
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 混合动力版】市场微观结构动态诊断引擎
-        - 核心升级: 构建“混合动力”风险引擎，将1日斜率（瞬时变化）与5日斜率（短期趋势）进行加权融合。
-        - 收益: 实现了灵敏度与稳定性的完美平衡。既能快速响应市场反转，又能在震荡和洗盘行情中避免过度反应。
+        【V3.0 · 动态调权版】市场微观结构动态诊断引擎
+        - 核心升级 (治本之道): 废除后置的“抑制因子”，升级为前置的“动态调权”。
+                              利用底部反转信号，动态调整1日(瞬时)和5日(短期)风险计算的权重。
+                              在强反转信号下，系统将更相信1日数据，从而根本上解决历史数据污染问题。
         """
         states = {}
         norm_window = 120
         
-        # --- 上下文感知模块，我们的“定海神针”，保持不变 ---
+        # 步骤1: 获取上下文信号，它现在是“调权器”，而不是“抑制器”
         bottom_reversal_context = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        risk_suppression_factor = (1.0 - bottom_reversal_context).clip(0, 1)
 
-        # --- 看涨信号计算 (保持5日周期以求稳定) ---
+        # --- 看涨信号计算 (保持不变) ---
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         granularity_accel_up = normalize_score(df.get('ACCEL_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
@@ -117,10 +117,14 @@ class MicroBehaviorEngine:
         conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_accel_strengthening).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
 
-        # --- 看跌风险信号计算 (混合动力引擎) ---
-        # [代码新增] 定义混合权重
-        w_instant = 0.6  # 1日周期权重 (灵敏度)
-        w_short_term = 0.4 # 5日周期权重 (稳定性)
+        # --- 看跌风险信号计算 (动态调权混合动力引擎) ---
+        # 步骤2: 根据上下文动态计算权重
+        base_w_instant = 0.6
+        base_w_short_term = 0.4
+        # 当底部反转信号增强时，将权重从5日周期动态转移到1日周期
+        # bottom_reversal_context 从 0 -> 1, w_instant 从 0.6 -> 1.0, w_short_term 从 0.4 -> 0.0
+        w_instant = base_w_instant + base_w_short_term * bottom_reversal_context
+        w_short_term = base_w_short_term - base_w_short_term * bottom_reversal_context
 
         def get_hybrid_risk_score(base_name: str) -> pd.Series:
             # 计算1日周期的风险分
@@ -133,20 +137,17 @@ class MicroBehaviorEngine:
             accel_5 = normalize_score(df.get(f'ACCEL_5_{base_name}_D'), df.index, norm_window, ascending=False)
             risk_5_day = (slope_5 * accel_5)**0.5
             
-            # 加权融合
+            # 使用动态权重进行融合
             return (risk_1_day * w_instant) + (risk_5_day * w_short_term)
 
-        # [代码修改] 应用混合动力引擎计算风险
         granularity_risk = get_hybrid_risk_score('avg_order_value')
         dominance_risk = get_hybrid_risk_score('trade_concentration_index')
-        power_shift_to_retail_risk_raw = (granularity_risk * dominance_risk)**0.5
-        
-        power_shift_to_retail_risk = (power_shift_to_retail_risk_raw * risk_suppression_factor).astype(np.float32)
+        # 移除后置的抑制因子，因为已在权重中体现
+        power_shift_to_retail_risk = ((granularity_risk * dominance_risk)**0.5).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
         
-        conviction_weakening_risk_raw = get_hybrid_risk_score('main_force_conviction_ratio')
-        
-        conviction_weakening_risk = (conviction_weakening_risk_raw * risk_suppression_factor).astype(np.float32)
+        # 移除后置的抑制因子，因为已在权重中体现
+        conviction_weakening_risk = get_hybrid_risk_score('main_force_conviction_ratio').astype(np.float32)
         states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
         
         return states

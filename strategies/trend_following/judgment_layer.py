@@ -57,7 +57,7 @@ class JudgmentLayer:
             df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
             df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
             
-            # [代码新增] 对所有被硬性离场否决的日子，强制将最终分数清零，以确保报告的清晰性
+            # 对所有被硬性离场否决的日子，强制将最终分数清零，以确保报告的清晰性
             df.loc[is_hard_exit_veto, 'final_score'] = 0
             
         # 步骤4: 处理被动态力学否决的情况（在没有硬性离场的前提下）

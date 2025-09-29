@@ -134,7 +134,9 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.6 · 动态分统一版】合成最终的共振与反转信号
+        【V2.7 · 顶部守卫版】
+        - 核心升级 (治本之道): 引入“顶部上下文守卫”，将“顶部反转”信号与“顶部上下文分数”相乘，
+                              从源头上杜绝在底部区域误报顶部风险。
         """
         final_scores = {}
         periods = params['periods']
@@ -142,13 +144,10 @@ class FundFlowIntelligence:
         rev_tw = params['reversal_tf_weights']
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
         resonance_health = fused_health['resonance']
         reversal_health = fused_health['reversal']
         
-        # 全面使用 d_intensity 替换 d_bull 和 d_bear
-        # --- 看涨信号合成 ---
         bullish_resonance_health = {p: resonance_health['s_bull'][p] * resonance_health['d_intensity'][p] for p in periods}
         bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
         bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
@@ -170,7 +169,6 @@ class FundFlowIntelligence:
         )
         final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
 
-        # --- 看跌信号合成 ---
         bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_intensity'][p] for p in periods}
         bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
         bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
@@ -181,7 +179,9 @@ class FundFlowIntelligence:
             (bear_res_long ** res_tw['long'])
         )
         
-        bearish_reversal_health = {p: reversal_health['s_bull'][p] * reversal_health['d_intensity'][p] for p in periods}
+        # 修正顶部反转的计算哲学，并应用“顶部守卫”
+        # 1. 顶部反转由看跌静态分 s_bear 驱动
+        bearish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_intensity'][p] for p in periods}
         bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
         bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
         bear_rev_long = bearish_reversal_health.get(55, 0.5)
@@ -190,7 +190,8 @@ class FundFlowIntelligence:
             (bear_rev_med ** rev_tw['medium']) *
             (bear_rev_long ** rev_tw['long'])
         )
-        final_scores['top_reversal'] = (bearish_trigger * (1 + context_scores['top_context'] * top_context_bonus_factor)).clip(0, 1)
+        # 2. 将触发分与“顶部上下文分数”相乘，实现门控
+        final_scores['top_reversal'] = (bearish_trigger * context_scores['top_context']).clip(0, 1)
         
         return final_scores
 

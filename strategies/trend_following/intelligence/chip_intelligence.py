@@ -55,8 +55,9 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.0 · 动态分统一版】统一筹码信号诊断引擎
-        - 核心重构: 彻底统一动态分哲学。废除 d_bull 和 d_bear，统一使用中性的“动态强度分” d_intensity。
+        【V14.0 · 顶部守卫版】
+        - 核心升级 (治本之道): 引入“顶部上下文守卫”，将“顶部反转”信号与“顶部上下文分数”相乘，
+                              从源头上杜绝在底部区域误报顶部风险。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -69,11 +70,10 @@ class ChipIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
 
+        # 调用升级后的上下文计算器
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
 
-        # 更新健康度数据结构，统一使用 d_intensity
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'quantitative': self._calculate_quantitative_health,
@@ -83,7 +83,6 @@ class ChipIntelligence:
             'fault': self._calculate_fault_health,
         }
         for name, calculator in calculators.items():
-            # 更新调用签名，接收三元组
             s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
@@ -94,7 +93,6 @@ class ChipIntelligence:
         weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
         use_equal_weights = not pillar_weights or weights_array.sum() == 0
 
-        # 更新健康度融合逻辑，使用 d_intensity
         for health_type, health_sources in [
             ('s_bull', health_data['s_bull']),
             ('s_bear', health_data['s_bear']),
@@ -115,7 +113,6 @@ class ChipIntelligence:
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 所有动态分均使用 d_intensity
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
         bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
         bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
@@ -135,12 +132,15 @@ class ChipIntelligence:
         bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
         overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
         
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bull', {}) and p in overall_health.get('d_intensity', {})}
+        # 修正顶部反转的计算哲学，并应用“顶部守卫”
+        # 1. 顶部反转由看跌静态分 s_bear 驱动
+        bearish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods if p in overall_health.get('s_bear', {}) and p in overall_health.get('d_intensity', {})}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
         overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
-        final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_bonus_factor * top_context_score)).clip(0, 1)
+        # 2. 将触发分与“顶部上下文分数”相乘，实现门控
+        final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
 
         final_signal_map = {
             'SCORE_CHIP_BULLISH_RESONANCE': overall_bullish_resonance,

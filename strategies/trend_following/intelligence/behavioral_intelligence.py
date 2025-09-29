@@ -48,8 +48,10 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 双核驱动版】终极行为信号诊断模块
-        - 核心升级: 底部形态判断升级为“双核驱动”，能够同时识别“磨底”和“V型反转底”。
+        【V14.0 · 顶部守卫版】
+        - 核心升级 (治本之道): 废除了后置的“抑制因子”，引入了前置的“顶部上下文守卫”。
+                              现在，“顶部反转”信号的计算结果将直接乘以“顶部上下文分数”。
+                              如果不在顶部区域，该信号将从源头上被置零，彻底解决逻辑悖论。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -63,18 +65,14 @@ class BehavioralIntelligence:
         periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        top_context_bonus_factor = get_param_value(p_conf.get('top_context_bonus_factor'), 0.8)
         
-        # 升级为“双核驱动”的底部形态判断
-        # 核一：识别“磨底”形态
+        # 调用升级后的上下文计算器，获取智能的“顶部上下文分数”
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
-        # 核二：识别“V型反转”形态
         rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
-        # 融合：取两种底部形态中更强的一个作为最终的底部形态分数
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
 
-        _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
-        
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
@@ -100,7 +98,6 @@ class BehavioralIntelligence:
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        
         default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
         bullish_resonance_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
@@ -134,7 +131,9 @@ class BehavioralIntelligence:
             (bearish_long_inertia_res ** resonance_tf_weights['long'])
         )
 
-        bearish_reversal_health = {p: overall_health['s_bull'][p] * overall_health['d_intensity'][p] for p in periods}
+        # 修正顶部反转的计算哲学，并应用“顶部守卫”
+        # 1. 顶部反转由看跌静态分 s_bear 驱动
+        bearish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
         bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
         bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
         bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
@@ -143,7 +142,8 @@ class BehavioralIntelligence:
             (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
             (bearish_long_inertia_rev ** reversal_tf_weights['long'])
         )
-        final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * top_context_bonus_factor)).clip(0, 1)
+        # 2. 将触发分与“顶部上下文分数”相乘，实现门控
+        final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
         
         final_signal_map = {
             'SCORE_BEHAVIOR_BULLISH_RESONANCE': overall_bullish_resonance,
@@ -167,7 +167,7 @@ class BehavioralIntelligence:
         params = self.strategy.params
         
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
-        # [代码新增] 调用新增的“探底回升”诊断引擎
+        # 调用新增的“探底回升”诊断引擎
         atomic_signals.update(self._diagnose_atomic_rebound_reversal(df))
         
         atomic_signals.update(self._diagnose_kline_patterns(df))
