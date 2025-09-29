@@ -93,11 +93,18 @@ class MicroBehaviorEngine:
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 重构版】市场微观结构动态诊断引擎
+        【V2.4 · 混合动力版】市场微观结构动态诊断引擎
+        - 核心升级: 构建“混合动力”风险引擎，将1日斜率（瞬时变化）与5日斜率（短期趋势）进行加权融合。
+        - 收益: 实现了灵敏度与稳定性的完美平衡。既能快速响应市场反转，又能在震荡和洗盘行情中避免过度反应。
         """
         states = {}
         norm_window = 120
-        # 全部改为调用 utils.normalize_score 并传入 df.index
+        
+        # --- 上下文感知模块，我们的“定海神针”，保持不变 ---
+        bottom_reversal_context = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
+        risk_suppression_factor = (1.0 - bottom_reversal_context).clip(0, 1)
+
+        # --- 看涨信号计算 (保持5日周期以求稳定) ---
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         granularity_accel_up = normalize_score(df.get('ACCEL_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
@@ -105,22 +112,43 @@ class MicroBehaviorEngine:
         power_shift_to_main_force_score = (granularity_momentum_up * granularity_accel_up * dominance_momentum_up * dominance_accel_up).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE'] = power_shift_to_main_force_score
         
-        granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
-        granularity_accel_down = normalize_score(df.get('ACCEL_5_avg_order_value_D'), df.index, norm_window, ascending=False)
-        dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
-        dominance_accel_down = normalize_score(df.get('ACCEL_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
-        power_shift_to_retail_risk = (granularity_momentum_down * granularity_accel_down * dominance_momentum_down * dominance_accel_down).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
-        
-        conviction_momentum_weakening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=False)
-        conviction_accel_weakening = normalize_score(df.get('ACCEL_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=False)
-        conviction_weakening_risk = (conviction_momentum_weakening * conviction_accel_weakening).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
-        
         conviction_momentum_strengthening = normalize_score(df.get('SLOPE_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=True)
         conviction_accel_strengthening = normalize_score(df.get('ACCEL_5_main_force_conviction_ratio_D'), df.index, norm_window, ascending=True)
         conviction_strengthening_opp = (conviction_momentum_strengthening * conviction_accel_strengthening).astype(np.float32)
         states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = conviction_strengthening_opp
+
+        # --- 看跌风险信号计算 (混合动力引擎) ---
+        # [代码新增] 定义混合权重
+        w_instant = 0.6  # 1日周期权重 (灵敏度)
+        w_short_term = 0.4 # 5日周期权重 (稳定性)
+
+        def get_hybrid_risk_score(base_name: str) -> pd.Series:
+            # 计算1日周期的风险分
+            slope_1 = normalize_score(df.get(f'SLOPE_1_{base_name}_D'), df.index, norm_window, ascending=False)
+            accel_1 = normalize_score(df.get(f'ACCEL_1_{base_name}_D'), df.index, norm_window, ascending=False)
+            risk_1_day = (slope_1 * accel_1)**0.5
+            
+            # 计算5日周期的风险分
+            slope_5 = normalize_score(df.get(f'SLOPE_5_{base_name}_D'), df.index, norm_window, ascending=False)
+            accel_5 = normalize_score(df.get(f'ACCEL_5_{base_name}_D'), df.index, norm_window, ascending=False)
+            risk_5_day = (slope_5 * accel_5)**0.5
+            
+            # 加权融合
+            return (risk_1_day * w_instant) + (risk_5_day * w_short_term)
+
+        # [代码修改] 应用混合动力引擎计算风险
+        granularity_risk = get_hybrid_risk_score('avg_order_value')
+        dominance_risk = get_hybrid_risk_score('trade_concentration_index')
+        power_shift_to_retail_risk_raw = (granularity_risk * dominance_risk)**0.5
+        
+        power_shift_to_retail_risk = (power_shift_to_retail_risk_raw * risk_suppression_factor).astype(np.float32)
+        states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = power_shift_to_retail_risk
+        
+        conviction_weakening_risk_raw = get_hybrid_risk_score('main_force_conviction_ratio')
+        
+        conviction_weakening_risk = (conviction_weakening_risk_raw * risk_suppression_factor).astype(np.float32)
+        states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = conviction_weakening_risk
+        
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
