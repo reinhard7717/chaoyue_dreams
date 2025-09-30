@@ -76,17 +76,16 @@ class PredictiveIntelligence:
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.5 · 先知圣约版】诊断“恐慌投降反转”机会 (入场神谕)
-        - 核心革命: 遵循“先知圣约”，本引擎的职责被净化为纯粹的“战备状态”诊断器。
-        - 核心逻辑: 预测机会 = T日当天的恐慌程度。
-                      它不再关心T日是否反转，只关心T日的恐慌是否足够为T+1日的反转创造条件。
-                      这是一个纯粹的、无杂质的预测信号。
+        【V1.6 · 最终审判版】诊断“恐慌投降反转”机会 (入场神谕)
+        - 核心升级: 明确认知到其依赖的 SCORE_SETUP_PANIC_SELLING 信号已进化为五维立体模型。
+        - 新核心公式解读: 预测机会 = (价格暴跌 * 成交天量 * 筹码崩溃) × (多维绝望背景) × (结构支撑测试)
+        - 收益: 使得未来的法医探针能够基于正确的公式进行解剖，彻底解决逻辑断层问题。
         """
-        # [代码修改] 步骤一：获取由 TacticEngine 精心合成的、包含四根支柱的“恐慌战备”分数。
-        # 这是“先知”进行预测的唯一、且最可靠的依据。
+        # 步骤一：获取由 TacticEngine 精心合成的、基于【五维立体模型】的“恐慌战备”分数。
+        # 这个分数现在是全系统对“恐慌”的唯一、最高标准定义。
         panic_context_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index))
 
-        # [代码修改] 步骤二：先知的神谕现在无比纯粹——今天的恐慌程度，就是对明天反转机会的预测强度。
+        # 步骤二：先知的神谕无比纯粹——今天的“五维恐慌”程度，就是对明天反转机会的预测强度。
         final_opportunity_score = panic_context_score
         
         return final_opportunity_score.clip(0, 1)

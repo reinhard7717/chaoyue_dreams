@@ -98,14 +98,14 @@ class BehavioralIntelligence:
         
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         
-        # [代码修改] 架构升级：同时运行两个独立的、针对不同场景的反转引擎
+        # 架构升级：同时运行两个独立的、针对不同场景的反转引擎
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
         continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
         
         epic_score = epic_reversal_states.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
         continuation_score = continuation_reversal_states.get('SCORE_ATOMIC_CONTINUATION_REVERSAL', pd.Series(0.0, index=df.index))
         
-        # [代码修改] 最终的探底回升信号是两种反转模式中的最强者
+        # 最终的探底回升信号是两种反转模式中的最强者
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         # 将延续性反转的独立分数也存入，以供调试
@@ -521,9 +521,9 @@ class BehavioralIntelligence:
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.0 · 新增】“冥河之渡”多维绝望背景诊断引擎
-        - 核心职责: 计算多周期、带权重的“绝望背景”总分。
-        - 算法: 对短、中、长三个周期的“坠落深度”和“坠落速度”分别打分，然后进行加权几何平均。
+        【V1.0 · 新增/移植】“冥河之渡”多维绝望背景诊断引擎
+        - 来源: 从 behavioral_intelligence 完美移植而来，作为“最终审判”计划的一部分。
+        - 核心职责: 为本模块提供与行为引擎完全一致的、最高规格的绝望背景计算能力。
         """
         # --- 步骤 1: 获取参数 ---
         despair_periods = get_param_value(params.get('despair_periods'), {'short': (21, 5), 'mid': (60, 21), 'long': (250, 60)})
@@ -554,16 +554,14 @@ class BehavioralIntelligence:
             return pd.Series(0.0, index=df.index)
 
         weights_array = np.array(period_weight_values)
-        # 归一化权重，确保总和为1
         total_weights = weights_array.sum()
         if total_weights > 0:
             weights_array /= total_weights
-        else: # 如果权重总和为0，则使用等权重
+        else:
             weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
 
         stacked_scores = np.stack(period_scores, axis=0)
         
-        # 计算加权几何平均
         final_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
         
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
@@ -588,7 +586,7 @@ class BehavioralIntelligence:
                 uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
         trend_alignment_score = uptrending_ma_count / len(ma_periods)
 
-        # --- [代码修改] 支柱二: 全功能结构测试 (Full-featured Structural Test) ---
+        # --- 支柱二: 全功能结构测试 (Full-featured Structural Test) ---
         # 废除之前简陋的、只包含均线的测试逻辑。
         # 直接调用与“史诗反转”引擎同源的、最强大的“绝对领域”引擎。
         # 这将自动包含对多周期前低、SBC低点的加权、共振测试。

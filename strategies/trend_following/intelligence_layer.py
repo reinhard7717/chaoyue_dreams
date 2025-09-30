@@ -697,18 +697,18 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“先知入场神谕”专属法医探针
-        - 核心职责: 深度解剖“恐慌投降反转”机会的计算链路，验证其核心输入“恐慌战备分”的四柱融合逻辑。
+        【V1.1 · 法典统一版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的解剖逻辑已与主引擎完全同步，能够正确解剖全新的“五维立体恐慌模型”。
+        - 新核心公式: 恐慌战备分 = (价格暴跌 * 成交天量 * 筹码崩溃) × (多维绝望背景) × (结构支撑测试)
+        - 收益: 彻底修复了因“技术代差”导致的重算结果与实际值不符的致命问题。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
 
-        # Helper to safely get values
         def get_val(name, date, default=np.nan):
             series = atomic.get(name)
-            if series is None:
-                return default
+            if series is None: return default
             return series.get(date, default)
 
         # --- 链路层 1: 最终预测机会 ---
@@ -721,10 +721,11 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        print(f"    - [核心公式]: (价格暴跌 * 成交天量 * 筹码崩溃) * 绝望背景")
+        # [代码修改] 更新核心公式的注释，明确为五维模型
+        print(f"    - [核心公式]: (价格暴跌 * 成交天量 * 筹码崩溃) * 绝望背景 * 结构支撑测试")
 
-        # --- 链路层 3: 钻透恐慌战备分的四大支柱 ---
-        print("\n  [链路层 3] 钻透 -> 四大支柱")
+        # --- 链路层 3: 钻透恐慌战备分的五大支柱 ---
+        print("\n  [链路层 3] 钻透 -> 五大支柱")
         
         # 支柱一: 价格暴跌
         price_drop_raw = df['pct_change_D'].clip(upper=0).get(probe_date, 0.0)
@@ -743,22 +744,35 @@ class IntelligenceLayer:
         print(f"      - [探针重算] 成交天量分: {volume_spike_score_recalc:.4f}")
 
         # 支柱三: 筹码崩溃
-        from .utils import get_unified_score # 探针内部需要显式导入
+        from .utils import get_unified_score
         chip_breakdown_score_recalc = get_unified_score(atomic, df.index, 'CHIP_BEARISH_RESONANCE').get(probe_date, 0.0)
         print(f"    --- 支柱三: 筹码崩溃 ---")
         print(f"      - [探针重算] 筹码崩溃分 (SCORE_CHIP_BEARISH_RESONANCE): {chip_breakdown_score_recalc:.4f}")
 
-        # 支柱四: 绝望背景
-        price_pos_yearly_recalc = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5).get(probe_date, 0.5)
-        deep_bottom_context_score_recalc = 1.0 - price_pos_yearly_recalc
-        print(f"    --- 支柱四: 绝望背景 ---")
-        print(f"      - 当日收盘价在年内位置分: {price_pos_yearly_recalc:.4f}")
-        print(f"      - [探针重算] 绝望背景分: {deep_bottom_context_score_recalc:.4f}")
+        # [代码修改] 支柱四: 绝望背景 (调用与主引擎一致的重算逻辑)
+        p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
+        # 实例化一个 TacticEngine 用于访问其内部方法
+        tactic_engine_probe = self.cognitive_intel.tactic_engine
+        despair_context_score_recalc = tactic_engine_probe._calculate_despair_context_score(df, p_panic).get(probe_date, 0.0)
+        print(f"    --- 支柱四: 绝望背景 (多维) ---")
+        print(f"      - [探针重算] 绝望背景分: {despair_context_score_recalc:.4f}")
+
+        # [代码新增] 支柱五: 结构支撑测试
+        structural_test_score_recalc = tactic_engine_probe._calculate_structural_test_score(df, p_panic).get(probe_date, 0.0)
+        print(f"    --- 支柱五: 结构支撑测试 ---")
+        print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
         # --- 链路层 4: 最终验证 ---
         print("\n  [链路层 4] 最终验证")
-        recalculated_panic_score = (price_drop_score_recalc * volume_spike_score_recalc * chip_breakdown_score_recalc * deep_bottom_context_score_recalc)
-        print(f"    - [探针重算恐慌战备分]: ({price_drop_score_recalc:.4f} * {volume_spike_score_recalc:.4f} * {chip_breakdown_score_recalc:.4f} * {deep_bottom_context_score_recalc:.4f}) = {recalculated_panic_score:.4f}")
+        # [代码修改] 更新为五项相乘
+        recalculated_panic_score = (
+            price_drop_score_recalc * 
+            volume_spike_score_recalc * 
+            chip_breakdown_score_recalc * 
+            despair_context_score_recalc *
+            structural_test_score_recalc
+        )
+        print(f"    - [探针重算恐慌战备分]: ({price_drop_score_recalc:.4f} * {volume_spike_score_recalc:.4f} * {chip_breakdown_score_recalc:.4f} * {despair_context_score_recalc:.4f} * {structural_test_score_recalc:.4f}) = {recalculated_panic_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {recalculated_panic_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 

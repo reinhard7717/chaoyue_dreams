@@ -43,28 +43,23 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 绝对领域版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: 1. 将复杂的“结构支撑测试”逻辑剥离到独立的 `_calculate_structural_test_score` 方法中。
-                      2. 新的测试引擎引入了“周期权重”和“结构共振”两大核心概念，实现了质的飞跃。
-        - 收益: 能够量化评估对“多重共振支撑区”的测试，极大提升了信号的可靠性。
+        【V1.8 · 最终审判版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: “绝望背景”支柱正式从旧的单维模型升级为与行为引擎一致的“冥河之渡”多维立体模型。
+        - 最终形态: 恐慌战备分 = (价格暴跌 * 成交天量 * 筹码崩溃) × (多维绝望背景) × (结构支撑测试)
+        - 收益: 实现了全系统内对“恐慌”定义的最终统一，修复了与法医探针的逻辑断层。
         """
         states = {}
-        # --- 支柱一、二、三、四：保持“宙斯之雷”版的强大定义 (保持不变) ---
+        p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
+
+        # --- 支柱一、二、三：保持不变 ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         
-        p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-        drawdown_lookback = get_param_value(p_panic.get('drawdown_lookback'), 60)
-        roc_period = get_param_value(p_panic.get('roc_period'), 10)
-        rolling_peak = df['high_D'].rolling(window=drawdown_lookback, min_periods=21).max()
-        drawdown_from_peak = (rolling_peak - df['close_D']) / rolling_peak.replace(0, np.nan)
-        drawdown_magnitude_score = normalize_score(drawdown_from_peak.clip(lower=0), df.index, window=drawdown_lookback, ascending=True)
-        price_roc = df['close_D'].pct_change(roc_period)
-        drawdown_velocity_score = normalize_score(price_roc, df.index, window=drawdown_lookback, ascending=False)
-        despair_context_score = (drawdown_magnitude_score * drawdown_velocity_score)**0.5
+        # --- 支柱四：调用全新的“冥河之渡”引擎计算多维绝望背景分 ---
+        despair_context_score = self._calculate_despair_context_score(df, p_panic)
 
-        # --- [代码修改] 支柱五：调用全新的“绝对领域”引擎计算结构测试分 ---
+        # --- 支柱五：调用“绝对领域”引擎计算结构测试分 (保持不变) ---
         structural_test_score = self._calculate_structural_test_score(df, p_panic)
 
         # --- 五位一体融合，生成终极恐慌信号 ---
@@ -237,7 +232,7 @@ class TacticEngine:
         """
         # --- 步骤 1: 获取参数，定义支撑矩阵 ---
         support_periods = get_param_value(params.get('support_lookback_periods'), [5, 10, 21, 55])
-        # [代码修改] 权重字典增加对'sbc'（战神之矛）的定义，并赋予最高权重
+        # 权重字典增加对'sbc'（战神之矛）的定义，并赋予最高权重
         period_weights = get_param_value(params.get('support_period_weights'), {5: 0.6, 10: 0.8, 21: 1.0, 55: 1.2, 'sbc': 1.5})
         support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.01)
         confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.2)
@@ -248,7 +243,7 @@ class TacticEngine:
         # 使用.where(is_sbc)提取SBC日的低点，然后用ffill()向前填充，得到每个交易日看到的、最近的那个SBC低点
         recent_sbc_low = df['low_D'].where(is_sbc).ffill()
 
-        # [代码修改] 将“战神之矛”加入支撑矩阵
+        # 将“战神之矛”加入支撑矩阵
         support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 10, 21]}
         for p in support_periods:
             support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
@@ -265,7 +260,7 @@ class TacticEngine:
         for col_i in supports_df.columns:
             for col_j in supports_df.columns:
                 if col_i == col_j: continue
-                # [代码修改] 增加对NaN的健壮性处理
+                # 增加对NaN的健壮性处理
                 is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
                 confluence_df[col_i] += is_close.astype(float)
         
@@ -277,7 +272,7 @@ class TacticEngine:
         atr = df.get('ATR_14_D', day_range)
 
         for name, support_series in valid_supports.items():
-            # [代码修改] 升级权重获取逻辑，以兼容'sbc'等非数字键
+            # 升级权重获取逻辑，以兼容'sbc'等非数字键
             if 'SBC' in name:
                 weight = period_weights.get('sbc', 1.5)
             else:
@@ -310,6 +305,52 @@ class TacticEngine:
         
         return final_structural_test_score.clip(0, 1)
 
+    def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V1.0 · 新增/移植】“冥河之渡”多维绝望背景诊断引擎
+        - 来源: 从 behavioral_intelligence 完美移植而来，作为“最终审判”计划的一部分。
+        - 核心职责: 为本模块提供与行为引擎完全一致的、最高规格的绝望背景计算能力。
+        """
+        # --- 步骤 1: 获取参数 ---
+        despair_periods = get_param_value(params.get('despair_periods'), {'short': (21, 5), 'mid': (60, 21), 'long': (250, 60)})
+        despair_weights = get_param_value(params.get('despair_weights'), {'short': 0.2, 'mid': 0.3, 'long': 0.5})
+        
+        period_scores = []
+        period_weight_values = []
+
+        # --- 步骤 2: 遍历所有绝望周期，独立计算分数 ---
+        for name, (drawdown_period, roc_period) in despair_periods.items():
+            # 2.1 计算该周期的“坠落深度”
+            rolling_peak = df['high_D'].rolling(window=drawdown_period, min_periods=max(1, drawdown_period//2)).max()
+            drawdown_from_peak = (rolling_peak - df['close_D']) / rolling_peak.replace(0, np.nan)
+            magnitude_score = normalize_score(drawdown_from_peak.clip(lower=0), df.index, window=drawdown_period, ascending=True)
+            
+            # 2.2 计算该周期的“坠落速度”
+            price_roc = df['close_D'].pct_change(roc_period)
+            velocity_score = normalize_score(price_roc, df.index, window=drawdown_period, ascending=False)
+            
+            # 2.3 融合得到该周期的绝望分数
+            period_despair_score = (magnitude_score * velocity_score)**0.5
+            
+            period_scores.append(period_despair_score.values)
+            period_weight_values.append(despair_weights.get(name, 0.0))
+
+        # --- 步骤 3: 对所有周期的绝望分数进行加权几何平均 ---
+        if not period_scores:
+            return pd.Series(0.0, index=df.index)
+
+        weights_array = np.array(period_weight_values)
+        total_weights = weights_array.sum()
+        if total_weights > 0:
+            weights_array /= total_weights
+        else:
+            weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
+
+        stacked_scores = np.stack(period_scores, axis=0)
+        
+        final_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+        
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
 
 

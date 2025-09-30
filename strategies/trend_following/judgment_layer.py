@@ -29,7 +29,7 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
 
-        # [代码修改] 步骤一：首先处理拥有最高否决权的硬性离场信号
+        # 步骤一：首先处理拥有最高否决权的硬性离场信号
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
@@ -39,7 +39,7 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # [代码修改] 步骤二：在没有硬性离场的前提下，再进行进攻决策
+        # 步骤二：在没有硬性离场的前提下，再进行进攻决策
         # is_not_hard_exit 掩码，用于后续的进攻决策
         is_not_hard_exit = ~is_hard_exit_veto
 
@@ -56,7 +56,7 @@ class JudgmentLayer:
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
 
-        # [代码修改] 步骤三：最后处理风险否决（它只在有买入意图但被警报否决时出现）
+        # 步骤三：最后处理风险否决（它只在有买入意图但被警报否决时出现）
         alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
