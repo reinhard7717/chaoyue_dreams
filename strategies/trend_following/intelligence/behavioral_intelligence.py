@@ -92,13 +92,24 @@ class BehavioralIntelligence:
     # ==============================================================================
 
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.2 · V型反转感知版】原子信号中心，负责生产所有基础行为信号。"""
+        """【V1.3 · 双引擎版】原子信号中心，负责生产所有基础行为信号。"""
         atomic_signals = {}
         params = self.strategy.params
         
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
-        # 调用新增的“探底回升”诊断引擎
-        atomic_signals.update(self._diagnose_atomic_rebound_reversal(df))
+        
+        # [代码修改] 架构升级：同时运行两个独立的、针对不同场景的反转引擎
+        epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
+        continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
+        
+        epic_score = epic_reversal_states.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
+        continuation_score = continuation_reversal_states.get('SCORE_ATOMIC_CONTINUATION_REVERSAL', pd.Series(0.0, index=df.index))
+        
+        # [代码修改] 最终的探底回升信号是两种反转模式中的最强者
+        final_rebound_score = np.maximum(epic_score, continuation_score)
+        atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
+        # 将延续性反转的独立分数也存入，以供调试
+        atomic_signals.update(continuation_reversal_states)
         
         atomic_signals.update(self._diagnose_kline_patterns(df))
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
@@ -482,32 +493,194 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_rebound_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】原子级“探底回升”诊断引擎
-        - 核心职责: 专门识别在经历恐慌性下跌后，次日出现长下影线的V型反转形态。
-        - 算法:
-          1. 上下文: 前一日是大幅下跌日。
-          2. 形态: 当日收出长下影线 (close_position_in_range 很高)。
-          3. 确认: 当日最终收盘价企稳（跌幅不大或收涨）。
+        【V2.1 · 冥河之渡版】原子级“史诗探底回升”诊断引擎
+        - 核心革命: “绝望背景”支柱升级为多周期、带权重的立体化模型，能够感知不同层次的绝望。
+        - 架构升级: 复杂的“绝望背景”计算逻辑被封装到全新的 `_calculate_despair_context_score` 方法中。
+        - 收益: 对绝望的理解从“点”升级为“体”，极大增强了对复杂市场环境的适应性。
         """
         states = {}
-        # 支柱一: 昨日恐慌 - 确认前一日是下跌超过4%的恐慌日
-        was_panic_yesterday = (df['pct_change_D'].shift(1) < -0.04).astype(float)
+        p_rebound = get_params_block(self.strategy, 'panic_selling_setup_params', {})
 
-        # 支柱二: 今日长下影线 - 收盘价在日内K线的位置，越高代表下影线越长
+        # --- 支柱一: 调用全新的“冥河之渡”引擎计算多维绝望背景分 ---
+        despair_context_score = self._calculate_despair_context_score(df, p_rebound)
+
+        # --- 支柱二: 结构测试 (调用“绝对领域”引擎，保持不变) ---
+        structural_test_score = self._calculate_structural_test_score(df, p_rebound)
+
+        # --- 支柱三: 当日确认 (确认今日K线收盘企稳，保持不变) ---
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
-
-        # 支柱三: 今日企稳 - 确认今日没有继续大跌
         is_recovering_today = (df['pct_change_D'] > -0.01).astype(float)
+        confirmation_score = (close_position_in_range * is_recovering_today)
 
-        # 融合: 三者皆备，方为有效的探底回升
-        rebound_reversal_score = (was_panic_yesterday * close_position_in_range * is_recovering_today).astype(np.float32)
+        # --- 最终融合: 三者皆备，方为有效的探底回升 ---
+        rebound_reversal_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
         
         states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
         return states
 
+    def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V1.0 · 新增】“冥河之渡”多维绝望背景诊断引擎
+        - 核心职责: 计算多周期、带权重的“绝望背景”总分。
+        - 算法: 对短、中、长三个周期的“坠落深度”和“坠落速度”分别打分，然后进行加权几何平均。
+        """
+        # --- 步骤 1: 获取参数 ---
+        despair_periods = get_param_value(params.get('despair_periods'), {'short': (21, 5), 'mid': (60, 21), 'long': (250, 60)})
+        despair_weights = get_param_value(params.get('despair_weights'), {'short': 0.2, 'mid': 0.3, 'long': 0.5})
+        
+        period_scores = []
+        period_weight_values = []
 
+        # --- 步骤 2: 遍历所有绝望周期，独立计算分数 ---
+        for name, (drawdown_period, roc_period) in despair_periods.items():
+            # 2.1 计算该周期的“坠落深度”
+            rolling_peak = df['high_D'].rolling(window=drawdown_period, min_periods=max(1, drawdown_period//2)).max()
+            drawdown_from_peak = (rolling_peak - df['close_D']) / rolling_peak.replace(0, np.nan)
+            magnitude_score = normalize_score(drawdown_from_peak.clip(lower=0), df.index, window=drawdown_period, ascending=True)
+            
+            # 2.2 计算该周期的“坠落速度”
+            price_roc = df['close_D'].pct_change(roc_period)
+            velocity_score = normalize_score(price_roc, df.index, window=drawdown_period, ascending=False)
+            
+            # 2.3 融合得到该周期的绝望分数
+            period_despair_score = (magnitude_score * velocity_score)**0.5
+            
+            period_scores.append(period_despair_score.values)
+            period_weight_values.append(despair_weights.get(name, 0.0))
 
+        # --- 步骤 3: 对所有周期的绝望分数进行加权几何平均 ---
+        if not period_scores:
+            return pd.Series(0.0, index=df.index)
+
+        weights_array = np.array(period_weight_values)
+        # 归一化权重，确保总和为1
+        total_weights = weights_array.sum()
+        if total_weights > 0:
+            weights_array /= total_weights
+        else: # 如果权重总和为0，则使用等权重
+            weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
+
+        stacked_scores = np.stack(period_scores, axis=0)
+        
+        # 计算加权几何平均
+        final_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+        
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+
+    def _diagnose_atomic_continuation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 · 奥林匹斯熔炉版】原子级“延续性反转”诊断引擎
+        - 核心革命: 彻底废除简陋的“生命线测试”逻辑，直接调用完整的“绝对领域”引擎
+                      (`_calculate_structural_test_score`)作为第二支柱。
+        - 新核心逻辑: 延续性反转 = 上升趋势确认 × 全功能结构测试 × 反转姿态确认
+        - 收益: 赋予了延续性反转引擎与史诗级反转引擎同等级别的、最强大的结构感知能力。
+        """
+        states = {}
+        p_continuation = get_params_block(self.strategy, 'continuation_reversal_params', {})
+        
+        # --- 支柱一: 上升趋势确认 (Uptrend Context) ---
+        ma_periods = get_param_value(p_continuation.get('ma_periods'), [5, 13, 21, 55])
+        uptrending_ma_count = pd.Series(0, index=df.index)
+        for p in ma_periods:
+            ma_col = f'EMA_{p}_D'
+            if ma_col in df:
+                uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
+        trend_alignment_score = uptrending_ma_count / len(ma_periods)
+
+        # --- [代码修改] 支柱二: 全功能结构测试 (Full-featured Structural Test) ---
+        # 废除之前简陋的、只包含均线的测试逻辑。
+        # 直接调用与“史诗反转”引擎同源的、最强大的“绝对领域”引擎。
+        # 这将自动包含对多周期前低、SBC低点的加权、共振测试。
+        structural_test_score = self._calculate_structural_test_score(df, p_continuation)
+
+        # --- 支柱三: 反转姿态确认 (Reversal Posture) ---
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
+        confirmation_score = close_position_in_range
+
+        # --- 最终融合 ---
+        continuation_reversal_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
+        
+        states['SCORE_ATOMIC_CONTINUATION_REVERSAL'] = continuation_reversal_score
+        return states
+
+    def _calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V1.0 · 新增/移植】“绝对领域”结构共振测试引擎 (战神之矛版)
+        - 来源: 从 TacticEngine 完美移植而来，作为“圣物普降”计划的一部分。
+        - 核心职责: 为本模块提供与先知引擎完全一致的、最高规格的结构测试能力。
+        """
+        # --- 步骤 1: 获取参数，定义支撑矩阵 ---
+        support_periods = get_param_value(params.get('support_lookback_periods'), [5, 10, 21, 55])
+        period_weights = get_param_value(params.get('support_period_weights'), {5: 0.6, 10: 0.8, 21: 1.0, 55: 1.2, 'sbc': 1.5})
+        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.01)
+        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.2)
+        sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05)
+
+        # 锻造“战神之矛”：识别并追踪“重要看涨K线”的低点
+        is_sbc = (df['pct_change_D'] > sbc_threshold_pct) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
+        recent_sbc_low = df['low_D'].where(is_sbc).ffill()
+
+        # 将“战神之矛”加入支撑矩阵
+        support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 10, 21]}
+        for p in support_periods:
+            support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
+        support_levels['RecentSBCLow'] = recent_sbc_low.shift(1)
+
+        valid_supports = {k: v for k, v in support_levels.items() if v is not None and not v.empty}
+        if not valid_supports:
+            return pd.Series(0.0, index=df.index)
+        
+        supports_df = pd.concat(valid_supports, axis=1)
+
+        # --- 步骤 2: 计算“结构共振”强度 ---
+        confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
+        for col_i in supports_df.columns:
+            for col_j in supports_df.columns:
+                if col_i == col_j: continue
+                is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
+                confluence_df[col_i] += is_close.astype(float)
+        
+        confluence_bonus_df = 1.0 + (confluence_df - 1) * confluence_bonus_factor
+
+        # --- 步骤 3: 计算所有支撑位的加权、共振调整后的测试分数 ---
+        all_test_scores = []
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        atr = df.get('ATR_14_D', day_range)
+
+        for name, support_series in valid_supports.items():
+            if 'SBC' in name:
+                weight = period_weights.get('sbc', 1.5)
+            else:
+                period = int(''.join(filter(str.isdigit, name))) if any(char.isdigit() for char in name) else 21
+                weight = period_weights.get(period, 1.0)
+            
+            confluence_bonus = confluence_bonus_df[name]
+
+            # 3.1 计算“被接住”分数
+            tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
+            distance = (df['low_D'] - support_series).abs()
+            base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
+            weighted_proximity_score = base_proximity_score * weight * confluence_bonus
+            all_test_scores.append(weighted_proximity_score)
+
+            # 3.2 计算“破位收回”分数 (仅对前低和SBC低点有效)
+            if 'PrevLow' in name or 'SBC' in name:
+                is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
+                reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
+                base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
+                weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
+                all_test_scores.append(weighted_reclaim_score)
+
+        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
+        if not all_test_scores:
+            return pd.Series(0.0, index=df.index)
+            
+        final_score_matrix = pd.concat(all_test_scores, axis=1)
+        final_structural_test_score = final_score_matrix.max(axis=1, skipna=True).fillna(0.0)
+        
+        return final_structural_test_score.clip(0, 1)
 
 
 

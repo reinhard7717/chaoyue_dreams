@@ -43,22 +43,38 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 四柱神谕版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 引入第四根支柱——“绝望背景”，确保恐慌发生在长期下跌的末期，而不是牛市中的一次普通回调。
-        - 核心逻辑: 终极恐慌 = (价格暴跌 * 成交天量 * 筹码崩溃) × 绝望背景
+        【V1.7 · 绝对领域版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 1. 将复杂的“结构支撑测试”逻辑剥离到独立的 `_calculate_structural_test_score` 方法中。
+                      2. 新的测试引擎引入了“周期权重”和“结构共振”两大核心概念，实现了质的飞跃。
+        - 收益: 能够量化评估对“多重共振支撑区”的测试，极大提升了信号的可靠性。
         """
         states = {}
-        # [代码修改] 支柱一、二、三保持不变
+        # --- 支柱一、二、三、四：保持“宙斯之雷”版的强大定义 (保持不变) ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         
-        # [代码新增] 支柱四：绝望背景 (Deep Bottom Context) - 确认股价处于长期低位
-        price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
-        deep_bottom_context_score = 1.0 - price_pos_yearly
-        
-        # [代码修改] 四位一体融合，生成更可靠的恐慌信号
-        setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score * deep_bottom_context_score).astype(np.float32)
+        p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
+        drawdown_lookback = get_param_value(p_panic.get('drawdown_lookback'), 60)
+        roc_period = get_param_value(p_panic.get('roc_period'), 10)
+        rolling_peak = df['high_D'].rolling(window=drawdown_lookback, min_periods=21).max()
+        drawdown_from_peak = (rolling_peak - df['close_D']) / rolling_peak.replace(0, np.nan)
+        drawdown_magnitude_score = normalize_score(drawdown_from_peak.clip(lower=0), df.index, window=drawdown_lookback, ascending=True)
+        price_roc = df['close_D'].pct_change(roc_period)
+        drawdown_velocity_score = normalize_score(price_roc, df.index, window=drawdown_lookback, ascending=False)
+        despair_context_score = (drawdown_magnitude_score * drawdown_velocity_score)**0.5
+
+        # --- [代码修改] 支柱五：调用全新的“绝对领域”引擎计算结构测试分 ---
+        structural_test_score = self._calculate_structural_test_score(df, p_panic)
+
+        # --- 五位一体融合，生成终极恐慌信号 ---
+        setup_panic_selling_score = (
+            price_drop_score * 
+            volume_spike_score * 
+            chip_breakdown_score * 
+            despair_context_score *
+            structural_test_score
+        ).astype(np.float32)
         
         states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score
         return states
@@ -209,3 +225,100 @@ class TacticEngine:
         states['PLAYBOOK_BREAKOUT_EVE'] = score_breakout_eve > 0.6
         
         return states
+
+    def _calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V1.1 · 战神之矛版】“绝对领域”结构共振测试引擎
+        - 核心革命: 引入“战神之矛”——重要看涨K线(SBC)的低点，作为最高权重的支撑。
+        - 核心逻辑: 1. 识别并追踪近期所有SBC低点。
+                      2. 在支撑矩阵中赋予SBC低点最高权重。
+                      3. 当SBC低点与其他支撑形成共振时，提供巨额奖励。
+        - 收益: 能够精准识别对主力进攻成本线的关键测试，极大提升信号的战略价值。
+        """
+        # --- 步骤 1: 获取参数，定义支撑矩阵 ---
+        support_periods = get_param_value(params.get('support_lookback_periods'), [5, 10, 21, 55])
+        # [代码修改] 权重字典增加对'sbc'（战神之矛）的定义，并赋予最高权重
+        period_weights = get_param_value(params.get('support_period_weights'), {5: 0.6, 10: 0.8, 21: 1.0, 55: 1.2, 'sbc': 1.5})
+        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.01)
+        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.2)
+        sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05) # 定义SBC的涨幅阈值
+
+        # [代码新增] 锻造“战神之矛”：识别并追踪“重要看涨K线”的低点
+        is_sbc = (df['pct_change_D'] > sbc_threshold_pct) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
+        # 使用.where(is_sbc)提取SBC日的低点，然后用ffill()向前填充，得到每个交易日看到的、最近的那个SBC低点
+        recent_sbc_low = df['low_D'].where(is_sbc).ffill()
+
+        # [代码修改] 将“战神之矛”加入支撑矩阵
+        support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 10, 21]}
+        for p in support_periods:
+            support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
+        support_levels['RecentSBCLow'] = recent_sbc_low.shift(1) # 使用shift(1)确保我们测试的是历史结构
+
+        valid_supports = {k: v for k, v in support_levels.items() if v is not None and not v.empty}
+        if not valid_supports:
+            return pd.Series(0.0, index=df.index)
+        
+        supports_df = pd.concat(valid_supports, axis=1)
+
+        # --- 步骤 2: 计算“结构共振”强度 (逻辑不变) ---
+        confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
+        for col_i in supports_df.columns:
+            for col_j in supports_df.columns:
+                if col_i == col_j: continue
+                # [代码修改] 增加对NaN的健壮性处理
+                is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
+                confluence_df[col_i] += is_close.astype(float)
+        
+        confluence_bonus_df = 1.0 + (confluence_df - 1) * confluence_bonus_factor
+
+        # --- 步骤 3: 计算所有支撑位的加权、共振调整后的测试分数 ---
+        all_test_scores = []
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        atr = df.get('ATR_14_D', day_range)
+
+        for name, support_series in valid_supports.items():
+            # [代码修改] 升级权重获取逻辑，以兼容'sbc'等非数字键
+            if 'SBC' in name:
+                weight = period_weights.get('sbc', 1.5)
+            else:
+                period = int(''.join(filter(str.isdigit, name))) if any(char.isdigit() for char in name) else 21
+                weight = period_weights.get(period, 1.0)
+            
+            confluence_bonus = confluence_bonus_df[name]
+
+            # 3.1 计算“被接住”分数
+            tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
+            distance = (df['low_D'] - support_series).abs()
+            base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
+            weighted_proximity_score = base_proximity_score * weight * confluence_bonus
+            all_test_scores.append(weighted_proximity_score)
+
+            # 3.2 计算“破位收回”分数 (仅对前低和SBC低点有效)
+            if 'PrevLow' in name or 'SBC' in name:
+                is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
+                reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
+                base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
+                weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
+                all_test_scores.append(weighted_reclaim_score)
+
+        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 (逻辑不变) ---
+        if not all_test_scores:
+            return pd.Series(0.0, index=df.index)
+            
+        final_score_matrix = pd.concat(all_test_scores, axis=1)
+        final_structural_test_score = final_score_matrix.max(axis=1, skipna=True).fillna(0.0)
+        
+        return final_structural_test_score.clip(0, 1)
+
+
+
+
+
+
+
+
+
+
+
+
+
