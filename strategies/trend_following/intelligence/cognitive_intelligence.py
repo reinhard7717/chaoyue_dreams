@@ -615,35 +615,30 @@ class CognitiveIntelligence:
 
     def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
         """
-        【V1.0 · 新增】趋势加速级联 (涡轮增压) 诊断引擎
-        - 核心职责: 诊断看涨共振是否正在形成“时序级联”和“领域级联”，以识别趋势的主升浪。
+        【V2.0 · 指挥家版】趋势加速级联 (涡轮增压) 诊断引擎
+        - 核心升级: 1. 将“领域级联”的计算逻辑从“民主投票”升级为“协同指挥”。
+                      2. 区分“先锋部队”（行为/力学）和“主力部队”（筹码/资金/结构）。
+                      3. 最终领域级联分 = 先锋加速分 * (1 + 主力确认分)，奖励健康的进攻时序。
         """
         states = {}
         norm_window = 55
-        slope_period = 3 # 使用较短周期捕捉“刚刚启动”的势头
+        slope_period = 3 
 
-        # --- 1. 时序级联诊断 (Temporal Cascade) ---
-        # 核心逻辑: 短期共振已经启动，并正在向中长期传导
+        # --- 1. 时序级联诊断 (Temporal Cascade) - 保持不变 ---
         health_cache = self.strategy.atomic_states.get('__BEHAVIOR_overall_health', {})
         s_bull = health_cache.get('s_bull', {})
         d_intensity = health_cache.get('d_intensity', {})
         relational_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
-
-        # 重新计算短、中期健康度，以获取最原始的动态
         short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
         medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
-        
         short_term_slope = short_term_health.diff(slope_period).fillna(0)
         medium_term_slope = medium_term_health.diff(slope_period).fillna(0)
-
         short_term_accel_score = normalize_score(short_term_slope, df.index, norm_window)
         medium_term_accel_score = normalize_score(medium_term_slope, df.index, norm_window)
-        
         temporal_cascade_score = (short_term_accel_score * medium_term_accel_score)**0.5
         states['COGNITIVE_INTERNAL_TEMPORAL_CASCADE'] = temporal_cascade_score.astype(np.float32)
 
-        # --- 2. 领域级联诊断 (Domain Cascade) ---
-        # 核心逻辑: 看涨共振正在跨领域扩散
+        # --- 2. 领域级联诊断 (Domain Cascade) - “指挥家”改造 ---
         resonance_signals = {
             'behavior': self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE'),
             'chip': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
@@ -652,21 +647,40 @@ class CognitiveIntelligence:
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
         
-        domain_accel_scores = []
+        # [代码修改] 兵种分离
+        vanguard_domains = ['behavior', 'dyn']
+        confirmation_domains = ['chip', 'ff', 'structure']
+        
+        vanguard_accel_scores = []
+        confirmation_accel_scores = []
+
         for name, signal in resonance_signals.items():
             slope = signal.diff(slope_period).fillna(0)
             accel_score = normalize_score(slope, df.index, norm_window)
-            domain_accel_scores.append(accel_score.values)
             states[f'COGNITIVE_INTERNAL_ACCEL_{name.upper()}'] = accel_score.astype(np.float32)
-            
-        if domain_accel_scores:
-            stacked_scores = np.stack(domain_accel_scores, axis=0)
-            domain_cascade_score = pd.Series(np.linalg.norm(stacked_scores, ord=2, axis=0) / np.sqrt(len(domain_accel_scores)), index=df.index)
+            if name in vanguard_domains:
+                vanguard_accel_scores.append(accel_score.values)
+            elif name in confirmation_domains:
+                confirmation_accel_scores.append(accel_score.values)
+        
+        # [代码修改] 分别计算先锋部队和主力部队的得分
+        if vanguard_accel_scores:
+            vanguard_stacked = np.stack(vanguard_accel_scores, axis=0)
+            vanguard_score = pd.Series(np.linalg.norm(vanguard_stacked, ord=2, axis=0) / np.sqrt(len(vanguard_accel_scores)), index=df.index)
         else:
-            domain_cascade_score = pd.Series(0.0, index=df.index)
+            vanguard_score = pd.Series(0.0, index=df.index)
+        
+        if confirmation_accel_scores:
+            confirmation_stacked = np.stack(confirmation_accel_scores, axis=0)
+            confirmation_score = pd.Series(np.linalg.norm(confirmation_stacked, ord=2, axis=0) / np.sqrt(len(confirmation_accel_scores)), index=df.index)
+        else:
+            confirmation_score = pd.Series(0.0, index=df.index)
+            
+        # [代码修改] 应用“指挥家”协同奖励公式
+        domain_cascade_score = (vanguard_score * (1 + confirmation_score)).clip(0, 1)
         states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
 
-        # --- 3. 最终融合 ---
+        # --- 3. 最终融合 (保持不变) ---
         final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
         
