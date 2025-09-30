@@ -31,9 +31,9 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V513.0 · 语义统一版】
-        - 核心升级: 扩展了信号类型字典，使其能够正确识别和分类所有新的、更具描述性的信号类型
-                      （如'趋势破位离场', '战略失效离场', '风险否决'），确保报告与决策的语义完全统一。
+        【V514.0 · 独裁者版】
+        - 核心升级: risk_score 字段现在直接消费由 JudgmentLayer 传递过来的、代表风险强度的权威分数，
+                      不再使用已被废除的 risk_penalty_score。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -43,27 +43,27 @@ class ReportingLayer:
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
         
-        # 扩展信号类型字典，使其能够理解新的、更具体的信号
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
             '风险预警': TradingSignal.SignalType.WARN,
-            '趋势破位离场': TradingSignal.SignalType.SELL, # 映射为 SELL 类型
-            '战略失效离场': TradingSignal.SignalType.SELL, # 映射为 SELL 类型
-            '风险否决': TradingSignal.SignalType.WARN,   # 映射为 WARN 类型
+            '趋势破位离场': TradingSignal.SignalType.SELL,
+            '战略失效离场': TradingSignal.SignalType.SELL,
+            '风险否决': TradingSignal.SignalType.WARN,
         }
         
-        # 筛选条件现在包含所有已知的信号类型
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
 
         for trade_time, row in signal_days_df.iterrows():
-            # 使用 get 方法安全获取，如果找不到则默认为 WARN
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
-                entry_score=row.get('entry_score', 0.0), risk_score=row.get('risk_score', 0.0), final_score=row.get('final_score', 0.0),
+                entry_score=row.get('entry_score', 0.0), 
+                # [代码修改] risk_score 现在使用新的、代表风险强度的分数
+                risk_score=row.get('risk_score', 0.0) * 1000, # 乘以1000以保持量级
+                final_score=row.get('final_score', 0.0),
                 close_price=row.get('close_D', 0.0)
             )
             signals_to_create.append(signal_obj)
@@ -79,7 +79,9 @@ class ReportingLayer:
         for trade_time, row in result_df.iterrows():
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code, trade_date=trade_time.date(), strategy_name=strategy_name,
-                offensive_score=int(row.get('entry_score', 0)), risk_score=int(row.get('risk_score', 0)),
+                offensive_score=int(row.get('entry_score', 0)), 
+                # [代码修改] risk_score 现在使用新的、代表风险强度的分数
+                risk_score=int(row.get('risk_score', 0) * 1000), # 乘以1000以保持量级
                 final_score=row.get('final_score', 0.0), signal_type=row.get('signal_type', '无信号'),
                 score_details_json=_convert_numpy_types_for_json(row.get('signal_details_cn', {}))
             )

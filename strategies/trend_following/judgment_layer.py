@@ -11,28 +11,35 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V515.0 · 审判日版】
-        - 核心升级: 1. 新增并调用 _adjudicate_risk_level 方法，将所有风险信号整合成统一的、分级的 ALERT_LEVEL。
-                      2. 决策逻辑现在直接消费 ALERT_LEVEL，当警报等级过高时，一票否决买入信号。
-        - 收益: 建立了清晰、果断、等级分明的风险指挥中心，实现了从“感知风险”到“应对风险”的飞跃。
+        【V516.0 · 独裁者版】
+        - 核心革命: 1. 彻底废除 risk_penalty_score 机制，终结风险系统的“精神分裂”。
+                      2. 授予 ALERT_LEVEL 对风险的绝对裁决权，成为唯一的风险决策依据。
+                      3. final_score 回归其本质，仅衡量进攻机会的强度，不再被风险惩罚污染。
+        - 收益: 建立了统一、高效、绝对的风险指挥体系，决策逻辑无比清晰。
         """
-        print("    --- [最高作战指挥部 V515.0 · 审判日版] 启动...")
+        print("    --- [最高作战指挥部 V516.0 · 独裁者版] 启动...")
         df = self.strategy.df_indicators
         
-        # 调用新的风险裁决者，并将结果存入df
-        df['alert_level'], df['alert_reason'] = self._adjudicate_risk_level()
+        # [代码修改] 调用风险裁决者，并接收其返回的“审判庭”融合风险分
+        df['alert_level'], df['alert_reason'], fused_risks = self._adjudicate_risk_level()
         
-        df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
-        reportable_risk_df = risk_details_df.copy()
-        if not penalty_components_df.empty:
-            reportable_risk_df.update(penalty_components_df)
+        # [代码删除] 彻底移除旧的风险惩罚计分逻辑
+        # df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
+        # reportable_risk_df = risk_details_df.copy()
+        # if not penalty_components_df.empty:
+        #     reportable_risk_df.update(penalty_components_df)
 
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
-        df['final_score'] = (df['entry_score'] * confidence_damper) - df['risk_penalty_score']
         
+        # [代码修改] final_score 不再减去风险惩罚分，回归纯粹的进攻分
+        df['final_score'] = (df['entry_score'] * confidence_damper)
+        
+        # [代码新增] 将审判庭的最高风险强度作为新的 risk_score，用于报告和分析
+        df['risk_score'] = fused_risks.max(axis=1)
+
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
         
@@ -40,7 +47,6 @@ class JudgmentLayer:
         
         is_score_sufficient = df['final_score'] > final_score_threshold
         
-        # 使用 alert_level >= 3 作为最高否决条件
         is_veto_by_alert = df['alert_level'] >= 3
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
@@ -55,52 +61,21 @@ class JudgmentLayer:
             df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
             df.loc[is_hard_exit_veto, 'final_score'] = 0
             
-        # 将原有的 dynamic_veto 替换为新的 alert_veto
         alert_veto_condition = is_score_sufficient & is_veto_by_alert & ~is_hard_exit_veto
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
 
-        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
+        # [代码修改] 将 risk_details_df 传递给摘要生成函数
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V511.1 · 重复惩罚修复版】计算总风险惩罚分
-        - 核心修复:
-          - [BUG修复] 彻底修复了“亢奋加速风险”被重复计算两次的致命BUG。
-          - [逻辑优化] 简化了计算流程，现在统一在循环中处理所有风险信号，
-                        不再有特殊的外部处理逻辑，确保每个风险信号只被惩罚一次。
-        - 收益: 恢复了风险惩罚体系的平衡，避免了单一风险项权重被不合理放大的问题。
+        【V511.1 · 已废除】
+        - 此方法已被“创世纪 XI · 独裁者”计划废除。其功能由 _adjudicate_risk_level 方法完全取代。
         """
-        df = self.strategy.df_indicators
-        
-        if risk_details_df.empty:
-            return pd.Series(0.0, index=df.index), pd.DataFrame(index=df.index)
-
-        total_penalty_score = pd.Series(0.0, index=df.index)
-        penalty_components_df = pd.DataFrame(index=df.index)
-        
-        score_map = get_params_block(self.strategy, 'score_type_map', {})
-
-        # 遍历 risk_details_df 中的每一列（即每一个风险信号）
-        for signal_name in risk_details_df.columns:
-            # 确保信号在配置中定义，并且有 penalty_weight
-            if signal_name in score_map and 'penalty_weight' in score_map[signal_name]:
-                raw_risk_score = risk_details_df[signal_name]
-                penalty_weight = score_map[signal_name]['penalty_weight']
-                
-                # 计算该信号贡献的惩罚分
-                penalty_amount = raw_risk_score * penalty_weight
-                
-                # 累加到总惩罚分中
-                total_penalty_score += penalty_amount
-                
-                # 记录每个分量的惩罚，用于报告
-                penalty_components_df[signal_name] = penalty_amount
-        
-        # 删除了对亢奋风险的重复计算逻辑，因为它已经在上面的循环中被统一处理了。
-        
-        return total_penalty_score, penalty_components_df
+        # [代码删除] 整个方法的内容都被删除，只留下废除声明
+        return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
@@ -177,15 +152,15 @@ class JudgmentLayer:
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
 
-    def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series]:
+    def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V1.0 · 新增】风险裁决者 (Risk Adjudicator)
-        - 核心职责: 将所有零散的风险信号，整合成统一的、分级的、可直接执行的战术警报等级。
+        【V2.0 · 独裁者版】风险裁决者 (Risk Adjudicator)
+        - 核心升级: 1. 现在是系统中唯一的风险仲裁者。
+                      2. 除了返回警报等级和原因，还返回各“审判庭”的融合风险分，供下游报告层使用。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
-        # 1. 定义风险审判庭及其成员
         risk_categories = {
             'TOP_REVERSAL': [
                 'SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL',
@@ -197,41 +172,48 @@ class JudgmentLayer:
             ],
             'MICRO_RISK': [
                 'COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'
+            ],
+            # [代码新增] 将亢奋加速风险也纳入审判庭
+            'EUPHORIA_RISK': [
+                'COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION'
             ]
         }
         
-        # 2. 计算每个审判庭的风险强度 (取最大值)
         fused_risks = {}
         for category, signals in risk_categories.items():
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores)
 
-        # 3. 定义警报等级的触发阈值
+        # [代码新增] 将融合后的风险分数打包成DataFrame，用于返回
+        fused_risks_df = pd.DataFrame(fused_risks)
+
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
         
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
-        level_2_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        # [代码修改] 亢奋风险现在也可能触发橙色警报
+        level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
 
-        # 4. 根据阈值进行最终审判
         conditions = [
-            fused_risks['TOP_REVERSAL'] > level_3_threshold,
-            fused_risks['BEARISH_RESONANCE'] > level_2_threshold,
-            fused_risks['MICRO_RISK'] > level_1_threshold,
+            fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
+            # [代码修改] 增加亢奋风险的判断
+            (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
+            fused_risks_df['MICRO_RISK'] > level_1_threshold,
         ]
         
         choices_level = [3, 2, 1]
-        choices_reason = ['红色警报: 顶部反转风险', '橙色警报: 看跌共振风险', '黄色警报: 微观结构风险']
+        choices_reason = ['红色警报: 顶部反转风险', '橙色警报: 共振或亢奋风险', '黄色警报: 微观结构风险']
         
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
         
-        # 将裁决结果存入原子状态，供全局使用
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         self.strategy.atomic_states['ALERT_REASON'] = alert_reason
         
-        return alert_level, alert_reason
+        # [代码修改] 返回包含各审判庭分数的DataFrame
+        return alert_level, alert_reason, fused_risks_df
 
 
 
