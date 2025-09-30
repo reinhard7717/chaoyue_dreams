@@ -647,7 +647,7 @@ class CognitiveIntelligence:
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
         
-        # [代码修改] 兵种分离
+        # 兵种分离
         vanguard_domains = ['behavior', 'dyn']
         confirmation_domains = ['chip', 'ff', 'structure']
         
@@ -663,7 +663,7 @@ class CognitiveIntelligence:
             elif name in confirmation_domains:
                 confirmation_accel_scores.append(accel_score.values)
         
-        # [代码修改] 分别计算先锋部队和主力部队的得分
+        # 分别计算先锋部队和主力部队的得分
         if vanguard_accel_scores:
             vanguard_stacked = np.stack(vanguard_accel_scores, axis=0)
             vanguard_score = pd.Series(np.linalg.norm(vanguard_stacked, ord=2, axis=0) / np.sqrt(len(vanguard_accel_scores)), index=df.index)
@@ -676,7 +676,7 @@ class CognitiveIntelligence:
         else:
             confirmation_score = pd.Series(0.0, index=df.index)
             
-        # [代码修改] 应用“指挥家”协同奖励公式
+        # 应用“指挥家”协同奖励公式
         domain_cascade_score = (vanguard_score * (1 + confirmation_score)).clip(0, 1)
         states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
 

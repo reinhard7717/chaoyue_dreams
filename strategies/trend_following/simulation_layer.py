@@ -188,24 +188,21 @@ class SimulationLayer:
         self.strategy.df_indicators = df
 
     def _check_tactical_alerts(self, row) -> Tuple[int, str]:
-        exit_params = get_params_block(self.strategy, 'exit_strategy_params')
-        warning_params = exit_params.get('warning_threshold_params', {})
-        exit_threshold_params = exit_params.get('exit_threshold_params', {})
-        if not warning_params and not exit_threshold_params:
-            return 0, ''
-        risk_score = getattr(row, 'risk_score', 0)
-        if risk_score <= 0:
-            return 0, ''
-        all_alerts = []
-        level_map = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
-        for name, config in exit_threshold_params.items():
-            if name.upper() in level_map:
-                all_alerts.append({'level_code': level_map[name.upper()], 'threshold': get_param_value(config.get('level'), float('inf')), 'reason': get_param_value(config.get('cn_name'), name)})
-        for name, config in warning_params.items():
-            if name.upper() in level_map:
-                all_alerts.append({'level_code': level_map[name.upper()], 'threshold': get_param_value(config.get('level'), float('inf')), 'reason': get_param_value(config.get('cn_name'), name)})
-        sorted_alerts = sorted(all_alerts, key=lambda x: x['threshold'], reverse=True)
-        for alert in sorted_alerts:
-            if risk_score >= alert['threshold']:
-                return alert['level_code'], alert['reason']
-        return 0, ''
+        """
+        【V2.0 · 审判日协同版】
+        - 核心升级: 不再自行计算警报等级，而是直接消费由 JudgmentLayer 的“风险裁决者”生成的
+                      权威 ALERT_LEVEL 和 ALERT_REASON。
+        - 收益: 实现了决策与执行的完美统一，确保仓位管理严格遵循最高指挥部的风险评级。
+        """
+        # 直接从每日的行数据中读取由“风险裁决者”生成的权威警报等级和原因
+        alert_level = getattr(row, 'alert_level', 0)
+        alert_reason = getattr(row, 'alert_reason', '')
+        
+        return alert_level, alert_reason
+
+
+
+
+
+
+

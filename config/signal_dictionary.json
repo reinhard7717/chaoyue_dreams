@@ -32,6 +32,18 @@
             "type": "context",
             "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
         },
+        "ALERT_LEVEL": {
+            "cn_name": "【战术】警报等级",
+            "category": "战术层-风险",
+            "type": "context",
+            "description": "【审判日】由风险裁决者生成的统一战术警报等级 (0-3)，用于指导最终决策和仓位管理。"
+        },
+        "ALERT_REASON": {
+            "cn_name": "【战术】警报原因",
+            "category": "战术层-风险",
+            "type": "context",
+            "description": "【审判日】对当前战术警报等级的文字说明。"
+        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",

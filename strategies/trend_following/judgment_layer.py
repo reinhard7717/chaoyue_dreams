@@ -11,13 +11,16 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V514.0 · 奇美拉版】
-        - 核心升级: 引入“信心阻尼器”机制。在计算最终得分时，使用“奇美拉冲突分”对进攻分进行压制。
-                      最终得分 = (进攻分 * (1 - 冲突分)) - 防御分。
-        - 收益: 实现了对“牛熊冲突”行情的动态风险管理，在矛盾的市场中采取更审慎的进攻姿态。
+        【V515.0 · 审判日版】
+        - 核心升级: 1. 新增并调用 _adjudicate_risk_level 方法，将所有风险信号整合成统一的、分级的 ALERT_LEVEL。
+                      2. 决策逻辑现在直接消费 ALERT_LEVEL，当警报等级过高时，一票否决买入信号。
+        - 收益: 建立了清晰、果断、等级分明的风险指挥中心，实现了从“感知风险”到“应对风险”的飞跃。
         """
-        print("    --- [最高作战指挥部 V514.0 · 奇美拉版] 启动...")
+        print("    --- [最高作战指挥部 V515.0 · 审判日版] 启动...")
         df = self.strategy.df_indicators
+        
+        # 调用新的风险裁决者，并将结果存入df
+        df['alert_level'], df['alert_reason'] = self._adjudicate_risk_level()
         
         df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
         reportable_risk_df = risk_details_df.copy()
@@ -26,11 +29,8 @@ class JudgmentLayer:
 
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # [代码新增] 获取“奇美拉冲突分”并计算“信心阻尼器”
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
-        
-        # 将“信心阻尼器”应用于最终得分计算
         df['final_score'] = (df['entry_score'] * confidence_damper) - df['risk_penalty_score']
         
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
@@ -39,8 +39,10 @@ class JudgmentLayer:
         df['signal_type'] = '无信号'
         
         is_score_sufficient = df['final_score'] > final_score_threshold
-        is_dynamic_veto = df['dynamic_action'] == 'AVOID'
-        potential_buy_condition = is_score_sufficient & ~is_dynamic_veto
+        
+        # 使用 alert_level >= 3 作为最高否决条件
+        is_veto_by_alert = df['alert_level'] >= 3
+        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
         exit_triggers_df = self.strategy.exit_triggers
@@ -49,15 +51,14 @@ class JudgmentLayer:
         if is_hard_exit_veto.any():
             strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
             tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-            
             df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
             df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
-            
             df.loc[is_hard_exit_veto, 'final_score'] = 0
             
-        dynamic_veto_condition = is_score_sufficient & is_dynamic_veto & ~is_hard_exit_veto
-        df.loc[dynamic_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[dynamic_veto_condition, 'final_score'] = 0
+        # 将原有的 dynamic_veto 替换为新的 alert_veto
+        alert_veto_condition = is_score_sufficient & is_veto_by_alert & ~is_hard_exit_veto
+        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
+        df.loc[alert_veto_condition, 'final_score'] = 0
 
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, reportable_risk_df)
         self._finalize_signals()
@@ -175,3 +176,76 @@ class JudgmentLayer:
         final_buy_condition = df['signal_type'] == '买入信号'
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
+
+    def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series]:
+        """
+        【V1.0 · 新增】风险裁决者 (Risk Adjudicator)
+        - 核心职责: 将所有零散的风险信号，整合成统一的、分级的、可直接执行的战术警报等级。
+        """
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        
+        # 1. 定义风险审判庭及其成员
+        risk_categories = {
+            'TOP_REVERSAL': [
+                'SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL',
+                'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'
+            ],
+            'BEARISH_RESONANCE': [
+                'SCORE_BEHAVIOR_BEARISH_RESONANCE', 'SCORE_CHIP_BEARISH_RESONANCE', 'SCORE_FF_BEARISH_RESONANCE',
+                'SCORE_STRUCTURE_BEARISH_RESONANCE', 'SCORE_DYN_BEARISH_RESONANCE', 'SCORE_FOUNDATION_BEARISH_RESONANCE'
+            ],
+            'MICRO_RISK': [
+                'COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'
+            ]
+        }
+        
+        # 2. 计算每个审判庭的风险强度 (取最大值)
+        fused_risks = {}
+        for category, signals in risk_categories.items():
+            signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)) for s in signals]
+            fused_risks[category] = np.maximum.reduce(signal_scores)
+
+        # 3. 定义警报等级的触发阈值
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        p_alerts = p_judge.get('alert_level_thresholds', {})
+        
+        level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
+        level_2_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
+
+        # 4. 根据阈值进行最终审判
+        conditions = [
+            fused_risks['TOP_REVERSAL'] > level_3_threshold,
+            fused_risks['BEARISH_RESONANCE'] > level_2_threshold,
+            fused_risks['MICRO_RISK'] > level_1_threshold,
+        ]
+        
+        choices_level = [3, 2, 1]
+        choices_reason = ['红色警报: 顶部反转风险', '橙色警报: 看跌共振风险', '黄色警报: 微观结构风险']
+        
+        alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
+        alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
+        
+        # 将裁决结果存入原子状态，供全局使用
+        self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
+        self.strategy.atomic_states['ALERT_REASON'] = alert_reason
+        
+        return alert_level, alert_reason
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

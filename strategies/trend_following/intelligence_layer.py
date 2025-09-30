@@ -249,7 +249,7 @@ class IntelligenceLayer:
         print(f"    - 【得分】: {domain_cascade_score:.4f}")
         print(f"    - [核心公式]: vanguard_score * (1 + confirmation_score)")
         
-        # [代码修改] 分兵种展示
+        # 分兵种展示
         vanguard_domains = ['behavior', 'dyn']
         confirmation_domains = ['chip', 'ff', 'structure']
         
