@@ -142,15 +142,14 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.1 · 天使长版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 1. 新增“天使长”审判庭，赋予其最高的、绝对的否决权。
-                      2. 只要 SCORE_ARCHANGEL_TOP_REVERSAL 信号强度超过阈值，立即触发最高等级的 Level 3 红色警报。
+        【V2.2 · 圣印版】风险裁决者 (Risk Adjudicator)
+        - 核心修复: 修复了“幽灵索引”BUG。在创建 fused_risks_df 时，强制其使用主时间线
+                      (df.index) 作为索引，确保其与 alert_level_series 的时间线绝对一致。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
         risk_categories = {
-            # [代码新增] 新增“天使长”审判庭，拥有最高优先级
             'ARCHANGEL_RISK': [
                 'SCORE_ARCHANGEL_TOP_REVERSAL'
             ],
@@ -172,15 +171,16 @@ class JudgmentLayer:
         
         fused_risks = {}
         for category, signals in risk_categories.items():
-            signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)) for s in signals]
+            # 使用 reindex 确保所有信号在计算前都与主时间线对齐
+            signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores)
 
-        fused_risks_df = pd.DataFrame(fused_risks)
+        # [代码修改] 强制为 fused_risks_df 烙上主时间线的“圣印”，确保索引绝对一致
+        fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
 
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
         
-        # [代码新增] 为“天使长”信号设定专属阈值
         level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
@@ -188,16 +188,15 @@ class JudgmentLayer:
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
 
         conditions = [
-            # [代码修改] 将“天使长”风险置于最高优先级
             fused_risks_df['ARCHANGEL_RISK'] > level_3_archangel_threshold,
             fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
             (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
             fused_risks_df['MICRO_RISK'] > level_1_threshold,
         ]
         
-        choices_level = [3, 3, 2, 1] # [代码修改] 天使长风险也触发Level 3
+        choices_level = [3, 3, 2, 1]
         choices_reason = [
-            '红色警报: 天使长-明确顶部形态', # [代码修改] 新增天使长警报原因
+            '红色警报: 天使长-明确顶部形态',
             '红色警报: 顶部反转风险', 
             '橙色警报: 共振或亢奋风险', 
             '黄色警报: 微观结构风险'
