@@ -15,7 +15,10 @@ class PredictiveIntelligence:
         self.params = get_params_block(self.strategy, 'predictive_intelligence_params', {})
 
     def run_predictive_diagnostics(self) -> Dict[str, pd.Series]:
-        """运行所有预测性诊断模型"""
+        """
+        【V2.0 · 德尔菲神谕版】运行所有预测性诊断模型
+        - 核心升级: 新增对“恐慌投降反转”机会的预测能力。
+        """
         states = {}
         if not get_param_value(self.params.get('enabled'), True):
             return states
@@ -23,9 +26,13 @@ class PredictiveIntelligence:
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         
-        # 调用“高潮衰竭”诊断
+        # 调用“高潮衰竭”风险诊断
         exhaustion_risk = self._diagnose_climactic_exhaustion(df, atomic_states)
         states['PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION'] = exhaustion_risk.astype(np.float32)
+        
+        # [代码新增] 调用全新的“恐慌投降反转”机会诊断
+        capitulation_opportunity = self._diagnose_capitulation_reversal(df, atomic_states)
+        states['PREDICTIVE_OPP_CAPITULATION_REVERSAL'] = capitulation_opportunity.astype(np.float32)
         
         return states
 
@@ -42,7 +49,7 @@ class PredictiveIntelligence:
         
         # 2. 支柱二: 天量分 (Climax Volume Score) - 从二进制门升级为模拟分数
         vol_lookback = get_param_value(self.params.get('exhaustion_vol_lookback'), 20)
-        # [代码修改] 使用 normalize_score 生成0-1之间的模拟天量分
+        # 使用 normalize_score 生成0-1之间的模拟天量分
         volume_score = normalize_score(df['volume_D'], df.index, window=vol_lookback, ascending=True)
         
         # 3. 支柱三: K线疲弱分 (Kline Weakness Score)
@@ -56,7 +63,7 @@ class PredictiveIntelligence:
         kline_weakness_score = upper_shadow_score * 0.4 + weak_close_score * 0.6
         
         # 4. 三位一体融合 (Trinity Fusion)
-        # [代码修改] 废除旧的门控逻辑，采用加权算术平均进行融合
+        # 废除旧的门控逻辑，采用加权算术平均进行融合
         weights = get_param_value(self.params.get('trinity_fusion_weights'), {'euphoria': 0.2, 'volume': 0.4, 'kline': 0.4})
         
         final_risk_score = (
@@ -67,6 +74,34 @@ class PredictiveIntelligence:
         
         return final_risk_score.clip(0, 1)
 
+    def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】诊断“恐慌投降反转”机会 (入场神谕)
+        - 核心逻辑: 融合三大支柱，识别绝望尽头的反转机会。
+                      机会 = (恐慌上下文 * 权重) + (卖压衰竭 * 权重) + (V型反转 * 权重)
+        """
+        # 1. 支柱一: 恐慌上下文 (Panic Context) - 市场是否处于绝望的废墟中？
+        #    此信号由 TacticEngine 生成，代表前一日是否为恐慌抛售。
+        panic_context_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index)).shift(1).fillna(0.0)
+
+        # 2. 支柱二: 卖压衰竭 (Selling Exhaustion) - 抛售力量是否已耗尽？
+        #    此信号由 MicroBehaviorEngine 生成，衡量缩量企稳的程度。
+        selling_exhaustion_score = atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
+
+        # 3. 支柱三: V型反转 (V-Shape Reversal) - 是否出现探底回升的强势K线？
+        #    此信号由 BehavioralIntelligence 生成，衡量长下影线的反转形态。
+        v_reversal_score = atomic_states.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
+
+        # 4. 三位一体融合 (Trinity Fusion)
+        weights = get_param_value(self.params.get('capitulation_reversal_weights'), {'panic': 0.4, 'exhaustion': 0.3, 'reversal': 0.3})
+        
+        final_opportunity_score = (
+            panic_context_score * weights['panic'] +
+            selling_exhaustion_score * weights['exhaustion'] +
+            v_reversal_score * weights['reversal']
+        )
+        
+        return final_opportunity_score.clip(0, 1)
 
 
 

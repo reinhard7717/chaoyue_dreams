@@ -241,15 +241,13 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.4 · 先知之眼版】审判日引擎法医探针
-        - 核心升级: 新增对“先知引擎”预测性风险的解剖能力，验证其最高裁决权。
+        【V2.5 · 德尔菲神谕版】审判日引擎法医探针
+        - 核心升级: 新增对“先知入场神谕”的解剖能力，验证其机会评估逻辑。
         """
-        # 更新探针版本号
         print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎(先知版)】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         try:
-            # 从 judgment_layer 获取裁决结果
             alert_level_series, alert_reason_series, fused_risks_df = self.strategy.judgment_layer._adjudicate_risk_level()
         except Exception as e:
             print(f"  [错误] 在探针内部调用 _adjudicate_risk_level 时发生异常: {e}。解剖终止。")
@@ -259,14 +257,19 @@ class IntelligenceLayer:
             return
         alert_level = alert_level_series.get(probe_date)
         alert_reason = alert_reason_series.get(probe_date)
-        # 新增链路层0，用于解剖先知引擎的预测
         print(f"\n  [链路层 0] 解剖 -> “先知”神谕")
+        # 解剖离场神谕
         predictive_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
         print(f"    - 【预测风险】高潮衰竭: {predictive_risk:.4f} (阈值: > {prophet_threshold})")
         if predictive_risk > prophet_threshold:
             print("    - [神谕裁决]: 触发最高警报 (ALERT_LEVEL: 3)")
+        
+        # [代码新增] 解剖入场神谕
+        predictive_opp = atomic.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        print(f"    - 【预测机会】恐慌反转: {predictive_opp:.4f}")
+
         print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {alert_level} ({alert_reason or '无警报'})")
         if probe_date not in fused_risks_df.index:
             print("  [错误] 探针日期不在风险融合数据中。解剖终止。")
@@ -296,14 +299,12 @@ class IntelligenceLayer:
         print(f"    - [探针重算天使长风险]: {primary_risk:.4f} (主) + ({secondary_risk:.4f} (次) * {secondary_risk_discount}) = {recalculated_archangel_score:.4f}")
         print(f"    - [对比]: 实际值 {actual_archangel_score:.4f} vs 重算值 {recalculated_archangel_score:.4f}")
         print("\n  [链路层 3] 验证 -> 警报等级裁决逻辑")
-        # 从 judgment_params 中获取阈值
         p_alerts = p_judge.get('alert_level_thresholds', {})
         level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
         level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
-        # 在探针中打印先知阈值
         print(f"    - Level 3 (先知) 阈值: > {prophet_threshold}")
         print(f"    - Level 3 (天使长) 阈值: > {level_3_archangel_threshold}")
         print(f"    - Level 3 (顶部反转) 阈值: > {level_3_threshold}")
@@ -311,7 +312,6 @@ class IntelligenceLayer:
         print(f"    - Level 1 (微观风险) 阈值: > {level_1_threshold}")
         print("\n  [链路层 4] 最终验证")
         recalculated_level = 0
-        # 在探针重算逻辑中加入先知判断
         if predictive_risk > prophet_threshold:
             recalculated_level = 3
         elif probe_risk_values.get('ARCHANGEL_RISK', 0) > level_3_archangel_threshold:

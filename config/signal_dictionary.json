@@ -52,6 +52,13 @@
             "penalty_weight": 5000,
             "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夜”特征，是最高优先级的风险预警。"
         },
+        "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
+            "cn_name": "【先知】恐慌投降反转",
+            "category": "预测层-机会",
+            "type": "process",
+            "score": 300,
+            "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
+        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",

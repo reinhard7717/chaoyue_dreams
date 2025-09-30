@@ -11,19 +11,17 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V518.0 · 赫利俄斯版】
-        - 核心革命: 修正了 risk_score 的计算方式。不再使用各维度风险的最大值，
-                      而是直接采用由认知层计算出的、唯一的、经过归一化的权威融合风险分
-                      (COGNITIVE_FUSED_RISK_SCORE)，确立了风险评估的唯一权威。
+        【V519.0 · 神谕之门版】
+        - 核心革命: 赋予“先知入场”神谕最高决策权。一旦其分数超过阈值，将直接覆盖其他判断，
+                      生成 '先知入场' 信号类型，确保神谕的绝对执行力。
         """
-        print("    --- [最高作战指挥部 V518.0 · 赫利俄斯版] 启动...")
+        print("    --- [最高作战指挥部 V519.0 · 神谕之门版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
         df['final_score'] = (df['entry_score'] * confidence_damper)
-        # 确立风险权威：直接使用认知层输出的、归一化的最终融合风险分
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
@@ -32,6 +30,13 @@ class JudgmentLayer:
         is_veto_by_alert = df['alert_level'] >= 3
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
+        # [代码新增] “神谕之门”逻辑：赋予“先知入场”神谕最高决策权
+        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.7)
+        predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
+        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert
+        df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
+
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         if is_hard_exit_veto.any():
@@ -56,14 +61,13 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V3.0 · 显影版】生成人类可读的信号摘要。
-        - 核心修复: 修复了“隐形墨水”BUG。在处理风险分数时，引入1000的缩放因子，
-                      确保0-1之间的浮点数风险能被正确转换为整数并显示在报告中。
+        【V3.1 · 先知入场版】生成人类可读的信号摘要。
+        - 核心升级: 能够识别并正确格式化“先知入场”等 process 类型的信号，
+                      通过应用缩放因子，确保其在最终报告中的可读性。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        # 增加 scale_factor 参数，用于缩放分数
-        def process_details_df(details_df, scale_factor=1.0):
+        def process_details_df(details_df, is_risk_df=False):
             if details_df.empty:
                 return pd.Series(dtype=object)
             
@@ -77,17 +81,26 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # 在转换为整数前，应用缩放因子
+            # 增加一个函数来决定缩放因子
+            def get_scale_factor(signal_name):
+                signal_meta = score_map.get(signal_name, {})
+                # 对 risk 类型和 process 类型都应用1000的缩放，以增强可读性
+                if signal_meta.get('type') == 'risk' or signal_meta.get('type') == 'process':
+                    return 1000.0
+                return 1.0
+
+            long_df['scale_factor'] = long_df['signal'].apply(get_scale_factor)
+            
             long_df['summary_dict'] = long_df.apply(
-                lambda row: {'name': row['cn_name'], 'score': int(row['score'] * scale_factor)},
+                lambda row: {'name': row['cn_name'], 'score': int(row['score'] * row['scale_factor'])},
                 axis=1
             )
             
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
-        # 对进攻项使用默认缩放因子1.0，对风险项使用1000.0
         offense_summaries = process_details_df(score_details_df)
-        risk_summaries = process_details_df(risk_details_df, scale_factor=1000.0)
+        # risk_details_df 中的信号类型都是 'risk'，所以其处理逻辑保持不变
+        risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
 
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
         

@@ -168,6 +168,12 @@
             "euphoria": 0.2,
             "volume": 0.4,
             "kline": 0.4
+        },
+         "capitulation_reversal_weights": {
+            "description": "【入场神谕】恐慌投降反转三位一体融合权重",
+            "panic": 0.4,
+            "exhaustion": 0.3,
+            "reversal": 0.3
         }
       },
       "judgment_day_params": {

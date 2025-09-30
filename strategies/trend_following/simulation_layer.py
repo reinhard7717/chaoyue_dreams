@@ -14,11 +14,9 @@ class SimulationLayer:
 
     def run_position_management_simulation(self):
         """
-        【V511.0 · 先知执行者版】
-        - 核心升级: 新增对“先知”预警的最高优先级处理。
-        - 核心逻辑: 在持仓状态下，如果T-1日收到了“先知”发出的高潮衰竭警报，
-                      则在T日开盘时立即执行清仓，并标记为 'PROPHET_EXIT'。
-        - 收益: 首次实现了基于T+1预测的风险规避，将系统从“诊断者”进化为“预测者”。
+        【V514.0 · 神谕之门版】
+        - 核心升级: 新增对“先知入场”信号的识别和执行能力。
+        - 核心逻辑: 将 '先知入场' 视为最高优先级的入场指令，并为其打上专属的交易动作标签。
         """
         df = self.strategy.df_indicators.copy() 
         if 'open_D' not in df.columns:
@@ -67,7 +65,6 @@ class SimulationLayer:
             else:
                 df.loc[current_date, 'current_profit_loss_pct'] = 0.0
             if in_position:
-                # 检查T-1日的先知警报，以决定是否在T日开盘清仓
                 if i > 0:
                     prev_row = df.iloc[i-1]
                     prev_alert_level = getattr(prev_row, 'alert_level', 0)
@@ -75,8 +72,8 @@ class SimulationLayer:
                     if prev_alert_level == 3 and '先知' in prev_alert_reason:
                         print(f"  -> {current_date.date()}: [先知预警离场] T-1日收到高潮衰竭警报，今日开盘执行清仓。")
                         in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
-                        # 注意：PROPHET_EXIT 需要被添加到 StrategyDailyScore.TradeActionType 枚举中
-                        df.loc[current_date, 'trade_action'] = 'PROPHET_EXIT'
+                        df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_EXIT.value
+                        df.loc[current_date, 'signal_type'] = '先知离场'
                         df.loc[current_date, 'position_size'] = current_position_size
                         df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                         continue
@@ -92,13 +89,20 @@ class SimulationLayer:
                     exit_action = StrategyDailyScore.TradeActionType.RISK_EXIT.value
                     if 'EXIT_PROFIT_PROTECT' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.PROFIT_EXIT.value
                     elif 'EXIT_TREND_BROKEN' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value
+                    elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value
                     in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = exit_action
+                    if exit_action == StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value:
+                        df.loc[current_date, 'signal_type'] = '趋势破位离场'
+                    elif exit_action == StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value:
+                        df.loc[current_date, 'signal_type'] = '战略失效离场'
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
-                is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
-                if pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count:
+                # 允许在持仓时，根据“先知入场”信号进行加仓
+                is_pyramid_allowed = pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count
+                is_prophet_pyramid = pyramiding_enabled and current_signal_type == '先知入场' and is_profitable and pyramid_count < max_pyramid_count
+                if is_pyramid_allowed or is_prophet_pyramid:
                     add_amount = 1.0 * add_size_ratio
                     old_total_cost = current_position_size * actual_entry_price
                     new_total_size = current_position_size + add_amount
@@ -121,7 +125,8 @@ class SimulationLayer:
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
             else:
-                if row.signal_entry:
+                # 将 '先知入场' 加入入场条件判断
+                if row.signal_entry or current_signal_type == '先知入场':
                     t_plus_1_open = pd.NA
                     if i + 1 < len(df):
                         next_day_index = df.index[i + 1]
@@ -149,7 +154,11 @@ class SimulationLayer:
                                         stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                                 else:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
-                            df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
+                            # 为“先知入场”打上专属的交易动作标签
+                            if current_signal_type == '先知入场':
+                                df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_ENTRY.value
+                            else:
+                                df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.INITIAL_ENTRY.value
                     else:
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.NO_SIGNAL.value
                 else:
