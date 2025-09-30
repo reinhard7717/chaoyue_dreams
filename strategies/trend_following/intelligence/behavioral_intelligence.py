@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
+from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores, calculate_holographic_dynamics
 
 class BehavioralIntelligence:
@@ -14,6 +15,7 @@ class BehavioralIntelligence:
         self.strategy = strategy_instance
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
+        self.tactic_engine = TacticEngine(strategy_instance)
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
@@ -493,27 +495,23 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_rebound_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 冥河之渡版】原子级“史诗探底回升”诊断引擎
-        - 核心革命: “绝望背景”支柱升级为多周期、带权重的立体化模型，能够感知不同层次的绝望。
-        - 架构升级: 复杂的“绝望背景”计算逻辑被封装到全新的 `_calculate_despair_context_score` 方法中。
-        - 收益: 对绝望的理解从“点”升级为“体”，极大增强了对复杂市场环境的适应性。
+        【V2.2 · 帝国统一版】原子级“史诗探底回升”诊断引擎
+        - 核心升级: 不再使用内部的、分裂的方法，而是通过外交关系调用 TacticEngine 中唯一的、
+                      正统的 calculate_structural_test_score 方法。
         """
         states = {}
         p_rebound = get_params_block(self.strategy, 'panic_selling_setup_params', {})
 
-        # --- 支柱一: 调用全新的“冥河之渡”引擎计算多维绝望背景分 ---
         despair_context_score = self._calculate_despair_context_score(df, p_rebound)
 
-        # --- 支柱二: 结构测试 (调用“绝对领域”引擎，保持不变) ---
-        structural_test_score = self._calculate_structural_test_score(df, p_rebound)
+        # 调用 TacticEngine 的正统方法
+        structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_rebound)
 
-        # --- 支柱三: 当日确认 (确认今日K线收盘企稳，保持不变) ---
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
         is_recovering_today = (df['pct_change_D'] > -0.01).astype(float)
         confirmation_score = (close_position_in_range * is_recovering_today)
 
-        # --- 最终融合: 三者皆备，方为有效的探底回升 ---
         rebound_reversal_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
         
         states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
@@ -568,16 +566,12 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_continuation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 奥林匹斯熔炉版】原子级“延续性反转”诊断引擎
-        - 核心革命: 彻底废除简陋的“生命线测试”逻辑，直接调用完整的“绝对领域”引擎
-                      (`_calculate_structural_test_score`)作为第二支柱。
-        - 新核心逻辑: 延续性反转 = 上升趋势确认 × 全功能结构测试 × 反转姿态确认
-        - 收益: 赋予了延续性反转引擎与史诗级反转引擎同等级别的、最强大的结构感知能力。
+        【V1.2 · 帝国统一版】原子级“延续性反转”诊断引擎
+        - 核心升级: 通过外交关系调用 TacticEngine 中唯一的、正统的 calculate_structural_test_score 方法。
         """
         states = {}
         p_continuation = get_params_block(self.strategy, 'continuation_reversal_params', {})
         
-        # --- 支柱一: 上升趋势确认 (Uptrend Context) ---
         ma_periods = get_param_value(p_continuation.get('ma_periods'), [5, 13, 21, 55])
         uptrending_ma_count = pd.Series(0, index=df.index)
         for p in ma_periods:
@@ -586,99 +580,17 @@ class BehavioralIntelligence:
                 uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
         trend_alignment_score = uptrending_ma_count / len(ma_periods)
 
-        # --- 支柱二: 全功能结构测试 (Full-featured Structural Test) ---
-        # 废除之前简陋的、只包含均线的测试逻辑。
-        # 直接调用与“史诗反转”引擎同源的、最强大的“绝对领域”引擎。
-        # 这将自动包含对多周期前低、SBC低点的加权、共振测试。
-        structural_test_score = self._calculate_structural_test_score(df, p_continuation)
+        # 调用 TacticEngine 的正统方法
+        structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_continuation)
 
-        # --- 支柱三: 反转姿态确认 (Reversal Posture) ---
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
         confirmation_score = close_position_in_range
 
-        # --- 最终融合 ---
         continuation_reversal_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
         
         states['SCORE_ATOMIC_CONTINUATION_REVERSAL'] = continuation_reversal_score
         return states
-
-    def _calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """
-        【V1.0 · 新增/移植】“绝对领域”结构共振测试引擎 (战神之矛版)
-        - 来源: 从 TacticEngine 完美移植而来，作为“圣物普降”计划的一部分。
-        - 核心职责: 为本模块提供与先知引擎完全一致的、最高规格的结构测试能力。
-        """
-        # --- 步骤 1: 获取参数，定义支撑矩阵 ---
-        support_periods = get_param_value(params.get('support_lookback_periods'), [5, 10, 21, 55])
-        period_weights = get_param_value(params.get('support_period_weights'), {5: 0.6, 10: 0.8, 21: 1.0, 55: 1.2, 'sbc': 1.5})
-        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.01)
-        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.2)
-        sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05)
-
-        # 锻造“战神之矛”：识别并追踪“重要看涨K线”的低点
-        is_sbc = (df['pct_change_D'] > sbc_threshold_pct) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
-        recent_sbc_low = df['low_D'].where(is_sbc).ffill()
-
-        # 将“战神之矛”加入支撑矩阵
-        support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 10, 21]}
-        for p in support_periods:
-            support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
-        support_levels['RecentSBCLow'] = recent_sbc_low.shift(1)
-
-        valid_supports = {k: v for k, v in support_levels.items() if v is not None and not v.empty}
-        if not valid_supports:
-            return pd.Series(0.0, index=df.index)
-        
-        supports_df = pd.concat(valid_supports, axis=1)
-
-        # --- 步骤 2: 计算“结构共振”强度 ---
-        confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
-        for col_i in supports_df.columns:
-            for col_j in supports_df.columns:
-                if col_i == col_j: continue
-                is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
-                confluence_df[col_i] += is_close.astype(float)
-        
-        confluence_bonus_df = 1.0 + (confluence_df - 1) * confluence_bonus_factor
-
-        # --- 步骤 3: 计算所有支撑位的加权、共振调整后的测试分数 ---
-        all_test_scores = []
-        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        atr = df.get('ATR_14_D', day_range)
-
-        for name, support_series in valid_supports.items():
-            if 'SBC' in name:
-                weight = period_weights.get('sbc', 1.5)
-            else:
-                period = int(''.join(filter(str.isdigit, name))) if any(char.isdigit() for char in name) else 21
-                weight = period_weights.get(period, 1.0)
-            
-            confluence_bonus = confluence_bonus_df[name]
-
-            # 3.1 计算“被接住”分数
-            tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
-            distance = (df['low_D'] - support_series).abs()
-            base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
-            weighted_proximity_score = base_proximity_score * weight * confluence_bonus
-            all_test_scores.append(weighted_proximity_score)
-
-            # 3.2 计算“破位收回”分数 (仅对前低和SBC低点有效)
-            if 'PrevLow' in name or 'SBC' in name:
-                is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
-                reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
-                base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
-                weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
-                all_test_scores.append(weighted_reclaim_score)
-
-        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
-        if not all_test_scores:
-            return pd.Series(0.0, index=df.index)
-            
-        final_score_matrix = pd.concat(all_test_scores, axis=1)
-        final_structural_test_score = final_score_matrix.max(axis=1, skipna=True).fillna(0.0)
-        
-        return final_structural_test_score.clip(0, 1)
 
 
 

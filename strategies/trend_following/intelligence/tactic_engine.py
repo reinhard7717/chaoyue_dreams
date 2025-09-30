@@ -221,33 +221,31 @@ class TacticEngine:
         
         return states
 
-    def _calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
+    def calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.1 · 战神之矛版】“绝对领域”结构共振测试引擎
-        - 核心革命: 引入“战神之矛”——重要看涨K线(SBC)的低点，作为最高权重的支撑。
-        - 核心逻辑: 1. 识别并追踪近期所有SBC低点。
-                      2. 在支撑矩阵中赋予SBC低点最高权重。
-                      3. 当SBC低点与其他支撑形成共振时，提供巨额奖励。
-        - 收益: 能够精准识别对主力进攻成本线的关键测试，极大提升信号的战略价值。
+        【V2.2 · 赫菲斯托斯力场版】“绝对领域”结构共振测试引擎
+        - 核心革命: 遵照指挥官的最终指令，将核心哲学从“刚性线条”升级为“弹性区域”。
+        - 核心逻辑:
+          1. [弹性区域] 每个支撑点不再是线，而是由 support_tolerance_pct 定义的“支撑区域”。
+          2. [引力场计分] 使用高斯函数模拟支撑区域的“引力场”，当日最低价落入场内即可得分，越近分越高。
+          3. [力场共振] 当多个支撑区域重叠时，通过 confluence_bonus_factor 实现力场共振，分数急剧放大。
+        - 收益: 完美模拟了真实交易中“在支撑区附近获得支撑”的模糊性和弹性，极大提升了模型的实战能力。
         """
         # --- 步骤 1: 获取参数，定义支撑矩阵 ---
-        support_periods = get_param_value(params.get('support_lookback_periods'), [5, 10, 21, 55])
-        # 权重字典增加对'sbc'（战神之矛）的定义，并赋予最高权重
-        period_weights = get_param_value(params.get('support_period_weights'), {5: 0.6, 10: 0.8, 21: 1.0, 55: 1.2, 'sbc': 1.5})
-        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.01)
-        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.2)
-        sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05) # 定义SBC的涨幅阈值
-
-        # [代码新增] 锻造“战神之矛”：识别并追踪“重要看涨K线”的低点
-        is_sbc = (df['pct_change_D'] > sbc_threshold_pct) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
-        # 使用.where(is_sbc)提取SBC日的低点，然后用ffill()向前填充，得到每个交易日看到的、最近的那个SBC低点
+        support_periods = get_param_value(params.get('support_lookback_periods'), [5, 13, 21, 55])
+        period_weights = get_param_value(params.get('support_period_weights'), {5: 0.8, 13: 1.0, 21: 1.2, 55: 1.4, 'sbc': 2.0})
+        # 这个参数是“弹性区域”哲学的核心，它定义了每个支撑区域的半径百分比
+        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.015) # 适当放宽容忍度以形成区域
+        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.3) # 提高共振奖励
+        
+        sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05)
+        is_sbc = df['pct_change_D'] > sbc_threshold_pct
         recent_sbc_low = df['low_D'].where(is_sbc).ffill()
 
-        # 将“战神之矛”加入支撑矩阵
-        support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 10, 21]}
+        support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 13, 21, 55]}
         for p in support_periods:
             support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
-        support_levels['RecentSBCLow'] = recent_sbc_low.shift(1) # 使用shift(1)确保我们测试的是历史结构
+        support_levels['MainForceLifeline'] = recent_sbc_low.shift(1)
 
         valid_supports = {k: v for k, v in support_levels.items() if v is not None and not v.empty}
         if not valid_supports:
@@ -255,48 +253,49 @@ class TacticEngine:
         
         supports_df = pd.concat(valid_supports, axis=1)
 
-        # --- 步骤 2: 计算“结构共振”强度 (逻辑不变) ---
+        # --- 步骤 2: 计算“支撑区域”的共振强度 ---
         confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
         for col_i in supports_df.columns:
             for col_j in supports_df.columns:
                 if col_i == col_j: continue
-                # 增加对NaN的健壮性处理
+                # 判断两个支撑“区域”是否重叠
                 is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
                 confluence_df[col_i] += is_close.astype(float)
         
         confluence_bonus_df = 1.0 + (confluence_df - 1) * confluence_bonus_factor
 
-        # --- 步骤 3: 计算所有支撑位的加权、共振调整后的测试分数 ---
+        # --- 步骤 3: 计算所有支撑“区域”的加权、共振调整后的测试分数 ---
         all_test_scores = []
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        atr = df.get('ATR_14_D', day_range)
 
         for name, support_series in valid_supports.items():
-            # 升级权重获取逻辑，以兼容'sbc'等非数字键
-            if 'SBC' in name:
-                weight = period_weights.get('sbc', 1.5)
+            if 'MainForceLifeline' in name:
+                weight = period_weights.get('sbc', 2.0)
             else:
-                period = int(''.join(filter(str.isdigit, name))) if any(char.isdigit() for char in name) else 21
+                period_str = ''.join(filter(str.isdigit, name))
+                period = int(period_str) if period_str else 21
                 weight = period_weights.get(period, 1.0)
             
             confluence_bonus = confluence_bonus_df[name]
 
-            # 3.1 计算“被接住”分数
+            # 明确将 tolerance_buffer 定义为支撑“区域”的半径
             tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
             distance = (df['low_D'] - support_series).abs()
+            
+            # 使用高斯函数计算“引力分数”，实现对支撑“区域”的弹性测试
+            # 只要 low_D 进入了支撑区域的引力场，就能获得分数，无需精确触碰
             base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
             weighted_proximity_score = base_proximity_score * weight * confluence_bonus
             all_test_scores.append(weighted_proximity_score)
 
-            # 3.2 计算“破位收回”分数 (仅对前低和SBC低点有效)
-            if 'PrevLow' in name or 'SBC' in name:
+            if 'PrevLow' in name or 'MainForceLifeline' in name:
                 is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
                 reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
                 base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
                 weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
                 all_test_scores.append(weighted_reclaim_score)
 
-        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 (逻辑不变) ---
+        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
         if not all_test_scores:
             return pd.Series(0.0, index=df.index)
             

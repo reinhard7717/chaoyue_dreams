@@ -161,8 +161,10 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.3 · 先知计划版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 引入最高优先级的“预测性风险”，一旦触发，直接发布最高警报。
+        【V2.5 · 雅典娜的精准版】风险裁决者 (Risk Adjudicator)
+        - 核心升级: 采纳指挥官的精准洞察，将“先知离场”的上下文过滤器从宽泛的 EMA55 收紧为严格的 EMA5。
+        - 核心逻辑: 仅当股价处于短期强势（收盘价 > EMA5）时，才允许“高潮衰竭”风险触发。
+                      这彻底解决了在“下跌中继”状态下，因成交量放大而错误触发顶部风险的致命缺陷。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -178,10 +180,8 @@ class JudgmentLayer:
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores)
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
-        # 从 judgment_params 中获取参数
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
-        # 获取先知引擎的预测风险和阈值
         predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
         prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
         level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
@@ -189,15 +189,17 @@ class JudgmentLayer:
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
         level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
-        # 将先知神谕的判断条件置于最高优先级
+        
+        # 将上下文过滤器从 EMA_55_D 升级为更精准的 EMA_5_D
+        is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
+        
         conditions = [
-            predictive_exhaustion_risk > prophet_threshold,
+            (predictive_exhaustion_risk > prophet_threshold) & is_uptrend_context,
             fused_risks_df['ARCHANGEL_RISK'] > level_3_archangel_threshold,
             fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
             (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
             fused_risks_df['MICRO_RISK'] > level_1_threshold,
         ]
-        # 增加先知神谕对应的警报等级和原因
         choices_level = [3, 3, 3, 2, 1]
         choices_reason = [
             '红色警报: 先知-高潮衰竭',
