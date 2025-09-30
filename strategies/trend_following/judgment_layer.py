@@ -77,10 +77,9 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.5 · 绝对过滤版】生成人类可读的信号摘要。
-        - 核心升级: 升级了过滤逻辑，确保只有在最终报告中显示为非零的信号才被记录。
-        - 核心法则: 风险信号的过滤标准从 score > 0 升级为 (score * 1000).astype(int) > 0。
-        - 收益: 彻底杜绝了因浮点数精度问题导致的“幽灵信号”（显示为0分的激活项）。
+        【V3.6 · 赫尔墨斯净化版】生成人类可读的信号摘要。
+        - 核心加固: 在进行 astype(int) 转换前，强制使用 .fillna(0) 对分数进行净化。
+        - 收益: 彻底解决了因上游信号出现 NaN 值而导致的 IntCastingNaNError 运行时崩溃问题，极大提升了报告系统的健壮性。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
@@ -88,13 +87,12 @@ class JudgmentLayer:
             if details_df.empty: return pd.Series(dtype=object)
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             
-            # 升级过滤逻辑，确保只有最终显示为非零的信号才被包含
             if not is_risk_df:
-                # 对于进攻项，最终显示为 int(score)，所以按此过滤
-                long_df = long_df[long_df['score'].astype(int) != 0].copy()
+                # [代码修改] 在进行类型转换前，使用 .fillna(0) 净化数据，彻底杜绝因 NaN 值导致的 IntCastingNaNError。
+                long_df = long_df[long_df['score'].fillna(0).astype(int) != 0].copy()
             else:
-                # 对于风险项，最终显示为 int(score * 1000)，所以按此过滤
-                long_df = long_df[(long_df['score'] * 1000).astype(int) > 0].copy()
+                # [代码修改] 对风险信号也应用同样的净化逻辑，确保系统的绝对稳定。
+                long_df = long_df[(long_df['score'].fillna(0) * 1000).astype(int) > 0].copy()
 
             if long_df.empty: return pd.Series(dtype=object)
             date_col_name = long_df.columns[0]
