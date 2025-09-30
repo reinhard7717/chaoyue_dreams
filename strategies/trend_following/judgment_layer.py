@@ -40,16 +40,17 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 重构决策优先级
+        # [代码修改] 重构决策优先级，颁布“教皇敕令”
         # 准备所有判断条件
         is_not_hard_exit = ~is_hard_exit_veto
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         
-        # 决策优先级 1: 先知入场
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.04)
+        # 决策优先级 1: 先知入场 (拥有最高权威，无视常规风险否决)
+        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6) # 阈值可以根据新模型适当调整
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
-        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
+        # [代码修改] 移除了 `& ~is_veto_by_alert`，赋予神谕无上权力
+        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & is_not_hard_exit
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         df.loc[is_prophet_entry, 'final_score'] = 0 # 教皇敕令：神谕降临之日，凡人的分数皆为虚无
 
