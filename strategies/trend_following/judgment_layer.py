@@ -11,11 +11,10 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V521.0 · 净化法典版】
-        - 核心修正: “先知入场”信号不再修改 `final_score`。它现在是一个纯粹的、高优先级的决策动作，
-                      其触发完全独立于常规的得分体系，确保了 `final_score` 的纯净性。
+        【V522.0 · 最后的敕令版】
+        - 核心升级: 在调用史官(_get_human_readable_summary)时，授予其“阅读圣旨”(df['signal_type'])的权力。
         """
-        print("    --- [最高作战指挥部 V521.0 · 净化法典版] 启动...")
+        print("    --- [最高作战指挥部 V522.0 · 最后的敕令版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -28,7 +27,7 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
 
-        # 步骤一：首先处理拥有最高否决权的硬性离场信号
+        # 步骤一：硬性离场信号拥有最高否决权
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
@@ -38,9 +37,8 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 步骤二：在没有硬性离场的前提下，再进行进攻决策
+        # 步骤二：在没有硬性离场的前提下，进行进攻决策
         is_not_hard_exit = ~is_hard_exit_veto
-
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         
@@ -51,7 +49,6 @@ class JudgmentLayer:
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
         
-        # “先知入场”现在是一个纯粹的决策动作，它只改变 signal_type，不再污染 final_score。
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
 
         # 步骤三：最后处理风险否决
@@ -59,7 +56,8 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
         
-        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
+        # [代码修改] 调用被授予“阅读圣旨”权力的新版史官
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
@@ -70,62 +68,51 @@ class JudgmentLayer:
         # [代码删除] 整个方法的内容都被删除，只留下废除声明
         return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
 
-    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
+    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.2 · 书记官的清醒剂版】生成人类可读的信号摘要。
-        - 核心修复: 彻底修复了“双重计分”的灾难性BUG。
-        - 核心逻辑: 1. 明确区分进攻项和风险项的处理逻辑。
-                      2. 进攻项分数(score_details_df)已被加权，只取整，不再缩放。
-                      3. 风险项分数(risk_details_df)是原始[0,1]值，继续应用1000倍缩放以保证可读性。
+        【V3.3 · 最后的敕令版】生成人类可读的信号摘要。
+        - 核心革命: 史官被授予“阅读圣旨”(signal_type_series)的权力。
+        - 核心法则: 只有当天的最终信号是“买入信号”时，才记录进攻项细节。对于“先知入场”等所有其他信号，进攻项列表必须为空。
+        - 收益: 彻底根除战报污染，确保历史记录的纯净与真实。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        # 重构辅助函数，增加 is_risk_df 标志以区分处理逻辑
         def process_details_df(details_df, is_risk_df=False):
-            if details_df.empty:
-                return pd.Series(dtype=object)
-            
+            if details_df.empty: return pd.Series(dtype=object)
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            # 对于进攻项，允许负分（惩罚项）存在
-            if not is_risk_df:
-                long_df = long_df[long_df['score'] != 0].copy()
-            else:
-                long_df = long_df[long_df['score'] > 0].copy()
-
-            if long_df.empty:
-                return pd.Series(dtype=object)
-
+            if not is_risk_df: long_df = long_df[long_df['score'] != 0].copy()
+            else: long_df = long_df[long_df['score'] > 0].copy()
+            if long_df.empty: return pd.Series(dtype=object)
             date_col_name = long_df.columns[0]
-            
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
-            
-            # 核心修复：根据 is_risk_df 标志决定是否应用缩放
             if is_risk_df:
-                # 风险项：应用1000倍缩放
-                long_df['summary_dict'] = long_df.apply(
-                    lambda row: {'name': row['cn_name'], 'score': int(row['score'] * 1000.0)},
-                    axis=1
-                )
+                long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': int(row['score'] * 1000.0)}, axis=1)
             else:
-                # 进攻项：分数已被加权，直接取整，不再缩放！
-                long_df['summary_dict'] = long_df.apply(
-                    lambda row: {'name': row['cn_name'], 'score': int(row['score'])},
-                    axis=1
-                )
-            
+                long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': int(row['score'])}, axis=1)
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
-        # 调用辅助函数时，明确传递标志
         offense_summaries = process_details_df(score_details_df, is_risk_df=False)
         risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
 
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
         
-        return summary_df.apply(
-            lambda row: {'offense': row['offense'] if isinstance(row['offense'], list) else [], 'risk': row['risk'] if isinstance(row['risk'], list) else []},
-            axis=1
-        )
+        # [代码新增] 颁布并执行“最后的敕令”
+        def generate_final_summary(row):
+            # 检查当天的“圣旨”（最终信号类型）
+            final_signal_type = signal_type_series.get(row.name)
+            
+            # 法则一：只有当信号是“买入信号”时，才记录进攻项。
+            if final_signal_type == '买入信号':
+                offense_list = row['offense'] if isinstance(row['offense'], list) else []
+            else:
+                # 法则二：对于所有其他信号，进攻项列表必须为空。
+                offense_list = []
+            
+            risk_list = row['risk'] if isinstance(row['risk'], list) else []
+            return {'offense': offense_list, 'risk': risk_list}
+
+        return summary_df.apply(generate_final_summary, axis=1)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
