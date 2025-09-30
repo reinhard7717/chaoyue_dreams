@@ -56,7 +56,7 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
         
-        # [代码修改] 调用被授予“阅读圣旨”权力的新版史官
+        # 调用被授予“阅读圣旨”权力的新版史官
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
@@ -138,13 +138,18 @@ class JudgmentLayer:
 
     def _finalize_signals(self):
         """
-        【V404.3 清理与对齐版】
+        【V522.0 · 统一号令版】
+        - 核心革命: 重建指挥链。signal_entry 成为所有入场信号的唯一官方旗帜。
+        - 核心逻辑: 无论是“买入信号”还是“先知入场”，都会将 signal_entry 设置为 True。
+        - 收益: 为下游的 simulation_layer 提供了单一、明确的建仓指令。
         """
         df = self.strategy.df_indicators
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
         
-        final_buy_condition = df['signal_type'] == '买入信号'
+        # 统一号令：任何一种入场信号，都必须升起'signal_entry'旗帜。
+        final_buy_condition = (df['signal_type'] == '买入信号') | (df['signal_type'] == '先知入场')
+        
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
 

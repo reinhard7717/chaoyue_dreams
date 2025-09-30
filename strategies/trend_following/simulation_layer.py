@@ -14,9 +14,11 @@ class SimulationLayer:
 
     def run_position_management_simulation(self):
         """
-        【V514.1 · 逻辑链修复版】
-        - 核心修复: 修复了因遗漏 is_profitable 定义而导致的 NameError 崩溃问题。
-        - 核心逻辑: 在执行金字塔加仓判断前，明确计算当前的盈利状态。
+        【V515.0 · 统一号令版】
+        - 核心革命: 执行层绝对服从。建仓逻辑只依赖唯一的官方旗帜 signal_entry。
+        - 核心逻辑: 将复杂的建仓判断 `if row.signal_entry or current_signal_type == '先知入场'`
+                      简化为绝对服从的 `if row.signal_entry:`。
+        - 收益: 彻底消除了指令源的混乱，确保了交易执行的精确性和一致性。
         """
         df = self.strategy.df_indicators.copy() 
         if 'open_D' not in df.columns:
@@ -99,13 +101,9 @@ class SimulationLayer:
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
-                
-                # [代码新增] 修复逻辑断点：在加仓判断前，必须先定义 is_profitable。
                 is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
-                
                 is_pyramid_allowed = pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count
-                is_prophet_pyramid = pyramiding_enabled and current_signal_type == '先知入场' and is_profitable and pyramid_count < max_pyramid_count
-                if is_pyramid_allowed or is_prophet_pyramid:
+                if is_pyramid_allowed: # 简化金字塔加仓的判断，因为先知入场现在也会设置 signal_entry
                     add_amount = 1.0 * add_size_ratio
                     old_total_cost = current_position_size * actual_entry_price
                     new_total_size = current_position_size + add_amount
@@ -128,7 +126,8 @@ class SimulationLayer:
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
             else:
-                if row.signal_entry or current_signal_type == '先知入场':
+                # 绝对服从：建仓逻辑只依赖唯一的官方旗帜 signal_entry
+                if row.signal_entry:
                     t_plus_1_open = pd.NA
                     if i + 1 < len(df):
                         next_day_index = df.index[i + 1]
@@ -156,6 +155,7 @@ class SimulationLayer:
                                         stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                                 else:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
+                            # 内部根据信号类型记录不同的入场动作，但不影响执行
                             if current_signal_type == '先知入场':
                                 df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_ENTRY.value
                             else:
