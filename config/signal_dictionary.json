@@ -55,8 +55,7 @@
         "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
             "cn_name": "【先知】恐慌投降反转",
             "category": "预测层-机会",
-            "type": "process",
-            "score": 300,
+            "type": "predictive",
             "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
@@ -342,10 +341,12 @@
         },
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
         "SCORE_SETUP_PANIC_SELLING": {
-            "cn_name": "【战法】恐慌抛售",
+            "cn_name": "【战法】恐慌抛售备战",
             "category": "战法-环境",
-            "type": "context",
-            "description": "融合价格大幅下跌、成交量放大、筹码结构崩溃三大特征，识别出适合V型反转的“恐慌抛售日”战备状态。"
+            "type": "process",
+            "score": 300,
+            "scoring_mode": "unipolar",
+            "description": "【先知的低语】融合价格大幅下跌、成交量放大、筹码结构崩溃等特征，识别出适合V型反转的“恐慌抛售日”战备状态，为常规信号提供加分。"
         },
         "SCORE_PLAYBOOK_V_REVERSAL_ACE": {
             "cn_name": "【战法】V型反转王牌",
