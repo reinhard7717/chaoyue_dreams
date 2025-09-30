@@ -223,20 +223,18 @@ class TacticEngine:
 
     def calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V2.2 · 赫菲斯托斯力场版】“绝对领域”结构共振测试引擎
-        - 核心革命: 遵照指挥官的最终指令，将核心哲学从“刚性线条”升级为“弹性区域”。
+        【V2.3 · 宇宙之网版】“绝对领域”结构共振测试引擎
+        - 核心革命: 遵照指挥官的最终统一思想，将“破位收回”(Spring)逻辑无差别地应用于所有支撑类型，包括MA线。
         - 核心逻辑:
-          1. [弹性区域] 每个支撑点不再是线，而是由 support_tolerance_pct 定义的“支撑区域”。
-          2. [引力场计分] 使用高斯函数模拟支撑区域的“引力场”，当日最低价落入场内即可得分，越近分越高。
-          3. [力场共振] 当多个支撑区域重叠时，通过 confluence_bonus_factor 实现力场共振，分数急剧放大。
-        - 收益: 完美模拟了真实交易中“在支撑区附近获得支撑”的模糊性和弹性，极大提升了模型的实战能力。
+          1. [普遍适用] “被接住”(Proximity)和“破位收回”(Spring)两种测试逻辑，现在平等地应用于MA线、前低和主力生命线。
+          2. [哲学统一] 任何支撑都不仅仅是线或区域，更是一个动态的战场。被刺穿后的收复行为，普遍被视为多头反击的信号。
+        - 收益: 系统的支撑体系实现了最终的逻辑自洽和哲学完备，能够捕捉到如“跌破MA5后收回”等关键的战术信号。
         """
-        # --- 步骤 1: 获取参数，定义支撑矩阵 ---
+        # --- 步骤 1: 获取参数，定义支撑矩阵 (逻辑不变) ---
         support_periods = get_param_value(params.get('support_lookback_periods'), [5, 13, 21, 55])
         period_weights = get_param_value(params.get('support_period_weights'), {5: 0.8, 13: 1.0, 21: 1.2, 55: 1.4, 'sbc': 2.0})
-        # 这个参数是“弹性区域”哲学的核心，它定义了每个支撑区域的半径百分比
-        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.015) # 适当放宽容忍度以形成区域
-        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.3) # 提高共振奖励
+        support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.015)
+        confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.3)
         
         sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05)
         is_sbc = df['pct_change_D'] > sbc_threshold_pct
@@ -253,12 +251,11 @@ class TacticEngine:
         
         supports_df = pd.concat(valid_supports, axis=1)
 
-        # --- 步骤 2: 计算“支撑区域”的共振强度 ---
+        # --- 步骤 2: 计算“支撑区域”的共振强度 (逻辑不变) ---
         confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
         for col_i in supports_df.columns:
             for col_j in supports_df.columns:
                 if col_i == col_j: continue
-                # 判断两个支撑“区域”是否重叠
                 is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
                 confluence_df[col_i] += is_close.astype(float)
         
@@ -278,24 +275,22 @@ class TacticEngine:
             
             confluence_bonus = confluence_bonus_df[name]
 
-            # 明确将 tolerance_buffer 定义为支撑“区域”的半径
+            # 3.1 计算“被接住”分数 (Proximity Score) - 普遍适用
             tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
             distance = (df['low_D'] - support_series).abs()
-            
-            # 使用高斯函数计算“引力分数”，实现对支撑“区域”的弹性测试
-            # 只要 low_D 进入了支撑区域的引力场，就能获得分数，无需精确触碰
             base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
             weighted_proximity_score = base_proximity_score * weight * confluence_bonus
             all_test_scores.append(weighted_proximity_score)
 
-            if 'PrevLow' in name or 'MainForceLifeline' in name:
-                is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
-                reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
-                base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
-                weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
-                all_test_scores.append(weighted_reclaim_score)
+            # [代码修改] 移除所有限制，将“破位收回”逻辑普遍应用于所有支撑类型
+            # 无论是MA线、前低还是主力生命线，跌破后收回都是一个强烈的看涨信号
+            is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
+            reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)
+            base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
+            weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
+            all_test_scores.append(weighted_reclaim_score)
 
-        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
+        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 (逻辑不变) ---
         if not all_test_scores:
             return pd.Series(0.0, index=df.index)
             
