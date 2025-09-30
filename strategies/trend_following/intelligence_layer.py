@@ -758,7 +758,7 @@ class IntelligenceLayer:
         print(f"      - [探针重算] 绝望背景分: {despair_context_score_recalc:.4f}")
 
         # [代码新增] 支柱五: 结构支撑测试
-        structural_test_score_recalc = tactic_engine_probe._calculate_structural_test_score(df, p_panic).get(probe_date, 0.0)
+        structural_test_score_recalc = tactic_engine_probe.calculate_structural_test_score(df, p_panic).get(probe_date, 0.0)
         print(f"    --- 支柱五: 结构支撑测试 ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
