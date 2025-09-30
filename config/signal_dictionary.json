@@ -65,6 +65,7 @@
             "category": "过程层-基础",
             "type": "process",
             "score": 100,
+            "scoring_mode": "unipolar",
             "description": "诊断'价格-成交量'关系是否出现看涨拐点。"
         },
         "PROCESS_META_PF_REL_BULLISH_TURN": {
@@ -72,6 +73,7 @@
             "category": "过程层-基础",
             "type": "process",
             "score": 120,
+            "scoring_mode": "unipolar",
             "description": "诊断'价格-资金流'关系是否出现看涨拐点。"
         },
         "PROCESS_META_PC_REL_BULLISH_TURN": {
@@ -79,20 +81,23 @@
             "category": "过程层-基础",
             "type": "process",
             "score": 150,
+            "scoring_mode": "unipolar",
             "description": "诊断'价格-筹码集中度'关系是否出现看涨拐点。"
         },
         "PROCESS_META_PRICE_VS_RETAIL_PANIC": {
-            "cn_name": "【过程】散户恐慌投降",
+            "cn_name": "【过程】价与散户恐慌",
             "category": "过程层-基础",
             "type": "process",
             "score": 180,
-            "description": "诊断是否出现'散户恐慌投降'的底部特征。"
+            "scoring_mode": "unipolar",
+            "description": "诊断是否出现'价格下跌与散户恐慌指数上升'的背离，是底部特征之一。"
         },
         "PROCESS_META_PE_EFFICIENCY_TURN": {
             "cn_name": "【过程】VPA效率看涨拐点",
             "category": "过程层-基础",
             "type": "process",
             "score": 80,
+            "scoring_mode": "unipolar",
             "description": "诊断'价格-VPA效率'关系是否出现看涨拐点。"
         },
         "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
@@ -100,6 +105,7 @@
             "category": "过程层-基础",
             "type": "process",
             "score": 160,
+            "scoring_mode": "unipolar",
             "description": "诊断'价格-主力散户行为背离'关系。"
         },
         "PROCESS_META_POWER_TRANSFER": {
@@ -124,7 +130,7 @@
             "description": "【事件型】获利盘拒绝出售，预期更高价格的过程。只应有加分。"
         },
         "PROCESS_META_LOSER_CAPITULATION": {
-            "cn_name": "【过程】散户恐慌投降",
+            "cn_name": "【过程】输家投降仪式",
             "type": "process",
             "score": 200,
             "scoring_mode": "unipolar",
@@ -135,6 +141,7 @@
             "category": "过程层-战略",
             "type": "process",
             "score": 100,
+            "scoring_mode": "unipolar",
             "description": "诊断'筹码看涨共振'与'行为看涨共振'的同步过程。"
         },
         "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
@@ -142,6 +149,7 @@
             "category": "过程层-战略",
             "type": "process",
             "score": 120,
+            "scoring_mode": "unipolar",
             "description": "诊断'资金流'是否领先于'结构'。"
         },
         "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
@@ -149,6 +157,7 @@
             "category": "过程层-战略",
             "type": "process",
             "score": -100,
+            "scoring_mode": "unipolar",
             "description": "诊断'力学看跌'与'筹码看跌'的共振过程。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
