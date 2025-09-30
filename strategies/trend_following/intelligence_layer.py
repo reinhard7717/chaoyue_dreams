@@ -249,7 +249,7 @@ class IntelligenceLayer:
         df = self.strategy.df_indicators
         
         try:
-            # [代码修改] 修复了越权的指挥链。不再直接调用 self.judgment_layer，
+            # 修复了越权的指挥链。不再直接调用 self.judgment_layer，
             # 而是通过 self.strategy 这个“枢纽”来访问判断层。
             alert_level_series, alert_reason_series, fused_risks_df = self.strategy.judgment_layer._adjudicate_risk_level()
         except Exception as e:

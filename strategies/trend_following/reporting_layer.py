@@ -57,7 +57,7 @@ class ReportingLayer:
         for trade_time, row in signal_days_df.iterrows():
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
             
-            # [代码新增] 为 risk_score 增加 NaN 防护
+            # 为 risk_score 增加 NaN 防护
             risk_score_val = row.get('risk_score', 0.0)
             db_risk_score = risk_score_val * 1000 if pd.notna(risk_score_val) else 0.0
 
@@ -65,7 +65,7 @@ class ReportingLayer:
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
                 entry_score=row.get('entry_score', 0.0), 
-                risk_score=db_risk_score, # [代码修改] 使用经过防护的 risk_score
+                risk_score=db_risk_score, # 使用经过防护的 risk_score
                 final_score=row.get('final_score', 0.0),
                 close_price=row.get('close_D', 0.0)
             )
@@ -81,7 +81,7 @@ class ReportingLayer:
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
             
-            # [代码新增] 为 offensive_score 和 risk_score 增加 NaN 防护
+            # 为 offensive_score 和 risk_score 增加 NaN 防护
             offensive_score_val = row.get('entry_score', 0)
             risk_score_val = row.get('risk_score', 0.0)
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
@@ -89,8 +89,8 @@ class ReportingLayer:
 
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code, trade_date=trade_time.date(), strategy_name=strategy_name,
-                offensive_score=db_offensive_score, # [代码修改] 使用经过防护的 offensive_score
-                risk_score=db_risk_score, # [代码修改] 使用经过防护的 risk_score
+                offensive_score=db_offensive_score, # 使用经过防护的 offensive_score
+                risk_score=db_risk_score, # 使用经过防护的 risk_score
                 final_score=row.get('final_score', 0.0), signal_type=row.get('signal_type', '无信号'),
                 score_details_json=_convert_numpy_types_for_json(row.get('signal_details_cn', {}))
             )
@@ -104,7 +104,7 @@ class ReportingLayer:
                 signal_info = self.score_type_map.get(signal_name, {})
                 score_type = signal_info.get('type', 'unknown')
                 
-                # [代码新增] 为 score_value 增加 NaN 防护
+                # 为 score_value 增加 NaN 防护
                 db_score_value = int(score_value) if pd.notna(score_value) else 0
                 if db_score_value < 0: score_type = 'penalty'
                 
@@ -112,7 +112,7 @@ class ReportingLayer:
                     daily_score=daily_score_obj, 
                     playbook=playbook_obj, 
                     score_type=score_type, 
-                    score_value=db_score_value # [代码修改] 使用经过防护的 score_value
+                    score_value=db_score_value # 使用经过防护的 score_value
                 ))
 
             if not score_details_df.empty and trade_time in score_details_df.index:

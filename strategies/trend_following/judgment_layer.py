@@ -26,7 +26,7 @@ class JudgmentLayer:
         
         df['final_score'] = (df['entry_score'] * confidence_damper)
         
-        # [代码修改] 在计算max后，立即用 .fillna(0.0) 净化，从源头杜绝NaN
+        # 在计算max后，立即用 .fillna(0.0) 净化，从源头杜绝NaN
         df['risk_score'] = fused_risks_df.max(axis=1).fillna(0.0)
 
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
@@ -175,7 +175,7 @@ class JudgmentLayer:
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores)
 
-        # [代码修改] 强制为 fused_risks_df 烙上主时间线的“圣印”，确保索引绝对一致
+        # 强制为 fused_risks_df 烙上主时间线的“圣印”，确保索引绝对一致
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
 
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
