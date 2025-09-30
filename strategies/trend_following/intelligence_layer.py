@@ -187,10 +187,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.7 · 多目标打击版】法医探针调度中心
-        - 核心升级: 1. 配置文件中的 'probe_date' 升级为 'probe_dates'，可以接收一个日期列表。
-                      2. 探针调度中心现在会遍历列表中的所有日期，并对每个日期执行全套探针解剖。
-        - 收益: 极大提升了战役复盘和问题诊断的效率。
+        【V1.8 · 先知探针版】法医探针调度中心
+        - 核心升级: 新增对“先知引擎”的专属解剖探针 `_deploy_prophet_probe`。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -208,7 +206,7 @@ class IntelligenceLayer:
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
             
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.7] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.8] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
 
         # 遍历所有需要探查的日期
         for probe_date_str in probe_dates_list:
@@ -233,9 +231,11 @@ class IntelligenceLayer:
             # 将打印信息移入循环内，指明当前正在解剖的日期
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            self._deploy_genesis_probe(probe_date)
-            self._deploy_turbo_probe(probe_date)
-            self._deploy_judgment_day_probe(probe_date)
+            # self._deploy_genesis_probe(probe_date)
+            # self._deploy_turbo_probe(probe_date)
+            # self._deploy_judgment_day_probe(probe_date)
+            # [代码新增] 调用新增的“先知”专属探针
+            self._deploy_prophet_probe(probe_date)
         
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
@@ -695,6 +695,72 @@ class IntelligenceLayer:
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
+    def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“先知入场神谕”专属法医探针
+        - 核心职责: 深度解剖“恐慌投降反转”机会的计算链路，验证其核心输入“恐慌战备分”的四柱融合逻辑。
+        """
+        print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+
+        # Helper to safely get values
+        def get_val(name, date, default=np.nan):
+            series = atomic.get(name)
+            if series is None:
+                return default
+            return series.get(date, default)
+
+        # --- 链路层 1: 最终预测机会 ---
+        print("\n  [链路层 1] 解剖 -> 最终预测机会 (PREDICTIVE_OPP_CAPITULATION_REVERSAL)")
+        final_opp_score = get_val('PREDICTIVE_OPP_CAPITULATION_REVERSAL', probe_date, 0.0)
+        print(f"    - 【最终预测值】: {final_opp_score:.4f}")
+        print(f"    - [核心公式]: 预测机会 = 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
+
+        # --- 链路层 2: 核心输入 - 恐慌战备分 ---
+        print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
+        panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
+        print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
+        print(f"    - [核心公式]: (价格暴跌 * 成交天量 * 筹码崩溃) * 绝望背景")
+
+        # --- 链路层 3: 钻透恐慌战备分的四大支柱 ---
+        print("\n  [链路层 3] 钻透 -> 四大支柱")
+        
+        # 支柱一: 价格暴跌
+        price_drop_raw = df['pct_change_D'].clip(upper=0).get(probe_date, 0.0)
+        price_drop_score_recalc = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False).get(probe_date, 0.0)
+        print(f"    --- 支柱一: 价格暴跌 ---")
+        print(f"      - 当日跌幅: {price_drop_raw:.2%}")
+        print(f"      - [探针重算] 价格暴跌分: {price_drop_score_recalc:.4f}")
+
+        # 支柱二: 成交天量
+        vol_ma21 = df.get('VOL_MA_21_D', pd.Series(np.nan, index=df.index)).get(probe_date, np.nan)
+        volume_raw = df.get('volume_D', np.nan).get(probe_date, np.nan)
+        volume_ratio_raw = volume_raw / vol_ma21 if pd.notna(volume_raw) and pd.notna(vol_ma21) and vol_ma21 > 0 else 1.0
+        volume_spike_score_recalc = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True).get(probe_date, 0.0)
+        print(f"    --- 支柱二: 成交天量 ---")
+        print(f"      - 当日成交量/21日均量: {volume_ratio_raw:.2f}")
+        print(f"      - [探针重算] 成交天量分: {volume_spike_score_recalc:.4f}")
+
+        # 支柱三: 筹码崩溃
+        from .utils import get_unified_score # 探针内部需要显式导入
+        chip_breakdown_score_recalc = get_unified_score(atomic, df.index, 'CHIP_BEARISH_RESONANCE').get(probe_date, 0.0)
+        print(f"    --- 支柱三: 筹码崩溃 ---")
+        print(f"      - [探针重算] 筹码崩溃分 (SCORE_CHIP_BEARISH_RESONANCE): {chip_breakdown_score_recalc:.4f}")
+
+        # 支柱四: 绝望背景
+        price_pos_yearly_recalc = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5).get(probe_date, 0.5)
+        deep_bottom_context_score_recalc = 1.0 - price_pos_yearly_recalc
+        print(f"    --- 支柱四: 绝望背景 ---")
+        print(f"      - 当日收盘价在年内位置分: {price_pos_yearly_recalc:.4f}")
+        print(f"      - [探针重算] 绝望背景分: {deep_bottom_context_score_recalc:.4f}")
+
+        # --- 链路层 4: 最终验证 ---
+        print("\n  [链路层 4] 最终验证")
+        recalculated_panic_score = (price_drop_score_recalc * volume_spike_score_recalc * chip_breakdown_score_recalc * deep_bottom_context_score_recalc)
+        print(f"    - [探针重算恐慌战备分]: ({price_drop_score_recalc:.4f} * {volume_spike_score_recalc:.4f} * {chip_breakdown_score_recalc:.4f} * {deep_bottom_context_score_recalc:.4f}) = {recalculated_panic_score:.4f}")
+        print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {recalculated_panic_score:.4f}")
+        print("--- 先知入场神谕探针解剖完毕 ---")
 
 
 
