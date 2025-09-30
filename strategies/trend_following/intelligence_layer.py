@@ -240,17 +240,15 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.2 · 枢纽版】审判日引擎法医探针
-        - 核心修复: 修复了因越权指挥导致的“指挥链断裂”问题。现在探针通过最高指挥部枢纽
-                      (self.strategy)来访问 judgment_layer，恢复了正确的调用关系。
+        【V2.3 · 刻耳柏洛斯之镜版】审判日引擎法医探针
+        - 核心革命: 修复了“镜像悖论”。探针的重算逻辑从旧的 max() 升级为与主系统
+                      完全同步的“地狱三头犬”主次风险融合算法，确保了验证的准确性。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         
         try:
-            # 修复了越权的指挥链。不再直接调用 self.judgment_layer，
-            # 而是通过 self.strategy 这个“枢纽”来访问判断层。
             alert_level_series, alert_reason_series, fused_risks_df = self.strategy.judgment_layer._adjudicate_risk_level()
         except Exception as e:
             print(f"  [错误] 在探针内部调用 _adjudicate_risk_level 时发生异常: {e}。解剖终止。")
@@ -286,13 +284,22 @@ class IntelligenceLayer:
             component_scores[name] = score
             print(f"    - {name:<25}: {score:.4f}")
         
-        recalculated_archangel_score = max(component_scores.values()) if component_scores else 0.0
+        # [代码修改] 升级探针的重算逻辑，与“地狱三头犬”算法完全同步
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        p_archangel = p_judge.get('archangel_fusion_params', {})
+        secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
+
+        sorted_scores = sorted(component_scores.values(), reverse=True)
+        primary_risk = sorted_scores[0] if sorted_scores else 0.0
+        secondary_risk = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
+        
+        recalculated_archangel_score = np.clip(primary_risk + (secondary_risk * secondary_risk_discount), 0, 1)
         actual_archangel_score = probe_risk_values.get('ARCHANGEL_RISK', 0.0)
-        print(f"    - [探针重算天使长风险]: max({list(component_scores.values())}) = {recalculated_archangel_score:.4f}")
+        
+        print(f"    - [探针重算天使长风险]: {primary_risk:.4f} (主) + ({secondary_risk:.4f} (次) * {secondary_risk_discount}) = {recalculated_archangel_score:.4f}")
         print(f"    - [对比]: 实际值 {actual_archangel_score:.4f} vs 重算值 {recalculated_archangel_score:.4f}")
 
         print("\n  [链路层 3] 验证 -> 警报等级裁决逻辑")
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
         
         level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
