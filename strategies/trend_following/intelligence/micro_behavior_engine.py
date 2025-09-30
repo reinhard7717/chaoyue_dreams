@@ -261,27 +261,28 @@ class MicroBehaviorEngine:
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
         stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        # [代码删除] 移除了旧的、过于严苛的上下文判断
-        # high_pos_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
-        # was_in_high_position_yesterday = (stretch_from_ma55_score.shift(1) > high_pos_threshold).astype(float)
-        # 步骤 2: 创造“峰值回声”上下文，让顶部记忆持续N天
+        # [代码修改] 创造“峰值回声”上下文，让顶部记忆持续N天
         peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
         recently_at_peak_context = stretch_from_ma55_score.rolling(window=peak_echo_window, min_periods=1).max()
-        # --- 步骤 3: 触发器 - 确认当日正在下跌 ---
+        # --- 步骤 2: 触发器 - 确认当日正在下跌 ---
         is_falling_today = (df['pct_change_D'] < 0).astype(float)
-        # --- 步骤 4: 严重性评估 ---
-        # 4.1 下跌幅度
+        # --- 步骤 3: 严重性评估 ---
+        # 3.1 下跌幅度
         fall_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
         fall_magnitude_score = normalize_score(fall_magnitude, df.index, norm_window, ascending=True)
-        # 4.2 成交量放大
+        # 3.2 成交量放大
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
-        # 4.3 跌破短期均线
+        # [代码修改] 升级为“模拟传感器”，测量跌破深度
+        # 3.3 跌破短期均线 (从数字门到模拟传感器)
         ema5 = df.get('EMA_5_D', df['close_D'])
-        break_ema5_score = (df['close_D'] < ema5).astype(float)
-        # --- 步骤 5: 最终风险裁定 ---
+        # 计算跌破深度百分比，只在跌破时为正
+        breakdown_depth_pct = ((ema5 - df['close_D']) / ema5).clip(lower=0).fillna(0)
+        # 将跌破深度归一化为[0,1]的分数，越深分数越高
+        break_ema5_score = normalize_score(breakdown_depth_pct, df.index, norm_window, ascending=True)
+        # --- 步骤 4: 最终风险裁定 ---
         severity_score = (fall_magnitude_score * volume_spike_score * break_ema5_score)**(1/3)
-        # 使用新的“峰值回声”上下文进行裁定
+        # [代码修改] 使用新的“峰值回声”上下文进行裁定
         final_risk_score = (recently_at_peak_context * is_falling_today * severity_score).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_risk_score
         return states
