@@ -11,34 +11,23 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V516.0 · 独裁者版】
-        - 核心革命: 1. 彻底废除 risk_penalty_score 机制，终结风险系统的“精神分裂”。
-                      2. 授予 ALERT_LEVEL 对风险的绝对裁决权，成为唯一的风险决策依据。
-                      3. final_score 回归其本质，仅衡量进攻机会的强度，不再被风险惩罚污染。
-        - 收益: 建立了统一、高效、绝对的风险指挥体系，决策逻辑无比清晰。
+        【V517.0 · 坚韧版】
+        - 核心加固: 在生成 risk_score 后立即使用 .fillna(0.0) 进行净化，从源头杜绝 NaN 值的产生和向下游扩散。
         """
-        print("    --- [最高作战指挥部 V516.0 · 独裁者版] 启动...")
+        print("    --- [最高作战指挥部 V517.0 · 坚韧版] 启动...")
         df = self.strategy.df_indicators
         
-        # [代码修改] 调用风险裁决者，并接收其返回的“审判庭”融合风险分
-        df['alert_level'], df['alert_reason'], fused_risks = self._adjudicate_risk_level()
+        df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         
-        # [代码删除] 彻底移除旧的风险惩罚计分逻辑
-        # df['risk_penalty_score'], penalty_components_df = self._calculate_risk_penalty_score(risk_details_df)
-        # reportable_risk_df = risk_details_df.copy()
-        # if not penalty_components_df.empty:
-        #     reportable_risk_df.update(penalty_components_df)
-
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
         
-        # [代码修改] final_score 不再减去风险惩罚分，回归纯粹的进攻分
         df['final_score'] = (df['entry_score'] * confidence_damper)
         
-        # [代码新增] 将审判庭的最高风险强度作为新的 risk_score，用于报告和分析
-        df['risk_score'] = fused_risks.max(axis=1)
+        # [代码修改] 在计算max后，立即用 .fillna(0.0) 净化，从源头杜绝NaN
+        df['risk_score'] = fused_risks_df.max(axis=1).fillna(0.0)
 
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
@@ -65,7 +54,6 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
 
-        # [代码修改] 将 risk_details_df 传递给摘要生成函数
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 
