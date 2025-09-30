@@ -240,29 +240,22 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.1 · 时序之链版】审判日引擎法医探针
-        - 核心革命: 修复了“时序悖论”。探针不再被动读取可能不存在的 ALERT_LEVEL，
-                      而是主动调用 _adjudicate_risk_level 方法，为自己独立计算出
-                      probe_date 当天的所有风险裁决结果，成为一个自给自足的“平行宇宙模拟器”。
+        【V2.2 · 枢纽版】审判日引擎法医探针
+        - 核心修复: 修复了因越权指挥导致的“指挥链断裂”问题。现在探针通过最高指挥部枢纽
+                      (self.strategy)来访问 judgment_layer，恢复了正确的调用关系。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         
-        # [代码修改] 探针不再依赖外部计算结果，而是自己独立创世
-        # 它将主动调用风险裁决函数，为自己生成一个用于解剖的“平行宇宙”
         try:
-            alert_level_series, alert_reason_series, fused_risks_df = self.judgment_layer._adjudicate_risk_level()
+            # [代码修改] 修复了越权的指挥链。不再直接调用 self.judgment_layer，
+            # 而是通过 self.strategy 这个“枢纽”来访问判断层。
+            alert_level_series, alert_reason_series, fused_risks_df = self.strategy.judgment_layer._adjudicate_risk_level()
         except Exception as e:
             print(f"  [错误] 在探针内部调用 _adjudicate_risk_level 时发生异常: {e}。解剖终止。")
             return
 
-        # [代码删除] 彻底移除对外部 pre-computed 结果的依赖
-        # if 'ALERT_LEVEL' not in atomic or probe_date not in atomic['ALERT_LEVEL'].index:
-        #     print("  [错误] 无法找到审判日引擎的输出信号。解剖终止。")
-        #     return
-
-        # [代码新增] 从独立计算的结果中提取探针日期的数据
         if probe_date not in alert_level_series.index:
             print(f"  [错误] 探针日期 {probe_date} 不在独立计算的风险结果索引中。解剖终止。")
             return
