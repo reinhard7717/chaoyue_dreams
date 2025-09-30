@@ -61,18 +61,26 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V3.1 · 先知入场版】生成人类可读的信号摘要。
-        - 核心升级: 能够识别并正确格式化“先知入场”等 process 类型的信号，
-                      通过应用缩放因子，确保其在最终报告中的可读性。
+        【V3.2 · 书记官的清醒剂版】生成人类可读的信号摘要。
+        - 核心修复: 彻底修复了“双重计分”的灾难性BUG。
+        - 核心逻辑: 1. 明确区分进攻项和风险项的处理逻辑。
+                      2. 进攻项分数(score_details_df)已被加权，只取整，不再缩放。
+                      3. 风险项分数(risk_details_df)是原始[0,1]值，继续应用1000倍缩放以保证可读性。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
+        # [代码修改] 重构辅助函数，增加 is_risk_df 标志以区分处理逻辑
         def process_details_df(details_df, is_risk_df=False):
             if details_df.empty:
                 return pd.Series(dtype=object)
             
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            long_df = long_df[long_df['score'] > 0].copy()
+            # [代码修改] 对于进攻项，允许负分（惩罚项）存在
+            if not is_risk_df:
+                long_df = long_df[long_df['score'] != 0].copy()
+            else:
+                long_df = long_df[long_df['score'] > 0].copy()
+
             if long_df.empty:
                 return pd.Series(dtype=object)
 
@@ -81,25 +89,24 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # 增加一个函数来决定缩放因子
-            def get_scale_factor(signal_name):
-                signal_meta = score_map.get(signal_name, {})
-                # 对 risk 类型和 process 类型都应用1000的缩放，以增强可读性
-                if signal_meta.get('type') == 'risk' or signal_meta.get('type') == 'process':
-                    return 1000.0
-                return 1.0
-
-            long_df['scale_factor'] = long_df['signal'].apply(get_scale_factor)
-            
-            long_df['summary_dict'] = long_df.apply(
-                lambda row: {'name': row['cn_name'], 'score': int(row['score'] * row['scale_factor'])},
-                axis=1
-            )
+            # [代码修改] 核心修复：根据 is_risk_df 标志决定是否应用缩放
+            if is_risk_df:
+                # 风险项：应用1000倍缩放
+                long_df['summary_dict'] = long_df.apply(
+                    lambda row: {'name': row['cn_name'], 'score': int(row['score'] * 1000.0)},
+                    axis=1
+                )
+            else:
+                # 进攻项：分数已被加权，直接取整，不再缩放！
+                long_df['summary_dict'] = long_df.apply(
+                    lambda row: {'name': row['cn_name'], 'score': int(row['score'])},
+                    axis=1
+                )
             
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
-        offense_summaries = process_details_df(score_details_df)
-        # risk_details_df 中的信号类型都是 'risk'，所以其处理逻辑保持不变
+        # [代码修改] 调用辅助函数时，明确传递标志
+        offense_summaries = process_details_df(score_details_df, is_risk_df=False)
         risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
 
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
