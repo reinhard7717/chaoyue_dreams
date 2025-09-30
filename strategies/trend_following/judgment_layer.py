@@ -11,13 +11,13 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V523.0 · 教皇敕令版】
-        - 核心革命: 建立绝对决策优先级。先知入场拥有最高进攻决策权。
-        - 核心逻辑: 1. 优先判断“先知入场”，一旦触发，立即设置信号并强制将final_score归零。
-                      2. 仅在“先知入场”未触发时，才继续判断常规“买入信号”和“风险否决”。
-        - 收益: 彻底解决了“先知入场”与“买入信号”在同一天触发时的逻辑冲突和分数污染问题。
+        【V524.0 · 先知的敕令版】
+        - 核心革命: 重建决策优先级，授予“先知入场”神谕绝对的、超越一切的最高决策权。
+        - 核心逻辑: 1. 首先判断“先知入场”。一旦触发，它将成为当日唯一且最终的信号。
+                      2. 仅在“先知”沉默时，才继续判断“硬性离场”、“常规买入”和“风险否决”。
+        - 收益: 彻底解决了“先知入场”信号被“硬性离场”错误否决的根本性哲学冲突。
         """
-        print("    --- [最高作战指挥部 V523.0 · 教皇敕令版] 启动...")
+        print("    --- [最高作战指挥部 V524.0 · 先知的敕令版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -30,39 +30,35 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
 
-        # 步骤一：硬性离场信号拥有最高否决权
+        # [代码修改] 彻底重构决策优先级，确立“先知的敕令”
+        
+        # 准备所有判断条件
+        is_score_sufficient = df['final_score'] > final_score_threshold
+        is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
+        
+        # 优先级 1 (最低): 常规买入与风险否决
+        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
+        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
+        alert_veto_condition = is_score_sufficient & is_veto_by_alert
+        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
+        df.loc[alert_veto_condition, 'final_score'] = 0
+
+        # 优先级 2: 硬性离场 (国王的卫队) - 覆盖常规信号
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        
         df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 重构决策优先级，颁布“教皇敕令”
-        # 准备所有判断条件
-        is_not_hard_exit = ~is_hard_exit_veto
-        is_score_sufficient = df['final_score'] > final_score_threshold
-        is_veto_by_alert = df['alert_level'] >= 3
-        
-        # 决策优先级 1: 先知入场 (拥有最高权威，无视常规风险否决)
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6) # 阈值可以根据新模型适当调整
+        # 优先级 3 (最高): 先知入场 (先知的敕令) - 覆盖一切
+        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
-        # 移除了 `& ~is_veto_by_alert`，赋予神谕无上权力
-        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & is_not_hard_exit
+        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
-        df.loc[is_prophet_entry, 'final_score'] = 0 # 教皇敕令：神谕降临之日，凡人的分数皆为虚无
-
-        # 决策优先级 2: 常规买入 (必须在非先知入场日)
-        is_not_prophet_entry = ~is_prophet_entry
-        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_not_hard_exit & is_not_prophet_entry
-        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
-        # 决策优先级 3: 风险否决 (必须在非先知入场日)
-        alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit & is_not_prophet_entry
-        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0
+        df.loc[is_prophet_entry, 'final_score'] = 0 # 神谕降临之日，凡人的分数皆为虚无
         
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
