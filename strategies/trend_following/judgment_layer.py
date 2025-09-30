@@ -142,14 +142,18 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.0 · 独裁者版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 1. 现在是系统中唯一的风险仲裁者。
-                      2. 除了返回警报等级和原因，还返回各“审判庭”的融合风险分，供下游报告层使用。
+        【V2.1 · 天使长版】风险裁决者 (Risk Adjudicator)
+        - 核心升级: 1. 新增“天使长”审判庭，赋予其最高的、绝对的否决权。
+                      2. 只要 SCORE_ARCHANGEL_TOP_REVERSAL 信号强度超过阈值，立即触发最高等级的 Level 3 红色警报。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
         risk_categories = {
+            # [代码新增] 新增“天使长”审判庭，拥有最高优先级
+            'ARCHANGEL_RISK': [
+                'SCORE_ARCHANGEL_TOP_REVERSAL'
+            ],
             'TOP_REVERSAL': [
                 'SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL',
                 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'
@@ -161,7 +165,6 @@ class JudgmentLayer:
             'MICRO_RISK': [
                 'COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'
             ],
-            # [代码新增] 将亢奋加速风险也纳入审判庭
             'EUPHORIA_RISK': [
                 'COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION'
             ]
@@ -172,27 +175,33 @@ class JudgmentLayer:
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores)
 
-        # [代码新增] 将融合后的风险分数打包成DataFrame，用于返回
         fused_risks_df = pd.DataFrame(fused_risks)
 
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
         
+        # [代码新增] 为“天使长”信号设定专属阈值
+        level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
-        # [代码修改] 亢奋风险现在也可能触发橙色警报
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
         level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
 
         conditions = [
+            # [代码修改] 将“天使长”风险置于最高优先级
+            fused_risks_df['ARCHANGEL_RISK'] > level_3_archangel_threshold,
             fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
-            # [代码修改] 增加亢奋风险的判断
             (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
             fused_risks_df['MICRO_RISK'] > level_1_threshold,
         ]
         
-        choices_level = [3, 2, 1]
-        choices_reason = ['红色警报: 顶部反转风险', '橙色警报: 共振或亢奋风险', '黄色警报: 微观结构风险']
+        choices_level = [3, 3, 2, 1] # [代码修改] 天使长风险也触发Level 3
+        choices_reason = [
+            '红色警报: 天使长-明确顶部形态', # [代码修改] 新增天使长警报原因
+            '红色警报: 顶部反转风险', 
+            '橙色警报: 共振或亢奋风险', 
+            '黄色警报: 微观结构风险'
+        ]
         
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
@@ -200,7 +209,6 @@ class JudgmentLayer:
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         self.strategy.atomic_states['ALERT_REASON'] = alert_reason
         
-        # [代码修改] 返回包含各审判庭分数的DataFrame
         return alert_level, alert_reason, fused_risks_df
 
 

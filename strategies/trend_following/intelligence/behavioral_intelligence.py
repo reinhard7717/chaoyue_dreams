@@ -15,35 +15,31 @@ class BehavioralIntelligence:
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
-    def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]: # 修正返回类型注解，并移除 -> None
+    def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 协议统一版】行为情报模块总指挥
-        - 核心重构: 不再返回None，而是返回一个包含所有生成信号的字典，遵循标准汇报协议。
+        【V3.3 · 天使长版】行为情报模块总指挥
+        - 核心升级: 新增并调用 _diagnose_archangel_top_reversal 方法，生成拥有最高优先级的 SCORE_ARCHANGEL_TOP_REVERSAL 信号。
         """
-        # print("      -> [行为情报模块总指挥 V3.2 · 协议统一版] 启动...") # 更新版本号
         df = self.strategy.df_indicators
         
-        # 创建一个局部字典来收集所有状态
         all_behavioral_states = {}
 
-        # 步骤1: 生成内部原子信号
         internal_atomic_signals = self._generate_all_atomic_signals(df)
         
-        # 步骤2: 立即将内部原子信号暴露到全局状态，并收集到局部字典
         if internal_atomic_signals:
             self.strategy.atomic_states.update(internal_atomic_signals)
             all_behavioral_states.update(internal_atomic_signals)
         
-        # 步骤3: 调用终极信号引擎，并传入已计算的原子信号以避免重复计算
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df, atomic_signals=internal_atomic_signals)
         
-        # 步骤4: 更新终极信号到全局状态，并收集到局部字典
         if ultimate_behavioral_states:
-            # self.strategy.atomic_states.update(ultimate_behavioral_states) # IntelligenceLayer会做这个
             all_behavioral_states.update(ultimate_behavioral_states)
-            # print(f"      -> [行为情报模块总指挥 V3.2] 分析完毕，共生成 {len(ultimate_behavioral_states)} 个终极行为信号。")
 
-        # 返回包含所有状态的单一字典
+        # [代码新增] 调用“天使长”诊断引擎，建立神圣专线
+        archangel_states = self._diagnose_archangel_top_reversal(df)
+        if archangel_states:
+            all_behavioral_states.update(archangel_states)
+
         return all_behavioral_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
@@ -577,6 +573,29 @@ class BehavioralIntelligence:
         states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
         return states
 
+    def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“天使长”顶部反转诊断引擎
+        - 核心职责: 融合系统中最高优先级的、最明确的顶部反转信号，形成一个不被稀释的、拥有绝对否决权的“天使长”信号。
+        - 算法: 取“上冲派发”、“天地板”、“高位回落”三者中的最大值。
+        """
+        states = {}
+        
+        # 从原子状态库中调集“天使军团”
+        upthrust_risk = self.strategy.atomic_states.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index))
+        heaven_earth_risk = self.strategy.atomic_states.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index))
+        post_peak_risk = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', pd.Series(0.0, index=df.index))
+        
+        # 取三者最大值，确保任何一个高风险信号都能被捕捉
+        archangel_score = np.maximum.reduce([
+            upthrust_risk.values,
+            heaven_earth_risk.values,
+            post_peak_risk.values
+        ])
+        
+        states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
+        
+        return states
 
 
 

@@ -43,18 +43,18 @@ class OffensiveLayer:
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount
 
-        if total_score.hasnans:
-            debug_params = get_params_block(self.strategy, 'debug_params', {})
-            if get_param_value(debug_params.get('enable_nan_probe'), False):
-                nan_dates = total_score[total_score.isna()].index
-                if not nan_dates.empty:
-                    first_nan_date = nan_dates[0]
-                    nan_signal_name = "Unknown"
-                    for col in score_details_df.columns:
-                        if pd.isna(score_details_df.loc[first_nan_date, col]):
-                            nan_signal_name = col
-                            break
-                    self.strategy.intelligence_layer.deploy_nan_forensics_probe(first_nan_date, nan_signal_name)
+        # if total_score.hasnans:
+        #     debug_params = get_params_block(self.strategy, 'debug_params', {})
+        #     if get_param_value(debug_params.get('enable_nan_probe'), False):
+        #         nan_dates = total_score[total_score.isna()].index
+        #         if not nan_dates.empty:
+        #             first_nan_date = nan_dates[0]
+        #             nan_signal_name = "Unknown"
+        #             for col in score_details_df.columns:
+        #                 if pd.isna(score_details_df.loc[first_nan_date, col]):
+        #                     nan_signal_name = col
+        #                     break
+        #             self.strategy.intelligence_layer.deploy_nan_forensics_probe(first_nan_date, nan_signal_name)
 
         return total_score.fillna(0).astype(int), score_details_df.fillna(0)
 
