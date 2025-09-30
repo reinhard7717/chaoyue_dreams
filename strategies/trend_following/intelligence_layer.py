@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict
-from .exit_layer import ExitLayer
+from .structural_defense_layer import StructuralDefenseLayer
 # --- 从新目录导入所有情报模块 ---
 from .intelligence.foundation_intelligence import FoundationIntelligence
 from .intelligence.structural_intelligence import StructuralIntelligence
@@ -48,7 +48,7 @@ class IntelligenceLayer:
         self.process_intel = ProcessIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
-        self.exit_layer = ExitLayer(self.strategy)
+        self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
 
     def run_all_diagnostics(self) -> Dict:
         """
@@ -97,7 +97,7 @@ class IntelligenceLayer:
         
         # --- 阶段五: 硬性离场信号生成 ---
         print("    - [阶段 5/5] 正在生成硬性离场信号...")
-        exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
+        exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
 
         self.deploy_forensic_probes()
@@ -186,8 +186,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.5 · 涡轮增压探针部署版】法医探针调度中心
-        - 核心升级: 新增并默认激活“涡轮增压”探针，用于深度解剖趋势加速级联信号。
+        【V1.6 · 审判日探针部署版】法医探针调度中心
+        - 核心升级: 新增并默认激活“审判日”探针，用于深度解剖 ALERT_LEVEL 的裁决过程。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -208,14 +208,75 @@ class IntelligenceLayer:
         if probe_date not in self.strategy.df_indicators.index:
             print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.5] 正在解剖 {probe_date_str} " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.6] 正在解剖 {probe_date_str} " + "="*30)
         
         self._deploy_genesis_probe(probe_date)
-        
-        # [代码新增] 部署全新的“涡轮增压”法医探针
         self._deploy_turbo_probe(probe_date)
         
+        # [代码新增] 部署全新的“审判日”法医探针
+        self._deploy_judgment_day_probe(probe_date)
+        
         print("="*95 + "\n")
+
+    def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“审判日”法医探针，用于深度解剖风险裁决过程。
+        - 核心功能: 穿透式地展示各“审判庭”的风险强度，并验证最终的 ALERT_LEVEL 裁决。
+        """
+        print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        
+        def get_val(name, date, default=np.nan):
+            first_key = next(iter(atomic), None)
+            if first_key is None: return default
+            return atomic.get(name, pd.Series(default, index=atomic.get(first_key).index)).get(date, default)
+
+        # --- 步骤 1: 获取最终裁决结果 ---
+        final_alert_level = get_val('ALERT_LEVEL', probe_date, 0)
+        final_alert_reason = get_val('ALERT_REASON', probe_date, "无警报")
+        print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {final_alert_level} ({final_alert_reason})")
+
+        # --- 步骤 2: 解剖各“审判庭”的风险强度 ---
+        print("\n  [链路层 2] 解剖 -> 各审判庭风险强度 (取组内最大值)")
+        risk_categories = {
+            'TOP_REVERSAL': ['SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL', 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'],
+            'BEARISH_RESONANCE': ['SCORE_BEHAVIOR_BEARISH_RESONANCE', 'SCORE_CHIP_BEARISH_RESONANCE', 'SCORE_FF_BEARISH_RESONANCE', 'SCORE_STRUCTURE_BEARISH_RESONANCE', 'SCORE_DYN_BEARISH_RESONANCE', 'SCORE_FOUNDATION_BEARISH_RESONANCE'],
+            'MICRO_RISK': ['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING']
+        }
+        
+        fused_risks_probed = {}
+        for category, signals in risk_categories.items():
+            signal_scores = [get_val(s, probe_date, 0.0) for s in signals]
+            max_score = np.max(signal_scores) if signal_scores else 0.0
+            fused_risks_probed[category] = max_score
+            print(f"    - {category:<20}: {max_score:.4f}")
+
+        # --- 步骤 3: 验证裁决逻辑 ---
+        print("\n  [链路层 3] 验证 -> 警报等级裁决逻辑")
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        p_alerts = p_judge.get('alert_level_thresholds', {})
+        
+        level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
+        level_2_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
+        
+        print(f"    - Level 3 (顶部反转) 阈值: > {level_3_threshold}")
+        print(f"    - Level 2 (看跌共振) 阈值: > {level_2_threshold}")
+        print(f"    - Level 1 (微观风险) 阈值: > {level_1_threshold}")
+
+        recalc_level = 0
+        if fused_risks_probed['TOP_REVERSAL'] > level_3_threshold:
+            recalc_level = 3
+        elif fused_risks_probed['BEARISH_RESONANCE'] > level_2_threshold:
+            recalc_level = 2
+        elif fused_risks_probed['MICRO_RISK'] > level_1_threshold:
+            recalc_level = 1
+            
+        print(f"\n  [链路层 4] 最终验证")
+        print(f"    - [探针重算]: {recalc_level}")
+        print(f"    - [对比]: 实际值 {final_alert_level} vs 重算值 {recalc_level}")
+        print("--- 审判日探针解剖完毕 ---")
 
     def _deploy_turbo_probe(self, probe_date: pd.Timestamp):
         """

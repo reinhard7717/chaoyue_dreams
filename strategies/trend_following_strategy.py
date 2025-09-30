@@ -7,7 +7,7 @@ from typing import Dict, Optional, Tuple, List
 from .trend_following.intelligence_layer import IntelligenceLayer
 from .trend_following.offensive_layer import OffensiveLayer
 from .trend_following.warning_layer import WarningLayer
-from .trend_following.exit_layer import ExitLayer
+from .trend_following.structural_defense_layer import StructuralDefenseLayer
 from .trend_following.judgment_layer import JudgmentLayer
 from .trend_following.simulation_layer import SimulationLayer
 from .trend_following.reporting_layer import ReportingLayer
@@ -31,16 +31,15 @@ class TrendFollowStrategy:
         self.intelligence_layer = IntelligenceLayer(self)
         self.offensive_layer = OffensiveLayer(self)
         self.warning_layer = WarningLayer(self)
-        self.exit_layer = ExitLayer(self)
+        self.structural_defense_layer = StructuralDefenseLayer(self)
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V403.0 · 指挥链肃清版】
-        - 核心修复: 删除了在 JudgmentLayer 之后，强行将硬性离场信号改写为'卖出信号'的越权代码。
-                      现在完全尊重并保留 JudgmentLayer 的精细化决策结果。
+        【V404.0 · 圣殿骑士版】
+        - 核心升级: 适配架构重塑，明确 IntelligenceLayer 是所有情报和防御信号的唯一来源。
         """
         self.params = params
         df_daily = all_dfs.get('D')
@@ -49,7 +48,7 @@ class TrendFollowStrategy:
 
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         
-        # --- 指挥链 1/7: 情报层 (唯一入口) ---
+        # --- 指挥链 1/7: 情报层 (现在是所有情报的唯一入口，包括硬性离场) ---
         self.intelligence_layer.run_all_diagnostics()
         
         # --- 指挥链 2/7: 进攻层 ---
@@ -59,14 +58,10 @@ class TrendFollowStrategy:
         # --- 指挥链 3/7: 预警层 ---
         risk_details_df = self.warning_layer.run_all_warnings()
         
-        # --- 指挥链 4/7: 统合判断层 (现在是最终决策者) ---
+        # --- 指挥链 4/7: 统合判断层 (最终决策者) ---
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
         
-        # --- 指挥链 5/7: 离场层 (仅生成触发器，不直接决策) ---
-        # [代码删除] 删除了下面两行越权代码，确保 JudgmentLayer 的决策不被覆盖
-        # hard_exit_triggers_df = self.exit_layer.generate_hard_exit_triggers()
-        # is_hard_exit_triggered = hard_exit_triggers_df.any(axis=1)
-        # self.df_indicators.loc[is_hard_exit_triggered, 'signal_type'] = '卖出信号'
+        # [代码删除] 删除了对 exit_layer 的直接调用，现在由 intelligence_layer 统一管理
         
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
