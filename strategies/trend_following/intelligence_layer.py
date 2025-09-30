@@ -240,26 +240,38 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 宙斯之眼版】审判日引擎法医探针
-        - 核心升级: 新增“天使长专项诊断”模块，能够深入解剖 ARCHANGEL_RISK 的构成，
-                      清晰展示其三大核心组件（上冲派发、天地板、高位回落）的原始分值。
+        【V2.1 · 时序之链版】审判日引擎法医探针
+        - 核心革命: 修复了“时序悖论”。探针不再被动读取可能不存在的 ALERT_LEVEL，
+                      而是主动调用 _adjudicate_risk_level 方法，为自己独立计算出
+                      probe_date 当天的所有风险裁决结果，成为一个自给自足的“平行宇宙模拟器”。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         
-        if 'ALERT_LEVEL' not in atomic or probe_date not in atomic['ALERT_LEVEL'].index:
-            print("  [错误] 无法找到审判日引擎的输出信号。解剖终止。")
+        # [代码修改] 探针不再依赖外部计算结果，而是自己独立创世
+        # 它将主动调用风险裁决函数，为自己生成一个用于解剖的“平行宇宙”
+        try:
+            alert_level_series, alert_reason_series, fused_risks_df = self.judgment_layer._adjudicate_risk_level()
+        except Exception as e:
+            print(f"  [错误] 在探针内部调用 _adjudicate_risk_level 时发生异常: {e}。解剖终止。")
             return
 
-        alert_level = atomic['ALERT_LEVEL'].get(probe_date)
-        alert_reason = atomic['ALERT_REASON'].get(probe_date)
+        # [代码删除] 彻底移除对外部 pre-computed 结果的依赖
+        # if 'ALERT_LEVEL' not in atomic or probe_date not in atomic['ALERT_LEVEL'].index:
+        #     print("  [错误] 无法找到审判日引擎的输出信号。解剖终止。")
+        #     return
+
+        # [代码新增] 从独立计算的结果中提取探针日期的数据
+        if probe_date not in alert_level_series.index:
+            print(f"  [错误] 探针日期 {probe_date} 不在独立计算的风险结果索引中。解剖终止。")
+            return
+            
+        alert_level = alert_level_series.get(probe_date)
+        alert_reason = alert_reason_series.get(probe_date)
         
         print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {alert_level} ({alert_reason or '无警报'})")
 
-        # 重新运行风险裁决逻辑以获取中间值
-        _, _, fused_risks_df = self.judgment_layer._adjudicate_risk_level()
-        
         if probe_date not in fused_risks_df.index:
             print("  [错误] 探针日期不在风险融合数据中。解剖终止。")
             return
@@ -269,7 +281,6 @@ class IntelligenceLayer:
         for category, value in probe_risk_values.items():
             print(f"    - {category:<20}: {value:.4f}")
 
-        # [代码新增] “宙斯之眼”：天使长专项诊断模块
         print("\n  [链路层 2.1] 解剖 -> “天使长”审判庭专项诊断")
         archangel_components = {
             "上冲派发 (Upthrust)": "SCORE_RISK_UPTHRUST_DISTRIBUTION",
@@ -282,7 +293,7 @@ class IntelligenceLayer:
             component_scores[name] = score
             print(f"    - {name:<25}: {score:.4f}")
         
-        recalculated_archangel_score = max(component_scores.values())
+        recalculated_archangel_score = max(component_scores.values()) if component_scores else 0.0
         actual_archangel_score = probe_risk_values.get('ARCHANGEL_RISK', 0.0)
         print(f"    - [探针重算天使长风险]: max({list(component_scores.values())}) = {recalculated_archangel_score:.4f}")
         print(f"    - [对比]: 实际值 {actual_archangel_score:.4f} vs 重算值 {recalculated_archangel_score:.4f}")
