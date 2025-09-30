@@ -23,24 +23,24 @@ class TacticEngine:
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 信号净化版】战术引擎总指挥
-        - 核心重构 (本次修改):
-          - [信号净化] 全面审查并更新了所有战术合成方法，确保它们消费和生产的都是净化后（无后缀）的终极信号名。
+        【V2.2 · 净化协议版】战术引擎总指挥
+        - 核心革命: 移除了子引擎内部对 self.strategy.atomic_states 的直接写入操作。
+                      现在引擎遵循“纯函数”原则，只负责计算并返回结果，将状态更新的权力
+                      完全交还给上层调用者，彻底解决了“越权写入”导致的“状态污染”问题。
         """
-        # print("      -> [战术引擎 V2.1 · 信号净化版] 启动...") # 更新版本号
         all_states = {}
-        
-        # 依次调用所有战术合成方法，注意调用顺序
-        all_states.update(self.synthesize_panic_selling_setup(df))
-        self.strategy.atomic_states.update(all_states) # 立即更新，供下游使用
-
+        # [代码修改] 首先计算所有战术，并收集到 all_states 中
+        panic_states = self.synthesize_panic_selling_setup(df)
+        all_states.update(panic_states)
+        # [代码删除] 移除了对 self.strategy.atomic_states 的直接写入，这是非法的“越权”行为
+        # self.strategy.atomic_states.update(all_states)
+        # [代码新增] 将刚刚计算出的状态也传入下游，确保数据流的实时性
+        self.strategy.atomic_states.update(panic_states)
         all_states.update(self.synthesize_v_reversal_ace_playbook(df))
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         all_states.update(self.synthesize_squeeze_playbooks(df))
-        
-        # print(f"      -> [战术引擎] 分析完毕，共生成 {len(all_states)} 个战术信号。")
         return all_states
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

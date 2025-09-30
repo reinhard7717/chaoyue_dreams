@@ -25,31 +25,29 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 信号净化版】微观行为诊断引擎总指挥
-        - 核心修复: 净化了所有输出信号的名称，移除了等级后缀，以完全对齐信号字典。
+        【V2.4 · 净化协议版】微观行为诊断引擎总指挥
+        - 核心革命: 移除了子引擎内部对 self.strategy.atomic_states 的直接写入操作。
+                      现在引擎遵循“纯函数”原则，只负责计算并返回结果，将状态更新的权力
+                      完全交还给上层调用者，彻底解决了“越权写入”导致的“状态污染”问题。
         """
-        # print("      -> [微观行为诊断引擎 V2.3 · 信号净化版] 启动...") # 更新版本号
         all_states = {}
-
+        # [代码修改] 简化了 update_states 辅助函数，只更新局部字典 all_states
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
-                self.strategy.atomic_states.update(new_states)
-
+                # [代码删除] 移除了对 self.strategy.atomic_states 的直接写入，这是非法的“越权”行为
+                # self.strategy.atomic_states.update(new_states)
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
-        
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        
-        # 消费净化后的信号名
-        early_ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION')
+        # [代码新增] 为了让下游的 synthesize_reversal_reliability_score 能消费到最新的信号，
+        # 我们需要临时将当前计算出的状态合并到 df 中，或者直接传入。这里选择传入。
+        early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
-        
-        # print(f"      -> [微观行为诊断引擎] 分析完毕，共生成 {len(all_states)} 个微观行为信号。")
         return all_states
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
