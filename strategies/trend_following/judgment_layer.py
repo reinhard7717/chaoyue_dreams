@@ -11,12 +11,11 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V520.0 · 指挥链重建版】
-        - 核心革命: 重建了决策的指挥链，确保拥有最高否决权的“硬性离场”信号在所有进攻决策之前被裁定。
-        - 核心逻辑: 1. 首先检查硬性离场信号。如果触发，直接将信号设为离场类型并归零分数，终止后续判断。
-                      2. 只有在没有硬性离场时，才继续进行“先知入场”和常规买入的判断。
+        【V521.0 · 净化法典版】
+        - 核心修正: “先知入场”信号不再修改 `final_score`。它现在是一个纯粹的、高优先级的决策动作，
+                      其触发完全独立于常规的得分体系，确保了 `final_score` 的纯净性。
         """
-        print("    --- [最高作战指挥部 V520.0 · 指挥链重建版] 启动...")
+        print("    --- [最高作战指挥部 V521.0 · 净化法典版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -45,18 +44,17 @@ class JudgmentLayer:
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         
-        # [代码修改] 常规买入条件：分数足够 & 无警报 & 无硬性离场
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_not_hard_exit
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
-        # [代码修改] 先知入场条件：神谕触发 & 无警报 & 无硬性离场。它拥有独立的判断逻辑，不依赖于常规分数。
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.04) # 阈值可以根据回测调整
+        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.04)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
-        # “先知入场”信号覆盖常规买入信号，因为它具有更高的优先级
+        
+        # [代码修改] “先知入场”现在是一个纯粹的决策动作，它只改变 signal_type，不再污染 final_score。
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
 
-        # 步骤三：最后处理风险否决（它只在有买入意图但被警报否决时出现）
+        # 步骤三：最后处理风险否决
         alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0

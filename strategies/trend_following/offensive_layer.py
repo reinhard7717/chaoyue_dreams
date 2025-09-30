@@ -11,12 +11,11 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V507.0 · 神权归还版】
-        - 核心革命: 进攻层被剥夺了对“预测性”信号的计分权。
-        - 核心逻辑: 在计分循环中，明确跳过所有 type 为 'predictive' 的信号。
-        - 收益: 确保了“先知”的神谕不再作为普通进攻项被计分和稀释，其价值完全回归到对最高指挥部的决策引导上。
+        【V508.0 · 净化法典版】
+        - 核心革命: 釜底抽薪，在计分逻辑中强制将 'predictive' 类型的信号得分置为0，无论其在法典中如何定义。
+        - 收益: 彻底杜绝了因 score_type_map 配置滞后而导致的“幽灵计分”问题，确保了战报的纯净性。
         """
-        print("        -> [进攻方案评估中心 V507.0 · 神权归还版] 启动...")
+        print("        -> [进攻方案评估中心 V508.0 · 净化法典版] 启动...")
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         
@@ -32,7 +31,10 @@ class OffensiveLayer:
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
-            # [代码修改] 明确将 'predictive' 类型排除在计分循环之外
+            # [代码修改] 釜底抽薪：如果信号类型是 'predictive'，则直接跳过，不参与任何计分。
+            if signal_type == 'predictive':
+                continue
+
             if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process']:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:
