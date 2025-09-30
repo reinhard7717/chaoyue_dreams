@@ -11,49 +11,38 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V517.0 · 坚韧版】
-        - 核心加固: 在生成 risk_score 后立即使用 .fillna(0.0) 进行净化，从源头杜绝 NaN 值的产生和向下游扩散。
+        【V518.0 · 赫利俄斯版】
+        - 核心革命: 修正了 risk_score 的计算方式。不再使用各维度风险的最大值，
+                      而是直接采用由认知层计算出的、唯一的、经过归一化的权威融合风险分
+                      (COGNITIVE_FUSED_RISK_SCORE)，确立了风险评估的唯一权威。
         """
-        print("    --- [最高作战指挥部 V517.0 · 坚韧版] 启动...")
+        print("    --- [最高作战指挥部 V518.0 · 赫利俄斯版] 启动...")
         df = self.strategy.df_indicators
-        
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
-        
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
-        
         df['final_score'] = (df['entry_score'] * confidence_damper)
-        
-        # 在计算max后，立即用 .fillna(0.0) 净化，从源头杜绝NaN
-        df['risk_score'] = fused_risks_df.max(axis=1).fillna(0.0)
-
+        # [代码修改] 确立风险权威：直接使用认知层输出的、归一化的最终融合风险分
+        df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
-        
         df['signal_type'] = '无信号'
-        
         is_score_sufficient = df['final_score'] > final_score_threshold
-        
         is_veto_by_alert = df['alert_level'] >= 3
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
-        
         if is_hard_exit_veto.any():
             strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
             tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
             df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
             df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
             df.loc[is_hard_exit_veto, 'final_score'] = 0
-            
         alert_veto_condition = is_score_sufficient & is_veto_by_alert & ~is_hard_exit_veto
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
-
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 

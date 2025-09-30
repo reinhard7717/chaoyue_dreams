@@ -238,53 +238,40 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 性能优化版】风险元融合模块
-        - 本次优化:
-          - [效率] 重构了维度内融合的计算流程。通过“预处理-批量获取-缓存计算”的模式，
-                    将原先在循环中对Pandas Series的反复查找和转换，优化为对预先缓存的
-                    NumPy数组的直接访问，显著降低了函数调用和数据转换开销，提升了执行效率。
+        【V3.4 · 赫利俄斯版】风险元融合模块
+        - 核心革命: 彻底废除“加权求和”的风险融合逻辑，升级为“加权几何平均”。
+                      确保最终的 COGNITIVE_FUSED_RISK_SCORE 被严格归一化到 [0, 1] 区间，
+                      解决了风险分“通货膨胀”和不可比的根本性设计缺陷。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
-            
         risk_categories = p_fused_risk.get('risk_categories', {})
         p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
         secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
-        
-        # --- 优化步骤 1: 预处理，收集所有需要的信号并批量获取 ---
         all_required_signals = set()
         for category_name, signals in risk_categories.items():
             if category_name != "说明":
                 all_required_signals.update(s for s in signals if s != "说明")
-
-        # 批量获取Series并转换为Numpy数组，存入缓存字典
         signal_numpy_cache = {
             sig_name: self._get_atomic_score(df, sig_name, 0.0).values
             for sig_name in all_required_signals
         }
         default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
-
-        # --- 维度内融合 (Intra-dimension Fusion) ---
         fused_dimension_scores = {}
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
-            
             category_signal_scores = []
             for signal_name, signal_params in signals.items():
                 if signal_name == "说明": continue
-                
-                # 直接从缓存的Numpy数组中读取数据
                 atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
-                
                 is_inverse = signal_params.get('inverse', False)
                 processed_score = 1.0 - atomic_score_np if is_inverse else atomic_score_np
                 weight = signal_params.get('weight', 1.0)
                 final_signal_score = processed_score * weight
                 category_signal_scores.append(final_signal_score)
-                
             if category_signal_scores:
                 stacked_scores = np.stack(category_signal_scores, axis=1)
                 sorted_scores = np.sort(stacked_scores, axis=1)
@@ -296,20 +283,18 @@ class CognitiveIntelligence:
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
             else:
                 fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
-
-        # --- 维度间融合 (Inter-dimension Fusion) & 风险共振惩罚 ---
         p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
         base_weights = p_dynamic_weighting.get('base_weights', {})
         context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
         p_resonance = p_fused_risk.get('resonance_penalty_params', {})
-        
-        total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
-        
-        for category_name, weight in base_weights.items():
-            if category_name in fused_dimension_scores:
-                current_weight = pd.Series(weight, index=df.index)
+        # [代码修改] 核心修改：从加权求和改为加权几何平均
+        valid_scores = []
+        valid_weights = []
+        for category_name, base_weight in base_weights.items():
+            if category_name in fused_dimension_scores and base_weight > 0:
+                current_weight = pd.Series(base_weight, index=df.index)
                 if get_param_value(p_dynamic_weighting.get('enabled'), True):
                     early_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {})
                     if category_name in early_adjustments:
@@ -317,21 +302,32 @@ class CognitiveIntelligence:
                     late_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {})
                     if category_name in late_adjustments:
                         current_weight = current_weight.where(~is_late_stage, current_weight * late_adjustments[category_name])
-                total_fused_risk_score += fused_dimension_scores[category_name] * current_weight
-                
+                valid_scores.append(fused_dimension_scores[category_name].values)
+                valid_weights.append(current_weight.values)
+        if valid_scores:
+            stacked_scores = np.stack(valid_scores, axis=0)
+            stacked_weights = np.stack(valid_weights, axis=0)
+            # 归一化权重
+            total_weights = np.sum(stacked_weights, axis=0)
+            normalized_weights = stacked_weights / total_weights
+            # 计算加权几何平均
+            # 为避免log(0)错误，给stacked_scores增加一个极小值
+            total_fused_risk_values = np.exp(np.sum(normalized_weights * np.log(stacked_scores + 1e-9), axis=0))
+            total_fused_risk_score = pd.Series(total_fused_risk_values, index=df.index, dtype=np.float32)
+        else:
+            total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         if get_param_value(p_resonance.get('enabled'), True):
             core_dims = get_param_value(p_resonance.get('core_risk_dimensions'), [])
             min_dims = get_param_value(p_resonance.get('min_dimensions_for_resonance'), 2)
-            threshold = get_param_value(p_resonance.get('risk_score_threshold'), 150)
+            threshold = get_param_value(p_resonance.get('risk_score_threshold'), 0.6) # 阈值也应适配[0,1]
             penalty_multiplier = get_param_value(p_resonance.get('penalty_multiplier'), 1.2)
             high_risk_dimension_count = pd.Series(0, index=df.index)
             for dim in core_dims:
                 if dim in fused_dimension_scores:
                     high_risk_dimension_count += (fused_dimension_scores[dim] > threshold).astype(int)
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
-            total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, total_fused_risk_score * penalty_multiplier)
+            total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, (total_fused_risk_score * penalty_multiplier).clip(0, 1))
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
-            
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
         return states
 
@@ -708,22 +704,17 @@ class CognitiveIntelligence:
 
     def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
         """
-        【V1.0 · 新增】奇美拉冲突诊断引擎
-        - 核心职责: 量化市场中“牛”与“熊”力量的冲突程度，作为最终决策的“信心阻尼器”。
-        - 算法: 冲突分 = min(认知看涨总分, 认知融合风险总分)
+        【V1.1 · 赫利俄斯版】奇美拉冲突诊断引擎
+        - 核心修复: 由于 COGNITIVE_FUSED_RISK_SCORE 已被归一化到 [0, 1] 区间，
+                      本模块不再需要除以1000的“补丁”，直接进行比较。
         """
         states = {}
-        
-        # 将分数从 [0, 1000] 映射到 [0, 1] 区间进行比较
-        bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0) / 1000.0
-        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0) / 1000.0
-        
-        # 核心公式：取两者的最小值，代表冲突的激烈程度
+        # [代码修改] 进攻分数也需要归一化才能比较，这里暂时用一个近似值，理想情况是进攻分也归一化
+        bullish_score_normalized = (self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0) / 1000.0).clip(0, 1)
+        # [代码修改] 风险分数已是[0,1]区间，不再需要除以1000
+        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
-        
-        # 将其作为一种特殊的风险信号存入原子状态
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
-        
         self.strategy.atomic_states.update(states)
 
     def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
