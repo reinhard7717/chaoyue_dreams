@@ -14,9 +14,9 @@ class SimulationLayer:
 
     def run_position_management_simulation(self):
         """
-        【V514.0 · 神谕之门版】
-        - 核心升级: 新增对“先知入场”信号的识别和执行能力。
-        - 核心逻辑: 将 '先知入场' 视为最高优先级的入场指令，并为其打上专属的交易动作标签。
+        【V514.1 · 逻辑链修复版】
+        - 核心修复: 修复了因遗漏 is_profitable 定义而导致的 NameError 崩溃问题。
+        - 核心逻辑: 在执行金字塔加仓判断前，明确计算当前的盈利状态。
         """
         df = self.strategy.df_indicators.copy() 
         if 'open_D' not in df.columns:
@@ -99,7 +99,10 @@ class SimulationLayer:
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
-                # 允许在持仓时，根据“先知入场”信号进行加仓
+                
+                # [代码新增] 修复逻辑断点：在加仓判断前，必须先定义 is_profitable。
+                is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
+                
                 is_pyramid_allowed = pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count
                 is_prophet_pyramid = pyramiding_enabled and current_signal_type == '先知入场' and is_profitable and pyramid_count < max_pyramid_count
                 if is_pyramid_allowed or is_prophet_pyramid:
@@ -125,7 +128,6 @@ class SimulationLayer:
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
             else:
-                # 将 '先知入场' 加入入场条件判断
                 if row.signal_entry or current_signal_type == '先知入场':
                     t_plus_1_open = pd.NA
                     if i + 1 < len(df):
@@ -154,7 +156,6 @@ class SimulationLayer:
                                         stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                                 else:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
-                            # 为“先知入场”打上专属的交易动作标签
                             if current_signal_type == '先知入场':
                                 df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_ENTRY.value
                             else:
