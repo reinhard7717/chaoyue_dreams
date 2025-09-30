@@ -43,35 +43,40 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 最终审判版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: “绝望背景”支柱正式从旧的单维模型升级为与行为引擎一致的“冥河之渡”多维立体模型。
-        - 最终形态: 恐慌战备分 = (价格暴跌 * 成交天量 * 筹码崩溃) × (多维绝望背景) × (结构支撑测试)
-        - 收益: 实现了全系统内对“恐慌”定义的最终统一，修复了与法医探针的逻辑断层。
+        【V2.0 · 奥林匹斯圣火版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 遵照指挥官的最终指令，推翻“五大支柱相乘”的“一票否决制”，升级为“加权求和”的“共识决策制”。
+        - 核心逻辑: 恐慌分 = (价格暴跌*权重) + (成交天量*权重) + (筹码崩溃*权重) + (绝望背景*权重) + (结构支撑*权重)
+        - 收益: 解决了因单一维度（如绝望背景）分数不高而压制整体恐慌分的致命设计缺陷。
+                 现在，只要有足够多的支柱发出强信号，就能点燃最终的恐慌信号。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
+        # [代码新增] 从配置中获取五大支柱的权重
+        pillar_weights = get_param_value(p_panic.get('pillar_weights'), {
+            'price_drop': 0.30,
+            'volume_spike': 0.25,
+            'chip_breakdown': 0.15,
+            'despair_context': 0.15,
+            'structural_test': 0.15
+        })
 
-        # --- 支柱一、二、三：保持不变 ---
+        # --- 计算五大支柱分数 (逻辑不变) ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
-        
-        # --- 支柱四：调用全新的“冥河之渡”引擎计算多维绝望背景分 ---
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
-
-        # --- 支柱五：调用“绝对领域”引擎计算结构测试分 (保持不变) ---
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # --- 五位一体融合，生成终极恐慌信号 ---
+        # [代码修改] 使用加权求和融合，取代之前的乘法
         setup_panic_selling_score = (
-            price_drop_score * 
-            volume_spike_score * 
-            chip_breakdown_score * 
-            despair_context_score *
-            structural_test_score
+            price_drop_score * pillar_weights.get('price_drop', 0) +
+            volume_spike_score * pillar_weights.get('volume_spike', 0) +
+            chip_breakdown_score * pillar_weights.get('chip_breakdown', 0) +
+            despair_context_score * pillar_weights.get('despair_context', 0) +
+            structural_test_score * pillar_weights.get('structural_test', 0)
         ).astype(np.float32)
         
-        states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score
+        states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score.clip(0, 1) # 增加clip确保分数在[0,1]
         return states
 
     def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame, setup_score: pd.Series) -> Dict[str, pd.Series]:
