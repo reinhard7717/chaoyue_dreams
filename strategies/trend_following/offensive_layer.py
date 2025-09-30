@@ -11,11 +11,12 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V504.0 · 过程感知版】
-        - 核心升级: 新增对 'process' 类型信号的识别和计分能力。
-                      这使得 ProcessIntelligence 引擎的 [-1, 1] 双极分数可以被正确计入总分。
+        【V505.0 · 单极圣谕版】
+        - 核心革命: 引入 "scoring_mode" 概念，彻底解决“事件型”过程信号被错误计为负分的问题。
+        - 核心逻辑: 在计分前，检查信号是否被标记为 "unipolar"。如果是，则先将 [-1, 1] 的
+                      原始分裁剪为 [0, 1]，确保只奖励事件的发生，不惩罚事件的未发生。
         """
-        print("        -> [进攻方案评估中心 V504.0 · 过程感知版] 启动...")
+        print("        -> [进攻方案评估中心 V505.0 · 单极圣谕版] 启动...")
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         
@@ -31,30 +32,26 @@ class OffensiveLayer:
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
-            # 在计分类型中增加 'process'
-            # 这样，进攻层就能识别并处理我们新定义的过程信号了
             if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process']:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:
-                    # 核心计分逻辑：
-                    # - 对于 [0,1] 信号, 结果是 [0, score_value]
-                    # - 对于 [-1,1] 过程信号, 结果是 [-score_value, score_value]，完美实现加减分
-                    bonus_amount = signal_series.astype(float) * score_value
+                    
+                    # [代码修改] 引入“单极圣谕”裁决逻辑
+                    scoring_mode = meta.get('scoring_mode', 'bipolar') # 默认为双极
+                    
+                    # 确保信号序列是浮点数类型以进行数学运算
+                    processed_signal_series = signal_series.astype(float)
+
+                    if scoring_mode == 'unipolar':
+                        # 对于“事件型”信号，只取其正值部分进行计分
+                        processed_signal_series = processed_signal_series.clip(lower=0)
+                        # print(f"DEBUG: Signal {signal_name} is unipolar. Original min: {signal_series.min()}, Clipped min: {processed_signal_series.min()}")
+
+                    # 核心计分逻辑现在基于处理后的信号序列
+                    bonus_amount = processed_signal_series * score_value
+                    
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount
-
-        # if total_score.hasnans:
-        #     debug_params = get_params_block(self.strategy, 'debug_params', {})
-        #     if get_param_value(debug_params.get('enable_nan_probe'), False):
-        #         nan_dates = total_score[total_score.isna()].index
-        #         if not nan_dates.empty:
-        #             first_nan_date = nan_dates[0]
-        #             nan_signal_name = "Unknown"
-        #             for col in score_details_df.columns:
-        #                 if pd.isna(score_details_df.loc[first_nan_date, col]):
-        #                     nan_signal_name = col
-        #                     break
-        #             self.strategy.intelligence_layer.deploy_nan_forensics_probe(first_nan_date, nan_signal_name)
 
         return total_score.fillna(0).astype(int), score_details_df.fillna(0)
 
