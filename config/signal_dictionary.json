@@ -89,30 +89,26 @@
         },
         "PROCESS_META_POWER_TRANSFER": {
             "cn_name": "【过程】权力转移(主力vs散户)",
-            "category": "过程层-博弈",
-            "type": "process",
-            "score": 210,
+            "category": "过程层-博弈(内部原料)",
+            "type": "context",
             "description": "主力从散户手中夺取控制权的过程。诊断主力净流入与散户净流出的背离程度。"
         },
         "PROCESS_META_STEALTH_ACCUMULATION": {
             "cn_name": "【过程】隐秘吸筹(筹码vs价格)",
-            "category": "过程层-博弈",
-            "type": "process",
-            "score": 190,
+            "category": "过程层-博弈(内部原料)",
+            "type": "context",
             "description": "主力在不拉高价格的情况下悄悄收集筹码的过程。诊断筹码集中度提升与价格压制的协同性。"
         },
         "PROCESS_META_WINNER_CONVICTION": {
             "cn_name": "【过程】赢家信念(利润vs换手)",
-            "category": "过程层-博弈",
-            "type": "process",
-            "score": 230,
+            "category": "过程层-博弈(内部原料)",
+            "type": "context",
             "description": "获利盘拒绝出售，预期更高价格的过程。诊断获利盘利润增加与换手率降低的背离。"
         },
         "PROCESS_META_LOSER_CAPITULATION": {
             "cn_name": "【过程】投降仪式(套牢vs换手)",
-            "category": "过程层-博弈",
-            "type": "process",
-            "score": 170,
+            "category": "过程层-博弈(内部原料)",
+            "type": "context",
             "description": "套牢盘最终放弃希望，不计成本卖出的过程。诊断高套牢盘比例下，其换手率的加速过程。"
         },
         "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC": {
