@@ -11,10 +11,13 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V522.0 · 最后的敕令版】
-        - 核心升级: 在调用史官(_get_human_readable_summary)时，授予其“阅读圣旨”(df['signal_type'])的权力。
+        【V523.0 · 教皇敕令版】
+        - 核心革命: 建立绝对决策优先级。先知入场拥有最高进攻决策权。
+        - 核心逻辑: 1. 优先判断“先知入场”，一旦触发，立即设置信号并强制将final_score归零。
+                      2. 仅在“先知入场”未触发时，才继续判断常规“买入信号”和“风险否决”。
+        - 收益: 彻底解决了“先知入场”与“买入信号”在同一天触发时的逻辑冲突和分数污染问题。
         """
-        print("    --- [最高作战指挥部 V522.0 · 最后的敕令版] 启动...")
+        print("    --- [最高作战指挥部 V523.0 · 教皇敕令版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -37,26 +40,29 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 步骤二：在没有硬性离场的前提下，进行进攻决策
+        # [代码修改] 重构决策优先级
+        # 准备所有判断条件
         is_not_hard_exit = ~is_hard_exit_veto
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         
-        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_not_hard_exit
-        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
+        # 决策优先级 1: 先知入场
         prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.04)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
-        
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
+        df.loc[is_prophet_entry, 'final_score'] = 0 # 教皇敕令：神谕降临之日，凡人的分数皆为虚无
 
-        # 步骤三：最后处理风险否决
-        alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit
+        # 决策优先级 2: 常规买入 (必须在非先知入场日)
+        is_not_prophet_entry = ~is_prophet_entry
+        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_not_hard_exit & is_not_prophet_entry
+        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
+        # 决策优先级 3: 风险否决 (必须在非先知入场日)
+        alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit & is_not_prophet_entry
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
         
-        # 调用被授予“阅读圣旨”权力的新版史官
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
