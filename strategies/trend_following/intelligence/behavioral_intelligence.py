@@ -34,38 +34,32 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V23.0 · 解放普罗米修斯版】
-        - 核心革命: 彻底移除了对“关系动力分”的计算。此通用神力已移交最高指挥部`IntelligenceLayer`掌管。
-                      本模块职责回归纯粹，只负责诊断“行为”本身。
+        【V24.0 · 圣杯契约版】
+        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
+                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
-        
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
-        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        
+        # 获取中央“圣杯”配置
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
-
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
-
-        # [代码删除] 移除所有关于关系动力分的计算，这些逻辑已被移交 IntelligenceLayer
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
-        
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
-        
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
@@ -81,18 +75,16 @@ class BehavioralIntelligence:
                     ], axis=0)
                     fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-        
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        
+        # 传入唯一的“圣杯”配置
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
-            params=p_conf,
+            params=p_synthesis,
             domain_prefix="BEHAVIOR"
         )
         states.update(ultimate_signals)
-        
         return states
 
     # ==============================================================================

@@ -30,19 +30,21 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 哲人石归位版】终极资金流信号诊断模块
-        - 核心修复: 在调用 `_synthesize_final_signals` 时，将完整的 `df` (哲人石) 传递下去。
+        【V2.4 · 圣杯契约版】终极资金流信号诊断模块
+        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
+                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
         """
         params = self._initialize_ff_params()
         if not params['enabled']:
             return {}
+        # 获取中央“圣杯”配置
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
         pillar_health = self._calculate_all_pillar_health(df, params)
-        # 此处调用重构后的融合方法
         fused_health = self._fuse_health_with_intent_weights(pillar_health, params)
-        # [代码修改] 将df(哲人石)传入最终合成方法
-        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, params)
+        # 传入唯一的“圣杯”配置
+        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)
         states = self._assign_graded_states(final_scores)
         return states
 
@@ -126,27 +128,26 @@ class FundFlowIntelligence:
         self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results
     
-    def _synthesize_final_signals(self, df: pd.DataFrame, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
+    def _synthesize_final_signals(self, df: pd.DataFrame, fused_health: Dict, context_scores: Dict, p_synthesis: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 哲人石归位版】
-        - 核心修复: 确保将完整的 `df` (哲人石) 传递给中央的“炼金术士的坩埚”。
+        【V5.2 · 圣杯契约版】
+        - 核心革命: 参数 `params` 已更名为 `p_synthesis`，明确表示其接收的是中央“圣杯”配置。
         """
-        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
+        # 传入唯一的“圣杯”配置
         resonance_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=fused_health['resonance'],
-            params=params,
+            params=p_synthesis,
             domain_prefix="FF"
         )
         reversal_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=fused_health['reversal'],
-            params=params,
+            params=p_synthesis,
             domain_prefix="FF"
         )
-        # 合并结果，注意反转信号只取底部和顶部
         final_scores = {
             'bullish_resonance': resonance_signals['SCORE_FF_BULLISH_RESONANCE'],
             'bottom_reversal': reversal_signals['SCORE_FF_BOTTOM_REVERSAL'],

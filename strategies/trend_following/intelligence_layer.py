@@ -70,7 +70,7 @@ class IntelligenceLayer:
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
-        # [代码新增] 阶段 1.5: 点燃关系动力引擎（解放普罗米修斯）
+        # 阶段 1.5: 点燃关系动力引擎（解放普罗米修斯）
         # 这个引擎依赖过程信号，且必须在所有终极信号引擎之前运行
         self._ignite_relational_dynamics_engine()
         # --- 阶段二: 状态情报与战略过程诊断 ---

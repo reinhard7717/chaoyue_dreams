@@ -193,7 +193,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     - 核心加固: 增加对输入 df 类型的检查。如果传入的是一个字典（旧的错误调用方式），
                   则尝试从中提取 'df_indicators'，为数据链路提供“双重保险”。
     """
-    # [代码新增] 增加防御性编程，处理错误的字典输入
+    # 增加防御性编程，处理错误的字典输入
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
     if 'close_D' not in df.columns:
@@ -331,7 +331,7 @@ def transmute_health_to_ultimate_signals(
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-    # [代码修改] 修正奖励因子，使用高特异性的“反转回声”替代通用的“底部上下文”
+    # 修正奖励因子，使用高特异性的“反转回声”替代通用的“底部上下文”
     final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
     # --- 4. 计算看跌共振信号 ---
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}

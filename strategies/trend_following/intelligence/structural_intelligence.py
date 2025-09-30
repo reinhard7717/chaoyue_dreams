@@ -31,16 +31,18 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V15.0 · 炼金术士版】
-        - 核心革命: 彻底移除了内部重复的终极信号计算逻辑，转而调用中央的“炼金术士的坩埚”
-                      (transmute_health_to_ultimate_signals)进行合成，实现了思想和代码的统一。
+        【V16.0 · 圣杯契约版】
+        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
+                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
+        # 获取中央“圣杯”配置
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
-        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = { 'ma': self._calculate_ma_health, 'mechanics': self._calculate_mechanics_health, 'mtf': self._calculate_mtf_health, 'pattern': self._calculate_pattern_health }
         for name, calculator in calculators.items():
@@ -60,12 +62,12 @@ class StructuralIntelligence:
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
-        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
+        # 传入唯一的“圣杯”配置
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
-            params=p_conf,
+            params=p_synthesis,
             domain_prefix="STRUCTURE"
         )
         states.update(ultimate_signals)

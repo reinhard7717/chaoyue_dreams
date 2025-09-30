@@ -159,6 +159,16 @@
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
       },
+      "ultimate_signal_synthesis_params": {
+        "enabled": true,
+        "description": "【圣杯契约】终极信号中央合成引擎的唯一参数源，取代了各模块中的重复配置。",
+        "periods": [1, 5, 13, 21, 55],
+        "norm_window": 55,
+        "resonance_tf_weights": { "short": 0.2, "medium": 0.5, "long": 0.3 },
+        "reversal_tf_weights": { "short": 0.6, "medium": 0.3, "long": 0.1 },
+        "bottom_context_bonus_factor": 0.5,
+        "final_score_exponent": 1.0
+      },
       "process_intelligence_params": {
         "comment": "【过程情报引擎 V2.1 · 战略升维版】配置块。引入'两阶段诊断'和'自适应物理模型'。",
         "std_window": 21,
@@ -383,32 +393,18 @@
         "enabled": true,
         "description": "聪明钱（游资与机构协同）信号参数"
       },
-      "foundation_ultimate_params": {
-        "enabled": true,
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 55,
-        "pillar_weights": {
-          "说明": "基础层四大支柱的融合权重",
-          "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
-        }
-      },
       "behavioral_dynamics_params": {
         "enabled": true,
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 55,
+        "description": "【V23.0 · 圣杯版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
+        "reversal_echo_window": 3,
         "pillar_weights": {
-          "说明": "行为层三大支柱的融合权重",
           "price": 0.4, "volume": 0.3, "kline": 0.3
         }
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 55,
-        "bottom_context_bonus_factor": 0.5,
-        "top_context_bonus_factor": 0.8,
+        "description": "【V21.0 · 圣杯版】此模块现在只定义特定于筹码领域的支柱权重。",
         "pillar_weights": {
-          "说明": "筹码层五大支柱的融合权重",
           "quantitative": 0.25,
           "advanced": 0.25,
           "internal": 0.20,
@@ -418,23 +414,29 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "periods": [1, 5, 13, 21, 55],
-        "norm_window": 55,
+        "description": "【V2.5 · 圣杯版】此模块现在只定义特定于资金流领域的意图和支柱权重。",
         "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
         "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 }
       },
       "structural_ultimate_params": {
-        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 55,
+        "enabled": true, 
+        "description": "【V16.0 · 圣杯版】此模块现在只定义特定于结构领域的支柱权重。",
         "pillar_weights": {
-          "说明": "结构层四大支柱的融合权重",
           "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
         }
       },
       "dynamic_mechanics_params": {
-        "enabled": true, "periods": [1, 5, 13, 21, 55], "norm_window": 55,
+        "enabled": true, 
+        "description": "【V12.0 · 圣杯版】此模块现在只定义特定于力学领域的支柱权重。",
         "pillar_weights": {
-          "说明": "动态力学层四大支柱的融合权重",
           "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
+        }
+      },
+      "foundation_ultimate_params": {
+        "enabled": true,
+        "description": "【V14.0 · 圣杯版】此模块现在只定义特定于基础领域的支柱权重。",
+        "pillar_weights": {
+          "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
         }
       },
       "four_layer_scoring_params": {

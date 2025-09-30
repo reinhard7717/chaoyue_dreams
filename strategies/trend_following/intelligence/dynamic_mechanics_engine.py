@@ -29,17 +29,19 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V11.0 · 炼金术士版】
-        - 核心革命: 彻底移除了内部重复的终极信号计算逻辑，转而调用中央的“炼金术士的坩埚”
-                      (transmute_health_to_ultimate_signals)进行合成，实现了思想和代码的统一。
+        【V12.0 · 圣杯契约版】
+        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
+                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
+        # 获取中央“圣杯”配置
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_conf.get('norm_window'), 120)
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'volatility': self._calculate_volatility_health,
@@ -68,12 +70,12 @@ class DynamicMechanicsEngine:
                 fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
-        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
+        # 传入唯一的“圣杯”配置
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
-            params=p_conf,
+            params=p_synthesis,
             domain_prefix="DYN"
         )
         states.update(ultimate_signals)

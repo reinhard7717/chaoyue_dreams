@@ -261,7 +261,7 @@ class MicroBehaviorEngine:
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
         stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        # [代码修改] 创造“峰值回声”上下文，让顶部记忆持续N天
+        # 创造“峰值回声”上下文，让顶部记忆持续N天
         peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
         recently_at_peak_context = stretch_from_ma55_score.rolling(window=peak_echo_window, min_periods=1).max()
         # --- 步骤 2: 触发器 - 确认当日正在下跌 ---
@@ -273,7 +273,7 @@ class MicroBehaviorEngine:
         # 3.2 成交量放大
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
-        # [代码修改] 升级为“模拟传感器”，测量跌破深度
+        # 升级为“模拟传感器”，测量跌破深度
         # 3.3 跌破短期均线 (从数字门到模拟传感器)
         ema5 = df.get('EMA_5_D', df['close_D'])
         # 计算跌破深度百分比，只在跌破时为正
@@ -282,7 +282,7 @@ class MicroBehaviorEngine:
         break_ema5_score = normalize_score(breakdown_depth_pct, df.index, norm_window, ascending=True)
         # --- 步骤 4: 最终风险裁定 ---
         severity_score = (fall_magnitude_score * volume_spike_score * break_ema5_score)**(1/3)
-        # [代码修改] 使用新的“峰值回声”上下文进行裁定
+        # 使用新的“峰值回声”上下文进行裁定
         final_risk_score = (recently_at_peak_context * is_falling_today * severity_score).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_risk_score
         return states
