@@ -31,8 +31,9 @@ class PredictiveIntelligence:
 
     def _diagnose_climactic_exhaustion(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.1 · 巴别塔统一版】诊断“高潮衰竭”风险
-        - 核心修复: 修正了数据契约，将所有对 '_qfq' 后缀列的引用，全部更新为帝国标准 '_D' 后缀。
+        【V1.2 · 神谕扩音版】诊断“高潮衰竭”风险
+        - 核心升级: 将kline_weakness_score的计算方式从保守的“几何平均”升级为更具进攻性的“加权算术平均”，
+                      赋予“收盘价疲弱”更高的权重，以放大神谕的音量。
         """
         # 1. 获取亢奋信号
         euphoria_score = atomic_states.get('COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION', pd.Series(0, index=df.index))
@@ -40,26 +41,27 @@ class PredictiveIntelligence:
         vol_lookback = get_param_value(self.params.get('exhaustion_vol_lookback'), 20)
         is_climax_volume = (df['volume_D'] >= df['volume_D'].rolling(vol_lookback).max() * 0.9).astype(int)
         # 3. 定义冲高回落 (长上影线 + 收盘价偏低)
-        # [代码修改] 将'high_qfq'和'low_qfq'修正为'high_D'和'low_D'，统一数据契约。
         high_low_range = df['high_D'] - df['low_D']
-        # [代码修改] 将'high_qfq', 'open_qfq', 'close_qfq'修正为'high_D', 'open_D', 'close_D'。
         upper_shadow = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
-        # 避免除以零
         high_low_range = high_low_range.replace(0, np.nan)
         upper_shadow_ratio = (upper_shadow / high_low_range).fillna(0)
-        # [代码修改] 将'close_qfq'和'low_qfq'修正为'close_D'和'low_D'。
         close_position_in_range = ((df['close_D'] - df['low_D']) / high_low_range).fillna(0.5)
         # 4. 融合计算风险分
         # 条件1: 亢奋程度必须很高
-        euphoria_gate = (euphoria_score > get_param_value(self.params.get('exhaustion_euphoria_threshold'), 0.8)).astype(int)
+        euphoria_gate = (euphoria_score > get_param_value(self.params.get('exhaustion_euphoria_threshold'), 0.45)).astype(int)
         # 条件2: 必须是天量
         volume_gate = is_climax_volume
         # 条件3: K线形态必须是冲高回落
-        # 映射上影线比例和收盘位置为0-1的分数
-        upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1) # 上影线占比超过50%则为满分
-        weak_close_score = 1 - close_position_in_range # 收盘越低，分数越高
-        kline_weakness_score = (upper_shadow_score * weak_close_score)**0.5
+        upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1)
+        weak_close_score = 1 - close_position_in_range
+        # [代码修改] 废除保守的几何平均，采用更灵敏的加权算术平均，放大神谕音量
+        kline_weakness_score = upper_shadow_score * 0.4 + weak_close_score * 0.6
         # 最终风险分是三者的乘积
-        final_risk_score = euphoria_gate * volume_gate * kline_weakness_score
+        final_risk_score = (euphoria_gate * volume_gate) * kline_weakness_score
         return final_risk_score.clip(0, 1)
+
+
+
+
+
 
