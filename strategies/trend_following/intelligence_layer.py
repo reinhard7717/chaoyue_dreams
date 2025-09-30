@@ -52,26 +52,27 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V413.0 · 涡轮增压版】情报层总指挥官
-        - 核心升级: 在认知层融合的最后阶段，调用新的“涡轮增压”引擎，诊断趋势的级联加速效应。
+        【V414.0 · 解放普罗米修斯版】情报层总指挥官
+        - 核心革命: 新增 `_ignite_relational_dynamics_engine` 方法，将“关系动力分”的计算
+                      从行为情报模块提升至本层。这打破了模块间的隐性耦合，实现了架构的净化。
         """
-        print("--- [情报层总指挥官 V413.0 · 涡轮增压版] 开始执行所有诊断模块... ---") # 更新版本号
+        print("--- [情报层总指挥官 V414.0 · 解放普罗米修斯版] 开始执行所有诊断模块... ---") # 更新版本号
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
         self.strategy.playbook_states = {}
         self.strategy.exit_triggers = pd.DataFrame(index=df.index)
-
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-
         # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
         print("    - [阶段 1/5] 正在执行周期与基础过程诊断...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
-
+        # [代码新增] 阶段 1.5: 点燃关系动力引擎（解放普罗米修斯）
+        # 这个引擎依赖过程信号，且必须在所有终极信号引擎之前运行
+        self._ignite_relational_dynamics_engine()
         # --- 阶段二: 状态情报与战略过程诊断 ---
         print("    - [阶段 2/5] 正在执行状态情报与战略过程诊断...")
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
@@ -83,26 +84,21 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        
         # --- 阶段三: 跨域认知融合 ---
         print("    - [阶段 3/5] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
-
         # --- 阶段四: 最终战法与剧本生成 ---
         print("    - [阶段 4/5] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
-        
         # --- 阶段五: 硬性离场信号生成 ---
         print("    - [阶段 5/5] 正在生成硬性离场信号...")
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
-
         self.deploy_forensic_probes()
-        
-        print("--- [情报层总指挥官 V413.0] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V414.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
@@ -674,6 +670,28 @@ class IntelligenceLayer:
 
         print(f"--- 信号【{signal_name}】解剖完毕 ---")
 
+    def _ignite_relational_dynamics_engine(self):
+        """
+        【V1.0 · 新增】关系动力引擎（普罗米修斯神坛）
+        - 核心职责: 作为跨领域的通用“神力”引擎，计算“关系动力分”，为所有终极信号提供力量倍增。
+        - 架构意义: 将此通用逻辑从行为情报模块中解放出来，提升至最高指挥部，实现架构净化。
+        """
+        print("    - [神力引擎] 正在点燃“关系动力”引擎...")
+        df = self.strategy.df_indicators
+        
+        power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
+        
+        stormborn_power = (power_transfer * loser_capitulation)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
+        
+        still_waters_power = (stealth_accumulation * winner_conviction)**0.5
+        self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
+        
+        relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
+        self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
 
 
