@@ -240,62 +240,82 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“审判日”法医探针，用于深度解剖风险裁决过程。
-        - 核心功能: 穿透式地展示各“审判庭”的风险强度，并验证最终的 ALERT_LEVEL 裁决。
+        【V2.0 · 宙斯之眼版】审判日引擎法医探针
+        - 核心升级: 新增“天使长专项诊断”模块，能够深入解剖 ARCHANGEL_RISK 的构成，
+                      清晰展示其三大核心组件（上冲派发、天地板、高位回落）的原始分值。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         
-        def get_val(name, date, default=np.nan):
-            first_key = next(iter(atomic), None)
-            if first_key is None: return default
-            return atomic.get(name, pd.Series(default, index=atomic.get(first_key).index)).get(date, default)
+        if 'ALERT_LEVEL' not in atomic or probe_date not in atomic['ALERT_LEVEL'].index:
+            print("  [错误] 无法找到审判日引擎的输出信号。解剖终止。")
+            return
 
-        # --- 步骤 1: 获取最终裁决结果 ---
-        final_alert_level = get_val('ALERT_LEVEL', probe_date, 0)
-        final_alert_reason = get_val('ALERT_REASON', probe_date, "无警报")
-        print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {final_alert_level} ({final_alert_reason})")
-
-        # --- 步骤 2: 解剖各“审判庭”的风险强度 ---
-        print("\n  [链路层 2] 解剖 -> 各审判庭风险强度 (取组内最大值)")
-        risk_categories = {
-            'TOP_REVERSAL': ['SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL', 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'],
-            'BEARISH_RESONANCE': ['SCORE_BEHAVIOR_BEARISH_RESONANCE', 'SCORE_CHIP_BEARISH_RESONANCE', 'SCORE_FF_BEARISH_RESONANCE', 'SCORE_STRUCTURE_BEARISH_RESONANCE', 'SCORE_DYN_BEARISH_RESONANCE', 'SCORE_FOUNDATION_BEARISH_RESONANCE'],
-            'MICRO_RISK': ['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING']
-        }
+        alert_level = atomic['ALERT_LEVEL'].get(probe_date)
+        alert_reason = atomic['ALERT_REASON'].get(probe_date)
         
-        fused_risks_probed = {}
-        for category, signals in risk_categories.items():
-            signal_scores = [get_val(s, probe_date, 0.0) for s in signals]
-            max_score = np.max(signal_scores) if signal_scores else 0.0
-            fused_risks_probed[category] = max_score
-            print(f"    - {category:<20}: {max_score:.4f}")
+        print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {alert_level} ({alert_reason or '无警报'})")
 
-        # --- 步骤 3: 验证裁决逻辑 ---
+        # 重新运行风险裁决逻辑以获取中间值
+        _, _, fused_risks_df = self.judgment_layer._adjudicate_risk_level()
+        
+        if probe_date not in fused_risks_df.index:
+            print("  [错误] 探针日期不在风险融合数据中。解剖终止。")
+            return
+            
+        print("\n  [链路层 2] 解剖 -> 各审判庭风险强度 (取组内最大值)")
+        probe_risk_values = fused_risks_df.loc[probe_date]
+        for category, value in probe_risk_values.items():
+            print(f"    - {category:<20}: {value:.4f}")
+
+        # [代码新增] “宙斯之眼”：天使长专项诊断模块
+        print("\n  [链路层 2.1] 解剖 -> “天使长”审判庭专项诊断")
+        archangel_components = {
+            "上冲派发 (Upthrust)": "SCORE_RISK_UPTHRUST_DISTRIBUTION",
+            "天地板 (Heaven-Earth)": "SCORE_BOARD_HEAVEN_EARTH",
+            "高位回落 (Post-Peak)": "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN"
+        }
+        component_scores = {}
+        for name, signal in archangel_components.items():
+            score = atomic.get(signal, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+            component_scores[name] = score
+            print(f"    - {name:<25}: {score:.4f}")
+        
+        recalculated_archangel_score = max(component_scores.values())
+        actual_archangel_score = probe_risk_values.get('ARCHANGEL_RISK', 0.0)
+        print(f"    - [探针重算天使长风险]: max({list(component_scores.values())}) = {recalculated_archangel_score:.4f}")
+        print(f"    - [对比]: 实际值 {actual_archangel_score:.4f} vs 重算值 {recalculated_archangel_score:.4f}")
+
         print("\n  [链路层 3] 验证 -> 警报等级裁决逻辑")
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_alerts = p_judge.get('alert_level_thresholds', {})
         
+        level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
-        level_2_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
+        level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
         
+        print(f"    - Level 3 (天使长) 阈值: > {level_3_archangel_threshold}")
         print(f"    - Level 3 (顶部反转) 阈值: > {level_3_threshold}")
-        print(f"    - Level 2 (看跌共振) 阈值: > {level_2_threshold}")
+        print(f"    - Level 2 (共振或亢奋) 阈值: > {level_2_resonance_threshold} 或 > {level_2_euphoria_threshold}")
         print(f"    - Level 1 (微观风险) 阈值: > {level_1_threshold}")
 
-        recalc_level = 0
-        if fused_risks_probed['TOP_REVERSAL'] > level_3_threshold:
-            recalc_level = 3
-        elif fused_risks_probed['BEARISH_RESONANCE'] > level_2_threshold:
-            recalc_level = 2
-        elif fused_risks_probed['MICRO_RISK'] > level_1_threshold:
-            recalc_level = 1
+        print("\n  [链路层 4] 最终验证")
+        recalculated_level = 0
+        if probe_risk_values.get('ARCHANGEL_RISK', 0) > level_3_archangel_threshold:
+            recalculated_level = 3
+        elif probe_risk_values.get('TOP_REVERSAL', 0) > level_3_threshold:
+            recalculated_level = 3
+        elif (probe_risk_values.get('BEARISH_RESONANCE', 0) > level_2_resonance_threshold) or \
+             (probe_risk_values.get('EUPHORIA_RISK', 0) > level_2_euphoria_threshold):
+            recalculated_level = 2
+        elif probe_risk_values.get('MICRO_RISK', 0) > level_1_threshold:
+            recalculated_level = 1
             
-        print(f"\n  [链路层 4] 最终验证")
-        print(f"    - [探针重算]: {recalc_level}")
-        print(f"    - [对比]: 实际值 {final_alert_level} vs 重算值 {recalc_level}")
+        print(f"    - [探针重算]: {recalculated_level}")
+        print(f"    - [对比]: 实际值 {alert_level} vs 重算值 {recalculated_level}")
         print("--- 审判日探针解剖完毕 ---")
 
     def _deploy_turbo_probe(self, probe_date: pd.Timestamp):

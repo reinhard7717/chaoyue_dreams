@@ -385,29 +385,45 @@ class BehavioralIntelligence:
         return states
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        # 修正参数获取逻辑，使用正确的get_params_block工具，并修复了误导性的参数名
+        """
+        【V2.0 · 宙斯版】上冲派发风险诊断引擎
+        - 核心革命: 1. 彻底废除僵化的 `upper_shadow_ratio_min` 教条，不再要求上影线达到特定比例。
+                      2. 逻辑回归本质：风险 = 高位环境(overextension) * 巨大努力(volume) * 糟糕结果(weak_close)。
+        - 收益: 极大提升了对各类顶部派发形态（无论上影线长短）的识别能力，稳健性与实战性飙升。
+        """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         if not get_param_value(p.get('enabled'), False):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
+        
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
-        upper_shadow_ratio_min = get_param_value(p.get('upper_shadow_ratio_min'), 0.5)
         ma_col = f'EMA_{overextension_ma_period}_D'
+
         if not all(col in df.columns for col in ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
-        # 使用配置中定义的norm_window，而不是硬编码
+            
         norm_window = get_param_value(p.get('norm_window'), 55)
         min_periods = max(1, norm_window // 5)
+        
+        # 支柱一: 高位环境 (Overextension) - 价格已远离均线，处于风险区域
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         overextension_score = overextension_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
-        upper_shadow_ratio = (upper_shadow / total_range).fillna(0.0)
-        scaling_range = max(1.0 - upper_shadow_ratio_min, 0.001)
-        upper_shadow_score = ((upper_shadow_ratio - upper_shadow_ratio_min) / scaling_range).clip(0, 1).fillna(0)
+        
+        # 支柱二: 巨大努力 (Volume) - 成交量显著放大
         volume_score = df['volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        
+        # 支柱三: 糟糕结果 (Weak Close) - 收盘价在日内位置偏低
+        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / total_range).fillna(0.5)
         weak_close_score = 1 - close_position_in_range
-        final_score = (overextension_score * upper_shadow_score * volume_score * weak_close_score).astype(np.float32)
+        
+        # [代码修改] 废除上影线逻辑，采用更稳健的三支柱融合
+        # upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
+        # upper_shadow_ratio = (upper_shadow / total_range).fillna(0.0)
+        # scaling_range = max(1.0 - upper_shadow_ratio_min, 0.001)
+        # upper_shadow_score = ((upper_shadow_ratio - upper_shadow_ratio_min) / scaling_range).clip(0, 1).fillna(0)
+        
+        # [代码修改] 新的核心公式，直接融合三个本质支柱
+        final_score = (overextension_score * volume_score * weak_close_score).astype(np.float32)
         final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
         return final_score
 
