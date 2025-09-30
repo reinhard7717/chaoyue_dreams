@@ -67,13 +67,14 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V2.9 · 数据结构修复版】生成人类可读的信号摘要。
-        - 核心修复: 不再返回预格式化的字符串列表，而是返回一个字典列表，
-                    每个字典包含 'name' 和 'score'，以供下游程序化处理。
+        【V3.0 · 显影版】生成人类可读的信号摘要。
+        - 核心修复: 修复了“隐形墨水”BUG。在处理风险分数时，引入1000的缩放因子，
+                      确保0-1之间的浮点数风险能被正确转换为整数并显示在报告中。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        def process_details_df(details_df):
+        # [代码新增] 增加 scale_factor 参数，用于缩放分数
+        def process_details_df(details_df, scale_factor=1.0):
             if details_df.empty:
                 return pd.Series(dtype=object)
             
@@ -87,17 +88,17 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # 不再创建预格式化的字符串，而是创建一个字典
+            # [代码修改] 在转换为整数前，应用缩放因子
             long_df['summary_dict'] = long_df.apply(
-                lambda row: {'name': row['cn_name'], 'score': int(row['score'])},
+                lambda row: {'name': row['cn_name'], 'score': int(row['score'] * scale_factor)},
                 axis=1
             )
             
-            # 返回字典的列表，而不是字符串的列表
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
+        # [代码修改] 对进攻项使用默认缩放因子1.0，对风险项使用1000.0
         offense_summaries = process_details_df(score_details_df)
-        risk_summaries = process_details_df(risk_details_df)
+        risk_summaries = process_details_df(risk_details_df, scale_factor=1000.0)
 
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
         

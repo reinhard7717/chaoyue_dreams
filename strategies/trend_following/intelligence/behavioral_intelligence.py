@@ -17,29 +17,19 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 天使长版】行为情报模块总指挥
-        - 核心升级: 新增并调用 _diagnose_archangel_top_reversal 方法，生成拥有最高优先级的 SCORE_ARCHANGEL_TOP_REVERSAL 信号。
+        【V3.4 · 职责净化版】行为情报模块总指挥
+        - 核心重构: 移除了对 _diagnose_archangel_top_reversal 的调用。
+                      “天使长”作为顶层认知信号，其诊断职责已正式移交认知情报模块。
         """
         df = self.strategy.df_indicators
-        
         all_behavioral_states = {}
-
         internal_atomic_signals = self._generate_all_atomic_signals(df)
-        
         if internal_atomic_signals:
             self.strategy.atomic_states.update(internal_atomic_signals)
             all_behavioral_states.update(internal_atomic_signals)
-        
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df, atomic_signals=internal_atomic_signals)
-        
         if ultimate_behavioral_states:
             all_behavioral_states.update(ultimate_behavioral_states)
-
-        # 调用“天使长”诊断引擎，建立神圣专线
-        archangel_states = self._diagnose_archangel_top_reversal(df)
-        if archangel_states:
-            all_behavioral_states.update(archangel_states)
-
         return all_behavioral_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
@@ -587,51 +577,6 @@ class BehavioralIntelligence:
         rebound_reversal_score = (was_panic_yesterday * close_position_in_range * is_recovering_today).astype(np.float32)
         
         states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
-        return states
-
-    def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.0 · 地狱三头犬版】“天使长”顶部反转诊断引擎
-        - 核心革命: 融合算法从简单的 max() 升级为“主次风险融合算法”。
-                      最终风险 = 主要风险 + (次要风险 * 折扣因子)。
-        - 收益: 引擎现在不仅能捕捉单一的尖锐风险，更能识别多个中等强度风险信号
-                  形成的“合力派发”共振，极大提升了对复杂顶部形态的感知力。
-        """
-        states = {}
-        
-        # 从配置中获取次要风险的折扣因子
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
-        p_archangel = p_judge.get('archangel_fusion_params', {})
-        secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
-
-        # 从原子状态库中调集“天使军团”
-        upthrust_risk = self.strategy.atomic_states.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index))
-        heaven_earth_risk = self.strategy.atomic_states.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index))
-        post_peak_risk = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', pd.Series(0.0, index=df.index))
-        
-        # 升级为“地狱三头犬”融合逻辑
-        # 1. 将三个风险信号堆叠成一个NumPy数组
-        risk_matrix = np.stack([
-            upthrust_risk.values,
-            heaven_earth_risk.values,
-            post_peak_risk.values
-        ], axis=0)
-        
-        # 2. 沿信号轴（axis=0）对每日的风险进行排序
-        sorted_risks = np.sort(risk_matrix, axis=0)
-        
-        # 3. 提取主要风险（最高分）和次要风险（第二高分）
-        primary_risk = sorted_risks[-1]
-        secondary_risk = sorted_risks[-2]
-        
-        # 4. 应用主次风险融合公式
-        archangel_score_values = primary_risk + (secondary_risk * secondary_risk_discount)
-        
-        # 确保最终分数不会超过1.0
-        archangel_score = np.clip(archangel_score_values, 0, 1)
-        
-        states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
-        
         return states
 
 

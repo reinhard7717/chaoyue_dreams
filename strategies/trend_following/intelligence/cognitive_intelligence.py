@@ -37,18 +37,17 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.7 · 涡轮增压版】顶层认知总分合成模块
-        - 核心升级: 1. 调用全新的 synthesize_trend_acceleration_cascade 方法，诊断趋势的“级联加速”效应。
-                      2. 将“趋势加速级联分”纳入最终的看涨总分计算，作为主升浪的强力确认。
+        【V2.8 · 天使长归位版】顶层认知总分合成模块
+        - 核心升级: 1. 正式接管“天使长”信号(SCORE_ARCHANGEL_TOP_REVERSAL)的诊断职责。
+                      2. 确保在其所有依赖项（如高位回落风险）计算完毕后，再执行诊断，修复了严重的时序悖论。
         """
-        print("        -> [顶层认知总分合成模块 V2.7 · 涡轮增压版] 启动...")
+        print("        -> [顶层认知总分合成模块 V2.8 · 天使长归位版] 启动...")
         # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         self.strategy.atomic_states.update(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-        
         # --- 步骤 1: 执行本模块的核心认知融合任务 ---
         volatility_states = self._synthesize_volatility_signals(df)
         self.strategy.atomic_states.update(volatility_states)
@@ -61,10 +60,10 @@ class CognitiveIntelligence:
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
-        
-        # 调用全新的“涡轮增压”引擎
         self.synthesize_trend_acceleration_cascade(df)
-        
+        # [代码新增] 在所有依赖项计算完毕后，调用“天使长”诊断引擎
+        archangel_states = self._diagnose_archangel_top_reversal(df)
+        self.strategy.atomic_states.update(archangel_states)
         # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
@@ -74,17 +73,14 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
-            # 将新的“趋势加速级联分”加入看涨总分
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
-        
-        print("        -> [顶层认知总分合成模块 V2.7] 认知升级完成。")
+        print("        -> [顶层认知总分合成模块 V2.8] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -730,6 +726,40 @@ class CognitiveIntelligence:
         
         self.strategy.atomic_states.update(states)
 
+    def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 地狱三头犬版】“天使长”顶部反转诊断引擎
+        - 核心职责: 融合三大致命顶部风险信号，识别最高优先级的离场信号。
+        - 融合算法: 采用“主次风险融合算法”，最终风险 = 主要风险 + (次要风险 * 折扣因子)。
+        - 归属: 此方法作为顶层认知融合的一部分，正式归属于认知情报模块。
+        """
+        states = {}
+        # [代码新增] 从配置中获取次要风险的折扣因子
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        p_archangel = p_judge.get('archangel_fusion_params', {})
+        secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
+        # 从原子状态库中调集“天使军团”
+        upthrust_risk = self.strategy.atomic_states.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index))
+        heaven_earth_risk = self.strategy.atomic_states.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index))
+        post_peak_risk = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', pd.Series(0.0, index=df.index))
+        # 升级为“地狱三头犬”融合逻辑
+        # 1. 将三个风险信号堆叠成一个NumPy数组
+        risk_matrix = np.stack([
+            upthrust_risk.values,
+            heaven_earth_risk.values,
+            post_peak_risk.values
+        ], axis=0)
+        # 2. 沿信号轴（axis=0）对每日的风险进行排序
+        sorted_risks = np.sort(risk_matrix, axis=0)
+        # 3. 提取主要风险（最高分）和次要风险（第二高分）
+        primary_risk = sorted_risks[-1]
+        secondary_risk = sorted_risks[-2]
+        # 4. 应用主次风险融合公式
+        archangel_score_values = primary_risk + (secondary_risk * secondary_risk_discount)
+        # 确保最终分数不会超过1.0
+        archangel_score = np.clip(archangel_score_values, 0, 1)
+        states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
+        return states
 
 
 
