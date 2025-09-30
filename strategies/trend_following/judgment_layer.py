@@ -11,13 +11,14 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V524.0 · 先知的敕令版】
-        - 核心革命: 重建决策优先级，授予“先知入场”神谕绝对的、超越一切的最高决策权。
-        - 核心逻辑: 1. 首先判断“先知入场”。一旦触发，它将成为当日唯一且最终的信号。
-                      2. 仅在“先知”沉默时，才继续判断“硬性离场”、“常规买入”和“风险否决”。
-        - 收益: 彻底解决了“先知入场”信号被“硬性离场”错误否决的根本性哲学冲突。
+        【V525.0 · 最终协定版】
+        - 核心革命: 废除所有“顺序覆盖”逻辑，采用严格的、互斥的条件判断，确保决策的唯一性和最终性。
+        - 核心逻辑: 1. 最高优先级“先知入场”首先进行裁决。
+                      2. 仅在非“先知入场”日，才轮到“硬性离场”进行裁决。
+                      3. 仅在非“先知”且非“硬离场”日，才进行常规的“买入/风险否决”裁决。
+        - 收益: 彻底解决了因多重信号在同一天触发时的逻辑竞争与状态污染问题，确保了决策链的绝对清晰和结果的绝对正确。
         """
-        print("    --- [最高作战指挥部 V524.0 · 先知的敕令版] 启动...")
+        print("    --- [最高作战指挥部 V525.0 · 最终协定版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -30,35 +31,45 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
 
-        # [代码修改] 彻底重构决策优先级，确立“先知的敕令”
+        # [代码修改] 建立严格互斥的决策体系，签订“最终协定”
         
-        # 准备所有判断条件
+        # --- 准备所有基础判断条件 ---
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
-        
-        # 优先级 1 (最低): 常规买入与风险否决
-        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
-        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
-        alert_veto_condition = is_score_sufficient & is_veto_by_alert
-        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0
-
-        # 优先级 2: 硬性离场 (国王的卫队) - 覆盖常规信号
-        strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
-        df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
-        df.loc[is_hard_exit_veto, 'final_score'] = 0
-
-        # 优先级 3 (最高): 先知入场 (先知的敕令) - 覆盖一切
         prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
+
+        # --- 协定第一条：先知拥有最高裁决权 ---
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         df.loc[is_prophet_entry, 'final_score'] = 0 # 神谕降临之日，凡人的分数皆为虚无
+
+        # --- 协定第二条：国王卫队的硬性离场，仅在先知沉默时生效 ---
+        # 创建一个排除“先知日”的掩码
+        is_not_prophet_day = ~is_prophet_entry
+        # 硬性离场条件必须在非先知日触发
+        strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index)) & is_not_prophet_day
+        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask & is_not_prophet_day
+        is_effective_hard_exit = (strategic_exit_mask | tactical_exit_mask)
+
+        df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
+        df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
+        df.loc[is_effective_hard_exit, 'final_score'] = 0
+
+        # --- 协定第三条：常规买入与风险否决，仅在先知和国王卫队都未行动时生效 ---
+        # 创建一个排除了“先知日”和“硬离场日”的最终掩码
+        is_mundane_day = is_not_prophet_day & ~is_effective_hard_exit
+        
+        # 常规买入
+        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_mundane_day
+        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
+        # 风险否决
+        alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_mundane_day
+        df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
+        df.loc[alert_veto_condition, 'final_score'] = 0
         
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
