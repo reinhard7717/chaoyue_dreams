@@ -696,9 +696,9 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.2 · 奥林匹斯圣火同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 焚烧“影子法典”。探针的重算逻辑已从旧的“乘法”模型，彻底升级为与主引擎完全同步的“加权求和”模型。
-        - 新核心公式: 恐慌分 = (价格暴跌*权重) + (成交天量*权重) + ...
+        【V1.3 · 赫淮斯托斯之锤同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 彻底焚烧“影子法典”。探针的重算逻辑已与主引擎的“赫淮斯托斯之锤”版本完全同步。
+        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * volume_calmness_score，且必须满足价格暴跌门槛。
         - 收益: 确保了探针的重算结果与引擎的实际输出绝对一致，使其成为真正可靠的真理验证工具。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
@@ -720,18 +720,19 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # 更新核心公式的注释，明确为加权求和模型
-        print(f"    - [核心公式]: (价格暴跌*权重) + (成交天量*权重) + (筹码崩溃*权重) + (绝望背景*权重) + (结构支撑*权重)")
+        # [代码修改] 更新核心公式注释，反映“赫淮斯托斯之锤”的完整逻辑
+        print(f"    - [核心公式]: (五大支柱加权和) * (成交量静谧度)  (当满足价格暴跌门槛时)")
 
         # --- 链路层 3: 钻透恐慌战备分的五大支柱 ---
-        print("\n  [链路层 3] 钻透 -> 五大支柱")
+        print("\n  [链路层 3] 钻透 -> 五大支柱 & 调节器")
         
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-        # [代码新增] 探针必须使用与主引擎完全相同的权重配置
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {
             'price_drop': 0.30, 'volume_spike': 0.25, 'chip_breakdown': 0.15,
             'despair_context': 0.15, 'structural_test': 0.15
         })
+        # [代码新增] 探针必须获取与主引擎完全相同的门槛
+        min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
         price_drop_raw = df['pct_change_D'].clip(upper=0).get(probe_date, 0.0)
         price_drop_score_recalc = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False).get(probe_date, 0.0)
@@ -761,19 +762,37 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
+        # [代码新增] 探针必须复刻“赫淮斯托斯之锤”的完整逻辑
+        print(f"    --- 调节器: 成交量静谧度 ---")
+        volume_calmness_score_recalc = 0.0
+        ma_periods_for_volume = [5, 13, 21, 55]
+        weight_per_level = 1.0 / len(ma_periods_for_volume)
+        for p in ma_periods_for_volume:
+            ma_col = f'VOL_MA_{p}_D'
+            if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:
+                volume_calmness_score_recalc += weight_per_level
+        print(f"      - [探针重算] 成交量静谧度分: {volume_calmness_score_recalc:.4f}")
+
         # --- 链路层 4: 最终验证 ---
         print("\n  [链路层 4] 最终验证")
-        # 更新为加权求和模型
-        recalculated_panic_score = (
+        raw_panic_score_recalc = (
             price_drop_score_recalc * pillar_weights.get('price_drop', 0) +
             volume_spike_score_recalc * pillar_weights.get('volume_spike', 0) +
             chip_breakdown_score_recalc * pillar_weights.get('chip_breakdown', 0) +
             despair_context_score_recalc * pillar_weights.get('despair_context', 0) +
             structural_test_score_recalc * pillar_weights.get('structural_test', 0)
         )
-        # 更新打印的重算公式
-        print(f"    - [探针重算恐慌战备分]: ({price_drop_score_recalc:.4f}*{pillar_weights.get('price_drop',0):.2f} + {volume_spike_score_recalc:.4f}*{pillar_weights.get('volume_spike',0):.2f} + ... ) = {recalculated_panic_score:.4f}")
-        print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {recalculated_panic_score:.4f}")
+        print(f"    - [探针重算] 五大支柱加权和: {raw_panic_score_recalc:.4f}")
+        
+        # [代码新增] 应用“宙斯的雷霆”硬性门槛
+        is_significant_drop = df.at[probe_date, 'pct_change_D'] < min_price_drop_pct
+        print(f"    - [探针检查] 价格暴跌门槛 ({min_price_drop_pct:.2%}) 是否满足? {'✅ 是' if is_significant_drop else '❌ 否'}")
+
+        # [代码修改] 探针的最终重算分必须应用完整的“赫淮斯托斯之锤”逻辑
+        final_recalculated_score = raw_panic_score_recalc * volume_calmness_score_recalc if is_significant_drop else 0
+        
+        print(f"    - [探针重算恐慌战备分]: {raw_panic_score_recalc:.4f} (五大支柱和) * {volume_calmness_score_recalc:.4f} (静谧度) = {final_recalculated_score:.4f}")
+        print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
 
