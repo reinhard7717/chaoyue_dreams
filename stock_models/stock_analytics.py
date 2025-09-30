@@ -195,21 +195,28 @@ class DailyPositionSnapshot(models.Model):
 
 class StrategyDailyScore(models.Model):
     """
-    【V1.0】策略每日分数 (公共知识库)
+    【V1.1 · 神谕契约版】策略每日分数 (公共知识库)
+    - 核心升级: 在 TradeActionType 中补全了所有新的交易动作枚举，包括先知入场/离场和战略失效离场。
     """
     class TradeActionType(models.TextChoices):
         INITIAL_ENTRY = 'INITIAL_ENTRY', '首次建仓'
         ADD_POSITION = 'ADD_POSITION', '加仓'
-        REDUCE_POSITION = 'REDUCE_POSITION', '减仓' # 包含高抛
+        REDUCE_POSITION = 'REDUCE_POSITION', '减仓'
         PROFIT_EXIT = 'PROFIT_EXIT', '止盈清仓'
         STOP_LOSS_EXIT = 'STOP_LOSS_EXIT', '止损清仓'
         RISK_EXIT = 'RISK_EXIT', '风险清仓'
         TREND_BROKEN_EXIT = 'TREND_BROKEN_EXIT', '趋势破位清仓'
+        # [代码新增] 为“战略失效”提供专属交易动作
+        STRATEGY_INVALIDATED_EXIT = 'STRATEGY_INVALIDATED_EXIT', '战略失效清仓'
+        # [代码新增] 为“先知入场”提供专属交易动作
+        PROPHET_ENTRY = 'PROPHET_ENTRY', '先知入场'
+        # [代码新增] 为“先知离场”提供专属交易动作
+        PROPHET_EXIT = 'PROPHET_EXIT', '先知离场'
         HOLD = 'HOLD', '持仓观望'
         AVOID = 'AVOID', '规避'
         PROCEED_WITH_CAUTION = 'PROCEED_WITH_CAUTION', '谨慎持仓'
         FORCE_ATTACK = 'FORCE_ATTACK', '强力进攻'
-        NO_SIGNAL = 'NO_SIGNAL', '无信号' # 默认值
+        NO_SIGNAL = 'NO_SIGNAL', '无信号'
         GAP_UP_SKIPPED = 'GAP_UP_SKIPPED', '高开跳过'
 
     stock = models.ForeignKey(
@@ -228,10 +235,10 @@ class StrategyDailyScore(models.Model):
     composite_score = models.IntegerField(default=0, verbose_name='战法分')
     signal_type = models.CharField(max_length=20, verbose_name='信号类型')
     score_details_json = models.JSONField(default=dict, verbose_name='分数构成详情(JSON)')
-    trade_action = models.CharField( # 使用新的 TradeActionType 枚举
+    trade_action = models.CharField(
         max_length=50,
         choices=TradeActionType.choices,
-        default=TradeActionType.NO_SIGNAL, # 修改默认值
+        default=TradeActionType.NO_SIGNAL,
         verbose_name='模拟交易动作',
         help_text="模拟层根据策略规则执行的交易动作 (例如: INITIAL_ENTRY, PROFIT_EXIT, REDUCE_POSITION)"
     )
