@@ -35,12 +35,12 @@ class FundFlowIntelligence:
                       2. 实现中央直辖，所有参数均从中央的 `p_conf` 和 `p_synthesis` 获取。
                       3. 重构下级函数的调用，确保它们被动接收来自中央的统一参数。
         """
-        # [代码修改] 废除内阁，实现中央直辖
+        # 废除内阁，实现中央直辖
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return {}
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        # [代码新增] 直接从中央获取所有参数
+        # 直接从中央获取所有参数
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         pillar_configs = {
@@ -58,7 +58,7 @@ class FundFlowIntelligence:
         }
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
-        # [代码修改] 向下级函数传递中央参数
+        # 向下级函数传递中央参数
         pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods)
         fused_health = self._fuse_health_with_intent_weights(pillar_health, pillar_configs, p_conf, periods)
         final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)

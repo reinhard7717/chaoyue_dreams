@@ -18,7 +18,8 @@ from .intelligence.cyclical_intelligence import CyclicalIntelligence
 from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
-from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar
+from .intelligence.predictive_intelligence import PredictiveIntelligence
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar
 
 class IntelligenceLayer:
     """
@@ -35,7 +36,6 @@ class IntelligenceLayer:
         self.strategy = strategy_instance
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-
         # 实例化所有子模块，注入依赖
         self.foundation_intel = FoundationIntelligence(self.strategy)
         self.structural_intel = StructuralIntelligence(self.strategy, {}) # dynamic_thresholds 已废弃
@@ -49,14 +49,16 @@ class IntelligenceLayer:
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
+        # 实例化先知引擎
+        self.predictive_intel = PredictiveIntelligence(self.strategy)
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V414.0 · 解放普罗米修斯版】情报层总指挥官
-        - 核心革命: 新增 `_ignite_relational_dynamics_engine` 方法，将“关系动力分”的计算
-                      从行为情报模块提升至本层。这打破了模块间的隐性耦合，实现了架构的净化。
+        【V415.0 · 先知计划版】情报层总指挥官
+        - 核心升级: 在认知层融合之后，审判日引擎裁决之前，插入“先知引擎”的预测诊断。
         """
-        print("--- [情报层总指挥官 V414.0 · 解放普罗米修斯版] 开始执行所有诊断模块... ---") # 更新版本号
+        # 更新版本号和描述
+        print("--- [情报层总指挥官 V415.0 · 先知计划版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -66,7 +68,7 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
-        print("    - [阶段 1/5] 正在执行周期与基础过程诊断...")
+        print("    - [阶段 1/6] 正在执行周期与基础过程诊断...") # 更新阶段总数
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
@@ -74,7 +76,7 @@ class IntelligenceLayer:
         # 这个引擎依赖过程信号，且必须在所有终极信号引擎之前运行
         self._ignite_relational_dynamics_engine()
         # --- 阶段二: 状态情报与战略过程诊断 ---
-        print("    - [阶段 2/5] 正在执行状态情报与战略过程诊断...")
+        print("    - [阶段 2/6] 正在执行状态情报与战略过程诊断...") # 更新阶段总数
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -85,20 +87,23 @@ class IntelligenceLayer:
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
         # --- 阶段三: 跨域认知融合 ---
-        print("    - [阶段 3/5] 正在执行认知层跨域元融合...")
+        print("    - [阶段 3/6] 正在执行认知层跨域元融合...") # 更新阶段总数
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
-        # --- 阶段四: 最终战法与剧本生成 ---
-        print("    - [阶段 4/5] 正在生成最终战法与剧本...")
+        # --- 阶段四: 先知引擎预测 ---
+        print("    - [阶段 4/6] 正在启动“先知引擎”进行风险预测...")
+        update_states(self.predictive_intel.run_predictive_diagnostics())
+        # --- 阶段五: 最终战法与剧本生成 ---
+        print("    - [阶段 5/6] 正在生成最终战法与剧本...") # 更新阶段总数
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
-        # --- 阶段五: 硬性离场信号生成 ---
-        print("    - [阶段 5/5] 正在生成硬性离场信号...")
+        # --- 阶段六: 硬性离场信号生成 ---
+        print("    - [阶段 6/6] 正在生成硬性离场信号...") # 更新阶段总数
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         self.deploy_forensic_probes()
-        print("--- [情报层总指挥官 V414.0] 所有诊断模块执行完毕。 ---")
+        print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---") # 更新版本号
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
@@ -236,38 +241,40 @@ class IntelligenceLayer:
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.3 · 刻耳柏洛斯之镜版】审判日引擎法医探针
-        - 核心革命: 修复了“镜像悖论”。探针的重算逻辑从旧的 max() 升级为与主系统
-                      完全同步的“地狱三头犬”主次风险融合算法，确保了验证的准确性。
+        【V2.4 · 先知之眼版】审判日引擎法医探针
+        - 核心升级: 新增对“先知引擎”预测性风险的解剖能力，验证其最高裁决权。
         """
-        print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎】 ---")
+        # 更新探针版本号
+        print("\n--- [探针] 正在解剖: 【创世纪 VIII · 审判日引擎(先知版)】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
-        
         try:
+            # 从 judgment_layer 获取裁决结果
             alert_level_series, alert_reason_series, fused_risks_df = self.strategy.judgment_layer._adjudicate_risk_level()
         except Exception as e:
             print(f"  [错误] 在探针内部调用 _adjudicate_risk_level 时发生异常: {e}。解剖终止。")
             return
-
         if probe_date not in alert_level_series.index:
             print(f"  [错误] 探针日期 {probe_date} 不在独立计算的风险结果索引中。解剖终止。")
             return
-            
         alert_level = alert_level_series.get(probe_date)
         alert_reason = alert_reason_series.get(probe_date)
-        
+        # 新增链路层0，用于解剖先知引擎的预测
+        print(f"\n  [链路层 0] 解剖 -> “先知”神谕")
+        predictive_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
+        print(f"    - 【预测风险】高潮衰竭: {predictive_risk:.4f} (阈值: > {prophet_threshold})")
+        if predictive_risk > prophet_threshold:
+            print("    - [神谕裁决]: 触发最高警报 (ALERT_LEVEL: 3)")
         print(f"\n  [链路层 1] 最终裁决 -> ALERT_LEVEL: {alert_level} ({alert_reason or '无警报'})")
-
         if probe_date not in fused_risks_df.index:
             print("  [错误] 探针日期不在风险融合数据中。解剖终止。")
             return
-            
         print("\n  [链路层 2] 解剖 -> 各审判庭风险强度 (取组内最大值)")
         probe_risk_values = fused_risks_df.loc[probe_date]
         for category, value in probe_risk_values.items():
             print(f"    - {category:<20}: {value:.4f}")
-
         print("\n  [链路层 2.1] 解剖 -> “天使长”审判庭专项诊断")
         archangel_components = {
             "上冲派发 (Upthrust)": "SCORE_RISK_UPTHRUST_DISTRIBUTION",
@@ -279,39 +286,35 @@ class IntelligenceLayer:
             score = atomic.get(signal, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
             component_scores[name] = score
             print(f"    - {name:<25}: {score:.4f}")
-        
-        # 升级探针的重算逻辑，与“地狱三头犬”算法完全同步
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_archangel = p_judge.get('archangel_fusion_params', {})
         secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
-
         sorted_scores = sorted(component_scores.values(), reverse=True)
         primary_risk = sorted_scores[0] if sorted_scores else 0.0
         secondary_risk = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
-        
         recalculated_archangel_score = np.clip(primary_risk + (secondary_risk * secondary_risk_discount), 0, 1)
         actual_archangel_score = probe_risk_values.get('ARCHANGEL_RISK', 0.0)
-        
         print(f"    - [探针重算天使长风险]: {primary_risk:.4f} (主) + ({secondary_risk:.4f} (次) * {secondary_risk_discount}) = {recalculated_archangel_score:.4f}")
         print(f"    - [对比]: 实际值 {actual_archangel_score:.4f} vs 重算值 {recalculated_archangel_score:.4f}")
-
         print("\n  [链路层 3] 验证 -> 警报等级裁决逻辑")
+        # 从 judgment_params 中获取阈值
         p_alerts = p_judge.get('alert_level_thresholds', {})
-        
         level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
         level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
         level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
-        
+        # 在探针中打印先知阈值
+        print(f"    - Level 3 (先知) 阈值: > {prophet_threshold}")
         print(f"    - Level 3 (天使长) 阈值: > {level_3_archangel_threshold}")
         print(f"    - Level 3 (顶部反转) 阈值: > {level_3_threshold}")
         print(f"    - Level 2 (共振或亢奋) 阈值: > {level_2_resonance_threshold} 或 > {level_2_euphoria_threshold}")
         print(f"    - Level 1 (微观风险) 阈值: > {level_1_threshold}")
-
         print("\n  [链路层 4] 最终验证")
         recalculated_level = 0
-        if probe_risk_values.get('ARCHANGEL_RISK', 0) > level_3_archangel_threshold:
+        # 在探针重算逻辑中加入先知判断
+        if predictive_risk > prophet_threshold:
+            recalculated_level = 3
+        elif probe_risk_values.get('ARCHANGEL_RISK', 0) > level_3_archangel_threshold:
             recalculated_level = 3
         elif probe_risk_values.get('TOP_REVERSAL', 0) > level_3_threshold:
             recalculated_level = 3
@@ -320,7 +323,6 @@ class IntelligenceLayer:
             recalculated_level = 2
         elif probe_risk_values.get('MICRO_RISK', 0) > level_1_threshold:
             recalculated_level = 1
-            
         print(f"    - [探针重算]: {recalculated_level}")
         print(f"    - [对比]: 实际值 {alert_level} vs 重算值 {recalculated_level}")
         print("--- 审判日探针解剖完毕 ---")
