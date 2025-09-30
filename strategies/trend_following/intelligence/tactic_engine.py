@@ -23,20 +23,18 @@ class TacticEngine:
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 净化协议版】战术引擎总指挥
-        - 核心革命: 移除了子引擎内部对 self.strategy.atomic_states 的直接写入操作。
-                      现在引擎遵循“纯函数”原则，只负责计算并返回结果，将状态更新的权力
-                      完全交还给上层调用者，彻底解决了“越权写入”导致的“状态污染”问题。
+        【V2.3 · 赫尔墨斯信使版】战术引擎总指挥
+        - 核心革命: 1. 彻底移除了对全局状态的非法写入。
+                      2. 识别到 synthesize_v_reversal_ace_playbook 的隐式依赖后，为其建立了
+                         明确的参数通道（信使），将依赖数据直接传递，根除了“焦土战术”BUG。
         """
         all_states = {}
-        # [代码修改] 首先计算所有战术，并收集到 all_states 中
+        # 步骤 1: 计算具有依赖性的前置信号
         panic_states = self.synthesize_panic_selling_setup(df)
         all_states.update(panic_states)
-        # [代码删除] 移除了对 self.strategy.atomic_states 的直接写入，这是非法的“越权”行为
-        # self.strategy.atomic_states.update(all_states)
-        # [代码新增] 将刚刚计算出的状态也传入下游，确保数据流的实时性
-        self.strategy.atomic_states.update(panic_states)
-        all_states.update(self.synthesize_v_reversal_ace_playbook(df))
+        # [代码删除] 移除了对 self.strategy.atomic_states 的非法写入
+        # 步骤 2: 通过“信使通道”（函数参数）将依赖直接传递给下游方法
+        all_states.update(self.synthesize_v_reversal_ace_playbook(df, setup_score=panic_states.get('SCORE_SETUP_PANIC_SELLING')))
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
@@ -61,23 +59,20 @@ class TacticEngine:
         states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score
         return states
 
-    def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame, setup_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号净化版】V型反转王牌剧本
-        - 核心逻辑: 昨日恐慌抛售战备就绪 & 今日强力反转点火确认
+        【V1.3 · 赫尔墨斯信使版】V型反转王牌剧本
+        - 核心革命: 不再从全局状态（黑市）读取 setup_score，而是通过函数参数（信使）接收，
+                      确保了数据来源的纯净、可靠和可追溯。
         """
-        # print("        -> [V型反转王牌剧本 V1.2] 启动...") # 更新版本号
         states = {}
-        
-        # 消费新的终极反转信号作为点火器 (已净化)
         trigger_dominant_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        
-        # 消费净化后的 setup 信号
-        was_setup_yesterday = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING').shift(1).fillna(0.0)
+        # [代码修改] 不再从全局状态读取，而是直接使用通过参数传递的、最新的依赖数据
+        if setup_score is None:
+            setup_score = pd.Series(0.0, index=df.index)
+        was_setup_yesterday = setup_score.shift(1).fillna(0.0)
         is_triggered_today = trigger_dominant_reversal_score
-        
         final_playbook_score = (was_setup_yesterday * is_triggered_today).astype(np.float32)
-        # 确保生产的信号名是净化后的
         states['SCORE_PLAYBOOK_V_REVERSAL_ACE'] = final_playbook_score
         states['PLAYBOOK_V_REVERSAL_ACE'] = final_playbook_score > 0.3
         return states

@@ -36,14 +36,12 @@ class MicroBehaviorEngine:
             if new_states:
                 all_states.update(new_states)
                 # [代码删除] 移除了对 self.strategy.atomic_states 的直接写入，这是非法的“越权”行为
-                # self.strategy.atomic_states.update(new_states)
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        # [代码新增] 为了让下游的 synthesize_reversal_reliability_score 能消费到最新的信号，
-        # 我们需要临时将当前计算出的状态合并到 df 中，或者直接传入。这里选择传入。
+        # [代码修改] 从本地正在构建的 all_states 字典中获取依赖，而不是从可能陈旧的全局状态中获取
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
