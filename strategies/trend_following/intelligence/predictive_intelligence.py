@@ -76,33 +76,18 @@ class PredictiveIntelligence:
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.1 · 时序校准版】诊断“恐慌投降反转”机会 (入场神谕)
-        - 核心逻辑: 融合三大支柱，识别绝望尽头的反转机会。
-                      机会 = (恐慌上下文 * 权重) + (卖压衰竭 * 权重) + (V型反转 * 权重)
-        - 本次修复: 移除了 panic_context_score 计算中的 .shift(1)，解决了“先知活在昨天”的致命时序悖论。
-                      现在，它将基于T日的恐慌状态，来预测T+1日的反转机会。
+        【V1.5 · 先知圣约版】诊断“恐慌投降反转”机会 (入场神谕)
+        - 核心革命: 遵循“先知圣约”，本引擎的职责被净化为纯粹的“战备状态”诊断器。
+        - 核心逻辑: 预测机会 = T日当天的恐慌程度。
+                      它不再关心T日是否反转，只关心T日的恐慌是否足够为T+1日的反转创造条件。
+                      这是一个纯粹的、无杂质的预测信号。
         """
-        # 1. 支柱一: 恐慌上下文 (Panic Context) - 市场是否处于绝望的废墟中？
-        #    此信号由 TacticEngine 生成，代表【今日】是否为恐慌抛售。
-        # [代码修改] 移除 .shift(1)，让先知基于今日的恐慌预测明日的反转
+        # [代码修改] 步骤一：获取由 TacticEngine 精心合成的、包含四根支柱的“恐慌战备”分数。
+        # 这是“先知”进行预测的唯一、且最可靠的依据。
         panic_context_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index))
 
-        # 2. 支柱二: 卖压衰竭 (Selling Exhaustion) - 抛售力量是否已耗尽？
-        #    此信号由 MicroBehaviorEngine 生成，衡量缩量企稳的程度。
-        selling_exhaustion_score = atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
-
-        # 3. 支柱三: V型反转 (V-Shape Reversal) - 是否出现探底回升的强势K线？
-        #    此信号由 BehavioralIntelligence 生成，衡量长下影线的反转形态。
-        v_reversal_score = atomic_states.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
-
-        # 4. 三位一体融合 (Trinity Fusion)
-        weights = get_param_value(self.params.get('capitulation_reversal_weights'), {'panic': 0.4, 'exhaustion': 0.3, 'reversal': 0.3})
-        
-        final_opportunity_score = (
-            panic_context_score * weights['panic'] +
-            selling_exhaustion_score * weights['exhaustion'] +
-            v_reversal_score * weights['reversal']
-        )
+        # [代码修改] 步骤二：先知的神谕现在无比纯粹——今天的恐慌程度，就是对明天反转机会的预测强度。
+        final_opportunity_score = panic_context_score
         
         return final_opportunity_score.clip(0, 1)
 

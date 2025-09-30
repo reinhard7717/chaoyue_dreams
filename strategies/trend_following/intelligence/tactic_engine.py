@@ -43,19 +43,23 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号净化版】恐慌抛售战备(Setup)信号生成模块
-        - 核心逻辑: 价格大幅下跌 * 成交量放大 * 筹码结构崩溃
+        【V1.3 · 四柱神谕版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 引入第四根支柱——“绝望背景”，确保恐慌发生在长期下跌的末期，而不是牛市中的一次普通回调。
+        - 核心逻辑: 终极恐慌 = (价格暴跌 * 成交天量 * 筹码崩溃) × 绝望背景
         """
-        # print("        -> [恐慌抛售战备模块 V1.2] 启动...") # 更新版本号
         states = {}
+        # [代码修改] 支柱一、二、三保持不变
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
-        
-        # 消费新的终极筹码看跌信号 (已净化)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         
-        setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score).astype(np.float32)
-        # 确保生产的信号名是净化后的
+        # [代码新增] 支柱四：绝望背景 (Deep Bottom Context) - 确认股价处于长期低位
+        price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
+        deep_bottom_context_score = 1.0 - price_pos_yearly
+        
+        # [代码修改] 四位一体融合，生成更可靠的恐慌信号
+        setup_panic_selling_score = (price_drop_score * volume_spike_score * chip_breakdown_score * deep_bottom_context_score).astype(np.float32)
+        
         states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score
         return states
 

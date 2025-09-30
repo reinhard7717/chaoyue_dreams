@@ -11,11 +11,12 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V519.0 · 神谕之门版】
-        - 核心革命: 赋予“先知入场”神谕最高决策权。一旦其分数超过阈值，将直接覆盖其他判断，
-                      生成 '先知入场' 信号类型，确保神谕的绝对执行力。
+        【V520.0 · 指挥链重建版】
+        - 核心革命: 重建了决策的指挥链，确保拥有最高否决权的“硬性离场”信号在所有进攻决策之前被裁定。
+        - 核心逻辑: 1. 首先检查硬性离场信号。如果触发，直接将信号设为离场类型并归零分数，终止后续判断。
+                      2. 只有在没有硬性离场时，才继续进行“先知入场”和常规买入的判断。
         """
-        print("    --- [最高作战指挥部 V519.0 · 神谕之门版] 启动...")
+        print("    --- [最高作战指挥部 V520.0 · 指挥链重建版] 启动...") # 修改: 更新版本号
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -25,29 +26,41 @@ class JudgmentLayer:
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
-        df['signal_type'] = '无信号'
-        is_score_sufficient = df['final_score'] > final_score_threshold
-        is_veto_by_alert = df['alert_level'] >= 3
-        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
-        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
-        # [代码新增] “神谕之门”逻辑：赋予“先知入场”神谕最高决策权
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.7)
-        predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
-        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert
-        df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
+        df['signal_type'] = '无信号'
 
+        # [代码修改] 步骤一：首先处理拥有最高否决权的硬性离场信号
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
-        if is_hard_exit_veto.any():
-            strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-            tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-            df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
-            df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
-            df.loc[is_hard_exit_veto, 'final_score'] = 0
-        alert_veto_condition = is_score_sufficient & is_veto_by_alert & ~is_hard_exit_veto
+        strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
+        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
+        
+        df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
+        df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
+        df.loc[is_hard_exit_veto, 'final_score'] = 0
+
+        # [代码修改] 步骤二：在没有硬性离场的前提下，再进行进攻决策
+        # is_not_hard_exit 掩码，用于后续的进攻决策
+        is_not_hard_exit = ~is_hard_exit_veto
+
+        is_score_sufficient = df['final_score'] > final_score_threshold
+        is_veto_by_alert = df['alert_level'] >= 3
+        
+        # 常规买入条件：分数足够 & 无警报 & 无硬性离场
+        potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_not_hard_exit
+        df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
+        # 先知入场条件：神谕触发 & 无警报 & 无硬性离场
+        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.7)
+        predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
+        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
+        df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
+
+        # [代码修改] 步骤三：最后处理风险否决（它只在有买入意图但被警报否决时出现）
+        alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_not_hard_exit
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
+        
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
         self._finalize_signals()
 
