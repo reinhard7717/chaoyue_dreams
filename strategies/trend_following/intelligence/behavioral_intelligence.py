@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores, calculate_holographic_dynamics
+from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, create_persistent_state, normalize_score, calculate_context_scores, calculate_holographic_dynamics
 
 class BehavioralIntelligence:
     def __init__(self, strategy_instance):
@@ -34,9 +34,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V21.0 · 回声版】
-        - 核心革命: 1. 新增“反转回声”机制，创造 SCORE_CONTEXT_RECENT_REVERSAL 信号，让底部形态的认知可以持续数日。
-                      2. 使用“反转回声”替代瞬时的底部形态分，为“底部反转”信号提供持续赋能。
+        【V22.0 · 炼金术士版】
+        - 核心革命: 彻底移除了内部重复的终极信号计算逻辑，转而调用中央的“炼金术士的坩埚”
+                      (transmute_health_to_ultimate_signals)进行合成，实现了思想和代码的统一。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -45,20 +45,14 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        resonance_tf_weights = {'short': 0.2, 'medium': 0.5, 'long': 0.3}
-        reversal_tf_weights = {'short': 0.6, 'medium': 0.3, 'long': 0.1}
-        periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
+        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
-        
-        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
 
-        # 创造“反转回声”信号，让底部形态认知持续3天
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
@@ -102,61 +96,16 @@ class BehavioralIntelligence:
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-
-        bullish_resonance_health = {p: np.maximum(overall_health['s_bull'][p], relational_dynamics_power) * overall_health['d_intensity'][p] for p in periods}
-        bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
-        bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
-        bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
-        overall_bullish_resonance = (
-            (bullish_short_force_res ** resonance_tf_weights['short']) *
-            (bullish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bullish_long_inertia_res ** resonance_tf_weights['long'])
-        )
         
-        # 使用“反转回声”替代瞬时的“底部形态分”
-        bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * overall_health['d_intensity'][p] for p in periods}
-        bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
-        bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
-        bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-        overall_bullish_reversal_trigger = (
-            (bullish_short_force_rev ** reversal_tf_weights['short']) *
-            (bullish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bullish_long_inertia_rev ** reversal_tf_weights['long'])
+        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
+        ultimate_signals = transmute_health_to_ultimate_signals(
+            df_index=df.index,
+            atomic_states=self.strategy.atomic_states,
+            overall_health=overall_health,
+            params=p_conf,
+            domain_prefix="BEHAVIOR"
         )
-        # 奖励因子也使用“反转回声”
-        final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
-
-        bearish_resonance_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
-        bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
-        bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
-        bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
-        overall_bearish_resonance = (
-            (bearish_short_force_res ** resonance_tf_weights['short']) *
-            (bearish_medium_trend_res ** resonance_tf_weights['medium']) *
-            (bearish_long_inertia_res ** resonance_tf_weights['long'])
-        )
-
-        bearish_reversal_health = {p: overall_health['s_bear'][p] * overall_health['d_intensity'][p] for p in periods}
-        bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
-        bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
-        bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
-        overall_bearish_reversal_trigger = (
-            (bearish_short_force_rev ** reversal_tf_weights['short']) *
-            (bearish_medium_trend_rev ** reversal_tf_weights['medium']) *
-            (bearish_long_inertia_rev ** reversal_tf_weights['long'])
-        )
-        final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
-        
-        final_signal_map = {
-            'SCORE_BEHAVIOR_BULLISH_RESONANCE': overall_bullish_resonance,
-            'SCORE_BEHAVIOR_BOTTOM_REVERSAL': final_bottom_reversal_score,
-            'SCORE_BEHAVIOR_BEARISH_RESONANCE': overall_bearish_resonance,
-            'SCORE_BEHAVIOR_TOP_REVERSAL': final_top_reversal_score
-        }
-
-        for signal_name, score in final_signal_map.items():
-            states[signal_name] = score.astype(np.float32)
+        states.update(ultimate_signals)
         
         return states
 

@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, calculate_context_scores, calculate_holographic_dynamics
+from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, calculate_context_scores, calculate_holographic_dynamics
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
@@ -134,65 +134,36 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 回声版】
-        - 核心升级: 使用“反转回声”信号 (SCORE_CONTEXT_RECENT_REVERSAL) 替代瞬时的底部形态分，为“底部反转”信号提供持续赋能。
+        【V5.0 · 炼金术士版】
+        - 核心革命: 彻底移除了内部重复的终极信号计算逻辑，转而调用中央的“炼金术士的坩埚”
+                      (transmute_health_to_ultimate_signals)进行合成，实现了思想和代码的统一。
         """
-        final_scores = {}
-        periods = params['periods']
-        res_tw = params['resonance_tf_weights']
-        rev_tw = params['reversal_tf_weights']
-        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        bottom_context_bonus_factor = get_param_value(p_conf.get('bottom_context_bonus_factor'), 0.5)
+        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
         
-        # 消费“反转回声”信号
-        recent_reversal_context = self.strategy.atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=fused_health['resonance']['s_bull'][periods[0]].index))
-        relational_dynamics_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=fused_health['resonance']['s_bull'][periods[0]].index))
-
-        resonance_health = fused_health['resonance']
-        reversal_health = fused_health['reversal']
-        
-        bullish_resonance_health = {p: np.maximum(resonance_health['s_bull'][p], relational_dynamics_power) * resonance_health['d_intensity'][p] for p in periods}
-        bull_res_short = (bullish_resonance_health.get(1, 0.5) * bullish_resonance_health.get(5, 0.5))**0.5
-        bull_res_med = (bullish_resonance_health.get(13, 0.5) * bullish_resonance_health.get(21, 0.5))**0.5
-        bull_res_long = bullish_resonance_health.get(55, 0.5)
-        final_scores['bullish_resonance'] = (
-            (bull_res_short ** res_tw['short']) *
-            (bull_res_med ** res_tw['medium']) *
-            (bull_res_long ** res_tw['long'])
+        # 为两个意图（共振和反转）分别调用坩埚
+        resonance_signals = transmute_health_to_ultimate_signals(
+            df_index=fused_health['resonance']['s_bull'][params['periods'][0]].index,
+            atomic_states=self.strategy.atomic_states,
+            overall_health=fused_health['resonance'],
+            params=params,
+            domain_prefix="FF"
         )
         
-        # 使用“反转回声”替代瞬时的“底部形态分”
-        bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * reversal_health['d_intensity'][p] for p in periods}
-        bull_rev_short = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
-        bull_rev_med = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
-        bull_rev_long = bullish_reversal_health.get(55, 0.5)
-        bullish_trigger = (
-            (bull_rev_short ** rev_tw['short']) *
-            (bull_rev_med ** rev_tw['medium']) *
-            (bull_rev_long ** rev_tw['long'])
-        )
-        final_scores['bottom_reversal'] = (bullish_trigger * (1 + context_scores['bottom_context'] * bottom_context_bonus_factor)).clip(0, 1)
-
-        bearish_resonance_health = {p: resonance_health['s_bear'][p] * resonance_health['d_intensity'][p] for p in periods}
-        bear_res_short = (bearish_resonance_health.get(1, 0.5) * bearish_resonance_health.get(5, 0.5))**0.5
-        bear_res_med = (bearish_resonance_health.get(13, 0.5) * bearish_resonance_health.get(21, 0.5))**0.5
-        bear_res_long = bearish_resonance_health.get(55, 0.5)
-        final_scores['bearish_resonance'] = (
-            (bear_res_short ** res_tw['short']) *
-            (bear_res_med ** res_tw['medium']) *
-            (bear_res_long ** res_tw['long'])
+        reversal_signals = transmute_health_to_ultimate_signals(
+            df_index=fused_health['reversal']['s_bull'][params['periods'][0]].index,
+            atomic_states=self.strategy.atomic_states,
+            overall_health=fused_health['reversal'],
+            params=params,
+            domain_prefix="FF"
         )
         
-        bearish_reversal_health = {p: reversal_health['s_bear'][p] * reversal_health['d_intensity'][p] for p in periods}
-        bear_rev_short = (bearish_reversal_health.get(1, 0.5) * bearish_reversal_health.get(5, 0.5))**0.5
-        bear_rev_med = (bearish_reversal_health.get(13, 0.5) * bearish_reversal_health.get(21, 0.5))**0.5
-        bear_rev_long = bearish_reversal_health.get(55, 0.5)
-        bearish_trigger = (
-            (bear_rev_short ** rev_tw['short']) *
-            (bear_rev_med ** rev_tw['medium']) *
-            (bear_rev_long ** rev_tw['long'])
-        )
-        final_scores['top_reversal'] = (bearish_trigger * context_scores['top_context']).clip(0, 1)
+        # 合并结果，注意反转信号只取底部和顶部
+        final_scores = {
+            'bullish_resonance': resonance_signals['SCORE_FF_BULLISH_RESONANCE'],
+            'bottom_reversal': reversal_signals['SCORE_FF_BOTTOM_REVERSAL'],
+            'bearish_resonance': resonance_signals['SCORE_FF_BEARISH_RESONANCE'],
+            'top_reversal': reversal_signals['SCORE_FF_TOP_REVERSAL'],
+        }
         
         return final_scores
 

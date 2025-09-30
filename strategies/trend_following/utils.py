@@ -292,6 +292,74 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     
     return bullish_holographic_score, bearish_holographic_score
 
+def transmute_health_to_ultimate_signals(
+    df_index: pd.Index,
+    atomic_states: Dict,
+    overall_health: Dict,
+    params: Dict,
+    domain_prefix: str
+) -> Dict[str, pd.Series]:
+    """
+    【V1.0 · 新增】炼金术士的坩埚：终极信号中央合成引擎
+    - 核心职责: 作为全系统唯一的终极信号合成器，将任何领域传入的“健康度”数据，
+                  提炼成标准的“看涨/看跌共振”和“顶部/底部反转”四象信号。
+    - 收益: 彻底消除了在六个不同情报模块中重复的终极信号计算逻辑，实现了思想的统一和代码的纯净。
+    """
+    states = {}
+    # --- 1. 获取通用参数和上下文信号 ---
+    resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
+    reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
+    periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+    bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
+    exponent = get_param_value(params.get('final_score_exponent'), 1.0)
+    
+    bottom_context_score, top_context_score = calculate_context_scores({'df_indicators': pd.DataFrame(index=df_index)}, atomic_states)
+    recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df_index))
+    relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df_index))
+    default_series = pd.Series(0.5, index=df_index, dtype=np.float32)
+
+    # --- 2. 计算看涨共振信号 ---
+    bullish_resonance_health = {p: np.maximum(overall_health['s_bull'].get(p, default_series), relational_dynamics_power) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
+    bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
+    bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
+    overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
+    
+    # --- 3. 计算底部反转信号 ---
+    bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
+    bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
+    bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
+    overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
+    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
+
+    # --- 4. 计算看跌共振信号 ---
+    bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
+    bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
+    bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
+    overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
+
+    # --- 5. 计算顶部反转信号 ---
+    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
+    bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
+    bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
+    overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
+    final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
+    
+    # --- 6. 组装并返回最终信号字典 ---
+    final_signal_map = {
+        f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
+        f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
+    }
+    
+    for signal_name, score in final_signal_map.items():
+        states[signal_name] = score.astype(np.float32)
+        
+    return states
 
 
 
