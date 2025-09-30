@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 class PredictiveIntelligence:
     """
@@ -31,33 +31,40 @@ class PredictiveIntelligence:
 
     def _diagnose_climactic_exhaustion(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.2 · 神谕扩音版】诊断“高潮衰竭”风险
-        - 核心升级: 将kline_weakness_score的计算方式从保守的“几何平均”升级为更具进攻性的“加权算术平均”，
-                      赋予“收盘价疲弱”更高的权重，以放大神谕的音量。
+        【V1.3 · 三位一体融合版】诊断“高潮衰竭”风险
+        - 核心革命: 废除二进制的“门控”逻辑，升级为“三位一体”的模拟信号融合。
+                      最终风险分 = (亢奋分 * 权重) + (天量分 * 权重) + (K线疲弱分 * 权重)。
+        - 收益: 解决了因单一维度（如亢奋分）未达到极端阈值而导致整个预警系统哑火的致命缺陷，
+                使得“先知”的判断更加综合、稳健，能在多个风险因素共振时发出更可靠的警报。
         """
-        # 1. 获取亢奋信号
+        # 1. 支柱一: 亢奋分 (Euphoria Score)
         euphoria_score = atomic_states.get('COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION', pd.Series(0, index=df.index))
-        # 2. 定义天量
+        
+        # 2. 支柱二: 天量分 (Climax Volume Score) - 从二进制门升级为模拟分数
         vol_lookback = get_param_value(self.params.get('exhaustion_vol_lookback'), 20)
-        is_climax_volume = (df['volume_D'] >= df['volume_D'].rolling(vol_lookback).max() * 0.9).astype(int)
-        # 3. 定义冲高回落 (长上影线 + 收盘价偏低)
+        # [代码修改] 使用 normalize_score 生成0-1之间的模拟天量分
+        volume_score = normalize_score(df['volume_D'], df.index, window=vol_lookback, ascending=True)
+        
+        # 3. 支柱三: K线疲弱分 (Kline Weakness Score)
         high_low_range = df['high_D'] - df['low_D']
         upper_shadow = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
         high_low_range = high_low_range.replace(0, np.nan)
         upper_shadow_ratio = (upper_shadow / high_low_range).fillna(0)
         close_position_in_range = ((df['close_D'] - df['low_D']) / high_low_range).fillna(0.5)
-        # 4. 融合计算风险分
-        # 条件1: 亢奋程度必须很高
-        euphoria_gate = (euphoria_score > get_param_value(self.params.get('exhaustion_euphoria_threshold'), 0.45)).astype(int)
-        # 条件2: 必须是天量
-        volume_gate = is_climax_volume
-        # 条件3: K线形态必须是冲高回落
         upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1)
         weak_close_score = 1 - close_position_in_range
-        # [代码修改] 废除保守的几何平均，采用更灵敏的加权算术平均，放大神谕音量
         kline_weakness_score = upper_shadow_score * 0.4 + weak_close_score * 0.6
-        # 最终风险分是三者的乘积
-        final_risk_score = (euphoria_gate * volume_gate) * kline_weakness_score
+        
+        # 4. 三位一体融合 (Trinity Fusion)
+        # [代码修改] 废除旧的门控逻辑，采用加权算术平均进行融合
+        weights = get_param_value(self.params.get('trinity_fusion_weights'), {'euphoria': 0.2, 'volume': 0.4, 'kline': 0.4})
+        
+        final_risk_score = (
+            euphoria_score * weights['euphoria'] +
+            volume_score * weights['volume'] +
+            kline_weakness_score * weights['kline']
+        )
+        
         return final_risk_score.clip(0, 1)
 
 

@@ -163,7 +163,12 @@
         "enabled": true,
         "description": "【V1.0】先知引擎参数，用于预测T+1风险。",
         "exhaustion_vol_lookback": 20,
-        "exhaustion_euphoria_threshold": 0.45
+        "trinity_fusion_weights": {
+            "description": "亢奋、天量、K线疲弱三位一体融合权重",
+            "euphoria": 0.2,
+            "volume": 0.4,
+            "kline": 0.4
+        }
       },
       "judgment_day_params": {
         "enabled": true,
