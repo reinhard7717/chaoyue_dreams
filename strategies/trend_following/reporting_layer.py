@@ -31,8 +31,10 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V518.0 · 神谕之门版】
-        - 核心升级: 在 signal_type_map_enum 中正式注册 '先知入场'，确保其能被创建为 TradingSignal 记录。
+        【V519.0 · 最终裁决版】
+        - 核心革命: 确立 score_details_df 作为 StrategyScoreComponent 的唯一数据源。
+        - 核心修复: 彻底删除了对 risk_details_df 的冗余处理循环，根除了重复记录和数据污染的系统性BUG。
+                      risk_details_df 的使命仅限于为风险等级裁决提供原始数据。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -40,7 +42,6 @@ class ReportingLayer:
         save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
         strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
-        # 在枚举映射中正式注册“先知入场”，并将其映射为买入信号。
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -49,7 +50,7 @@ class ReportingLayer:
             '战略失效离场': TradingSignal.SignalType.SELL,
             '风险否决': TradingSignal.SignalType.WARN,
             '先知离场': TradingSignal.SignalType.SELL,
-            '先知入场': TradingSignal.SignalType.BUY, # 新增“先知入场”的映射
+            '先知入场': TradingSignal.SignalType.BUY,
         }
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
@@ -104,11 +105,10 @@ class ReportingLayer:
                     score_value=db_score_value
                 ))
             if not score_details_df.empty and trade_time in score_details_df.index:
+                # 这里的 score_details_df 是唯一的数据源，它已包含所有加权后的进攻分和惩罚分。
                 for name, score in score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0].items():
                     if name not in summary_score_names: create_component(name, score)
-            if not risk_details_df.empty and trade_time in risk_details_df.index:
-                for name, score in risk_details_df.loc[trade_time][risk_details_df.loc[trade_time] > 0].items():
-                    create_component(name, score)
+
         if save_daily_states:
             for state_dict in [self.strategy.atomic_states, self.strategy.trigger_events, self.strategy.playbook_states]:
                 for state_name, state_series in state_dict.items():
@@ -118,6 +118,7 @@ class ReportingLayer:
                         if trade_time in daily_score_map:
                             daily_states_to_create.append(StrategyDailyState(daily_score=daily_score_map[trade_time], playbook=playbook_obj))
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
+
 
 
 

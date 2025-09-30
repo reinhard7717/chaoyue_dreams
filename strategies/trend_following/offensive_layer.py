@@ -36,7 +36,7 @@ class OffensiveLayer:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:
                     
-                    # [代码修改] 引入“单极圣谕”裁决逻辑
+                    # 引入“单极圣谕”裁决逻辑
                     scoring_mode = meta.get('scoring_mode', 'bipolar') # 默认为双极
                     
                     # 确保信号序列是浮点数类型以进行数学运算

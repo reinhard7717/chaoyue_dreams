@@ -69,13 +69,13 @@ class JudgmentLayer:
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        # [代码修改] 重构辅助函数，增加 is_risk_df 标志以区分处理逻辑
+        # 重构辅助函数，增加 is_risk_df 标志以区分处理逻辑
         def process_details_df(details_df, is_risk_df=False):
             if details_df.empty:
                 return pd.Series(dtype=object)
             
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            # [代码修改] 对于进攻项，允许负分（惩罚项）存在
+            # 对于进攻项，允许负分（惩罚项）存在
             if not is_risk_df:
                 long_df = long_df[long_df['score'] != 0].copy()
             else:
@@ -89,7 +89,7 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # [代码修改] 核心修复：根据 is_risk_df 标志决定是否应用缩放
+            # 核心修复：根据 is_risk_df 标志决定是否应用缩放
             if is_risk_df:
                 # 风险项：应用1000倍缩放
                 long_df['summary_dict'] = long_df.apply(
@@ -105,7 +105,7 @@ class JudgmentLayer:
             
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
-        # [代码修改] 调用辅助函数时，明确传递标志
+        # 调用辅助函数时，明确传递标志
         offense_summaries = process_details_df(score_details_df, is_risk_df=False)
         risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
 

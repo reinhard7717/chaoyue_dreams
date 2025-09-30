@@ -3,7 +3,7 @@
 from typing import Dict
 import pandas as pd
 import numpy as np
-from .utils import get_param_value, get_params_block # [代码修改] 导入 get_params_block
+from .utils import get_param_value, get_params_block # 导入 get_params_block
 from services.performance_analysis_service import PerformanceAnalysisService
 
 class PerformanceAnalyzer:
@@ -58,7 +58,7 @@ class PerformanceAnalyzer:
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
         
-        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
 
         for signal_name, event_series in all_events_to_analyze.items():
@@ -115,7 +115,7 @@ class PerformanceAnalyzer:
                 all_events[playbook_name] = playbook_series
         
         # --- 开始：应用统一的终极过滤器 ---
-        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         filtered_events = {}
         
@@ -169,7 +169,7 @@ class PerformanceAnalyzer:
         if not trade_outcomes:
             return []
         outcomes_df = pd.DataFrame(trade_outcomes)
-        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
         signal_groups = outcomes_df.groupby('signal_name')
