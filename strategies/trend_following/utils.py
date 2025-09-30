@@ -303,10 +303,10 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V1.1 · 哲人石归位版】炼金术士的坩埚：终极信号中央合成引擎
-    - 核心修复: 1. 函数签名强制要求传入完整的 `df` (哲人石)，而不再是 `df_index`。
-                  2. 修复了对 `calculate_context_scores` 的调用，将完整的 `df` 传递下去，
-                     解决了因缺少K线数据而导致的 `KeyError`。
+    【V1.2 · 炼金术士的洞察版】炼金术士的坩埚：终极信号中央合成引擎
+    - 核心修复: 修正了底部反转信号的奖励因子。不再使用通用的`bottom_context_score`，
+                  而是恢复使用高特异性的`recent_reversal_context`（反转回声）作为奖励，
+                  解决了因催化剂错用导致的信号强度被稀释的问题。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -315,7 +315,6 @@ def transmute_health_to_ultimate_signals(
     periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    # [代码修改] 将完整的df传递给上下文分数计算器，修复KeyError
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
@@ -332,7 +331,8 @@ def transmute_health_to_ultimate_signals(
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
+    # [代码修改] 修正奖励因子，使用高特异性的“反转回声”替代通用的“底部上下文”
+    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
     # --- 4. 计算看跌共振信号 ---
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
