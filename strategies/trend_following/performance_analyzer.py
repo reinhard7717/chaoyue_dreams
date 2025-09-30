@@ -1,17 +1,17 @@
 # 文件: strategies/trend_following/performance_analyzer.py
-# 升级模块：性能分析器 (V3.0 深度复盘版)
+# 升级模块：性能分析器 (V4.7 法典统一版)
 from typing import Dict
 import pandas as pd
 import numpy as np
-from .utils import get_param_value
+from .utils import get_param_value, get_params_block # [代码修改] 导入 get_params_block
 from services.performance_analysis_service import PerformanceAnalysisService
 
 class PerformanceAnalyzer:
     """
-    【V3.0 深度复盘版】策略性能分析器
-    - 核心升级: 模拟交易不再只返回简单的“成功/失败”，而是返回一个包含
-                最大收益/回撤、所需天数、退出原因等详细信息的字典。
-    - 聚合能力: 聚合报告现在能计算胜率、平均盈亏、平均持有时长等更丰富的指标。
+    【V4.7 · 法典统一版】策略性能分析器
+    - 核心修复: 修复了本模块错误地从一个过时路径加载 score_map 的致命BUG。
+    - 核心逻辑: 强制使用与所有模块一致的 get_params_block 工具来获取权威的 score_type_map，
+                  从而解决了因“影子法典”导致的情报黑洞问题。
     """
     def __init__(self, df_indicators: pd.DataFrame, score_details_df: pd.DataFrame, 
                  atomic_states: Dict, trigger_events: Dict, playbook_states: Dict,
@@ -44,12 +44,10 @@ class PerformanceAnalyzer:
 
     def run_analysis(self) -> list:
         """
-        【V4.1 角色识别重构版】运行性能分析的主函数。
-        - 核心重构: 不再只分析买入信号，而是分析所有识别出的“事件”。
-        - 核心增强: 在循环中查找每个信号的元数据，以确定其角色（进攻型/防御型），
-                    并将此信息传递给模拟函数。
+        【V4.7 · 法典统一版】运行性能分析的主函数。
+        - 核心修复: 使用 get_params_block 获取 score_map，确保与系统其他部分一致。
         """
-        # print("    -> [性能分析器 V4.1 角色识别版] 启动...")
+        # print("    -> [性能分析器 V4.7 法典统一版] 启动...")
         
         # 步骤1: 识别出所有需要分析的事件
         all_events_to_analyze = self._identify_all_events()
@@ -59,8 +57,9 @@ class PerformanceAnalyzer:
             
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
-        trend_follow_params = self.strategy.unified_config.get('strategy_params', {}).get('trend_follow', {})
-        score_map = trend_follow_params.get('score_type_map', {})
+        
+        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
 
         for signal_name, event_series in all_events_to_analyze.items():
             event_dates = event_series.index[event_series]
@@ -116,7 +115,8 @@ class PerformanceAnalyzer:
                 all_events[playbook_name] = playbook_series
         
         # --- 开始：应用统一的终极过滤器 ---
-        score_map = self.scoring_params.get('score_type_map', {})
+        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
         filtered_events = {}
         
         print("      -> [战报净化系统 V4.6 终极版] 启动过滤...")
@@ -163,17 +163,14 @@ class PerformanceAnalyzer:
 
     def _aggregate_and_report_v2(self, trade_outcomes: list) -> list:
         """
-        【V4.6 指标标准化版】
-        - 核心修复: 彻底分离了“胜率”和“风险规避率”的计算和命名。
-                    现在会输出一个名为 'effectiveness_pct' 的标准化效能指标，
-                    并附带一个 'metric_name' 字段来解释该指标的含义。
-                    这解决了下游聚合任务的混淆问题。
+        【V4.7 · 法典统一版】
+        - 核心修复: 使用 get_params_block 获取 score_map，确保与系统其他部分一致。
         """
         if not trade_outcomes:
             return []
         outcomes_df = pd.DataFrame(trade_outcomes)
-        trend_follow_params = self.strategy.unified_config.get('strategy_params', {}).get('trend_follow', {})
-        score_map = trend_follow_params.get('score_type_map', {})
+        # [代码修改] 使用健壮的 get_params_block 获取权威的 score_map
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
         
         signal_groups = outcomes_df.groupby('signal_name')
 
