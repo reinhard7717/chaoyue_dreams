@@ -43,22 +43,19 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 奥林匹斯圣火版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: 遵照指挥官的最终指令，推翻“五大支柱相乘”的“一票否决制”，升级为“加权求和”的“共识决策制”。
-        - 核心逻辑: 恐慌分 = (价格暴跌*权重) + (成交天量*权重) + (筹码崩溃*权重) + (绝望背景*权重) + (结构支撑*权重)
-        - 收益: 解决了因单一维度（如绝望背景）分数不高而压制整体恐慌分的致命设计缺陷。
-                 现在，只要有足够多的支柱发出强信号，就能点燃最终的恐慌信号。
+        【V2.2 · 赫淮斯托斯之锤版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 引入多层次、加权评估的“成交量静谧度”分数，取代了之前粗糙的成交量过滤器。
+        - 核心逻辑: 1. 新增 volume_calmness_score，基于成交量与4条MA线的关系进行0-1的评分。
+                      2. 最终恐慌分 = (五大支柱加权和) * volume_calmness_score，但前提是必须满足“价格暴跌”的硬性门槛。
+        - 收益: 极大提升了对成交量状态的精细化评估能力，使得信号在不同市场环境下更具适应性和准确性。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-        # [代码新增] 从配置中获取五大支柱的权重
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {
-            'price_drop': 0.30,
-            'volume_spike': 0.25,
-            'chip_breakdown': 0.15,
-            'despair_context': 0.15,
-            'structural_test': 0.15
+            'price_drop': 0.30, 'volume_spike': 0.25, 'chip_breakdown': 0.15,
+            'despair_context': 0.15, 'structural_test': 0.15
         })
+        min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
         # --- 计算五大支柱分数 (逻辑不变) ---
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
@@ -67,8 +64,21 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # 使用加权求和融合，取代之前的乘法
-        setup_panic_selling_score = (
+        # [代码修改] 锻造全新的“成交量静谧度”分数
+        volume_calmness_score = pd.Series(0.0, index=df.index)
+        ma_periods_for_volume = [5, 13, 21, 55]
+        weight_per_level = 1.0 / len(ma_periods_for_volume) # 确保总权重为1
+        for p in ma_periods_for_volume:
+            ma_col = f'VOL_MA_{p}_D'
+            if ma_col in df.columns:
+                # 每当成交量低于一条均线，就增加相应的权重分
+                volume_calmness_score += (df['volume_D'] < df[ma_col]).astype(float) * weight_per_level
+        
+        # 将这个中间过程分数存入状态，以供调试
+        states['INTERNAL_SCORE_VOLUME_CALMNESS'] = volume_calmness_score.astype(np.float32)
+
+        # 计算五大支柱的加权和
+        raw_panic_score = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +
             chip_breakdown_score * pillar_weights.get('chip_breakdown', 0) +
@@ -76,7 +86,13 @@ class TacticEngine:
             structural_test_score * pillar_weights.get('structural_test', 0)
         ).astype(np.float32)
         
-        states['SCORE_SETUP_PANIC_SELLING'] = setup_panic_selling_score.clip(0, 1) # 增加clip确保分数在[0,1]
+        # 定义“宙斯的雷霆”硬性门槛
+        is_significant_drop = df['pct_change_D'] < min_price_drop_pct
+        
+        # 最终裁决：应用硬性门槛，并乘以“成交量静谧度”作为最终调节器
+        final_score = raw_panic_score.where(is_significant_drop, 0) * volume_calmness_score
+        
+        states['SCORE_SETUP_PANIC_SELLING'] = final_score.clip(0, 1)
         return states
 
     def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame, setup_score: pd.Series) -> Dict[str, pd.Series]:

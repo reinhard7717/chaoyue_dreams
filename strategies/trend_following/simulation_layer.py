@@ -14,11 +14,10 @@ class SimulationLayer:
 
     def run_position_management_simulation(self):
         """
-        【V515.0 · 统一号令版】
-        - 核心革命: 执行层绝对服从。建仓逻辑只依赖唯一的官方旗帜 signal_entry。
-        - 核心逻辑: 将复杂的建仓判断 `if row.signal_entry or current_signal_type == '先知入场'`
-                      简化为绝对服从的 `if row.signal_entry:`。
-        - 收益: 彻底消除了指令源的混乱，确保了交易执行的精确性和一致性。
+        【V516.0 · 解除武装版】
+        - 核心革命: 彻底剥夺模拟层修改 `signal_type` 的权力，确保其绝对服从 JudgmentLayer 的最终裁决。
+        - 核心逻辑: 删除了在硬性离场时，模拟层越权修改 `signal_type` 的所有代码。
+        - 收益: 根除了因模拟层篡改历史而导致的信号污染问题，恢复了指挥链的绝对权威。
         """
         df = self.strategy.df_indicators.copy() 
         if 'open_D' not in df.columns:
@@ -75,7 +74,8 @@ class SimulationLayer:
                         print(f"  -> {current_date.date()}: [先知预警离场] T-1日收到高潮衰竭警报，今日开盘执行清仓。")
                         in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_EXIT.value
-                        df.loc[current_date, 'signal_type'] = '先知离场'
+                        # [代码修改] 移除模拟层对 signal_type 的越权修改
+                        # df.loc[current_date, 'signal_type'] = '先知离场'
                         df.loc[current_date, 'position_size'] = current_position_size
                         df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                         continue
@@ -94,16 +94,17 @@ class SimulationLayer:
                     elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value
                     in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = exit_action
-                    if exit_action == StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value:
-                        df.loc[current_date, 'signal_type'] = '趋势破位离场'
-                    elif exit_action == StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value:
-                        df.loc[current_date, 'signal_type'] = '战略失效离场'
+                    # [代码修改] 彻底移除模拟层对 signal_type 的所有越权修改
+                    # if exit_action == StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value:
+                    #     df.loc[current_date, 'signal_type'] = '趋势破位离场'
+                    # elif exit_action == StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value:
+                    #     df.loc[current_date, 'signal_type'] = '战略失效离场'
                     df.loc[current_date, 'position_size'] = current_position_size
                     df.loc[current_date, 'entry_price_actual'] = actual_entry_price
                     continue
                 is_profitable = df.loc[current_date, 'current_profit_loss_pct'] > 0
                 is_pyramid_allowed = pyramiding_enabled and row.signal_entry and is_profitable and pyramid_count < max_pyramid_count
-                if is_pyramid_allowed: # 简化金字塔加仓的判断，因为先知入场现在也会设置 signal_entry
+                if is_pyramid_allowed:
                     add_amount = 1.0 * add_size_ratio
                     old_total_cost = current_position_size * actual_entry_price
                     new_total_size = current_position_size + add_amount
@@ -126,7 +127,6 @@ class SimulationLayer:
                 if df.loc[current_date, 'trade_action'] == StrategyDailyScore.TradeActionType.NO_SIGNAL.value: 
                     df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.HOLD.value
             else:
-                # 绝对服从：建仓逻辑只依赖唯一的官方旗帜 signal_entry
                 if row.signal_entry:
                     t_plus_1_open = pd.NA
                     if i + 1 < len(df):
@@ -155,7 +155,6 @@ class SimulationLayer:
                                         stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
                                 else:
                                     stop_loss_price = actual_entry_price * (1 - min_stop_loss_percent)
-                            # 内部根据信号类型记录不同的入场动作，但不影响执行
                             if current_signal_type == '先知入场':
                                 df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_ENTRY.value
                             else:
