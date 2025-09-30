@@ -36,12 +36,10 @@ class DynamicMechanicsEngine:
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        periods = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
+        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'volatility': self._calculate_volatility_health,
@@ -54,10 +52,8 @@ class DynamicMechanicsEngine:
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
             health_data['d_intensity'].append(d_intensity)
-
         overall_health = {}
         weights_array = np.array([pillar_weights.get(name, 0.25) for name in calculators.keys()])
-
         for health_type, health_sources in [
             ('s_bull', health_data['s_bull']),
             ('s_bear', health_data['s_bear']),
@@ -71,19 +67,16 @@ class DynamicMechanicsEngine:
                 stacked_values = np.stack(valid_pillars, axis=0)
                 fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
-        
-        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
+        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
         ultimate_signals = transmute_health_to_ultimate_signals(
-            df_index=df.index,
+            df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
             params=p_conf,
             domain_prefix="DYN"
         )
         states.update(ultimate_signals)
-        
         return states
 
     # ==============================================================================

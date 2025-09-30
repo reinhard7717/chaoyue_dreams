@@ -40,45 +40,34 @@ class BehavioralIntelligence:
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
-        
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
         periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        
         grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
         rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
-
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
-
         power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        
         stormborn_power = (power_transfer * loser_capitulation)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
-        
         still_waters_power = (stealth_accumulation * winner_conviction)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
-        
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
-
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
-        
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
-        
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
@@ -94,19 +83,16 @@ class BehavioralIntelligence:
                     ], axis=0)
                     fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-        
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        
-        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
+        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
         ultimate_signals = transmute_health_to_ultimate_signals(
-            df_index=df.index,
+            df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
             params=p_conf,
             domain_prefix="BEHAVIOR"
         )
         states.update(ultimate_signals)
-        
         return states
 
     # ==============================================================================

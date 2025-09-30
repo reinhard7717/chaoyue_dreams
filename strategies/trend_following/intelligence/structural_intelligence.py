@@ -38,11 +38,9 @@ class StructuralIntelligence:
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
         dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_conf.get('norm_window'), 120)
-
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = { 'ma': self._calculate_ma_health, 'mechanics': self._calculate_mechanics_health, 'mtf': self._calculate_mtf_health, 'pattern': self._calculate_pattern_health }
         for name, calculator in calculators.items():
@@ -50,9 +48,7 @@ class StructuralIntelligence:
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
             health_data['d_intensity'].append(d_intensity)
-        
         overall_health = {}
-        
         for health_type, health_sources in [ ('s_bull', health_data['s_bull']), ('s_bear', health_data['s_bear']), ('d_intensity', health_data['d_intensity']) ]:
             overall_health[health_type] = {}
             for p in periods:
@@ -63,19 +59,16 @@ class StructuralIntelligence:
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
-
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
-        
-        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
+        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
         ultimate_signals = transmute_health_to_ultimate_signals(
-            df_index=df.index,
+            df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
             params=p_conf,
             domain_prefix="STRUCTURE"
         )
         states.update(ultimate_signals)
-        
         return states
 
     # ==============================================================================

@@ -189,10 +189,18 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V2.0 · 顶部识别升级版】计算全局的底部和顶部上下文分数。
-    - 核心升级: 新增了对“顶部上下文”的精确识别。
-    - 顶部识别算法: 融合了“波段伸展度”（价格远离生命线MA55的程度）和“均线排列恶化”（短期均线开始下穿长期均线）两大特征。
+    【V2.1 · 哲人石归位版】计算全局的底部和顶部上下文分数。
+    - 核心加固: 增加对输入 df 类型的检查。如果传入的是一个字典（旧的错误调用方式），
+                  则尝试从中提取 'df_indicators'，为数据链路提供“双重保险”。
     """
+    # [代码新增] 增加防御性编程，处理错误的字典输入
+    if isinstance(df, dict):
+        df = df.get('df_indicators', pd.DataFrame())
+    if 'close_D' not in df.columns:
+        # 如果关键列仍然缺失，返回默认值以避免崩溃
+        print("      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'close_D'列，无法计算上下文分数。")
+        empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
+        return empty_series, empty_series
     # --- 底部上下文分数计算 (保持不变) ---
     price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
     deep_bottom_context_score = 1.0 - price_pos_yearly
@@ -205,14 +213,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         cycle_trough_score.values
     ])
     bottom_context_score = pd.Series(bottom_context_score_values, index=df.index, dtype=np.float32)
-
     # --- 顶部上下文分数计算 ---
     # 特征一：波段伸展度 (Overextension) - 价格大幅远离MA55生命线
     ma55 = df.get('EMA_55_D', df['close_D'])
     rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-
     # 特征二：均线排列恶化 (MA Misalignment) - 短期均线开始掉头向下
     ma_periods = [5, 13, 21, 55]
     misalignment_scores = []
@@ -221,15 +227,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         long_ma = df.get(f'EMA_{ma_periods[i+1]}_D', df['close_D'])
         # 当短期均线下穿长期均线时，分数变高
         misalignment_scores.append((short_ma < long_ma).astype(float))
-    
     if misalignment_scores:
         misalignment_score = pd.DataFrame(misalignment_scores).mean()
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
-
     # 融合两大特征，得到最终的顶部上下文分数
     top_context_score = (stretch_score * misalignment_score).astype(np.float32)
-    
     return bottom_context_score, top_context_score
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
@@ -293,17 +296,17 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     return bullish_holographic_score, bearish_holographic_score
 
 def transmute_health_to_ultimate_signals(
-    df_index: pd.Index,
+    df: pd.DataFrame,
     atomic_states: Dict,
     overall_health: Dict,
     params: Dict,
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V1.0 · 新增】炼金术士的坩埚：终极信号中央合成引擎
-    - 核心职责: 作为全系统唯一的终极信号合成器，将任何领域传入的“健康度”数据，
-                  提炼成标准的“看涨/看跌共振”和“顶部/底部反转”四象信号。
-    - 收益: 彻底消除了在六个不同情报模块中重复的终极信号计算逻辑，实现了思想的统一和代码的纯净。
+    【V1.1 · 哲人石归位版】炼金术士的坩埚：终极信号中央合成引擎
+    - 核心修复: 1. 函数签名强制要求传入完整的 `df` (哲人石)，而不再是 `df_index`。
+                  2. 修复了对 `calculate_context_scores` 的调用，将完整的 `df` 传递下去，
+                     解决了因缺少K线数据而导致的 `KeyError`。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -312,19 +315,17 @@ def transmute_health_to_ultimate_signals(
     periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    
-    bottom_context_score, top_context_score = calculate_context_scores({'df_indicators': pd.DataFrame(index=df_index)}, atomic_states)
-    recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df_index))
-    relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df_index))
-    default_series = pd.Series(0.5, index=df_index, dtype=np.float32)
-
+    # [代码修改] 将完整的df传递给上下文分数计算器，修复KeyError
+    bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
+    recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
+    relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
+    default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
     # --- 2. 计算看涨共振信号 ---
     bullish_resonance_health = {p: np.maximum(overall_health['s_bull'].get(p, default_series), relational_dynamics_power) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
-    
     # --- 3. 计算底部反转信号 ---
     bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
@@ -332,14 +333,12 @@ def transmute_health_to_ultimate_signals(
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + bottom_context_score * bottom_context_bonus_factor)).clip(0, 1)
-
     # --- 4. 计算看跌共振信号 ---
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
-
     # --- 5. 计算顶部反转信号 ---
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
@@ -347,7 +346,6 @@ def transmute_health_to_ultimate_signals(
     bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
     overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
     final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
-    
     # --- 6. 组装并返回最终信号字典 ---
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
@@ -355,10 +353,8 @@ def transmute_health_to_ultimate_signals(
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
         f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
-    
     for signal_name, score in final_signal_map.items():
         states[signal_name] = score.astype(np.float32)
-        
     return states
 
 

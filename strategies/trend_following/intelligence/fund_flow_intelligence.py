@@ -30,28 +30,22 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 融合逻辑重构版】终极资金流信号诊断模块
-        - 核心重构 (本次修改):
-          - [数据流] 更新了调用流程，以适配 V2.3/V2.4 版的融合与合成逻辑。
+        【V2.3 · 哲人石归位版】终极资金流信号诊断模块
+        - 核心修复: 在调用 `_synthesize_final_signals` 时，将完整的 `df` (哲人石) 传递下去。
         """
         params = self._initialize_ff_params()
         if not params['enabled']:
             return {}
-
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
-
         pillar_health = self._calculate_all_pillar_health(df, params)
-
         # 此处调用重构后的融合方法
         fused_health = self._fuse_health_with_intent_weights(pillar_health, params)
-
-        # 此处调用重构后的合成方法
-        final_scores = self._synthesize_final_signals(fused_health, context_scores, params)
-
+        # [代码修改] 将df(哲人石)传入最终合成方法
+        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, params)
         states = self._assign_graded_states(final_scores)
-        
         return states
+
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法
     # ==============================================================================
@@ -132,31 +126,26 @@ class FundFlowIntelligence:
         self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results
     
-    def _synthesize_final_signals(self, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
+    def _synthesize_final_signals(self, df: pd.DataFrame, fused_health: Dict, context_scores: Dict, params: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 炼金术士版】
-        - 核心革命: 彻底移除了内部重复的终极信号计算逻辑，转而调用中央的“炼金术士的坩埚”
-                      (transmute_health_to_ultimate_signals)进行合成，实现了思想和代码的统一。
+        【V5.1 · 哲人石归位版】
+        - 核心修复: 确保将完整的 `df` (哲人石) 传递给中央的“炼金术士的坩埚”。
         """
-        # [代码修改] 斩断九头蛇！删除重复的计算逻辑，调用中央“坩埚”
-        
-        # 为两个意图（共振和反转）分别调用坩埚
+        # [代码修改] 将完整的df(哲人石)传入中央“坩埚”
         resonance_signals = transmute_health_to_ultimate_signals(
-            df_index=fused_health['resonance']['s_bull'][params['periods'][0]].index,
+            df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=fused_health['resonance'],
             params=params,
             domain_prefix="FF"
         )
-        
         reversal_signals = transmute_health_to_ultimate_signals(
-            df_index=fused_health['reversal']['s_bull'][params['periods'][0]].index,
+            df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=fused_health['reversal'],
             params=params,
             domain_prefix="FF"
         )
-        
         # 合并结果，注意反转信号只取底部和顶部
         final_scores = {
             'bullish_resonance': resonance_signals['SCORE_FF_BULLISH_RESONANCE'],
@@ -164,7 +153,6 @@ class FundFlowIntelligence:
             'bearish_resonance': resonance_signals['SCORE_FF_BEARISH_RESONANCE'],
             'top_reversal': reversal_signals['SCORE_FF_TOP_REVERSAL'],
         }
-        
         return final_scores
 
     def _assign_graded_states(self, final_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
