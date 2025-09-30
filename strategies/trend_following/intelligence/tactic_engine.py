@@ -60,7 +60,7 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
 
         # --- 支柱五：调用“绝对领域”引擎计算结构测试分 (保持不变) ---
-        structural_test_score = self._calculate_structural_test_score(df, p_panic)
+        structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
         # --- 五位一体融合，生成终极恐慌信号 ---
         setup_panic_selling_score = (
