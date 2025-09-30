@@ -3,7 +3,7 @@
 from typing import Dict
 import pandas as pd
 import numpy as np
-from .utils import get_param_value, get_params_block # [代码修改] 导入 get_params_block
+from strategies.trend_following.utils import get_param_value, get_params_block
 from services.performance_analysis_service import PerformanceAnalysisService
 
 class PerformanceAnalyzer:
