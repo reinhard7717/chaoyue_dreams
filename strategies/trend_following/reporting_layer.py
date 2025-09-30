@@ -31,11 +31,10 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V520.0 · 凯撒的归凯撒版】
-        - 核心革命: 在报告层建立神权与君权的最终防火墙。
-        - 核心逻辑: 只有当信号是常规的“买入信号”时，才为其关联进攻项细节(SignalPlaybookDetail)。
-                      对于“先知入场”等特殊信号，不再错误地将常规进攻项归功于它。
-        - 收益: 彻底根除了因错误归因导致的战报污染问题，确保了“先知入场”信号的纯粹性。
+        【V521.0 · 为先知立传版】
+        - 核心升级: 授权数据库史官记录“先知入场”信号的进攻细节。
+        - 核心逻辑: 任何被定义为 BUY 类型的信号，都为其关联进攻项细节(SignalPlaybookDetail)。
+        - 收益: 确保了数据库记录的完整性，使得对“先知入场”信号的归因分析成为可能。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -69,10 +68,9 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
 
-            # 建立神权与君权的防火墙
-            # 只有当信号是常规的“买入信号”时，才将当天的进攻项细节归功于它。
-            # “先知入场”等特殊信号，其存在本身就是意义，不应被常规分数污染。
-            if row['signal_type'] == '买入信号' and trade_time in score_details_df.index:
+            # 授权数据库史官记录“先知入场”的进攻细节
+            # 检查信号的枚举类型是否为 BUY
+            if signal_obj.signal_type == TradingSignal.SignalType.BUY and trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
                     playbook_obj = self.playbooks_cache.get(name)

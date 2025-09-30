@@ -57,8 +57,7 @@ class IntelligenceLayer:
         【V415.0 · 先知计划版】情报层总指挥官
         - 核心升级: 在认知层融合之后，审判日引擎裁决之前，插入“先知引擎”的预测诊断。
         """
-        # 更新版本号和描述
-        print("--- [情报层总指挥官 V415.0 · 先知计划版] 开始执行所有诊断模块... ---")
+        # print("--- [情报层总指挥官 V415.0 · 先知计划版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -68,7 +67,7 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
-        print("    - [阶段 1/6] 正在执行周期与基础过程诊断...") # 更新阶段总数
+        # print("    - [阶段 1/6] 正在执行周期与基础过程诊断...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
@@ -76,7 +75,7 @@ class IntelligenceLayer:
         # 这个引擎依赖过程信号，且必须在所有终极信号引擎之前运行
         self._ignite_relational_dynamics_engine()
         # --- 阶段二: 状态情报与战略过程诊断 ---
-        print("    - [阶段 2/6] 正在执行状态情报与战略过程诊断...") # 更新阶段总数
+        # print("    - [阶段 2/6] 正在执行状态情报与战略过程诊断...")
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -87,23 +86,23 @@ class IntelligenceLayer:
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
         # --- 阶段三: 跨域认知融合 ---
-        print("    - [阶段 3/6] 正在执行认知层跨域元融合...") # 更新阶段总数
+        # print("    - [阶段 3/6] 正在执行认知层跨域元融合...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
         # --- 阶段四: 先知引擎预测 ---
-        print("    - [阶段 4/6] 正在启动“先知引擎”进行风险预测...")
+        # print("    - [阶段 4/6] 正在启动“先知引擎”进行风险预测...")
         update_states(self.predictive_intel.run_predictive_diagnostics())
         # --- 阶段五: 最终战法与剧本生成 ---
-        print("    - [阶段 5/6] 正在生成最终战法与剧本...") # 更新阶段总数
+        # print("    - [阶段 5/6] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
         # --- 阶段六: 硬性离场信号生成 ---
-        print("    - [阶段 6/6] 正在生成硬性离场信号...") # 更新阶段总数
+        # print("    - [阶段 6/6] 正在生成硬性离场信号...")
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         self.deploy_forensic_probes()
-        print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---") # 更新版本号
+        # print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
@@ -678,7 +677,7 @@ class IntelligenceLayer:
         - 核心职责: 作为跨领域的通用“神力”引擎，计算“关系动力分”，为所有终极信号提供力量倍增。
         - 架构意义: 将此通用逻辑从行为情报模块中解放出来，提升至最高指挥部，实现架构净化。
         """
-        print("    - [神力引擎] 正在点燃“关系动力”引擎...")
+        # print("    - [神力引擎] 正在点燃“关系动力”引擎...")
         df = self.strategy.df_indicators
         
         power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
@@ -721,7 +720,7 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # [代码修改] 更新核心公式的注释，明确为加权求和模型
+        # 更新核心公式的注释，明确为加权求和模型
         print(f"    - [核心公式]: (价格暴跌*权重) + (成交天量*权重) + (筹码崩溃*权重) + (绝望背景*权重) + (结构支撑*权重)")
 
         # --- 链路层 3: 钻透恐慌战备分的五大支柱 ---
@@ -764,7 +763,7 @@ class IntelligenceLayer:
 
         # --- 链路层 4: 最终验证 ---
         print("\n  [链路层 4] 最终验证")
-        # [代码修改] 更新为加权求和模型
+        # 更新为加权求和模型
         recalculated_panic_score = (
             price_drop_score_recalc * pillar_weights.get('price_drop', 0) +
             volume_spike_score_recalc * pillar_weights.get('volume_spike', 0) +
@@ -772,7 +771,7 @@ class IntelligenceLayer:
             despair_context_score_recalc * pillar_weights.get('despair_context', 0) +
             structural_test_score_recalc * pillar_weights.get('structural_test', 0)
         )
-        # [代码修改] 更新打印的重算公式
+        # 更新打印的重算公式
         print(f"    - [探针重算恐慌战备分]: ({price_drop_score_recalc:.4f}*{pillar_weights.get('price_drop',0):.2f} + {volume_spike_score_recalc:.4f}*{pillar_weights.get('volume_spike',0):.2f} + ... ) = {recalculated_panic_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {recalculated_panic_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")

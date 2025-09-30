@@ -41,7 +41,7 @@ class CognitiveIntelligence:
         - 核心升级: 1. 正式接管“天使长”信号(SCORE_ARCHANGEL_TOP_REVERSAL)的诊断职责。
                       2. 确保在其所有依赖项（如高位回落风险）计算完毕后，再执行诊断，修复了严重的时序悖论。
         """
-        print("        -> [顶层认知总分合成模块 V2.8 · 天使长归位版] 启动...")
+        # print("        -> [顶层认知总分合成模块 V2.8 · 天使长归位版] 启动...")
         # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -80,7 +80,7 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
-        print("        -> [顶层认知总分合成模块 V2.8] 认知升级完成。")
+        # print("        -> [顶层认知总分合成模块 V2.8] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -704,14 +704,14 @@ class CognitiveIntelligence:
 
     def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
         """
-        【V1.1 · 赫利俄斯版】奇美拉冲突诊断引擎
-        - 核心修复: 由于 COGNITIVE_FUSED_RISK_SCORE 已被归一化到 [0, 1] 区间，
-                      本模块不再需要除以1000的“补丁”，直接进行比较。
+        【V1.2 · 奇美拉之力版】奇美拉冲突诊断引擎
+        - 核心修复: 移除了对 COGNITIVE_BULLISH_SCORE 错误的除以1000的操作。
+                      该分数已经是[0,1]区间的归一化值，无需再次缩放。
+        - 收益: 确保了“奇美拉冲突”能够正确反映多空力量的真实冲突强度。
         """
         states = {}
-        # 进攻分数也需要归一化才能比较，这里暂时用一个近似值，理想情况是进攻分也归一化
-        bullish_score_normalized = (self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0) / 1000.0).clip(0, 1)
-        # 风险分数已是[0,1]区间，不再需要除以1000
+        # 移除了错误的 / 1000.0 操作，因为 COGNITIVE_BULLISH_SCORE 已经是归一化分数
+        bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
         bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)

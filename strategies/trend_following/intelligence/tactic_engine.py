@@ -67,7 +67,7 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # [代码修改] 使用加权求和融合，取代之前的乘法
+        # 使用加权求和融合，取代之前的乘法
         setup_panic_selling_score = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +
@@ -287,7 +287,7 @@ class TacticEngine:
             weighted_proximity_score = base_proximity_score * weight * confluence_bonus
             all_test_scores.append(weighted_proximity_score)
 
-            # [代码修改] 移除所有限制，将“破位收回”逻辑普遍应用于所有支撑类型
+            # 移除所有限制，将“破位收回”逻辑普遍应用于所有支撑类型
             # 无论是MA线、前低还是主力生命线，跌破后收回都是一个强烈的看涨信号
             is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
             reclaim_strength = ((df['close_D'] - support_series) / day_range).clip(0, 1)

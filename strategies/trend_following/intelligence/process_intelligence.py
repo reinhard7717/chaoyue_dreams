@@ -75,7 +75,7 @@ class ProcessIntelligence:
         【V2.2.0 · 架构升级版】运行所有在配置中定义的元分析诊断任务。
         - 核心升级: 新增对 'strategy_sync' 任务类型的支持，调用专属的计算引擎。
         """
-        print(f"      -> [过程情报引擎 V2.2.0 · 架构升级版] 启动 (模式: {task_type_filter or 'all'})...")
+        # print(f"      -> [过程情报引擎 V2.2.0 · 架构升级版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
@@ -101,7 +101,7 @@ class ProcessIntelligence:
                 if sync_states:
                     all_process_states.update(sync_states)
         
-        print(f"      -> [过程情报引擎 V2.2.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
+        # print(f"      -> [过程情报引擎 V2.2.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

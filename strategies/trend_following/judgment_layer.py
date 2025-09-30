@@ -40,7 +40,7 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # [代码修改] 重构决策优先级，颁布“教皇敕令”
+        # 重构决策优先级，颁布“教皇敕令”
         # 准备所有判断条件
         is_not_hard_exit = ~is_hard_exit_veto
         is_score_sufficient = df['final_score'] > final_score_threshold
@@ -49,7 +49,7 @@ class JudgmentLayer:
         # 决策优先级 1: 先知入场 (拥有最高权威，无视常规风险否决)
         prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6) # 阈值可以根据新模型适当调整
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
-        # [代码修改] 移除了 `& ~is_veto_by_alert`，赋予神谕无上权力
+        # 移除了 `& ~is_veto_by_alert`，赋予神谕无上权力
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & is_not_hard_exit
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         df.loc[is_prophet_entry, 'final_score'] = 0 # 教皇敕令：神谕降临之日，凡人的分数皆为虚无
@@ -77,18 +77,25 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.3 · 最后的敕令版】生成人类可读的信号摘要。
-        - 核心革命: 史官被授予“阅读圣旨”(signal_type_series)的权力。
-        - 核心法则: 只有当天的最终信号是“买入信号”时，才记录进攻项细节。对于“先知入场”等所有其他信号，进攻项列表必须为空。
-        - 收益: 彻底根除战报污染，确保历史记录的纯净与真实。
+        【V3.5 · 绝对过滤版】生成人类可读的信号摘要。
+        - 核心升级: 升级了过滤逻辑，确保只有在最终报告中显示为非零的信号才被记录。
+        - 核心法则: 风险信号的过滤标准从 score > 0 升级为 (score * 1000).astype(int) > 0。
+        - 收益: 彻底杜绝了因浮点数精度问题导致的“幽灵信号”（显示为0分的激活项）。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
         def process_details_df(details_df, is_risk_df=False):
             if details_df.empty: return pd.Series(dtype=object)
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            if not is_risk_df: long_df = long_df[long_df['score'] != 0].copy()
-            else: long_df = long_df[long_df['score'] > 0].copy()
+            
+            # 升级过滤逻辑，确保只有最终显示为非零的信号才被包含
+            if not is_risk_df:
+                # 对于进攻项，最终显示为 int(score)，所以按此过滤
+                long_df = long_df[long_df['score'].astype(int) != 0].copy()
+            else:
+                # 对于风险项，最终显示为 int(score * 1000)，所以按此过滤
+                long_df = long_df[(long_df['score'] * 1000).astype(int) > 0].copy()
+
             if long_df.empty: return pd.Series(dtype=object)
             date_col_name = long_df.columns[0]
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
@@ -104,18 +111,12 @@ class JudgmentLayer:
 
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
         
-        # [代码新增] 颁布并执行“最后的敕令”
         def generate_final_summary(row):
-            # 检查当天的“圣旨”（最终信号类型）
             final_signal_type = signal_type_series.get(row.name)
-            
-            # 法则一：只有当信号是“买入信号”时，才记录进攻项。
-            if final_signal_type == '买入信号':
+            if final_signal_type in ['买入信号', '先知入场']:
                 offense_list = row['offense'] if isinstance(row['offense'], list) else []
             else:
-                # 法则二：对于所有其他信号，进攻项列表必须为空。
                 offense_list = []
-            
             risk_list = row['risk'] if isinstance(row['risk'], list) else []
             return {'offense': offense_list, 'risk': risk_list}
 

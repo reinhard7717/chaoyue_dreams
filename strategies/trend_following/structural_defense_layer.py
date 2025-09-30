@@ -34,7 +34,7 @@ class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseL
             
             if tactical_ma_col in df.columns:
                 triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[tactical_ma_col]
-                print(f"    -> [结构防御层] 战术防线已激活 (基于 {tactical_ma_col})。")
+                # print(f"    -> [结构防御层] 战术防线已激活 (基于 {tactical_ma_col})。")
             else:
                 print(f"    -> [结构防御层-警告] 无法找到战术移动平均线列: {tactical_ma_col}，战术防线未激活。")
 
@@ -44,7 +44,7 @@ class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseL
 
             if strategic_ma_col in df.columns:
                 triggers_df['EXIT_STRATEGY_INVALIDATED'] = df['close_D'] < df[strategic_ma_col]
-                print(f"    -> [结构防御层] 战略防线已激活 (基于 {strategic_ma_col})。")
+                # print(f"    -> [结构防御层] 战略防线已激活 (基于 {strategic_ma_col})。")
             else:
                 print(f"    -> [结构防御层-警告] 无法找到战略移动平均线列: {strategic_ma_col}，战略防线未激活。")
 
