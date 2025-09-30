@@ -30,44 +30,20 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 圣杯契约版】终极资金流信号诊断模块
-        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
-                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
+        【V2.5 · 削藩令版】终极资金流信号诊断模块
+        - 核心革命: 1. 废除独立的参数初始化“内阁” `_initialize_ff_params`。
+                      2. 实现中央直辖，所有参数均从中央的 `p_conf` 和 `p_synthesis` 获取。
+                      3. 重构下级函数的调用，确保它们被动接收来自中央的统一参数。
         """
-        params = self._initialize_ff_params()
-        if not params['enabled']:
-            return {}
-        # 获取中央“圣杯”配置
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
-        context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
-        pillar_health = self._calculate_all_pillar_health(df, params)
-        fused_health = self._fuse_health_with_intent_weights(pillar_health, params)
-        # 传入唯一的“圣杯”配置
-        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)
-        states = self._assign_graded_states(final_scores)
-        return states
-
-    # ==============================================================================
-    # 以下为V2.1版新增的模块化辅助方法
-    # ==============================================================================
-
-    def _initialize_ff_params(self) -> Dict[str, Any]:
-        """初始化所有参数、权重和支柱配置。"""
-        params = {}
+        # [代码修改] 废除内阁，实现中央直辖
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        params['enabled'] = get_param_value(p_conf.get('enabled'), True)
-        params['dynamic_weights'] = {'slope': 0.6, 'accel': 0.4}
-        params['periods'] = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-        params['norm_window'] = get_param_value(p_conf.get('norm_window'), 120)
-        
-        params['resonance_tf_weights'] = {'short': 0.2, 'medium': 0.5, 'long': 0.3}
-        params['reversal_tf_weights'] = {'short': 0.6, 'medium': 0.3, 'long': 0.1}
-
-        params['resonance_pillar_weights'] = {'consensus': 0.4, 'conviction': 0.3, 'conflict': 0.1, 'sentiment': 0.2}
-        params['reversal_pillar_weights'] = {'consensus': 0.1, 'conviction': 0.3, 'conflict': 0.4, 'sentiment': 0.2}
-
-        params['pillar_configs'] = {
+        if not get_param_value(p_conf.get('enabled'), True):
+            return {}
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        # [代码新增] 直接从中央获取所有参数
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
+        pillar_configs = {
             'main_force': {'base': 'main_force_net_flow_consensus', 'type': 'sum', 'intent': 'consensus', 'polarity': 1},
             'xl_order': {'base': 'net_xl_amount_consensus', 'type': 'sum', 'intent': 'consensus', 'polarity': 1},
             'lg_order': {'base': 'net_lg_amount_consensus', 'type': 'sum', 'intent': 'consensus', 'polarity': 1},
@@ -80,51 +56,59 @@ class FundFlowIntelligence:
             'sh_flow': {'base': 'net_sh_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
             'md_flow': {'base': 'net_md_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
         }
-        return params
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
+        # [代码修改] 向下级函数传递中央参数
+        pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods)
+        fused_health = self._fuse_health_with_intent_weights(pillar_health, pillar_configs, p_conf, periods)
+        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)
+        states = self._assign_graded_states(final_scores)
+        return states
 
-    def _calculate_all_pillar_health(self, df: pd.DataFrame, params: Dict) -> Dict[str, Dict]:
-        """计算所有资金流支柱的四维健康度。"""
-        pillar_health = {key: {} for key in params['pillar_configs']}
-        for name, config in params['pillar_configs'].items():
+    # ==============================================================================
+    # 以下为V2.1版新增的模块化辅助方法
+    # ==============================================================================
+    def _calculate_all_pillar_health(self, df: pd.DataFrame, pillar_configs: Dict, norm_window: int, periods: list) -> Dict[str, Dict]:
+        """
+        【V3.1 · 削藩令版】计算所有资金流支柱的健康度
+        - 核心修改: 签名变更，不再自行初始化参数，而是被动接收来自上级的统一指令。
+        """
+        pillar_health = {key: {} for key in pillar_configs}
+        dynamic_weights = {'slope': 0.6, 'accel': 0.4} # 这是一个固定的物理模型，可以保留
+        for name, config in pillar_configs.items():
             pillar_health[name] = self._calculate_pillar_health(
-                df, name, config, params['norm_window'], params['dynamic_weights'], params['periods']
+                df, name, config, norm_window, dynamic_weights, periods
             )
         return pillar_health
 
-    def _fuse_health_with_intent_weights(self, pillar_health: Dict, params: Dict) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
+    def _fuse_health_with_intent_weights(self, pillar_health: Dict, pillar_configs: Dict, p_conf: Dict, periods: list) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
         """
-        【V2.5 · 动态分统一版】执行意图驱动的加权融合。
+        【V2.6 · 削藩令版】执行意图驱动的加权融合
+        - 核心修改: 签名变更，被动接收来自上级的统一指令。
         """
-        # 更新数据结构以适配三维健康度
         fused_results = {
             'resonance': {'s_bull': {}, 's_bear': {}, 'd_intensity': {}},
             'reversal': {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
         }
-        pillar_names = list(params['pillar_configs'].keys())
-        
+        pillar_names = list(pillar_configs.keys())
         for intent_type, weights_key in [('resonance', 'resonance_pillar_weights'), ('reversal', 'reversal_pillar_weights')]:
-            weights_config = params[weights_key]
-            
-            valid_weights = [weights_config.get(params['pillar_configs'][name]['intent'], 0) for name in pillar_names]
+            weights_config = get_param_value(p_conf.get(weights_key), {})
+            valid_weights = [weights_config.get(pillar_configs[name]['intent'], 0) for name in pillar_names]
             weights_array = np.array(valid_weights)
             total_weights = weights_array.sum()
             if total_weights > 0:
                 weights_array /= total_weights
             else:
                 weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
-
-            # 循环遍历新的三维健康度类型
             for health_key in ['s_bull', 's_bear', 'd_intensity']:
-                for p in params['periods']:
+                for p in periods:
                     pillar_scores_matrix = np.stack([
                         pillar_health[name][health_key].get(p, pd.Series(0.5, index=pillar_health[pillar_names[0]]['s_bull'][p].index)).values 
                         for name in pillar_names
                     ], axis=0)
-                    
                     fused_values = np.prod(pillar_scores_matrix ** weights_array[:, np.newaxis], axis=0)
                     sample_index = pillar_health[pillar_names[0]]['s_bull'][p].index
                     fused_results[intent_type][health_key][p] = pd.Series(fused_values, index=sample_index, dtype=np.float32)
-
         self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results
     
