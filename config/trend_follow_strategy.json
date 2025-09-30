@@ -159,6 +159,22 @@
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
       },
+      "predictive_intelligence_params": {
+        "enabled": true,
+        "description": "【V1.0】先知引擎参数，用于预测T+1风险。",
+        "exhaustion_vol_lookback": 20,
+        "exhaustion_euphoria_threshold": 0.45
+      },
+      "judgment_day_params": {
+        "enabled": true,
+        "description": "【V2.0 · 先知版】审判日引擎参数，增加了对先知信号的阈值定义。",
+        "prophet_alert_threshold": 0.7,
+        "archangel_alert_threshold": 0.7,
+        "top_reversal_alert_threshold": 0.8,
+        "bearish_resonance_alert_threshold": 0.7,
+        "euphoria_alert_threshold": 0.75,
+        "micro_risk_alert_threshold": 0.6
+      },
       "ultimate_signal_synthesis_params": {
         "enabled": true,
         "description": "【圣杯契约】终极信号中央合成引擎的唯一参数源，取代了各模块中的重复配置。",

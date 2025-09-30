@@ -44,6 +44,14 @@
             "type": "context",
             "description": "【审判日】对当前战术警报等级的文字说明。"
         },
+        "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
+        "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
+            "cn_name": "【预测风险】高潮衰竭",
+            "category": "预测层-风险",
+            "type": "risk",
+            "penalty_weight": 5000,
+            "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夜”特征，是最高优先级的风险预警。"
+        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",
