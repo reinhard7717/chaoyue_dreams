@@ -65,48 +65,48 @@
             "category": "过程层-基础",
             "type": "process",
             "score": 100,
-            "scoring_mode": "unipolar",
-            "description": "诊断'价格-成交量'关系是否出现看涨拐点。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格-成交量'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
         },
         "PROCESS_META_PF_REL_BULLISH_TURN": {
             "cn_name": "【过程】价资关系看涨拐点",
             "category": "过程层-基础",
             "type": "process",
             "score": 120,
-            "scoring_mode": "unipolar",
-            "description": "诊断'价格-资金流'关系是否出现看涨拐点。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格-资金流'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
         },
         "PROCESS_META_PC_REL_BULLISH_TURN": {
             "cn_name": "【过程】价筹关系看涨拐点",
             "category": "过程层-基础",
             "type": "process",
             "score": 150,
-            "scoring_mode": "unipolar",
-            "description": "诊断'价格-筹码集中度'关系是否出现看涨拐点。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格-筹码集中度'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
         },
         "PROCESS_META_PRICE_VS_RETAIL_PANIC": {
             "cn_name": "【过程】价与散户恐慌",
             "category": "过程层-基础",
             "type": "process",
             "score": 180,
-            "scoring_mode": "unipolar",
-            "description": "诊断是否出现'价格下跌与散户恐慌指数上升'的背离，是底部特征之一。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格下跌与散户恐慌指数上升'的背离。正分为看涨背离，负分为看跌背离（惩罚）。"
         },
         "PROCESS_META_PE_EFFICIENCY_TURN": {
             "cn_name": "【过程】VPA效率看涨拐点",
             "category": "过程层-基础",
             "type": "process",
             "score": 80,
-            "scoring_mode": "unipolar",
-            "description": "诊断'价格-VPA效率'关系是否出现看涨拐点。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格-VPA效率'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
         },
         "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
             "cn_name": "【过程】主力散户背离确认",
             "category": "过程层-基础",
             "type": "process",
             "score": 160,
-            "scoring_mode": "unipolar",
-            "description": "诊断'价格-主力散户行为背离'关系。"
+            "scoring_mode": "bipolar",
+            "description": "诊断'价格-主力散户行为背离'关系。正分为看涨背离，负分为看跌背离（惩罚）。"
         },
         "PROCESS_META_POWER_TRANSFER": {
             "cn_name": "【过程】权力转移",
@@ -142,7 +142,7 @@
             "type": "process",
             "score": 100,
             "scoring_mode": "unipolar",
-            "description": "诊断'筹码看涨共振'与'行为看涨共振'的同步过程。"
+            "description": "诊断'筹码看涨共振'与'行为看涨共振'的同步过程。这是一个事件，只加分。"
         },
         "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
             "cn_name": "【过程】资金领先结构",
@@ -150,7 +150,7 @@
             "type": "process",
             "score": 120,
             "scoring_mode": "unipolar",
-            "description": "诊断'资金流'是否领先于'结构'。"
+            "description": "诊断'资金流'是否领先于'结构'。这是一个事件，只加分。"
         },
         "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
             "cn_name": "【过程风险】力学筹码共振看跌",
@@ -158,7 +158,7 @@
             "type": "process",
             "score": -100,
             "scoring_mode": "unipolar",
-            "description": "诊断'力学看跌'与'筹码看跌'的共振过程。"
+            "description": "诊断'力学看跌'与'筹码看跌'的共振过程。基础分已为负，只在事件发生时（原始分>0）计入惩罚。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_BULLISH_SCORE": {
