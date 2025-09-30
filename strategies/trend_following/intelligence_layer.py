@@ -19,7 +19,7 @@ from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, normalize_score
 
 class IntelligenceLayer:
     """
