@@ -29,11 +29,11 @@ class TacticEngine:
                          明确的参数通道（信使），将依赖数据直接传递，根除了“焦土战术”BUG。
         """
         all_states = {}
-        # [代码修改] 步骤 1: 计算具有依赖性的前置信号
+        # 步骤 1: 计算具有依赖性的前置信号
         panic_states = self.synthesize_panic_selling_setup(df)
         all_states.update(panic_states)
         # [代码删除] 移除了对 self.strategy.atomic_states 的非法写入，切断“黑市交易”
-        # [代码修改] 步骤 2: 通过“信使通道”（函数参数）将依赖直接传递给下游方法
+        # 步骤 2: 通过“信使通道”（函数参数）将依赖直接传递给下游方法
         all_states.update(self.synthesize_v_reversal_ace_playbook(df, setup_score=panic_states.get('SCORE_SETUP_PANIC_SELLING')))
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
         all_states.update(self.synthesize_prime_tactic(df))
@@ -67,7 +67,7 @@ class TacticEngine:
         """
         states = {}
         trigger_dominant_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        # [代码修改] 不再从全局状态读取，而是直接使用通过参数传递的、最新的依赖数据
+        # 不再从全局状态读取，而是直接使用通过参数传递的、最新的依赖数据
         if setup_score is None:
             setup_score = pd.Series(0.0, index=df.index)
         was_setup_yesterday = setup_score.shift(1).fillna(0.0)

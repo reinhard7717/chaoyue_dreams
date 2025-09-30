@@ -23,7 +23,7 @@ class JudgmentLayer:
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
         df['final_score'] = (df['entry_score'] * confidence_damper)
-        # [代码修改] 确立风险权威：直接使用认知层输出的、归一化的最终融合风险分
+        # 确立风险权威：直接使用认知层输出的、归一化的最终融合风险分
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
@@ -62,7 +62,7 @@ class JudgmentLayer:
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
-        # [代码新增] 增加 scale_factor 参数，用于缩放分数
+        # 增加 scale_factor 参数，用于缩放分数
         def process_details_df(details_df, scale_factor=1.0):
             if details_df.empty:
                 return pd.Series(dtype=object)
@@ -77,7 +77,7 @@ class JudgmentLayer:
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
             
-            # [代码修改] 在转换为整数前，应用缩放因子
+            # 在转换为整数前，应用缩放因子
             long_df['summary_dict'] = long_df.apply(
                 lambda row: {'name': row['cn_name'], 'score': int(row['score'] * scale_factor)},
                 axis=1
@@ -85,7 +85,7 @@ class JudgmentLayer:
             
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
-        # [代码修改] 对进攻项使用默认缩放因子1.0，对风险项使用1000.0
+        # 对进攻项使用默认缩放因子1.0，对风险项使用1000.0
         offense_summaries = process_details_df(score_details_df)
         risk_summaries = process_details_df(risk_details_df, scale_factor=1000.0)
 

@@ -61,7 +61,7 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
-        # [代码新增] 在所有依赖项计算完毕后，调用“天使长”诊断引擎
+        # 在所有依赖项计算完毕后，调用“天使长”诊断引擎
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
         # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
@@ -289,7 +289,7 @@ class CognitiveIntelligence:
         p_resonance = p_fused_risk.get('resonance_penalty_params', {})
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
-        # [代码修改] 核心修改：从加权求和改为加权几何平均
+        # 核心修改：从加权求和改为加权几何平均
         valid_scores = []
         valid_weights = []
         for category_name, base_weight in base_weights.items():
@@ -709,9 +709,9 @@ class CognitiveIntelligence:
                       本模块不再需要除以1000的“补丁”，直接进行比较。
         """
         states = {}
-        # [代码修改] 进攻分数也需要归一化才能比较，这里暂时用一个近似值，理想情况是进攻分也归一化
+        # 进攻分数也需要归一化才能比较，这里暂时用一个近似值，理想情况是进攻分也归一化
         bullish_score_normalized = (self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0) / 1000.0).clip(0, 1)
-        # [代码修改] 风险分数已是[0,1]区间，不再需要除以1000
+        # 风险分数已是[0,1]区间，不再需要除以1000
         bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
@@ -725,7 +725,7 @@ class CognitiveIntelligence:
         - 归属: 此方法作为顶层认知融合的一部分，正式归属于认知情报模块。
         """
         states = {}
-        # [代码新增] 从配置中获取次要风险的折扣因子
+        # 从配置中获取次要风险的折扣因子
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_archangel = p_judge.get('archangel_fusion_params', {})
         secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)

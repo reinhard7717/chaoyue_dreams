@@ -284,7 +284,7 @@ class IntelligenceLayer:
             component_scores[name] = score
             print(f"    - {name:<25}: {score:.4f}")
         
-        # [代码修改] 升级探针的重算逻辑，与“地狱三头犬”算法完全同步
+        # 升级探针的重算逻辑，与“地狱三头犬”算法完全同步
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_archangel = p_judge.get('archangel_fusion_params', {})
         secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)

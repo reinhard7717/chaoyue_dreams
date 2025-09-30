@@ -31,7 +31,7 @@ class MicroBehaviorEngine:
                       完全交还给上层调用者，彻底解决了“越权写入”导致的“状态污染”问题。
         """
         all_states = {}
-        # [代码修改] 简化了 update_states 辅助函数，只更新局部字典 all_states
+        # 简化了 update_states 辅助函数，只更新局部字典 all_states
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
@@ -41,7 +41,7 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        # [代码修改] 从本地正在构建的 all_states 字典中获取依赖，而不是从可能陈旧的全局状态中获取
+        # 从本地正在构建的 all_states 字典中获取依赖，而不是从可能陈旧的全局状态中获取
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
@@ -247,47 +247,42 @@ class MicroBehaviorEngine:
     # “高位回落风险”诊断引擎
     def synthesize_post_peak_downturn_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
-        - 核心职责: 识别股价在经历一轮上涨到达高位后，开始回落的风险。
-        - 算法:
-          1. 上下文: 前一日处于波段高位。
-          2. 触发器: 当日股价下跌。
-          3. 严重性: 结合下跌幅度、成交量放大程度、是否跌破短期均线等因素。
+        【V2.0 · 峰值回声版】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
+        - 核心革命: 引入“峰值回声”上下文 (recently_at_peak_context)。
+                      不再要求“前一日”必须在高位，而是检查“近期是否曾到达高位”，
+                      解决了引擎对顶部“瞬时遗忘”的致命缺陷，极大增强了风险识别的持续性。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
-
-        # --- 步骤 1: 上下文 - 确认前一日处于高位 ---
+        # --- 步骤 1: 上下文 - 计算“波段伸展度” ---
         ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
         stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        
-        high_pos_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
-        was_in_high_position_yesterday = (stretch_from_ma55_score.shift(1) > high_pos_threshold).astype(float)
-
-        # --- 步骤 2: 触发器 - 确认当日正在下跌 ---
+        # [代码删除] 移除了旧的、过于严苛的上下文判断
+        # high_pos_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
+        # was_in_high_position_yesterday = (stretch_from_ma55_score.shift(1) > high_pos_threshold).astype(float)
+        # 步骤 2: 创造“峰值回声”上下文，让顶部记忆持续N天
+        peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
+        recently_at_peak_context = stretch_from_ma55_score.rolling(window=peak_echo_window, min_periods=1).max()
+        # --- 步骤 3: 触发器 - 确认当日正在下跌 ---
         is_falling_today = (df['pct_change_D'] < 0).astype(float)
-
-        # --- 步骤 3: 严重性评估 ---
-        # 3.1 下跌幅度
+        # --- 步骤 4: 严重性评估 ---
+        # 4.1 下跌幅度
         fall_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
         fall_magnitude_score = normalize_score(fall_magnitude, df.index, norm_window, ascending=True)
-        
-        # 3.2 成交量放大
+        # 4.2 成交量放大
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
-        
-        # 3.3 跌破短期均线
+        # 4.3 跌破短期均线
         ema5 = df.get('EMA_5_D', df['close_D'])
         break_ema5_score = (df['close_D'] < ema5).astype(float)
-
-        # --- 步骤 4: 最终风险裁定 ---
+        # --- 步骤 5: 最终风险裁定 ---
         severity_score = (fall_magnitude_score * volume_spike_score * break_ema5_score)**(1/3)
-        final_risk_score = (was_in_high_position_yesterday * is_falling_today * severity_score).astype(np.float32)
-        
+        # 使用新的“峰值回声”上下文进行裁定
+        final_risk_score = (recently_at_peak_context * is_falling_today * severity_score).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_risk_score
         return states
 
