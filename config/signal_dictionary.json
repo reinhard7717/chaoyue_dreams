@@ -204,12 +204,18 @@
             "score": 400,
             "description": "【核心信号】融合所有领域的“状态分”和“过程分”，代表状态与过程的协同共振强度。"
         },
-        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": {
+        "COGNITIVE_INTERNAL_TREND_MATURITY": {
+            "cn_name": "【内部】趋势成熟度",
+            "category": "内部计分-认知",
+            "type": "context",
+            "description": "【圣杯】量化当前趋势的“年龄”，衡量价格偏离长期均线的程度。作为“亢奋加速”风险的理智熔断器。"
+        },
+        "COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION": {
             "cn_name": "【认知风险】亢奋加速",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 2500,
-            "description": "【重大风险】融合高乖离度、天量、巨幅振动和冲高回落四大特征，识别趋势末端的“高潮式”加速上涨风险。此信号会施加严厉的惩罚。"
+            "penalty_weight": 3000,
+            "description": "【圣杯版】智慧型亢奋风险。仅当趋势进入“高度成熟”阶段后，市场的快速加速才会被视为危险的力竭信号。在趋势早期，此风险会被有效抑制。"
         },
         "COGNITIVE_FUSED_RISK_SCORE": {
             "cn_name": "【认知】融合风险总分",

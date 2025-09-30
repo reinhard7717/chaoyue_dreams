@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Tuple, Dict
 from .utils import get_params_block, get_param_value
 
-class StructuralDefenseLayer: # [代码修改] 类名从 ExitLayer 修改为 StructuralDefenseLayer
+class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseLayer
     """
     【V600.0 · 圣殿骑士版】结构防御层
     - 核心哲学: 本模块是策略的最后防线，负责守护策略赖以生存的结构基础。

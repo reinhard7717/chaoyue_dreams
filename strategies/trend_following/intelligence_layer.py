@@ -186,37 +186,57 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.6 · 审判日探针部署版】法医探针调度中心
-        - 核心升级: 新增并默认激活“审判日”探针，用于深度解剖 ALERT_LEVEL 的裁决过程。
+        【V1.7 · 多目标打击版】法医探针调度中心
+        - 核心升级: 1. 配置文件中的 'probe_date' 升级为 'probe_dates'，可以接收一个日期列表。
+                      2. 探针调度中心现在会遍历列表中的所有日期，并对每个日期执行全套探针解剖。
+        - 收益: 极大提升了战役复盘和问题诊断的效率。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
-        probe_date_str = debug_params.get('probe_date')
-        if not probe_date_str:
+
+        # 从 "probe_date" 升级为 "probe_dates"，并处理列表
+        probe_dates_list = debug_params.get('probe_dates')
+        
+        # 增加向后兼容逻辑，如果只找到旧的 probe_date，则将其转为列表
+        if not probe_dates_list:
+            single_date = debug_params.get('probe_date')
+            if single_date:
+                probe_dates_list = [single_date]
+
+        if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        probe_date = pd.to_datetime(probe_date_str)
-        if self.strategy.df_indicators.index.tz is not None:
-            try:
-                probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
-            except Exception:
+            
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.7] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+
+        # 遍历所有需要探查的日期
+        for probe_date_str in probe_dates_list:
+            if not probe_date_str:
+                continue
+
+            probe_date = pd.to_datetime(probe_date_str)
+            if self.strategy.df_indicators.index.tz is not None:
                 try:
-                    probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
-                except Exception as e_conv:
-                     print(f"    -> [法医探针] 错误: 转换探针日期时区也失败: {e_conv}。")
-                     return
-        if probe_date not in self.strategy.df_indicators.index:
-            print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过探针部署。")
-            return
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.6] 正在解剖 {probe_date_str} " + "="*30)
+                    probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
+                except Exception:
+                    try:
+                        probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
+                    except Exception as e_conv:
+                         print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_str} 时区失败: {e_conv}。")
+                         continue # 跳过此日期，继续下一个
+            
+            if probe_date not in self.strategy.df_indicators.index:
+                print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
+                continue # 跳过此日期，继续下一个
+
+            # 将打印信息移入循环内，指明当前正在解剖的日期
+            print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
+            
+            self._deploy_genesis_probe(probe_date)
+            self._deploy_turbo_probe(probe_date)
+            self._deploy_judgment_day_probe(probe_date)
         
-        self._deploy_genesis_probe(probe_date)
-        self._deploy_turbo_probe(probe_date)
-        
-        # [代码新增] 部署全新的“审判日”法医探针
-        self._deploy_judgment_day_probe(probe_date)
-        
-        print("="*95 + "\n")
+        print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _deploy_judgment_day_probe(self, probe_date: pd.Timestamp):
         """

@@ -72,7 +72,7 @@ class BehavioralIntelligence:
         bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
 
-        # [代码新增] 创造“反转回声”信号，让底部形态认知持续3天
+        # 创造“反转回声”信号，让底部形态认知持续3天
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)

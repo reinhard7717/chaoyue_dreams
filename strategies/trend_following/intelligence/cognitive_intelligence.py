@@ -62,7 +62,7 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         
-        # [代码新增] 调用全新的“涡轮增压”引擎
+        # 调用全新的“涡轮增压”引擎
         self.synthesize_trend_acceleration_cascade(df)
         
         # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
@@ -74,7 +74,7 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
-            # [代码新增] 将新的“趋势加速级联分”加入看涨总分
+            # 将新的“趋势加速级联分”加入看涨总分
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
@@ -590,27 +590,51 @@ class CognitiveIntelligence:
     # 新增一个专门的波动率认知信号合成方法
     def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 信号净化版】波动率认知信号合成模块
-        - 核心重构: 净化输出信号名，移除_S后缀。
+        【V3.0 · 圣杯版】波动率与亢奋诊断引擎
+        - 核心革命: 引入“趋势成熟度”作为“理智熔断器”，重塑“亢奋加速”风险的计算逻辑。
+                      亢奋风险 = 原始加速分 * 趋势成熟度。
+        - 收益: 彻底解决了系统在健康主升浪初期因“加速”而误判为风险的致命缺陷。
         """
         states = {}
-        norm_window = 120
-        # 1. 波动压缩分 (Fused Compression Score)
-        atr_ratio = (df['ATR_14_D'] / df['close_D']).fillna(0.0)
-        vol_compression_atr = 1 - normalize_score(atr_ratio, df.index, norm_window)
-        bbw = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
-        vol_compression_bbw = 1 - normalize_score(bbw, df.index, norm_window)
-        # 融合从加法改为乘法
-        fused_compression_score = (vol_compression_atr * vol_compression_bbw)**0.5
-        # 2. 波动突破潜力 (Volatility Breakout Potential)
-        bbw_slope_score = normalize_score(df.get('SLOPE_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-        bbw_accel_score = normalize_score(df.get('ACCEL_5_BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-        # 融合从加法改为乘法
-        expansion_score = (bbw_slope_score * bbw_accel_score)**0.5
-        breakout_potential = (fused_compression_score * expansion_score)**0.5
-        states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = fused_compression_score.astype(np.float32)
-        # 移除信号名中的_S后缀
-        states['SCORE_VOL_BREAKOUT_POTENTIAL'] = breakout_potential.astype(np.float32)
+        p_conf = get_params_block(self.strategy, 'volatility_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            return states
+
+        norm_window = get_param_value(p_conf.get('norm_window'), 55)
+        
+        # 步骤1: 计算“趋势成熟度”作为理智熔断器
+        # 使用长期均线（如EMA120）和ATR来衡量趋势的伸展程度
+        long_term_ma_period = get_param_value(p_conf.get('long_term_ma_period'), 120)
+        atr_period = get_param_value(p_conf.get('atr_period'), 21)
+        long_term_ma_col = f'EMA_{long_term_ma_period}_D'
+        atr_col = f'ATR_{atr_period}_D'
+
+        if long_term_ma_col in df.columns and atr_col in df.columns:
+            long_term_ma = df.get(long_term_ma_col, df['close_D'])
+            atr = df.get(atr_col, 1.0)
+            # 计算价格偏离长期均线的ATR倍数
+            trend_extension_ratio = (df['close_D'] - long_term_ma) / atr.replace(0, 1)
+            # 将其归一化为 [0, 1] 的成熟度分数，越高代表越成熟
+            trend_maturity_score = normalize_score(trend_extension_ratio, df.index, norm_window, ascending=True)
+        else:
+            # 如果缺少指标，则成熟度为中性，不产生影响
+            trend_maturity_score = pd.Series(0.5, index=df.index)
+        
+        states['COGNITIVE_INTERNAL_TREND_MATURITY'] = trend_maturity_score.astype(np.float32)
+
+        # 步骤2: 计算原始的亢奋加速风险 (保持不变)
+        slope_bbw = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
+        accel_bbw = df.get('ACCEL_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
+        
+        slope_score = normalize_score(slope_bbw, df.index, norm_window, ascending=True)
+        accel_score = normalize_score(accel_bbw, df.index, norm_window, ascending=True)
+        
+        raw_euphoria_accel_risk = (slope_score * accel_score).clip(0, 1)
+
+        # 步骤3: 应用“理智熔断器”，生成智慧型亢奋风险
+        intelligent_euphoria_risk = (raw_euphoria_accel_risk * trend_maturity_score).astype(np.float32)
+        states['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION'] = intelligent_euphoria_risk
+        
         return states
 
     def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
