@@ -721,7 +721,7 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # [代码修改] 更新核心公式的注释，明确为五维模型
+        # 更新核心公式的注释，明确为五维模型
         print(f"    - [核心公式]: (价格暴跌 * 成交天量 * 筹码崩溃) * 绝望背景 * 结构支撑测试")
 
         # --- 链路层 3: 钻透恐慌战备分的五大支柱 ---
@@ -749,7 +749,7 @@ class IntelligenceLayer:
         print(f"    --- 支柱三: 筹码崩溃 ---")
         print(f"      - [探针重算] 筹码崩溃分 (SCORE_CHIP_BEARISH_RESONANCE): {chip_breakdown_score_recalc:.4f}")
 
-        # [代码修改] 支柱四: 绝望背景 (调用与主引擎一致的重算逻辑)
+        # 支柱四: 绝望背景 (调用与主引擎一致的重算逻辑)
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
         # 实例化一个 TacticEngine 用于访问其内部方法
         tactic_engine_probe = self.cognitive_intel.tactic_engine
@@ -764,7 +764,7 @@ class IntelligenceLayer:
 
         # --- 链路层 4: 最终验证 ---
         print("\n  [链路层 4] 最终验证")
-        # [代码修改] 更新为五项相乘
+        # 更新为五项相乘
         recalculated_panic_score = (
             price_drop_score_recalc * 
             volume_spike_score_recalc * 

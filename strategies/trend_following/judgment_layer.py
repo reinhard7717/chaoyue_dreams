@@ -51,7 +51,7 @@ class JudgmentLayer:
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold) & ~is_veto_by_alert & is_not_hard_exit
         
-        # [代码修改] “先知入场”现在是一个纯粹的决策动作，它只改变 signal_type，不再污染 final_score。
+        # “先知入场”现在是一个纯粹的决策动作，它只改变 signal_type，不再污染 final_score。
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
 
         # 步骤三：最后处理风险否决

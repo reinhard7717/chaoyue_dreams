@@ -31,7 +31,7 @@ class OffensiveLayer:
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
-            # [代码修改] 釜底抽薪：如果信号类型是 'predictive'，则直接跳过，不参与任何计分。
+            # 釜底抽薪：如果信号类型是 'predictive'，则直接跳过，不参与任何计分。
             if signal_type == 'predictive':
                 continue
 

@@ -31,10 +31,11 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V519.0 · 最终裁决版】
-        - 核心革命: 确立 score_details_df 作为 StrategyScoreComponent 的唯一数据源。
-        - 核心修复: 彻底删除了对 risk_details_df 的冗余处理循环，根除了重复记录和数据污染的系统性BUG。
-                      risk_details_df 的使命仅限于为风险等级裁决提供原始数据。
+        【V520.0 · 凯撒的归凯撒版】
+        - 核心革命: 在报告层建立神权与君权的最终防火墙。
+        - 核心逻辑: 只有当信号是常规的“买入信号”时，才为其关联进攻项细节(SignalPlaybookDetail)。
+                      对于“先知入场”等特殊信号，不再错误地将常规进攻项归功于它。
+        - 收益: 彻底根除了因错误归因导致的战报污染问题，确保了“先知入场”信号的纯粹性。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -67,12 +68,17 @@ class ReportingLayer:
                 close_price=row.get('close_D', 0.0)
             )
             signals_to_create.append(signal_obj)
-            if trade_time in score_details_df.index:
+
+            # 建立神权与君权的防火墙
+            # 只有当信号是常规的“买入信号”时，才将当天的进攻项细节归功于它。
+            # “先知入场”等特殊信号，其存在本身就是意义，不应被常规分数污染。
+            if row['signal_type'] == '买入信号' and trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
                     playbook_obj = self.playbooks_cache.get(name)
                     if playbook_obj:
                         signal_details_to_create.append(SignalPlaybookDetail(signal=signal_obj, playbook=playbook_obj, contributed_score=score))
+        
         daily_score_map = {}
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
@@ -105,7 +111,6 @@ class ReportingLayer:
                     score_value=db_score_value
                 ))
             if not score_details_df.empty and trade_time in score_details_df.index:
-                # 这里的 score_details_df 是唯一的数据源，它已包含所有加权后的进攻分和惩罚分。
                 for name, score in score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0].items():
                     if name not in summary_score_names: create_component(name, score)
 
