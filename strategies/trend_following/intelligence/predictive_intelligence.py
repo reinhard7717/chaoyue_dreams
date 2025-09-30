@@ -76,13 +76,16 @@ class PredictiveIntelligence:
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.0 · 新增】诊断“恐慌投降反转”机会 (入场神谕)
+        【V1.1 · 时序校准版】诊断“恐慌投降反转”机会 (入场神谕)
         - 核心逻辑: 融合三大支柱，识别绝望尽头的反转机会。
                       机会 = (恐慌上下文 * 权重) + (卖压衰竭 * 权重) + (V型反转 * 权重)
+        - 本次修复: 移除了 panic_context_score 计算中的 .shift(1)，解决了“先知活在昨天”的致命时序悖论。
+                      现在，它将基于T日的恐慌状态，来预测T+1日的反转机会。
         """
         # 1. 支柱一: 恐慌上下文 (Panic Context) - 市场是否处于绝望的废墟中？
-        #    此信号由 TacticEngine 生成，代表前一日是否为恐慌抛售。
-        panic_context_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index)).shift(1).fillna(0.0)
+        #    此信号由 TacticEngine 生成，代表【今日】是否为恐慌抛售。
+        # [代码修改] 移除 .shift(1)，让先知基于今日的恐慌预测明日的反转
+        panic_context_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index))
 
         # 2. 支柱二: 卖压衰竭 (Selling Exhaustion) - 抛售力量是否已耗尽？
         #    此信号由 MicroBehaviorEngine 生成，衡量缩量企稳的程度。
