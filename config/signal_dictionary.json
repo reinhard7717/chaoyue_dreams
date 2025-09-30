@@ -55,7 +55,7 @@
         "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
             "cn_name": "【先知】恐慌投降反转",
             "category": "预测层-机会",
-            "type": "predictive",
+            "type": "process",
             "score": 300,
             "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
         },

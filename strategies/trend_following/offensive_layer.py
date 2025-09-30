@@ -11,11 +11,12 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V508.0 · 净化法典版】
-        - 核心革命: 釜底抽薪，在计分逻辑中强制将 'predictive' 类型的信号得分置为0，无论其在法典中如何定义。
-        - 收益: 彻底杜绝了因 score_type_map 配置滞后而导致的“幽灵计分”问题，确保了战报的纯净性。
+        【V509.0 · 先知的低语版】
+        - 核心革命: 恢复了先知信号的双重身份。它既能独立触发“先知入场”，也能作为常规过程信号为“买入信号”贡献分数。
+        - 核心逻辑: 移除了对 'predictive' 类型的硬编码过滤，恢复了基于信号类型列表的通用计分逻辑。
+        - 收益: 使得不够强的预测信号也能作为“低语”为常规决策提供佐证，增强了系统的决策细腻度。
         """
-        print("        -> [进攻方案评估中心 V508.0 · 净化法典版] 启动...")
+        print("        -> [进攻方案评估中心 V509.0 · 先知的低语版] 启动...")
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         
@@ -31,10 +32,7 @@ class OffensiveLayer:
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
             
-            # 釜底抽薪：如果信号类型是 'predictive'，则直接跳过，不参与任何计分。
-            if signal_type == 'predictive':
-                continue
-
+            # 移除对 'predictive' 类型的硬编码过滤，恢复通用计分逻辑
             if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process']:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:

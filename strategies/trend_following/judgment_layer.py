@@ -40,7 +40,7 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # [代码修改] 重构决策优先级
+        # 重构决策优先级
         # 准备所有判断条件
         is_not_hard_exit = ~is_hard_exit_veto
         is_score_sufficient = df['final_score'] > final_score_threshold
