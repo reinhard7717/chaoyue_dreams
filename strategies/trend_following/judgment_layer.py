@@ -84,9 +84,9 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.6 · 赫尔墨斯净化版】生成人类可读的信号摘要。
-        - 核心加固: 在进行 astype(int) 转换前，强制使用 .fillna(0) 对分数进行净化。
-        - 收益: 彻底解决了因上游信号出现 NaN 值而导致的 IntCastingNaNError 运行时崩溃问题，极大提升了报告系统的健壮性。
+        【V3.7 · 赏罚分明版】生成人类可读的信号摘要。
+        - 核心革命: 修正了进攻项的筛选逻辑，从 != 0 升级为 > 0。
+        - 收益: 确保只有得分大于零的进攻项才会被记录和显示，彻底解决了负分项被错误归类为“激活项”的问题。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
@@ -95,10 +95,10 @@ class JudgmentLayer:
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             
             if not is_risk_df:
-                # [代码修改] 在进行类型转换前，使用 .fillna(0) 净化数据，彻底杜绝因 NaN 值导致的 IntCastingNaNError。
-                long_df = long_df[long_df['score'].fillna(0).astype(int) != 0].copy()
+                # [代码修改] 将筛选条件从 != 0 修正为 > 0，确保只记录真正的“进攻项”。
+                long_df = long_df[long_df['score'].fillna(0).astype(int) > 0].copy()
             else:
-                # [代码修改] 对风险信号也应用同样的净化逻辑，确保系统的绝对稳定。
+                # 风险信号的逻辑保持不变，任何大于0的风险都应被记录
                 long_df = long_df[(long_df['score'].fillna(0) * 1000).astype(int) > 0].copy()
 
             if long_df.empty: return pd.Series(dtype=object)

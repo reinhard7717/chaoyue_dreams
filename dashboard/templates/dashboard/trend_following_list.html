@@ -7,7 +7,26 @@
 {% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
-
+{# [代码新增] 为“先知”信号添加专属皇室样式 #}
+<style>
+    .prophet-signal {
+        background-color: #fffbe6 !important; /* 淡金色背景 */
+        border-left: 5px solid #ffd700; /* 金色左边框 */
+    }
+    .prophet-tag {
+        background-color: #ffd700; /* 金色背景 */
+        color: #4a3c00; /* 深金色文字 */
+        font-weight: bold;
+        border: 1px solid #e6c300;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .prophet-score-display {
+        font-size: 1.2em;
+        font-weight: bold;
+        color: #b38f00; /* 暗金色 */
+        cursor: help; /* 鼠标悬停时显示帮助手势 */
+    }
+</style>
 {% endblock %}
 
 
@@ -75,7 +94,8 @@
                 </thead>
                 <tbody id="trend-table-body">
                     {% for item in items_for_display %}
-                    <tr>
+                    {# [代码修改] 为先知信号的行添加专属class #}
+                    <tr class="{% if item.specific_signal_type == '先知入场' %}prophet-signal{% endif %}">
                         <td>
                             <strong>{{ item.stock.stock_code }}</strong>
                             <br>
@@ -85,21 +105,26 @@
                             <span class="strategy-tag">{{ item.strategy_name|default:"N/A" }}</span>
                         </td>
                         <td>
-                            <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
+                            {# [代码修改] 为先知信号的分数显示添加特殊处理 #}
+                            {% if item.specific_signal_type == '先知入场' %}
+                                <strong class="prophet-score-display" title="神谕降临，凡人分数归零">0</strong>
+                            {% else %}
+                                <strong style="font-size: 1.2em;">{{ item.latest_score|floatformat:0|default:"-" }}</strong>
+                            {% endif %}
                         </td>
                         <td>
-                            {% if item.active_playbooks %}
-                                <div class="playbook-container">
-                                    <ul class="playbook-list">
-                                    {% for playbook in item.active_playbooks %}
-                                        <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
-                                    {% endfor %}
-                                    </ul>
-                                    <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
-                                </div>
-                            {% else %}
-                                -
-                            {% endif %}
+                            <div class="playbook-container">
+                                <ul class="playbook-list">
+                                {# [代码修改] 为先知信号添加皇冠标签 #}
+                                {% if item.specific_signal_type == '先知入场' %}
+                                    <li class="playbook-tag prophet-tag">👑 {{ item.specific_signal_type }}</li>
+                                {% endif %}
+                                {% for playbook in item.active_playbooks %}
+                                    <li class="playbook-tag" title="{{ playbook.name }}">{{ playbook.cn_name|default:playbook.name }}</li>
+                                {% endfor %}
+                                </ul>
+                                <a href="#" class="toggle-playbooks" data-text-expand="展开" data-text-collapse="收起">展开</a>
+                            </div>
                         </td>
                         <td>{{ item.latest_trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
                         <td>

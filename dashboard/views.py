@@ -76,12 +76,12 @@ def dashboard_view(request, cache_manager=None):
 @login_required
 def trend_following_list(request):
     """
-    【V5.1 - 简化版】
-    - 废除“近3天”的固定逻辑，改为默认显示最新交易日的数据。
-    - 功能增强: 增加日期选择功能，允许用户查询任意历史交易日的买入信号。
-    - 代码清理: 移除了 get_playbook_priority 相关的复杂排序逻辑。
+    【V5.2 · 先知加冕版】
+    - 核心升级: 引入“加冕排序”逻辑。在从数据库获取信号后，会进行一次内存排序，
+                  确保“先知入场”信号永远置于列表顶部，然后再按分数对其他信号排序。
+    - 数据增强: 增加了一次对 StrategyDailyScore 的关联查询，以获取精确的信号类型文本（如“先知入场”）。
     """
-    # 1. 确定要查询的目标日期 
+    # 1. 确定要查询的目标日期 (逻辑不变)
     selected_date_str = request.GET.get('date')
     target_date = None
 
@@ -99,7 +99,7 @@ def trend_following_list(request):
         if latest_trade_day_obj:
             target_date = latest_trade_day_obj.cal_date
 
-    # 2. 如果无法确定目标日期，则不进行查询 
+    # 2. 如果无法确定目标日期，则不进行查询 (逻辑不变)
     if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
         page_title = '策略状态监控中心 (无可用数据)'
@@ -127,13 +127,23 @@ def trend_following_list(request):
         if main_strategy_name:
             base_query = base_query.filter(strategy_name=main_strategy_name)
         
+        # [代码修改] 移除数据库层面的排序，因为我们需要在内存中进行更复杂的“加冕排序”
         latest_buy_signals = base_query.select_related('stock').prefetch_related(
             Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        ).order_by('-final_score')
+        )
 
     # 5. 数据处理与筛选
     all_logs_in_memory = []
     all_playbook_objects = set()
+
+    # [代码新增] 准备一个查询，用于获取精确的信号类型文本
+    signal_keys_to_lookup = [(s.stock_id, s.trade_time.date()) for s in latest_buy_signals]
+    daily_score_map = {}
+    if signal_keys_to_lookup:
+        queries = [Q(stock_id=sid, trade_date=tdate) for sid, tdate in signal_keys_to_lookup]
+        daily_scores = StrategyDailyScore.objects.filter(functools.reduce(operator.or_, queries))
+        daily_score_map = {(ds.stock_id, ds.trade_date): ds.signal_type for ds in daily_scores}
+
     for signal in latest_buy_signals:
         active_playbooks = []
         if hasattr(signal, 'signalplaybookdetail_set'):
@@ -142,9 +152,11 @@ def trend_following_list(request):
                     active_playbooks.append(detail.playbook)
                     all_playbook_objects.add(detail.playbook)
         
-        # 简化排序逻辑，直接按剧本的中文名或英文名排序
         active_playbooks.sort(key=lambda p: p.cn_name or p.name)
         
+        # [代码新增] 获取精确的信号类型文本
+        specific_signal_type = daily_score_map.get((signal.stock_id, signal.trade_time.date()), '买入信号')
+
         all_logs_in_memory.append({
             'log_id': signal.id,
             'stock': signal.stock,
@@ -153,7 +165,13 @@ def trend_following_list(request):
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
             'close_price': signal.close_price,
+            'specific_signal_type': specific_signal_type, # [代码新增] 将精确信号类型加入数据
         })
+
+    # [代码新增] 执行“为先知加冕”的排序逻辑
+    # 1. 'specific_signal_type' != '先知入场' 会对“先知入场”信号返回 False (即 0)，对其他信号返回 True (即 1)，实现置顶。
+    # 2. -log['latest_score'] 对非先知信号按分数降序排列。
+    all_logs_in_memory.sort(key=lambda log: (log['specific_signal_type'] != '先知入场', -log['latest_score']))
 
     # 简化排序逻辑，直接按剧本的中文名或英文名排序
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: p.cn_name or p.name)
@@ -168,7 +186,7 @@ def trend_following_list(request):
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
 
-    # 6. 分页与上下文准备 
+    # 6. 分页与上下文准备 (逻辑不变)
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
@@ -181,9 +199,6 @@ def trend_following_list(request):
         'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks_pks,
         'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
-        # --- 新增行 ---
-        # 新增原因：在视图中生成缓存刷新参数，避免在模板中处理复杂逻辑导致错误。
-        # `timezone.now().timestamp()` 获取当前时间的Unix时间戳，`int()` 转换为整数。
         'cache_bust': int(timezone.now().timestamp()),
     }
     return render(request, 'dashboard/trend_following_list.html', context)
