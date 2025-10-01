@@ -696,10 +696,10 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.4 · 生命线协议同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 探针的重算逻辑已与主引擎的“生命线协议”版本完全同步。
-        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * (生命线基础分 + 奖章加分)，且必须满足价格暴跌门槛。
-        - 收益: 彻底消除了探针与引擎之间的逻辑延迟，实现了言行合一的终极同步。
+        【V1.5 · 生命线协议V2同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“生命线协议V2”版本完全同步。
+        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * (生命线基础分(1.0) + 奖章加分)，且必须满足价格暴跌门槛。
+        - 收益: 确保探针能够正确解剖和验证最新的、具有放大效应的静谧度评分逻辑。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
@@ -760,17 +760,17 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
-        # [代码修改] 探针必须复刻“生命线协议”的完整逻辑
+        # [代码修改] 探针必须复刻“生命线协议 V2”的完整逻辑
         print(f"    --- 调节器: 成交量静谧度 ---")
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
-        base_ma_period = get_param_value(logic_params.get('base_ma_period'), 5)
-        base_weight = get_param_value(logic_params.get('base_weight'), 0.6)
+        lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
+        lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
         bonus_weights = get_param_value(logic_params.get('bonus_weights'), {13: 0.15, 21: 0.15, 55: 0.10})
         
         volume_calmness_score_recalc = 0.0
-        base_ma_col = f'VOL_MA_{base_ma_period}_D'
-        if base_ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, base_ma_col]:
-            volume_calmness_score_recalc = base_weight
+        lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
+        if lifeline_ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, lifeline_ma_col]:
+            volume_calmness_score_recalc = lifeline_base_score
             for p, weight in bonus_weights.items():
                 ma_col = f'VOL_MA_{p}_D'
                 if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:

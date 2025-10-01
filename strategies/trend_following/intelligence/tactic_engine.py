@@ -43,11 +43,11 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 生命线协议版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: 遵循“生命线协议”。仅当成交量跌破5日均量时才获得决定性基础分，跌破更长均线则获得额外加分。
+        【V2.5 · 生命线协议V2版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 遵循“生命线协议V2”。仅当成交量跌破5日均量时，静谧度分直接为1.0，跌破更长均线则获得额外奖励。
         - 核心逻辑: 1. 从配置中读取全新的 volume_calmness_logic 结构。
-                      2. 实现“基础分+奖章分”的评分模式，精确量化抛压衰竭程度。
-        - 收益: 极大提升了信号的战术意义和可解释性，完美对齐指挥官的战略意图。
+                      2. 实现“生命线基础分(1.0)+奖章加分”的评分模式，可使分数超过1.0以形成放大效应。
+        - 收益: 完美对齐指挥官的战术意图，对极端缩量给予最高权重的奖励。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -64,25 +64,25 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # [代码修改] 引入全新的“生命线协议”逻辑
+        # [代码修改] 引入全新的“生命线协议 V2”逻辑
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
-        base_ma_period = get_param_value(logic_params.get('base_ma_period'), 5)
-        base_weight = get_param_value(logic_params.get('base_weight'), 0.6)
+        lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
+        lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
         bonus_weights = get_param_value(logic_params.get('bonus_weights'), {13: 0.15, 21: 0.15, 55: 0.10})
         
-        base_ma_col = f'VOL_MA_{base_ma_period}_D'
-        if base_ma_col not in df.columns:
-            # 如果生命线不存在，则无法计算，返回0
-            volume_calmness_score = pd.Series(0.0, index=df.index)
-        else:
-            # 步骤1: 计算决定性的基础分 (跌破生命线)
-            volume_calmness_score = (df['volume_D'] < df[base_ma_col]).astype(float) * base_weight
+        lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
+        volume_calmness_score = pd.Series(0.0, index=df.index)
+        if lifeline_ma_col in df.columns:
+            # 步骤1: 检查是否跌破生命线，如果跌破，直接赋予1.0的基础分
+            is_below_lifeline = df['volume_D'] < df[lifeline_ma_col]
+            volume_calmness_score = is_below_lifeline.astype(float) * lifeline_base_score
             
-            # 步骤2: 累加额外的奖章分 (跌破其他均线)
+            # 步骤2: 在跌破生命线的基础上，累加额外的奖章分
             for p, weight in bonus_weights.items():
                 ma_col = f'VOL_MA_{p}_D'
                 if ma_col in df.columns:
-                    volume_calmness_score += (df['volume_D'] < df[ma_col]).astype(float) * weight
+                    # 只有在已经跌破生命线的情况下，才计算奖章分
+                    volume_calmness_score += (is_below_lifeline & (df['volume_D'] < df[ma_col])).astype(float) * weight
         
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = volume_calmness_score.astype(np.float32)
 
