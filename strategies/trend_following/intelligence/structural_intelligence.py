@@ -80,9 +80,9 @@ class StructuralIntelligence:
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
         """【V3.6 · 赫尔墨斯商神杖版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # [代码新增] 获取本模块的专属配置
+        # 获取本模块的专属配置
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # [代码新增] 获取新的加权融合权重
+        # 获取新的加权融合权重
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
 
         ma_periods = [5, 13, 21, 55]
@@ -126,7 +126,7 @@ class StructuralIntelligence:
         avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5) if accel_health_scores else pd.Series(0.5, index=df.index)
         avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5) if relational_health_scores else pd.Series(0.5, index=df.index)
 
-        # [代码修改] 最终静态看涨分是四维健康的加权算术融合
+        # 最终静态看涨分是四维健康的加权算术融合
         static_bull_score = (
             alignment_score * fusion_weights.get('alignment', 0.1) +
             avg_slope_health * fusion_weights.get('slope', 0.2) +

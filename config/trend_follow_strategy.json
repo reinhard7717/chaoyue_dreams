@@ -575,8 +575,8 @@
         "description": "【V1.0 · 新增】顶层认知引擎的专属参数块。",
         "cascade_fusion_weights": {
           "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
-          "slope": 0.6,
-          "accel": 0.4
+          "slope": 0.3,
+          "accel": 0.7
         }
       },
       "four_layer_scoring_params": {

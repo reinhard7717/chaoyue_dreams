@@ -642,13 +642,13 @@ class CognitiveIntelligence:
         states = {}
         norm_window = 55
         slope_period = 3 
-        # [代码新增] 从配置中获取新的融合权重
+        # 从配置中获取新的融合权重
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         fusion_weights = get_param_value(p_cognitive.get('cascade_fusion_weights'), {'slope': 0.6, 'accel': 0.4})
         w_slope = fusion_weights.get('slope', 0.6)
         w_accel = fusion_weights.get('accel', 0.4)
 
-        # [代码修改] 辅助函数，用于计算单个序列的动态健康分
+        # 辅助函数，用于计算单个序列的动态健康分
         def get_dynamic_health(series: pd.Series) -> pd.Series:
             slope = series.diff(slope_period).fillna(0)
             accel = slope.diff(slope_period).fillna(0)
@@ -669,7 +669,7 @@ class CognitiveIntelligence:
         short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
         medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
         
-        # [代码修改] 使用新的辅助函数计算动态健康分
+        # 使用新的辅助函数计算动态健康分
         short_term_dynamic_health = get_dynamic_health(short_term_health)
         medium_term_dynamic_health = get_dynamic_health(medium_term_health)
         
@@ -685,14 +685,14 @@ class CognitiveIntelligence:
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
         
-        # [代码修改] 计算每个领域的动态健康分
+        # 计算每个领域的动态健康分
         domain_dynamic_health_scores = []
         for name, signal in resonance_signals.items():
             dynamic_health = get_dynamic_health(signal)
             states[f'COGNITIVE_INTERNAL_DYN_HEALTH_{name.upper()}'] = dynamic_health.astype(np.float32)
             domain_dynamic_health_scores.append(dynamic_health)
         
-        # [代码修改] 计算“关系协同分”
+        # 计算“关系协同分”
         if domain_dynamic_health_scores:
             # 将所有领域的动态健康分堆叠起来
             stacked_health = np.stack([s.values for s in domain_dynamic_health_scores], axis=0)

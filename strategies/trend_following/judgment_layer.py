@@ -11,20 +11,24 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V526.0 · 神谕赋分版】
-        - 核心革命: 遵循“神谕军团重组”计划，为“先知入场”信号赋予可量化的神力值。
-        - 核心逻辑: 当“先知入场”触发时，其 final_score 不再归零，而是等于其原始置信度乘以配置中的分数乘数。
+        【V527.0 · 宙斯天平版】
+        - 核心革命: 彻底废除旧的计分逻辑，恢复并强化“进攻分 - 风险惩罚分”的核心裁决机制。
+        - 新核心公式: 最终得分 = (总进攻分 * 信心阻尼器) - 总风险惩罚分
         """
-        # print("    --- [最高作战指挥部 V526.0 · 神谕赋分版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
-        df['final_score'] = (df['entry_score'] * confidence_damper)
+        
+        # 调用复活的风险惩罚计算器，得到总风险惩罚分
+        total_risk_penalty, _ = self._calculate_risk_penalty_score(risk_details_df)
+        
+        # 应用“宙斯天平”计分公式
+        df['final_score'] = (df['entry_score'] * confidence_damper) - total_risk_penalty
+        
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         
-        # 分别获取两种策略的判断参数
         p_trend_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         p_prophet_judge = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
         
@@ -32,26 +36,21 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
 
-        # --- 准备所有基础判断条件 ---
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         
-        # 从先知专属配置块获取参数
         prophet_entry_threshold = get_param_value(p_prophet_judge.get('prophet_entry_threshold'), 0.6)
         prophet_score_multiplier = get_param_value(p_prophet_judge.get('prophet_score_multiplier'), 1000)
         
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
 
-        # --- 协定第一条：先知拥有最高裁决权 ---
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         
-        # 核心修改：为神谕赋予可量化的神力值，不再归零
         df.loc[is_prophet_entry, 'final_score'] = (predictive_opp_score * prophet_score_multiplier).astype(int)
 
-        # --- 协定第二条：国王卫队的硬性离场，仅在先知沉默时生效 ---
         is_not_prophet_day = ~is_prophet_entry
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index)) & is_not_prophet_day
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask & is_not_prophet_day
@@ -61,7 +60,6 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_effective_hard_exit, 'final_score'] = 0
 
-        # --- 协定第三条：常规买入与风险否决，仅在先知和国王卫队都未行动时生效 ---
         is_mundane_day = is_not_prophet_day & ~is_effective_hard_exit
         
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_mundane_day
@@ -71,16 +69,39 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
         
+        # 确保最终得分在任何情况下都转换为整数
+        df['final_score'] = df['final_score'].fillna(0).astype(int)
+        
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
     def _calculate_risk_penalty_score(self, risk_details_df: pd.DataFrame) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V511.1 · 已废除】
-        - 此方法已被“创世纪 XI · 独裁者”计划废除。其功能由 _adjudicate_risk_level 方法完全取代。
+        【V512.0 · 宙斯天平版】风险惩罚分数计算器
+        - 核心革命: “复活”此方法，使其成为最终得分计算的关键一环。
+        - 新逻辑: 遍历所有风险信号，根据其原始分(0-1)和在字典中定义的'penalty_weight'，计算出总的风险惩罚分。
         """
-        # [代码删除] 整个方法的内容都被删除，只留下废除声明
-        return pd.Series(0.0, index=self.strategy.df_indicators.index), pd.DataFrame(index=self.strategy.df_indicators.index)
+        # 移除废除声明，正式启用此方法
+        df_index = self.strategy.df_indicators.index
+        if risk_details_df.empty:
+            return pd.Series(0.0, index=df_index), pd.DataFrame(index=df_index)
+        
+        total_penalty_score = pd.Series(0.0, index=df_index)
+        
+        # 遍历 risk_details_df 的每一列（即每个风险信号）
+        for risk_name in risk_details_df.columns:
+            # 从配置中查找该风险的惩罚权重
+            signal_meta = self.risk_metadata.get(risk_name, {})
+            penalty_weight = signal_meta.get('penalty_weight', 0.0)
+            
+            # 如果有权重，则计算惩罚分并累加
+            if penalty_weight > 0:
+                risk_series = risk_details_df[risk_name].fillna(0.0)
+                penalty_score = risk_series * penalty_weight
+                total_penalty_score += penalty_score
+                
+        # 返回计算出的总惩罚分，第二个返回值保持为空DataFrame以兼容旧接口
+        return total_penalty_score.reindex(df_index).fillna(0.0), pd.DataFrame(index=df_index)
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
