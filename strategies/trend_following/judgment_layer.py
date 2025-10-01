@@ -8,6 +8,7 @@ from .utils import get_params_block, get_param_value
 class JudgmentLayer:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
+        self.risk_metadata = get_params_block(self.strategy, 'score_type_map', {})
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
