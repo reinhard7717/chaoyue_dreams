@@ -78,12 +78,16 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V3.1 · 调用适配版】计算MA支柱的三维健康度"""
+        """【V3.2 · 斜率健康度版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         ma_periods = [5, 10, 20, 60, 120]
         bull_alignment_scores = []
         bear_alignment_scores = []
+        
+        # 计算斜率健康度
+        slope_health_scores = []
+
         for i in range(len(ma_periods) - 1):
             short_col = f'EMA_{ma_periods[i]}_D'
             long_col = f'EMA_{ma_periods[i+1]}_D'
@@ -91,19 +95,35 @@ class StructuralIntelligence:
                 bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
                 bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
         
+        # 遍历均线，计算其斜率健康度
+        for p in ma_periods:
+            slope_col = f'SLOPE_{p}_EMA_{p}_D'
+            if slope_col in df.columns:
+                # 只关心正斜率，并将其归一化
+                slope_health = normalize_score(df[slope_col].clip(lower=0), df.index, norm_window, ascending=True)
+                slope_health_scores.append(slope_health)
+
         if bull_alignment_scores:
-            static_bull_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
+            alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
             static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5)
         else:
-            static_bull_score = pd.Series(0.5, index=df.index)
+            alignment_score = pd.Series(0.5, index=df.index)
             static_bear_score = pd.Series(0.5, index=df.index)
+        
+        # 计算平均斜率健康度
+        if slope_health_scores:
+            slope_health_score = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5)
+        else:
+            slope_health_score = pd.Series(0.5, index=df.index)
+
+        # 新的静态看涨分 = 排列分 * 斜率健康分
+        static_bull_score = (alignment_score * slope_health_score)**0.5
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
             static_col = f'EMA_{p}' if p > 1 else 'close'
-            # 调用中央引擎获取元组，然后在调用处进行融合
             bull_holo, bear_holo = calculate_holographic_dynamics(df, static_col, norm_window)
             d_intensity[p] = (bull_holo + bear_holo) / 2.0
 

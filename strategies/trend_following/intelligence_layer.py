@@ -149,7 +149,7 @@ class IntelligenceLayer:
 
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            # [代码新增] 在所有基础探针之后，调用“赫淮斯托斯熔炉”进行底层解剖
+            # 在所有基础探针之后，调用“赫淮斯托斯熔炉”进行底层解剖
             self._deploy_hephaestus_forge_probe(probe_date, 'BEHAVIOR', 'BOTTOM_REVERSAL')
             
             # self._deploy_genesis_probe(probe_date)
@@ -186,7 +186,7 @@ class IntelligenceLayer:
         if predictive_risk > prophet_threshold:
             print("    - [神谕裁决]: 触发最高警报 (ALERT_LEVEL: 3)")
         
-        # [代码新增] 解剖入场神谕
+        # 解剖入场神谕
         predictive_opp = atomic.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"    - 【预测机会】恐慌反转: {predictive_opp:.4f}")
 

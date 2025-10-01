@@ -242,6 +242,17 @@
           },
           "momentum_weight": 0.5,
           "relational_power_weight": 0.5
+        },
+        "dynamic_reversal_context_params": {
+          "enabled": { "value": true },
+          "description": "【赫菲斯托斯之锤-飞鞋之魂】基于二阶求导，计算动态反转上下文。",
+          "short_ma_period": 5,
+          "mid_ma_period": 21,
+          "slope_period": 3,
+          "fusion_weights": {
+            "distance_accel": 0.5,
+            "slope_accel": 0.5
+          }
         }
       },
       "panic_selling_setup_params": {

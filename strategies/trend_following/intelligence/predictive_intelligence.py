@@ -30,7 +30,7 @@ class PredictiveIntelligence:
         exhaustion_risk = self._diagnose_climactic_exhaustion(df, atomic_states)
         states['PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION'] = exhaustion_risk.astype(np.float32)
         
-        # [代码新增] 调用全新的“恐慌投降反转”机会诊断
+        # 调用全新的“恐慌投降反转”机会诊断
         capitulation_opportunity = self._diagnose_capitulation_reversal(df, atomic_states)
         states['PREDICTIVE_OPP_CAPITULATION_REVERSAL'] = capitulation_opportunity.astype(np.float32)
         

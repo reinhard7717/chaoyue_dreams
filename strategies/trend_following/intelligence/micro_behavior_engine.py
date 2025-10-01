@@ -259,7 +259,7 @@ class MicroBehaviorEngine:
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
         
-        # [代码新增] 从配置中获取“绝对高位”的裁定阈值
+        # 从配置中获取“绝对高位”的裁定阈值
         high_position_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
 
         # --- 步骤 1: 上下文 - 计算“波段伸展度” ---

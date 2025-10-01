@@ -330,17 +330,22 @@ def transmute_health_to_ultimate_signals(
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
 
-    # [代码修改] 升级趋势上下文的计算流程
+    # 升级趋势上下文的计算流程
     # 1. 计算实时的、敏感的趋势确认分 (波塞冬三叉戟)
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
     trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
 
-    # 2. [代码新增] 基于实时分数，计算平滑的、稳定的宏观趋势许可分 (赫淮斯托斯之砧)
+    # 2. 基于实时分数，计算平滑的、稳定的宏观趋势许可分 (赫淮斯托斯之砧)
     tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
     macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
     macro_trend_permit_context = trend_confirmation_context.rolling(window=macro_window, min_periods=1).mean()
     atomic_states['CONTEXT_MACRO_TREND_PERMIT'] = macro_trend_permit_context
+    
+    # 计算全新的“动态反转上下文”，为战术信号提供核心驱动
+    dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
+    dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
+    atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
 
     # --- 信号计算 ---
     
@@ -353,7 +358,7 @@ def transmute_health_to_ultimate_signals(
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     final_bottom_reversal_score = raw_bottom_reversal_score * (1 - trend_confirmation_context)
 
-    # [代码修改] 战术回调反转 (Tactical Pullback Reversal) - 现在由新的宏观许可分授权
+    # 战术回调反转 (Tactical Pullback Reversal) - 现在由新的宏观许可分授权
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
 
     # 看涨共振 (Bullish Resonance) - 逻辑不变
@@ -470,7 +475,7 @@ def _calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_w
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
 
-    # [代码修改] 获取新的三叉戟参数
+    # 获取新的三叉戟参数
     adx_threshold = get_param_value(params.get('adx_threshold'), 20)
     fusion_weights = get_param_value(params.get('fusion_weights'), {})
     
@@ -517,52 +522,27 @@ def calculate_tactical_reversal_score(
     norm_window: int
 ) -> pd.Series:
     """
-    【V1.0 · 新增】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
-    - 核心职责: 在已确认的上升趋势中，捕捉由短期回调（5/13日）创造的买入点。
-    - 激活公式: 趋势许可分 * 回调深度分 * 反转动能分
+    【V1.2 · 动态反转版】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
+    - 核心升级: 废除简陋的BIAS回调逻辑，使用全新的、基于二阶求导的“动态反转上下文”作为核心驱动。
+    - 新激活公式: 宏观趋势许可分 * 动态反转上下文分 * 反转动能分
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
 
     # --- 1. 获取参数和基础信号 ---
-    bias_periods = get_param_value(params.get('bias_periods'), [5, 13])
-    bias_weights = get_param_value(params.get('bias_weights'), {})
     momentum_weight = get_param_value(params.get('momentum_weight'), 0.5)
     relational_power_weight = get_param_value(params.get('relational_power_weight'), 0.5)
     
-    # 准入证: 必须在上升趋势中
+    # 准入证: 宏观趋势许可 (逻辑不变)
     trend_permission_score = atomic_states.get('CONTEXT_MACRO_TREND_PERMIT', pd.Series(0.0, index=df.index))
 
-    # --- 2. 计算回调深度分 (Pullback Depth Score) ---
-    # BIAS为负且越小，分数越高
-    pullback_scores = []
-    for p in bias_periods:
-        weight = bias_weights.get(str(p), 0)
-        if weight == 0: continue
-        
-        bias_col = f'BIAS_{p}_D'
-        if bias_col not in df.columns: continue
-        
-        # 我们只关心负BIAS（回调），并将其转换为正分，越负分越高
-        negative_bias = -df[bias_col].clip(upper=0)
-        # 归一化得到分数
-        score = normalize_score(negative_bias, df.index, window=norm_window, ascending=True)
-        pullback_scores.append(score * weight)
-    
-    if not pullback_scores:
-        final_pullback_score = pd.Series(0.0, index=df.index)
-    else:
-        total_weight = sum(bias_weights.get(str(p), 0) for p in bias_periods)
-        if total_weight > 0:
-            final_pullback_score = sum(pullback_scores) / total_weight
-        else:
-            final_pullback_score = pd.Series(0.0, index=df.index)
+    # 核心驱动力升级为“动态反转上下文”
+    # 不再计算BIAS回调深度，而是直接获取由新引擎计算的分数
+    dynamic_reversal_context_score = atomic_states.get('CONTEXT_DYNAMIC_REVERSAL', pd.Series(0.0, index=df.index))
 
-    # --- 3. 计算反转动能分 (Reversal Momentum Score) ---
+    # --- 3. 计算反转动能分 (Reversal Momentum Score) - 逻辑不变 ---
     relational_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
-    # 使用最短周期的动态强度
     short_term_momentum = overall_health.get('d_intensity', {}).get(1, pd.Series(0.5, index=df.index))
-    
     reversal_momentum_score = (
         relational_power * relational_power_weight +
         short_term_momentum * momentum_weight
@@ -571,13 +551,54 @@ def calculate_tactical_reversal_score(
     # --- 4. 最终融合 ---
     tactical_reversal_score = (
         trend_permission_score *
-        final_pullback_score *
+        dynamic_reversal_context_score * # 使用新的核心驱动
         reversal_momentum_score
     )
     
     return tactical_reversal_score.clip(0, 1).astype(np.float32)
 
+def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
+    """
+    【V1.0 · 新增】动态反转上下文计算器 (二阶求导引擎)
+    - 核心职责: 借鉴ProcessIntelligence的二阶求导思想，捕捉短期均线距离和斜率的“反转加速度”。
+    - 输出: 一个在 [0, 1] 区间的Series，分数越高，代表战术性反转的动能越强。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
 
+    # --- 1. 获取参数 ---
+    short_ma_period = get_param_value(params.get('short_ma_period'), 5)
+    mid_ma_period = get_param_value(params.get('mid_ma_period'), 21)
+    slope_period = get_param_value(params.get('slope_period'), 3)
+    weights = get_param_value(params.get('fusion_weights'), {'distance_accel': 0.5, 'slope_accel': 0.5})
+    
+    short_ma_col = f'EMA_{short_ma_period}_D'
+    mid_ma_col = f'EMA_{mid_ma_period}_D'
+    short_ma_slope_col = f'SLOPE_{slope_period}_EMA_{short_ma_period}_D'
+
+    if not all(c in df.columns for c in [short_ma_col, mid_ma_col, short_ma_slope_col]):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+    # --- 2. 维度一: 均线距离的收敛加速度 ---
+    ma_distance = df[short_ma_col] - df[mid_ma_col]
+    # 我们关心的是距离从负值（回调）向0（收敛）变化的速度，所以对距离的斜率求导
+    ma_distance_slope = ma_distance.diff(slope_period).fillna(0)
+    # 距离收敛的加速度，越高越好
+    distance_accel_score = normalize_score(ma_distance_slope, df.index, window=norm_window, ascending=True)
+
+    # --- 3. 维度二: 短期均线斜率的扭转加速度 ---
+    short_ma_slope = df[short_ma_slope_col]
+    # 斜率从负值（向下）向正值（向上）变化的加速度，越高越好
+    short_ma_slope_accel = short_ma_slope.diff(slope_period).fillna(0)
+    slope_accel_score = normalize_score(short_ma_slope_accel, df.index, window=norm_window, ascending=True)
+
+    # --- 4. 最终融合 ---
+    dynamic_reversal_score = (
+        distance_accel_score * weights.get('distance_accel', 0.5) +
+        slope_accel_score * weights.get('slope_accel', 0.5)
+    )
+    
+    return dynamic_reversal_score.clip(0, 1).astype(np.float32)
 
 
 

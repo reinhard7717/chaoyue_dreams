@@ -175,7 +175,7 @@ def trend_following_list(request):
     return render(request, 'dashboard/trend_following_list.html', context)
 
 
-# [代码新增] 为“先知”建立独立的圣殿
+# 为“先知”建立独立的圣殿
 @login_required
 def prophet_signal_list(request):
     """

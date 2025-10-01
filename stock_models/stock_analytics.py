@@ -206,11 +206,11 @@ class StrategyDailyScore(models.Model):
         STOP_LOSS_EXIT = 'STOP_LOSS_EXIT', '止损清仓'
         RISK_EXIT = 'RISK_EXIT', '风险清仓'
         TREND_BROKEN_EXIT = 'TREND_BROKEN_EXIT', '趋势破位清仓'
-        # [代码新增] 为“战略失效”提供专属交易动作
+        # 为“战略失效”提供专属交易动作
         STRATEGY_INVALIDATED_EXIT = 'STRATEGY_INVALIDATED_EXIT', '战略失效清仓'
-        # [代码新增] 为“先知入场”提供专属交易动作
+        # 为“先知入场”提供专属交易动作
         PROPHET_ENTRY = 'PROPHET_ENTRY', '先知入场'
-        # [代码新增] 为“先知离场”提供专属交易动作
+        # 为“先知离场”提供专属交易动作
         PROPHET_EXIT = 'PROPHET_EXIT', '先知离场'
         HOLD = 'HOLD', '持仓观望'
         AVOID = 'AVOID', '规避'
