@@ -78,10 +78,14 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V3.4 · 雅典娜之镜版】计算MA支柱的三维健康度"""
+        """【V3.6 · 赫尔墨斯商神杖版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 严格使用斐波那契数列作为均线周期
-        ma_periods = [5, 13, 21, 55]
+        # [代码新增] 获取本模块的专属配置
+        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        # [代码新增] 获取新的加权融合权重
+        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
+
+        ma_periods = [5, 13, 21, 55, 89]
         
         # --- 维度1: 静态结构 (Alignment) ---
         bull_alignment_scores = []
@@ -98,9 +102,7 @@ class StructuralIntelligence:
         # --- 维度2, 3, 4: 动态健康度 (一阶、二阶、关系) ---
         slope_health_scores, accel_health_scores, relational_health_scores = [], [], []
         
-        # 计算一阶和二阶健康度
         for p in ma_periods:
-            # 严格使用项目定义的斜率和加速度列名
             slope_col = f'SLOPE_{p}_EMA_{p}_D' if p != 1 else f'SLOPE_1_close_D'
             accel_col = f'ACCEL_{p}_EMA_{p}_D' if p != 1 else f'ACCEL_1_close_D'
             if slope_col in df.columns:
@@ -110,13 +112,12 @@ class StructuralIntelligence:
                 bipolar_accel = normalize_to_bipolar(df[accel_col], df.index, norm_window)
                 accel_health_scores.append((bipolar_accel + 1) / 2.0)
                 
-        # [代码新增] 计算关系加速度健康度
         ma_pairs = [(5, 21), (13, 55)]
         for short_p, long_p in ma_pairs:
             short_ma_col, long_ma_col = f'EMA_{short_p}_D', f'EMA_{long_p}_D'
             if short_ma_col in df.columns and long_ma_col in df.columns:
                 spread = df[short_ma_col] - df[long_ma_col]
-                spread_accel = spread.diff(3).diff(3).fillna(0) # 二阶求导
+                spread_accel = spread.diff(3).diff(3).fillna(0)
                 bipolar_rel_accel = normalize_to_bipolar(spread_accel, df.index, norm_window)
                 relational_health_scores.append((bipolar_rel_accel + 1) / 2.0)
 
@@ -125,8 +126,13 @@ class StructuralIntelligence:
         avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5) if accel_health_scores else pd.Series(0.5, index=df.index)
         avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5) if relational_health_scores else pd.Series(0.5, index=df.index)
 
-        # 最终静态看涨分是四维健康的几何平均
-        static_bull_score = (alignment_score * avg_slope_health * avg_accel_health * avg_relational_health)**0.25
+        # [代码修改] 最终静态看涨分是四维健康的加权算术融合
+        static_bull_score = (
+            alignment_score * fusion_weights.get('alignment', 0.1) +
+            avg_slope_health * fusion_weights.get('slope', 0.2) +
+            avg_accel_health * fusion_weights.get('accel', 0.2) +
+            avg_relational_health * fusion_weights.get('relational', 0.5)
+        )
 
         for p in periods:
             s_bull[p] = static_bull_score

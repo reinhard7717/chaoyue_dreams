@@ -547,6 +547,13 @@
         "description": "【V12.0 · 圣杯版】此模块现在只定义特定于力学领域的支柱权重。",
         "pillar_weights": {
           "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
+        },
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
         }
       },
       "foundation_ultimate_params": {
@@ -554,6 +561,13 @@
         "description": "【V14.0 · 圣杯版】此模块现在只定义特定于基础领域的支柱权重。",
         "pillar_weights": {
           "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
+        },
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
         }
       },
       "four_layer_scoring_params": {
