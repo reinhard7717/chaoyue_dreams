@@ -696,10 +696,10 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.3 · 赫淮斯托斯之锤同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 彻底焚烧“影子法典”。探针的重算逻辑已与主引擎的“赫淮斯托斯之锤”版本完全同步。
-        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * volume_calmness_score，且必须满足价格暴跌门槛。
-        - 收益: 确保了探针的重算结果与引擎的实际输出绝对一致，使其成为真正可靠的真理验证工具。
+        【V1.4 · 生命线协议同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“生命线协议”版本完全同步。
+        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * (生命线基础分 + 奖章加分)，且必须满足价格暴跌门槛。
+        - 收益: 彻底消除了探针与引擎之间的逻辑延迟，实现了言行合一的终极同步。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
@@ -720,10 +720,9 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # [代码修改] 更新核心公式注释，反映“赫淮斯托斯之锤”的完整逻辑
         print(f"    - [核心公式]: (五大支柱加权和) * (成交量静谧度)  (当满足价格暴跌门槛时)")
 
-        # --- 链路层 3: 钻透恐慌战备分的五大支柱 ---
+        # --- 链路层 3: 钻透恐慌战备分的五大支柱 & 调节器 ---
         print("\n  [链路层 3] 钻透 -> 五大支柱 & 调节器")
         
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -731,7 +730,6 @@ class IntelligenceLayer:
             'price_drop': 0.30, 'volume_spike': 0.25, 'chip_breakdown': 0.15,
             'despair_context': 0.15, 'structural_test': 0.15
         })
-        # [代码新增] 探针必须获取与主引擎完全相同的门槛
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
         price_drop_raw = df['pct_change_D'].clip(upper=0).get(probe_date, 0.0)
@@ -762,15 +760,22 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
-        # [代码新增] 探针必须复刻“赫淮斯托斯之锤”的完整逻辑
+        # [代码修改] 探针必须复刻“生命线协议”的完整逻辑
         print(f"    --- 调节器: 成交量静谧度 ---")
+        logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
+        base_ma_period = get_param_value(logic_params.get('base_ma_period'), 5)
+        base_weight = get_param_value(logic_params.get('base_weight'), 0.6)
+        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {13: 0.15, 21: 0.15, 55: 0.10})
+        
         volume_calmness_score_recalc = 0.0
-        ma_periods_for_volume = [5, 13, 21, 55]
-        weight_per_level = 1.0 / len(ma_periods_for_volume)
-        for p in ma_periods_for_volume:
-            ma_col = f'VOL_MA_{p}_D'
-            if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:
-                volume_calmness_score_recalc += weight_per_level
+        base_ma_col = f'VOL_MA_{base_ma_period}_D'
+        if base_ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, base_ma_col]:
+            volume_calmness_score_recalc = base_weight
+            for p, weight in bonus_weights.items():
+                ma_col = f'VOL_MA_{p}_D'
+                if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:
+                    volume_calmness_score_recalc += weight
+        
         print(f"      - [探针重算] 成交量静谧度分: {volume_calmness_score_recalc:.4f}")
 
         # --- 链路层 4: 最终验证 ---
@@ -784,11 +789,9 @@ class IntelligenceLayer:
         )
         print(f"    - [探针重算] 五大支柱加权和: {raw_panic_score_recalc:.4f}")
         
-        # [代码新增] 应用“宙斯的雷霆”硬性门槛
         is_significant_drop = df.at[probe_date, 'pct_change_D'] < min_price_drop_pct
         print(f"    - [探针检查] 价格暴跌门槛 ({min_price_drop_pct:.2%}) 是否满足? {'✅ 是' if is_significant_drop else '❌ 否'}")
 
-        # [代码修改] 探针的最终重算分必须应用完整的“赫淮斯托斯之锤”逻辑
         final_recalculated_score = raw_panic_score_recalc * volume_calmness_score_recalc if is_significant_drop else 0
         
         print(f"    - [探针重算恐慌战备分]: {raw_panic_score_recalc:.4f} (五大支柱和) * {volume_calmness_score_recalc:.4f} (静谧度) = {final_recalculated_score:.4f}")
