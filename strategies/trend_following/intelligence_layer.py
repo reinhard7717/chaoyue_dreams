@@ -101,7 +101,9 @@ class IntelligenceLayer:
         # print("    - [阶段 6/6] 正在生成硬性离场信号...")
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
-        self.deploy_forensic_probes()
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        if get_param_value(debug_params.get('enabled'), False):
+            self.deploy_forensic_probes()
         # print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
