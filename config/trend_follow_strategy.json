@@ -154,7 +154,7 @@
     "trend_follow": {
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
-        "enabled": { "value": true },
+        "enabled": { "value": false },
         "probe_dates": ["2025-09-03", "2025-09-04","2025-09-05","2025-09-08"],
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
