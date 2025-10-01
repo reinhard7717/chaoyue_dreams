@@ -78,51 +78,59 @@ class StructuralIntelligence:
     # ==============================================================================
 
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int, dynamic_weights: Dict) -> Tuple[Dict, Dict, Dict]:
-        """【V3.2 · 斜率健康度版】计算MA支柱的三维健康度"""
+        """【V3.4 · 雅典娜之镜版】计算MA支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-
-        ma_periods = [5, 10, 20, 60, 120]
+        # 严格使用斐波那契数列作为均线周期
+        ma_periods = [5, 13, 21, 55]
+        
+        # --- 维度1: 静态结构 (Alignment) ---
         bull_alignment_scores = []
         bear_alignment_scores = []
-        
-        # 计算斜率健康度
-        slope_health_scores = []
-
         for i in range(len(ma_periods) - 1):
             short_col = f'EMA_{ma_periods[i]}_D'
             long_col = f'EMA_{ma_periods[i+1]}_D'
             if short_col in df and long_col in df:
                 bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
                 bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
+        alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5) if bull_alignment_scores else pd.Series(0.5, index=df.index)
+        static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5) if bear_alignment_scores else pd.Series(0.5, index=df.index)
+
+        # --- 维度2, 3, 4: 动态健康度 (一阶、二阶、关系) ---
+        slope_health_scores, accel_health_scores, relational_health_scores = [], [], []
         
-        # 遍历均线，计算其斜率健康度
+        # 计算一阶和二阶健康度
         for p in ma_periods:
-            slope_col = f'SLOPE_{p}_EMA_{p}_D'
+            # 严格使用项目定义的斜率和加速度列名
+            slope_col = f'SLOPE_{p}_EMA_{p}_D' if p != 1 else f'SLOPE_1_close_D'
+            accel_col = f'ACCEL_{p}_EMA_{p}_D' if p != 1 else f'ACCEL_1_close_D'
             if slope_col in df.columns:
-                # 只关心正斜率，并将其归一化
-                slope_health = normalize_score(df[slope_col].clip(lower=0), df.index, norm_window, ascending=True)
-                slope_health_scores.append(slope_health)
+                bipolar_slope = normalize_to_bipolar(df[slope_col], df.index, norm_window)
+                slope_health_scores.append((bipolar_slope + 1) / 2.0)
+            if accel_col in df.columns:
+                bipolar_accel = normalize_to_bipolar(df[accel_col], df.index, norm_window)
+                accel_health_scores.append((bipolar_accel + 1) / 2.0)
+                
+        # [代码新增] 计算关系加速度健康度
+        ma_pairs = [(5, 21), (13, 55)]
+        for short_p, long_p in ma_pairs:
+            short_ma_col, long_ma_col = f'EMA_{short_p}_D', f'EMA_{long_p}_D'
+            if short_ma_col in df.columns and long_ma_col in df.columns:
+                spread = df[short_ma_col] - df[long_ma_col]
+                spread_accel = spread.diff(3).diff(3).fillna(0) # 二阶求导
+                bipolar_rel_accel = normalize_to_bipolar(spread_accel, df.index, norm_window)
+                relational_health_scores.append((bipolar_rel_accel + 1) / 2.0)
 
-        if bull_alignment_scores:
-            alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
-            static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5)
-        else:
-            alignment_score = pd.Series(0.5, index=df.index)
-            static_bear_score = pd.Series(0.5, index=df.index)
-        
-        # 计算平均斜率健康度
-        if slope_health_scores:
-            slope_health_score = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5)
-        else:
-            slope_health_score = pd.Series(0.5, index=df.index)
+        # --- 融合四维健康度 ---
+        avg_slope_health = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5) if slope_health_scores else pd.Series(0.5, index=df.index)
+        avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5) if accel_health_scores else pd.Series(0.5, index=df.index)
+        avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5) if relational_health_scores else pd.Series(0.5, index=df.index)
 
-        # 新的静态看涨分 = 排列分 * 斜率健康分
-        static_bull_score = (alignment_score * slope_health_score)**0.5
+        # 最终静态看涨分是四维健康的几何平均
+        static_bull_score = (alignment_score * avg_slope_health * avg_accel_health * avg_relational_health)**0.25
 
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
-            
             static_col = f'EMA_{p}' if p > 1 else 'close'
             bull_holo, bear_holo = calculate_holographic_dynamics(df, static_col, norm_window)
             d_intensity[p] = (bull_holo + bear_holo) / 2.0
