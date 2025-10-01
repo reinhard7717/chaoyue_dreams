@@ -43,11 +43,11 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 赫淮斯托斯之锤版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: 引入多层次、加权评估的“成交量静谧度”分数，取代了之前粗糙的成交量过滤器。
-        - 核心逻辑: 1. 新增 volume_calmness_score，基于成交量与4条MA线的关系进行0-1的评分。
-                      2. 最终恐慌分 = (五大支柱加权和) * volume_calmness_score，但前提是必须满足“价格暴跌”的硬性门槛。
-        - 收益: 极大提升了对成交量状态的精细化评估能力，使得信号在不同市场环境下更具适应性和准确性。
+        【V2.4 · 生命线协议版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 遵循“生命线协议”。仅当成交量跌破5日均量时才获得决定性基础分，跌破更长均线则获得额外加分。
+        - 核心逻辑: 1. 从配置中读取全新的 volume_calmness_logic 结构。
+                      2. 实现“基础分+奖章分”的评分模式，精确量化抛压衰竭程度。
+        - 收益: 极大提升了信号的战术意义和可解释性，完美对齐指挥官的战略意图。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -64,17 +64,26 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # [代码修改] 锻造全新的“成交量静谧度”分数
-        volume_calmness_score = pd.Series(0.0, index=df.index)
-        ma_periods_for_volume = [5, 13, 21, 55]
-        weight_per_level = 1.0 / len(ma_periods_for_volume) # 确保总权重为1
-        for p in ma_periods_for_volume:
-            ma_col = f'VOL_MA_{p}_D'
-            if ma_col in df.columns:
-                # 每当成交量低于一条均线，就增加相应的权重分
-                volume_calmness_score += (df['volume_D'] < df[ma_col]).astype(float) * weight_per_level
+        # [代码修改] 引入全新的“生命线协议”逻辑
+        logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
+        base_ma_period = get_param_value(logic_params.get('base_ma_period'), 5)
+        base_weight = get_param_value(logic_params.get('base_weight'), 0.6)
+        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {13: 0.15, 21: 0.15, 55: 0.10})
         
-        # 将这个中间过程分数存入状态，以供调试
+        base_ma_col = f'VOL_MA_{base_ma_period}_D'
+        if base_ma_col not in df.columns:
+            # 如果生命线不存在，则无法计算，返回0
+            volume_calmness_score = pd.Series(0.0, index=df.index)
+        else:
+            # 步骤1: 计算决定性的基础分 (跌破生命线)
+            volume_calmness_score = (df['volume_D'] < df[base_ma_col]).astype(float) * base_weight
+            
+            # 步骤2: 累加额外的奖章分 (跌破其他均线)
+            for p, weight in bonus_weights.items():
+                ma_col = f'VOL_MA_{p}_D'
+                if ma_col in df.columns:
+                    volume_calmness_score += (df['volume_D'] < df[ma_col]).astype(float) * weight
+        
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = volume_calmness_score.astype(np.float32)
 
         # 计算五大支柱的加权和

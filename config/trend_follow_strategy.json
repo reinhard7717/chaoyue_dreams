@@ -196,6 +196,37 @@
         "bottom_context_bonus_factor": 0.5,
         "final_score_exponent": 1.0
       },
+      "panic_selling_setup_params": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】恐慌抛售战备(Setup)信号的专属配置模块。",
+        "pillar_weights": {
+          "description": "五大支柱的融合权重。",
+          "price_drop": 0.30,
+          "volume_spike": 0.25,
+          "chip_breakdown": 0.15,
+          "despair_context": 0.15,
+          "structural_test": 0.15
+        },
+        "min_price_drop_pct": -0.025,
+        "comment_min_price_drop_pct": "触发恐慌信号的最低价格跌幅门槛。",
+        "volume_calmness_logic": {
+          "description": "【生命线协议】成交量静谧度评分逻辑。5日均量是生命线，拥有决定性基础权重；跌破更长均线则获得额外加分。",
+          "base_ma_period": 5,
+          "base_weight": 0.6,
+          "bonus_weights": {
+            "13": 0.15,
+            "21": 0.15,
+            "55": 0.10
+          }
+        },
+        "support_lookback_periods": [5, 13, 21, 55],
+        "support_period_weights": { "5": 0.8, "13": 1.0, "21": 1.2, "55": 1.4, "sbc": 2.0 },
+        "support_tolerance_pct": 0.015,
+        "confluence_bonus_factor": 0.3,
+        "sbc_threshold_pct": 0.05,
+        "despair_periods": { "short": [21, 5], "mid": [60, 21], "long": [250, 60] },
+        "despair_weights": { "short": 0.2, "mid": 0.3, "long": 0.5 }
+      },
       "process_intelligence_params": {
         "comment": "【过程情报引擎 V2.1 · 战略升维版】配置块。引入'两阶段诊断'和'自适应物理模型'。",
         "std_window": 21,
