@@ -85,7 +85,7 @@ class StructuralIntelligence:
         # [代码新增] 获取新的加权融合权重
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
 
-        ma_periods = [5, 13, 21, 55, 89]
+        ma_periods = [5, 13, 21, 55]
         
         # --- 维度1: 静态结构 (Alignment) ---
         bull_alignment_scores = []
