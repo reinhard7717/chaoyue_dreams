@@ -74,7 +74,7 @@ class SimulationLayer:
                         print(f"  -> {current_date.date()}: [先知预警离场] T-1日收到高潮衰竭警报，今日开盘执行清仓。")
                         in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                         df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.PROPHET_EXIT.value
-                        # [代码修改] 移除模拟层对 signal_type 的越权修改
+                        # 移除模拟层对 signal_type 的越权修改
                         # df.loc[current_date, 'signal_type'] = '先知离场'
                         df.loc[current_date, 'position_size'] = current_position_size
                         df.loc[current_date, 'entry_price_actual'] = actual_entry_price
@@ -94,7 +94,7 @@ class SimulationLayer:
                     elif 'EXIT_STRATEGY_INVALIDATED' in triggered_reasons: exit_action = StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value
                     in_position, current_position_size, actual_entry_price, pyramid_count, last_reduction_level, stop_loss_price = False, 0.0, 0.0, 0, 0, 0.0
                     df.loc[current_date, 'trade_action'] = exit_action
-                    # [代码修改] 彻底移除模拟层对 signal_type 的所有越权修改
+                    # 彻底移除模拟层对 signal_type 的所有越权修改
                     # if exit_action == StrategyDailyScore.TradeActionType.TREND_BROKEN_EXIT.value:
                     #     df.loc[current_date, 'signal_type'] = '趋势破位离场'
                     # elif exit_action == StrategyDailyScore.TradeActionType.STRATEGY_INVALIDATED_EXIT.value:

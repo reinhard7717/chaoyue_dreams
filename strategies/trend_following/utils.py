@@ -303,17 +303,15 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V1.4 · 赫尔墨斯权杖版】终极信号中央合成引擎
-    - 核心革命: 废除“一刀切”的遗忘协议，引入“渐进式遗忘”。
-    - 核心逻辑: 1. 调用新增的 _calculate_new_high_context 计算一个[0,1]区间的“新高强度分”。
-                2. 底部记忆的保留程度 = 1 - 新高强度分。
-                3. 使用这个“记忆保留因子”去动态调暗（而不是擦除）“反转回声”信号。
+    【V1.6 · 赫尔墨斯飞鞋版】终极信号中央合成引擎
+    - 核心升级: 新增对“战术反转”信号的计算和输出，建立双通道反转系统。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
     periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+    norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
@@ -321,43 +319,46 @@ def transmute_health_to_ultimate_signals(
     relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-    # [代码修改] 引入“渐进式遗忘协议” (Graduated Amnesia Protocol)
-    # 1. 从配置中获取新高上下文参数
+    # --- 上下文计算 (逻辑不变) ---
     new_high_params = get_param_value(params.get('new_high_context_params'), {})
-    # 2. 计算“新高强度分”，分数越高代表新高越确定
     new_high_context_score = _calculate_new_high_context(df, new_high_params)
-    atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score # 存入原子状态以供探针检查
-    # 3. 计算“记忆保留因子”，新高强度越高，保留的记忆越少
+    atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score
     memory_retention_factor = 1.0 - new_high_context_score
-    # 4. 生成被“渐进式遗忘”约束的、全新的反转上下文
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
 
-    # --- 2. 计算看涨共振信号 (逻辑不变) ---
+    trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
+    trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
+    atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
+
+    # --- 信号计算 ---
+    
+    # 战略底部反转 (Strategic Bottom Reversal) - 逻辑不变
+    bullish_reversal_health = {p: recent_reversal_context_modulated * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
+    bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
+    bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
+    overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
+    raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
+    final_bottom_reversal_score = raw_bottom_reversal_score * (1 - trend_confirmation_context)
+
+    # [代码新增] 战术回调反转 (Tactical Pullback Reversal)
+    tactical_reversal_params = get_param_value(params.get('tactical_reversal_params'), {})
+    final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_reversal_params, norm_window)
+
+    # 看涨共振 (Bullish Resonance) - 逻辑不变
     bullish_resonance_health = {p: np.maximum(overall_health['s_bull'].get(p, default_series), relational_dynamics_power) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
     
-    # --- 3. 计算底部反转信号 ---
-    # [代码修改] 使用被“渐进式遗忘”调暗的上下文，而不是原始的“回声”
-    bullish_reversal_health = {p: recent_reversal_context_modulated * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
-    bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
-    bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
-    bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-    overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-    
-    # [代码修改] 同样，奖励因子也必须使用被调暗的上下文
-    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
-    
-    # --- 4. 计算看跌共振信号 (逻辑不变) ---
+    # ... 其他风险信号计算 (逻辑不变) ...
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
     
-    # --- 5. 计算顶部反转信号 (逻辑不变) ---
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
     bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
@@ -365,10 +366,12 @@ def transmute_health_to_ultimate_signals(
     overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
     final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
     
-    # --- 6. 组装并返回最终信号字典 ---
+    # --- 组装并返回最终信号字典 ---
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
+        # [代码新增] 将新的战术信号加入字典
+        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
         f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
@@ -389,7 +392,7 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
 
-    # [代码修改] 从配置中获取更丰富的参数
+    # 从配置中获取更丰富的参数
     periods = get_param_value(params.get('periods'), [5, 13, 21, 55])
     period_weights = get_param_value(params.get('period_weights'), {})
     bias_thresholds = get_param_value(params.get('bias_thresholds'), {})
@@ -445,6 +448,132 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
         
     new_high_context_score = sum(final_period_scores) / total_weight
     return new_high_context_score.clip(0, 1).astype(np.float32)
+
+def _calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
+    """
+    【V2.0 · 波塞冬三叉戟版】趋势确认上下文计算器
+    - 核心革命: 引入ADX(强度)、PDI/NDI(方向)、BIAS(健康度)三位一体评估趋势。
+    - 核心逻辑: 趋势确认分 = 强度分 * 方向分 * (1 - 乖离分)
+                 这使得在健康回调（BIAS回归）时，抑制作用会减弱，从而能捕捉小波段底部。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+    # [代码修改] 获取新的三叉戟参数
+    adx_threshold = get_param_value(params.get('adx_threshold'), 20)
+    fusion_weights = get_param_value(params.get('fusion_weights'), {})
+    
+    # 叉戟一: 趋势强度 (Trend Strength)
+    adx = df.get('ADX_14_D', pd.Series(0, index=df.index))
+    is_trending = (adx > adx_threshold).astype(float)
+    strength_score = normalize_score(adx, df.index, window=norm_window, ascending=True) * is_trending
+
+    # 叉戟二: 趋势方向 (Trend Direction)
+    pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
+    ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
+    direction_score = (pdi > ndi).astype(float)
+
+    # 叉戟三: 趋势健康度 (Trend Health via BIAS)
+    # 我们关心的是乖离的绝对值，乖离越大越不健康
+    bias_abs = df.get('BIAS_21_D', pd.Series(0, index=df.index)).abs()
+    # 乖离越大，分数越高，代表越“不健康”
+    unhealthiness_score = normalize_score(bias_abs, df.index, window=norm_window, ascending=True)
+    
+    # 最终融合
+    # 健康回调时，bias_abs减小 -> unhealthiness_score减小 -> (1 - unhealthiness_score)增大
+    # -> 最终分数减小 -> 对底部反转的抑制减弱！
+    trend_confirmation_score = (
+        strength_score * fusion_weights.get('strength', 0.4) +
+        direction_score * fusion_weights.get('direction', 0.4) +
+        (1 - unhealthiness_score) * fusion_weights.get('health', 0.2) # 注意这里是 (1 - score)
+    )
+    
+    # 修正：上面的加权和逻辑是错误的，应该使用乘法来体现“与”逻辑
+    # 一个确认的上升趋势 = 趋势性强 AND 方向向上 AND 乖离健康
+    # 健康度分数应该是 bias 越小分数越高
+    health_score = 1 - unhealthiness_score
+    
+    # 正确的融合逻辑
+    trend_confirmation_score = (strength_score * direction_score * health_score)
+
+    return trend_confirmation_score.clip(0, 1).astype(np.float32)
+
+def calculate_tactical_reversal_score(
+    df: pd.DataFrame,
+    atomic_states: Dict,
+    overall_health: Dict,
+    params: Dict,
+    norm_window: int
+) -> pd.Series:
+    """
+    【V1.0 · 新增】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
+    - 核心职责: 在已确认的上升趋势中，捕捉由短期回调（5/13日）创造的买入点。
+    - 激活公式: 趋势许可分 * 回调深度分 * 反转动能分
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+    # --- 1. 获取参数和基础信号 ---
+    bias_periods = get_param_value(params.get('bias_periods'), [5, 13])
+    bias_weights = get_param_value(params.get('bias_weights'), {})
+    momentum_weight = get_param_value(params.get('momentum_weight'), 0.5)
+    relational_power_weight = get_param_value(params.get('relational_power_weight'), 0.5)
+    
+    # 准入证: 必须在上升趋势中
+    trend_permission_score = atomic_states.get('CONTEXT_TREND_CONFIRMED', pd.Series(0.0, index=df.index))
+
+    # --- 2. 计算回调深度分 (Pullback Depth Score) ---
+    # BIAS为负且越小，分数越高
+    pullback_scores = []
+    for p in bias_periods:
+        weight = bias_weights.get(str(p), 0)
+        if weight == 0: continue
+        
+        bias_col = f'BIAS_{p}_D'
+        if bias_col not in df.columns: continue
+        
+        # 我们只关心负BIAS（回调），并将其转换为正分，越负分越高
+        negative_bias = -df[bias_col].clip(upper=0)
+        # 归一化得到分数
+        score = normalize_score(negative_bias, df.index, window=norm_window, ascending=True)
+        pullback_scores.append(score * weight)
+    
+    if not pullback_scores:
+        final_pullback_score = pd.Series(0.0, index=df.index)
+    else:
+        total_weight = sum(bias_weights.get(str(p), 0) for p in bias_periods)
+        if total_weight > 0:
+            final_pullback_score = sum(pullback_scores) / total_weight
+        else:
+            final_pullback_score = pd.Series(0.0, index=df.index)
+
+    # --- 3. 计算反转动能分 (Reversal Momentum Score) ---
+    relational_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
+    # 使用最短周期的动态强度
+    short_term_momentum = overall_health.get('d_intensity', {}).get(1, pd.Series(0.5, index=df.index))
+    
+    reversal_momentum_score = (
+        relational_power * relational_power_weight +
+        short_term_momentum * momentum_weight
+    )
+
+    # --- 4. 最终融合 ---
+    tactical_reversal_score = (
+        trend_permission_score *
+        final_pullback_score *
+        reversal_momentum_score
+    )
+    
+    return tactical_reversal_score.clip(0, 1).astype(np.float32)
+
+
+
+
+
+
+
+
+
 
 
 

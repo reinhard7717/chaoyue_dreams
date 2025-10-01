@@ -106,14 +106,14 @@ def trend_following_list(request):
     else:
         page_title = f'策略状态监控中心 ({target_date.strftime("%Y-%m-%d")} 买入信号)'
         
-        # [代码修改] 不再需要从配置中读取策略名，直接硬编码
+        # 不再需要从配置中读取策略名，直接硬编码
         main_strategy_name = 'TrendFollow'
 
         tz = timezone.get_current_timezone()
         start_of_day = timezone.make_aware(datetime.combine(target_date, time.min), tz)
         end_of_day = timezone.make_aware(datetime.combine(target_date, time.max), tz)
 
-        # [代码修改] 恢复数据库排序，并增加 strategy_name 过滤器
+        # 恢复数据库排序，并增加 strategy_name 过滤器
         latest_buy_signals = TradingSignal.objects.filter(
             trade_time__range=(start_of_day, end_of_day),
             signal_type='BUY',

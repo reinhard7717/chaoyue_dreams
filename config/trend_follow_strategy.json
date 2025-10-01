@@ -215,23 +215,32 @@
         "final_score_exponent": 1.0,
         "new_high_context_params": {
           "enabled": { "value": true },
-          "description": "【阿波罗日冕协议】渐进式遗忘协议，引入BIAS和均线斜率评估新高健康度。",
+          "description": "【阿波罗日冕协议】渐进式遗忘协议，评估新高健康度。",
           "periods": [5, 13, 21, 55],
-          "period_weights": {
-            "5": 0.1,
-            "13": 0.2,
-            "21": 0.3,
-            "55": 0.4
-          },
-          "bias_thresholds": {
-            "21": 0.15,
-            "55": 0.25
-          },
+          "period_weights": { "5": 0.1, "13": 0.2, "21": 0.3, "55": 0.4 },
+          "bias_thresholds": { "21": 0.15, "55": 0.25 },
+          "fusion_weights": { "new_high": 0.4, "ma_slope": 0.3, "bias_health": 0.3 }
+        },
+        "trend_confirmation_context_params": {
+          "enabled": { "value": true },
+          "description": "【波塞冬三叉戟】评估趋势的强度、方向和健康度，以更智能地抑制底部信号。",
+          "adx_threshold": { "value": 20 },
           "fusion_weights": {
-            "new_high": 0.4,
-            "ma_slope": 0.3,
-            "bias_health": 0.3
+            "strength": 0.4,
+            "direction": 0.4,
+            "health": 0.2
           }
+        },
+        "tactical_reversal_params": {
+          "enabled": { "value": true },
+          "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉战术性回调底部的参数。",
+          "bias_periods": [5, 13],
+          "bias_weights": {
+            "5": 0.6,
+            "13": 0.4
+          },
+          "momentum_weight": 0.5,
+          "relational_power_weight": 0.5
         }
       },
       "panic_selling_setup_params": {

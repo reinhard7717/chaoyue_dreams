@@ -24,7 +24,7 @@ class JudgmentLayer:
         df['final_score'] = (df['entry_score'] * confidence_damper)
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         
-        # [代码修改] 分别获取两种策略的判断参数
+        # 分别获取两种策略的判断参数
         p_trend_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         p_prophet_judge = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
         
@@ -38,7 +38,7 @@ class JudgmentLayer:
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         
-        # [代码修改] 从先知专属配置块获取参数
+        # 从先知专属配置块获取参数
         prophet_entry_threshold = get_param_value(p_prophet_judge.get('prophet_entry_threshold'), 0.6)
         prophet_score_multiplier = get_param_value(p_prophet_judge.get('prophet_score_multiplier'), 1000)
         
@@ -48,7 +48,7 @@ class JudgmentLayer:
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         
-        # [代码修改] 核心修改：为神谕赋予可量化的神力值，不再归零
+        # 核心修改：为神谕赋予可量化的神力值，不再归零
         df.loc[is_prophet_entry, 'final_score'] = (predictive_opp_score * prophet_score_multiplier).astype(int)
 
         # --- 协定第二条：国王卫队的硬性离场，仅在先知沉默时生效 ---
@@ -95,7 +95,7 @@ class JudgmentLayer:
             long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
             
             if not is_risk_df:
-                # [代码修改] 将筛选条件从 != 0 修正为 > 0，确保只记录真正的“进攻项”。
+                # 将筛选条件从 != 0 修正为 > 0，确保只记录真正的“进攻项”。
                 long_df = long_df[long_df['score'].fillna(0).astype(int) > 0].copy()
             else:
                 # 风险信号的逻辑保持不变，任何大于0的风险都应被记录

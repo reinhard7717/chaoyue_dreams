@@ -681,7 +681,7 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
-        # [代码修改] 探针必须复刻“生命线协议 V2”的完整逻辑
+        # 探针必须复刻“生命线协议 V2”的完整逻辑
         print(f"    --- 调节器: 成交量静谧度 ---")
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
@@ -775,8 +775,9 @@ class IntelligenceLayer:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【V1.1 · 变量修复版】“赫淮斯托斯熔炉”探针：终极信号底层钻透式解剖器
-        - 核心修复: 修正了因变量名错误 (`overall_health` 应为 `overall_health_cache`) 导致的 NameError 崩溃问题。
+        【V1.2 · 雅典娜智慧版】“赫淮斯托斯熔炉”探针
+        - 核心升级: 1. 移除了对隐藏衰减因子 `bottom_context_score` 的错误计算。
+                    2. 新增对“雅典娜智慧”抑制因子的解剖，清晰展示底部反转信号的“荣誉退役”过程。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -799,16 +800,19 @@ class IntelligenceLayer:
         reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {})
         bottom_context_bonus_factor = get_param_value(p_synthesis.get('bottom_context_bonus_factor'), 0.5)
         
-        # [代码修改] 这是正确的变量名，从这里获取缓存
         overall_health_cache = atomic.get(f'__{domain_upper}_overall_health', {})
         if not overall_health_cache:
             print("    - [探针错误] 无法找到领域健康度缓存。解剖终止。")
             return
 
+        # 获取所有新的上下文因子
         recent_reversal_context = get_val('SCORE_CONTEXT_RECENT_REVERSAL', probe_date, 0.0)
+        memory_retention_factor = 1.0 - get_val('CONTEXT_NEW_HIGH_STRENGTH', probe_date, 0.0)
+        recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
+        trend_confirmation_context = get_val('CONTEXT_TREND_CONFIRMED', probe_date, 0.0)
         
-        # [代码修改] 使用正确的变量名 `overall_health_cache` 替换错误的 `overall_health`
-        bullish_reversal_health = {p: recent_reversal_context * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health_cache.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
+        # 模拟 transmute_health_to_ultimate_signals 的逻辑
+        bullish_reversal_health = {p: recent_reversal_context_modulated * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health_cache.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
         
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
@@ -818,33 +822,23 @@ class IntelligenceLayer:
                                             (bullish_medium_trend_rev ** reversal_tf_weights.get('medium', 0.3)) * 
                                             (bullish_long_inertia_rev ** reversal_tf_weights.get('long', 0.1)))
         
-        recalc_final_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
+        # 修正重算公式，移除隐藏的 bottom_context_score，并加入雅典娜抑制因子
+        raw_recalc_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
+        recalc_final_score = raw_recalc_score * (1 - trend_confirmation_context)
 
         print(f"\n  [链路层 2] 反推 -> 中央合成引擎 (utils.transmute_health_to_ultimate_signals)")
-        print(f"    - [公式]: (触发器 * (1 + 回声 * 奖励因子))")
-        print(f"    - [探针重算]: ({overall_bullish_reversal_trigger:.4f} * (1 + {recent_reversal_context:.4f} * {bottom_context_bonus_factor})) = {recalc_final_score:.4f}")
-        print(f"    - [病灶分析] ⚠️: 注意【反转回声 (recent_reversal_context)】被同时用于计算“触发器”和“奖励”，形成了反馈循环！")
+        print(f"    - [公式]: (原始分 * (1 - 趋势确认分))")
+        print(f"    - [探针重算]: ({raw_recalc_score:.4f} * (1 - {trend_confirmation_context:.4f})) = {recalc_final_score:.4f}")
+        print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {recalc_final_score:.4f}")
+        print(f"    - [雅典娜的智慧] 🦉: “趋势确认分”为 {trend_confirmation_context:.2f}，导致底部反转信号被抑制了 {(trend_confirmation_context*100):.1f}%。")
 
-        # 链路层 3: 进一步解剖触发器
-        print(f"\n  [链路层 3] 钻透 -> 核心触发器 (overall_bullish_reversal_trigger = {overall_bullish_reversal_trigger:.4f})")
-        print(f"    - [公式]: (短期力^{reversal_tf_weights.get('short', 0.6)}) * (中期力^{reversal_tf_weights.get('medium', 0.3)}) * (长期力^{reversal_tf_weights.get('long', 0.1)})")
-        print(f"      - 短期力: {bullish_short_force_rev:.4f}")
-        print(f"      - 中期力: {bullish_medium_trend_rev:.4f}")
-        print(f"      - 长期力: {bullish_long_inertia_rev:.4f}")
-
-        # 链路层 4: 进一步解剖短期力
-        print(f"\n  [链路层 4] 钻透 -> 短期力 ({bullish_short_force_rev:.4f})")
-        print(f"    - [公式]: (1日健康度 * 5日健康度)^0.5")
-        print(f"      - 1日健康度: {bullish_reversal_health.get(1, 0.5):.4f}")
-        print(f"      - 5日健康度: {bullish_reversal_health.get(5, 0.5):.4f}")
-
-        # 链路层 5: 终极解剖1日健康度
+        # 链路层5的公式也需要更新，以反映 modulated context
+        print(f"\n  [链路层 5] 终极解剖 -> 1日健康度 ({bullish_reversal_health.get(1, 0.5):.4f})")
+        print(f"    - [公式]: (反转回声 * 记忆保留因子) * 关系动力 * 动态强度")
         relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
         d_intensity_1d = overall_health_cache.get('d_intensity', {}).get(1, pd.Series(0.5)).get(probe_date, 0.5)
-        print(f"\n  [链路层 5] 终极解剖 -> 1日健康度 ({bullish_reversal_health.get(1, 0.5):.4f})")
-        print(f"    - [公式]: 反转回声 * 关系动力 * 动态强度")
-        print(f"    - [探针重算]: {recent_reversal_context:.4f} * {relational_power:.4f} * {d_intensity_1d:.4f} = {bullish_reversal_health.get(1, 0.5):.4f}")
-        print(f"    - [病灶暴露] 🔴: 【反转回声】({recent_reversal_context:.4f}) 在此处作为核心乘数，是“回声室效应”的直接源头！")
+        print(f"    - [探针重算]: ({recent_reversal_context:.4f} * {memory_retention_factor:.4f}) * {relational_power:.4f} * {d_intensity_1d:.4f} = {bullish_reversal_health.get(1, 0.5):.4f}")
+        print(f"    - [阿波罗的日冕] ☀️: “新高强度分”为 {1-memory_retention_factor:.2f}，导致反转回声被削弱了 {((1-memory_retention_factor)*100):.1f}%。")
         
         print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 

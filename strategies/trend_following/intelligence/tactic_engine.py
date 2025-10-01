@@ -64,7 +64,7 @@ class TacticEngine:
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
 
-        # [代码修改] 引入全新的“生命线协议 V2”逻辑
+        # 引入全新的“生命线协议 V2”逻辑
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)

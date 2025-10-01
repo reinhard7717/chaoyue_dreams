@@ -268,10 +268,10 @@ class MicroBehaviorEngine:
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
         stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
         
-        # [代码修改] 引入“绝对高位”裁定，将模糊的模拟分升级为清晰的布尔事件
+        # 引入“绝对高位”裁定，将模糊的模拟分升级为清晰的布尔事件
         is_at_high_position = (stretch_from_ma55_score > high_position_threshold)
         
-        # [代码修改] “峰值回声”现在记录的是一个清晰的“高位事件”是否在近期发生过
+        # “峰值回声”现在记录的是一个清晰的“高位事件”是否在近期发生过
         peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
         recently_at_peak_context = is_at_high_position.rolling(window=peak_echo_window, min_periods=1).max().astype(float)
 

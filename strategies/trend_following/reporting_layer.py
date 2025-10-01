@@ -39,14 +39,14 @@ class ReportingLayer:
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
         
-        # [代码修改] 分别加载两种策略的配置信息
+        # 分别加载两种策略的配置信息
         trend_follow_strategy_info = get_params_block(self.strategy, 'trend_follow', {}).get('strategy_info', {})
         prophet_strategy_info = get_params_block(self.strategy, 'prophet_oracle', {}).get('strategy_info', {})
         
         save_all_days = get_param_value(trend_follow_strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         
-        # [代码修改] 获取两种策略的名称
+        # 获取两种策略的名称
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
         prophet_name = get_param_value(prophet_strategy_info.get('name'), 'ProphetSignal')
 
@@ -67,7 +67,7 @@ class ReportingLayer:
             risk_score_val = row.get('risk_score', 0.0)
             db_risk_score = risk_score_val * 1000 if pd.notna(risk_score_val) else 0.0
             
-            # [代码修改] 核心户籍分离逻辑：根据信号类型分配不同的策略名称
+            # 核心户籍分离逻辑：根据信号类型分配不同的策略名称
             if row['signal_type'] == '先知入场':
                 strategy_name = prophet_name
             else:
@@ -93,7 +93,7 @@ class ReportingLayer:
         daily_score_map = {}
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
-            # [代码修改] DailyScore 也需要记录正确的策略名称
+            # DailyScore 也需要记录正确的策略名称
             if row['signal_type'] == '先知入场':
                 daily_score_strategy_name = prophet_name
             else:
