@@ -31,17 +31,25 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V521.0 · 为先知立传版】
-        - 核心升级: 授权数据库史官记录“先知入场”信号的进攻细节。
-        - 核心逻辑: 任何被定义为 BUY 类型的信号，都为其关联进攻项细节(SignalPlaybookDetail)。
-        - 收益: 确保了数据库记录的完整性，使得对“先知入场”信号的归因分析成为可能。
+        【V522.0 · 户籍分离版】
+        - 核心升级: 为“先知”和“趋势跟踪”建立独立的户籍系统。
+        - 核心逻辑: 在创建 TradingSignal 对象时，根据信号类型（'先知入场' 或其他）
+                      从配置中读取并分配正确的 strategy_name。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
-        strategy_info = get_params_block(self.strategy, 'strategy_info', {})
-        save_all_days = get_param_value(strategy_info.get('save_all_days'), False)
-        save_daily_states = get_param_value(strategy_info.get('save_daily_states'), False)
-        strategy_name = get_param_value(strategy_info.get('name'), 'TrendFollow')
+        
+        # [代码修改] 分别加载两种策略的配置信息
+        trend_follow_strategy_info = get_params_block(self.strategy, 'trend_follow', {}).get('strategy_info', {})
+        prophet_strategy_info = get_params_block(self.strategy, 'prophet_oracle', {}).get('strategy_info', {})
+        
+        save_all_days = get_param_value(trend_follow_strategy_info.get('save_all_days'), False)
+        save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
+        
+        # [代码修改] 获取两种策略的名称
+        trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
+        prophet_name = get_param_value(prophet_strategy_info.get('name'), 'ProphetSignal')
+
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -58,6 +66,13 @@ class ReportingLayer:
             signal_enum = signal_type_map_enum.get(row['signal_type'], TradingSignal.SignalType.WARN)
             risk_score_val = row.get('risk_score', 0.0)
             db_risk_score = risk_score_val * 1000 if pd.notna(risk_score_val) else 0.0
+            
+            # [代码修改] 核心户籍分离逻辑：根据信号类型分配不同的策略名称
+            if row['signal_type'] == '先知入场':
+                strategy_name = prophet_name
+            else:
+                strategy_name = trend_follow_name
+
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
@@ -68,8 +83,6 @@ class ReportingLayer:
             )
             signals_to_create.append(signal_obj)
 
-            # 授权数据库史官记录“先知入场”的进攻细节
-            # 检查信号的枚举类型是否为 BUY
             if signal_obj.signal_type == TradingSignal.SignalType.BUY and trade_time in score_details_df.index:
                 offensive_details = score_details_df.loc[trade_time][score_details_df.loc[trade_time] > 0]
                 for name, score in offensive_details.items():
@@ -80,12 +93,18 @@ class ReportingLayer:
         daily_score_map = {}
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
+            # [代码修改] DailyScore 也需要记录正确的策略名称
+            if row['signal_type'] == '先知入场':
+                daily_score_strategy_name = prophet_name
+            else:
+                daily_score_strategy_name = trend_follow_name
+
             offensive_score_val = row.get('entry_score', 0)
             risk_score_val = row.get('risk_score', 0.0)
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
             db_risk_score = int(risk_score_val * 1000) if pd.notna(risk_score_val) else 0
             daily_score_obj = StrategyDailyScore(
-                stock_id=stock_code, trade_date=trade_time.date(), strategy_name=strategy_name,
+                stock_id=stock_code, trade_date=trade_time.date(), strategy_name=daily_score_strategy_name,
                 offensive_score=db_offensive_score,
                 risk_score=db_risk_score,
                 final_score=row.get('final_score', 0.0), signal_type=row.get('signal_type', '无信号'),
@@ -121,7 +140,6 @@ class ReportingLayer:
                         if trade_time in daily_score_map:
                             daily_states_to_create.append(StrategyDailyState(daily_score=daily_score_map[trade_time], playbook=playbook_obj))
         return (signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create)
-
 
 
 

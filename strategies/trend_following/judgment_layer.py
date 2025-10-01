@@ -11,14 +11,11 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V525.0 · 最终协定版】
-        - 核心革命: 废除所有“顺序覆盖”逻辑，采用严格的、互斥的条件判断，确保决策的唯一性和最终性。
-        - 核心逻辑: 1. 最高优先级“先知入场”首先进行裁决。
-                      2. 仅在非“先知入场”日，才轮到“硬性离场”进行裁决。
-                      3. 仅在非“先知”且非“硬离场”日，才进行常规的“买入/风险否决”裁决。
-        - 收益: 彻底解决了因多重信号在同一天触发时的逻辑竞争与状态污染问题，确保了决策链的绝对清晰和结果的绝对正确。
+        【V526.0 · 神谕赋分版】
+        - 核心革命: 遵循“神谕军团重组”计划，为“先知入场”信号赋予可量化的神力值。
+        - 核心逻辑: 当“先知入场”触发时，其 final_score 不再归零，而是等于其原始置信度乘以配置中的分数乘数。
         """
-        # print("    --- [最高作战指挥部 V525.0 · 最终协定版] 启动...")
+        # print("    --- [最高作战指挥部 V526.0 · 神谕赋分版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -26,30 +23,36 @@ class JudgmentLayer:
         confidence_damper = 1.0 - chimera_conflict_score
         df['final_score'] = (df['entry_score'] * confidence_damper)
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
+        
+        # [代码修改] 分别获取两种策略的判断参数
+        p_trend_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        p_prophet_judge = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
+        
+        final_score_threshold = get_param_value(p_trend_judge.get('final_score_threshold'), 400)
         
         df['signal_type'] = '无信号'
 
-        # [代码修改] 建立严格互斥的决策体系，签订“最终协定”
-        
         # --- 准备所有基础判断条件 ---
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6)
+        
+        # [代码修改] 从先知专属配置块获取参数
+        prophet_entry_threshold = get_param_value(p_prophet_judge.get('prophet_entry_threshold'), 0.6)
+        prophet_score_multiplier = get_param_value(p_prophet_judge.get('prophet_score_multiplier'), 1000)
+        
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
 
         # --- 协定第一条：先知拥有最高裁决权 ---
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
-        df.loc[is_prophet_entry, 'final_score'] = 0 # 神谕降临之日，凡人的分数皆为虚无
+        
+        # [代码修改] 核心修改：为神谕赋予可量化的神力值，不再归零
+        df.loc[is_prophet_entry, 'final_score'] = (predictive_opp_score * prophet_score_multiplier).astype(int)
 
         # --- 协定第二条：国王卫队的硬性离场，仅在先知沉默时生效 ---
-        # 创建一个排除“先知日”的掩码
         is_not_prophet_day = ~is_prophet_entry
-        # 硬性离场条件必须在非先知日触发
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index)) & is_not_prophet_day
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask & is_not_prophet_day
         is_effective_hard_exit = (strategic_exit_mask | tactical_exit_mask)
@@ -59,14 +62,11 @@ class JudgmentLayer:
         df.loc[is_effective_hard_exit, 'final_score'] = 0
 
         # --- 协定第三条：常规买入与风险否决，仅在先知和国王卫队都未行动时生效 ---
-        # 创建一个排除了“先知日”和“硬离场日”的最终掩码
         is_mundane_day = is_not_prophet_day & ~is_effective_hard_exit
         
-        # 常规买入
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & is_mundane_day
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
-        # 风险否决
         alert_veto_condition = is_score_sufficient & is_veto_by_alert & is_mundane_day
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0

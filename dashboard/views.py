@@ -76,10 +76,10 @@ def dashboard_view(request, cache_manager=None):
 @login_required
 def trend_following_list(request):
     """
-    【V5.2 · 先知加冕版】
-    - 核心升级: 引入“加冕排序”逻辑。在从数据库获取信号后，会进行一次内存排序，
-                  确保“先知入场”信号永远置于列表顶部，然后再按分数对其他信号排序。
-    - 数据增强: 增加了一次对 StrategyDailyScore 的关联查询，以获取精确的信号类型文本（如“先知入场”）。
+    【V5.3 · 纯净版】
+    - 核心升级: 恢复为纯粹的趋势跟踪策略监控中心。
+    - 核心逻辑: 1. 移除所有为“先知”信号服务的特殊逻辑（如加冕排序）。
+                  2. 增加 strategy_name='TrendFollow' 的过滤条件，确保只展示常规买入信号。
     """
     # 1. 确定要查询的目标日期 (逻辑不变)
     selected_date_str = request.GET.get('date')
@@ -106,44 +106,26 @@ def trend_following_list(request):
     else:
         page_title = f'策略状态监控中心 ({target_date.strftime("%Y-%m-%d")} 买入信号)'
         
-        try:
-            unified_config = load_strategy_config('config/trend_follow_strategy.json')
-            strategy_info = unified_config.get('strategy_params', {}).get('trend_follow', {}).get('strategy_info', {})
-            main_strategy_name = strategy_info.get('name', {}).get('value')
-        except Exception as e:
-            main_strategy_name = None
-            logger.error(f"加载策略配置失败: {e}", exc_info=True)
+        # [代码修改] 不再需要从配置中读取策略名，直接硬编码
+        main_strategy_name = 'TrendFollow'
 
         tz = timezone.get_current_timezone()
         start_of_day = timezone.make_aware(datetime.combine(target_date, time.min), tz)
         end_of_day = timezone.make_aware(datetime.combine(target_date, time.max), tz)
 
-        base_query = TradingSignal.objects.filter(
+        # [代码修改] 恢复数据库排序，并增加 strategy_name 过滤器
+        latest_buy_signals = TradingSignal.objects.filter(
             trade_time__range=(start_of_day, end_of_day),
             signal_type='BUY',
-            timeframe='D'
-        )
-        
-        if main_strategy_name:
-            base_query = base_query.filter(strategy_name=main_strategy_name)
-        
-        # [代码修改] 移除数据库层面的排序，因为我们需要在内存中进行更复杂的“加冕排序”
-        latest_buy_signals = base_query.select_related('stock').prefetch_related(
+            timeframe='D',
+            strategy_name=main_strategy_name # 核心过滤条件
+        ).select_related('stock').prefetch_related(
             Prefetch('signalplaybookdetail_set', queryset=SignalPlaybookDetail.objects.select_related('playbook'))
-        )
+        ).order_by('-final_score') # 恢复数据库排序
 
-    # 5. 数据处理与筛选
+    # 5. 数据处理与筛选 (恢复为简化逻辑)
     all_logs_in_memory = []
     all_playbook_objects = set()
-
-    # [代码新增] 准备一个查询，用于获取精确的信号类型文本
-    signal_keys_to_lookup = [(s.stock_id, s.trade_time.date()) for s in latest_buy_signals]
-    daily_score_map = {}
-    if signal_keys_to_lookup:
-        queries = [Q(stock_id=sid, trade_date=tdate) for sid, tdate in signal_keys_to_lookup]
-        daily_scores = StrategyDailyScore.objects.filter(functools.reduce(operator.or_, queries))
-        daily_score_map = {(ds.stock_id, ds.trade_date): ds.signal_type for ds in daily_scores}
-
     for signal in latest_buy_signals:
         active_playbooks = []
         if hasattr(signal, 'signalplaybookdetail_set'):
@@ -154,9 +136,6 @@ def trend_following_list(request):
         
         active_playbooks.sort(key=lambda p: p.cn_name or p.name)
         
-        # [代码新增] 获取精确的信号类型文本
-        specific_signal_type = daily_score_map.get((signal.stock_id, signal.trade_time.date()), '买入信号')
-
         all_logs_in_memory.append({
             'log_id': signal.id,
             'stock': signal.stock,
@@ -165,17 +144,9 @@ def trend_following_list(request):
             'active_playbooks': active_playbooks,
             'strategy_name': signal.strategy_name,
             'close_price': signal.close_price,
-            'specific_signal_type': specific_signal_type, # [代码新增] 将精确信号类型加入数据
         })
 
-    # [代码新增] 执行“为先知加冕”的排序逻辑
-    # 1. 'specific_signal_type' != '先知入场' 会对“先知入场”信号返回 False (即 0)，对其他信号返回 True (即 1)，实现置顶。
-    # 2. -log['latest_score'] 对非先知信号按分数降序排列。
-    all_logs_in_memory.sort(key=lambda log: (log['specific_signal_type'] != '先知入场', -log['latest_score']))
-
-    # 简化排序逻辑，直接按剧本的中文名或英文名排序
     unique_playbooks = sorted(list(all_playbook_objects), key=lambda p: p.cn_name or p.name)
-
     selected_playbooks_pks = request.GET.getlist('playbooks')
     final_filtered_logs = all_logs_in_memory
 
@@ -203,6 +174,66 @@ def trend_following_list(request):
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
+
+# [代码新增] 为“先知”建立独立的圣殿
+@login_required
+def prophet_signal_list(request):
+    """
+    【V1.0 · 新增】渲染“先知信号监控中心”页面。
+    - 核心逻辑: 专门查询 strategy_name='ProphetSignal' 的买入信号，并按分数排序。
+    """
+    # 1. 确定要查询的目标日期
+    selected_date_str = request.GET.get('date')
+    target_date = None
+
+    if selected_date_str:
+        try:
+            target_date = datetime.strptime(selected_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            target_date = None
+    
+    if not target_date:
+        latest_trade_day_obj = TradeCalendar.objects.filter(
+            is_open=True,
+            cal_date__lte=timezone.now().date()
+        ).order_by('-cal_date').first()
+        if latest_trade_day_obj:
+            target_date = latest_trade_day_obj.cal_date
+
+    # 2. 查询“先知”信号
+    if not target_date:
+        prophet_signals = TradingSignal.objects.none()
+        page_title = '先知信号监控中心 (无可用数据)'
+    else:
+        page_title = f'先知信号监控中心 ({target_date.strftime("%Y-%m-%d")} 神谕)'
+        
+        prophet_strategy_name = 'ProphetSignal'
+
+        tz = timezone.get_current_timezone()
+        start_of_day = timezone.make_aware(datetime.combine(target_date, time.min), tz)
+        end_of_day = timezone.make_aware(datetime.combine(target_date, time.max), tz)
+
+        prophet_signals = TradingSignal.objects.filter(
+            trade_time__range=(start_of_day, end_of_day),
+            signal_type='BUY',
+            timeframe='D',
+            strategy_name=prophet_strategy_name # 核心过滤条件
+        ).select_related('stock').order_by('-final_score')
+
+    # 3. 分页与上下文准备
+    paginator = Paginator(prophet_signals, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'page_title': page_title,
+        'page_obj': page_obj,
+        'total_count': paginator.count,
+        'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
+        'cache_bust': int(timezone.now().timestamp()),
+    }
+    # 渲染一个新的、专用的模板
+    return render(request, 'dashboard/prophet_signal_list.html', context)
 
 @login_required
 def fav_trend_following_list(request):

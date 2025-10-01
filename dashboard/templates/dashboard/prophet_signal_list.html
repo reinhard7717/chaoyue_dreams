@@ -1,0 +1,120 @@
+{# 文件: templates/dashboard/prophet_signal_list.html (新文件) #}
+{% extends 'base.html' %}
+{% load static %}
+{% load tz %}
+{% load dashboard_extras %}
+
+{% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .prophet-score {
+        font-size: 1.3em;
+        font-weight: bold;
+        color: #b38f00; /* 暗金色 */
+        background-color: #fffbe6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid #ffeeba;
+    }
+</style>
+{% endblock %}
+
+{% block sidebar %}
+    <aside class="site-sidebar">
+        <nav class="sidebar-nav">
+             <h3>导航菜单</h3>
+            <ul>
+                <li><a href="{% url 'users:home' %}">主控台</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}">策略监控中心</a></li>
+                {# 将此页标记为激活状态 #}
+                <li><a href="{% url 'dashboard:prophet_signal_list' %}" class="active">先知信号</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
+                <li><a href="{% url 'dashboard:realtime_engine' %}">盘中引擎</a></li>
+            </ul>
+        </nav>
+    </aside>
+{% endblock sidebar %}
+
+{% block content %}
+<div class="dashboard-container">
+    <section class="trend-list-section">
+        
+        <div class="section-header-with-controls">
+            <h2><span class="icon">🔮</span> {{ page_title }} (共 {{ total_count }} 条神谕)</h2>
+            <form method="get" class="date-selector-form">
+                <label for="date-selector">选择日期:</label>
+                <input type="date" id="date-selector" name="date" value="{{ selected_date }}">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+            </form>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="data-table" id="prophet-table">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">股票</th>
+                        <th style="width: 20%;">策略名称</th>
+                        <th style="width: 20%;">神力值 (置信度)</th>
+                        <th style="width: 20%;">信号时间</th>
+                        <th style="width: 20%;" class="actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="prophet-table-body">
+                    {% for signal in page_obj %}
+                    <tr>
+                        <td>
+                            <strong>{{ signal.stock.stock_code }}</strong>
+                            <br>
+                            <small>{{ signal.stock.stock_name|default:"-" }}</small>
+                        </td>
+                        <td>
+                            <span class="strategy-tag" style="background-color: #6f42c1; color: white;">{{ signal.strategy_name|default:"N/A" }}</span>
+                        </td>
+                        <td>
+                            <strong class="prophet-score">{{ signal.final_score|floatformat:0|default:"-" }}</strong>
+                        </td>
+                        <td>{{ signal.trade_time|timezone:"Asia/Shanghai"|date:"Y-m-d"|default:"-" }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline add-to-favorites-btn" 
+                                data-stock-code="{{ signal.stock.stock_code }}">
+                                <span class="btn-icon">+</span>
+                                <span class="btn-text">添加自选</span>
+                            </button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" style="text-align: center; padding: 20px;">
+                        {% if selected_date %}
+                            在 {{ selected_date }} 没有收到任何神谕。
+                        {% else %}
+                            无法确定最新交易日，或无任何神谕。
+                        {% endif %}
+                    </td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="pagination">
+        {% if page_obj.has_other_pages %}
+            {% if page_obj.has_previous %}
+            <a href="?date={{ selected_date }}&page=1">&laquo; 首页</a>
+            <a href="?date={{ selected_date }}&page={{ page_obj.previous_page_number }}" >上一页</a>
+            {% endif %}
+            <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
+            {% if page_obj.has_next %}
+            <a href="?date={{ selected_date }}&page={{ page_obj.next_page_number }}">下一页</a>
+            <a href="?date={{ selected_date }}&page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>
+            {% endif %}
+        {% endif %}
+        </div>
+    </section>
+</div>
+<div id="notification-area"></div>
+{% endblock %}
+{% block extra_scripts %}
+  {{ block.super }}
+  {# 复用 trend_following_list.js，因为它包含了添加自选的功能 #}
+  <script src="{% static 'js/trend_following_list.js' %}"></script>
+{% endblock %}

@@ -14,6 +14,7 @@ urlpatterns = [
     # 页面 URL
     path('', views.dashboard_view, name='home'), # 主控台页面
     path('trend_following_list/', views.trend_following_list, name='trend_following_list'),
+    path('prophet-signals/', views.prophet_signal_list, name='prophet_signal_list'),
     path('fav_trend_following_list/', views.fav_trend_following_list, name='fav_trend_following_list'),
     path('realtime_engine/', views.realtime_engine_view, name='realtime_engine'),
 

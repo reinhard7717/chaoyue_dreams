@@ -159,6 +159,24 @@
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
       },
+      "strategy_info": {
+        "name": { "value": "TrendFollow" },
+        "save_all_days": { "value": false },
+        "save_daily_states": { "value": false }
+      },
+      "prophet_oracle": {
+        "说明": "【V1.0 · 新增】先知神谕策略专属配置模块。",
+        "strategy_info": {
+          "name": { "value": "ProphetSignal" },
+          "save_all_days": { "value": false },
+          "save_daily_states": { "value": false }
+        },
+        "judgment_params": {
+          "enabled": true,
+          "prophet_entry_threshold": { "value": 0.6 },
+          "prophet_score_multiplier": { "value": 1000 }
+        }
+      },
       "predictive_intelligence_params": {
         "enabled": true,
         "description": "【V1.0】先知引擎参数，用于预测T+1风险。",
