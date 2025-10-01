@@ -775,8 +775,8 @@ class IntelligenceLayer:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【V1.0 · 新增】“赫淮斯托斯熔炉”探针：终极信号底层钻透式解剖器
-        - 核心职责: 从最底层的原子信号开始，层层向上，完整再现一个终极信号的锻造过程。
+        【V1.1 · 变量修复版】“赫淮斯托斯熔炉”探针：终极信号底层钻透式解剖器
+        - 核心修复: 修正了因变量名错误 (`overall_health` 应为 `overall_health_cache`) 导致的 NameError 崩溃问题。
         """
         domain_upper = domain.upper()
         signal_name = f'SCORE_{domain_upper}_{signal_type}'
@@ -799,6 +799,7 @@ class IntelligenceLayer:
         reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {})
         bottom_context_bonus_factor = get_param_value(p_synthesis.get('bottom_context_bonus_factor'), 0.5)
         
+        # [代码修改] 这是正确的变量名，从这里获取缓存
         overall_health_cache = atomic.get(f'__{domain_upper}_overall_health', {})
         if not overall_health_cache:
             print("    - [探针错误] 无法找到领域健康度缓存。解剖终止。")
@@ -806,8 +807,8 @@ class IntelligenceLayer:
 
         recent_reversal_context = get_val('SCORE_CONTEXT_RECENT_REVERSAL', probe_date, 0.0)
         
-        # 模拟 transmute_health_to_ultimate_signals 的逻辑
-        bullish_reversal_health = {p: recent_reversal_context * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
+        # [代码修改] 使用正确的变量名 `overall_health_cache` 替换错误的 `overall_health`
+        bullish_reversal_health = {p: recent_reversal_context * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health_cache.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
         
         bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
         bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
@@ -839,7 +840,7 @@ class IntelligenceLayer:
 
         # 链路层 5: 终极解剖1日健康度
         relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
-        d_intensity_1d = overall_health.get('d_intensity', {}).get(1, pd.Series(0.5)).get(probe_date, 0.5)
+        d_intensity_1d = overall_health_cache.get('d_intensity', {}).get(1, pd.Series(0.5)).get(probe_date, 0.5)
         print(f"\n  [链路层 5] 终极解剖 -> 1日健康度 ({bullish_reversal_health.get(1, 0.5):.4f})")
         print(f"    - [公式]: 反转回声 * 关系动力 * 动态强度")
         print(f"    - [探针重算]: {recent_reversal_context:.4f} * {relational_power:.4f} * {d_intensity_1d:.4f} = {bullish_reversal_health.get(1, 0.5):.4f}")
