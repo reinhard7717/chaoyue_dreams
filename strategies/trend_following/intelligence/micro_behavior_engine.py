@@ -247,42 +247,48 @@ class MicroBehaviorEngine:
     # “高位回落风险”诊断引擎
     def synthesize_post_peak_downturn_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 峰值回声版】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
-        - 核心革命: 引入“峰值回声”上下文 (recently_at_peak_context)。
-                      不再要求“前一日”必须在高位，而是检查“近期是否曾到达高位”，
-                      解决了引擎对顶部“瞬时遗忘”的致命缺陷，极大增强了风险识别的持续性。
+        【V2.1 · 绝对高位裁定版】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
+        - 核心革命: 引入配置文件中的 high_position_threshold，为“高位”的判定提供了一个绝对的、可配置的标尺。
+        - 新逻辑: 1. 计算“波段伸展度”分数。
+                   2. 仅当该分数 > high_position_threshold 时，才认为当日处于“高位”。
+                   3. “峰值回声”上下文现在记录的是“近期是否曾发生过高位事件”，而非一个模糊的滚动最大值。
+        - 收益: 极大提升了风险信号的精确性和可解释性，杜绝了在非关键位置的误判。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states
         norm_window = get_param_value(p_risk.get('norm_window'), 120)
+        
+        # [代码新增] 从配置中获取“绝对高位”的裁定阈值
+        high_position_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
+
         # --- 步骤 1: 上下文 - 计算“波段伸展度” ---
         ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
         stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        # 创造“峰值回声”上下文，让顶部记忆持续N天
+        
+        # [代码修改] 引入“绝对高位”裁定，将模糊的模拟分升级为清晰的布尔事件
+        is_at_high_position = (stretch_from_ma55_score > high_position_threshold)
+        
+        # [代码修改] “峰值回声”现在记录的是一个清晰的“高位事件”是否在近期发生过
         peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
-        recently_at_peak_context = stretch_from_ma55_score.rolling(window=peak_echo_window, min_periods=1).max()
+        recently_at_peak_context = is_at_high_position.rolling(window=peak_echo_window, min_periods=1).max().astype(float)
+
         # --- 步骤 2: 触发器 - 确认当日正在下跌 ---
         is_falling_today = (df['pct_change_D'] < 0).astype(float)
-        # --- 步骤 3: 严重性评估 ---
-        # 3.1 下跌幅度
+        
+        # --- 步骤 3: 严重性评估 (逻辑不变) ---
         fall_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
         fall_magnitude_score = normalize_score(fall_magnitude, df.index, norm_window, ascending=True)
-        # 3.2 成交量放大
         volume_ratio = (df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D'])).fillna(1.0)
         volume_spike_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
-        # 升级为“模拟传感器”，测量跌破深度
-        # 3.3 跌破短期均线 (从数字门到模拟传感器)
         ema5 = df.get('EMA_5_D', df['close_D'])
-        # 计算跌破深度百分比，只在跌破时为正
         breakdown_depth_pct = ((ema5 - df['close_D']) / ema5).clip(lower=0).fillna(0)
-        # 将跌破深度归一化为[0,1]的分数，越深分数越高
         break_ema5_score = normalize_score(breakdown_depth_pct, df.index, norm_window, ascending=True)
-        # --- 步骤 4: 最终风险裁定 ---
         severity_score = (fall_magnitude_score * volume_spike_score * break_ema5_score)**(1/3)
-        # 使用新的“峰值回声”上下文进行裁定
+        
+        # --- 步骤 4: 最终风险裁定 (逻辑不变) ---
         final_risk_score = (recently_at_peak_context * is_falling_today * severity_score).astype(np.float32)
         states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_risk_score
         return states
