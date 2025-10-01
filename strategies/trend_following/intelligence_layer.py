@@ -107,89 +107,10 @@ class IntelligenceLayer:
         # print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
-    def deploy_nan_forensics_probe(self, nan_date, nan_signal_name: str):
-        """
-        【V1.1 · 探针修复版】NaN 值法医探针。
-        - 核心修复: 修复了探针在尝试获取 `periods` 列表时因脆弱的内省逻辑而崩溃的问题。
-                      现在探针采用与主逻辑相同的、健壮的方式从参数块中读取配置。
-        """
-        print("\n" + "="*30 + f" [NaN 法医探针 V1.1 启动] " + "="*30)
-        print(f"  - 案发时间: {nan_date.strftime('%Y-%m-%d')}")
-        print(f"  - 可疑信号: {nan_signal_name}")
-        print("  - 开始进行计算链路回溯解剖...")
-        print("-" * 80)
-
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-
-        def get_val(signal_name, date, source_dict=atomic):
-            """安全地获取并打印一个值"""
-            val = source_dict.get(signal_name, pd.Series(np.nan, index=df.index)).get(date, np.nan)
-            print(f"    -> 读取 '{signal_name}': {val}")
-            return val
-
-        def probe_pillar_health(engine_intel, date, period, health_type):
-            """通用支柱健康度探针"""
-            print(f"  ---> 解剖 {health_type} 健康度 (周期 {period})...")
-            if "DYN" in nan_signal_name:
-                raw_slope = df.get(f'SLOPE_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
-                raw_accel = df.get(f'ACCEL_{period}_BBW_21_2.0_D', pd.Series(np.nan)).get(date)
-                print(f"      ----> 原始指标 SLOPE_{period}_BBW_21_2.0_D: {raw_slope}")
-                print(f"      ----> 原始指标 ACCEL_{period}_BBW_21_2.0_D: {raw_accel}")
-                if pd.isna(raw_slope) or pd.isna(raw_accel):
-                    print("      ------> [!!!] 发现源头 NaN！问题可能出在基础指标计算层。")
-
-        if "CHIP" in nan_signal_name or "DYN" in nan_signal_name or "STRUCTURE" in nan_signal_name or "FOUNDATION" in nan_signal_name:
-            print("  --> 检测到终极信号，开始解剖...")
-            print("  --> 正在检查所有支柱的健康度贡献...")
-            
-            # 废除脆弱的__defaults__内省方式
-            # 采用与主逻辑相同的、健壮的方式从参数块获取 periods
-            p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-            periods_to_probe = get_param_value(p_conf.get('periods', [1, 5, 13, 21, 55]))
-
-            # 使用从参数中安全获取的 periods_to_probe
-            for p in periods_to_probe:
-                for ht in ['bullish_static', 'bullish_dynamic', 'bearish_static', 'bearish_dynamic']:
-                    pass
-            print("  --> 提示: 请检查相关情报引擎中各 _calculate_..._health 方法的 normalize_score 输入是否存在NaN。")
-
-        elif "PLAYBOOK" in nan_signal_name or "COGNITIVE" in nan_signal_name or "TACTIC" in nan_signal_name:
-            print(f"  --> 检测到认知/战术层信号，开始解剖 {nan_signal_name}...")
-            
-            if nan_signal_name == 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY_A':
-                print("  ---> 解剖路径: final_score = context * opportunity")
-                
-                print("  -----> 正在解剖 context_is_ranging_market...")
-                is_cyclical_regime = get_val('SCORE_CYCLICAL_REGIME', nan_date) > 0.4
-                is_not_trending_regime = get_val('SCORE_TRENDING_REGIME_FFT', nan_date) < 0.45
-                context_val = float(is_cyclical_regime and is_not_trending_regime)
-                print(f"      - context_is_ranging_market = {context_val}")
-
-                print("  -----> 正在解剖 buy_opportunity_score...")
-                bbp_val = df.get('BBP_21_2.0_D', pd.Series(np.nan)).get(nan_date)
-                print(f"      - 原始指标 BBP_21_2.0_D: {bbp_val}")
-                if pd.isna(bbp_val):
-                    print("      ------> [!!!] 发现源头 NaN！问题出在 BBP_21_2.0_D 指标计算。")
-                opportunity_val = 1 - np.clip(bbp_val, 0, 1) if pd.notna(bbp_val) else np.nan
-                print(f"      - buy_opportunity_score = {opportunity_val}")
-
-                final_val = context_val * opportunity_val
-                print(f"  ---> 最终验算: {context_val} * {opportunity_val} = {final_val}")
-
-        else:
-            print("  --> 未找到特定引擎的解剖路径，执行通用检查...")
-            print("  --> 正在检查该信号在 atomic_states 中的值...")
-            get_val(nan_signal_name, nan_date)
-
-        print("-" * 80)
-        print(f"  - 解剖完毕。请重点关注报告中值为 'NaN' 的步骤，其上一步即为问题源头。")
-        print("=" * 80 + "\n")
-
     def deploy_forensic_probes(self):
         """
-        【V1.9 · 宙斯之雷版】法医探针调度中心
-        - 核心升级: 新增对“宙斯之雷”终极对质探针的调用。
+        【V2.0 · 赫淮斯托斯熔炉版】法医探针调度中心
+        - 核心升级: 新增对“赫淮斯托斯熔炉”探针的调用，用于对终极信号进行底层钻透式解剖。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -205,7 +126,7 @@ class IntelligenceLayer:
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
             
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.9] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.0] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
 
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
@@ -228,12 +149,13 @@ class IntelligenceLayer:
 
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            self._deploy_genesis_probe(probe_date)
-            self._deploy_turbo_probe(probe_date)
-            self._deploy_judgment_day_probe(probe_date)
+            # [代码新增] 在所有基础探针之后，调用“赫淮斯托斯熔炉”进行底层解剖
+            self._deploy_hephaestus_forge_probe(probe_date, 'BEHAVIOR', 'BOTTOM_REVERSAL')
             
-            # [代码修改] 在所有基础探针之后，调用“宙斯之雷”进行最终对质
-            self._deploy_zeus_thunderbolt_probe(probe_date)
+            # self._deploy_genesis_probe(probe_date)
+            # self._deploy_turbo_probe(probe_date)
+            # self._deploy_judgment_day_probe(probe_date)
+            # self._deploy_zeus_thunderbolt_probe(probe_date)
         
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
@@ -851,6 +773,79 @@ class IntelligenceLayer:
             
         print("--- “宙斯之雷”审查完毕 ---")
 
+    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
+        """
+        【V1.0 · 新增】“赫淮斯托斯熔炉”探针：终极信号底层钻透式解剖器
+        - 核心职责: 从最底层的原子信号开始，层层向上，完整再现一个终极信号的锻造过程。
+        """
+        domain_upper = domain.upper()
+        signal_name = f'SCORE_{domain_upper}_{signal_type}'
+        print(f"\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉】🔥 -> 解剖信号【{signal_name}】 ---")
+        
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        
+        def get_val(name, date, default=np.nan):
+            series = atomic.get(name)
+            if series is None: return default
+            return series.get(date, default)
+
+        # 链路层 1: 获取最终信号值
+        final_score = get_val(signal_name, probe_date, 0.0)
+        print(f"\n  [链路层 1] 最终锻造成品: {signal_name} = {final_score:.4f}")
+
+        # 链路层 2: 反推到中央合成引擎的输出
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {})
+        bottom_context_bonus_factor = get_param_value(p_synthesis.get('bottom_context_bonus_factor'), 0.5)
+        
+        overall_health_cache = atomic.get(f'__{domain_upper}_overall_health', {})
+        if not overall_health_cache:
+            print("    - [探针错误] 无法找到领域健康度缓存。解剖终止。")
+            return
+
+        recent_reversal_context = get_val('SCORE_CONTEXT_RECENT_REVERSAL', probe_date, 0.0)
+        
+        # 模拟 transmute_health_to_ultimate_signals 的逻辑
+        bullish_reversal_health = {p: recent_reversal_context * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
+        
+        bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
+        bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
+        bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
+        
+        overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights.get('short', 0.6)) * 
+                                            (bullish_medium_trend_rev ** reversal_tf_weights.get('medium', 0.3)) * 
+                                            (bullish_long_inertia_rev ** reversal_tf_weights.get('long', 0.1)))
+        
+        recalc_final_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
+
+        print(f"\n  [链路层 2] 反推 -> 中央合成引擎 (utils.transmute_health_to_ultimate_signals)")
+        print(f"    - [公式]: (触发器 * (1 + 回声 * 奖励因子))")
+        print(f"    - [探针重算]: ({overall_bullish_reversal_trigger:.4f} * (1 + {recent_reversal_context:.4f} * {bottom_context_bonus_factor})) = {recalc_final_score:.4f}")
+        print(f"    - [病灶分析] ⚠️: 注意【反转回声 (recent_reversal_context)】被同时用于计算“触发器”和“奖励”，形成了反馈循环！")
+
+        # 链路层 3: 进一步解剖触发器
+        print(f"\n  [链路层 3] 钻透 -> 核心触发器 (overall_bullish_reversal_trigger = {overall_bullish_reversal_trigger:.4f})")
+        print(f"    - [公式]: (短期力^{reversal_tf_weights.get('short', 0.6)}) * (中期力^{reversal_tf_weights.get('medium', 0.3)}) * (长期力^{reversal_tf_weights.get('long', 0.1)})")
+        print(f"      - 短期力: {bullish_short_force_rev:.4f}")
+        print(f"      - 中期力: {bullish_medium_trend_rev:.4f}")
+        print(f"      - 长期力: {bullish_long_inertia_rev:.4f}")
+
+        # 链路层 4: 进一步解剖短期力
+        print(f"\n  [链路层 4] 钻透 -> 短期力 ({bullish_short_force_rev:.4f})")
+        print(f"    - [公式]: (1日健康度 * 5日健康度)^0.5")
+        print(f"      - 1日健康度: {bullish_reversal_health.get(1, 0.5):.4f}")
+        print(f"      - 5日健康度: {bullish_reversal_health.get(5, 0.5):.4f}")
+
+        # 链路层 5: 终极解剖1日健康度
+        relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
+        d_intensity_1d = overall_health.get('d_intensity', {}).get(1, pd.Series(0.5)).get(probe_date, 0.5)
+        print(f"\n  [链路层 5] 终极解剖 -> 1日健康度 ({bullish_reversal_health.get(1, 0.5):.4f})")
+        print(f"    - [公式]: 反转回声 * 关系动力 * 动态强度")
+        print(f"    - [探针重算]: {recent_reversal_context:.4f} * {relational_power:.4f} * {d_intensity_1d:.4f} = {bullish_reversal_health.get(1, 0.5):.4f}")
+        print(f"    - [病灶暴露] 🔴: 【反转回声】({recent_reversal_context:.4f}) 在此处作为核心乘数，是“回声室效应”的直接源头！")
+        
+        print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 
 
 

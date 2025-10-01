@@ -303,10 +303,11 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V1.2 · 炼金术士的洞察版】炼金术士的坩埚：终极信号中央合成引擎
-    - 核心修复: 修正了底部反转信号的奖励因子。不再使用通用的`bottom_context_score`，
-                  而是恢复使用高特异性的`recent_reversal_context`（反转回声）作为奖励，
-                  解决了因催化剂错用导致的信号强度被稀释的问题。
+    【V1.4 · 赫尔墨斯权杖版】终极信号中央合成引擎
+    - 核心革命: 废除“一刀切”的遗忘协议，引入“渐进式遗忘”。
+    - 核心逻辑: 1. 调用新增的 _calculate_new_high_context 计算一个[0,1]区间的“新高强度分”。
+                2. 底部记忆的保留程度 = 1 - 新高强度分。
+                3. 使用这个“记忆保留因子”去动态调暗（而不是擦除）“反转回声”信号。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -319,33 +320,51 @@ def transmute_health_to_ultimate_signals(
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     relational_dynamics_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-    # --- 2. 计算看涨共振信号 ---
+
+    # [代码修改] 引入“渐进式遗忘协议” (Graduated Amnesia Protocol)
+    # 1. 从配置中获取新高上下文参数
+    new_high_params = get_param_value(params.get('new_high_context_params'), {})
+    # 2. 计算“新高强度分”，分数越高代表新高越确定
+    new_high_context_score = _calculate_new_high_context(df, new_high_params)
+    atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score # 存入原子状态以供探针检查
+    # 3. 计算“记忆保留因子”，新高强度越高，保留的记忆越少
+    memory_retention_factor = 1.0 - new_high_context_score
+    # 4. 生成被“渐进式遗忘”约束的、全新的反转上下文
+    recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
+
+    # --- 2. 计算看涨共振信号 (逻辑不变) ---
     bullish_resonance_health = {p: np.maximum(overall_health['s_bull'].get(p, default_series), relational_dynamics_power) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
+    
     # --- 3. 计算底部反转信号 ---
-    bullish_reversal_health = {p: recent_reversal_context * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    # [代码修改] 使用被“渐进式遗忘”调暗的上下文，而不是原始的“回声”
+    bullish_reversal_health = {p: recent_reversal_context_modulated * relational_dynamics_power * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-    # 修正奖励因子，使用高特异性的“反转回声”替代通用的“底部上下文”
-    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context * bottom_context_bonus_factor)).clip(0, 1)
-    # --- 4. 计算看跌共振信号 ---
+    
+    # [代码修改] 同样，奖励因子也必须使用被调暗的上下文
+    final_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
+    
+    # --- 4. 计算看跌共振信号 (逻辑不变) ---
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
-    # --- 5. 计算顶部反转信号 ---
+    
+    # --- 5. 计算顶部反转信号 (逻辑不变) ---
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
     bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
     bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
     overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
     final_top_reversal_score = (overall_bearish_reversal_trigger * top_context_score).clip(0, 1)
+    
     # --- 6. 组装并返回最终信号字典 ---
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
@@ -357,6 +376,75 @@ def transmute_health_to_ultimate_signals(
         states[signal_name] = score.astype(np.float32)
     return states
 
+def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
+    """
+    【V2.0 · 阿波罗日冕版】多维新高上下文分数计算器
+    - 核心革命: 不再只看价格，而是融合“价格突破”、“均线斜率”和“乖离健康度”三位一体评估新高。
+    - 核心逻辑:
+      1. 价格突破: 价格是否创出P周期新高。
+      2. 趋势确认: 对应均线的斜率是否为正。
+      3. 乖离健康度: BIAS是否在健康阈值内。
+      - 最终分数 = (价格分 * w1 + 斜率分 * w2 + 乖离分 * w3)
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+    # [代码修改] 从配置中获取更丰富的参数
+    periods = get_param_value(params.get('periods'), [5, 13, 21, 55])
+    period_weights = get_param_value(params.get('period_weights'), {})
+    bias_thresholds = get_param_value(params.get('bias_thresholds'), {})
+    fusion_weights = get_param_value(params.get('fusion_weights'), {})
+    
+    final_period_scores = []
+    
+    for p in periods:
+        period_weight = period_weights.get(str(p), 0)
+        if period_weight == 0:
+            continue
+
+        # 维度一: 价格突破 (Price Breakout)
+        rolling_high = df['high_D'].rolling(window=p, min_periods=1).max().shift(1)
+        is_new_high_score = (df['high_D'] > rolling_high).astype(float)
+
+        # 维度二: 趋势确认 (Trend Confirmation via MA Slope)
+        ma_slope_col = f'SLOPE_{p}_EMA_{p}_D'
+        # 如果没有对应周期的斜率，则使用收盘价斜率作为备用
+        if ma_slope_col not in df.columns:
+            ma_slope_col = f'SLOPE_{p}_close_D'
+        
+        ma_slope = df.get(ma_slope_col, pd.Series(0, index=df.index))
+        # 将斜率归一化到0-1，斜率越大分数越高
+        ma_slope_score = normalize_score(ma_slope, df.index, window=p*2, ascending=True)
+
+        # 维度三: 乖离健康度 (BIAS Health)
+        bias_period = 21 if p <= 21 else 55 # 短中期用BIAS21，长期用BIAS55
+        bias_col = f'BIAS_{bias_period}_D'
+        bias_threshold = bias_thresholds.get(str(bias_period), 0.2)
+        
+        bias_value = df.get(bias_col, pd.Series(0, index=df.index)).abs()
+        # BIAS越小越健康，分数越高。当BIAS超过阈值时，健康度急剧下降。
+        bias_health_score = (1 - (bias_value / bias_threshold)).clip(0, 1)
+
+        # 三位一体融合，得到该周期的综合新高分
+        period_new_high_score = (
+            is_new_high_score * fusion_weights.get('new_high', 0.4) +
+            ma_slope_score * fusion_weights.get('ma_slope', 0.3) +
+            bias_health_score * fusion_weights.get('bias_health', 0.3)
+        )
+        
+        # 对该周期的分数应用其在最终融合中的权重
+        final_period_scores.append(period_new_high_score * period_weight)
+
+    if not final_period_scores:
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+    # 将所有加权的周期分数相加，得到最终的“新高强度分”
+    total_weight = sum(w for p, w in period_weights.items() if int(p) in periods)
+    if total_weight == 0:
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
+    new_high_context_score = sum(final_period_scores) / total_weight
+    return new_high_context_score.clip(0, 1).astype(np.float32)
 
 
 

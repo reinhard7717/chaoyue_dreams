@@ -206,13 +206,33 @@
       },
       "ultimate_signal_synthesis_params": {
         "enabled": true,
-        "description": "【圣杯契约】终极信号中央合成引擎的唯一参数源，取代了各模块中的重复配置。",
+        "description": "【V1.2 · 阿波罗日冕版】终极信号中央合成引擎。",
         "periods": [1, 5, 13, 21, 55],
         "norm_window": 55,
         "resonance_tf_weights": { "short": 0.2, "medium": 0.5, "long": 0.3 },
         "reversal_tf_weights": { "short": 0.6, "medium": 0.3, "long": 0.1 },
         "bottom_context_bonus_factor": 0.5,
-        "final_score_exponent": 1.0
+        "final_score_exponent": 1.0,
+        "new_high_context_params": {
+          "enabled": { "value": true },
+          "description": "【阿波罗日冕协议】渐进式遗忘协议，引入BIAS和均线斜率评估新高健康度。",
+          "periods": [5, 13, 21, 55],
+          "period_weights": {
+            "5": 0.1,
+            "13": 0.2,
+            "21": 0.3,
+            "55": 0.4
+          },
+          "bias_thresholds": {
+            "21": 0.15,
+            "55": 0.25
+          },
+          "fusion_weights": {
+            "new_high": 0.4,
+            "ma_slope": 0.3,
+            "bias_health": 0.3
+          }
+        }
       },
       "panic_selling_setup_params": {
         "enabled": true,
