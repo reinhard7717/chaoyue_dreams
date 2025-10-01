@@ -234,6 +234,7 @@
         "tactical_reversal_params": {
           "enabled": { "value": true },
           "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉战术性回调底部的参数。",
+          "macro_trend_window": { "value": 3 },
           "bias_periods": [5, 13],
           "bias_weights": {
             "5": 0.6,
