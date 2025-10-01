@@ -44,6 +44,18 @@
             "type": "context",
             "description": "【审判日】对当前战术警报等级的文字说明。"
         },
+        "CONTEXT_NEW_HIGH_STRENGTH": {
+            "cn_name": "【内部】新高强度分",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "【阿波罗日冕】融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量，用于动态削弱过时的底部记忆。"
+        },
+        "CONTEXT_TREND_CONFIRMED": {
+            "cn_name": "【内部】趋势确认分",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "【波塞冬三叉戟】融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度，用于抑制战略性底部信号。"
+        },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
             "cn_name": "【预测风险】高潮衰竭",
@@ -498,6 +510,13 @@
             "score": 400,
             "description": "筹码动态健康度在底部形成强力反转信号。"
         },
+        "SCORE_CHIP_TACTICAL_REVERSAL": {
+            "cn_name": "【筹码终极】战术反转",
+            "category": "筹码层-机会",
+            "type": "dynamic",
+            "score": 350,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由筹码稳定、短期回调创造的战术性买入点。"
+        },
         "SCORE_CHIP_TOP_REVERSAL": {
             "cn_name": "【筹码终极风险】顶部反转",
             "category": "筹码层-风险",
@@ -526,6 +545,13 @@
             "type": "positional",
             "score": 350,
             "description": "行为动态健康度在底部形成强力反转信号。"
+        },
+        "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
+            "cn_name": "【行为终极】战术反转",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由价量行为健康、短期回调创造的战术性买入点。"
         },
         "SCORE_BEHAVIOR_TOP_REVERSAL": {
             "cn_name": "【行为终极风险】顶部反转",
@@ -556,6 +582,13 @@
             "score": 300,
             "description": "在价格底部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转信号。"
         },
+        "SCORE_FF_TACTICAL_REVERSAL": {
+            "cn_name": "【资金终极】战术反转",
+            "category": "资金流-机会",
+            "type": "dynamic",
+            "score": 250,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由资金面健康、短期回调创造的战术性买入点。"
+        },
         "SCORE_FF_TOP_REVERSAL": {
             "cn_name": "【资金终极风险】顶部反转",
             "category": "资金流-风险",
@@ -584,6 +617,13 @@
             "type": "positional",
             "score": 250,
             "description": "结构动态健康度在底部形成强力反转信号。"
+        },
+        "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
+            "cn_name": "【结构终极】战术反转",
+            "category": "结构层-机会",
+            "type": "dynamic",
+            "score": 200,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场结构健康、短期回调创造的战术性买入点。"
         },
         "SCORE_STRUCTURE_TOP_REVERSAL": {
             "cn_name": "【结构终极风险】顶部反转",
@@ -614,6 +654,13 @@
             "score": 300,
             "description": "力学动态健康度在底部形成强力反转信号。"
         },
+        "SCORE_DYN_TACTICAL_REVERSAL": {
+            "cn_name": "【力学终极】战术反转",
+            "category": "力学层-机会",
+            "type": "dynamic",
+            "score": 250,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场力学健康、短期回调创造的战术性买入点。"
+        },
         "SCORE_DYN_TOP_REVERSAL": {
             "cn_name": "【力学终极风险】顶部反转",
             "category": "力学层-风险",
@@ -642,6 +689,13 @@
             "type": "positional",
             "score": 200,
             "description": "基础指标动态健康度在底部形成强力反转信号。"
+        },
+        "SCORE_FOUNDATION_TACTICAL_REVERSAL": {
+            "cn_name": "【基础终极】战术反转",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "score": 150,
+            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由基础指标健康、短期回调创造的战术性买入点。"
         },
         "SCORE_FOUNDATION_TOP_REVERSAL": {
             "cn_name": "【基础终极风险】顶部反转",
