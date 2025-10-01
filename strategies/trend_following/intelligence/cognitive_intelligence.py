@@ -631,30 +631,52 @@ class CognitiveIntelligence:
 
     def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
         """
-        【V2.0 · 指挥家版】趋势加速级联 (涡轮增压) 诊断引擎
-        - 核心升级: 1. 将“领域级联”的计算逻辑从“民主投票”升级为“协同指挥”。
-                      2. 区分“先锋部队”（行为/力学）和“主力部队”（筹码/资金/结构）。
-                      3. 最终领域级联分 = 先锋加速分 * (1 + 主力确认分)，奖励健康的进攻时序。
+        【V3.0 · 赫拉织布机版】趋势加速级联 (涡轮增压) 诊断引擎
+        - 核心革命: 借鉴ProcessIntelligence思想，引入二阶导数(加速度)和关系动态(协同性)分析。
+        - 新核心逻辑:
+          1. 对每个领域，同时计算其斜率(速度)和加速度。
+          2. 将速度分和加速度分加权融合成该领域的“动态健康分”。
+          3. 计算所有领域“动态健康分”的均值（代表整体加速水平）和标准差（代表分歧度）。
+          4. 最终级联分 = 平均动态健康分 * (1 - 标准差)，同时奖励“加速”和“协同”。
         """
         states = {}
         norm_window = 55
         slope_period = 3 
+        # [代码新增] 从配置中获取新的融合权重
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        fusion_weights = get_param_value(p_cognitive.get('cascade_fusion_weights'), {'slope': 0.6, 'accel': 0.4})
+        w_slope = fusion_weights.get('slope', 0.6)
+        w_accel = fusion_weights.get('accel', 0.4)
 
-        # --- 1. 时序级联诊断 (Temporal Cascade) - 保持不变 ---
+        # [代码修改] 辅助函数，用于计算单个序列的动态健康分
+        def get_dynamic_health(series: pd.Series) -> pd.Series:
+            slope = series.diff(slope_period).fillna(0)
+            accel = slope.diff(slope_period).fillna(0)
+            
+            # 归一化时，只考虑正向变化
+            slope_score = normalize_score(slope.clip(lower=0), df.index, norm_window)
+            accel_score = normalize_score(accel.clip(lower=0), df.index, norm_window)
+            
+            # 融合速度与加速度
+            dynamic_health_score = (slope_score * w_slope + accel_score * w_accel)
+            return dynamic_health_score
+
+        # --- 1. 时序级联诊断 (Temporal Cascade) ---
         health_cache = self.strategy.atomic_states.get('__BEHAVIOR_overall_health', {})
         s_bull = health_cache.get('s_bull', {})
         d_intensity = health_cache.get('d_intensity', {})
         relational_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
         short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
         medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
-        short_term_slope = short_term_health.diff(slope_period).fillna(0)
-        medium_term_slope = medium_term_health.diff(slope_period).fillna(0)
-        short_term_accel_score = normalize_score(short_term_slope, df.index, norm_window)
-        medium_term_accel_score = normalize_score(medium_term_slope, df.index, norm_window)
-        temporal_cascade_score = (short_term_accel_score * medium_term_accel_score)**0.5
+        
+        # [代码修改] 使用新的辅助函数计算动态健康分
+        short_term_dynamic_health = get_dynamic_health(short_term_health)
+        medium_term_dynamic_health = get_dynamic_health(medium_term_health)
+        
+        temporal_cascade_score = (short_term_dynamic_health * medium_term_dynamic_health)**0.5
         states['COGNITIVE_INTERNAL_TEMPORAL_CASCADE'] = temporal_cascade_score.astype(np.float32)
 
-        # --- 2. 领域级联诊断 (Domain Cascade) - “指挥家”改造 ---
+        # --- 2. 领域级联诊断 (Domain Cascade) ---
         resonance_signals = {
             'behavior': self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE'),
             'chip': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
@@ -663,40 +685,36 @@ class CognitiveIntelligence:
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
         
-        # 兵种分离
-        vanguard_domains = ['behavior', 'dyn']
-        confirmation_domains = ['chip', 'ff', 'structure']
-        
-        vanguard_accel_scores = []
-        confirmation_accel_scores = []
-
+        # [代码修改] 计算每个领域的动态健康分
+        domain_dynamic_health_scores = []
         for name, signal in resonance_signals.items():
-            slope = signal.diff(slope_period).fillna(0)
-            accel_score = normalize_score(slope, df.index, norm_window)
-            states[f'COGNITIVE_INTERNAL_ACCEL_{name.upper()}'] = accel_score.astype(np.float32)
-            if name in vanguard_domains:
-                vanguard_accel_scores.append(accel_score.values)
-            elif name in confirmation_domains:
-                confirmation_accel_scores.append(accel_score.values)
+            dynamic_health = get_dynamic_health(signal)
+            states[f'COGNITIVE_INTERNAL_DYN_HEALTH_{name.upper()}'] = dynamic_health.astype(np.float32)
+            domain_dynamic_health_scores.append(dynamic_health)
         
-        # 分别计算先锋部队和主力部队的得分
-        if vanguard_accel_scores:
-            vanguard_stacked = np.stack(vanguard_accel_scores, axis=0)
-            vanguard_score = pd.Series(np.linalg.norm(vanguard_stacked, ord=2, axis=0) / np.sqrt(len(vanguard_accel_scores)), index=df.index)
-        else:
-            vanguard_score = pd.Series(0.0, index=df.index)
-        
-        if confirmation_accel_scores:
-            confirmation_stacked = np.stack(confirmation_accel_scores, axis=0)
-            confirmation_score = pd.Series(np.linalg.norm(confirmation_stacked, ord=2, axis=0) / np.sqrt(len(confirmation_accel_scores)), index=df.index)
-        else:
-            confirmation_score = pd.Series(0.0, index=df.index)
+        # [代码修改] 计算“关系协同分”
+        if domain_dynamic_health_scores:
+            # 将所有领域的动态健康分堆叠起来
+            stacked_health = np.stack([s.values for s in domain_dynamic_health_scores], axis=0)
             
-        # 应用“指挥家”协同奖励公式
-        domain_cascade_score = (vanguard_score * (1 + confirmation_score)).clip(0, 1)
+            # 计算平均动态健康分（代表整体加速水平）
+            average_dynamic_health = pd.Series(np.mean(stacked_health, axis=0), index=df.index)
+            
+            # 计算标准差（代表分歧度），并归一化
+            std_dev_health = pd.Series(np.std(stacked_health, axis=0), index=df.index)
+            normalized_std_dev = normalize_score(std_dev_health, df.index, norm_window, ascending=True)
+            
+            # 协同分 = 1 - 分歧度
+            relational_cohesion_score = 1.0 - normalized_std_dev
+            
+            # 最终领域级联分 = 整体加速水平 * 协同性
+            domain_cascade_score = (average_dynamic_health * relational_cohesion_score).clip(0, 1)
+        else:
+            domain_cascade_score = pd.Series(0.0, index=df.index)
+            
         states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
 
-        # --- 3. 最终融合 (保持不变) ---
+        # --- 3. 最终融合 ---
         final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
         
