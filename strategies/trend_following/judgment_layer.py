@@ -18,7 +18,7 @@ class JudgmentLayer:
                       3. 仅在非“先知”且非“硬离场”日，才进行常规的“买入/风险否决”裁决。
         - 收益: 彻底解决了因多重信号在同一天触发时的逻辑竞争与状态污染问题，确保了决策链的绝对清晰和结果的绝对正确。
         """
-        print("    --- [最高作战指挥部 V525.0 · 最终协定版] 启动...")
+        # print("    --- [最高作战指挥部 V525.0 · 最终协定版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()

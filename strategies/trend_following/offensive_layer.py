@@ -17,7 +17,7 @@ class OffensiveLayer:
                       “先知的低语”现在由一个独立的 'process' 类型信号 (SCORE_SETUP_PANIC_SELLING) 承载。
         - 收益: 彻底分离了神谕的决策功能和其物质基础的计分功能，实现了系统架构的最终和谐。
         """
-        print("        -> [进攻方案评估中心 V510.0 · 协定版] 启动...")
+        # print("        -> [进攻方案评估中心 V510.0 · 协定版] 启动...")
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         

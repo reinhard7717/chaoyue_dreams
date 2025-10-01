@@ -22,24 +22,18 @@ class WarningLayer:
         # print("        -> [预警层分析中心 V3.0 · 配置驱动重构版] 启动...") # 更新版本号和说明
         atomic_states = self.strategy.atomic_states
         df_index = self.strategy.df_indicators.index
-        
         risk_details_cols = {}
-        
         # 遍历配置，而不是硬编码前缀
         for signal_name, meta in self.risk_metadata.items():
             # 只收集被明确定义为 'risk' 类型的信号
             if isinstance(meta, dict) and meta.get('type') == 'risk':
                 if signal_name in atomic_states and isinstance(atomic_states[signal_name], pd.Series):
                     risk_details_cols[signal_name] = atomic_states[signal_name]
-
         if not risk_details_cols:
             print("        -> [预警层分析中心 V3.0] 未在配置中找到任何 'risk' 类型信号。")
             return pd.DataFrame(index=df_index)
-
         risk_details_df = pd.DataFrame(risk_details_cols)
-        
-        print(f"        -> [预警层分析中心 V3.0] 已根据配置收集 {len(risk_details_df.columns)} 个风险信号。")
-        
+        # print(f"        -> [预警层分析中心 V3.0] 已根据配置收集 {len(risk_details_df.columns)} 个风险信号。")
         # 只返回一个完整的、包含所有原始风险分的DataFrame
         return risk_details_df
 
