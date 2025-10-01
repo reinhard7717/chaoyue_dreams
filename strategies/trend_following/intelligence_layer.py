@@ -194,26 +194,20 @@ class IntelligenceLayer:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
-
         # 从 "probe_date" 升级为 "probe_dates"，并处理列表
         probe_dates_list = debug_params.get('probe_dates')
-        
         # 增加向后兼容逻辑，如果只找到旧的 probe_date，则将其转为列表
         if not probe_dates_list:
             single_date = debug_params.get('probe_date')
             if single_date:
                 probe_dates_list = [single_date]
-
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-            
         print("\n" + "="*30 + f" [法医探针部署中心 V1.8] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-
         # 遍历所有需要探查的日期
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
-
             probe_date = pd.to_datetime(probe_date_str)
             if self.strategy.df_indicators.index.tz is not None:
                 try:
@@ -224,19 +218,17 @@ class IntelligenceLayer:
                     except Exception as e_conv:
                          print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_str} 时区失败: {e_conv}。")
                          continue # 跳过此日期，继续下一个
-            
             if probe_date not in self.strategy.df_indicators.index:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue # 跳过此日期，继续下一个
-
             # 将打印信息移入循环内，指明当前正在解剖的日期
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            # self._deploy_genesis_probe(probe_date)
-            # self._deploy_turbo_probe(probe_date)
-            # self._deploy_judgment_day_probe(probe_date)
+            self._deploy_genesis_probe(probe_date)
+            self._deploy_turbo_probe(probe_date)
+            self._deploy_judgment_day_probe(probe_date)
             # [代码新增] 调用新增的“先知”专属探针
-            self._deploy_prophet_probe(probe_date)
+            # self._deploy_prophet_probe(probe_date)
         
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 

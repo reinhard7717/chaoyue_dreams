@@ -136,7 +136,7 @@ class SimulationLayer:
                         opening_gap_pct = (t_plus_1_open - row.close_D) / row.close_D
                         if opening_filter_enabled and opening_gap_pct > max_opening_gap_pct:
                             df.loc[current_date, 'trade_action'] = StrategyDailyScore.TradeActionType.GAP_UP_SKIPPED.value
-                            print(f"  -> {current_date.date()}: [跳过建仓-高开] T+1开盘价 {t_plus_1_open:.2f} (缺口: {opening_gap_pct:+.2%}) 超过容忍度 {max_opening_gap_pct:+.2%}")
+                            # print(f"  -> {current_date.date()}: [跳过建仓-高开] T+1开盘价 {t_plus_1_open:.2f} (缺口: {opening_gap_pct:+.2%}) 超过容忍度 {max_opening_gap_pct:+.2%}")
                         else:
                             in_position = True
                             current_position_size = 1.0
