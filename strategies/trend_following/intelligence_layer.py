@@ -188,26 +188,29 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V1.8 · 先知探针版】法医探针调度中心
-        - 核心升级: 新增对“先知引擎”的专属解剖探针 `_deploy_prophet_probe`。
+        【V1.9 · 宙斯之雷版】法医探针调度中心
+        - 核心升级: 新增对“宙斯之雷”终极对质探针的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
-        # 从 "probe_date" 升级为 "probe_dates"，并处理列表
+
         probe_dates_list = debug_params.get('probe_dates')
-        # 增加向后兼容逻辑，如果只找到旧的 probe_date，则将其转为列表
+        
         if not probe_dates_list:
             single_date = debug_params.get('probe_date')
             if single_date:
                 probe_dates_list = [single_date]
+
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V1.8] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        # 遍历所有需要探查的日期
+            
+        print("\n" + "="*30 + f" [法医探针部署中心 V1.9] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
+
             probe_date = pd.to_datetime(probe_date_str)
             if self.strategy.df_indicators.index.tz is not None:
                 try:
@@ -217,18 +220,20 @@ class IntelligenceLayer:
                         probe_date = probe_date.tz_convert(self.strategy.df_indicators.index.tz)
                     except Exception as e_conv:
                          print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_str} 时区失败: {e_conv}。")
-                         continue # 跳过此日期，继续下一个
+                         continue
+            
             if probe_date not in self.strategy.df_indicators.index:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
-                continue # 跳过此日期，继续下一个
-            # 将打印信息移入循环内，指明当前正在解剖的日期
+                continue
+
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
             self._deploy_genesis_probe(probe_date)
             self._deploy_turbo_probe(probe_date)
             self._deploy_judgment_day_probe(probe_date)
-            # [代码新增] 调用新增的“先知”专属探针
-            # self._deploy_prophet_probe(probe_date)
+            
+            # [代码修改] 在所有基础探针之后，调用“宙斯之雷”进行最终对质
+            self._deploy_zeus_thunderbolt_probe(probe_date)
         
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
@@ -792,6 +797,59 @@ class IntelligenceLayer:
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
+    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“宙斯之雷”终极对质探针
+        - 核心职责: 作为最终审判者，将乐观的“最终决策”与悲观的“头号风险”并列，
+                      一针见血地揭示系统的“风险麻痹症”。
+        """
+        print("\n--- [探针] 正在召唤: ⚡️【宙斯之雷 · 终极对质探针】⚡️ ---")
+        
+        # 1. 调取最终判决
+        final_score = self.strategy.df_indicators.loc[probe_date].get('final_score', 0)
+        final_signal = self.strategy.df_indicators.loc[probe_date].get('signal_type', '未知')
+        
+        print(f"  [最终判决] 🧐: {final_signal} (最终得分: {final_score:.0f})")
+
+        # 2. 传唤所有风险证人
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        active_risks = []
+        for signal_name, meta in score_map.items():
+            if isinstance(meta, dict) and meta.get('type') == 'risk':
+                if signal_name in self.strategy.atomic_states:
+                    risk_score = self.strategy.atomic_states[signal_name].get(probe_date, 0.0)
+                    if risk_score > 0:
+                        # 将原始风险分（0-1）转换为更易读的千分制
+                        display_score = risk_score * 1000
+                        active_risks.append({
+                            'name': meta.get('cn_name', signal_name),
+                            'score': display_score
+                        })
+        
+        if not active_risks:
+            print("  [风险审查] ✅: 当日无任何激活的风险信号。")
+            print("--- “宙斯之雷”审查完毕 ---")
+            return
+
+        # 3. 找出头号公敌
+        active_risks.sort(key=lambda x: x['score'], reverse=True)
+        dominant_risk = active_risks[0]
+        
+        print(f"  [风险审查] 😠: 当日共激活 {len(active_risks)} 项风险，其中：")
+        print(f"    - 🔥 头号公敌: 【{dominant_risk['name']}】 (风险值: {dominant_risk['score']:.0f})")
+        
+        # 4. 终极对质与宣判
+        print("\n  [终极对质] ⚖️:")
+        if final_signal == '买入信号' and dominant_risk['score'] > 300: # 风险值大于300即可认为显著
+            print(f"    - 宣判: 🤦 失败！系统在【{dominant_risk['name']}】风险值高达 {dominant_risk['score']:.0f} 的情况下，")
+            print("             依然给出了“买入信号”，这是典型的“风险麻痹症”。")
+            print("    - 病因分析: 进攻信号得分过高，而风险信号未能触发足够高的警报等级以否决买入。")
+        elif final_signal == '买入信号':
+            print("    - 宣判: 🤔 存疑。系统在存在风险的情况下给出了“买入信号”，但主风险项未达显著水平。")
+        else:
+            print("    - 宣判: ✅ 合理。系统最终决策与风险评估基本一致。")
+            
+        print("--- “宙斯之雷”审查完毕 ---")
 
 
 
