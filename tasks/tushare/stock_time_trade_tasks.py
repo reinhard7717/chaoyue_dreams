@@ -1457,7 +1457,7 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
     # print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
     async def _async_repair():
         # 【代码修改】导入 TradeCalendar 模型，以支持交易日核对
-        from stock.models.index import TradeCalendar
+        from stock_models.index import TradeCalendar
         # 1. 获取所需模型
         daily_model = get_daily_data_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
