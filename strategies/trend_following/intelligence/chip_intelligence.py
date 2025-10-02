@@ -39,23 +39,21 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V22.0 · 神谕裁决版】
-        - 核心革命: 不再传递 s_bull/s_bear，而是将五大支柱的最终动态价值分(d_intensity)
-                      直接融合成 overall_bullish_score 和 overall_bearish_score，
-                      为下游的 transmute 引擎提供最纯粹的“神谕判决”。
+        【V22.0 · 动态融合修复版】
+        - 核心修复: 彻底重构健康度融合逻辑，解决“静态权重”与“动态支柱”的致命错配问题。
+                      确保在部分支柱数据缺失时，系统依然能稳健地进行动态加权融合。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         
-        # health_data 现在收集看涨和看跌的最终动态价值分
-        health_data = { 'bullish_scores': [], 'bearish_scores': [] } 
-        
+        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'quantitative': self._calculate_quantitative_health,
             'advanced': self._calculate_advanced_dynamics_health,
@@ -64,44 +62,59 @@ class ChipIntelligence:
             'fault': self._calculate_fault_health,
         }
         
+        # [代码修改] 保持不变，但现在消费的是具有“韧性骨架”的健康度字典
         for name, calculator in calculators.items():
-            # 每个支柱现在返回 s_bull(快照), s_bear(快照), d_intensity(最终动态价值)
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, {}, periods)
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
+            health_data['s_bull'].append((name, s_bull)) 
+            health_data['s_bear'].append((name, s_bear)) 
+            health_data['d_intensity'].append((name, d_intensity))
             
-            # [代码新增] 我们需要为看跌情况也计算一个最终动态价值分
-            bearish_d_intensity = self._perform_chip_relational_meta_analysis(df, s_bear[periods[0]] if s_bear else pd.Series(0.0, index=df.index))
-            
-            health_data['bullish_scores'].append(d_intensity)
-            health_data['bearish_scores'].append(bearish_d_intensity)
-
-        # overall_health 的结构和计算逻辑彻底改变
-        overall_health = { 'bullish_score': {}, 'bearish_score': {} }
-        weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
-        use_equal_weights = not pillar_weights or weights_array.sum() == 0
+        overall_health = {}
+        use_equal_weights = not pillar_weights or sum(pillar_weights.values()) == 0
         
-        # 融合看涨的最终动态价值分
-        for p in periods:
-            valid_pillars = [pillar_dict[p].values for pillar_dict in health_data['bullish_scores'] if p in pillar_dict]
-            if not valid_pillars: continue
-            stacked_values = np.stack(valid_pillars, axis=0)
-            if use_equal_weights:
-                fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
-            else:
-                fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
-            overall_health['bullish_score'][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-
-        # [代码新增] 融合看跌的最终动态价值分
-        # 注意：看跌分在所有周期共享同一个值，因为它是基于快照计算的
-        valid_pillars_bearish = [score.values for score in health_data['bearish_scores']]
-        if valid_pillars_bearish:
-            stacked_values_bearish = np.stack(valid_pillars_bearish, axis=0)
-            if use_equal_weights:
-                fused_values_bearish = np.prod(stacked_values_bearish, axis=0) ** (1.0 / stacked_values_bearish.shape[0])
-            else:
-                fused_values_bearish = np.prod(stacked_values_bearish ** weights_array[:, np.newaxis], axis=0)
-            
+        for health_type, health_sources_with_names in [
+            ('s_bull', health_data['s_bull']),
+            ('s_bear', health_data['s_bear']),
+            ('d_intensity', health_data['d_intensity'])
+        ]:
+            overall_health[health_type] = {}
             for p in periods:
-                overall_health['bearish_score'][p] = pd.Series(fused_values_bearish, index=df.index, dtype=np.float32)
+                # [代码修复] 步骤一：并行构建有效支柱列表和有效权重列表
+                valid_pillars = []
+                valid_weights = []
+                for name, pillar_dict in health_sources_with_names:
+                    if p in pillar_dict:
+                        valid_pillars.append(pillar_dict[p].values)
+                        # 仅当支柱有效时，才将其权重加入列表
+                        valid_weights.append(pillar_weights.get(name, 0))
+
+                # [代码修复] 步骤二：如果没有任何有效支柱，则填充默认值并跳到下一个周期
+                if not valid_pillars:
+                    overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
+                    continue
+
+                # [代码修复] 步骤三：基于动态生成的权重列表进行安全融合
+                stacked_values = np.stack(valid_pillars, axis=0)
+                
+                if use_equal_weights:
+                    # 如果未配置权重，使用几何平均
+                    fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+                else:
+                    # 动态创建与 valid_pillars 长度完全匹配的权重数组
+                    weights_array = np.array(valid_weights)
+                    total_weight = weights_array.sum()
+                    
+                    if total_weight > 0:
+                        # 使用归一化后的权重进行加权几何平均
+                        normalized_weights = weights_array / total_weight
+                        # 使用 np.maximum 避免 log(0)
+                        safe_stacked_values = np.maximum(stacked_values, 1e-9)
+                        fused_values = np.exp(np.sum(np.log(safe_stacked_values) * normalized_weights[:, np.newaxis], axis=0))
+                    else:
+                        # 如果所有有效支柱的权重都为0，则退化为标准几何平均
+                        fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+
+                overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
         
