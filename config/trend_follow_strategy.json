@@ -537,6 +537,11 @@
           "internal": 0.20,
           "holder": 0.20,
           "fault": 0.10
+        },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
         }
       },
       "fund_flow_ultimate_params": {

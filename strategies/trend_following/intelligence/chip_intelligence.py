@@ -15,60 +15,47 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 修正返回类型注解
+    def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V500.1 · 协议统一版】筹码情报最高司令部
-        - 核心修复: 修正了方法签名，确保返回一个单一的字典，而不是元组，以修复与IntelligenceLayer的数据流中断问题。
+        【V501.0 · 剧本重构版】筹码情报最高司令部
+        - 核心升级: 废除旧的、分离的恐慌投降诊断三部曲，改为调用统一的、基于关系元分析的
+                      全新剧本诊断引擎。
         """
-        # print("        -> [筹码情报最高司令部 V500.1 · 协议统一版] 启动...") # 更新版本号
-        
         all_chip_states = {}
         
-        # 步骤 1: 执行唯一的、统一的终极信号引擎
+        # 步骤 1: 执行统一的终极信号引擎 (不变)
         unified_states = self.diagnose_unified_chip_signals(df)
         all_chip_states.update(unified_states)
 
-        # 步骤 2: 执行具有特殊战术意义的“剧本”诊断模块 (作为补充)
+        # 步骤 2: 执行升级后的“吸筹剧本”诊断模块 (不变)
         accumulation_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_states)
 
-        # 步骤 3: 执行独立的“恐慌投降”原子状态与剧本诊断 (作为补充)
-        setup_states = self._diagnose_setup_capitulation_ready(df)
-        all_chip_states.update(setup_states)
-        
-        # 为了让下游的 _synthesize_playbook_capitulation_reversal 能消费到最新的信号，
-        # 我们需要临时将当前状态合并到 df 中。这是一个可以未来优化的点。
-        temp_df_for_playbook = df.assign(**all_chip_states)
-        
-        trigger_states = self._diagnose_trigger_capitulation_fire(temp_df_for_playbook)
-        all_chip_states.update(trigger_states)
-        
-        temp_df_for_playbook = temp_df_for_playbook.assign(**trigger_states)
-        
-        playbook_states = self._synthesize_playbook_capitulation_reversal(temp_df_for_playbook)
-        all_chip_states.update(playbook_states)
+        # 步骤 3: 调用全新的、统一的“恐慌投降反转”剧本诊断引擎
+        capitulation_states = self.diagnose_playbook_capitulation_reversal(df)
+        all_chip_states.update(capitulation_states)
 
-        # print(f"        -> [筹码情报最高司令部 V500.1] 分析完毕，共生成 {len(all_chip_states)} 个筹码信号。")
-        
-        # 只返回包含所有状态的单一字典
         return all_chip_states
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.0 · 圣杯契约版】
-        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
-                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
+        【V22.0 · 神谕裁决版】
+        - 核心革命: 不再传递 s_bull/s_bear，而是将五大支柱的最终动态价值分(d_intensity)
+                      直接融合成 overall_bullish_score 和 overall_bearish_score，
+                      为下游的 transmute 引擎提供最纯粹的“神谕判决”。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        # 获取中央“圣杯”配置
+        
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
+        
+        # health_data 现在收集看涨和看跌的最终动态价值分
+        health_data = { 'bullish_scores': [], 'bearish_scores': [] } 
+        
         calculators = {
             'quantitative': self._calculate_quantitative_health,
             'advanced': self._calculate_advanced_dynamics_health,
@@ -76,32 +63,48 @@ class ChipIntelligence:
             'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
+        
         for name, calculator in calculators.items():
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
-            health_data['s_bull'].append(s_bull) 
-            health_data['s_bear'].append(s_bear) 
-            health_data['d_intensity'].append(d_intensity)
-        overall_health = {}
+            # 每个支柱现在返回 s_bull(快照), s_bear(快照), d_intensity(最终动态价值)
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, {}, periods)
+            
+            # [代码新增] 我们需要为看跌情况也计算一个最终动态价值分
+            bearish_d_intensity = self._perform_chip_relational_meta_analysis(df, s_bear[periods[0]] if s_bear else pd.Series(0.0, index=df.index))
+            
+            health_data['bullish_scores'].append(d_intensity)
+            health_data['bearish_scores'].append(bearish_d_intensity)
+
+        # overall_health 的结构和计算逻辑彻底改变
+        overall_health = { 'bullish_score': {}, 'bearish_score': {} }
         weights_array = np.array([pillar_weights.get(name, 0) for name in calculators.keys()])
         use_equal_weights = not pillar_weights or weights_array.sum() == 0
-        for health_type, health_sources in [
-            ('s_bull', health_data['s_bull']),
-            ('s_bear', health_data['s_bear']),
-            ('d_intensity', health_data['d_intensity'])
-        ]:
-            overall_health[health_type] = {}
+        
+        # 融合看涨的最终动态价值分
+        for p in periods:
+            valid_pillars = [pillar_dict[p].values for pillar_dict in health_data['bullish_scores'] if p in pillar_dict]
+            if not valid_pillars: continue
+            stacked_values = np.stack(valid_pillars, axis=0)
+            if use_equal_weights:
+                fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+            else:
+                fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
+            overall_health['bullish_score'][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
+
+        # [代码新增] 融合看跌的最终动态价值分
+        # 注意：看跌分在所有周期共享同一个值，因为它是基于快照计算的
+        valid_pillars_bearish = [score.values for score in health_data['bearish_scores']]
+        if valid_pillars_bearish:
+            stacked_values_bearish = np.stack(valid_pillars_bearish, axis=0)
+            if use_equal_weights:
+                fused_values_bearish = np.prod(stacked_values_bearish, axis=0) ** (1.0 / stacked_values_bearish.shape[0])
+            else:
+                fused_values_bearish = np.prod(stacked_values_bearish ** weights_array[:, np.newaxis], axis=0)
+            
             for p in periods:
-                if not health_sources: continue
-                valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
-                if not valid_pillars: continue
-                stacked_values = np.stack(valid_pillars, axis=0)
-                if use_equal_weights:
-                    fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
-                else:
-                    fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
-                overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
+                overall_health['bearish_score'][p] = pd.Series(fused_values_bearish, index=df.index, dtype=np.float32)
+
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
-        # 传入唯一的“圣杯”配置
+        
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -117,139 +120,226 @@ class ChipIntelligence:
     # ==============================================================================
 
     def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.1 · 调用适配版】计算基础量化维度的三维健康度"""
+        """【V5.0 · 关系元分析版】计算基础量化维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # 步骤一：计算原始的、纯粹的筹码静态健康度
         static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         static_bull_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=True)
-        overall_static_bull = (static_bull_conc * static_bull_health)**0.5
+        chip_static_bull = (static_bull_conc * static_bull_health)**0.5
         
         static_bear_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=True)
         static_bear_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=False)
-        overall_static_bear = (static_bear_conc * static_bear_health)**0.5
+        chip_static_bear = (static_bear_conc * static_bear_health)**0.5
 
-        # 调用中央引擎获取元组，然后在调用处进行融合
-        bull_conc, bear_conc = calculate_holographic_dynamics(df, 'concentration_90pct', norm_window)
-        dynamic_conc = (bull_conc + bear_conc) / 2.0
-        
-        bull_cost, bear_cost = calculate_holographic_dynamics(df, 'peak_cost', norm_window)
-        dynamic_cost = (bull_cost + bear_cost) / 2.0
-        
-        bull_health, bear_health = calculate_holographic_dynamics(df, 'chip_health_score', norm_window)
-        dynamic_health = (bull_health + bear_health) / 2.0
-        
-        unified_d_intensity = (dynamic_conc * dynamic_cost * dynamic_health)**(1/3)
+        # [代码新增] 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
+        # [代码新增] 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        bullish_snapshot_score = (chip_static_bull * ma_context_score)
+        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
+
+        # [代码新增] 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：更新输出
+        # s_bull/s_bear 现在是融合了趋势的“瞬时关系快照分”，即“状态分”
+        # d_intensity 现在是经过三维分析的“动态价值分”
         for p in periods:
-            s_bull[p] = overall_static_bull
-            s_bear[p] = overall_static_bear
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
         
         return s_bull, s_bear, d_intensity
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.1 · 调用适配版】计算高级动态维度的三维健康度"""
+        """【V5.0 · 关系元分析版】计算高级动态维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
         if any(col not in df.columns for col in required_cols):
+            # 如果缺少数据，返回空的字典以避免下游错误
             return {}, {}, {}
 
+        # 步骤一：计算原始的、纯粹的筹码静态健康度
         is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
-        overall_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
-        overall_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
+        chip_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
+        chip_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
 
-        # 调用中央引擎获取元组，然后在调用处进行融合
-        bull_control, bear_control = calculate_holographic_dynamics(df, 'peak_control_ratio', norm_window)
-        dynamic_control = (bull_control + bear_control) / 2.0
-        
-        bull_stability, bear_stability = calculate_holographic_dynamics(df, 'peak_stability', norm_window)
-        dynamic_stability = (bull_stability + bear_stability) / 2.0
-        
-        unified_d_intensity = (dynamic_control * dynamic_stability)**0.5
+        # [代码新增] 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
+        # [代码新增] 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        bullish_snapshot_score = (chip_static_bull * ma_context_score)
+        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
+
+        # [代码新增] 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：更新输出
         for p in periods:
-            s_bull[p] = overall_static_bull
-            s_bear[p] = overall_static_bear
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.1 · 调用适配版】计算内部结构维度的三维健康度"""
+        """【V5.0 · 关系元分析版】计算内部结构维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
+        # [代码新增] 增加数据检查
+        required_cols = ['concentration_70pct_D', 'support_below_D', 'pressure_above_D']
+        if any(col not in df.columns for col in required_cols):
+            return {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
-        overall_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
+        # 步骤一：计算原始的、纯粹的筹码静态健康度
+        chip_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
+        chip_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
 
-        # 调用中央引擎获取元组，然后在调用处进行融合
-        bull_core_conc, bear_core_conc = calculate_holographic_dynamics(df, 'concentration_70pct', norm_window)
-        dynamic_core_conc = (bull_core_conc + bear_core_conc) / 2.0
-        
-        bull_support, bear_support = calculate_holographic_dynamics(df, 'support_below', norm_window)
-        dynamic_support = (bull_support + bear_support) / 2.0
-        
-        bull_pressure, bear_pressure = calculate_holographic_dynamics(df, 'pressure_above', norm_window)
-        dynamic_pressure = (bull_pressure + bear_pressure) / 2.0
-        
-        dynamic_net_support = (dynamic_support * dynamic_pressure)**0.5
-        unified_d_intensity = (dynamic_core_conc * dynamic_net_support)**0.5
+        # [代码新增] 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
+        # [代码新增] 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        bullish_snapshot_score = (chip_static_bull * ma_context_score)
+        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
+
+        # [代码新增] 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：更新输出
         for p in periods:
-            s_bull[p] = overall_static_bull
-            s_bear[p] = overall_static_bear
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_holder_behavior_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.1 · 调用适配版】计算持仓者行为维度的三维健康度"""
+        """【V5.0 · 关系元分析版】计算持仓者行为维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
+        # [代码新增] 增加数据检查
+        required_cols = ['cost_divergence_D', 'winner_profit_margin_D', 'total_winner_rate_D', 'turnover_from_winners_ratio_D']
+        if any(col not in df.columns for col in required_cols):
+            return {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
-        overall_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
+        # 步骤一：计算原始的、纯粹的筹码静态健康度
+        chip_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
+        chip_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
 
-        # 调用中央引擎获取元组，然后在调用处进行融合
-        bull_cost_div, bear_cost_div = calculate_holographic_dynamics(df, 'cost_divergence', norm_window)
-        dynamic_cost_div = (bull_cost_div + bear_cost_div) / 2.0
-        
-        bull_margin, bear_margin = calculate_holographic_dynamics(df, 'winner_profit_margin', norm_window)
-        dynamic_margin = (bull_margin + bear_margin) / 2.0
-        
-        bull_turnover, bear_turnover = calculate_holographic_dynamics(df, 'turnover_from_winners_ratio', norm_window)
-        dynamic_turnover = (bull_turnover + bear_turnover) / 2.0
-        
-        unified_d_intensity = (dynamic_cost_div * dynamic_margin * dynamic_turnover)**(1/3)
+        # [代码新增] 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
+        # [代码新增] 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        bullish_snapshot_score = (chip_static_bull * ma_context_score)
+        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
+
+        # [代码新增] 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：更新输出
         for p in periods:
-            s_bull[p] = overall_static_bull
-            s_bear[p] = overall_static_bear
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_fault_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V3.1 · 调用适配版】计算筹码断层维度的三维健康度"""
+        """【V4.0 · 关系元分析版】计算筹码断层维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
+        # [代码新增] 增加数据检查
+        required_cols = ['chip_fault_strength_D', 'chip_fault_vacuum_percent_D']
+        if any(col not in df.columns for col in required_cols):
+            return {}, {}, {}
 
-        overall_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
-        overall_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
+        # 步骤一：计算原始的、纯粹的筹码静态健康度
+        # 健康的断层结构意味着断层弱、真空区小，这本身就是一种看涨特征
+        chip_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
+        chip_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
 
-        # 调用中央引擎获取元组，然后在调用处进行融合
-        bull_strength, bear_strength = calculate_holographic_dynamics(df, 'chip_fault_strength', norm_window)
-        dynamic_strength = (bull_strength + bear_strength) / 2.0
-        
-        bull_vacuum, bear_vacuum = calculate_holographic_dynamics(df, 'chip_fault_vacuum_percent', norm_window)
-        dynamic_vacuum = (bull_vacuum + bear_vacuum) / 2.0
-        
-        unified_d_intensity = (dynamic_strength * dynamic_vacuum)**0.5
+        # [代码新增] 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
+        # [代码新增] 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        # 断层健康度与趋势方向关系较弱，但一个健康的趋势背景仍然是加分项
+        bullish_snapshot_score = (chip_static_bull * (0.5 + 0.5 * ma_context_score))
+        bearish_snapshot_score = (chip_static_bear * (0.5 + 0.5 * (1 - ma_context_score)))
+
+        # [代码新增] 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：更新输出
         for p in periods:
-            s_bull[p] = overall_static_bull
-            s_bear[p] = overall_static_bear
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
+    def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 新增】筹码专用的关系元分析核心引擎 (赫拉织布机V2)
+        - 核心逻辑: 实现“状态 * (1 + 动态杠杆)”的动态价值调制范式。
+        """
+        # [代码新增] 从配置中获取动态杠杆权重
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+
+        # [代码新增] 核心参数
+        norm_window = 55
+        meta_window = 5
+        bipolar_sensitivity = 1.0
+
+        # [代码新增] 第一维度：状态分 (State Score)
+        state_score = snapshot_score.clip(0, 1)
+
+        # [代码新增] 第二维度：速度分 (Velocity Score)
+        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
+        velocity_score = normalize_to_bipolar(
+            series=relationship_trend, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # [代码新增] 第三维度：加速度分 (Acceleration Score)
+        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        acceleration_score = normalize_to_bipolar(
+            series=relationship_accel, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # [代码新增] 终极融合：动态价值调制
+        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
+        final_score = (state_score * dynamic_leverage).clip(0, 1)
+        
+        return final_score.astype(np.float32)
+
+    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
+        """
+        【V1.0 · 新增】计算均线趋势上下文分数
+        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
+        """
+        # [代码新增] 确保所有需要的均线都存在
+        ma_cols = [f'EMA_{p}_D' for p in periods]
+        if not all(col in df.columns for col in ma_cols):
+            return pd.Series(0.5, index=df.index)
+
+        # [代码新增] 均线排列健康度
+        alignment_scores = []
+        for i in range(len(periods) - 1):
+            short_ma = df[f'EMA_{periods[i]}_D']
+            long_ma = df[f'EMA_{periods[i+1]}_D']
+            alignment_scores.append((short_ma > long_ma).astype(float))
+        
+        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
+
+        # [代码新增] 价格位置健康度 (价格应在所有均线之上)
+        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
+        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
+
+        # [代码新增] 融合得到最终的趋势上下文分数
+        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
+        return ma_context_score.astype(np.float32)
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的“剧本”诊断模块
@@ -257,23 +347,40 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.5 · 重构修复版】主力吸筹模式与风险诊断引擎 (战术模块，予以保留)
+        【V5.0 · 关系元分析版】主力吸筹模式与风险诊断引擎
+        - 核心革命: 废除基于SLOPE/ACCEL的旧逻辑，为每种吸筹模式构建“瞬时关系快照分”，
+                      并调用关系元分析引擎，捕捉“吸筹关系”的形成与加速拐点。
         """
         states = {}
         norm_window = 120
-        # 修正对 normalize_score 的调用
-        conc_slope_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
-        conc_accel_score = normalize_score(df.get('ACCEL_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
-        concentration_improving_score = (conc_slope_score * conc_accel_score)
-        cost_rising_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), df.index, norm_window, ascending=True)
-        cost_falling_score = normalize_score(df.get('SLOPE_5_peak_cost_D'), df.index, norm_window, ascending=False)
-        winner_holding_score = normalize_score(df.get('SLOPE_5_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
-        loser_capitulating_score = normalize_score(df.get('turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
         
-        rally_accumulation_score = (cost_rising_score * winner_holding_score).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
-        suppress_accumulation_score = (concentration_improving_score * cost_falling_score * loser_capitulating_score).astype(np.float32)
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
+        # [代码新增] 获取均线趋势上下文，作为判断拉升或打压的背景
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+
+        # --- 拉升吸筹 (Rally Accumulation) ---
+        # 步骤一：构建“拉升吸筹”的瞬时关系快照分
+        # 核心关系：在上升趋势中(ma_context高)，筹码依然在集中，且获利盘惜售。
+        chip_concentration_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
+        winner_conviction_score = normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
+        rally_snapshot_score = (ma_context_score * chip_concentration_score * winner_conviction_score)
+
+        # 步骤二：对“拉升吸筹关系”进行元分析
+        rally_accumulation_score = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score)
+        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
+
+        # --- 打压吸筹 (Suppress Accumulation) ---
+        # 步骤一：构建“打压吸筹”的瞬时关系快照分
+        # 核心关系：在下跌或盘整趋势中(ma_context低)，筹码逆势集中，且套牢盘正在割肉。
+        price_weakness_score = 1 - ma_context_score
+        loser_capitulation_score = normalize_score(df.get('turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
+        suppress_snapshot_score = (price_weakness_score * chip_concentration_score * loser_capitulation_score)
+
+        # 步骤二：对“打压吸筹关系”进行元分析
+        suppress_accumulation_score = self._perform_chip_relational_meta_analysis(df, suppress_snapshot_score)
+        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score.astype(np.float32)
+        
+        # --- 真实吸筹 (True Accumulation) ---
+        # 步骤三：融合两种升级后的吸筹信号
         true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
         
@@ -334,21 +441,45 @@ class ChipIntelligence:
         states['SCORE_TRIGGER_CAPITULATION_FIRE'] = trigger_score
         return states
 
-    def _synthesize_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.1】合成“恐慌盘投降反转”剧本 (战术模块，予以保留)"""
+    def diagnose_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 关系元分析重构版】诊断“恐慌盘投降反转”剧本
+        - 核心革命: 废除旧的“准备-开火”三部曲，统一为一个方法。
+        - 新核心逻辑:
+          1. 构建一个融合了“深度套牢”、“长期低位”、“套牢盘换手”和“熊市均线背景”的
+             “恐慌投降关系快照分”。
+          2. 对这个快照分调用关系元分析引擎，精准捕捉这个“恐慌关系”由极盛转衰的那个
+             关键的、高价值的【反转拐点】。
+        """
         states = {}
-        required_cols = ['SCORE_SETUP_CAPITULATION_READY', 'SCORE_TRIGGER_CAPITULATION_FIRE']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"        -> [筹码情报-投降反转剧本] 警告: 缺少前置信号 {missing_cols}，剧本合成已跳过！")
-            return states
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
-        setup_score = df['SCORE_SETUP_CAPITULATION_READY']
-        trigger_score = df['SCORE_TRIGGER_CAPITULATION_FIRE']
-        was_setup_yesterday = setup_score.shift(1).fillna(0.0)
-        raw_score = (was_setup_yesterday * trigger_score)
-        exponent = get_param_value(p.get('final_score_exponent'), 1.0)
-        final_score = (raw_score ** exponent).astype(np.float32)
+        norm_window = get_param_value(p.get('norm_window'), 120)
+        
+        # [代码新增] 检查所需列
+        required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
+        if any(col not in df.columns for col in required_cols):
+            print(f"        -> [筹码情报-投降反转剧本] 警告: 缺少关键数据列，剧本合成已跳过！")
+            return states
+
+        # [代码新增] 步骤一：构建“恐慌投降关系”的瞬时快照分
+        # 特征1: 深度套牢
+        deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
+        
+        # 特征2: 长期低位
+        price_at_lows_score = 1.0 - normalize_score(df['close_D'], df.index, window=250, ascending=True)
+        
+        # 特征3: 套牢盘正在活跃换手 (割肉)
+        loser_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
+        
+        # 特征4: 熊市均线背景
+        bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        
+        # 融合四大特征，得到瞬时快照分
+        snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
+
+        # [代码新增] 步骤二：对“恐慌投降关系”进行元分析，捕捉其由盛转衰的拐点
+        final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score)
+        
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
         return states
 
