@@ -642,7 +642,7 @@ class CognitiveIntelligence:
         states = {}
         norm_window = 55
         slope_period = 3 
-        # [代码新增] 从配置中获取新的融合权重
+        # 从配置中获取新的融合权重
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         fusion_weights = get_param_value(p_cognitive.get('cascade_fusion_weights'), {'slope': 0.6, 'accel': 0.4})
         w_slope = fusion_weights.get('slope', 0.6)

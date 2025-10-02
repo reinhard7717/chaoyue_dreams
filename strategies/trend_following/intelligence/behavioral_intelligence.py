@@ -648,7 +648,7 @@ class BehavioralIntelligence:
           4. 最终分 = 状态分 * (1 + 速度分*w_vel + 加速度分*w_accel)，动态决定最终价值。
         """
         states = {}
-        # [代码新增] 从配置中获取新的动态杠杆权重
+        # 从配置中获取新的动态杠杆权重
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)

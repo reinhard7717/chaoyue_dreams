@@ -62,7 +62,7 @@ class ChipIntelligence:
             'fault': self._calculate_fault_health,
         }
         
-        # [代码修改] 保持不变，但现在消费的是具有“韧性骨架”的健康度字典
+        # 保持不变，但现在消费的是具有“韧性骨架”的健康度字典
         for name, calculator in calculators.items():
             s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
             health_data['s_bull'].append((name, s_bull)) 
@@ -323,35 +323,35 @@ class ChipIntelligence:
         【V1.0 · 新增】筹码专用的关系元分析核心引擎 (赫拉织布机V2)
         - 核心逻辑: 实现“状态 * (1 + 动态杠杆)”的动态价值调制范式。
         """
-        # [代码新增] 从配置中获取动态杠杆权重
+        # 从配置中获取动态杠杆权重
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
 
-        # [代码新增] 核心参数
+        # 核心参数
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
 
-        # [代码新增] 第一维度：状态分 (State Score)
+        # 第一维度：状态分 (State Score)
         state_score = snapshot_score.clip(0, 1)
 
-        # [代码新增] 第二维度：速度分 (Velocity Score)
+        # 第二维度：速度分 (Velocity Score)
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
 
-        # [代码新增] 第三维度：加速度分 (Acceleration Score)
+        # 第三维度：加速度分 (Acceleration Score)
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
 
-        # [代码新增] 终极融合：动态价值调制
+        # 终极融合：动态价值调制
         dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
         final_score = (state_score * dynamic_leverage).clip(0, 1)
         
@@ -362,12 +362,12 @@ class ChipIntelligence:
         【V1.0 · 新增】计算均线趋势上下文分数
         - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
         """
-        # [代码新增] 确保所有需要的均线都存在
+        # 确保所有需要的均线都存在
         ma_cols = [f'EMA_{p}_D' for p in periods]
         if not all(col in df.columns for col in ma_cols):
             return pd.Series(0.5, index=df.index)
 
-        # [代码新增] 均线排列健康度
+        # 均线排列健康度
         alignment_scores = []
         for i in range(len(periods) - 1):
             short_ma = df[f'EMA_{periods[i]}_D']
@@ -376,11 +376,11 @@ class ChipIntelligence:
         
         alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
 
-        # [代码新增] 价格位置健康度 (价格应在所有均线之上)
+        # 价格位置健康度 (价格应在所有均线之上)
         position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
         position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
 
-        # [代码新增] 融合得到最终的趋势上下文分数
+        # 融合得到最终的趋势上下文分数
         ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
         return ma_context_score.astype(np.float32)
 
@@ -397,7 +397,7 @@ class ChipIntelligence:
         states = {}
         norm_window = 120
         
-        # [代码新增] 获取均线趋势上下文，作为判断拉升或打压的背景
+        # 获取均线趋势上下文，作为判断拉升或打压的背景
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
         # --- 拉升吸筹 (Rally Accumulation) ---
@@ -498,13 +498,13 @@ class ChipIntelligence:
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
         
-        # [代码新增] 检查所需列
+        # 检查所需列
         required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
         if any(col not in df.columns for col in required_cols):
             print(f"        -> [筹码情报-投降反转剧本] 警告: 缺少关键数据列，剧本合成已跳过！")
             return states
 
-        # [代码新增] 步骤一：构建“恐慌投降关系”的瞬时快照分
+        # 步骤一：构建“恐慌投降关系”的瞬时快照分
         # 特征1: 深度套牢
         deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
         
@@ -520,7 +520,7 @@ class ChipIntelligence:
         # 融合四大特征，得到瞬时快照分
         snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
 
-        # [代码新增] 步骤二：对“恐慌投降关系”进行元分析，捕捉其由盛转衰的拐点
+        # 步骤二：对“恐慌投降关系”进行元分析，捕捉其由盛转衰的拐点
         final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score)
         
         states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score

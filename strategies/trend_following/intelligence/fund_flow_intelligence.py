@@ -70,14 +70,14 @@ class FundFlowIntelligence:
     # ==============================================================================
     def _calculate_all_pillar_health(self, df: pd.DataFrame, pillar_configs: Dict, norm_window: int, periods: list) -> Dict[str, Dict]:
         """
-        【V3.1 · 削藩令版】计算所有资金流支柱的健康度
-        - 核心修改: 签名变更，不再自行初始化参数，而是被动接收来自上级的统一指令。
+        【V4.0 · 关系元分析版】计算所有资金流支柱的健康度
+        - 核心修改: 调用经过“关系元分析”改造后的 `_calculate_pillar_health` 方法。
         """
         pillar_health = {key: {} for key in pillar_configs}
-        dynamic_weights = {'slope': 0.6, 'accel': 0.4} # 这是一个固定的物理模型，可以保留
+        # dynamic_weights 不再需要，因为动态分析已在内部完成
         for name, config in pillar_configs.items():
             pillar_health[name] = self._calculate_pillar_health(
-                df, name, config, norm_window, dynamic_weights, periods
+                df, name, config, norm_window, periods
             )
         return pillar_health
 
@@ -160,38 +160,115 @@ class FundFlowIntelligence:
             states[signal_name] = score.astype(np.float32)
         return states
 
-    def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, dynamic_weights: Dict, periods: list) -> Dict:
-        """【V3.1 · 调用适配版】计算单个资金流支柱的三维健康度"""
+    def _calculate_pillar_health(self, df: pd.DataFrame, name: str, config: Dict, norm_window: int, periods: list) -> Dict:
+        """【V4.0 · 关系元分析版】计算单个资金流支柱的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
 
+        # 统一计算一次，因为所有周期的健康度将共享同一套关系分析结果
+        # 步骤一：计算原始的、纯粹的资金流指标静态健康度
+        # 注意：这里只计算一次，而不是在周期循环内
+        if col_type == 'sum':
+            # 对于累加型指标，我们使用最长周期(55)的累加值作为代表性静态值
+            static_col = f"{base_col_name}_sum_55d_D"
+        else:
+            # 对于每日型指标，直接使用当日值
+            static_col = f"{base_col_name}_D"
+        
+        default_series = pd.Series(0.5, index=df.index)
+        static_series = df.get(static_col, default_series)
+        
+        indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
+        indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
+
+        # 步骤二：获取均线趋势上下文分数
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+
+        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        bullish_snapshot_score = (indicator_static_bull * ma_context_score)
+        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score))
+
+        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
+
+        # 步骤五：将统一计算的结果赋给所有周期
         for p in periods:
-            if col_type == 'sum' and p > 1:
-                static_col = f"{base_col_name}_sum_{p}d_D"
-            else:
-                static_col = f"{base_col_name}_D"
-
-            if col_type == 'sum' and p > 1:
-                # 修正 base_name，移除末尾的 '_D'
-                slope_base_col = f"{base_col_name}_sum_{p}d"
-            else:
-                # 修正 base_name，移除末尾的 '_D'
-                slope_base_col = f"{base_col_name}"
-            
-            default_series = pd.Series(0.5, index=df.index)
-            
-            static_series = df.get(static_col, default_series)
-
-            s_bull[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
-            s_bear[p] = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
-            
-            # 调用中央引擎获取元组，然后在调用处进行融合
-            bull_holo, bear_holo = calculate_holographic_dynamics(df, slope_base_col, norm_window)
-            d_intensity[p] = (bull_holo + bear_holo) / 2.0
+            s_bull[p] = bullish_snapshot_score
+            s_bear[p] = bearish_snapshot_score
+            d_intensity[p] = unified_d_intensity
 
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
+
+    # ==============================================================================
+    # 以下为V2.1版新增的模块化辅助方法
+    # ==============================================================================
+    def _perform_fund_flow_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+        """
+        【V1.0 · 新增】资金流专用的关系元分析核心引擎 (赫拉织布机V2)
+        - 核心逻辑: 实现“状态 * (1 + 动态杠杆)”的动态价值调制范式。
+        """
+        # 从配置中获取动态杠杆权重
+        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+
+        # 核心参数
+        norm_window = 55
+        meta_window = 5
+        bipolar_sensitivity = 1.0
+
+        # 第一维度：状态分 (State Score)
+        state_score = snapshot_score.clip(0, 1)
+
+        # 第二维度：速度分 (Velocity Score)
+        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
+        velocity_score = normalize_to_bipolar(
+            series=relationship_trend, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # 第三维度：加速度分 (Acceleration Score)
+        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        acceleration_score = normalize_to_bipolar(
+            series=relationship_accel, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # 终极融合：动态价值调制
+        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
+        final_score = (state_score * dynamic_leverage).clip(0, 1)
+        
+        return final_score.astype(np.float32)
+
+    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
+        """
+        【V1.0 · 新增】计算均线趋势上下文分数
+        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
+        """
+        # 确保所有需要的均线都存在
+        ma_cols = [f'EMA_{p}_D' for p in periods]
+        if not all(col in df.columns for col in ma_cols):
+            return pd.Series(0.5, index=df.index)
+
+        # 均线排列健康度
+        alignment_scores = []
+        for i in range(len(periods) - 1):
+            short_ma = df[f'EMA_{periods[i]}_D']
+            long_ma = df[f'EMA_{periods[i+1]}_D']
+            alignment_scores.append((short_ma > long_ma).astype(float))
+        
+        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
+
+        # 价格位置健康度 (价格应在所有均线之上)
+        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
+        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
+
+        # 融合得到最终的趋势上下文分数
+        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
+        return ma_context_score.astype(np.float32)
 
 
 

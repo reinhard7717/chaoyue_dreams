@@ -473,7 +473,7 @@
       },
       "euphoric_risk_params": {
         "enabled": true,
-        "description": "【V1.0】亢奋加速风险诊断引擎参数。",
+        "description": "【V2.0 · 关系元分析版】亢奋加速风险诊断引擎参数。",
         "norm_window": 55
       },
       "pullback_tactics_params": {
@@ -544,19 +544,6 @@
           "acceleration_weight": 0.4
         }
       },
-      "fund_flow_ultimate_params": {
-        "enabled": true,
-        "description": "【V2.5 · 圣杯版】此模块现在只定义特定于资金流领域的意图和支柱权重。",
-        "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
-        "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 }
-      },
-      "structural_ultimate_params": {
-        "enabled": true, 
-        "description": "【V16.0 · 圣杯版】此模块现在只定义特定于结构领域的支柱权重。",
-        "pillar_weights": {
-          "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
-        }
-      },
       "dynamic_mechanics_params": {
         "enabled": true, 
         "description": "【V12.0 · 圣杯版】此模块现在只定义特定于力学领域的支柱权重。",
@@ -569,6 +556,11 @@
           "slope": 0.15,
           "accel": 0.2,
           "relational": 0.5
+        },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
         }
       },
       "foundation_ultimate_params": {
@@ -583,6 +575,50 @@
           "slope": 0.15,
           "accel": 0.2,
           "relational": 0.5
+        },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
+        }
+      },
+      "fund_flow_ultimate_params": {
+        "enabled": true,
+        "description": "【V2.5 · 圣杯版】此模块现在只定义特定于资金流领域的意图和支柱权重。",
+        "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
+        "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
+        }
+      },
+      "micro_behavior_params": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】微观行为引擎的专属参数块，用于关系元分析。",
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
+        }
+      },
+      "structural_ultimate_params": {
+        "enabled": true,
+        "description": "【V17.0 · 关系元分析版】此模块现在定义特定于结构领域的支柱权重，并新增关系元分析参数。",
+        "pillar_weights": {
+          "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
+        },
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
+        },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
         }
       },
       "cognitive_intelligence_params": {
@@ -702,9 +738,10 @@
       },
       "post_peak_downturn_risk_params": {
         "enabled": true,
-        "说明": "【V1.0】高位回落风险诊断引擎参数。",
+        "description": "【V3.0 · 关系元分析版】高位回落风险诊断引擎参数。",
         "norm_window": 55,
         "high_position_threshold": 0.7,
+        "peak_echo_window": 5,
         "comment": "定义何为'高位'。当股价相对MA55的伸展度超过70%时，即认为处于高位。"
       },
       "mean_reversion_grid_params": {
