@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, calculate_context_scores, calculate_holographic_dynamics
+from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, calculate_context_scores, normalize_to_bipolar
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
