@@ -36,29 +36,42 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V24.0 · 圣杯契约版】
-        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
-                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
+        【V26.0 · 宙斯之雷版】
+        - 核心革命: 废除对快照分的元分析，改为调用“最高神谕融合引擎”，
+                      直接对多个、已完全进化的动态原子信号进行最终裁决。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        # 获取中央“圣杯”配置
+        
+        # 步骤一：获取“宙斯之雷”引擎的专属参数
+        p_fusion = get_param_value(p_conf.get('supreme_fusion_params'), {})
+        
+        # 步骤二：调用“宙斯之雷”引擎，传入所有相关的原子信号
+        # 我们将所有潜在的底部信号都交给引擎去裁决
+        bottom_formation_score = self._supreme_fusion_engine(
+            df=df,
+            signals_to_fuse=atomic_signals,
+            params=p_fusion
+        )
+        
+        # 将“宙斯之雷”的最终裁决结果作为唯一的、权威的通用底部形态信号
+        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
+        
+        # 后续逻辑保持不变，它们现在消费的是由“宙斯之雷”锻造的、最高规格的神谕信号
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        grinding_bottom_score = atomic_signals.get('SCORE_ATOMIC_BOTTOM_FORMATION', pd.Series(0.0, index=df.index))
-        rebound_bottom_score = atomic_signals.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
-        bottom_formation_score = np.maximum(grinding_bottom_score, rebound_bottom_score)
-        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
+        
         price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
         vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
         kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
+        
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
@@ -77,8 +90,9 @@ class BehavioralIntelligence:
                     ], axis=0)
                     fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
+        
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        # 传入唯一的“圣杯”配置
+        
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -316,98 +330,122 @@ class BehavioralIntelligence:
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V2.0 · 宙斯版】上冲派发风险诊断引擎
-        - 核心革命: 1. 彻底废除僵化的 `upper_shadow_ratio_min` 教条，不再要求上影线达到特定比例。
-                      2. 逻辑回归本质：风险 = 高位环境(overextension) * 巨大努力(volume) * 糟糕结果(weak_close)。
-        - 收益: 极大提升了对各类顶部派发形态（无论上影线长短）的识别能力，稳健性与实战性飙升。
+        【V3.0 · 关系元分析版】上冲派发风险诊断引擎
+        - 核心升级: 采用“关系元分析”范式，寻找“派发风险关系”的加速恶化拐点。
         """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         if not get_param_value(p.get('enabled'), False):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
         
+        # 第一维度：计算“瞬时关系快照分”
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
         ma_col = f'EMA_{overextension_ma_period}_D'
-
         if not all(col in df.columns for col in ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
             return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
-            
         norm_window = get_param_value(p.get('norm_window'), 55)
         min_periods = max(1, norm_window // 5)
         
-        # 支柱一: 高位环境 (Overextension) - 价格已远离均线，处于风险区域
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         overextension_score = overextension_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        
-        # 支柱二: 巨大努力 (Volume) - 成交量显著放大
         volume_score = df['volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        
-        # 支柱三: 糟糕结果 (Weak Close) - 收盘价在日内位置偏低
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / total_range).fillna(0.5)
         weak_close_score = 1 - close_position_in_range
         
-        # 废除上影线逻辑，采用更稳健的三支柱融合
-        # upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
-        # upper_shadow_ratio = (upper_shadow / total_range).fillna(0.0)
-        # scaling_range = max(1.0 - upper_shadow_ratio_min, 0.001)
-        # upper_shadow_score = ((upper_shadow_ratio - upper_shadow_ratio_min) / scaling_range).clip(0, 1).fillna(0)
+        # --- 融合三大支柱，得到单一的“瞬时风险关系分” ---
+        snapshot_score = (overextension_score * volume_score * weak_close_score).astype(np.float32)
         
-        # 新的核心公式，直接融合三个本质支柱
-        final_score = (overextension_score * volume_score * weak_close_score).astype(np.float32)
-        final_score.name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
-        return final_score
+        # 第二维度：调用核心引擎，分析“风险关系”的拐点
+        final_signal_dict = self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_RISK_UPTHRUST_DISTRIBUTION'
+        )
+        
+        # 返回 Series，保持原方法签名
+        return final_signal_dict.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION'))
 
     def _diagnose_ma_breakdown(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.2 · 参数访问修复版】
-        - 核心修复: 修正了参数获取逻辑，使用正确的 get_params_block 工具。
+        【V2.0 · 关系元分析版】均线破位风险诊断引擎
+        - 核心升级: 采用“关系元分析”范式，捕捉“破位关系”的加速恶化拐点。
         """
-        # 修正参数获取逻辑，使用正确的get_params_block工具，并修复了误导性的参数名
         p = get_params_block(self.strategy, 'structure_breakdown_params', {})
         if not get_param_value(p.get('enabled'), False):
             return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
         
         breakdown_ma_period = get_param_value(p.get('breakdown_ma_period'), 21)
         ma_col = f'EMA_{breakdown_ma_period}_D'
-
-        if not all(col in df.columns for col in ['close_D', ma_col]):
+        if not all(col in df.columns for col in ['close_D', 'volume_D', ma_col]):
             return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
             
-        breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
-        breakdown_depth = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
-        # 使用配置中定义的norm_window，而不是硬编码
         norm_window = get_param_value(p.get('norm_window'), 55)
         min_periods = max(1, norm_window // 5)
-        score = breakdown_depth.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        final_score = (score * (breakdown_depth > 0)).astype(np.float32)
-        final_score.name = 'SCORE_BEHAVIOR_MA_BREAKDOWN'
-        return final_score
+
+        # 第一维度：计算“瞬时破位关系快照分”
+        # 破位深度分
+        breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
+        breakdown_depth_score = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
+        normalized_depth_score = normalize_score(breakdown_depth_score, df.index, norm_window, ascending=True)
+        
+        # 成交量放大分
+        volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
+        
+        # 融合得到快照分
+        snapshot_score = (normalized_depth_score * volume_increase_score).astype(np.float32)
+
+        # 第二维度：调用核心引擎，分析“风险关系”的拐点
+        final_signal_dict = self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_BEHAVIOR_MA_BREAKDOWN'
+        )
+        
+        return final_signal_dict.get('SCORE_BEHAVIOR_MA_BREAKDOWN', pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN'))
 
     def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 关系元分析版】
+        - 核心升级: 对“VPA滞涨风险”信号采用“关系元分析”范式重构。
+        """
         states = {}
         required_cols = ['volume_D', 'VOL_MA_21_D', 'pct_change_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D', 'VPA_EFFICIENCY_D', 'SLOPE_5_VPA_EFFICIENCY_D']
         if any(col not in df.columns for col in required_cols): return states
+        
         p_vpa = params.get('vpa_dynamics_params', {})
         norm_window = get_param_value(p_vpa.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
+        
+        # 对 VPA 滞涨风险进行关系元分析
+        # 第一维度：计算“瞬时滞涨关系快照分”
         volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
-        huge_volume_score = volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        price_stagnant_score = (1 - df['pct_change_D'].abs().rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-        states['SCORE_RISK_VPA_STAGNATION'] = (huge_volume_score * price_stagnant_score).astype(np.float32)
+        huge_volume_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
+        price_stagnant_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
+        stagnation_snapshot_score = (huge_volume_score * price_stagnant_score).astype(np.float32)
+        
+        # 第二维度：调用核心引擎
+        stagnation_risk_states = self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=stagnation_snapshot_score,
+            signal_name='SCORE_RISK_VPA_STAGNATION'
+        )
+        states.update(stagnation_risk_states)
+
+        # 保持其他信号的原子性
         efficiency_decline_magnitude = df['SLOPE_5_VPA_EFFICIENCY_D'].where(df['SLOPE_5_VPA_EFFICIENCY_D'] < 0, 0).abs()
         efficiency_decline_score = efficiency_decline_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
         states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = efficiency_decline_score.astype(np.float32)
+        
         volume_accel_magnitude = df['ACCEL_5_volume_D'].where(df['ACCEL_5_volume_D'] > 0, 0)
         volume_accelerating_score = volume_accel_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
         states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = volume_accelerating_score.astype(np.float32)
+        
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 数据契约修正版】
-        - 核心修正: 修复了因依赖不存在的 'tr_D' 列而导致的 KeyError。
-        - 战术替换: 在“衰竭反转”信号的“姿态测试”中，使用数据层提供的标准指标 'ATR_14_D' 替代 'tr_D' 来衡量价格波动性。
-          这不仅解决了崩溃问题，还提升了代码的健壮性和专业性。
+        【V8.0 · 关系元分析版】
+        - 核心升级: 对“流动性枯竭风险”信号采用“关系元分析”范式重构。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -421,6 +459,7 @@ class BehavioralIntelligence:
         price_range = (rolling_high - rolling_low).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
         states['SCORE_PRICE_POSITION_IN_RECENT_RANGE'] = close_position_in_range.astype(np.float32)
+        
         vol_ma_col = 'VOL_MA_21_D'
         if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
@@ -429,93 +468,98 @@ class BehavioralIntelligence:
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
 
+        # 对“流动性枯竭风险”进行关系元分析重构
         p_drain = p.get('liquidity_drain_params', {})
         drain_window = get_param_value(p_drain.get('window'), 20)
-        price_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_close_D'), df.index, norm_window, ascending=False)
-        volume_trend_score = normalize_score(df.get(f'SLOPE_{drain_window}_volume_D'), df.index, norm_window, ascending=False)
-        liquidity_drain_score = (price_trend_score * volume_trend_score)**0.5
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = liquidity_drain_score.astype(np.float32)
+        
+        # 第一维度：计算“瞬时流动性枯竭快照分”
+        # 价格下跌幅度分
+        price_drop_magnitude = df['pct_change_D'].clip(upper=0).abs()
+        price_drop_score = normalize_score(price_drop_magnitude, df.index, drain_window, ascending=True)
+        # 成交量萎缩幅度分
+        volume_shrink_score = normalize_score(df['volume_D'], df.index, drain_window, ascending=False)
+        # 融合得到快照分
+        drain_snapshot_score = (price_drop_score * volume_shrink_score).astype(np.float32)
+
+        # 第二维度：调用核心引擎
+        liquidity_drain_states = self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=drain_snapshot_score,
+            signal_name='SCORE_RISK_LIQUIDITY_DRAIN'
+        )
+        states.update(liquidity_drain_states)
 
         p_rev = p.get('exhaustion_reversal_params', {})
         rev_window = get_param_value(p_rev.get('window'), 5)
         
-        # --- 姿态测试: 价格在短期内拒绝创新低，波动收窄 ---
         is_stabilizing = (df['low_D'] >= df['low_D'].rolling(rev_window).min()).astype(int)
-        
-        # 使用 'ATR_14_D' 替换不存在的 'tr_D'
-        # ATR_14_D 是一个更标准、更可靠的波动率指标
-        price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index)) # 使用get增加健壮性，如果ATR也没有，则用当日振幅作为备用
-        
-        # 波动率越低，企稳分数越高 (ascending=False)
+        price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index))
         stabilization_score = is_stabilizing * normalize_score(price_volatility, df.index, norm_window, ascending=False)
-        
-        # --- 极态测试: 成交量达到近期地量水平 ---
         volume_dry_up_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        
-        # --- 上下文: 发生在深跌之后更有意义 ---
         context_score = 1 - close_position_in_range
+        snapshot_score = (stabilization_score * volume_dry_up_score * context_score)
         
-        # --- 融合三个测试，得到最终的衰竭反转分 ---
-        exhaustion_reversal_score = (stabilization_score * volume_dry_up_score * context_score)
-        states['SCORE_BULLISH_EXHAUSTION_REVERSAL'] = exhaustion_reversal_score.astype(np.float32)
+        exhaustion_reversal_states = self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_BULLISH_EXHAUSTION_REVERSAL'
+        )
+        states.update(exhaustion_reversal_states)
         
         return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 信号净化版】原子级“底部形态”诊断引擎
-        - 核心修复: 净化了输出信号的名称，移除了 '_S' 后缀。
+        【V2.2 · 纯净输出版】原子级“底部形态”诊断引擎
+        - 核心升级: 只输出最终的元分析信号。
         """
-        states = {}
-        norm_window = 60 
-
-        # --- 支柱一: 生命线支撑 (Proximity to MA55 Lifeline) ---
+        # 第一维度：计算“瞬时关系快照分”
         ma55 = df.get('EMA_55_D', df['close_D'])
         distance_from_ma55 = (df['close_D'] - ma55) / ma55
         lifeline_proximity_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2)
         
-        # --- 支柱二: 悲观情绪衰竭 (Pessimism Exhaustion) ---
         rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         was_rsi_oversold = (rsi.rolling(window=10).min() < 35).astype(float)
-        
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
         deep_bottom_context_score = 1.0 - price_pos_yearly
-        
         pessimism_exhaustion_score = np.maximum(was_rsi_oversold, deep_bottom_context_score)
 
-        # --- 支柱三: 波动率压缩 (Volatility Squeeze) ---
-        vol_compression_score = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+        vol_compression_score = normalize_score(df.get('BBW_21_2.0_D'), df.index, 60, ascending=False)
 
-        # --- 最终融合 ---
-        final_score = (lifeline_proximity_score * pessimism_exhaustion_score * vol_compression_score).astype(np.float32)
-        
-        states['SCORE_ATOMIC_BOTTOM_FORMATION'] = final_score
-        
-        return states
+        snapshot_score = pd.Series(
+            (lifeline_proximity_score * pessimism_exhaustion_score * vol_compression_score),
+            index=df.index
+        ).astype(np.float32)
+
+        # 只返回最终信号字典
+        return self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_ATOMIC_BOTTOM_FORMATION'
+        )
 
     def _diagnose_atomic_rebound_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 帝国统一版】原子级“史诗探底回升”诊断引擎
-        - 核心升级: 不再使用内部的、分裂的方法，而是通过外交关系调用 TacticEngine 中唯一的、
-                      正统的 calculate_structural_test_score 方法。
+        【V3.2 · 纯净输出版】原子级“史诗探底回升”诊断引擎
+        - 核心升级: 只输出最终的元分析信号。
         """
-        states = {}
+        # 第一维度：计算“瞬时关系快照分”
         p_rebound = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-
         despair_context_score = self._calculate_despair_context_score(df, p_rebound)
-
-        # 调用 TacticEngine 的正统方法
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_rebound)
-
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
         is_recovering_today = (df['pct_change_D'] > -0.01).astype(float)
         confirmation_score = (close_position_in_range * is_recovering_today)
 
-        rebound_reversal_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
+        snapshot_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
         
-        states['SCORE_ATOMIC_REBOUND_REVERSAL'] = rebound_reversal_score
-        return states
+        # 只返回最终信号字典
+        return self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_ATOMIC_REBOUND_REVERSAL'
+        )
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
@@ -566,12 +610,11 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_continuation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 帝国统一版】原子级“延续性反转”诊断引擎
-        - 核心升级: 通过外交关系调用 TacticEngine 中唯一的、正统的 calculate_structural_test_score 方法。
+        【V2.0 · 关系元分析版】原子级“延续性反转”诊断引擎
+        - 核心升级: 采用“关系元分析”范式，寻找“延续性反转关系”的向上拐点。
         """
-        states = {}
+        # 第一维度：计算“瞬时关系快照分”
         p_continuation = get_params_block(self.strategy, 'continuation_reversal_params', {})
-        
         ma_periods = get_param_value(p_continuation.get('ma_periods'), [5, 13, 21, 55])
         uptrending_ma_count = pd.Series(0, index=df.index)
         for p in ma_periods:
@@ -579,20 +622,121 @@ class BehavioralIntelligence:
             if ma_col in df:
                 uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
         trend_alignment_score = uptrending_ma_count / len(ma_periods)
-
-        # 调用 TacticEngine 的正统方法
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_continuation)
-
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.0)
         confirmation_score = close_position_in_range
 
-        continuation_reversal_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
+        # --- 融合三大支柱，得到单一的“瞬时关系分” ---
+        snapshot_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
         
-        states['SCORE_ATOMIC_CONTINUATION_REVERSAL'] = continuation_reversal_score
+        # 第二维度：调用核心引擎，分析“关系”的拐点
+        return self._perform_relational_meta_analysis(
+            df=df,
+            snapshot_score=snapshot_score,
+            signal_name='SCORE_ATOMIC_CONTINUATION_REVERSAL'
+        )
+
+    def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, signal_name: str) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 赫拉织布机V2版】关系元分析核心引擎
+        - 核心升级: 实现“状态 * (1 + 动态杠杆)”的动态价值调制范式。
+        - 新核心逻辑:
+          1. 状态分(State): 瞬时关系快照分，是价值基石。
+          2. 速度分(Velocity): 关系分趋势，归一化到[-1, 1]。
+          3. 加速度分(Acceleration): 关系分趋势的趋势，归一化到[-1, 1]。
+          4. 最终分 = 状态分 * (1 + 速度分*w_vel + 加速度分*w_accel)，动态决定最终价值。
+        """
+        states = {}
+        # [代码新增] 从配置中获取新的动态杠杆权重
+        p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+
+        # --- 从ProcessIntelligence借鉴的核心参数 ---
+        norm_window = 55
+        meta_window = 5
+        bipolar_sensitivity = 1.0
+
+        # 第一维度：状态分 (State Score)
+        state_score = snapshot_score.clip(0, 1)
+
+        # 第二维度：速度分 (Velocity Score)
+        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
+        velocity_score = normalize_to_bipolar(
+            series=relationship_trend, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # 第三维度：加速度分 (Acceleration Score)
+        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        acceleration_score = normalize_to_bipolar(
+            series=relationship_accel, target_index=df.index,
+            window=norm_window, sensitivity=bipolar_sensitivity
+        )
+
+        # 终极融合：动态价值调制
+        # 计算动态杠杆
+        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
+        
+        # 应用公式：最终分 = 状态分 * 动态杠杆
+        final_score = (state_score * dynamic_leverage).clip(0, 1)
+        
+        states[signal_name] = final_score.astype(np.float32)
         return states
 
+    def _supreme_fusion_engine(self, df: pd.DataFrame, signals_to_fuse: Dict[str, pd.Series], params: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】最高神谕融合引擎 (宙斯之雷)
+        - 核心职责: 对多个动态原子信号进行加权协同融合。
+        """
+        fusion_weights = get_param_value(params.get('fusion_weights'), {})
+        synergy_bonus_factor = get_param_value(params.get('synergy_bonus_factor'), 0.5)
 
+        valid_signals = []
+        weights = []
+        
+        for name, weight in fusion_weights.items():
+            signal_name_full = f'SCORE_ATOMIC_{name}'
+            if signal_name_full in signals_to_fuse and weight > 0:
+                # 使用 .values 确保 numpy 操作的性能和对齐
+                valid_signals.append(signals_to_fuse[signal_name_full].values)
+                weights.append(weight)
+
+        if not valid_signals:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # --- 基础融合：加权几何平均 ---
+        stacked_signals = np.stack(valid_signals, axis=0)
+        weights_array = np.array(weights)
+        # 归一化权重
+        total_weight = weights_array.sum()
+        if total_weight > 0:
+            normalized_weights = weights_array / total_weight
+        else:
+            normalized_weights = np.full_like(weights_array, 1.0 / len(weights_array))
+        
+        # 为避免 log(0) 错误，给信号值增加一个极小量
+        safe_signals = np.maximum(stacked_signals, 1e-9)
+        log_signals = np.log(safe_signals)
+        weighted_log_sum = np.sum(log_signals * normalized_weights[:, np.newaxis], axis=0)
+        base_fusion_score = np.exp(weighted_log_sum)
+
+        # --- 协同奖励：当多个信号同时活跃时给予奖励 ---
+        # 这里我们简化为取最强的两个信号的乘积作为协同基础
+        if stacked_signals.shape[0] >= 2:
+            # 沿信号轴排序，取最后两个（最大的）
+            sorted_signals = np.sort(stacked_signals, axis=0)
+            synergy_base = sorted_signals[-1] * sorted_signals[-2]
+            synergy_bonus = (synergy_base**0.5) * synergy_bonus_factor
+        else:
+            synergy_bonus = 0.0
+            
+        # --- 最终融合 ---
+        final_score = (base_fusion_score * (1 + synergy_bonus)).clip(0, 1)
+        
+        return pd.Series(final_score, index=df.index, dtype=np.float32)
 
 
 

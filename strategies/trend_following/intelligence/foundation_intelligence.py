@@ -87,9 +87,9 @@ class FoundationIntelligence:
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
         """【V4.6 · 赫尔墨斯商神杖版】计算EMA维度的三维健康度"""
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 获取本模块的专属配置
+        # [代码新增] 获取本模块的专属配置
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        # 获取新的加权融合权重
+        # [代码新增] 获取新的加权融合权重
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
 
         ma_periods = [5, 13, 21, 55]

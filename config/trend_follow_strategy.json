@@ -516,6 +516,16 @@
         "reversal_echo_window": 3,
         "pillar_weights": {
           "price": 0.4, "volume": 0.3, "kline": 0.3
+        },
+        "supreme_fusion_params": {
+          "description": "【宙斯之雷】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
+          "fusion_weights": {
+            "description": "各原子底部信号在加权几何平均中的权重。",
+            "BOTTOM_FORMATION": 0.4,
+            "REBOUND_REVERSAL": 0.4,
+            "BULLISH_EXHAUSTION_REVERSAL": 0.2
+          },
+          "synergy_bonus_factor": 0.5
         }
       },
       "chip_ultimate_params": {
