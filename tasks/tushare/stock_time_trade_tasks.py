@@ -1443,6 +1443,33 @@ def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.
         
     return ranges
 
+def _group_dates_by_chunk_size(dates: List[datetime.date], chunk_size: int) -> List[tuple[datetime.date, datetime.date]]:
+    """
+    辅助函数：将一个已排序的日期列表按指定大小分块，并返回每个块的起始和结束日期。
+    例如: 一个包含120个日期的列表，chunk_size=50
+    返回: [(dates[0], dates[49]), (dates[50], dates[99]), (dates[100], dates[119])]
+    Args:
+        dates (List[datetime.date]): 已排序的日期对象列表。
+        chunk_size (int): 每个分块包含的日期数量。
+    Returns:
+        List[tuple[datetime.date, datetime.date]]: 由起始和结束日期组成的元组列表。
+    """
+    if not dates:
+        return []
+    
+    ranges = []
+    # 使用步长遍历列表，实现分块
+    for i in range(0, len(dates), chunk_size):
+        # 获取当前块
+        chunk = dates[i:i + chunk_size]
+        if chunk:
+            # 块的起始日期是第一个元素，结束日期是最后一个元素
+            start_date = chunk[0]
+            end_date = chunk[-1]
+            ranges.append((start_date, end_date))
+            
+    return ranges
+
 @celery_app.task(name='tasks.stock_time_trade_tasks.repair_missing_cyq_data_for_stock', queue='SaveHistoryData_TimeTrade', bind=True)
 @with_cache_manager
 def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: CacheManager):
@@ -1450,14 +1477,15 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
     【数据修复执行器】
     检查并修复单个股票缺失的 'cyq_perf' 和 'cyq_chips' 数据。
     以 'stock_daily_data' 表作为交易日期的基准，并与交易日历进行核对。
+    【优化】将缺失日期按交易日数量分块，以减少API调用次数。
     Args:
         stock_code (str): 股票代码。
         cache_manager (CacheManager): 缓存管理器实例。
     """
     # print(f"[{stock_code}] [数据修复] 开始检查并修复缺失的CYQ数据...")
     async def _async_repair():
-        # 【代码修改】导入 TradeCalendar 模型，以支持交易日核对
-        from stock_models.index import TradeCalendar
+        # 定义每个API请求包含的最小交易日数量
+        MIN_TRADE_DAYS_PER_API_CALL = 50
         # 1. 获取所需模型
         daily_model = get_daily_data_model_by_code(stock_code)
         chips_model = get_cyq_chips_model_by_code(stock_code)
@@ -1467,10 +1495,8 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
         def get_dates(model, is_chips=False):
             qs = model.objects.filter(stock__stock_code=stock_code)
             if is_chips:
-                # 对于筹码分布表，每天有多条记录，需要去重
                 return set(qs.values_list('trade_time', flat=True).distinct())
             return set(qs.values_list('trade_time', flat=True))
-        # 获取指定范围内的交易日历的辅助函数
         @sync_to_async(thread_sensitive=True)
         def get_trade_calendar_dates(min_date, max_date):
             """从交易日历中获取指定范围内的所有开市日期"""
@@ -1489,53 +1515,44 @@ def repair_missing_cyq_data_for_stock(self, stock_code: str, *, cache_manager: C
         if not daily_dates:
             print(f"[{stock_code}] [数据修复] 警告: 核心日线数据(daily_data)为空，无法进行比较和修复。")
             return
-        # 【代码修改】重构缺失日期的计算逻辑
-        # 3. 计算缺失的日期
-        # 3.1 首先根据 stock_daily_data 计算出原始的缺失日期集合
+        # 3. 计算最终缺失的交易日
         missing_perf_dates_raw = daily_dates - perf_dates
         missing_chips_dates_raw = daily_dates - chips_dates
-        # 3.2 获取当前股票数据时间范围内的所有真实交易日
         min_date, max_date = min(daily_dates), max(daily_dates)
         trade_calendar_dates = await get_trade_calendar_dates(min_date, max_date)
         print(f"[{stock_code}] [数据修复] 股票数据范围 {min_date} 到 {max_date}，从交易日历获取到 {len(trade_calendar_dates)} 个交易日。")
-        # 3.3 将原始缺失日期与交易日历取交集，以过滤掉任何潜在的非交易日，得到最终的缺失日期列表
         missing_perf_dates = sorted(list(missing_perf_dates_raw & trade_calendar_dates))
         missing_chips_dates = sorted(list(missing_chips_dates_raw & trade_calendar_dates))
-        # 【代码修改】结束
         # 4. 修复缺失的 'cyq_perf' 数据
         if missing_perf_dates:
             print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_perf_dates)} 天的 'cyq_perf' 数据。")
-            date_ranges = _group_consecutive_dates(missing_perf_dates)
-            print(f"[{stock_code}] [数据修复] 将为 {len(date_ranges)} 个日期范围派发 'cyq_perf' 修复任务。")
+            # 【代码修改】使用新的分块函数替换旧的连续日期合并函数
+            date_ranges = _group_dates_by_chunk_size(missing_perf_dates, MIN_TRADE_DAYS_PER_API_CALL)
+            print(f"[{stock_code}] [数据修复] 将缺失数据按每批最少 {MIN_TRADE_DAYS_PER_API_CALL} 个交易日进行分块，共 {len(date_ranges)} 批，准备派发 'cyq_perf' 修复任务。")
             for start_date, end_date in date_ranges:
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
                 # print(f"  -> 派发 'cyq_perf' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
-                # 调用已有的执行器任务进行修复
                 save_single_stock_cyq_perf.delay(
                     stock_code=stock_code,
                     start_date_str=start_date_str,
                     end_date_str=end_date_str
                 )
-        # else:
-            # print(f"[{stock_code}] [数据修复] 'cyq_perf' 数据完整，无需修复。")
         # 5. 修复缺失的 'cyq_chips' 数据
         if missing_chips_dates:
             print(f"[{stock_code}] [数据修复] 发现缺失 {len(missing_chips_dates)} 天的 'cyq_chips' 数据。")
-            date_ranges = _group_consecutive_dates(missing_chips_dates)
-            print(f"[{stock_code}] [数据修复] 将为 {len(date_ranges)} 个日期范围派发 'cyq_chips' 修复任务。")
+            # 【代码修改】使用新的分块函数替换旧的连续日期合并函数
+            date_ranges = _group_dates_by_chunk_size(missing_chips_dates, MIN_TRADE_DAYS_PER_API_CALL)
+            print(f"[{stock_code}] [数据修复] 将缺失数据按每批最少 {MIN_TRADE_DAYS_PER_API_CALL} 个交易日进行分块，共 {len(date_ranges)} 批，准备派发 'cyq_chips' 修复任务。")
             for start_date, end_date in date_ranges:
                 start_date_str = start_date.strftime('%Y-%m-%d')
                 end_date_str = end_date.strftime('%Y-%m-%d')
                 # print(f"  -> 派发 'cyq_chips' 修复任务: {stock_code}, 范围: {start_date_str} to {end_date_str}")
-                # 调用已有的执行器任务进行修复
                 save_single_stock_cyq_chips.delay(
                     stock_code=stock_code,
                     start_date_str=start_date_str,
                     end_date_str=end_date_str
                 )
-        # else:
-            # print(f"[{stock_code}] [数据修复] 'cyq_chips' 数据完整，无需修复。")
     try:
         async_to_sync(_async_repair)()
         # print(f"[{stock_code}] [数据修复] 检查和修复任务派发完成。")
