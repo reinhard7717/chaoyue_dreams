@@ -150,8 +150,9 @@ class IntelligenceLayer:
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
             # 在所有基础探针之后，调用“赫淮斯托斯熔炉”进行底层解剖
-            self._deploy_hephaestus_forge_probe(probe_date, 'BEHAVIOR', 'BOTTOM_REVERSAL')
-            
+            # self._deploy_hephaestus_forge_probe(probe_date, 'BEHAVIOR', 'BOTTOM_REVERSAL')
+            # 调用“先知引擎”进行风险预测
+            self._deploy_prophet_probe(probe_date)
             # self._deploy_genesis_probe(probe_date)
             # self._deploy_turbo_probe(probe_date)
             # self._deploy_judgment_day_probe(probe_date)
