@@ -44,11 +44,11 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 赫尔墨斯信使协议版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 引入“赫尔墨斯信使协议”，通过分析上下影线关系，识别日内真实的多空力量对比。
-        - 核心逻辑: 1. 新增“赫尔墨斯调节器”，奖励长下影（多头反攻），惩罚长上影（诱多陷阱）。
-                      2. 最终恐慌分 = (五大支柱 * 静谧度 * 反弹强度) * 赫尔墨斯调节器。
-        - 收益: 赋予神谕识别“假反弹、真出货”的火眼金睛，确保信号的最终纯洁性。
+        【V3.4 · 最终审判协议版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 废除对“恐慌分”进行不恰当的“关系元分析”。
+        - 核心逻辑: 1. 最终的恐慌分不再经过趋势和加速度的审查。
+                      2. 直接采纳由“五大支柱”和“均线结构”融合而成的“瞬时恐慌快照分”。
+        - 收益: 解决了因元分析错误惩罚瞬时爆发信号，导致恐慌分被大幅削弱的致命缺陷。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -91,21 +91,20 @@ class TacticEngine:
         ).astype(np.float32)
         
         snapshot_panic = raw_panic_score * (1 - ma_context_score)
-        meta_analyzed_panic_score = self._perform_tactic_relational_meta_analysis(df, snapshot_panic)
+        
+        # [代码修改] 签署“最终审判协议”：直接采纳瞬时恐慌快照分，不再进行关系元分析
+        meta_analyzed_panic_score = snapshot_panic
         
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
         
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         rebound_strength_score = ((df['close_D'] - df['low_D']) / day_range).fillna(0.5).clip(0, 1)
         
-        # [代码新增] 签署“赫尔墨斯信使协议”，解码日内博弈路径
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
-        # 将[-1, 1]的赫尔墨斯分转换为[0, 1]的调节器，惩罚长上影，奖励长下影
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
 
-        # [代码修改] 最终分数现在由四者相乘决定，赫尔墨斯调节器作为最终的守门人
         base_score = meta_analyzed_panic_score * final_calmness_score * rebound_strength_score
         final_score = base_score.where(is_significant_drop, 0) * hermes_regulator
         

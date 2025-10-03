@@ -618,10 +618,10 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.8 · 赫尔墨斯信使协议同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 探针的重算逻辑已与主引擎的“赫尔墨斯信使协议”版本完全同步。
-        - 新核心公式: 最终恐慌分 = (五大支柱 * 静谧度 * 反弹强度) * 赫尔墨斯调节器，且满足盘中暴跌门槛。
-        - 收益: 确保探针能够正确解剖和验证最新的、能够识别日内真实多空力量对比的终极评分逻辑。
+        【V1.9 · 最终审判协议同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“最终审判协议”版本完全同步。
+        - 新核心公式: 最终恐慌分 = ((五大支柱和 * 均线结构分) * 静谧度 * 反弹强度) * 赫尔墨斯调节器
+        - 收益: 确保探针能够正确解剖和验证最新的、最纯粹的恐慌评分逻辑。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
@@ -640,7 +640,8 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        print(f"    - [核心公式]: (五大支柱和 * 静谧度 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
+        # [代码修改] 更新核心公式描述
+        print(f"    - [核心公式]: ((五大支柱和 * 结构分) * 静谧度 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
 
         print("\n  [链路层 3] 钻透 -> 五大支柱 & 调节器")
         
@@ -694,7 +695,6 @@ class IntelligenceLayer:
         rebound_strength_score_recalc = ((df.at[probe_date, 'close_D'] - df.at[probe_date, 'low_D']) / day_range_raw) if day_range_raw > 0 else 0.5
         print(f"      - [探针重算] 反弹强度分: {rebound_strength_score_recalc:.4f}")
 
-        # [代码新增] 新增对“赫尔墨斯调节器”的解剖
         print(f"    --- 调节器 III: 赫尔墨斯信使 (日内博弈) ---")
         upper_shadow_raw = df.at[probe_date, 'high_D'] - max(df.at[probe_date, 'open_D'], df.at[probe_date, 'close_D'])
         lower_shadow_raw = min(df.at[probe_date, 'open_D'], df.at[probe_date, 'close_D']) - df.at[probe_date, 'low_D']
@@ -712,14 +712,20 @@ class IntelligenceLayer:
         )
         print(f"    - [探针重算] 五大支柱加权和: {raw_panic_score_recalc:.4f}")
         
+        # [代码新增] 探针必须复刻主引擎的结构分计算
+        ma_context_score_recalc = tactic_engine_probe._calculate_ma_trend_context(df, [5, 13, 21, 55]).get(probe_date, 0.5)
+        snapshot_panic_recalc = raw_panic_score_recalc * (1 - ma_context_score_recalc)
+        print(f"    - [探针重算] 均线结构分(弱势背景): {(1 - ma_context_score_recalc):.4f}")
+        print(f"    - [探针重算] 瞬时恐慌快照分 (五大支柱和 * 结构分): {snapshot_panic_recalc:.4f}")
+
         is_significant_drop = intraday_low_pct_change_raw < min_price_drop_pct
         print(f"    - [探针检查] 价格暴跌门槛 ({min_price_drop_pct:.2%}) 是否满足? {'✅ 是' if is_significant_drop else '❌ 否'}")
 
-        # [代码修改] 更新最终分数的重算逻辑，加入赫尔墨斯调节器
-        base_recalculated_score = raw_panic_score_recalc * volume_calmness_score_recalc * rebound_strength_score_recalc
+        # [代码修改] 更新最终分数的重算逻辑，使用 snapshot_panic_recalc
+        base_recalculated_score = snapshot_panic_recalc * volume_calmness_score_recalc * rebound_strength_score_recalc
         final_recalculated_score = base_recalculated_score * hermes_regulator_recalc if is_significant_drop else 0
         
-        print(f"    - [探针重算恐慌战备分]: ({raw_panic_score_recalc:.4f} * {volume_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
+        print(f"    - [探针重算恐慌战备分]: (({raw_panic_score_recalc:.4f} * {(1-ma_context_score_recalc):.4f}) * {volume_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
