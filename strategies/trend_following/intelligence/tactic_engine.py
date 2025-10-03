@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, get_unified_score, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, get_unified_score, normalize_score, normalize_to_bipolar
 
 class TacticEngine:
     """
