@@ -27,7 +27,7 @@ class ChipIntelligence:
         all_chip_states.update(unified_states)
 
         # “吸筹剧本”和“投降反转剧本”的诊断逻辑被重构为潜力诊断，不再输出PLAYBOOK信号
-        accumulation_potential_states = self.diagnose_accumulation_potential(df)
+        accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
 
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
