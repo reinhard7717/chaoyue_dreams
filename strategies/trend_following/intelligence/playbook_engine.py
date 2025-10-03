@@ -56,6 +56,7 @@ class PlaybookEngine:
             {'name': 'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION', 'trigger': ['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION']},
             {'name': 'PLAYBOOK_BREAKOUT_EVE', 'trigger': ['PLAYBOOK_BREAKOUT_EVE']},
             {'name': 'PLAYBOOK_CHIP_PRICE_LAG', 'trigger': ['PLAYBOOK_CHIP_PRICE_LAG']},
+            {'name': 'PLAYBOOK_CAPITULATION_REVERSAL', 'trigger': ['TRIGGER_CAPITULATION_REVERSAL']},
             {'name': 'PLAYBOOK_ASCENT_PIT_REVERSAL', 'trigger': ['TACTIC_ASCENT_PIT_REVERSAL']},
             {'name': 'PLAYBOOK_ASCENT_PULLBACK_REVERSAL', 'trigger': ['TACTIC_ASCENT_PULLBACK_REVERSAL']},
             {'name': 'PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT', 'trigger': ['PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT']},
@@ -112,6 +113,11 @@ class PlaybookEngine:
         is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > get_param_value(p_cyclical.get('cyclical_regime_threshold'), 0.3)
         # 生产净化后的信号名
         triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_in_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
+        
+        # 定义新的“恐慌投降反转”剧本触发器
+        p_capitulation = p_triggers.get('capitulation_reversal', {'trigger_threshold': 0.4})
+        capitulation_reversal_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_CAPITULATION_REVERSAL')
+        triggers['TRIGGER_CAPITULATION_REVERSAL'] = capitulation_reversal_score > get_param_value(p_capitulation.get('trigger_threshold'), 0.4)
 
         # --- 3. 填充其他剧本的布尔状态 (这些剧本的逻辑已在TacticEngine中计算) ---
         # 全面净化信号名

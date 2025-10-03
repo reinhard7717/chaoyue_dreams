@@ -37,11 +37,9 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.8 · 天使长归位版】顶层认知总分合成模块
-        - 核心升级: 1. 正式接管“天使长”信号(SCORE_ARCHANGEL_TOP_REVERSAL)的诊断职责。
-                      2. 确保在其所有依赖项（如高位回落风险）计算完毕后，再执行诊断，修复了严重的时序悖论。
+        【V2.9 · 职责净化版】顶层认知总分合成模块
         """
-        # print("        -> [顶层认知总分合成模块 V2.8 · 天使长归位版] 启动...")
+        # print("        -> [顶层认知总分合成模块 V2.9 · 职责净化版] 启动...")
         # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -49,8 +47,6 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
         # --- 步骤 1: 执行本模块的核心认知融合任务 ---
-        volatility_states = self._synthesize_volatility_signals(df)
-        self.strategy.atomic_states.update(volatility_states)
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
         df = self.synthesize_structural_fusion_scores(df)
@@ -80,7 +76,7 @@ class CognitiveIntelligence:
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
-        # print("        -> [顶层认知总分合成模块 V2.8] 认知升级完成。")
+        # print("        -> [顶层认知总分合成模块 V2.9] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -128,41 +124,20 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V2.5 · 信号净化版】趋势质量融合评分模块
-        - 核心重构: 使用 get_unified_score 消费唯一的终极信号。
+        【V2.6 · 架构对齐版】趋势质量融合评分模块
+        - 核心重构: 修复了筹码健康度计算的逻辑断层，使其直接消费筹码层的终极共振信号。
         """
         # 使用新的 get_unified_score 函数
         behavior_health_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         structural_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
-        
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
         regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5 # 使用几何平均
         
-        p_chip_pillars = get_params_block(self.strategy, 'trend_quality_params', {}).get('chip_pillar_weights', {})
-        chip_pillar_names = ['quantitative', 'advanced', 'internal', 'holder', 'fault']
-        
-        # 筹码支柱融合从加法改为乘法
-        chip_pillar_scores = []
-        chip_pillar_weights = []
-        for pillar_name in chip_pillar_names:
-            weight = p_chip_pillars.get(pillar_name, 0.2)
-            if weight > 0:
-                pillar_health_signal_name = f'SCORE_CHIP_PILLAR_{pillar_name.upper()}_HEALTH'
-                pillar_score = self._get_atomic_score(df, pillar_health_signal_name, 0.5) # 默认值改为0.5
-                chip_pillar_scores.append(pillar_score.values)
-                chip_pillar_weights.append(weight)
-        
-        if chip_pillar_scores:
-            weights_array = np.array(chip_pillar_weights)
-            weights_array /= weights_array.sum() # 归一化权重
-            stacked_scores = np.stack(chip_pillar_scores, axis=0)
-            chip_health_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            chip_health_score = pd.Series(chip_health_score_values, index=df.index, dtype=np.float32)
-        else:
-            chip_health_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        # 趋势质量中的“筹码健康度”现在直接消费筹码层终极信号，不再重复计算
+        chip_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
 
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
@@ -415,36 +390,29 @@ class CognitiveIntelligence:
 
     def synthesize_ignition_resonance_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.1 · 信号净化版】多域点火共振分数合成模块
-        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
+        【V2.2 · 依赖净化版】多域点火共振分数合成模块
+        - 核心重构: 移除了对已废弃的原子剧本信号的依赖，使融合逻辑更纯粹。
         """
-        # print("        -> [多域点火共振分数合成模块 V2.1 信号净化版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        chip_playbook_ignition = self._get_atomic_score(df, 'SCORE_CHIP_PLAYBOOK_VACUUM_BREAKOUT', 0.0)
         
-        # 全面使用 get_unified_score 消费净化后的信号
+        # 移除了对已废弃的原子剧本信号的依赖
         chip_consensus_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
         behavioral_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE')
         structural_breakout = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
-        # VOL_BREAKOUT 信号名本身不规范，暂时保留，但推荐未来统一为 SCORE_VOL_BREAKOUT
         volatility_breakout = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
-        fund_flow_ignition_old = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
+        fund_flow_ignition = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         
-        fund_flow_conviction_breakout = self._get_atomic_score(df, 'SCORE_FF_PLAYBOOK_CONVICTION_BREAKOUT', 0.0)
         general_ignition_resonance = (
             behavioral_ignition * structural_breakout * mechanics_ignition *
-            chip_consensus_ignition * fund_flow_ignition_old * volatility_breakout
+            chip_consensus_ignition * fund_flow_ignition * volatility_breakout
         )
-        ignition_resonance_score = np.maximum.reduce([
-            chip_playbook_ignition.values, 
-            general_ignition_resonance.values,
-            fund_flow_conviction_breakout.values
-        ]).astype(np.float32)
         
-        # 移除信号名中的_S后缀
+        # 简化融合逻辑，核心是各大领域的看涨共振
+        ignition_resonance_score = general_ignition_resonance.astype(np.float32)
+        
         states['COGNITIVE_SCORE_IGNITION_RESONANCE'] = pd.Series(ignition_resonance_score, index=df.index)
         self.strategy.atomic_states.update(states)
         return df
@@ -522,8 +490,8 @@ class CognitiveIntelligence:
 
     def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 · 信号净化版】行业-个股协同元融合引擎
-        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
+        【V1.3 · 依赖净化版】行业-个股协同元融合引擎
+        - 核心重构: 更新消费的风险信号为最新的、正确的融合风险信号。
         """
         states = {}
         atomic = self.strategy.atomic_states
@@ -535,23 +503,22 @@ class CognitiveIntelligence:
         score_downtrend = atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
         industry_bearish_score = np.maximum(score_stagnation, score_downtrend)
         
-        # 更新消费的信号名
         stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE', default_score)
         stock_breakout_score = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
         
         stock_bullish_score = np.maximum(stock_ignition_score, stock_breakout_score)
-        stock_breakdown_score = atomic.get('COGNITIVE_SCORE_BREAKDOWN_RESONANCE_S', default_score)
-        stock_distribution_score = atomic.get('COGNITIVE_SCORE_RISK_TOP_DISTRIBUTION', default_score)
-        stock_bearish_score = np.maximum(stock_breakdown_score, stock_distribution_score)
-        synergy_offense_score = pd.Series(industry_bullish_score, index=df.index) * pd.Series(stock_bullish_score, index=df.index)
         
-        # 移除信号名中的_S后缀
+        # 将消费的信号更新为最新的、正确的融合风险信号
+        stock_breakdown_score = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE', default_score)
+        stock_distribution_score = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL', default_score)
+        stock_bearish_score = np.maximum(stock_breakdown_score, stock_distribution_score)
+        
+        synergy_offense_score = pd.Series(industry_bullish_score, index=df.index) * pd.Series(stock_bullish_score, index=df.index)
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE'] = synergy_offense_score.astype(np.float32)
+        
         synergy_risk_score = pd.Series(industry_bearish_score, index=df.index) * pd.Series(stock_bearish_score, index=df.index)
-        # 移除信号名中的_S后缀
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK'] = synergy_risk_score.astype(np.float32)
         
-        # 更新 atomic_states 并返回 df 以维持调用链
         self.strategy.atomic_states.update(states)
         return df
 
@@ -578,56 +545,6 @@ class CognitiveIntelligence:
         # 更新 atomic_states 并返回 df 以维持调用链
         self.strategy.atomic_states.update(states)
         return df
-
-    # 新增一个专门的波动率认知信号合成方法
-    def _synthesize_volatility_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V3.0 · 圣杯版】波动率与亢奋诊断引擎
-        - 核心革命: 引入“趋势成熟度”作为“理智熔断器”，重塑“亢奋加速”风险的计算逻辑。
-                      亢奋风险 = 原始加速分 * 趋势成熟度。
-        - 收益: 彻底解决了系统在健康主升浪初期因“加速”而误判为风险的致命缺陷。
-        """
-        states = {}
-        p_conf = get_params_block(self.strategy, 'volatility_params', {})
-        if not get_param_value(p_conf.get('enabled'), True):
-            return states
-
-        norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        
-        # 步骤1: 计算“趋势成熟度”作为理智熔断器
-        # 使用长期均线（如EMA120）和ATR来衡量趋势的伸展程度
-        long_term_ma_period = get_param_value(p_conf.get('long_term_ma_period'), 120)
-        atr_period = get_param_value(p_conf.get('atr_period'), 21)
-        long_term_ma_col = f'EMA_{long_term_ma_period}_D'
-        atr_col = f'ATR_{atr_period}_D'
-
-        if long_term_ma_col in df.columns and atr_col in df.columns:
-            long_term_ma = df.get(long_term_ma_col, df['close_D'])
-            atr = df.get(atr_col, 1.0)
-            # 计算价格偏离长期均线的ATR倍数
-            trend_extension_ratio = (df['close_D'] - long_term_ma) / atr.replace(0, 1)
-            # 将其归一化为 [0, 1] 的成熟度分数，越高代表越成熟
-            trend_maturity_score = normalize_score(trend_extension_ratio, df.index, norm_window, ascending=True)
-        else:
-            # 如果缺少指标，则成熟度为中性，不产生影响
-            trend_maturity_score = pd.Series(0.5, index=df.index)
-        
-        states['COGNITIVE_INTERNAL_TREND_MATURITY'] = trend_maturity_score.astype(np.float32)
-
-        # 步骤2: 计算原始的亢奋加速风险 (保持不变)
-        slope_bbw = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
-        accel_bbw = df.get('ACCEL_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
-        
-        slope_score = normalize_score(slope_bbw, df.index, norm_window, ascending=True)
-        accel_score = normalize_score(accel_bbw, df.index, norm_window, ascending=True)
-        
-        raw_euphoria_accel_risk = (slope_score * accel_score).clip(0, 1)
-
-        # 步骤3: 应用“理智熔断器”，生成智慧型亢奋风险
-        intelligent_euphoria_risk = (raw_euphoria_accel_risk * trend_maturity_score).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION'] = intelligent_euphoria_risk
-        
-        return states
 
     def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
         """

@@ -188,8 +188,8 @@
             "cn_name": "【认知】反转可靠性",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 1500,
-            "description": "【王牌信号】融合深度价值区、股东换血、趋势企稳三大要素，综合评估当前底部反转的可靠程度，是策略转向的核心依据。"
+            "score": 1200,
+            "description": "【S级战略信号】融合深度价值区、股东换血、趋势企稳三大要素，综合评估当前底部反转的可靠程度，是策略转向的核心依据。"
         },
         "COGNITIVE_SCORE_TREND_QUALITY": {
             "cn_name": "【认知】趋势质量分",
@@ -201,15 +201,15 @@
             "cn_name": "【认知】健康回踩",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 200,
-            "description": "在建设性背景下，出现缩量、温和下跌，且筹码稳定、周期配合的回踩行为。"
+            "score": 250,
+            "description": "【B级战术信号】在建设性背景下，出现缩量、温和下跌，且筹码稳定、周期配合的回踩行为。"
         },
         "COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE": {
             "cn_name": "【认知】打压回踩",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 250,
-            "description": "在建设性背景下，出现放量、急跌的洗盘式回踩行为，通常是强庄所为。"
+            "score": 300,
+            "description": "【B级战术信号】在建设性背景下，出现放量、急跌的洗盘式回踩行为，通常是强庄所为。"
         },
         "COGNITIVE_SCORE_IGNITION_RESONANCE": {
             "cn_name": "【认知】多域点火共振",
@@ -222,8 +222,8 @@
             "cn_name": "【认知】多域反转共振",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 500,
-            "description": "多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。"
+            "score": 700,
+            "description": "【A级主战信号】多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。"
         },
         "COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE": {
             "cn_name": "【认知】行业协同进攻",
@@ -236,8 +236,8 @@
             "cn_name": "【认知】状态过程协同",
             "category": "认知层-机会",
             "type": "dynamic",
-            "score": 400,
-            "description": "【核心信号】融合所有领域的“状态分”和“过程分”，代表状态与过程的协同共振强度。"
+            "score": 600,
+            "description": "【A级主战信号】融合所有领域的“状态分”和“过程分”，代表状态与过程的协同共振强度。"
         },
         "COGNITIVE_INTERNAL_TREND_MATURITY": {
             "cn_name": "【内部】趋势成熟度",
@@ -263,43 +263,43 @@
             "cn_name": "【认知】终极看涨确认",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 350,
-            "description": "融合结构与形态，对看涨趋势的最终确认。"
+            "score": 380,
+            "description": "【B级战术信号】融合结构与形态，对看涨趋势的最终确认。"
         },
         "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION": {
             "cn_name": "【认知风险】终极看跌确认",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 300,
-            "description": "融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。"
+            "penalty_weight": 700,
+            "description": "【B级冲突信号】融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION": {
             "cn_name": "【认知】终极底部确认",
             "category": "认知层-机会",
             "type": "positional",
-            "score": 300,
-            "description": "融合结构与形态，对底部的最终确认。"
+            "score": 500,
+            "description": "【A级主战信号】融合结构与形态，对底部的最终确认。"
         },
         "COGNITIVE_ULTIMATE_TOP_CONFIRMATION": {
             "cn_name": "【认知风险】终极顶部确认",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 250,
-            "description": "融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
+            "penalty_weight": 600,
+            "description": "【B级冲突信号】融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE": {
             "cn_name": "【认知】趋势加速级联",
             "category": "认知层-机会",
             "type": "dynamic",
-            "score": 600,
-            "description": "【涡轮增压】诊断看涨共振是否正在形成“时序级联”（短期->中长期）和“领域级联”（行为->筹码->资金），是识别趋势进入主升浪的王牌信号。"
+            "score": 800,
+            "description": "【A级主战信号】诊断看涨共振是否正在形成“时序级联”和“领域级联”，是识别趋势进入主升浪的王牌信号。"
         },
         "COGNITIVE_SCORE_CHIMERA_CONFLICT": {
             "cn_name": "【认知风险】奇美拉冲突",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": 800,
-            "description": "【元认知风险】量化“牛熊冲突”的激烈程度，当看涨和看跌力量同时处于高位时，此分值会很高。它将作为“信心阻尼器”压制进攻分，并作为一个独立的、强烈的风险信号。"
+            "description": "【B级冲突信号】量化“牛熊冲突”的激烈程度，当看涨和看跌力量同时处于高位时，此分值会很高。它将作为“信心阻尼器”压制进攻分，并作为一个独立的、强烈的风险信号。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
         "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION": {
@@ -313,8 +313,8 @@
             "cn_name": "【微观】伪装散户吸筹",
             "category": "微观行为-机会",
             "type": "dynamic",
-            "score": 300,
-            "description": "四维交叉验证信号：融合'散户资金流入'、'筹码持续集中'、'价格波动压制'和'VPA效率低下'四大特征，高置信度识别主力通过分单进行隐蔽吸筹的行为。"
+            "score": 450,
+            "description": "【B级战术信号】四维交叉验证信号，高置信度识别主力通过分单进行隐蔽吸筹的行为。"
         },
         "COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE": {
             "cn_name": "【微观机会】主导权转移(主力)",
@@ -334,8 +334,8 @@
             "cn_name": "【微观机会】主力信念加强",
             "category": "微观行为-机会",
             "type": "dynamic",
-            "score": 280,
-            "description": "核心主力(特大单)的买入意愿正在加速增强，是趋势健康和即将加速的强确认信号。"
+            "score": 400,
+            "description": "【B级战术信号】核心主力(特大单)的买入意愿正在加速增强，是趋势健康和即将加速的强确认信号。"
         },
         "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": {
             "cn_name": "【微观风险】主力信念瓦解",
@@ -356,152 +356,147 @@
             "cn_name": "【战法】恐慌抛售备战",
             "category": "战法-环境",
             "type": "process",
-            "score": 300,
             "scoring_mode": "unipolar",
-            "description": "【先知的低语】融合价格大幅下跌、成交量放大、筹码结构崩溃等特征，识别出适合V型反转的“恐慌抛售日”战备状态，为常规信号提供加分。"
+            "description": "【先知的低语】融合价格大幅下跌、成交量放大、筹码结构崩溃等特征，识别出适合V型反转的“恐慌抛售日”战备状态，为常规信号提供加分。具体分值由计分引擎定义。"
         },
         "SCORE_PLAYBOOK_V_REVERSAL_ACE": {
             "cn_name": "【战法】V型反转王牌",
             "category": "战法-机会",
             "type": "playbook",
-            "score": 800,
-            "description": "在确认的“恐慌抛售日”之后，由当日强劲的“显性反转K线”确认的最高确定性V型反转剧本。"
+            "description": "在确认的“恐慌抛售日”之后，由当日强劲的“显性反转K线”确认的最高确定性V型反转剧本。具体分值由计分引擎定义。"
         },
         "SCORE_PLAYBOOK_CHIP_PRICE_LAG": {
             "cn_name": "【战法】筹码价格滞后",
             "category": "战法-机会",
             "type": "playbook",
-            "score": 350,
-            "description": "在筹码高度共振、价格被压制的战备状态后，由温和点火信号确认的黄金突破口。"
+            "description": "在筹码高度共振、价格被压制的战备状态后，由温和点火信号确认的黄金突破口。具体分值由计分引擎定义。"
+        },
+        "SCORE_PLAYBOOK_CAPITULATION_REVERSAL": {
+            "cn_name": "【战法】恐慌投降反转",
+            "category": "战法-机会",
+            "type": "playbook",
+            "description": "在“恐慌投降潜力”的背景下，由行为层反转信号确认的剧本。具体分值由计分引擎定义。"
         },
         "SCORE_PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": {
             "cn_name": "【战法】极致压缩突破",
             "category": "战法-机会",
             "type": "playbook",
-            "score": 450,
-            "description": "在波动率极致压缩后，由高强度的压缩突破信号确认。"
+            "description": "在波动率极致压缩后，由高强度的压缩突破信号确认。具体分值由计分引擎定义。"
         },
         "SCORE_PLAYBOOK_BREAKOUT_EVE": {
             "cn_name": "【战法】突破前夕",
             "category": "战法-机会",
             "type": "playbook",
-            "score": 400,
-            "description": "在平台和波动率双重压缩的突破前夕，由最高级别的点火共振信号确认。"
+            "description": "在平台和波动率双重压缩的突破前夕，由最高级别的点火共振信号确认。具体分值由计分引擎定义。"
         },
         "SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY": {
             "cn_name": "【战法】均值回归买入",
             "category": "战法-机会",
             "type": "playbook",
-            "score": 180,
-            "description": "融合了震荡市环境和价格位置的最终均值回归买入剧本分数。"
+            "description": "融合了震荡市环境和价格位置的最终均值回归买入剧本分数。具体分值由计分引擎定义。"
         },
+
         "说明_playbook_engine": "--- 剧本引擎信号 (Playbook Engine) ---",
         "PLAYBOOK_V_REVERSAL_ACE": {
             "cn_name": "【剧本】V型反转王牌",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 800,
-            "description": "执行“V型反转王牌”剧本。"
+            "description": "执行“V型反转王牌”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT": {
             "cn_name": "【剧本】黄金结构突破",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 700,
-            "description": "执行“黄金结构突破”剧本。"
+            "description": "执行“黄金结构突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_PERFECT_STORM_BOTTOM": {
             "cn_name": "【剧本】完美风暴-底",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 650,
-            "description": "执行“完美风暴底部”剧本。"
+            "description": "执行“完美风暴底部”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_CRUISE_PIT_REVERSAL": {
             "cn_name": "【剧本】巡航黄金坑",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 600,
-            "description": "执行“巡航深坑反转”剧本。"
+            "description": "执行“巡航深坑反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": {
             "cn_name": "【剧本】巡航回踩确认",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 500,
-            "description": "执行“巡航回踩反转”剧本。"
+            "description": "执行“巡航回踩反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": {
             "cn_name": "【剧本】极致压缩突破",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 450,
-            "description": "执行“极致压缩突破”剧本。"
+            "description": "执行“极致压缩突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_BREAKOUT_EVE": {
             "cn_name": "【剧本】突破前夕",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 400,
-            "description": "执行“突破前夕”剧本。"
+            "description": "执行“突破前夕”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_CHIP_PRICE_LAG": {
             "cn_name": "【剧本】筹码价格滞后",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 350,
-            "description": "执行“筹码价格滞后”剧本。"
+            "description": "执行“筹码价格滞后”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
+        },
+        "PLAYBOOK_CAPITULATION_REVERSAL": {
+            "cn_name": "【剧本】恐慌投降反转",
+            "category": "剧本-机会",
+            "type": "playbook",
+            "description": "执行“恐慌投降反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_ASCENT_PIT_REVERSAL": {
             "cn_name": "【剧本】初升浪黄金坑",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 300,
-            "description": "执行“初升浪深坑反转”剧本。"
+            "description": "执行“初升浪深坑反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": {
             "cn_name": "【剧本】初升浪回踩确认",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 250,
-            "description": "执行“初升浪回踩反转”剧本。"
+            "description": "执行“初升浪回踩反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": {
             "cn_name": "【剧本】常规压缩突破",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 200,
-            "description": "执行“常规压缩突破”剧本。"
+            "description": "执行“常规压缩突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_MEAN_REVERSION_GRID": {
             "cn_name": "【剧本】均值回归网格",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 180,
-            "description": "执行“均值回归网格”剧本。"
+            "description": "执行“均值回归网格”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
         "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": {
             "cn_name": "【剧本】周期底捞",
             "category": "剧本-机会",
             "type": "playbook",
-            "score": 220,
-            "description": "执行“周期底捞”剧本。"
+            "description": "执行“周期底捞”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
+
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 ---",
         "SCORE_CHIP_BULLISH_RESONANCE": {
             "cn_name": "【筹码终极】看涨共振",
             "category": "筹码层-机会",
             "type": "dynamic",
-            "score": 200,
-            "description": "所有筹码支柱在所有周期上形成看涨共振。"
+            "score": 180,
+            "description": "【C级基础信号】所有筹码支柱在所有周期上形成看涨共振。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
             "cn_name": "【筹码终极风险】看跌共振",
             "category": "筹码层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "所有筹码支柱在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】所有筹码支柱在所有周期上形成看跌共振。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
             "cn_name": "【筹码终极】底部反转",
@@ -521,23 +516,23 @@
             "cn_name": "【筹码终极风险】顶部反转",
             "category": "筹码层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "筹码动态健康度在顶部形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】筹码动态健康度在顶部形成强力反转风险。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
         "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
             "cn_name": "【行为终极】看涨共振",
             "category": "行为层-机会",
             "type": "dynamic",
-            "score": 150,
-            "description": "价格、成交量、K线形态在所有周期上形成看涨共振。"
+            "score": 180,
+            "description": "【C级基础信号】价格、成交量、K线形态在所有周期上形成看涨共振。"
         },
         "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
             "cn_name": "【行为终极风险】看跌共振",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "价格、成交量、K线形态在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】价格、成交量、K线形态在所有周期上形成看跌共振。"
         },
         "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
             "cn_name": "【行为终极】底部反转",
@@ -557,23 +552,23 @@
             "cn_name": "【行为终极风险】顶部反转",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "行为动态健康度在顶部形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】行为动态健康度在顶部形成强力反转风险。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
         "SCORE_FF_BULLISH_RESONANCE": {
             "cn_name": "【资金终极】看涨共振",
             "category": "资金流-机会",
             "type": "dynamic",
-            "score": 180,
-            "description": "基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。"
+            "score": 160,
+            "description": "【C级基础信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。"
         },
         "SCORE_FF_BEARISH_RESONANCE": {
             "cn_name": "【资金终极风险】看跌共振",
             "category": "资金流-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "基于“共识”和“信念”意图的资金流支柱在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FF_BOTTOM_REVERSAL": {
             "cn_name": "【资金终极】底部反转",
@@ -593,23 +588,23 @@
             "cn_name": "【资金终极风险】顶部反转",
             "category": "资金流-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "在价格顶部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】在价格顶部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转风险。"
         },
         "说明_structural_ultimate": "--- 结构层-终极信号 ---",
         "SCORE_STRUCTURE_BULLISH_RESONANCE": {
             "cn_name": "【结构终极】看涨共振",
             "category": "结构层-机会",
             "type": "dynamic",
-            "score": 120,
-            "description": "均线、力学、MTF、形态四大结构支柱在所有周期上形成看涨共振。"
+            "score": 150,
+            "description": "【C级基础信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看涨共振。"
         },
         "SCORE_STRUCTURE_BEARISH_RESONANCE": {
             "cn_name": "【结构终极风险】看跌共振",
             "category": "结构层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "均线、力学、MTF、形态四大结构支柱在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看跌共振。"
         },
         "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
             "cn_name": "【结构终极】底部反转",
@@ -629,8 +624,8 @@
             "cn_name": "【结构终极风险】顶部反转",
             "category": "结构层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "结构动态健康度在顶部形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】结构动态健康度在顶部形成强力反转风险。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
         "SCORE_DYN_BULLISH_RESONANCE": {
@@ -638,14 +633,14 @@
             "category": "力学层-机会",
             "type": "dynamic",
             "score": 150,
-            "description": "波动率、效率、动能、惯性四大力学支柱在所有周期上形成看涨共振。"
+            "description": "【C级基础信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看涨共振。"
         },
         "SCORE_DYN_BEARISH_RESONANCE": {
             "cn_name": "【力学终极风险】看跌共振",
             "category": "力学层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "波动率、效率、动能、惯性四大力学支柱在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看跌共振。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
             "cn_name": "【力学终极】底部反转",
@@ -665,23 +660,23 @@
             "cn_name": "【力学终极风险】顶部反转",
             "category": "力学层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "力学动态健康度在顶部形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】力学动态健康度在顶部形成强力反转风险。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {
             "cn_name": "【基础终极】看涨共振",
             "category": "基础层-机会",
             "type": "dynamic",
-            "score": 100,
-            "description": "EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看涨共振。"
+            "score": 120,
+            "description": "【C级基础信号】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看涨共振。"
         },
         "SCORE_FOUNDATION_BEARISH_RESONANCE": {
             "cn_name": "【基础终极风险】看跌共振",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看跌共振。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
             "cn_name": "【基础终极】底部反转",
@@ -701,8 +696,8 @@
             "cn_name": "【基础终极风险】顶部反转",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": 150,
-            "description": "基础指标动态健康度在顶部形成强力反转风险。"
+            "penalty_weight": 400,
+            "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "SCORE_UNIVERSAL_BOTTOM_PATTERN": {

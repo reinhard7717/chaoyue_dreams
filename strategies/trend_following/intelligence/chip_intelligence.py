@@ -17,9 +17,8 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V501.0 · 剧本重构版】筹码情报最高司令部
-        - 核心升级: 废除旧的、分离的恐慌投降诊断三部曲，改为调用统一的、基于关系元分析的
-                      全新剧本诊断引擎。
+        【V502.0 · 权责净化版】筹码情报最高司令部
+        - 核心升级: 剥离所有剧本(Playbook)的定义职责，回归情报生产者的本源。
         """
         all_chip_states = {}
         
@@ -27,13 +26,12 @@ class ChipIntelligence:
         unified_states = self.diagnose_unified_chip_signals(df)
         all_chip_states.update(unified_states)
 
-        # 步骤 2: 执行升级后的“吸筹剧本”诊断模块 (不变)
-        accumulation_states = self.diagnose_accumulation_playbooks(df)
-        all_chip_states.update(accumulation_states)
+        # “吸筹剧本”和“投降反转剧本”的诊断逻辑被重构为潜力诊断，不再输出PLAYBOOK信号
+        accumulation_potential_states = self.diagnose_accumulation_potential(df)
+        all_chip_states.update(accumulation_potential_states)
 
-        # 步骤 3: 调用全新的、统一的“恐慌投降反转”剧本诊断引擎
-        capitulation_states = self.diagnose_playbook_capitulation_reversal(df)
-        all_chip_states.update(capitulation_states)
+        capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
+        all_chip_states.update(capitulation_potential_states)
 
         return all_chip_states
 
@@ -484,46 +482,30 @@ class ChipIntelligence:
         states['SCORE_TRIGGER_CAPITULATION_FIRE'] = trigger_score
         return states
 
-    def diagnose_playbook_capitulation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 关系元分析重构版】诊断“恐慌盘投降反转”剧本
-        - 核心革命: 废除旧的“准备-开火”三部曲，统一为一个方法。
-        - 新核心逻辑:
-          1. 构建一个融合了“深度套牢”、“长期低位”、“套牢盘换手”和“熊市均线背景”的
-             “恐慌投降关系快照分”。
-          2. 对这个快照分调用关系元分析引擎，精准捕捉这个“恐慌关系”由极盛转衰的那个
-             关键的、高价值的【反转拐点】。
+        【V3.0 · 权责净化版】诊断“恐慌投降反转”的潜力
+        - 核心革命: 不再生成剧本信号，而是生成一个更底层的“潜力/上下文”信号，供上层战术引擎消费。
         """
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
         
-        # 检查所需列
         required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
         if any(col not in df.columns for col in required_cols):
-            print(f"        -> [筹码情报-投降反转剧本] 警告: 缺少关键数据列，剧本合成已跳过！")
             return states
 
-        # 步骤一：构建“恐慌投降关系”的瞬时快照分
-        # 特征1: 深度套牢
+        # 步骤一：构建“恐慌投降关系”的瞬时快照分 (逻辑不变)
         deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
-        
-        # 特征2: 长期低位
         price_at_lows_score = 1.0 - normalize_score(df['close_D'], df.index, window=250, ascending=True)
-        
-        # 特征3: 套牢盘正在活跃换手 (割肉)
         loser_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
-        
-        # 特征4: 熊市均线背景
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        
-        # 融合四大特征，得到瞬时快照分
         snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
 
-        # 步骤二：对“恐慌投降关系”进行元分析，捕捉其由盛转衰的拐点
+        # 步骤二：对“恐慌投降关系”进行元分析 (逻辑不变)
         final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score)
         
-        states['SCORE_CHIP_PLAYBOOK_CAPITULATION_REVERSAL'] = final_score
+        # 输出信号的命名和语义发生根本性改变：从“剧本”降级为“潜力”
+        states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_score
         return states
-
 

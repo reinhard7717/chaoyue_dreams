@@ -460,7 +460,7 @@
       },
       "capitulation_reversal_params": {
         "enabled": true,
-        "description": "【V1.0】恐慌盘投降反转剧本的参数。",
+        "description": "【V2.0 · 迁移版】恐慌盘投降反转剧本的参数。此块将被迁移到 playbook_engine_params。",
         "norm_window": 55,
         "logistic_k": 0.1,
         "logistic_x0": 50.0,
@@ -623,11 +623,36 @@
       },
       "cognitive_intelligence_params": {
         "enabled": true,
-        "description": "【V1.0 · 新增】顶层认知引擎的专属参数块。",
+        "description": "【V2.0 · 关系元分析版】顶层认知引擎的专属参数块。",
         "cascade_fusion_weights": {
           "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
           "accel": 0.7
+        },
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
+        },
+        "bottom_reversal_fusion_weights": {
+            "description": "在融合多域底部反转信号时，对战术剧本信号的加权。",
+            "base_resonance": 0.4,
+            "panic_setup": 0.2,
+            "v_reversal_playbook": 0.4
+        },
+        "ignition_fusion_weights": {
+            "description": "在融合多域点火信号时，对战术剧本信号的加权。",
+            "base_resonance": 0.5,
+            "chip_price_lag_playbook": 0.5
+        }
+      },
+      "tactic_engine_params": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】战术引擎的专属参数块，用于关系元分析。",
+        "relational_meta_analysis_params": {
+          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
+          "velocity_weight": 0.6,
+          "acceleration_weight": 0.4
         }
       },
       "four_layer_scoring_params": {
@@ -638,21 +663,27 @@
           "description": "行业生命周期评分参数"
         },
         "playbook_synergy_scoring": {
-          "说明": "【剧本协同分】剧本作为独立的战术加分项。",
+          "说明": "【剧本协同分】剧本作为独立的战术加分项。分值已按“王牌-核心-助推-战术-另类”五级金字塔体系重新校准。",
           "positive_signals": {
-            "PLAYBOOK_V_REVERSAL_ACE": 800,
-            "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT": 700,
-            "PLAYBOOK_PERFECT_STORM_BOTTOM": 650,
-            "PLAYBOOK_CRUISE_PIT_REVERSAL": 600,
-            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": 500,
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": 450,
-            "PLAYBOOK_BREAKOUT_EVE": 400,
-            "PLAYBOOK_CHIP_PRICE_LAG": 350,
-            "PLAYBOOK_ASCENT_PIT_REVERSAL": 300,
-            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": 250,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": 200,
-            "PLAYBOOK_MEAN_REVERSION_GRID": 180,
-            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": 220
+            "说明_S级": "--- S级 (王牌) ---",
+            "PLAYBOOK_V_REVERSAL_ACE": 900,
+            "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT": 850,
+            "说明_A级": "--- A级 (核心) ---",
+            "PLAYBOOK_PERFECT_STORM_BOTTOM": 750,
+            "PLAYBOOK_CRUISE_PIT_REVERSAL": 650,
+            "说明_B级": "--- B级 (助推) ---",
+            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": 550,
+            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": 500,
+            "PLAYBOOK_BREAKOUT_EVE": 450,
+            "PLAYBOOK_CHIP_PRICE_LAG": 420,
+            "PLAYBOOK_CAPITULATION_REVERSAL": 400,
+            "说明_C级": "--- C级 (战术) ---",
+            "PLAYBOOK_ASCENT_PIT_REVERSAL": 350,
+            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": 280,
+            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": 220,
+            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": 200,
+            "说明_D级": "--- D级 (另类) ---",
+            "PLAYBOOK_MEAN_REVERSION_GRID": 150
           }
         },
         "judgment_params": {
@@ -716,6 +747,10 @@
           "enabled": true,
           "phase_threshold": -0.8,
           "cyclical_regime_threshold": 0.3
+        },
+        "capitulation_reversal": {
+          "description": "【新增】恐慌投降反转剧本的触发参数。",
+          "trigger_threshold": 0.4
         }
       },
       "trend_quality_params": {

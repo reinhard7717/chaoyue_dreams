@@ -11,26 +11,33 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V524.0 · 先知的敕令版】
-        - 核心革命: 重建决策优先级，授予“先知入场”神谕绝对的、超越一切的最高决策权。
-        - 核心逻辑: 1. 首先判断“先知入场”。一旦触发，它将成为当日唯一且最终的信号。
-                      2. 仅在“先知”沉默时，才继续判断“硬性离场”、“常规买入”和“风险否决”。
-        - 收益: 彻底解决了“先知入场”信号被“硬性离场”错误否决的根本性哲学冲突。
+        【V525.0 · 双轨计分版】
+        - 核心革命: 建立“神谕”与“常规”两套独立的计分与决策轨道。
+        - 核心逻辑:
+          1. 常规轨道: 照常计算 entry_score, 并受风险、冲突等因素影响，生成常规 final_score。
+          2. 神谕轨道: 当“先知入场”触发时，其 final_score 由自身的置信度分值 (predictive_opp_score) 乘以一个独立的倍率因子决定。
+          3. 最终裁决: 神谕信号拥有最高优先级，其计分结果将直接覆盖常规计分结果。
+        - 收益: 实现了神谕信号的价值量化，同时保持了其决策的绝对独立性。
         """
-        print("    --- [最高作战指挥部 V524.0 · 先知的敕令版] 启动...")
+        print("    --- [最高作战指挥部 V525.0 · 双轨计分版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         confidence_damper = 1.0 - chimera_conflict_score
+        
+        # 常规轨道的计分逻辑保持不变，作为基础分数
         df['final_score'] = (df['entry_score'] * confidence_damper)
+        
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        p_judge = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        final_score_threshold = get_param_value(p_judge.get('final_score_threshold'), 400)
+        
+        # 分别获取常规判断参数和神谕判断参数
+        p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
+        p_judge_prophet = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
+        
+        final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         
         df['signal_type'] = '无信号'
-
-        # 彻底重构决策优先级，确立“先知的敕令”
         
         # 准备所有判断条件
         is_score_sufficient = df['final_score'] > final_score_threshold
@@ -53,12 +60,19 @@ class JudgmentLayer:
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 优先级 3 (最高): 先知入场 (先知的敕令) - 覆盖一切
-        prophet_entry_threshold = get_param_value(p_judge.get('prophet_entry_threshold'), 0.6)
+        # 优先级 3 (最高): 先知入场 (神谕轨道) - 覆盖一切
+        prophet_entry_threshold = get_param_value(p_judge_prophet.get('prophet_entry_threshold'), 0.6)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
+        
+        # 为神谕轨道计算独立的 final_score
+        prophet_score_multiplier = get_param_value(p_judge_prophet.get('prophet_score_multiplier'), 1000)
+        prophet_final_score = predictive_opp_score * prophet_score_multiplier
+        
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
-        df.loc[is_prophet_entry, 'final_score'] = 0 # 神谕降临之日，凡人的分数皆为虚无
+        
+        # 神谕降临之日，其 final_score 由自身置信度决定，不再归零
+        df.loc[is_prophet_entry, 'final_score'] = prophet_final_score[is_prophet_entry]
         
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
