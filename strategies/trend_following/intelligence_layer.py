@@ -109,8 +109,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.0 · 赫淮斯托斯熔炉版】法医探针调度中心
-        - 核心升级: 新增对“赫淮斯托斯熔炉”探针的调用，用于对终极信号进行底层钻透式解剖。
+        【V2.1 · 双神谕探针版】法医探针调度中心
+        - 核心升级: 新增对“神谕离场”信号的专属解剖探针。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -126,7 +126,7 @@ class IntelligenceLayer:
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
             
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.0] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.1] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
 
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
@@ -149,14 +149,9 @@ class IntelligenceLayer:
 
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            # 在所有基础探针之后，调用“赫淮斯托斯熔炉”进行底层解剖
-            # self._deploy_hephaestus_forge_probe(probe_date, 'BEHAVIOR', 'BOTTOM_REVERSAL')
-            # 调用“先知引擎”进行风险预测
-            self._deploy_prophet_probe(probe_date)
-            # self._deploy_genesis_probe(probe_date)
-            # self._deploy_turbo_probe(probe_date)
-            # self._deploy_judgment_day_probe(probe_date)
-            # self._deploy_zeus_thunderbolt_probe(probe_date)
+            # [代码修改] 部署双神谕探针
+            self._deploy_prophet_entry_probe(probe_date) # 将原函数重命名，权责更清晰
+            self._deploy_prophet_exit_probe(probe_date)  # 新增神谕离场探针
         
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
@@ -616,14 +611,14 @@ class IntelligenceLayer:
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
-    def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
+    def _deploy_prophet_entry_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.4 · 雅典娜的祝福协议同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 探针的重算逻辑已与主引擎的“雅典娜的祝福协议”版本完全同步。
-        - 新核心公式: 恐慌分 = (六大支柱加权和) * 静谧度 * 反弹强度 * 赫尔墨斯调节器
-        - 收益: 确保探针能够正确解剖和验证“结构健康的恐慌”这一最终哲学。
+        【V2.5 · 赫淮斯托斯重铸协议同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“赫淮斯托斯重铸协议”版本完全同步。
+        - 新核心公式: intraday_low_pct_change 被 clip(upper=0)，确保只有真下跌才会计分。
+        - 收益: 确保探针能够正确解剖和验证“只买真恐慌”的最终哲学。
         """
-        print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
+        print("\n--- [探针] 正在解剖: 【神谕 · 先知入场】 ---")
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
 
@@ -640,7 +635,6 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # [代码修改] 更新核心公式描述
         print(f"    - [核心公式]: (六大支柱加权和 * 静谧度 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
 
         print("\n  [链路层 3] 钻透 -> 六大支柱 & 调节器")
@@ -649,40 +643,34 @@ class IntelligenceLayer:
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
+        # [代码修改] 同步“赫淮斯托斯重铸协议”
         intraday_low_pct_change_raw = (df.at[probe_date, 'low_D'] - df.at[probe_date, 'pre_close_D']) / df.at[probe_date, 'pre_close_D'] if df.at[probe_date, 'pre_close_D'] > 0 else 0.0
-        intraday_low_pct_change_series = (df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
+        intraday_low_pct_change_series = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
         
         price_drop_score_recalc = normalize_score(intraday_low_pct_change_series, df.index, window=60, ascending=False).get(probe_date, 0.0)
         print(f"    --- 支柱一: 价格暴跌 (权重: {pillar_weights.get('price_drop', 0):.2f}) ---")
-        print(f"      - 当日盘中最大跌幅: {intraday_low_pct_change_raw:.2%}")
-        print(f"      - [探针重算] 价格暴跌分: {price_drop_score_recalc:.4f}")
+        print(f"      - 当日盘中最大跌幅 (原始值): {intraday_low_pct_change_raw:.2%}")
+        print(f"      - [探针重算] 价格暴跌分 (经clip修正): {price_drop_score_recalc:.4f}")
 
+        # ... 其他支柱和调节器的解剖逻辑保持不变 ...
         volume_spike_score_recalc = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True).get(probe_date, 0.0)
         print(f"    --- 支柱二: 成交天量 (权重: {pillar_weights.get('volume_spike', 0):.2f}) ---")
         print(f"      - [探针重算] 成交天量分: {volume_spike_score_recalc:.4f}")
-
         from .utils import get_unified_score
         chip_breakdown_score_recalc = get_unified_score(atomic, df.index, 'CHIP_BEARISH_RESONANCE').get(probe_date, 0.0)
         chip_integrity_score_recalc = 1.0 - chip_breakdown_score_recalc
         print(f"    --- 支柱三: 结构完整度 (权重: {pillar_weights.get('chip_integrity', 0):.2f}) ---")
-        print(f"      - [探针原始值] 筹码崩溃分: {chip_breakdown_score_recalc:.4f}")
-        print(f"      - [探针重算] 结构完整度分 (1 - 崩溃分): {chip_integrity_score_recalc:.4f}")
-
+        print(f"      - [探针重算] 结构完整度分: {chip_integrity_score_recalc:.4f}")
         tactic_engine_probe = self.cognitive_intel.tactic_engine
         despair_context_score_recalc = tactic_engine_probe._calculate_despair_context_score(df, p_panic).get(probe_date, 0.0)
         print(f"    --- 支柱四: 绝望背景 (权重: {pillar_weights.get('despair_context', 0):.2f}) ---")
         print(f"      - [探针重算] 绝望背景分: {despair_context_score_recalc:.4f}")
-
         structural_test_score_recalc = tactic_engine_probe.calculate_structural_test_score(df, p_panic).get(probe_date, 0.0)
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
-        
-        # [代码新增] 解剖第六大支柱
         ma_structure_score_recalc = tactic_engine_probe._calculate_ma_trend_context(df, [5, 13, 21, 55]).get(probe_date, 0.5)
         print(f"    --- 支柱六: 均线结构 (权重: {pillar_weights.get('ma_structure', 0):.2f}) ---")
         print(f"      - [探针重算] 均线结构分: {ma_structure_score_recalc:.4f}")
-
-        # ... (静谧度、反弹强度、赫尔墨斯调节器的探针逻辑保持不变) ...
         print(f"    --- 调节器 I: 成交量静谧度 ---")
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
@@ -718,7 +706,6 @@ class IntelligenceLayer:
         print(f"      - [探针重算] 赫尔墨斯调节器: {hermes_regulator_recalc:.4f}")
 
         print("\n  [链路层 4] 最终验证")
-        # [代码修改] 更新六大支柱的加权和计算公式
         snapshot_panic_recalc = (
             price_drop_score_recalc * pillar_weights.get('price_drop', 0) +
             volume_spike_score_recalc * pillar_weights.get('volume_spike', 0) +
@@ -738,6 +725,75 @@ class IntelligenceLayer:
         print(f"    - [探针重算恐慌战备分]: ({snapshot_panic_recalc:.4f} * {final_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
+
+    # [代码新增] 部署“德尔菲神谕-离场探针协议”
+    def _deploy_prophet_exit_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“德尔菲神谕-离场探针”
+        - 核心职责: 钻透式解剖“高潮衰竭”风险信号 (PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION) 及其警报触发逻辑。
+        """
+        print("\n--- [探针] 正在解剖: 【神谕 · 先知离场】 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+
+        def get_val(name, date, default=np.nan):
+            series = atomic.get(name)
+            if series is None: return default
+            return series.get(date, default)
+
+        print("\n  [链路层 1] 解剖 -> 最终预测风险 (PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION)")
+        final_risk_score = get_val('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', probe_date, 0.0)
+        print(f"    - 【最终风险值】: {final_risk_score:.4f}")
+        print(f"    - [核心公式]: (亢奋分 * 天量分 * K线疲弱分) ^ (1/3)")
+
+        print("\n  [链路层 2] 钻透 -> 风险三位一体")
+        p_pred = get_params_block(self.strategy, 'predictive_intelligence_params', {})
+        fusion_weights = get_param_value(p_pred.get('trinity_fusion_weights'), {})
+
+        # 2.1 亢奋分
+        euphoria_score_recalc = get_val('COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION', probe_date, 0.0)
+        print(f"    --- 支柱一: 亢奋分 (权重: {fusion_weights.get('euphoria', 0):.2f}) ---")
+        print(f"      - [探针获取] 亢奋分: {euphoria_score_recalc:.4f}")
+
+        # 2.2 天量分
+        vol_spike_series = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
+        volume_spike_score_recalc = normalize_score(vol_spike_series, df.index, window=60, ascending=True).get(probe_date, 0.0)
+        print(f"    --- 支柱二: 天量分 (权重: {fusion_weights.get('volume', 0):.2f}) ---")
+        print(f"      - [探针重算] 天量分: {volume_spike_score_recalc:.4f}")
+
+        # 2.3 K线疲弱分
+        day_range = df.at[probe_date, 'high_D'] - df.at[probe_date, 'low_D']
+        upper_shadow = df.at[probe_date, 'high_D'] - max(df.at[probe_date, 'open_D'], df.at[probe_date, 'close_D'])
+        upper_shadow_ratio = (upper_shadow / day_range) if day_range > 0 else 0.0
+        is_negative_close = df.at[probe_date, 'close_D'] < df.at[probe_date, 'open_D']
+        kline_weakness_score_recalc = upper_shadow_ratio * float(is_negative_close)
+        print(f"    --- 支柱三: K线疲弱分 (权重: {fusion_weights.get('kline', 0):.2f}) ---")
+        print(f"      - [探针重算] K线疲弱分: {kline_weakness_score_recalc:.4f} (上影线率: {upper_shadow_ratio:.2f}, 是否阴线: {is_negative_close})")
+
+        print("\n  [链路层 3] 最终验证 -> 风险融合")
+        recalculated_risk_score = (
+            (euphoria_score_recalc ** fusion_weights.get('euphoria', 0.33)) *
+            (volume_spike_score_recalc ** fusion_weights.get('volume', 0.33)) *
+            (kline_weakness_score_recalc ** fusion_weights.get('kline', 0.33))
+        )
+        print(f"    - [探针重算风险值]: ({euphoria_score_recalc:.4f}^{fusion_weights.get('euphoria', 0.33):.2f} * {volume_spike_score_recalc:.4f}^{fusion_weights.get('volume', 0.33):.2f} * {kline_weakness_score_recalc:.4f}^{fusion_weights.get('kline', 0.33):.2f}) = {recalculated_risk_score:.4f}")
+        print(f"    - [对比]: 实际值 {final_risk_score:.4f} vs 重算值 {recalculated_risk_score:.4f}")
+
+        print("\n  [链路层 4] 最终验证 -> 警报触发逻辑")
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
+        is_uptrend_context = df.at[probe_date, 'close_D'] > df.at[probe_date, 'EMA_5_D']
+        
+        alert_level = get_val('ALERT_LEVEL', probe_date, 0)
+        alert_reason = get_val('ALERT_REASON', probe_date, '')
+
+        print(f"    - [条件一] 风险分 > 阈值?  ({final_risk_score:.4f} > {prophet_threshold}) -> {'✅ 是' if final_risk_score > prophet_threshold else '❌ 否'}")
+        print(f"    - [条件二] 处于上升趋势 (close > EMA5)? -> {'✅ 是' if is_uptrend_context else '❌ 否'}")
+        
+        recalculated_alert = (final_risk_score > prophet_threshold) and is_uptrend_context
+        print(f"    - [探针重算警报]: {'触发' if recalculated_alert else '不触发'}")
+        print(f"    - [实际警报]: Level {alert_level} ({alert_reason})")
+        print("--- 先知离场神谕探针解剖完毕 ---")
 
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
