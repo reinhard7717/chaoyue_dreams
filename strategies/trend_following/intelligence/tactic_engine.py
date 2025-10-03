@@ -44,11 +44,11 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.7 · 深渊凝视协议版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 签署“深渊凝视协议”，对成交量静谧度进行三维立体评估。
-        - 核心逻辑: 1. 引入“绝对深度奖励”，成交量穿透的均线层级越多，得分越高。
-                      2. 引入“结构梯度奖励”，成交量均线空头排列越完美，得分越高。
-        - 收益: 能够从“点、线、面”三个维度精准识别出最具战术价值的“趋势性缩量”。
+        【V3.9 · 雅典娜的祝福协议版】恐慌抛售战备(Setup)信号生成模块
+        - 核心革命: 签署“雅典娜的祝福协议”，将“均线结构分”从惩罚项升格为正向加权的第六大支柱。
+        - 核心逻辑: 1. 废除 `* (1 - ma_context_score)` 的外部惩罚。
+                      2. 将 `ma_context_score` 作为第六个支柱，与其他五大支柱一同进行加权求和。
+        - 收益: 彻底解决了“奖励结构崩溃”的逻辑矛盾，确保系统寻找的是“结构健康的恐慌”。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -57,68 +57,52 @@ class TacticEngine:
         
         intraday_low_pct_change = (df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
 
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # [代码修改] ma_context_score 现在是第六大支柱，不再是外部调节器
+        ma_structure_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         
-        # [代码修改] 签署“深渊凝视协议”，重构静谧度评分逻辑
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
         p_depth_bonus = get_param_value(logic_params.get('absolute_depth_bonus'), {})
         p_gradient_bonus = get_param_value(logic_params.get('structural_gradient_bonus'), {})
-
         lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
         raw_calmness_score = pd.Series(0.0, index=df.index)
-
         if lifeline_ma_col in df.columns:
             is_below_lifeline = df['volume_D'] < df[lifeline_ma_col]
-            
-            # 1. 生命线基准分
             raw_calmness_score = is_below_lifeline.astype(float) * lifeline_base_score
-            
-            # 2. 绝对深度奖励
             for p_str, weight in p_depth_bonus.items():
                 ma_col = f'VOL_MA_{p_str}_D'
                 if ma_col in df.columns:
                     raw_calmness_score += (is_below_lifeline & (df['volume_D'] < df[ma_col])).astype(float) * weight
-            
-            # 3. 结构梯度奖励
             if get_param_value(p_gradient_bonus.get('enabled'), False):
                 level_weights = get_param_value(p_gradient_bonus.get('level_weights'), {})
-                ma5 = df.get(f'VOL_MA_5_D')
-                ma13 = df.get(f'VOL_MA_13_D')
-                ma21 = df.get(f'VOL_MA_21_D')
-                ma55 = df.get(f'VOL_MA_55_D')
-
+                ma5, ma13, ma21, ma55 = df.get(f'VOL_MA_5_D'), df.get(f'VOL_MA_13_D'), df.get(f'VOL_MA_21_D'), df.get(f'VOL_MA_55_D')
                 if all(ma is not None for ma in [ma5, ma13, ma21, ma55]):
-                    is_level_1 = (ma5 < ma13)
-                    is_level_2 = is_level_1 & (ma13 < ma21)
-                    is_level_3 = is_level_2 & (ma21 < ma55)
-                    
-                    # 递进式加分，满足更高级别自动包含低级别
+                    is_level_1, is_level_2, is_level_3 = (ma5 < ma13), (ma5 < ma13) & (ma13 < ma21), (ma5 < ma13) & (ma13 < ma21) & (ma21 < ma55)
                     raw_calmness_score += (is_below_lifeline & is_level_1).astype(float) * level_weights.get('level_1', 0.0)
                     raw_calmness_score += (is_below_lifeline & is_level_2).astype(float) * level_weights.get('level_2', 0.0)
                     raw_calmness_score += (is_below_lifeline & is_level_3).astype(float) * level_weights.get('level_3', 0.0)
-
-        snapshot_calmness = raw_calmness_score * (1 - ma_context_score)
-        final_calmness_score = snapshot_calmness
         
+        # [代码修改] 静谧度不再需要乘以 (1 - ma_context_score)
+        final_calmness_score = raw_calmness_score
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = final_calmness_score.astype(np.float32)
         
         price_drop_score = normalize_score(intraday_low_pct_change, df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
+        chip_integrity_score = 1.0 - chip_breakdown_score
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
-        raw_panic_score = (
+        
+        # [代码修改] 构建六位一体的融合分数
+        snapshot_panic = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +
-            chip_breakdown_score * pillar_weights.get('chip_breakdown', 0) +
+            chip_integrity_score * pillar_weights.get('chip_integrity', 0) + # 权重键名建议也更新
             despair_context_score * pillar_weights.get('despair_context', 0) +
-            structural_test_score * pillar_weights.get('structural_test', 0)
+            structural_test_score * pillar_weights.get('structural_test', 0) +
+            ma_structure_score * pillar_weights.get('ma_structure', 0) # 新增第六支柱
         ).astype(np.float32)
-        
-        snapshot_panic = raw_panic_score * (1 - ma_context_score)
-        meta_analyzed_panic_score = snapshot_panic
         
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
         
@@ -130,7 +114,8 @@ class TacticEngine:
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
 
-        base_score = meta_analyzed_panic_score * final_calmness_score * rebound_strength_score
+        # [代码修改] 最终公式中不再有外部的结构分惩罚
+        base_score = snapshot_panic * final_calmness_score * rebound_strength_score
         final_score = base_score.where(is_significant_drop, 0) * hermes_regulator
         
         states['SCORE_SETUP_PANIC_SELLING'] = final_score.clip(0, 1)

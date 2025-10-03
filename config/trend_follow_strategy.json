@@ -259,12 +259,13 @@
         "enabled": true,
         "description": "【V2.0 · 生命线协议版】恐慌抛售战备(Setup)信号的专属配置模块。",
         "pillar_weights": {
-          "description": "五大支柱的融合权重。",
-          "price_drop": 0.30,
-          "volume_spike": 0.25,
-          "chip_breakdown": 0.15,
-          "despair_context": 0.15,
-          "structural_test": 0.15
+          "description": "【六位一体】融合模型的权重。均线结构分已正式成为第六大支柱。",
+          "price_drop": 0.25,
+          "volume_spike": 0.20,
+          "chip_integrity": 0.20, "说明_chip_integrity": "注意：这里是结构完整度，不是崩溃度",
+          "despair_context": 0.10,
+          "structural_test": 0.15,
+          "ma_structure": 0.10, "说明_ma_structure": "新增的第六大支柱：均线结构分"
         },
         "min_price_drop_pct": -0.025,
         "comment_min_price_drop_pct": "触发恐慌信号的最低价格跌幅门槛。",
