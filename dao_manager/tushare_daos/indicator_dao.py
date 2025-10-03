@@ -164,10 +164,10 @@ class IndicatorDAO(BaseDAO):
             # 统一字段名，确保分钟线数据也使用 'open', 'high', 'low', 'close', 'volume'
             # 并且对于分钟线，字段名就是 open, high, low, close
             if time_level_str == "d":
-                fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'vol', 'amount']
-                rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'vol': 'volume'}
+                fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq', 'vol', 'amount']
+                rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'pre_close_qfq': 'pre_close', 'vol': 'volume'}
             else: # W, M, and minute levels
-                fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
+                fields = ['trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
 
             limited_qs = qs.order_by('-trade_time')[:limit]
