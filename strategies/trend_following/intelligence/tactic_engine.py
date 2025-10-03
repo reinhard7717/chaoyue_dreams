@@ -44,11 +44,11 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 最终审判协议版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 废除对“恐慌分”进行不恰当的“关系元分析”。
-        - 核心逻辑: 1. 最终的恐慌分不再经过趋势和加速度的审查。
-                      2. 直接采纳由“五大支柱”和“均线结构”融合而成的“瞬时恐慌快照分”。
-        - 收益: 解决了因元分析错误惩罚瞬时爆发信号，导致恐慌分被大幅削弱的致命缺陷。
+        【V3.7 · 深渊凝视协议版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 签署“深渊凝视协议”，对成交量静谧度进行三维立体评估。
+        - 核心逻辑: 1. 引入“绝对深度奖励”，成交量穿透的均线层级越多，得分越高。
+                      2. 引入“结构梯度奖励”，成交量均线空头排列越完美，得分越高。
+        - 收益: 能够从“点、线、面”三个维度精准识别出最具战术价值的“趋势性缩量”。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -59,22 +59,49 @@ class TacticEngine:
 
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         
+        # [代码修改] 签署“深渊凝视协议”，重构静谧度评分逻辑
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
-        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {})
+        p_depth_bonus = get_param_value(logic_params.get('absolute_depth_bonus'), {})
+        p_gradient_bonus = get_param_value(logic_params.get('structural_gradient_bonus'), {})
+
         lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
         raw_calmness_score = pd.Series(0.0, index=df.index)
+
         if lifeline_ma_col in df.columns:
             is_below_lifeline = df['volume_D'] < df[lifeline_ma_col]
+            
+            # 1. 生命线基准分
             raw_calmness_score = is_below_lifeline.astype(float) * lifeline_base_score
-            for p, weight in bonus_weights.items():
-                ma_col = f'VOL_MA_{p}_D'
+            
+            # 2. 绝对深度奖励
+            for p_str, weight in p_depth_bonus.items():
+                ma_col = f'VOL_MA_{p_str}_D'
                 if ma_col in df.columns:
                     raw_calmness_score += (is_below_lifeline & (df['volume_D'] < df[ma_col])).astype(float) * weight
-        
+            
+            # 3. 结构梯度奖励
+            if get_param_value(p_gradient_bonus.get('enabled'), False):
+                level_weights = get_param_value(p_gradient_bonus.get('level_weights'), {})
+                ma5 = df.get(f'VOL_MA_5_D')
+                ma13 = df.get(f'VOL_MA_13_D')
+                ma21 = df.get(f'VOL_MA_21_D')
+                ma55 = df.get(f'VOL_MA_55_D')
+
+                if all(ma is not None for ma in [ma5, ma13, ma21, ma55]):
+                    is_level_1 = (ma5 < ma13)
+                    is_level_2 = is_level_1 & (ma13 < ma21)
+                    is_level_3 = is_level_2 & (ma21 < ma55)
+                    
+                    # 递进式加分，满足更高级别自动包含低级别
+                    raw_calmness_score += (is_below_lifeline & is_level_1).astype(float) * level_weights.get('level_1', 0.0)
+                    raw_calmness_score += (is_below_lifeline & is_level_2).astype(float) * level_weights.get('level_2', 0.0)
+                    raw_calmness_score += (is_below_lifeline & is_level_3).astype(float) * level_weights.get('level_3', 0.0)
+
         snapshot_calmness = raw_calmness_score * (1 - ma_context_score)
-        final_calmness_score = self._perform_tactic_relational_meta_analysis(df, snapshot_calmness)
+        final_calmness_score = snapshot_calmness
+        
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = final_calmness_score.astype(np.float32)
         
         price_drop_score = normalize_score(intraday_low_pct_change, df.index, window=60, ascending=False)
@@ -91,8 +118,6 @@ class TacticEngine:
         ).astype(np.float32)
         
         snapshot_panic = raw_panic_score * (1 - ma_context_score)
-        
-        # [代码修改] 签署“最终审判协议”：直接采纳瞬时恐慌快照分，不再进行关系元分析
         meta_analyzed_panic_score = snapshot_panic
         
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct

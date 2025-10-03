@@ -618,10 +618,10 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.9 · 最终审判协议同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 探针的重算逻辑已与主引擎的“最终审判协议”版本完全同步。
-        - 新核心公式: 最终恐慌分 = ((五大支柱和 * 均线结构分) * 静谧度 * 反弹强度) * 赫尔墨斯调节器
-        - 收益: 确保探针能够正确解剖和验证最新的、最纯粹的恐慌评分逻辑。
+        【V2.2 · 深渊凝视协议同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“深渊凝视协议”版本完全同步。
+        - 新核心公式: 静谧度分 = (生命线基准 + 绝对深度奖励 + 结构梯度奖励) * 结构分
+        - 收益: 确保探针能够正确解剖和验证最新的、能够识别“趋势性缩量”的评分逻辑。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
@@ -640,8 +640,7 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        # [代码修改] 更新核心公式描述
-        print(f"    - [核心公式]: ((五大支柱和 * 结构分) * 静谧度 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
+        print(f"    - [核心公式]: (瞬时恐慌快照 * 瞬时静谧度快照 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
 
         print("\n  [链路层 3] 钻透 -> 五大支柱 & 调节器")
         
@@ -675,20 +674,60 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
+        # [代码修改] 探针完全复刻“深渊凝视协议”的三维立体评估逻辑
         print(f"    --- 调节器 I: 成交量静谧度 ---")
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
-        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {})
-        volume_calmness_score_recalc = 0.0
+        p_depth_bonus = get_param_value(logic_params.get('absolute_depth_bonus'), {})
+        p_gradient_bonus = get_param_value(logic_params.get('structural_gradient_bonus'), {})
+        
+        raw_volume_calmness_score_recalc = 0.0
         lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
+        
         if lifeline_ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, lifeline_ma_col]:
-            volume_calmness_score_recalc = lifeline_base_score
-            for p, weight in bonus_weights.items():
-                ma_col = f'VOL_MA_{p}_D'
+            is_below_lifeline = True
+            raw_volume_calmness_score_recalc = lifeline_base_score
+            print(f"      - [探针检查] 成交量低于生命线(MA{lifeline_ma_period})? ✅ 是. 获得基础分: {lifeline_base_score:.2f}")
+            
+            # 绝对深度奖励
+            for p_str, weight in p_depth_bonus.items():
+                ma_col = f'VOL_MA_{p_str}_D'
                 if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:
-                    volume_calmness_score_recalc += weight
-        print(f"      - [探针重算] 成交量静谧度分: {volume_calmness_score_recalc:.4f}")
+                    raw_volume_calmness_score_recalc += weight
+                    print(f"      - [探针检查] 成交量低于MA{p_str}? ✅ 是. 获得绝对深度奖励: +{weight:.2f}")
+
+            # 结构梯度奖励
+            if get_param_value(p_gradient_bonus.get('enabled'), False):
+                level_weights = get_param_value(p_gradient_bonus.get('level_weights'), {})
+                ma5 = df.get(f'VOL_MA_5_D').at[probe_date]
+                ma13 = df.get(f'VOL_MA_13_D').at[probe_date]
+                ma21 = df.get(f'VOL_MA_21_D').at[probe_date]
+                ma55 = df.get(f'VOL_MA_55_D').at[probe_date]
+                
+                is_level_1 = (ma5 < ma13)
+                is_level_2 = is_level_1 and (ma13 < ma21)
+                is_level_3 = is_level_2 and (ma21 < ma55)
+                
+                if is_level_1:
+                    raw_volume_calmness_score_recalc += level_weights.get('level_1', 0.0)
+                    print(f"      - [探针检查] 结构梯度 Level 1 (MA5<MA13)? ✅ 是. 获得奖励: +{level_weights.get('level_1', 0.0):.2f}")
+                if is_level_2:
+                    raw_volume_calmness_score_recalc += level_weights.get('level_2', 0.0)
+                    print(f"      - [探针检查] 结构梯度 Level 2 (MA13<MA21)? ✅ 是. 获得奖励: +{level_weights.get('level_2', 0.0):.2f}")
+                if is_level_3:
+                    raw_volume_calmness_score_recalc += level_weights.get('level_3', 0.0)
+                    print(f"      - [探针检查] 结构梯度 Level 3 (MA21<MA55)? ✅ 是. 获得奖励: +{level_weights.get('level_3', 0.0):.2f}")
+        else:
+            print(f"      - [探针检查] 成交量低于生命线(MA{lifeline_ma_period})? ❌ 否. 基础分为 0。")
+
+        ma_context_score_recalc = tactic_engine_probe._calculate_ma_trend_context(df, [5, 13, 21, 55]).get(probe_date, 0.5)
+        snapshot_calmness_recalc = raw_volume_calmness_score_recalc * (1 - ma_context_score_recalc)
+        final_calmness_score_recalc = snapshot_calmness_recalc
+        
+        print(f"      - [探针重算] 原始静谧度总分: {raw_volume_calmness_score_recalc:.4f}")
+        print(f"      - [探针重算] 均线结构分(弱势背景): {(1 - ma_context_score_recalc):.4f}")
+        print(f"      - [探针重算] 最终静谧度分 (原始分 * 结构分): {final_calmness_score_recalc:.4f}")
 
         print(f"    --- 调节器 II: 反弹强度 ---")
         day_range_raw = df.at[probe_date, 'high_D'] - df.at[probe_date, 'low_D']
@@ -712,20 +751,16 @@ class IntelligenceLayer:
         )
         print(f"    - [探针重算] 五大支柱加权和: {raw_panic_score_recalc:.4f}")
         
-        # [代码新增] 探针必须复刻主引擎的结构分计算
-        ma_context_score_recalc = tactic_engine_probe._calculate_ma_trend_context(df, [5, 13, 21, 55]).get(probe_date, 0.5)
         snapshot_panic_recalc = raw_panic_score_recalc * (1 - ma_context_score_recalc)
-        print(f"    - [探针重算] 均线结构分(弱势背景): {(1 - ma_context_score_recalc):.4f}")
         print(f"    - [探针重算] 瞬时恐慌快照分 (五大支柱和 * 结构分): {snapshot_panic_recalc:.4f}")
 
         is_significant_drop = intraday_low_pct_change_raw < min_price_drop_pct
         print(f"    - [探针检查] 价格暴跌门槛 ({min_price_drop_pct:.2%}) 是否满足? {'✅ 是' if is_significant_drop else '❌ 否'}")
 
-        # [代码修改] 更新最终分数的重算逻辑，使用 snapshot_panic_recalc
-        base_recalculated_score = snapshot_panic_recalc * volume_calmness_score_recalc * rebound_strength_score_recalc
+        base_recalculated_score = snapshot_panic_recalc * final_calmness_score_recalc * rebound_strength_score_recalc
         final_recalculated_score = base_recalculated_score * hermes_regulator_recalc if is_significant_drop else 0
         
-        print(f"    - [探针重算恐慌战备分]: (({raw_panic_score_recalc:.4f} * {(1-ma_context_score_recalc):.4f}) * {volume_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
+        print(f"    - [探针重算恐慌战备分]: ({snapshot_panic_recalc:.4f} * {final_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
