@@ -44,16 +44,21 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 关系元分析版】恐慌抛售战备(Setup)信号生成模块
-        - 核心革命: 将“成交量静谧度”和“恐慌分数”都置于均线结构的宏观背景下进行关系元分析。
+        【V3.3 · 赫尔墨斯信使协议版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 引入“赫尔墨斯信使协议”，通过分析上下影线关系，识别日内真实的多空力量对比。
+        - 核心逻辑: 1. 新增“赫尔墨斯调节器”，奖励长下影（多头反攻），惩罚长上影（诱多陷阱）。
+                      2. 最终恐慌分 = (五大支柱 * 静谧度 * 反弹强度) * 赫尔墨斯调节器。
+        - 收益: 赋予神谕识别“假反弹、真出货”的火眼金睛，确保信号的最终纯洁性。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
-        # 获取均线趋势上下文分数
+        
+        intraday_low_pct_change = (df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
+
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # --- 1. 重构 INTERNAL_SCORE_VOLUME_CALMNESS ---
+        
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
@@ -67,13 +72,12 @@ class TacticEngine:
                 ma_col = f'VOL_MA_{p}_D'
                 if ma_col in df.columns:
                     raw_calmness_score += (is_below_lifeline & (df['volume_D'] < df[ma_col])).astype(float) * weight
-        # 构建关系快照分：成交量静谧发生在弱势结构中，是更强的底部信号前兆
+        
         snapshot_calmness = raw_calmness_score * (1 - ma_context_score)
-        # 对关系进行元分析
         final_calmness_score = self._perform_tactic_relational_meta_analysis(df, snapshot_calmness)
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = final_calmness_score.astype(np.float32)
-        # --- 2. 重构 SCORE_SETUP_PANIC_SELLING ---
-        price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False)
+        
+        price_drop_score = normalize_score(intraday_low_pct_change, df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
         chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
@@ -85,13 +89,26 @@ class TacticEngine:
             despair_context_score * pillar_weights.get('despair_context', 0) +
             structural_test_score * pillar_weights.get('structural_test', 0)
         ).astype(np.float32)
-        # 构建关系快照分：恐慌信号发生在弱势结构中，才是真正的恐慌
+        
         snapshot_panic = raw_panic_score * (1 - ma_context_score)
-        # 对关系进行元分析
         meta_analyzed_panic_score = self._perform_tactic_relational_meta_analysis(df, snapshot_panic)
-        is_significant_drop = df['pct_change_D'] < min_price_drop_pct
-        # 使用经过关系元分析的新分数进行最终裁决
-        final_score = meta_analyzed_panic_score.where(is_significant_drop, 0) * final_calmness_score
+        
+        is_significant_drop = intraday_low_pct_change < min_price_drop_pct
+        
+        day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        rebound_strength_score = ((df['close_D'] - df['low_D']) / day_range).fillna(0.5).clip(0, 1)
+        
+        # [代码新增] 签署“赫尔墨斯信使协议”，解码日内博弈路径
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
+        hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
+        # 将[-1, 1]的赫尔墨斯分转换为[0, 1]的调节器，惩罚长上影，奖励长下影
+        hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
+
+        # [代码修改] 最终分数现在由四者相乘决定，赫尔墨斯调节器作为最终的守门人
+        base_score = meta_analyzed_panic_score * final_calmness_score * rebound_strength_score
+        final_score = base_score.where(is_significant_drop, 0) * hermes_regulator
+        
         states['SCORE_SETUP_PANIC_SELLING'] = final_score.clip(0, 1)
         return states
 

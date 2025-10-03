@@ -618,10 +618,10 @@ class IntelligenceLayer:
 
     def _deploy_prophet_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.5 · 生命线协议V2同步版】“先知入场神谕”专属法医探针
-        - 核心革命: 探针的重算逻辑已与主引擎的“生命线协议V2”版本完全同步。
-        - 新核心公式: 最终恐慌分 = (五大支柱加权和) * (生命线基础分(1.0) + 奖章加分)，且必须满足价格暴跌门槛。
-        - 收益: 确保探针能够正确解剖和验证最新的、具有放大效应的静谧度评分逻辑。
+        【V1.8 · 赫尔墨斯信使协议同步版】“先知入场神谕”专属法医探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“赫尔墨斯信使协议”版本完全同步。
+        - 新核心公式: 最终恐慌分 = (五大支柱 * 静谧度 * 反弹强度) * 赫尔墨斯调节器，且满足盘中暴跌门槛。
+        - 收益: 确保探针能够正确解剖和验证最新的、能够识别日内真实多空力量对比的终极评分逻辑。
         """
         print("\n--- [探针] 正在解剖: 【创世纪 LV · 先知入场神谕】 ---")
         atomic = self.strategy.atomic_states
@@ -632,46 +632,38 @@ class IntelligenceLayer:
             if series is None: return default
             return series.get(date, default)
 
-        # --- 链路层 1: 最终预测机会 ---
         print("\n  [链路层 1] 解剖 -> 最终预测机会 (PREDICTIVE_OPP_CAPITULATION_REVERSAL)")
         final_opp_score = get_val('PREDICTIVE_OPP_CAPITULATION_REVERSAL', probe_date, 0.0)
         print(f"    - 【最终预测值】: {final_opp_score:.4f}")
         print(f"    - [核心公式]: 预测机会 = 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
 
-        # --- 链路层 2: 核心输入 - 恐慌战备分 ---
         print("\n  [链路层 2] 解剖 -> 核心输入: 恐慌战备分 (SCORE_SETUP_PANIC_SELLING)")
         panic_setup_score = get_val('SCORE_SETUP_PANIC_SELLING', probe_date, 0.0)
         print(f"    - 【恐慌战备分】: {panic_setup_score:.4f}")
-        print(f"    - [核心公式]: (五大支柱加权和) * (成交量静谧度)  (当满足价格暴跌门槛时)")
+        print(f"    - [核心公式]: (五大支柱和 * 静谧度 * 反弹强度) * 赫尔墨斯调节器 (当满足价格暴跌门槛时)")
 
-        # --- 链路层 3: 钻透恐慌战备分的五大支柱 & 调节器 ---
         print("\n  [链路层 3] 钻透 -> 五大支柱 & 调节器")
         
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-        pillar_weights = get_param_value(p_panic.get('pillar_weights'), {
-            'price_drop': 0.30, 'volume_spike': 0.25, 'chip_breakdown': 0.15,
-            'despair_context': 0.15, 'structural_test': 0.15
-        })
+        pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
-        price_drop_raw = df['pct_change_D'].clip(upper=0).get(probe_date, 0.0)
-        price_drop_score_recalc = normalize_score(df['pct_change_D'].clip(upper=0), df.index, window=60, ascending=False).get(probe_date, 0.0)
+        intraday_low_pct_change_raw = (df.at[probe_date, 'low_D'] - df.at[probe_date, 'pre_close_D']) / df.at[probe_date, 'pre_close_D'] if df.at[probe_date, 'pre_close_D'] > 0 else 0.0
+        intraday_low_pct_change_series = (df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
+        
+        price_drop_score_recalc = normalize_score(intraday_low_pct_change_series, df.index, window=60, ascending=False).get(probe_date, 0.0)
         print(f"    --- 支柱一: 价格暴跌 (权重: {pillar_weights.get('price_drop', 0):.2f}) ---")
-        print(f"      - 当日跌幅: {price_drop_raw:.2%}")
+        print(f"      - 当日盘中最大跌幅: {intraday_low_pct_change_raw:.2%}")
         print(f"      - [探针重算] 价格暴跌分: {price_drop_score_recalc:.4f}")
 
-        vol_ma21 = df.get('VOL_MA_21_D', pd.Series(np.nan, index=df.index)).get(probe_date, np.nan)
-        volume_raw = df.get('volume_D', np.nan).get(probe_date, np.nan)
-        volume_ratio_raw = volume_raw / vol_ma21 if pd.notna(volume_raw) and pd.notna(vol_ma21) and vol_ma21 > 0 else 1.0
         volume_spike_score_recalc = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True).get(probe_date, 0.0)
         print(f"    --- 支柱二: 成交天量 (权重: {pillar_weights.get('volume_spike', 0):.2f}) ---")
-        print(f"      - 当日成交量/21日均量: {volume_ratio_raw:.2f}")
         print(f"      - [探针重算] 成交天量分: {volume_spike_score_recalc:.4f}")
 
         from .utils import get_unified_score
         chip_breakdown_score_recalc = get_unified_score(atomic, df.index, 'CHIP_BEARISH_RESONANCE').get(probe_date, 0.0)
         print(f"    --- 支柱三: 筹码崩溃 (权重: {pillar_weights.get('chip_breakdown', 0):.2f}) ---")
-        print(f"      - [探针重算] 筹码崩溃分 (SCORE_CHIP_BEARISH_RESONANCE): {chip_breakdown_score_recalc:.4f}")
+        print(f"      - [探针重算] 筹码崩溃分: {chip_breakdown_score_recalc:.4f}")
 
         tactic_engine_probe = self.cognitive_intel.tactic_engine
         despair_context_score_recalc = tactic_engine_probe._calculate_despair_context_score(df, p_panic).get(probe_date, 0.0)
@@ -682,13 +674,11 @@ class IntelligenceLayer:
         print(f"    --- 支柱五: 结构支撑测试 (权重: {pillar_weights.get('structural_test', 0):.2f}) ---")
         print(f"      - [探针重算] 结构支撑测试分: {structural_test_score_recalc:.4f}")
 
-        # 探针必须复刻“生命线协议 V2”的完整逻辑
-        print(f"    --- 调节器: 成交量静谧度 ---")
+        print(f"    --- 调节器 I: 成交量静谧度 ---")
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
-        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {13: 0.15, 21: 0.15, 55: 0.10})
-        
+        bonus_weights = get_param_value(logic_params.get('bonus_weights'), {})
         volume_calmness_score_recalc = 0.0
         lifeline_ma_col = f'VOL_MA_{lifeline_ma_period}_D'
         if lifeline_ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, lifeline_ma_col]:
@@ -697,10 +687,21 @@ class IntelligenceLayer:
                 ma_col = f'VOL_MA_{p}_D'
                 if ma_col in df.columns and df.at[probe_date, 'volume_D'] < df.at[probe_date, ma_col]:
                     volume_calmness_score_recalc += weight
-        
         print(f"      - [探针重算] 成交量静谧度分: {volume_calmness_score_recalc:.4f}")
 
-        # --- 链路层 4: 最终验证 ---
+        print(f"    --- 调节器 II: 反弹强度 ---")
+        day_range_raw = df.at[probe_date, 'high_D'] - df.at[probe_date, 'low_D']
+        rebound_strength_score_recalc = ((df.at[probe_date, 'close_D'] - df.at[probe_date, 'low_D']) / day_range_raw) if day_range_raw > 0 else 0.5
+        print(f"      - [探针重算] 反弹强度分: {rebound_strength_score_recalc:.4f}")
+
+        # [代码新增] 新增对“赫尔墨斯调节器”的解剖
+        print(f"    --- 调节器 III: 赫尔墨斯信使 (日内博弈) ---")
+        upper_shadow_raw = df.at[probe_date, 'high_D'] - max(df.at[probe_date, 'open_D'], df.at[probe_date, 'close_D'])
+        lower_shadow_raw = min(df.at[probe_date, 'open_D'], df.at[probe_date, 'close_D']) - df.at[probe_date, 'low_D']
+        hermes_score_raw = ((lower_shadow_raw - upper_shadow_raw) / day_range_raw) if day_range_raw > 0 else 0.0
+        hermes_regulator_recalc = (hermes_score_raw + 1) / 2.0
+        print(f"      - [探针重算] 赫尔墨斯调节器: {hermes_regulator_recalc:.4f}")
+
         print("\n  [链路层 4] 最终验证")
         raw_panic_score_recalc = (
             price_drop_score_recalc * pillar_weights.get('price_drop', 0) +
@@ -711,12 +712,14 @@ class IntelligenceLayer:
         )
         print(f"    - [探针重算] 五大支柱加权和: {raw_panic_score_recalc:.4f}")
         
-        is_significant_drop = df.at[probe_date, 'pct_change_D'] < min_price_drop_pct
+        is_significant_drop = intraday_low_pct_change_raw < min_price_drop_pct
         print(f"    - [探针检查] 价格暴跌门槛 ({min_price_drop_pct:.2%}) 是否满足? {'✅ 是' if is_significant_drop else '❌ 否'}")
 
-        final_recalculated_score = raw_panic_score_recalc * volume_calmness_score_recalc if is_significant_drop else 0
+        # [代码修改] 更新最终分数的重算逻辑，加入赫尔墨斯调节器
+        base_recalculated_score = raw_panic_score_recalc * volume_calmness_score_recalc * rebound_strength_score_recalc
+        final_recalculated_score = base_recalculated_score * hermes_regulator_recalc if is_significant_drop else 0
         
-        print(f"    - [探针重算恐慌战备分]: {raw_panic_score_recalc:.4f} (五大支柱和) * {volume_calmness_score_recalc:.4f} (静谧度) = {final_recalculated_score:.4f}")
+        print(f"    - [探针重算恐慌战备分]: ({raw_panic_score_recalc:.4f} * {volume_calmness_score_recalc:.4f} * {rebound_strength_score_recalc:.4f}) * {hermes_regulator_recalc:.4f} = {final_recalculated_score:.4f}")
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
