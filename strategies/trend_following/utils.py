@@ -468,7 +468,7 @@ def transmute_health_to_ultimate_signals(
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
-        f'SCORE_{domain_prefix}_TOP_REversal': (final_top_reversal_score ** exponent)
+        f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
     for signal_name, score in final_signal_map.items():
         states[signal_name] = score.astype(np.float32)
