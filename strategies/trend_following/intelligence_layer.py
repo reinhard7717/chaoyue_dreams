@@ -149,7 +149,7 @@ class IntelligenceLayer:
 
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             
-            # [代码修改] 部署双神谕探针
+            # 部署双神谕探针
             # self._deploy_prophet_entry_probe(probe_date) # 将原函数重命名，权责更清晰
             # self._deploy_prophet_exit_probe(probe_date)  # 新增神谕离场探针
             
@@ -213,7 +213,7 @@ class IntelligenceLayer:
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
 
-        # [代码修改] 同步“赫淮斯托斯重铸协议”
+        # 同步“赫淮斯托斯重铸协议”
         intraday_low_pct_change_raw = (df.at[probe_date, 'low_D'] - df.at[probe_date, 'pre_close_D']) / df.at[probe_date, 'pre_close_D'] if df.at[probe_date, 'pre_close_D'] > 0 else 0.0
         intraday_low_pct_change_series = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
         
@@ -296,7 +296,7 @@ class IntelligenceLayer:
         print(f"    - [对比]: 实际值 {panic_setup_score:.4f} vs 重算值 {final_recalculated_score:.4f}")
         print("--- 先知入场神谕探针解剖完毕 ---")
 
-    # [代码新增] 部署“德尔菲神谕-离场探针协议”
+    # 部署“德尔菲神谕-离场探针协议”
     def _deploy_prophet_exit_probe(self, probe_date: pd.Timestamp):
         """
         【V1.0 · 新增】“德尔菲神谕-离场探针”
@@ -488,7 +488,7 @@ class IntelligenceLayer:
         
         print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 
-    # [代码新增] 注入全新的“宙斯之雷”终极探针
+    # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
         【V1.0 · 新增】“宙斯之雷”终极法医探针

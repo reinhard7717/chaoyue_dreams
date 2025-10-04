@@ -54,7 +54,7 @@ class TacticEngine:
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
         
-        # [代码修改] 签署“赫淮斯托斯熔炉重铸协议”，确保只有负值被考虑
+        # 签署“赫淮斯托斯熔炉重铸协议”，确保只有负值被考虑
         intraday_low_pct_change = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
 
         ma_structure_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])

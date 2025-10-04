@@ -189,50 +189,124 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V2.1 · 哲人石归位版】计算全局的底部和顶部上下文分数。
-    - 核心加固: 增加对输入 df 类型的检查。如果传入的是一个字典（旧的错误调用方式），
-                  则尝试从中提取 'df_indicators'，为数据链路提供“双重保险”。
+    【V6.0 · 雅典娜神盾协议版】计算全局的底部和顶部上下文分数。
+    - 核心革命: 签署“雅典娜神盾协议”，引入基于斐波那契数列的动态支撑三角测量引擎。
+    - 新核心逻辑:
+      1. 【模式三：雅典娜之盾】: 当价格跌破MA55时，激活斐波那契防线(34, 55, ...)，
+         逐级测试历史低点支撑。成功防守的防线越深，得分越高。
+      2. 【神盾合一】: 最终底部上下文分数取“回踩底”、“深渊底”、“动态支撑底”三者最大值，
+         实现全场景底部形态识别。
     """
-    # 增加防御性编程，处理错误的字典输入
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
     if 'close_D' not in df.columns:
-        # 如果关键列仍然缺失，返回默认值以避免崩溃
         print("      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'close_D'列，无法计算上下文分数。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
         return empty_series, empty_series
-    # --- 底部上下文分数计算 (保持不变) ---
+    
+    # --- 底部上下文分数计算 (雅典娜神盾协议) ---
+    
+    # 临时传递 strategy 实例引用以获取配置
+    strategy_instance_ref = None
+    if 'strategy_instance_ref' in atomic_states:
+        strategy_instance_ref = atomic_states['strategy_instance_ref']
+    elif hasattr(df, 'strategy'):
+        strategy_instance_ref = df.strategy
+
+    # 模式一：赫菲斯托斯之锤 (The Forge) - 评估“回踩底”
+    ma55_lifeline = df.get('EMA_55_D', df['close_D'])
+    distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
+    lifeline_support_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
+
+    # 模式二：赫拉之盾 (The Aegis) - 评估“深渊底”
     price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
-    deep_bottom_context_score = 1.0 - price_pos_yearly
+    absolute_value_zone_score = 1.0 - price_pos_yearly
+
+    # 模式三：雅典娜之盾 (Athena's Aegis) - 动态支撑三角测量
+    p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {}) if strategy_instance_ref else {}
+    dynamic_support_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+    if get_param_value(p_fib_support.get('enabled'), False):
+        fib_periods = get_param_value(p_fib_support.get('periods'), [34, 55, 89, 144, 233])
+        tolerance_pct = get_param_value(p_fib_support.get('tolerance_pct'), 0.01)
+        level_scores = get_param_value(p_fib_support.get('level_scores'), {})
+        
+        # 激活条件：收盘价跌破MA55
+        trigger_mask = df['close_D'] < ma55_lifeline
+        
+        for period in fib_periods:
+            period_str = str(period)
+            if period_str not in level_scores: continue
+            
+            # 回看N日内的收盘价低点
+            historical_low = df['close_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
+            
+            # 定义支撑线（包含容差）
+            support_line = historical_low * (1 - tolerance_pct)
+            
+            # 判断当日最低价是否守住了支撑线
+            is_defended = df['low_D'] >= support_line
+            
+            # 在激活日中，如果守住了当前级别的支撑，就赋予相应的分数
+            # 由于我们从小周期到大周期遍历，更深层次的支撑分数会自动覆盖浅层次的
+            dynamic_support_score.loc[trigger_mask & is_defended] = level_scores[period_str]
+
+    # 神盾合一：取三种底部模式的最大值
+    deep_bottom_context_score = np.maximum.reduce([
+        lifeline_support_score.values, 
+        absolute_value_zone_score.values, 
+        dynamic_support_score.values
+    ])
+    deep_bottom_context_score = pd.Series(deep_bottom_context_score, index=df.index, dtype=np.float32)
+
+    # --- 后续融合逻辑保持不变，但输入已是三位一体的融合分数 ---
     rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
-    bottom_context_score_values = np.maximum.reduce([
-        deep_bottom_context_score.values,
-        rsi_w_oversold_score.values,
-        cycle_trough_score.values
-    ])
-    bottom_context_score = pd.Series(bottom_context_score_values, index=df.index, dtype=np.float32)
-    # --- 顶部上下文分数计算 ---
-    # 特征一：波段伸展度 (Overextension) - 价格大幅远离MA55生命线
+    
+    p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
+    context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
+
+    score_components = {
+        'price_pos': deep_bottom_context_score,
+        'rsi_w': rsi_w_oversold_score,
+        'cycle': cycle_trough_score
+    }
+    
+    valid_scores, valid_weights = [], []
+    for name, weight in context_weights.items():
+        if name in score_components and weight > 0:
+            valid_scores.append(score_components[name].values)
+            valid_weights.append(weight)
+
+    if not valid_scores:
+        bottom_context_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+    else:
+        weights_array = np.array(valid_weights)
+        total_weight = weights_array.sum()
+        normalized_weights = weights_array / total_weight if total_weight > 0 else np.full_like(weights_array, 1.0 / len(weights_array))
+        stacked_scores = np.stack(valid_scores, axis=0)
+        safe_scores = np.maximum(stacked_scores, 1e-9)
+        weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+        bottom_context_score_values = np.exp(weighted_log_sum)
+        bottom_context_score = pd.Series(bottom_context_score_values, index=df.index, dtype=np.float32)
+
+    # --- 顶部上下文分数计算 (保持不变) ---
     ma55 = df.get('EMA_55_D', df['close_D'])
     rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-    # 特征二：均线排列恶化 (MA Misalignment) - 短期均线开始掉头向下
     ma_periods = [5, 13, 21, 55]
     misalignment_scores = []
     for i in range(len(ma_periods) - 1):
         short_ma = df.get(f'EMA_{ma_periods[i]}_D', df['close_D'])
         long_ma = df.get(f'EMA_{ma_periods[i+1]}_D', df['close_D'])
-        # 当短期均线下穿长期均线时，分数变高
         misalignment_scores.append((short_ma < long_ma).astype(float))
     if misalignment_scores:
         misalignment_score = pd.DataFrame(misalignment_scores).mean()
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
-    # 融合两大特征，得到最终的顶部上下文分数
     top_context_score = (stretch_score * misalignment_score).astype(np.float32)
+    
     return bottom_context_score, top_context_score
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
@@ -319,7 +393,7 @@ def transmute_health_to_ultimate_signals(
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
     
-    # [代码修改] 此处是“阿瑞斯之矛”的核心：获取位置过滤器
+    # 此处是“阿瑞斯之矛”的核心：获取位置过滤器
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
@@ -355,7 +429,7 @@ def transmute_health_to_ultimate_signals(
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     
-    # [代码修改] “阿瑞斯之矛”协议生效！为底部反转信号强制注入位置上下文。
+    # “阿瑞斯之矛”协议生效！为底部反转信号强制注入位置上下文。
     # 只有在价格处于底部区域时(bottom_context_score高)，动态拐点才被认可为“底部反转”。
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
 
