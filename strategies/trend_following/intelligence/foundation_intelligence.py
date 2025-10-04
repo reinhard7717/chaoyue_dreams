@@ -206,107 +206,71 @@ class FoundationIntelligence:
 
     def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V5.0 · 关系元分析版】计算RSI维度的三维健康度
-        - 核心逻辑: 在强势趋势背景下，RSI的强势表现（高位）是健康的。
-        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        【V6.0 · 德尔斐神谕协议版】计算RSI维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         if 'RSI_13_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的指标静态健康度
         indicator_static_bull = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
         indicator_static_bear = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
 
     def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V5.0 · 关系元分析版】计算MACD维度的三维健康度
-        - 核心逻辑: 在强势趋势背景下，MACD柱状线（Histogram）的强势表现是健康的。
-        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        【V6.0 · 德尔斐神谕协议版】计算MACD维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         if 'MACDh_13_34_8_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的指标静态健康度
         indicator_static_bull = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
         indicator_static_bear = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
 
     def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V5.0 · 关系元分析版】计算CMF维度的三维健康度
-        - 核心逻辑: 在强势趋势背景下，CMF资金流指标的强势表现（正值且高）是健康的。
-        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        【V6.0 · 德尔斐神谕协议版】计算CMF维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         if 'CMF_21_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的指标静态健康度
         indicator_static_bull = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
         indicator_static_bear = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
 
     def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

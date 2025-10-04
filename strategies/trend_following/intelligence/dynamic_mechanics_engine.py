@@ -104,53 +104,36 @@ class DynamicMechanicsEngine:
 
     def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.0 · 关系元分析版】计算波动率(BBW)维度的三维健康度
-        - 核心逻辑: 健康的上涨趋势通常伴随着波动率的收敛（较低的BBW）。
-        - 优化说明: 接收预先计算的`ma_context_score`，避免重复计算。
+        【V4.0 · 德尔斐神谕协议版】计算波动率(BBW)维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在，若不存在则返回默认值
         if 'BBW_21_2.0_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
-                s_bull[p] = default_series.copy() # 使用copy()避免引用问题
+                s_bull[p] = default_series.copy()
                 s_bear[p] = default_series.copy()
                 d_intensity[p] = default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的力学静态健康度
-        # 低BBW（波动率收敛）对多头有利，高BBW对空头有利
         bbw_series = df['BBW_21_2.0_D']
         mechanic_static_bull = normalize_score(bbw_series, df.index, norm_window, ascending=False)
         mechanic_static_bear = normalize_score(bbw_series, df.index, norm_window, ascending=True)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score，不再重复计算
-        bullish_snapshot_score = (mechanic_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (mechanic_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
+        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：填充所有周期的输出
-        # 此处业务逻辑为：所有周期共享相同的瞬时健康度和动态强度。
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-
         return s_bull, s_bear, d_intensity
 
     def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.0 · 关系元分析版】计算效率(VPA)维度的三维健康度
-        - 核心逻辑: 健康的上涨需要高效率（价涨量增，价跌量缩），即VPA效率指标值高。
-        - 优化说明: 接收预先计算的`ma_context_score`，避免重复计算。
+        【V4.0 · 德尔斐神谕协议版】计算效率(VPA)维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         if 'VPA_EFFICIENCY_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -158,38 +141,25 @@ class DynamicMechanicsEngine:
                 s_bear[p] = default_series.copy()
                 d_intensity[p] = default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的力学静态健康度
-        # 高效率对多头有利，低效率对空头有利
         vpa_series = df['VPA_EFFICIENCY_D']
         mechanic_static_bull = normalize_score(vpa_series, df.index, norm_window)
         mechanic_static_bear = normalize_score(vpa_series, df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (mechanic_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (mechanic_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
+        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：填充所有周期的输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.0 · 关系元分析版】计算动能(ATR)维度的三维健康度
-        - 核心逻辑: 健康的上涨需要充足的动能（价格波动幅度，即高ATR），提供突破的能量。
-        - 优化说明: 接收预先计算的`ma_context_score`，避免重复计算。
+        【V4.0 · 德尔斐神谕协议版】计算动能(ATR)维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         if 'ATR_14_D' not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -197,38 +167,25 @@ class DynamicMechanicsEngine:
                 s_bear[p] = default_series.copy()
                 d_intensity[p] = default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的力学静态健康度
-        # 高ATR（动能充足）对多头有利，低ATR对空头有利
         atr_series = df['ATR_14_D']
         mechanic_static_bull = normalize_score(atr_series, df.index, norm_window)
         mechanic_static_bear = normalize_score(atr_series, df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (mechanic_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (mechanic_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
+        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：填充所有周期的输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-
         return s_bull, s_bear, d_intensity
 
     def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.0 · 关系元分析版】计算惯性(ADX)维度的三维健康度
-        - 核心逻辑: 健康的上涨需要强大的趋势惯性（高ADX）且方向向上（PDI > NDI）。
-        - 优化说明: 接收预先计算的`ma_context_score`，避免重复计算。
+        【V4.0 · 德尔斐神谕协议版】计算惯性(ADX)维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
-        # 检查所需指标列是否存在
         required_cols = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D']
         if any(col not in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -237,29 +194,18 @@ class DynamicMechanicsEngine:
                 s_bear[p] = default_series.copy()
                 d_intensity[p] = default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的力学静态健康度
-        # 多头健康度 = 趋势强度 * 趋势方向。高ADX且PDI>NDI对多头有利。
         adx_strength = normalize_score(df['ADX_14_D'], df.index, norm_window)
         adx_direction = (df['PDI_14_D'] > df['NDI_14_D']).astype(float)
         mechanic_static_bull = (adx_strength * adx_direction)
-        # 空头健康度 = 趋势弱。低ADX意味着趋势停滞或反转，对空头有利。
         mechanic_static_bear = normalize_score(df['ADX_14_D'], df.index, norm_window, ascending=False)
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        # 直接使用传入的 ma_context_score
-        bullish_snapshot_score = (mechanic_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (mechanic_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
+        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：填充所有周期的输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

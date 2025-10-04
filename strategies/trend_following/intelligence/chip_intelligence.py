@@ -125,54 +125,40 @@ class ChipIntelligence:
 
     def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
         """
-        【V5.2 · 赫尔墨斯之翼优化版】计算基础量化维度的三维健康度
-        - 性能优化: 1. 移除不再使用的`dynamic_weights`参数。
-                      2. 确保所有中间和最终的Series都显式转换为float32，减少内存占用。
-        - 核心逻辑: 保持“静态分 * 趋势上下文” -> “关系元分析”的核心范式不变。
+        【V6.0 · 德尔斐神谕协议版】计算基础量化维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
         required_cols = ['concentration_90pct_D', 'chip_health_score_D']
         if any(col not in df.columns for col in required_cols):
-            # 如果缺少关键数据，返回一个包含默认值的韧性结构
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p] = s_bear[p] = d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算纯粹的静态筹码健康度
         static_bull_conc = normalize_score(df['concentration_90pct_D'], df.index, norm_window, ascending=False)
         static_bull_health = normalize_score(df['chip_health_score_D'], df.index, norm_window, ascending=True)
-        chip_static_bull = np.sqrt(static_bull_conc * static_bull_health) # 使用np.sqrt代替**0.5，更清晰
-        
-        static_bear_conc = 1.0 - static_bull_conc # 直接取反，避免重复计算
+        chip_static_bull = np.sqrt(static_bull_conc * static_bull_health)
+        static_bear_conc = 1.0 - static_bull_conc
         static_bear_health = 1.0 - static_bull_health
         chip_static_bear = np.sqrt(static_bear_conc * static_bear_health)
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤四：对快照分进行关系元分析，得到统一的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分，不再与 ma_context_score 相乘
+        bullish_snapshot_score = chip_static_bull.astype(np.float32)
+        bearish_snapshot_score = chip_static_bear.astype(np.float32)
+        # 对纯粹的静态分进行元分析，得到动态强度
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤五：循环内仅进行高效的字典赋值
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
 
     def _calculate_advanced_dynamics_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V5.1 · 韧性骨架版】计算高级动态维度的三维健康度"""
+        """
+        【V6.0 · 德尔斐神谕协议版】计算高级动态维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']
-        
-        # [代码修复] 增加数据检查和韧性返回
         if any(col not in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -180,36 +166,26 @@ class ChipIntelligence:
                 s_bear[p] = default_series
                 d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的筹码静态健康度
         is_multi_peak_series = df.get('is_multi_peak_D', pd.Series(0.0, index=df.index)).astype(float)
         chip_static_bull = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window) * normalize_score(df.get('peak_stability_D'), df.index, norm_window))**(1/3)
         chip_static_bear = (normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_strength_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=False) * is_multi_peak_series)**(1/4)
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * ma_context_score)
-        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = chip_static_bull.astype(np.float32)
+        bearish_snapshot_score = chip_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤五：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _calculate_internal_structure_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V5.1 · 韧性骨架版】计算内部结构维度的三维健康度"""
+        """
+        【V6.0 · 德尔斐神谕协议版】计算内部结构维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['concentration_70pct_D', 'support_below_D', 'pressure_above_D']
-        
-        # [代码修复] 增加数据检查和韧性返回
         if any(col not in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -217,35 +193,25 @@ class ChipIntelligence:
                 s_bear[p] = default_series
                 d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的筹码静态健康度
         chip_static_bull = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False) * (normalize_score(df.get('support_below_D'), df.index, norm_window) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=False))**0.5)**0.5
         chip_static_bear = (normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=True) * (normalize_score(df.get('support_below_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('pressure_above_D'), df.index, norm_window, ascending=True))**0.5)**0.5
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * ma_context_score)
-        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = chip_static_bull.astype(np.float32)
+        bearish_snapshot_score = chip_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤五：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _calculate_holder_behavior_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V5.1 · 韧性骨架版】计算持仓者行为维度的三维健康度"""
+        """
+        【V6.0 · 德尔斐神谕协议版】计算持仓者行为维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['cost_divergence_D', 'winner_profit_margin_D', 'total_winner_rate_D', 'turnover_from_winners_ratio_D']
-        
-        # [代码修复] 增加数据检查和韧性返回
         if any(col not in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -253,35 +219,25 @@ class ChipIntelligence:
                 s_bear[p] = default_series
                 d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的筹码静态健康度
         chip_static_bull = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False))**(1/4)
         chip_static_bear = (normalize_score(df.get('cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('winner_profit_margin_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('total_winner_rate_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True))**(1/4)
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * ma_context_score)
-        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = chip_static_bull.astype(np.float32)
+        bearish_snapshot_score = chip_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤五：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _calculate_fault_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V4.1 · 韧性骨架版】计算筹码断层维度的三维健康度"""
+        """
+        【V5.0 · 德尔斐神谕协议版】计算筹码断层维度的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         required_cols = ['chip_fault_strength_D', 'chip_fault_vacuum_percent_D']
-        
-        # [代码修复] 增加数据检查和韧性返回
         if any(col not in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
@@ -289,27 +245,16 @@ class ChipIntelligence:
                 s_bear[p] = default_series
                 d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
-        # 步骤一：计算原始的、纯粹的筹码静态健康度
         chip_static_bull = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=False))**0.5
         chip_static_bear = (normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True))**0.5
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * (0.5 + 0.5 * ma_context_score))
-        bearish_snapshot_score = (chip_static_bear * (0.5 + 0.5 * (1 - ma_context_score)))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = chip_static_bull.astype(np.float32)
+        bearish_snapshot_score = chip_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤五：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-            
         return s_bull, s_bear, d_intensity
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

@@ -192,24 +192,17 @@ class FundFlowIntelligence:
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:
         """
-        【V5.0 · 宙斯天平协议版】计算单个资金流支柱的三维健康度
-        - 核心革命: 签署“宙斯天平协议”，所有资金流指标在分析前，必须先根据流通市值进行归一化。
-        - 新核心逻辑: 指标原始值 = 资金净流入额 / 当日流通市值。这使得资金流信号在不同市值的股票间具备了可比性。
-        - 优化说明: 1. 接收预计算的`ma_context_score`，避免重复计算。
-                    2. 增加对所需指标列和市值列的健壮性检查。
+        【V6.0 · 德尔斐神谕协议版】计算单个资金流支柱的三维健康度
+        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
-
-        # 根据指标类型（累加型或每日型）确定用于计算静态健康度的列名
         if col_type == 'sum':
             static_col = f"{base_col_name}_sum_55d_D"
         else:
             static_col = f"{base_col_name}_D"
-        
-        # 健壮性检查：如果指标列或市值列不存在，则返回默认的中性健康度，避免程序崩溃
         market_cap_col = 'circ_mv_D'
         if static_col not in df.columns or market_cap_col not in df.columns:
             print(f"      -> [宙斯天平] 警告: 缺少核心列 '{static_col}' 或 '{market_cap_col}'，无法计算市值归一化资金流。")
@@ -217,33 +210,20 @@ class FundFlowIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-
-        # 步骤一：【宙斯天平协议】计算市值归一化的资金流指标
-        # 流通市值单位是“万元”，资金流单位是“元”，需要统一单位
         market_cap_in_yuan = df[market_cap_col] * 10000
-        # 避免除以零的错误，将0替换为NaN，后续fillna(0)会处理
         market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
-        # 计算归一化后的资金流强度（资金流占流通市值的比例）
         normalized_flow_series = (df[static_col] / market_cap_in_yuan).fillna(0)
         static_series = normalized_flow_series
-
-        # 根据指标的“极性”(polarity)来决定归一化的方向。
         indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
         indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
-
-        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
-
-        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
+        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
+        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
-
-        # 步骤四：将统一计算的结果赋给所有周期
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
-
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # ==============================================================================
