@@ -391,7 +391,6 @@ class IndicatorService:
         ma_conv_params = indicators_config.get('ma_convergence', {})
         if ma_conv_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_ma_convergence(all_dfs, ma_conv_params)
-            
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
@@ -453,7 +452,7 @@ class IndicatorService:
             kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
                 stock_code, start_date, end_date, kpl_params
             )
-            # 新增代码: 增加调试信息，检查返回的DataFrame状态
+            # 增加调试信息，检查返回的DataFrame状态
             # print(f"    - [KPL题材热度注入-调试] 收到KPL热度DataFrame，行数: {len(kpl_hotness_df)}，索引类型: {type(kpl_hotness_df.index)}")
             if not kpl_hotness_df.empty:
                 # 修改代码: 在合并前，强制将kpl_hotness_df的索引转换为带UTC时区的DatetimeIndex，以匹配df_daily

@@ -388,20 +388,22 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V3.1 · 赫尔墨斯之翼优化版】终极信号中央合成引擎
-    - 性能优化: 将所有分散的、基于Pandas的加权几何平均计算，重构为统一的、基于Numpy `log-exp`
-                  范式的矩阵运算，极大提升了计算效率和内存使用效率。
-    - 核心逻辑: 保持“阿瑞斯之矛”协议等核心业务逻辑不变。
+    【V4.0 · 阿瑞斯之矛协议版】终极信号中央合成引擎
+    - 核心革命: 签署“阿瑞斯之矛协议”，修正“反转”信号的计算哲学。
+    - 新核心逻辑:
+      - 【底部反转】强度不再与 d_intensity 挂钩，而是正比于 s_bull，反比于 s_bear。
+      - 【顶部反转】强度不再与 d_intensity 挂钩，而是正比于 s_bear，反比于 s_bull。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
     periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+    norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
     
-    atomic_states['strategy_instance_ref'] = getattr(df, 'strategy', {})
+    atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
         del atomic_states['strategy_instance_ref']
@@ -409,82 +411,72 @@ def transmute_health_to_ultimate_signals(
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
 
-    # --- 2. 上下文计算 (逻辑不变) ---
-    # 此处省略未修改的上下文计算代码以保持简洁...
+    # --- 上下文计算 (保持不变) ---
     new_high_params = get_param_value(params.get('new_high_context_params'), {})
     new_high_context_score = _calculate_new_high_context(df, new_high_params)
     atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
-    trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, get_param_value(params.get('norm_window'), 55))
+    trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
-    # ... 其他上下文计算
+    tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
+    macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
+    macro_trend_permit_context = trend_confirmation_context.rolling(window=macro_window, min_periods=1).mean()
+    atomic_states['CONTEXT_MACRO_TREND_PERMIT'] = macro_trend_permit_context
+    dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
+    dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
+    atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
 
-    # --- 3. 信号计算 ---
+    # --- 信号计算 ---
     
-    # 定义一个可重用的、向量化的加权几何平均计算函数
-    def vectorized_geometric_mean(signals: list, weights: list) -> np.ndarray:
-        """使用log-exp范式高效计算加权几何平均"""
-        stacked_signals = np.stack([s.values for s in signals], axis=0)
-        safe_signals = np.maximum(stacked_signals, 1e-9) # 避免log(0)
-        log_signals = np.log(safe_signals)
-        weights_array = np.array(weights)[:, np.newaxis] # 转换为列向量以进行广播
-        weighted_log_sum = np.sum(log_signals * weights_array, axis=0)
-        return np.exp(weighted_log_sum)
-
-    # 使用新的向量化函数重构所有信号计算
     # 战略底部反转 (Strategic Bottom Reversal)
-    bullish_reversal_health = {p: overall_health['d_intensity'].get(p, default_series) for p in periods}
-    bullish_short_force_rev = np.sqrt(bullish_reversal_health[1].values * bullish_reversal_health[5].values)
-    bullish_medium_trend_rev = np.sqrt(bullish_reversal_health[13].values * bullish_reversal_health[21].values)
-    overall_bullish_reversal_trigger = vectorized_geometric_mean(
-        [pd.Series(bullish_short_force_rev), pd.Series(bullish_medium_trend_rev), bullish_reversal_health[55]],
-        [reversal_tf_weights['short'], reversal_tf_weights['medium'], reversal_tf_weights['long']]
-    )
-    raw_bottom_reversal_score = np.clip(overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated.values * bottom_context_bonus_factor), 0, 1)
-    final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score.values * (1 - trend_confirmation_context.values)
-
-    # 看涨共振 (Bullish Resonance)
-    bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
-    bullish_short_force_res = np.sqrt(bullish_resonance_health[1].values * bullish_resonance_health[5].values)
-    bullish_medium_trend_res = np.sqrt(bullish_resonance_health[13].values * bullish_resonance_health[21].values)
-    overall_bullish_resonance = vectorized_geometric_mean(
-        [pd.Series(bullish_short_force_res), pd.Series(bullish_medium_trend_res), bullish_resonance_health[55]],
-        [resonance_tf_weights['short'], resonance_tf_weights['medium'], resonance_tf_weights['long']]
-    )
+    # 阿瑞斯之矛协议：反转强度由 s_bull 和 s_bear 的消长关系决定，而非 d_intensity
+    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) for p in periods}
+    bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
+    bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
+    bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
+    overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
+    raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     
-    # 看跌共振 (Bearish Resonance)
+    final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
+
+    # 战术回调反转 (Tactical Pullback Reversal)
+    final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
+
+    # 看涨共振 (Bullish Resonance) - 逻辑保持不变，依然由 d_intensity 驱动
+    bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
+    bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
+    bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
+    overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
+    
+    # 看跌共振 (Bearish Resonance) - 逻辑保持不变
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['d_intensity'].get(p, default_series)) for p in periods}
-    bearish_short_force_res = np.sqrt(bearish_resonance_health[1].values * bearish_resonance_health[5].values)
-    bearish_medium_trend_res = np.sqrt(bearish_resonance_health[13].values * bearish_resonance_health[21].values)
-    overall_bearish_resonance = vectorized_geometric_mean(
-        [pd.Series(bearish_short_force_res), pd.Series(bearish_medium_trend_res), bearish_resonance_health[55]],
-        [resonance_tf_weights['short'], resonance_tf_weights['medium'], resonance_tf_weights['long']]
-    )
-
+    bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
+    bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
+    bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
+    overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
+    
     # 顶部反转 (Top Reversal)
-    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['d_intensity'].get(p, default_series)) for p in periods}
-    bearish_short_force_rev = np.sqrt(bearish_reversal_health[1].values * bearish_reversal_health[5].values)
-    bearish_medium_trend_rev = np.sqrt(bearish_reversal_health[13].values * bearish_reversal_health[21].values)
-    overall_bearish_reversal_trigger = vectorized_geometric_mean(
-        [pd.Series(bearish_short_force_rev), pd.Series(bearish_medium_trend_rev), bearish_reversal_health[55]],
-        [reversal_tf_weights['short'], reversal_tf_weights['medium'], reversal_tf_weights['long']]
-    )
-    final_top_reversal_score = np.clip(overall_bearish_reversal_trigger * (1 + top_context_score.values * bottom_context_bonus_factor), 0, 1)
-
-    # --- 4. 组装并返回最终信号字典 ---
-    # 将计算结果（Numpy数组）转换为带索引的Pandas Series
+    # 阿瑞斯之矛协议：反转强度由 s_bear 和 s_bull 的消长关系决定
+    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
+    bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
+    bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
+    bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
+    overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
+    final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
+    
+    # --- 6. 组装并返回最终信号字典 ---
     final_signal_map = {
-        f'SCORE_{domain_prefix}_BULLISH_RESONANCE': overall_bullish_resonance ** exponent,
-        f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': final_bottom_reversal_score ** exponent,
-        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': calculate_tactical_reversal_score(df, atomic_states, overall_health, params.get('tactical_reversal_params',{}), get_param_value(params.get('norm_window'), 55)).values ** exponent,
-        f'SCORE_{domain_prefix}_BEARISH_RESONANCE': overall_bearish_resonance ** exponent,
-        f'SCORE_{domain_prefix}_TOP_REVERSAL': final_top_reversal_score ** exponent
+        f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
+        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
+        f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
-    for signal_name, score_values in final_signal_map.items():
-        states[signal_name] = pd.Series(score_values, index=df.index, dtype=np.float32)
-        
+    for signal_name, score in final_signal_map.items():
+        states[signal_name] = score.astype(np.float32)
     return states
 
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
