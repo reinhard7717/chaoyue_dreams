@@ -24,7 +24,7 @@ class JudgmentLayer:
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         
-        # [代码修改] 引入“普罗米修斯解锁协议”
+        # 引入“普罗米修斯解锁协议”
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         
         # 步骤1: 识别每日的最强进攻信号及其类型

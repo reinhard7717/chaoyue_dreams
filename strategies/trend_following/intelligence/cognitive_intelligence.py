@@ -84,22 +84,30 @@ class CognitiveIntelligence:
         【V1.3 · 创世纪版】状态-过程协同融合引擎
         - 核心升级: 将四个全新的“创世纪”过程信号全部纳入“过程共识分”的计算，
                       使顶层认知能够理解市场的真实博弈。
+        - 优化说明: 使用Numpy向量化计算几何平均数，提高计算效率和数值稳定性。
         """
-        states = {}
+        states = {} # 新增(规范): 初始化用于存储结果的字典
         
+        # --- 状态共识分计算 ---
+        # 状态层面的多头信号列表
         state_bullish_signals = [
             'SCORE_CHIP_BULLISH_RESONANCE', 'SCORE_BEHAVIOR_BULLISH_RESONANCE',
             'SCORE_FF_BULLISH_RESONANCE', 'SCORE_STRUCTURE_BULLISH_RESONANCE',
             'SCORE_DYN_BULLISH_RESONANCE', 'SCORE_FOUNDATION_BULLISH_RESONANCE'
         ]
+        # 使用列表推导式和.values高效获取所有信号的Numpy数组
         state_scores = [self._get_atomic_score(df, sig, 0.5).values for sig in state_bullish_signals]
+        
+        # 使用np.stack将列表转换为2D数组，然后计算几何平均数，避免pandas开销
+        # 几何平均数可以惩罚那些存在极低分数的项，要求各维度协同看多
         state_consensus_score = pd.Series(
             np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
             index=df.index, dtype=np.float32
         )
         states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
 
-        # 引入所有“创世纪”过程信号
+        # --- 过程共识分计算 ---
+        # 引入所有“创世纪”过程信号，这些信号描述了市场参与者行为的动态演变
         process_bullish_signals = [
             'PROCESS_META_PV_REL_BULLISH_TURN',
             'PROCESS_META_PF_REL_BULLISH_TURN',
@@ -109,40 +117,53 @@ class CognitiveIntelligence:
             'PROCESS_META_WINNER_CONVICTION',
             'PROCESS_META_LOSER_CAPITULATION'
         ]
+        # 将信号值从[-1, 1]区间归一化到[0, 1]区间，并直接获取Numpy数组
+        # (score * 0.5 + 0.5) 是将[-1, 1]映射到[0, 1]的标准方法
         process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
+        
+        # 同样使用Numpy高效计算过程信号的几何平均数
         process_consensus_score = pd.Series(
             np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
             index=df.index, dtype=np.float32
         )
         states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
 
+        # --- 最终协同分数合成 ---
+        # 状态共识与过程共识相乘，代表静态优势与动态演变的协同效应
         synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
         states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
         
-        self.strategy.atomic_states.update(states)
+        self.strategy.atomic_states.update(states) # 新增(规范): 统一更新原子状态库
         return df
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
         【V2.6 · 架构对齐版】趋势质量融合评分模块
         - 核心重构: 修复了筹码健康度计算的逻辑断层，使其直接消费筹码层的终极共振信号。
+        - 优化说明: 采用加权几何平均数进行融合，比加法更能体现“质量”的综合性，
+                      并使用Numpy进行高效的向量化计算。
         """
-        # 使用新的 get_unified_score 函数
+        # --- 1. 获取各维度健康度分数 ---
+        # 使用 get_unified_score 获取各领域标准化的健康度分数
         behavior_health_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         structural_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         mechanics_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
+        
+        # 趋势状态健康度通过融合Hurst指数和FFT分析结果得出，使用几何平均以求共识
         regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
-        regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5 # 使用几何平均
+        regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5
         
-        # 趋势质量中的“筹码健康度”现在直接消费筹码层终极信号，不再重复计算
+        # 筹码健康度直接消费筹码层的最终看多共振信号，避免重复计算
         chip_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
 
+        # --- 2. 读取权重配置 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
         
-        # 最终融合从加法改为乘法
+        # --- 3. 加权几何平均融合 ---
+        # 将所有维度分数和配置的权重一一对应
         domain_scores = [
             behavior_health_score, chip_health_score, fund_flow_health_score,
             structural_health_score, mechanics_health_score, regime_health_score
@@ -152,6 +173,7 @@ class CognitiveIntelligence:
             weights.get('structural', 0.15), weights.get('mechanics', 0.10), weights.get('regime', 0.10)
         ]
         
+        # 过滤掉权重为0的项，并直接处理Numpy数组以提高效率
         valid_scores = []
         valid_weights = []
         for score, weight in zip(domain_scores, domain_weights_config):
@@ -161,13 +183,16 @@ class CognitiveIntelligence:
 
         if valid_scores:
             weights_array = np.array(valid_weights)
-            weights_array /= weights_array.sum() # 归一化权重
+            weights_array /= weights_array.sum() # 权重归一化，确保总权重为1
             stacked_scores = np.stack(valid_scores, axis=0)
+            # 计算加权几何平均数。该算法能有效惩罚任何一个维度的短板。
+            # 公式: G = (s1^w1 * s2^w2 * ... * sn^wn)
             trend_quality_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
             trend_quality_score = pd.Series(trend_quality_values, index=df.index, dtype=np.float32)
         else:
             trend_quality_score = pd.Series(0.5, index=df.index, dtype=np.float32)
         
+        # --- 4. 保存结果 ---
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = trend_quality_score.astype(np.float32)
         return df
 
@@ -217,92 +242,109 @@ class CognitiveIntelligence:
         - 核心革命: 彻底废除“加权求和”的风险融合逻辑，升级为“加权几何平均”。
                       确保最终的 COGNITIVE_FUSED_RISK_SCORE 被严格归一化到 [0, 1] 区间，
                       解决了风险分“通货膨胀”和不可比的根本性设计缺陷。
+        - 优化说明: 预缓存Numpy数组、使用数值稳定的加权几何平均算法，并全程向量化操作。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
+        
+        # --- 1. 预处理与缓存 ---
         risk_categories = p_fused_risk.get('risk_categories', {})
-        p_fusion_params = p_fused_risk.get('intra_dimension_fusion_params', {})
-        secondary_risk_discount = p_fusion_params.get('secondary_risk_discount', 0.3)
-        all_required_signals = set()
-        for category_name, signals in risk_categories.items():
-            if category_name != "说明":
-                all_required_signals.update(s for s in signals if s != "说明")
+        all_required_signals = {s for signals in risk_categories.values() if isinstance(signals, dict) for s in signals if s != "说明"}
+        
+        # 预先将所有需要的Series转换为Numpy数组并缓存，避免在循环中重复转换，极大提升性能。
         signal_numpy_cache = {
             sig_name: self._get_atomic_score(df, sig_name, 0.0).values
             for sig_name in all_required_signals
         }
         default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
+
+        # --- 2. 维度内风险融合 (主次风险算法) ---
         fused_dimension_scores = {}
+        secondary_risk_discount = p_fused_risk.get('intra_dimension_fusion_params', {}).get('secondary_risk_discount', 0.3)
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
+            
             category_signal_scores = []
             for signal_name, signal_params in signals.items():
                 if signal_name == "说明": continue
                 atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
-                is_inverse = signal_params.get('inverse', False)
-                processed_score = 1.0 - atomic_score_np if is_inverse else atomic_score_np
-                weight = signal_params.get('weight', 1.0)
-                final_signal_score = processed_score * weight
-                category_signal_scores.append(final_signal_score)
+                processed_score = 1.0 - atomic_score_np if signal_params.get('inverse', False) else atomic_score_np
+                category_signal_scores.append(processed_score * signal_params.get('weight', 1.0))
+
             if category_signal_scores:
+                # 使用Numpy高效实现“主次风险融合算法”
                 stacked_scores = np.stack(category_signal_scores, axis=1)
                 sorted_scores = np.sort(stacked_scores, axis=1)
-                primary_risk_values = sorted_scores[:, -1]
-                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0
+                primary_risk_values = sorted_scores[:, -1] # 最高风险项
+                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0 # 次高风险项
                 dimension_risk_values = primary_risk_values + secondary_risk_values * secondary_risk_discount
                 dimension_risk_score = pd.Series(dimension_risk_values, index=df.index, dtype=np.float32)
                 fused_dimension_scores[category_name] = dimension_risk_score
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
             else:
                 fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # --- 3. 跨维度风险融合 (动态加权几何平均) ---
         p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
         base_weights = p_dynamic_weighting.get('base_weights', {})
-        context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
-        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
         is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
         is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
-        # 核心修改：从加权求和改为加权几何平均
-        valid_scores = []
-        valid_weights = []
+        
+        valid_scores_np = []
+        valid_weights_np = []
+        # 动态计算各风险维度的权重，并准备用于Numpy计算的数据
         for category_name, base_weight in base_weights.items():
             if category_name in fused_dimension_scores and base_weight > 0:
                 current_weight = pd.Series(base_weight, index=df.index)
                 if get_param_value(p_dynamic_weighting.get('enabled'), True):
-                    early_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {})
-                    if category_name in early_adjustments:
-                        current_weight = current_weight.where(~is_early_stage, current_weight * early_adjustments[category_name])
-                    late_adjustments = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {})
-                    if category_name in late_adjustments:
-                        current_weight = current_weight.where(~is_late_stage, current_weight * late_adjustments[category_name])
-                valid_scores.append(fused_dimension_scores[category_name].values)
-                valid_weights.append(current_weight.values)
-        if valid_scores:
-            stacked_scores = np.stack(valid_scores, axis=0)
-            stacked_weights = np.stack(valid_weights, axis=0)
-            # 归一化权重
-            total_weights = np.sum(stacked_weights, axis=0)
-            normalized_weights = stacked_weights / total_weights
-            # 计算加权几何平均
-            # 为避免log(0)错误，给stacked_scores增加一个极小值
+                    context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
+                    early_adj = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {}).get(category_name)
+                    if early_adj: current_weight = current_weight.where(~is_early_stage, current_weight * early_adj)
+                    late_adj = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {}).get(category_name)
+                    if late_adj: current_weight = current_weight.where(~is_late_stage, current_weight * late_adj)
+                valid_scores_np.append(fused_dimension_scores[category_name].values)
+                valid_weights_np.append(current_weight.values)
+
+        if valid_scores_np:
+            stacked_scores = np.stack(valid_scores_np, axis=0)
+            stacked_weights = np.stack(valid_weights_np, axis=0)
+            normalized_weights = stacked_weights / np.sum(stacked_weights, axis=0) # 权重归一化
+            
+            # 采用数值稳定的加权几何平均算法。
+            # G = exp(Σ(wi * log(si)))。增加1e-9避免log(0)导致计算错误。
+            # 此算法确保最终风险分在[0,1]区间，且对任何一个维度的极端风险都非常敏感。
             total_fused_risk_values = np.exp(np.sum(normalized_weights * np.log(stacked_scores + 1e-9), axis=0))
             total_fused_risk_score = pd.Series(total_fused_risk_values, index=df.index, dtype=np.float32)
         else:
             total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # --- 4. 风险共振惩罚 ---
+        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
         if get_param_value(p_resonance.get('enabled'), True):
-            core_dims = get_param_value(p_resonance.get('core_risk_dimensions'), [])
-            min_dims = get_param_value(p_resonance.get('min_dimensions_for_resonance'), 2)
-            threshold = get_param_value(p_resonance.get('risk_score_threshold'), 0.6) # 阈值也应适配[0,1]
-            penalty_multiplier = get_param_value(p_resonance.get('penalty_multiplier'), 1.2)
-            high_risk_dimension_count = pd.Series(0, index=df.index)
-            for dim in core_dims:
-                if dim in fused_dimension_scores:
-                    high_risk_dimension_count += (fused_dimension_scores[dim] > threshold).astype(int)
+            core_dims = p_resonance.get('core_risk_dimensions', [])
+            min_dims = p_resonance.get('min_dimensions_for_resonance', 2)
+            threshold = p_resonance.get('risk_score_threshold', 0.6)
+            penalty_multiplier = p_resonance.get('penalty_multiplier', 1.2)
+            
+            # 使用向量化操作计算同时处于高风险状态的维度数量
+            high_risk_dimension_count = np.sum([
+                (fused_dimension_scores[dim].values > threshold)
+                for dim in core_dims if dim in fused_dimension_scores
+            ], axis=0)
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
-            total_fused_risk_score = total_fused_risk_score.where(~is_resonance_triggered, (total_fused_risk_score * penalty_multiplier).clip(0, 1))
-            states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = is_resonance_triggered
+            
+            # 使用np.where高效地对触发共振的风险分应用惩罚
+            total_fused_risk_score_values = np.where(
+                is_resonance_triggered,
+                np.clip(total_fused_risk_score.values * penalty_multiplier, 0, 1),
+                total_fused_risk_score.values
+            )
+            total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
+            states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
+
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
         return states
 
@@ -421,14 +463,16 @@ class CognitiveIntelligence:
         """
         【V2.8 · 信号净化版】多域反转共振分数合成模块
         - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
+        - 优化说明: 融合算法从加法改为加权几何平均，并使用Numpy高效实现，更能体现“共振”特性。
         """
         states = {}
-        default_score = pd.Series(0.5, index=df.index, dtype=np.float32) # 默认值改为0.5
+        default_score = pd.Series(0.5, index=df.index, dtype=np.float32)
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
-        bottom_weights = get_param_value(p.get('bottom_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
-        top_weights = get_param_value(p.get('top_resonance_weights'), {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
+        bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
+        top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         
-        # 全面使用 get_unified_score 消费净化后的信号
+        # --- 底部反转共振分数 ---
+        # 全面使用 get_unified_score 消费各领域净化后的底部反转信号
         bottom_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
@@ -437,27 +481,24 @@ class CognitiveIntelligence:
             'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
         }
         
-        # 底部反转融合从加法改为乘法
-        bottom_scores = []
-        bottom_weight_values = []
-        for domain, weight in bottom_weights.items():
-            if domain in bottom_sources and weight > 0:
-                bottom_scores.append(bottom_sources[domain].values)
-                bottom_weight_values.append(weight)
+        # 使用Numpy实现加权几何平均，替代原先的加法融合
+        bottom_scores_np = [s.values for d, s in bottom_sources.items() if bottom_weights.get(d, 0) > 0]
+        bottom_weights_np = [w for d, w in bottom_weights.items() if d in bottom_sources and w > 0]
         
-        if bottom_scores:
-            weights_array = np.array(bottom_weight_values)
-            weights_array /= weights_array.sum()
-            stacked_scores = np.stack(bottom_scores, axis=0)
+        if bottom_scores_np:
+            weights_array = np.array(bottom_weights_np)
+            weights_array /= weights_array.sum() # 权重归一化
+            stacked_scores = np.stack(bottom_scores_np, axis=0)
+            # 计算加权几何平均，要求多领域协同出现反转信号
             bottom_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
             bottom_reversal_score = pd.Series(bottom_reversal_values, index=df.index, dtype=np.float32)
         else:
-            bottom_reversal_score = default_score
+            bottom_reversal_score = default_score.copy() # 修改(健壮性): 使用copy避免潜在的引用问题
 
-        # 移除信号名中的_S后缀
-        states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = bottom_reversal_score.astype(np.float32)
-        
-        # 全面使用 get_unified_score 消费净化后的信号
+        states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = bottom_reversal_score
+
+        # --- 顶部反转共振分数 ---
+        # 全面使用 get_unified_score 消费各领域净化后的顶部反转信号
         top_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
@@ -466,25 +507,22 @@ class CognitiveIntelligence:
             'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
         }
 
-        # 顶部反转融合从加法改为乘法
-        top_scores = []
-        top_weight_values = []
-        for domain, weight in top_weights.items():
-            if domain in top_sources and weight > 0:
-                top_scores.append(top_sources[domain].values)
-                top_weight_values.append(weight)
+        # 同样使用Numpy实现顶部反转的加权几何平均
+        top_scores_np = [s.values for d, s in top_sources.items() if top_weights.get(d, 0) > 0]
+        top_weights_np = [w for d, w in top_weights.items() if d in top_sources and w > 0]
 
-        if top_scores:
-            weights_array = np.array(top_weight_values)
-            weights_array /= weights_array.sum()
-            stacked_scores = np.stack(top_scores, axis=0)
+        if top_scores_np:
+            weights_array = np.array(top_weights_np)
+            weights_array /= weights_array.sum() # 权重归一化
+            stacked_scores = np.stack(top_scores_np, axis=0)
+            # 计算加权几何平均
             top_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
             top_reversal_score = pd.Series(top_reversal_values, index=df.index, dtype=np.float32)
         else:
-            top_reversal_score = default_score
+            top_reversal_score = default_score.copy() # 修改(健壮性): 使用copy
 
-        # 移除信号名中的_S后缀
-        states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = top_reversal_score.astype(np.float32)
+        states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = top_reversal_score
+        
         self.strategy.atomic_states.update(states)
         return df
 
@@ -550,50 +588,51 @@ class CognitiveIntelligence:
         """
         【V3.0 · 赫拉织布机版】趋势加速级联 (涡轮增压) 诊断引擎
         - 核心革命: 借鉴ProcessIntelligence思想，引入二阶导数(加速度)和关系动态(协同性)分析。
-        - 新核心逻辑:
-          1. 对每个领域，同时计算其斜率(速度)和加速度。
-          2. 将速度分和加速度分加权融合成该领域的“动态健康分”。
-          3. 计算所有领域“动态健康分”的均值（代表整体加速水平）和标准差（代表分歧度）。
-          4. 最终级联分 = 平均动态健康分 * (1 - 标准差)，同时奖励“加速”和“协同”。
+        - 优化说明: 逻辑高度定制，通过Numpy向量化操作实现斜率、加速度计算及后续融合，保证了复杂逻辑下的执行效率。
         """
         states = {}
         norm_window = 55
         slope_period = 3 
-        # 从配置中获取新的融合权重
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        fusion_weights = get_param_value(p_cognitive.get('cascade_fusion_weights'), {'slope': 0.6, 'accel': 0.4})
+        fusion_weights = p_cognitive.get('cascade_fusion_weights', {'slope': 0.6, 'accel': 0.4})
         w_slope = fusion_weights.get('slope', 0.6)
         w_accel = fusion_weights.get('accel', 0.4)
 
-        # 辅助函数，用于计算单个序列的动态健康分
+        # 定义一个内联辅助函数，用于计算单个序列的“动态健康分”
+        # 该分数融合了信号的增长速度（斜率）和增长加速度
         def get_dynamic_health(series: pd.Series) -> pd.Series:
+            # 使用pandas内置的diff()高效计算斜率（一阶导数）和加速度（二阶导数）
             slope = series.diff(slope_period).fillna(0)
             accel = slope.diff(slope_period).fillna(0)
             
-            # 归一化时，只考虑正向变化
+            # 归一化时，只考虑正向变化（增长和加速），体现“涡轮增压”的题意
             slope_score = normalize_score(slope.clip(lower=0), df.index, norm_window)
             accel_score = normalize_score(accel.clip(lower=0), df.index, norm_window)
             
-            # 融合速度与加速度
+            # 加权融合速度分和加速度分
             dynamic_health_score = (slope_score * w_slope + accel_score * w_accel)
             return dynamic_health_score
 
         # --- 1. 时序级联诊断 (Temporal Cascade) ---
+        # 评估健康度信号在时间维度上的加速情况
         health_cache = self.strategy.atomic_states.get('__BEHAVIOR_overall_health', {})
         s_bull = health_cache.get('s_bull', {})
         d_intensity = health_cache.get('d_intensity', {})
-        relational_power = self.strategy.atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
+        relational_power = self._get_atomic_score(df, 'SCORE_ATOMIC_RELATIONAL_DYNAMICS', 0.5)
+        # 融合短期和中期健康度信号
         short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
         medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
         
-        # 使用新的辅助函数计算动态健康分
+        # 计算短期和中期健康度的动态健康分
         short_term_dynamic_health = get_dynamic_health(short_term_health)
         medium_term_dynamic_health = get_dynamic_health(medium_term_health)
         
+        # 融合时间维度上的加速信号，要求短中期趋势都在加速
         temporal_cascade_score = (short_term_dynamic_health * medium_term_dynamic_health)**0.5
         states['COGNITIVE_INTERNAL_TEMPORAL_CASCADE'] = temporal_cascade_score.astype(np.float32)
 
         # --- 2. 领域级联诊断 (Domain Cascade) ---
+        # 评估不同分析维度（领域）之间的协同加速情况
         resonance_signals = {
             'behavior': self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE'),
             'chip': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
@@ -602,29 +641,23 @@ class CognitiveIntelligence:
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
         
-        # 计算每个领域的动态健康分
-        domain_dynamic_health_scores = []
-        for name, signal in resonance_signals.items():
-            dynamic_health = get_dynamic_health(signal)
-            states[f'COGNITIVE_INTERNAL_DYN_HEALTH_{name.upper()}'] = dynamic_health.astype(np.float32)
-            domain_dynamic_health_scores.append(dynamic_health)
+        domain_dynamic_health_scores = [get_dynamic_health(signal) for signal in resonance_signals.values()]
         
-        # 计算“关系协同分”
         if domain_dynamic_health_scores:
-            # 将所有领域的动态健康分堆叠起来
+            # 将所有领域的动态健康分堆叠成Numpy数组，进行高效的跨领域分析
             stacked_health = np.stack([s.values for s in domain_dynamic_health_scores], axis=0)
             
-            # 计算平均动态健康分（代表整体加速水平）
+            # 计算平均动态健康分，代表整体加速水平
             average_dynamic_health = pd.Series(np.mean(stacked_health, axis=0), index=df.index)
             
-            # 计算标准差（代表分歧度），并归一化
+            # 计算标准差，代表各领域加速水平的分歧度
             std_dev_health = pd.Series(np.std(stacked_health, axis=0), index=df.index)
             normalized_std_dev = normalize_score(std_dev_health, df.index, norm_window, ascending=True)
             
-            # 协同分 = 1 - 分歧度
+            # 协同分 = 1 - 分歧度。分歧越小，协同性越高。
             relational_cohesion_score = 1.0 - normalized_std_dev
             
-            # 最终领域级联分 = 整体加速水平 * 协同性
+            # 最终领域级联分 = 整体加速水平 * 协同性。要求大家一起加速，而不是个别领域单兵突进。
             domain_cascade_score = (average_dynamic_health * relational_cohesion_score).clip(0, 1)
         else:
             domain_cascade_score = pd.Series(0.0, index=df.index)
@@ -632,6 +665,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
 
         # --- 3. 最终融合 ---
+        # 融合时间级联和领域级联，得到最终的趋势加速级联分数
         final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
         
@@ -642,13 +676,20 @@ class CognitiveIntelligence:
         【V1.2 · 奇美拉之力版】奇美拉冲突诊断引擎
         - 核心修复: 移除了对 COGNITIVE_BULLISH_SCORE 错误的除以1000的操作。
                       该分数已经是[0,1]区间的归一化值，无需再次缩放。
-        - 收益: 确保了“奇美拉冲突”能够正确反映多空力量的真实冲突强度。
+        - 优化说明: 使用Numpy.minimum进行向量化计算，清晰高效。
         """
         states = {}
-        # 移除了错误的 / 1000.0 操作，因为 COGNITIVE_BULLISH_SCORE 已经是归一化分数
+        # 获取归一化后的多头分数和空头（风险）分数
+        # 移除了错误的 / 1000.0 操作，因为 COGNITIVE_BULLISH_SCORE 已经是[0,1]区间的归一化分数
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
         bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
+        
+        # 奇美拉冲突分定义为多空力量的较小值。
+        # 逻辑是：只有当多头和空头力量都较强时，市场才处于真正的“冲突”或“高压”状态。
+        # 如果一方力量很弱，则市场是单边趋势或盘整，而非“冲突”。
+        # 使用np.minimum进行高效的向量化计算
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
+        
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
 
@@ -657,35 +698,44 @@ class CognitiveIntelligence:
         【V2.0 · 地狱三头犬版】“天使长”顶部反转诊断引擎
         - 核心职责: 融合三大致命顶部风险信号，识别最高优先级的离场信号。
         - 融合算法: 采用“主次风险融合算法”，最终风险 = 主要风险 + (次要风险 * 折扣因子)。
-        - 归属: 此方法作为顶层认知融合的一部分，正式归属于认知情报模块。
+        - 优化说明: 完全使用Numpy向量化操作实现，效率极高。
         """
         states = {}
-        # 从配置中获取次要风险的折扣因子
+        # --- 1. 获取参数和信号 ---
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
         p_archangel = p_judge.get('archangel_fusion_params', {})
         secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
-        # 从原子状态库中调集“天使军团”
-        upthrust_risk = self.strategy.atomic_states.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index))
-        heaven_earth_risk = self.strategy.atomic_states.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index))
-        post_peak_risk = self.strategy.atomic_states.get('COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', pd.Series(0.0, index=df.index))
-        # 升级为“地狱三头犬”融合逻辑
-        # 1. 将三个风险信号堆叠成一个NumPy数组
+        
+        # 从原子状态库中调集三大核心顶部风险信号
+        upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
+        heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
+        post_peak_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', 0.0)
+        
+        # --- 2. “地狱三头犬”融合算法 ---
+        # 将三个风险信号的Numpy数组堆叠成一个2D矩阵，便于向量化处理
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
             post_peak_risk.values
         ], axis=0)
-        # 2. 沿信号轴（axis=0）对每日的风险进行排序
+        
+        # 沿信号轴（axis=0）对每日的风险进行排序，高效找出最大和次大风险
         sorted_risks = np.sort(risk_matrix, axis=0)
-        # 3. 提取主要风险（最高分）和次要风险（第二高分）
+        
+        # 提取主要风险（最高分）和次要风险（第二高分）
         primary_risk = sorted_risks[-1]
         secondary_risk = sorted_risks[-2]
-        # 4. 应用主次风险融合公式
+        
+        # 应用主次风险融合公式，突出主要矛盾，同时考虑次要矛盾的影响
         archangel_score_values = primary_risk + (secondary_risk * secondary_risk_discount)
-        # 确保最终分数不会超过1.0
+        
+        # --- 3. 结果处理与保存 ---
+        # 使用np.clip确保最终分数不会超过1.0，保持归一化
         archangel_score = np.clip(archangel_score_values, 0, 1)
+        
         states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
         return states
+
 
 
 

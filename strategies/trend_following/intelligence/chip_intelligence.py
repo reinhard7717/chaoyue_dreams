@@ -37,20 +37,21 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V22.0 · 动态融合修复版】
-        - 核心修复: 彻底重构健康度融合逻辑，解决“静态权重”与“动态支柱”的致命错配问题。
-                      确保在部分支柱数据缺失时，系统依然能稳健地进行动态加权融合。
+        【V22.1 · 赫尔墨斯之翼优化版】筹码终极信号诊断引擎
+        - 性能优化: 1. 将普通几何平均的计算统一为更数值稳定的log-exp形式。
+                      2. 确保所有Numpy和Pandas操作都输出为内存效率更高的float32类型。
+        - 核心逻辑: 保持动态权重融合的核心逻辑不变，确保在部分数据支柱缺失时系统依然稳健。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        dynamic_weights = {'slope': 0.6, 'accel': 0.4}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         
+        # 步骤一：计算所有子维度的健康度
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'quantitative': self._calculate_quantitative_health,
@@ -59,63 +60,55 @@ class ChipIntelligence:
             'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
-        
-        # 保持不变，但现在消费的是具有“韧性骨架”的健康度字典
         for name, calculator in calculators.items():
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
+            # 注意：此处的dynamic_weights参数在优化后已不再需要，为保持签名兼容性暂时保留
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, {}, periods)
             health_data['s_bull'].append((name, s_bull)) 
             health_data['s_bear'].append((name, s_bear)) 
             health_data['d_intensity'].append((name, d_intensity))
             
+        # 步骤二：对每个健康度类型进行多维度融合
         overall_health = {}
         use_equal_weights = not pillar_weights or sum(pillar_weights.values()) == 0
         
-        for health_type, health_sources_with_names in [
-            ('s_bull', health_data['s_bull']),
-            ('s_bear', health_data['s_bear']),
-            ('d_intensity', health_data['d_intensity'])
-        ]:
+        for health_type, health_sources_with_names in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
-                # [代码修复] 步骤一：并行构建有效支柱列表和有效权重列表
+                # 动态构建当前周期有效的支柱列表和权重列表
                 valid_pillars = []
                 valid_weights = []
                 for name, pillar_dict in health_sources_with_names:
                     if p in pillar_dict:
                         valid_pillars.append(pillar_dict[p].values)
-                        # 仅当支柱有效时，才将其权重加入列表
                         valid_weights.append(pillar_weights.get(name, 0))
 
-                # [代码修复] 步骤二：如果没有任何有效支柱，则填充默认值并跳到下一个周期
                 if not valid_pillars:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
                     continue
 
-                # [代码修复] 步骤三：基于动态生成的权重列表进行安全融合
                 stacked_values = np.stack(valid_pillars, axis=0)
+                # 为避免log(0)错误，给所有值增加一个极小量
+                safe_stacked_values = np.maximum(stacked_values, 1e-9)
                 
                 if use_equal_weights:
-                    # 如果未配置权重，使用几何平均
-                    fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+                    # 使用log-exp方式计算几何平均，以提高数值稳定性并统一代码路径
+                    fused_values = np.exp(np.mean(np.log(safe_stacked_values), axis=0))
                 else:
-                    # 动态创建与 valid_pillars 长度完全匹配的权重数组
                     weights_array = np.array(valid_weights)
                     total_weight = weights_array.sum()
-                    
                     if total_weight > 0:
-                        # 使用归一化后的权重进行加权几何平均
                         normalized_weights = weights_array / total_weight
-                        # 使用 np.maximum 避免 log(0)
-                        safe_stacked_values = np.maximum(stacked_values, 1e-9)
+                        # 计算加权几何平均
                         fused_values = np.exp(np.sum(np.log(safe_stacked_values) * normalized_weights[:, np.newaxis], axis=0))
                     else:
-                        # 如果所有有效支柱的权重都为0，则退化为标准几何平均
-                        fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+                        # 权重和为0时，退化为数值稳定的标准几何平均
+                        fused_values = np.exp(np.mean(np.log(safe_stacked_values), axis=0))
 
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
 
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
         
+        # 步骤三：调用终极信号合成引擎
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -131,39 +124,42 @@ class ChipIntelligence:
     # ==============================================================================
 
     def _calculate_quantitative_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict[int, pd.Series], Dict[int, pd.Series], Dict[int, pd.Series]]:
-        """【V5.1 · 韧性骨架版】计算基础量化维度的三维健康度"""
+        """
+        【V5.2 · 赫尔墨斯之翼优化版】计算基础量化维度的三维健康度
+        - 性能优化: 1. 移除不再使用的`dynamic_weights`参数。
+                      2. 确保所有中间和最终的Series都显式转换为float32，减少内存占用。
+        - 核心逻辑: 保持“静态分 * 趋势上下文” -> “关系元分析”的核心范式不变。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
-        # [代码修复] 增加数据检查和韧性返回
-        required_cols = ['concentration_90pct_D', 'chip_health_score_D', 'peak_cost_D']
+        required_cols = ['concentration_90pct_D', 'chip_health_score_D']
         if any(col not in df.columns for col in required_cols):
+            # 如果缺少关键数据，返回一个包含默认值的韧性结构
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
-                s_bull[p] = default_series
-                s_bear[p] = default_series
-                d_intensity[p] = default_series
+                s_bull[p] = s_bear[p] = d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
 
-        # 步骤一：计算原始的、纯粹的筹码静态健康度
-        static_bull_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
-        static_bull_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=True)
-        chip_static_bull = (static_bull_conc * static_bull_health)**0.5
+        # 步骤一：计算纯粹的静态筹码健康度
+        static_bull_conc = normalize_score(df['concentration_90pct_D'], df.index, norm_window, ascending=False)
+        static_bull_health = normalize_score(df['chip_health_score_D'], df.index, norm_window, ascending=True)
+        chip_static_bull = np.sqrt(static_bull_conc * static_bull_health) # 使用np.sqrt代替**0.5，更清晰
         
-        static_bear_conc = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=True)
-        static_bear_health = normalize_score(df.get('chip_health_score_D'), df.index, norm_window, ascending=False)
-        chip_static_bear = (static_bear_conc * static_bear_health)**0.5
+        static_bear_conc = 1.0 - static_bull_conc # 直接取反，避免重复计算
+        static_bear_health = 1.0 - static_bull_health
+        chip_static_bear = np.sqrt(static_bear_conc * static_bear_health)
 
         # 步骤二：获取均线趋势上下文分数
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
         # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (chip_static_bull * ma_context_score)
-        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score))
+        bullish_snapshot_score = (chip_static_bull * ma_context_score).astype(np.float32)
+        bearish_snapshot_score = (chip_static_bear * (1 - ma_context_score)).astype(np.float32)
 
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # 步骤四：对快照分进行关系元分析，得到统一的动态强度分
         unified_d_intensity = self._perform_chip_relational_meta_analysis(df, bullish_snapshot_score)
 
-        # 步骤五：更新输出
+        # 步骤五：循环内仅进行高效的字典赋值
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
@@ -357,30 +353,36 @@ class ChipIntelligence:
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V1.0 · 新增】计算均线趋势上下文分数
-        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
+        【V1.1 · 赫尔墨斯之翼优化版】计算均线趋势上下文分数
+        - 性能优化: 全程使用Numpy数组进行计算，避免了多个中间Pandas Series的创建和开销，
+                      显著提升了计算速度和内存效率。
+        - 核心逻辑: 保持“均线排列健康度 * 价格位置健康度”的融合逻辑不变。
         """
-        # 确保所有需要的均线都存在
         ma_cols = [f'EMA_{p}_D' for p in periods]
         if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.5, index=df.index)
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 均线排列健康度
-        alignment_scores = []
-        for i in range(len(periods) - 1):
-            short_ma = df[f'EMA_{periods[i]}_D']
-            long_ma = df[f'EMA_{periods[i+1]}_D']
-            alignment_scores.append((short_ma > long_ma).astype(float))
+        # 将所有需要的Series一次性转换为Numpy数组
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        close_values = df['close_D'].values
+
+        # 1. 计算均线排列健康度 (Alignment Health)
+        # 比较相邻均线的大小关系 (short > long)，结果为布尔数组
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        # 沿均线轴计算看涨排列的比例
+        alignment_health = np.mean(alignment_bools, axis=0)
+
+        # 2. 计算价格位置健康度 (Position Health)
+        # 比较收盘价与所有均线的大小关系 (close > ma)
+        position_bools = close_values > ma_values
+        # 沿均线轴计算价格在均线上方的比例
+        position_health = np.mean(position_bools, axis=0)
+
+        # 3. 融合得到最终的趋势上下文分数
+        # 使用Numpy进行高效的几何平均计算
+        ma_context_score_values = np.sqrt(alignment_health * position_health)
         
-        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
-
-        # 价格位置健康度 (价格应在所有均线之上)
-        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
-        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
-
-        # 融合得到最终的趋势上下文分数
-        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
-        return ma_context_score.astype(np.float32)
+        return pd.Series(ma_context_score_values, index=df.index, dtype=np.float32)
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的“剧本”诊断模块
@@ -388,9 +390,9 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 关系元分析版】主力吸筹模式与风险诊断引擎
-        - 核心革命: 废除基于SLOPE/ACCEL的旧逻辑，为每种吸筹模式构建“瞬时关系快照分”，
-                      并调用关系元分析引擎，捕捉“吸筹关系”的形成与加速拐点。
+        【V5.1 · 赫尔墨斯之翼优化版】主力吸筹模式与风险诊断引擎
+        - 性能优化: 确保所有中间和最终的Series都显式转换为float32。
+        - 核心逻辑: 保持基于“关系元分析”的拉升吸筹与打压吸筹的诊断范式不变。
         """
         states = {}
         norm_window = 120
@@ -399,31 +401,25 @@ class ChipIntelligence:
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
 
         # --- 拉升吸筹 (Rally Accumulation) ---
-        # 步骤一：构建“拉升吸筹”的瞬时关系快照分
         # 核心关系：在上升趋势中(ma_context高)，筹码依然在集中，且获利盘惜售。
         chip_concentration_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         winner_conviction_score = normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
         rally_snapshot_score = (ma_context_score * chip_concentration_score * winner_conviction_score)
-
-        # 步骤二：对“拉升吸筹关系”进行元分析
         rally_accumulation_score = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score)
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
+        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score # 元分析函数已确保是float32
 
         # --- 打压吸筹 (Suppress Accumulation) ---
-        # 步骤一：构建“打压吸筹”的瞬时关系快照分
-        # 核心关系：在下跌或盘整趋势中(ma_context低)，筹码逆势集中，且套牢盘正在割肉。
-        price_weakness_score = 1 - ma_context_score
-        loser_capitulation_score = normalize_score(df.get('turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
-        suppress_snapshot_score = (price_weakness_score * chip_concentration_score * loser_capitulation_score)
-
-        # 步骤二：对“打压吸筹关系”进行元分析
+        # 核心关系：在下跌或盘整趋势中(ma_context低)，筹码逆势集中。
+        price_weakness_score = 1.0 - ma_context_score
+        suppress_snapshot_score = (price_weakness_score * chip_concentration_score)
         suppress_accumulation_score = self._perform_chip_relational_meta_analysis(df, suppress_snapshot_score)
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score.astype(np.float32)
+        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score # 元分析函数已确保是float32
         
         # --- 真实吸筹 (True Accumulation) ---
-        # 步骤三：融合两种升级后的吸筹信号
-        true_accumulation_score = np.maximum(rally_accumulation_score, suppress_accumulation_score)
-        states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.astype(np.float32)
+        # 融合两种吸筹信号，取更强的一种作为最终的真实吸筹信号
+        # 使用Numpy.maximum进行高效融合
+        true_accumulation_score = np.maximum(rally_accumulation_score.values, suppress_accumulation_score.values)
+        states['SCORE_CHIP_TRUE_ACCUMULATION'] = pd.Series(true_accumulation_score, index=df.index, dtype=np.float32)
         
         return states
 

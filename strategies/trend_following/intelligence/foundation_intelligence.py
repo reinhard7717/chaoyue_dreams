@@ -19,18 +19,25 @@ class FoundationIntelligence:
         - 核心重构 (本次修改):
           - [新增步骤] 在生成所有原子信号后，调用新的 `diagnose_tactical_foundation_signals` 引擎，
                       将战术原子信号融合成新的战术终极信号。
+        - 优化说明: 1. 将 `ma_context_score` 的计算提前至此，仅计算一次，避免在下游模块中重复计算，显著提升性能。
+                      2. 将 `ma_context_score` 作为参数传递给需要的下游分析模块。
         """
         df = self.strategy.df_indicators
         all_states = {}
 
+        # 提前计算均线趋势上下文分数，避免在各子模块中重复计算。
+        # 这是本次优化的核心，将原有的5次重复计算减少为1次。
+        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+
         # 步骤 1: 执行唯一的、统一的终极信号引擎
-        unified_states = self.diagnose_unified_foundation_signals(df)
+        # 传入预先计算好的 ma_context_score
+        unified_states = self.diagnose_unified_foundation_signals(df, ma_context_score)
         all_states.update(unified_states)
 
         # 步骤 2: 执行具有特殊战术意义的模块，生成战术原子信号
-        # 这些模块现在生成的是 _STATE 和 _DYNAMIC 原子信号
-        all_states.update(self.diagnose_volatility_intelligence(df))
-        all_states.update(self.diagnose_classic_indicators_atomics(df))
+        # 传入预先计算好的 ma_context_score
+        all_states.update(self.diagnose_volatility_intelligence(df, ma_context_score))
+        all_states.update(self.diagnose_classic_indicators_atomics(df, ma_context_score))
         
         # 步骤 3: 调用新的战术终极信号合成引擎
         # 这个引擎会从 atomic_states 中读取刚刚生成的战术原子信号，并将其融合成终极信号
@@ -39,40 +46,56 @@ class FoundationIntelligence:
         
         return all_states
 
-    def diagnose_unified_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
         【V14.0 · 圣杯契约版】
         - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
                       (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
+        - 优化说明: 1. 接收预计算的 `ma_context_score` 并传递给子计算器，避免重复计算。
+                      2. 使用Numpy向量化计算几何平均数，高效融合各维度健康度。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        # 获取中央“圣杯”配置
+        
+        # --- 1. 获取核心配置参数 ---
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        dynamic_weights = {'slope': 0.6, 'accel': 0.4}
+        
+        # --- 2. 计算各维度的三维健康度 ---
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
-        calculators = { 'ema': self._calculate_ema_health, 'rsi': self._calculate_rsi_health, 'macd': self._calculate_macd_health, 'cmf': self._calculate_cmf_health }
+        # 将 ma_context_score 传入需要的子计算器
+        calculators = {
+            'ema': lambda: self._calculate_ema_health(df, norm_window, periods),
+            'rsi': lambda: self._calculate_rsi_health(df, norm_window, periods, ma_context_score),
+            'macd': lambda: self._calculate_macd_health(df, norm_window, periods, ma_context_score),
+            'cmf': lambda: self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
+        }
         for name, calculator in calculators.items():
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, dynamic_weights, periods)
+            # 注意：原 `dynamic_weights` 参数在子函数中并未使用，因此从调用中移除
+            s_bull, s_bear, d_intensity = calculator()
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
             health_data['d_intensity'].append(d_intensity)
+
+        # --- 3. 融合各维度健康度，得到整体健康度 ---
         overall_health = {}
-        for health_type, health_sources in [ ('s_bull', health_data['s_bull']), ('s_bear', health_data['s_bear']), ('d_intensity', health_data['d_intensity']) ]:
+        for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
                     stacked_values = np.stack(components_for_period, axis=0)
+                    # 使用几何平均数进行融合，要求各维度协同健康
                     fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
+        
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
-        # 传入唯一的“圣杯”配置
+        
+        # --- 4. 调用中央合成引擎，生成最终信号 ---
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -119,50 +142,61 @@ class FoundationIntelligence:
     # ==============================================================================
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
-    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V5.0 · 关系元分析版】计算EMA维度的三维健康度"""
+    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> Tuple[Dict, Dict, Dict]:
+        """
+        【V5.0 · 关系元分析版】计算EMA维度的三维健康度
+        - 核心逻辑: 从均线排列、斜率、加速度、关系四个维度综合评估趋势健康度。
+        - 优化说明: 1. 使用Numpy向量化操作替换原先低效的`pd.DataFrame.mean()`和`pd.concat().mean()`，显著提升性能。
+                      2. 增加对所需指标列的健壮性检查。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
+        fusion_weights = p_conf.get('ma_health_fusion_weights', {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
         ma_periods = [5, 13, 21, 55]
         
-        # 步骤一：计算四维融合的“瞬时关系快照分” (s_bull)
-        bull_alignment_scores, bear_alignment_scores = [], []
-        for i in range(len(ma_periods) - 1):
-            short_col, long_col = f'EMA_{ma_periods[i]}_D', f'EMA_{ma_periods[i+1]}_D'
-            if short_col in df and long_col in df:
-                bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
-                bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
-        alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5) if bull_alignment_scores else pd.Series(0.5, index=df.index)
-        static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5) if bear_alignment_scores else pd.Series(0.5, index=df.index)
+        # 检查所需列，如果缺失则返回默认值
+        required_cols = [f'EMA_{p}_D' for p in ma_periods] + [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if p != 1] + [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if p != 1]
+        if not all(col in df.columns for col in required_cols):
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return s_bull, s_bear, d_intensity
 
-        slope_health_scores, accel_health_scores, relational_health_scores = [], [], []
-        for p in ma_periods:
-            slope_col = f'SLOPE_{p}_EMA_{p}_D' if p != 1 else f'SLOPE_1_close_D'
-            accel_col = f'ACCEL_{p}_EMA_{p}_D' if p != 1 else f'ACCEL_1_close_D'
-            if slope_col in df.columns: slope_health_scores.append((normalize_to_bipolar(df[slope_col], df.index, norm_window) + 1) / 2.0)
-            if accel_col in df.columns: accel_health_scores.append((normalize_to_bipolar(df[accel_col], df.index, norm_window) + 1) / 2.0)
+        # --- 步骤一：计算四维融合的“瞬时关系快照分” (s_bull) ---
+        # 1.1 均线排列健康度
+        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
+        bear_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
+        # 使用Numpy高效计算均值
+        alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
+        static_bear_score = np.mean(bear_alignment_scores, axis=0) if bear_alignment_scores else np.full(len(df.index), 0.5)
+
+        # 1.2 斜率、加速度、关系健康度
+        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D' if p != 1 else 'SLOPE_1_close_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
+        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D' if p != 1 else 'ACCEL_1_close_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
+        relational_health_scores = []
         for short_p, long_p in [(5, 21), (13, 55)]:
-            short_ma_col, long_ma_col = f'EMA_{short_p}_D', f'EMA_{long_p}_D'
-            if short_ma_col in df.columns and long_ma_col in df.columns:
-                spread_accel = (df[short_ma_col] - df[long_ma_col]).diff(3).diff(3).fillna(0)
-                relational_health_scores.append((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0)
+            spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
+            relational_health_scores.append(((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0).values)
+        
+        # 使用Numpy高效计算均值，避免创建和合并DataFrame
+        avg_slope_health = np.mean(slope_health_scores, axis=0) if slope_health_scores else np.full(len(df.index), 0.5)
+        avg_accel_health = np.mean(accel_health_scores, axis=0) if accel_health_scores else np.full(len(df.index), 0.5)
+        avg_relational_health = np.mean(relational_health_scores, axis=0) if relational_health_scores else np.full(len(df.index), 0.5)
 
-        avg_slope_health = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5) if slope_health_scores else pd.Series(0.5, index=df.index)
-        avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5) if accel_health_scores else pd.Series(0.5, index=df.index)
-        avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5) if relational_health_scores else pd.Series(0.5, index=df.index)
-
-        static_bull_score = (
+        # 1.3 加权融合四维度分数
+        static_bull_score_values = (
             alignment_score * fusion_weights.get('alignment', 0.1) +
             avg_slope_health * fusion_weights.get('slope', 0.2) +
             avg_accel_health * fusion_weights.get('accel', 0.2) +
             avg_relational_health * fusion_weights.get('relational', 0.5)
         )
+        static_bull_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
+        static_bear_score = pd.Series(static_bear_score, index=df.index, dtype=np.float32)
 
-        # 步骤二：对“瞬时关系快照分”进行元分析，得到动态强度分 (d_intensity)
+        # --- 步骤二：对“瞬时关系快照分”进行元分析，得到动态强度分 (d_intensity) ---
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, static_bull_score)
 
-        # 步骤三：更新输出
+        # --- 步骤三：更新输出 ---
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
@@ -170,25 +204,34 @@ class FoundationIntelligence:
         
         return s_bull, s_bear, d_intensity
 
-    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V5.0 · 关系元分析版】计算RSI维度的三维健康度"""
+    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+        """
+        【V5.0 · 关系元分析版】计算RSI维度的三维健康度
+        - 核心逻辑: 在强势趋势背景下，RSI的强势表现（高位）是健康的。
+        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # 检查所需指标列是否存在
+        if 'RSI_13_D' not in df.columns:
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return s_bull, s_bear, d_intensity
+
         # 步骤一：计算原始的、纯粹的指标静态健康度
-        indicator_static_bull = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=True)
-        indicator_static_bear = normalize_score(df.get('RSI_13_D'), df.index, norm_window, ascending=False)
+        indicator_static_bull = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
+        indicator_static_bear = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=False)
 
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
+        # 直接使用传入的 ma_context_score
+        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
+        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
 
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
 
-        # 步骤五：更新输出
+        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
@@ -196,25 +239,34 @@ class FoundationIntelligence:
         
         return s_bull, s_bear, d_intensity
 
-    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V5.0 · 关系元分析版】计算MACD维度的三维健康度"""
+    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+        """
+        【V5.0 · 关系元分析版】计算MACD维度的三维健康度
+        - 核心逻辑: 在强势趋势背景下，MACD柱状线（Histogram）的强势表现是健康的。
+        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # 检查所需指标列是否存在
+        if 'MACDh_13_34_8_D' not in df.columns:
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return s_bull, s_bear, d_intensity
+
         # 步骤一：计算原始的、纯粹的指标静态健康度
-        indicator_static_bull = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
-        indicator_static_bear = normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
+        indicator_static_bull = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
+        indicator_static_bear = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=False)
 
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
+        # 直接使用传入的 ma_context_score
+        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
+        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
 
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
 
-        # 步骤五：更新输出
+        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
@@ -222,25 +274,34 @@ class FoundationIntelligence:
         
         return s_bull, s_bear, d_intensity
 
-    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, dynamic_weights: Dict, periods: list) -> Tuple[Dict, Dict, Dict]:
-        """【V5.0 · 关系元分析版】计算CMF维度的三维健康度"""
+    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+        """
+        【V5.0 · 关系元分析版】计算CMF维度的三维健康度
+        - 核心逻辑: 在强势趋势背景下，CMF资金流指标的强势表现（正值且高）是健康的。
+        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # 检查所需指标列是否存在
+        if 'CMF_21_D' not in df.columns:
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return s_bull, s_bear, d_intensity
+
         # 步骤一：计算原始的、纯粹的指标静态健康度
-        indicator_static_bull = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=True)
-        indicator_static_bear = normalize_score(df.get('CMF_21_D'), df.index, norm_window, ascending=False)
+        indicator_static_bull = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
+        indicator_static_bear = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=False)
 
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 步骤二：构建融合了趋势上下文的“瞬时关系快照分”
+        # 直接使用传入的 ma_context_score
+        bullish_snapshot_score = (indicator_static_bull * ma_context_score).astype(np.float32)
+        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score)).astype(np.float32)
 
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        bullish_snapshot_score = (indicator_static_bull * ma_context_score)
-        bearish_snapshot_score = (indicator_static_bear * (1 - ma_context_score))
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态强度分
+        # 步骤三：对快照分进行关系元分析，得到最终的动态强度分
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, bullish_snapshot_score)
 
-        # 步骤五：更新输出
+        # 步骤四：更新输出
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
@@ -318,47 +379,52 @@ class FoundationIntelligence:
     # 以下为保留的、具有特殊战术意义的模块
     # ==============================================================================
 
-    def diagnose_volatility_intelligence(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_volatility_intelligence(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
         【V7.0 · 关系元分析版】波动率统一情报中心
         - 核心革命: 废除旧的、基于孤立导数的信号，重构为“状态分”和“动态分”的新范式。
+        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
         """
         states = {}
         norm_window = 120
         
-        # 获取均线趋势上下文
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 检查所需指标列是否存在
+        if 'BBW_21_2.0_D' not in df.columns or 'hurst_120d_D' not in df.columns:
+            return {} # 如果关键指标缺失，则不生成任何信号
 
         # 步骤一：构建“波动率压缩”的瞬时关系快照分 (状态分)
         # 核心关系：在强势趋势背景下(ma_context高)，波动率受到压缩(BBW低)。
-        compression_score_raw = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
-        compression_state_score = (compression_score_raw * ma_context_score)
-        states['SCORE_VOL_COMPRESSION_STATE'] = compression_state_score.astype(np.float32)
+        compression_score_raw = normalize_score(df['BBW_21_2.0_D'], df.index, norm_window, ascending=False)
+        # 直接使用传入的 ma_context_score
+        compression_state_score = (compression_score_raw * ma_context_score).astype(np.float32)
+        states['SCORE_VOL_COMPRESSION_STATE'] = compression_state_score
 
         # 步骤二：对“波动率压缩关系”进行元分析，得到动态分
         compression_dynamic_score = self._perform_foundation_relational_meta_analysis(df, compression_state_score)
-        states['SCORE_VOL_COMPRESSION_DYNAMIC'] = compression_dynamic_score.astype(np.float32)
+        states['SCORE_VOL_COMPRESSION_DYNAMIC'] = compression_dynamic_score
 
         # 步骤三：构建“波动率扩张风险”的瞬时关系快照分 (状态分)
         # 核心关系：在弱势趋势背景下(ma_context低)，波动率正在扩张(BBW高)。
-        expansion_score_raw = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-        expansion_risk_state_score = (expansion_score_raw * (1 - ma_context_score))
-        states['SCORE_VOL_EXPANSION_RISK_STATE'] = expansion_risk_state_score.astype(np.float32)
+        expansion_score_raw = normalize_score(df['BBW_21_2.0_D'], df.index, norm_window, ascending=True)
+        # 直接使用传入的 ma_context_score
+        expansion_risk_state_score = (expansion_score_raw * (1 - ma_context_score)).astype(np.float32)
+        states['SCORE_VOL_EXPANSION_RISK_STATE'] = expansion_risk_state_score
 
         # 步骤四：对“波动率扩张风险关系”进行元分析，得到动态分
         expansion_risk_dynamic_score = self._perform_foundation_relational_meta_analysis(df, expansion_risk_state_score)
-        states['SCORE_VOL_EXPANSION_RISK_DYNAMIC'] = expansion_risk_dynamic_score.astype(np.float32)
+        states['SCORE_VOL_EXPANSION_RISK_DYNAMIC'] = expansion_risk_dynamic_score
         
         # Hurst指数保持不变，作为独立的宏观状态判断
-        hurst_score = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
+        hurst_score = normalize_score(df['hurst_120d_D'], df.index, norm_window)
         states['SCORE_TRENDING_REGIME'] = hurst_score
 
         return states
 
-    def diagnose_classic_indicators_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_classic_indicators_atomics(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
         【V2.0 · 关系元分析版】经典指标原子信号诊断
         - 核心革命: 将“量价点火”信号升维，引入均线趋势上下文，并用关系元分析捕捉其动态。
+        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
         """
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
@@ -366,33 +432,39 @@ class FoundationIntelligence:
         
         norm_window = 120
         
-        # 获取均线趋势上下文
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 检查所需指标列是否存在
+        required_cols = ['close_D', 'open_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D']
+        if not all(col in df.columns for col in required_cols):
+            return {} # 如果关键指标缺失，则不生成任何信号
 
+        # --- 量价齐升点火信号 ---
         # 步骤一：构建“量价齐升点火”的瞬时关系快照分 (状态分)
         # 核心关系：在强势趋势背景下(ma_context高)，出现阳线实体，且成交量加速放大。
-        candle_body_up = (df.get('close_D', 0) - df.get('open_D', 0)).clip(lower=0)
+        candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         score_price_up_strength = normalize_score(candle_body_up, df.index, norm_window)
-        score_vol_slope_up = normalize_score(df.get('SLOPE_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0), df.index, norm_window)
-        score_vol_accel_up = normalize_score(df.get('ACCEL_5_volume_D', pd.Series(0.5, index=df.index)).clip(lower=0), df.index, norm_window)
+        score_vol_slope_up = normalize_score(df['SLOPE_5_volume_D'].clip(lower=0), df.index, norm_window)
+        score_vol_accel_up = normalize_score(df['ACCEL_5_volume_D'].clip(lower=0), df.index, norm_window)
         score_volume_igniting = score_vol_slope_up * score_vol_accel_up
-        ignition_state_score = (score_price_up_strength * score_volume_igniting * ma_context_score)
-        states['SCORE_VOL_PRICE_IGNITION_STATE'] = ignition_state_score.astype(np.float32)
+        # 直接使用传入的 ma_context_score
+        ignition_state_score = (score_price_up_strength * score_volume_igniting * ma_context_score).astype(np.float32)
+        states['SCORE_VOL_PRICE_IGNITION_STATE'] = ignition_state_score
 
         # 步骤二：对“量价点火关系”进行元分析，得到动态分
         ignition_dynamic_score = self._perform_foundation_relational_meta_analysis(df, ignition_state_score)
-        states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = ignition_dynamic_score.astype(np.float32)
+        states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = ignition_dynamic_score
 
+        # --- 放量恐慌下跌信号 ---
         # 步骤三：构建“放量恐慌下跌”的瞬时关系快照分 (状态分)
         # 核心关系：在弱势趋势背景下(ma_context低)，出现阴线实体，且成交量加速放大。
-        candle_body_down = (df.get('open_D', 0) - df.get('close_D', 0)).clip(lower=0)
+        candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
         score_price_down_strength = normalize_score(candle_body_down, df.index, norm_window)
-        panic_state_score = (score_price_down_strength * score_volume_igniting * (1 - ma_context_score))
-        states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = panic_state_score.astype(np.float32)
+        # 直接使用传入的 ma_context_score
+        panic_state_score = (score_price_down_strength * score_volume_igniting * (1 - ma_context_score)).astype(np.float32)
+        states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = panic_state_score
 
         # 步骤四：对“放量恐慌关系”进行元分析，得到动态分
         panic_dynamic_score = self._perform_foundation_relational_meta_analysis(df, panic_state_score)
-        states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = panic_dynamic_score.astype(np.float32)
+        states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = panic_dynamic_score
 
         return states
 

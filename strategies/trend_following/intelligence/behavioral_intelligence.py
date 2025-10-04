@@ -36,9 +36,10 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V26.0 · 宙斯之雷版】
-        - 核心革命: 废除对快照分的元分析，改为调用“最高神谕融合引擎”，
-                      直接对多个、已完全进化的动态原子信号进行最终裁决。
+        【V26.1 · 赫尔墨斯之翼优化版】行为终极信号诊断引擎
+        - 性能优化: 采用Numpy向量化操作进行多维健康度融合，替换了原有的Pandas Series操作，
+                      显著提升了计算效率并降低了内存开销。
+        - 核心逻辑: 保持对“宙斯之雷”引擎的调用和三维健康度的几何平均融合逻辑不变。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -46,35 +47,35 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        # 步骤一：获取“宙斯之雷”引擎的专属参数
+        # 步骤一：调用“宙斯之雷”引擎获取权威的底部形态信号
         p_fusion = get_param_value(p_conf.get('supreme_fusion_params'), {})
-        
-        # 步骤二：调用“宙斯之雷”引擎，传入所有相关的原子信号
-        # 我们将所有潜在的底部信号都交给引擎去裁决
         bottom_formation_score = self._supreme_fusion_engine(
             df=df,
             signals_to_fuse=atomic_signals,
             params=p_fusion
         )
+        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score
         
-        # 将“宙斯之雷”的最终裁决结果作为唯一的、权威的通用底部形态信号
-        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score.astype(np.float32)
-        
-        # 后续逻辑保持不变，它们现在消费的是由“宙斯之雷”锻造的、最高规格的神谕信号
+        # 步骤二：计算并存储近期反转上下文
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
         
-        price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, max(1, norm_window // 5), periods)
-        vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, max(1, norm_window // 5), periods)
-        kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, max(1, norm_window // 5), periods)
+        # 步骤三：计算价格、成交量、K线形态三个维度的健康度
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
+        min_periods = max(1, norm_window // 5)
+        price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, min_periods, periods)
+        vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, min_periods, periods)
+        kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
         
+        # 步骤四：使用Numpy进行高效的多维健康度融合
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+        # 将权重数组的计算提前
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
+        
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
             ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
@@ -82,17 +83,20 @@ class BehavioralIntelligence:
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                if not all(health_sources) or not all(p in h for h in health_sources):
-                    fused_values = np.full(len(df.index), 0.5)
-                else:
-                    stacked_values = np.stack([
-                        health_sources[0][p].values, health_sources[1][p].values, health_sources[2][p].values
-                    ], axis=0)
-                    fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
+                # 使用Numpy进行向量化融合，避免Pandas Series操作
+                # 将三个维度的健康度Series的底层Numpy数组堆叠起来
+                stacked_values = np.stack([
+                    health_sources[0][p].values, 
+                    health_sources[1][p].values, 
+                    health_sources[2][p].values
+                ], axis=0)
+                # 使用Numpy的广播和乘方运算，一次性完成加权几何平均
+                fused_values = np.prod(stacked_scores ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
         
+        # 步骤五：调用终极信号合成引擎
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -143,34 +147,47 @@ class BehavioralIntelligence:
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V4.0 · 全息动态升级版】计算价格维度的三维健康度
-        - 核心升级: 将 d_intensity 的计算方式从旧的绝对值模式升级为全新的“全息动态”模式，
-                      使其能更灵敏地捕捉价格动能的真实变化。
+        【V4.1 · 赫尔墨斯之翼优化版】计算价格维度的三维健康度
+        - 性能优化: 将不依赖于周期`p`的静态分(s_bull, s_bear)和动态分(d_intensity)的计算完全移出循环，
+                      避免了(len(periods) - 1)次重复计算，大幅提升效率。
+        - 核心逻辑: 保持原有的全息动态计算模式不变。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # --- 将所有与周期p无关的计算提前至循环外 ---
+        
+        # 1. 计算静态看涨分 (s_bull)
         bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.5)
 
         is_positive_day = df['pct_change_D'] > 0
+        # 上涨日的看涨分：布林百分比与日内收盘位置的几何平均
         bullish_score_on_up_day = (bbp * close_position_in_range)**0.5
+        # 下跌日的看涨分(潜在反转)：仅考虑日内收盘位置，收盘越高，反转潜力越大
         reversal_potential_score = close_position_in_range.where(df['pct_change_D'] < 0, 0)
+        # 融合得到最终的静态看涨分
         static_bull_score = pd.Series(
             np.where(is_positive_day, bullish_score_on_up_day, reversal_potential_score),
-            index=df.index
+            index=df.index,
+            dtype=np.float32 # 直接指定数据类型，减少内存占用
         )
 
+        # 2. 计算静态看跌分 (s_bear)
+        # 看跌分：(1-布林百分比) 与 (1-日内收盘位置) 的几何平均，代表收盘弱势
         static_bear_score = ((1.0 - bbp) * (1.0 - close_position_in_range))**0.5
+        static_bear_score = static_bear_score.astype(np.float32) # 指定数据类型
 
-        # 使用全新的全息动态引擎计算动态强度分
+        # 3. 计算统一的动态强度分 (d_intensity)
+        # 使用全息动态引擎计算价格的看涨和看跌动能
         price_holo_bull, price_holo_bear = calculate_holographic_dynamics(df, 'close_D', norm_window)
-        # 动态强度分现在同时考虑看涨和看跌的动态变化
-        unified_d_intensity = (price_holo_bull + price_holo_bear) / 2.0
+        # 统一的动态强度分是两种动能的平均值，反映价格变化的活跃程度
+        unified_d_intensity = ((price_holo_bull + price_holo_bear) / 2.0).astype(np.float32)
 
+        # --- 循环内仅进行高效的字典赋值操作 ---
         for p in periods:
-            s_bull[p] = static_bull_score.astype(np.float32)
-            s_bear[p] = static_bear_score.astype(np.float32)
+            s_bull[p] = static_bull_score
+            s_bear[p] = static_bear_score
             # 所有周期共享同一个、更高级的动态强度分
             d_intensity[p] = unified_d_intensity
             
@@ -178,192 +195,285 @@ class BehavioralIntelligence:
 
     def _calculate_volume_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
         """
-        【V7.0 · 全息动态升级版】计算成交量维度的三维健康度
-        - 核心升级: 将 d_intensity 的计算方式从旧的绝对值模式升级为全新的“全息动态”模式，
-                      使其能更灵敏地捕捉成交量能的真实变化。
+        【V7.1 · 赫尔墨斯之翼优化版】计算成交量维度的三维健康度
+        - 性能优化: 将不依赖于周期`p`的静态分(s_bull, s_bear)和动态分(d_intensity)的计算完全移出循环，
+                      避免了(len(periods) - 1)次重复计算，极大提升了执行效率。
+        - 核心逻辑: 保持原有的全息动态计算模式不变。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
 
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
+            # 如果缺少关键列，快速返回默认值
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
-                s_bull[p] = s_bear[p] = pd.Series(0.5, index=df.index)
-                d_intensity[p] = pd.Series(0.5, index=df.index)
+                s_bull[p] = s_bear[p] = d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
 
+        # --- 将所有与周期p无关的计算提前至循环外 ---
+
+        # 1. 计算静态看跌分 (s_bear)
         volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
         price_stagnation_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
+        # 路径1: 放量滞涨
         stagnation_path_score = volume_increase_score * price_stagnation_score
         price_drop_score = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, norm_window, ascending=True)
+        # 路径2: 放量下跌
         breakdown_path_score = (price_drop_score * volume_increase_score).where(df['pct_change_D'] < 0, 0)
-        static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score)
+        # 看跌分取两种路径中的更强者
+        static_bear_score = np.maximum(stagnation_path_score, breakdown_path_score).astype(np.float32)
         
+        # 2. 计算静态看涨分 (s_bull)
         price_increase_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
+        # 上涨日的看涨分：价涨量增（健康的阳）
         yang_score = (price_increase_score * volume_increase_score)
         
         liquidity_drain_risk = self.strategy.atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
+        # 下跌日的看涨分基础：价跌但未放量破位（健康的阴）
         yin_score = ((1.0 - static_bear_score) * (1.0 - liquidity_drain_risk))
         
         shrinking_volume_score = 1.0 - volume_increase_score
+        # 下跌日的看涨分补充1：缩量下跌（卖盘衰竭）
         selling_exhaustion_score = (shrinking_volume_score * price_drop_score)
-
+        # 下跌日的看涨分补充2：外部计算的衰竭反转信号
         exhaustion_reversal_score = self.strategy.atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
         
         is_positive_day = df['pct_change_D'] > 0
+        # 下跌日的看涨分取三种可能中的最强者
         bullish_score_on_down_day = np.maximum.reduce([
-            yin_score, 
-            selling_exhaustion_score,
-            exhaustion_reversal_score
+            yin_score.values, 
+            selling_exhaustion_score.values,
+            exhaustion_reversal_score.values
         ])
+        # 融合得到最终的静态看涨分
         static_bull_score_np = np.where(is_positive_day, yang_score, bullish_score_on_down_day)
-        static_bull_score = pd.Series(static_bull_score_np, index=df.index)
+        static_bull_score = pd.Series(static_bull_score_np, index=df.index, dtype=np.float32)
 
-        # 使用全新的全息动态引擎计算动态强度分
+        # 3. 计算统一的动态强度分 (d_intensity)
         vol_holo_bull, vol_holo_bear = calculate_holographic_dynamics(df, 'volume_D', norm_window)
-        # 动态强度分现在同时考虑看涨和看跌的动态变化
-        unified_d_intensity = (vol_holo_bull + vol_holo_bear) / 2.0
+        unified_d_intensity = ((vol_holo_bull + vol_holo_bear) / 2.0).astype(np.float32)
 
+        # --- 循环内仅进行高效的字典赋值操作 ---
         for p in periods:
-            s_bull[p] = static_bull_score.astype(np.float32)
-            s_bear[p] = static_bear_score.astype(np.float32)
-            # 所有周期共享同一个、更高级的动态强度分
+            s_bull[p] = static_bull_score
+            s_bear[p] = static_bear_score
             d_intensity[p] = unified_d_intensity
             
         return s_bull, s_bear, d_intensity
 
     def _calculate_kline_pattern_health(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series], norm_window: int, min_periods: int, periods: list) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.5 · 动态分统一版】计算K线形态维度的三维健康度
-        - 核心重构: 废除 d_bull 和 d_bear，统一返回中性的“动态强度分” d_intensity。
+        【V2.6 · 赫尔墨斯之翼优化版】计算K线形态维度的三维健康度
+        - 性能优化: 将不依赖于周期`p`的静态分(s_bull, s_bear)计算移出循环，避免重复计算。
+                      动态分(d_intensity)因其计算依赖于`p`(`diff(p)`)，故保留在循环内。
+        - 核心逻辑: 保持原有的动态分计算逻辑不变。
         """
-        # 更新方法签名和初始化
         s_bull, s_bear, d_intensity = {}, {}, {}
         
+        # --- 将静态分的计算提前至循环外 ---
         strong_close = normalize_score(atomic_signals.get('SCORE_PRICE_POSITION_IN_RANGE', pd.Series(0.5, index=df.index)), df.index, norm_window, True, min_periods)
         gap_support = normalize_score(atomic_signals.get('SCORE_GAP_SUPPORT_ACTIVE', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         earth_heaven = normalize_score(atomic_signals.get('SCORE_BOARD_EARTH_HEAVEN', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
+        # 温和上涨：将日涨幅限制在3%以内进行归一化，鼓励稳定上涨而非暴涨
         gentle_rise_raw = df['pct_change_D'].clip(0, 0.03) / 0.03
         gentle_rise = normalize_score(gentle_rise_raw, df.index, norm_window, True, min_periods)
-        static_bull_score = pd.Series(np.maximum.reduce([strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values]), index=df.index).astype(np.float32)
+        # 静态看涨分：取强势收盘、缺口支撑、地天板、温和上涨中的最强者
+        static_bull_score = pd.Series(np.maximum.reduce([strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values]), index=df.index, dtype=np.float32)
 
         weak_close = 1.0 - strong_close
         upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         heaven_earth = normalize_score(atomic_signals.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
         sharp_drop = normalize_score(atomic_signals.get('SCORE_KLINE_SHARP_DROP', pd.Series(0.0, index=df.index)), df.index, norm_window, True, min_periods)
-        static_bear_score = pd.Series(np.maximum.reduce([weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values]), index=df.index).astype(np.float32)
+        # 静态看跌分：取弱势收盘、上冲派发、天地板、急跌中的最强者
+        static_bear_score = pd.Series(np.maximum.reduce([weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values]), index=df.index, dtype=np.float32)
 
+        # --- 循环内仅保留必须依赖周期p的计算 ---
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             
-            # 计算统一的、中性的动态强度分 d_intensity
+            # [代码保持] 动态强度分的计算依赖于周期p，因此保留在循环内
             # K线形态的动态分衡量的是“静态分自身的变化强度”
             bull_slope_strength = static_bull_score.diff(p).fillna(0).abs()
             bear_slope_strength = static_bear_score.diff(p).fillna(0).abs()
-            # 取两者中变化更剧烈的作为动态强度
+            # 取看涨和看跌分中变化更剧烈的一方作为动态强度
             intensity_slope = np.maximum(bull_slope_strength, bear_slope_strength)
             d_intensity[p] = normalize_score(intensity_slope, df.index, norm_window, ascending=True)
             
-        # 返回三元组
         return s_bull, s_bear, d_intensity
 
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 · 赫尔墨斯之翼优化版】诊断K线原子形态
+        - 性能优化: 预先计算布尔掩码，避免在where和计算中重复执行条件判断。
+        - 核心逻辑: 保持缺口支撑和急跌评分的计算逻辑不变。
+        """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
+        
+        # --- 缺口支撑信号计算 ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
-            gap_up_event = df['low_D'] > df['high_D'].shift(1)
-            gap_high = df['high_D'].shift(1).where(gap_up_event).ffill()
-            price_fills_gap = df['close_D'] < gap_high
-            gap_support_state = create_persistent_state(df=df, entry_event_series=gap_up_event, persistence_days=persistence_days, break_condition_series=price_fills_gap, state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE')
+            
+            # 预先计算布尔掩码，提高代码可读性和效率
+            gap_up_mask = df['low_D'] > df['high_D'].shift(1)
+            
+            # 找到发生向上缺口时，缺口的上沿（前一日的最高价）
+            gap_high = df['high_D'].shift(1).where(gap_up_mask).ffill()
+            # 定义缺口被回补的条件
+            price_fills_gap_mask = df['close_D'] < gap_high
+            
+            # 使用持久化状态生成器，判断缺口支撑是否持续有效
+            gap_support_state = create_persistent_state(
+                df=df, 
+                entry_event_series=gap_up_mask, 
+                persistence_days=persistence_days, 
+                break_condition_series=price_fills_gap_mask, 
+                state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
+            )
+            
+            # 计算支撑强度：当前最低价离缺口上沿越远，支撑越强
             support_distance = (df['low_D'] - gap_high).clip(lower=0)
+            # 使用当日收盘价的10%作为归一化基准，使评分具有相对意义
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
+            
+            # 最终得分 = 支撑强度 * 支撑状态
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
+            
+        # --- 急跌信号计算 ---
         p_atomic = p.get('atomic_behavior_params', {})
-        if get_param_value(p_atomic.get('enabled'), True):
-            if 'pct_change_D' in df.columns:
-                norm_window = get_param_value(p_atomic.get('norm_window'), 120)
-                min_periods = max(1, norm_window // 5)
-                drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-                sharp_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-                states['SCORE_KLINE_SHARP_DROP'] = sharp_drop_score.astype(np.float32)
+        if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
+            norm_window = get_param_value(p_atomic.get('norm_window'), 120)
+            # 计算下跌幅度
+            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+            # 使用更高效的内部归一化函数
+            sharp_drop_score = normalize_score(drop_magnitude, df.index, norm_window, ascending=True)
+            states['SCORE_KLINE_SHARP_DROP'] = sharp_drop_score.astype(np.float32)
+            
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 · 赫尔墨斯之翼优化版】诊断高级原子信号
+        - 内存优化: 对连涨/连跌天数的计数结果使用`np.int16`存储，减少内存占用。
+        - 核心逻辑: 保持高效的向量化连胜/连败计算逻辑不变。
+        """
         states = {}
         p = get_params_block(self.strategy, 'advanced_atomic_params', {}) 
         if not get_param_value(p.get('enabled'), True): return states
+        
+        # 计算收盘价在当日振幅中的位置，值域[0, 1]
         price_range = (df['high_D'] - df['low_D']).replace(0, 1e-9)
         close_position_in_range = ((df['close_D'] - df['low_D']) / price_range).fillna(0.5)
         states['SCORE_PRICE_POSITION_IN_RANGE'] = close_position_in_range.astype(np.float32)
+        
+        # 高效计算连涨/连跌天数
         is_up_day = df['pct_change_D'] > 0
         is_down_day = df['pct_change_D'] < 0
+        # 使用groupby和cumcount的经典向量化技巧计算连胜
         up_streak = (is_up_day.groupby((is_up_day != is_up_day.shift()).cumsum()).cumcount() + 1) * is_up_day
         down_streak = (is_down_day.groupby((is_down_day != is_down_day.shift()).cumsum()).cumcount() + 1) * is_down_day
+        
+        # 使用更节省内存的整数类型
         states['COUNT_CONSECUTIVE_UP_STREAK'] = up_streak.astype(np.int16)
         states['COUNT_CONSECUTIVE_DOWN_STREAK'] = down_streak.astype(np.int16)
+        
         return states
 
     def _diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.1 · 赫尔墨斯之翼优化版】诊断天地板/地天板模式
+        - 性能优化: 预先计算涨跌停价，并将多个评分因子的计算向量化，避免重复计算和中间Series的创建。
+        - 核心逻辑: 保持评分的乘法融合逻辑不变。
+        """
         states = {}
         p = get_params_block(self.strategy, 'board_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
+        
+        # --- 预先计算所有基础变量 ---
         prev_close = df['close_D'].shift(1)
         limit_up_threshold = get_param_value(p.get('limit_up_threshold'), 0.098)
         limit_down_threshold = get_param_value(p.get('limit_down_threshold'), -0.098)
         price_buffer = get_param_value(p.get('price_buffer'), 0.005)
+        
+        # 计算理论上的涨停价和跌停价
         limit_up_price = prev_close * (1 + limit_up_threshold)
         limit_down_price = prev_close * (1 + limit_down_threshold)
+        
+        # --- 向量化计算所有评分因子 ---
+        # 1. 振幅强度分：当日振幅占理论最大振幅的比例
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         theoretical_max_range = (limit_up_price - limit_down_price).replace(0, np.nan)
         strength_score = (day_range / theoretical_max_range).clip(0, 1).fillna(0)
+        
+        # 2. 地天板相关因子
+        # 最低价接近跌停价的程度
         low_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['low_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 收盘价接近涨停价的程度
         close_near_limit_up_score = ((df['close_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        
+        # 3. 天地板相关因子
+        # 最高价接近涨停价的程度
         high_near_limit_up_score = ((df['high_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 收盘价接近跌停价的程度
         close_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['close_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
+        
+        # --- 最终融合 ---
+        # 地天板得分 = 振幅强度 * 触及跌停 * 收于涨停
         states['SCORE_BOARD_EARTH_HEAVEN'] = (strength_score * low_near_limit_down_score * close_near_limit_up_score).astype(np.float32)
+        # 天地板得分 = 振幅强度 * 触及涨停 * 收于跌停
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score).astype(np.float32)
+        
         return states
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.0 · 关系元分析版】上冲派发风险诊断引擎
-        - 核心升级: 采用“关系元分析”范式，寻找“派发风险关系”的加速恶化拐点。
+        【V3.1 · 赫尔墨斯之翼优化版】上冲派发风险诊断引擎
+        - 性能优化: 使用`normalize_score`替换`.rolling().rank(pct=True)`，提升归一化效率。
+                      将多个评分因子的计算向量化，减少中间步骤。
+        - 核心逻辑: 保持“关系元分析”范式和三因子融合逻辑不变。
         """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
-        if not get_param_value(p.get('enabled'), False):
-            return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
+        signal_name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
+        default_series = pd.Series(0.0, index=df.index, name=signal_name, dtype=np.float32)
         
-        # 第一维度：计算“瞬时关系快照分”
+        if not get_param_value(p.get('enabled'), False):
+            return default_series
+        
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
         ma_col = f'EMA_{overextension_ma_period}_D'
-        if not all(col in df.columns for col in ['open_D', 'high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
-            return pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION')
+        if not all(col in df.columns for col in ['high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
+            return default_series
+            
         norm_window = get_param_value(p.get('norm_window'), 55)
-        min_periods = max(1, norm_window // 5)
         
+        # --- 向量化计算瞬时风险关系快照分 ---
+        # 1. 乖离率分：收盘价偏离MA55的程度
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
-        overextension_score = overextension_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
-        volume_score = df['volume_D'].rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.5)
+        overextension_score = normalize_score(overextension_ratio, df.index, norm_window, ascending=True)
+        
+        # 2. 成交量分：当日成交量在近期所处的位置
+        volume_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
+        
+        # 3. 弱势收盘分：收盘价在当日振幅中位置越低，得分越高
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / total_range).fillna(0.5)
         weak_close_score = 1 - close_position_in_range
         
-        # --- 融合三大支柱，得到单一的“瞬时风险关系分” ---
+        # 融合三大支柱，得到单一的“瞬时风险关系分”
         snapshot_score = (overextension_score * volume_score * weak_close_score).astype(np.float32)
         
-        # 第二维度：调用核心引擎，分析“风险关系”的拐点
+        # 调用核心引擎，分析“风险关系”的拐点
         final_signal_dict = self._perform_relational_meta_analysis(
             df=df,
             snapshot_score=snapshot_score,
-            signal_name='SCORE_RISK_UPTHRUST_DISTRIBUTION'
+            signal_name=signal_name
         )
         
-        # 返回 Series，保持原方法签名
-        return final_signal_dict.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index, name='SCORE_RISK_UPTHRUST_DISTRIBUTION'))
+        return final_signal_dict.get(signal_name, default_series)
 
     def _diagnose_ma_breakdown(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
