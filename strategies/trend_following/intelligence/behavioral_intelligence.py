@@ -40,6 +40,8 @@ class BehavioralIntelligence:
         - 性能优化: 采用Numpy向量化操作进行多维健康度融合，替换了原有的Pandas Series操作，
                       显著提升了计算效率并降低了内存开销。
         - 核心逻辑: 保持对“宙斯之雷”引擎的调用和三维健康度的几何平均融合逻辑不变。
+        - Bug修复: 修复了因变量名拼写错误 (`stacked_scores` 应为 `stacked_values`) 导致的 `NameError`。
+        - 优化说明: 增加了权重的自动归一化处理，使融合算法对配置变化更具鲁棒性。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -73,8 +75,14 @@ class BehavioralIntelligence:
         # 步骤四：使用Numpy进行高效的多维健康度融合
         overall_health = {}
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
-        # 将权重数组的计算提前
+        
+        # 新增(健壮性): 将权重数组的计算提前，并进行归一化，确保总权重为1
         dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
+        total_weight = dim_weights_array.sum()
+        if total_weight > 0:
+            dim_weights_array /= total_weight
+        else: # 如果权重总和为0或配置错误，则使用等权重
+            dim_weights_array.fill(1.0 / len(dim_weights_array))
         
         for health_type, health_sources in [
             ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
@@ -83,15 +91,18 @@ class BehavioralIntelligence:
         ]:
             overall_health[health_type] = {}
             for p in periods:
-                # 使用Numpy进行向量化融合，避免Pandas Series操作
+                # 新增(注释): 使用Numpy进行向量化融合，避免Pandas Series操作
                 # 将三个维度的健康度Series的底层Numpy数组堆叠起来
                 stacked_values = np.stack([
                     health_sources[0][p].values, 
                     health_sources[1][p].values, 
                     health_sources[2][p].values
                 ], axis=0)
-                # 使用Numpy的广播和乘方运算，一次性完成加权几何平均
-                fused_values = np.prod(stacked_scores ** dim_weights_array[:, np.newaxis], axis=0)
+                
+                # 新增(注释): 使用Numpy的广播和乘方运算，一次性完成加权几何平均
+                # 公式: G = (s1^w1 * s2^w2 * ... * sn^wn)
+                # 修改(Bug修复): 将变量名 `stacked_scores` 修正为 `stacked_values`
+                fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
