@@ -356,7 +356,7 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     - 性能优化: 1. 使用`np.sqrt`替代`**0.5`，提高代码可读性。
                   2. 确保所有返回的Series都为float32类型。
     """
-    # [代码修改] 创建一个默认的Series，用于在df.get找不到列时返回，构建双重保险
+    # 创建一个默认的Series，用于在df.get找不到列时返回，构建双重保险
     default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
 
     # 维度一：速度变化 (加速度) - 衡量趋势斜率的变化趋势
@@ -374,7 +374,7 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
     
     # 融合：两大维度必须共振，形成合力
-    # [代码修改] 使用np.sqrt，意图更清晰
+    # 使用np.sqrt，意图更清晰
     bullish_holographic_score = np.sqrt(velocity_accel_score * jerk_accel_score).astype(np.float32)
     bearish_holographic_score = np.sqrt(velocity_decel_score * jerk_decel_score).astype(np.float32)
     
