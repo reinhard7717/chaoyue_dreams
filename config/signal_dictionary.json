@@ -503,7 +503,7 @@
             "category": "筹码层-机会",
             "type": "positional",
             "score": 400,
-            "description": "筹码动态健康度在底部形成强力反转信号。"
+            "description": "【阿瑞斯之矛协议】筹码动态健康度在【价格底部区域】形成强力反转信号。"
         },
         "SCORE_CHIP_TACTICAL_REVERSAL": {
             "cn_name": "【筹码终极】战术反转",
@@ -539,7 +539,7 @@
             "category": "行为层-机会",
             "type": "positional",
             "score": 350,
-            "description": "行为动态健康度在底部形成强力反转信号。"
+            "description": "【阿瑞斯之矛协议】行为动态健康度在【价格底部区域】形成强力反转信号。"
         },
         "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
             "cn_name": "【行为终极】战术反转",
