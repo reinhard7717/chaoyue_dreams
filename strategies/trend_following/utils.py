@@ -393,8 +393,12 @@ def transmute_health_to_ultimate_signals(
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
     
-    # 此处是“阿瑞斯之矛”的核心：获取位置过滤器
+    # [代码修改] 此处是“阿瑞斯之矛”的核心：获取位置过滤器
+    # 在atomic_states中临时存储对strategy实例的引用，以便get_params_block可以工作
+    atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
+    if 'strategy_instance_ref' in atomic_states:
+        del atomic_states['strategy_instance_ref'] # 使用后清理
     
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -429,7 +433,7 @@ def transmute_health_to_ultimate_signals(
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     
-    # “阿瑞斯之矛”协议生效！为底部反转信号强制注入位置上下文。
+    # [代码修改] “阿瑞斯之矛”协议生效！为底部反转信号强制注入位置上下文。
     # 只有在价格处于底部区域时(bottom_context_score高)，动态拐点才被认可为“底部反转”。
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
 
@@ -464,7 +468,7 @@ def transmute_health_to_ultimate_signals(
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
-        f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
+        f'SCORE_{domain_prefix}_TOP_REversal': (final_top_reversal_score ** exponent)
     }
     for signal_name, score in final_signal_map.items():
         states[signal_name] = score.astype(np.float32)

@@ -11,27 +11,37 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V525.0 · 双轨计分版】
-        - 核心革命: 建立“神谕”与“常规”两套独立的计分与决策轨道。
+        【V526.0 · 普罗米修斯解锁协议版】
+        - 核心革命: 为“奇美拉阻尼器”引入“反转豁免”机制，防止其在底部反转时过度抑制。
         - 核心逻辑:
-          1. 常规轨道: 照常计算 entry_score, 并受风险、冲突等因素影响，生成常规 final_score。
-          2. 神谕轨道: 当“先知入场”触发时，其 final_score 由自身的置信度分值 (predictive_opp_score) 乘以一个独立的倍率因子决定。
-          3. 最终裁决: 神谕信号拥有最高优先级，其计分结果将直接覆盖常规计分结果。
-        - 收益: 实现了神谕信号的价值量化，同时保持了其决策的绝对独立性。
+        1. 识别当日最强的进攻信号类型。
+        2. 如果最强信号是'positional'(反转/位置型)，则大幅削弱'奇美拉冲突分'的抑制效果。
+        3. 在其他情况(如'dynamic'动态追涨)下，保持原有的严格抑制。
+        - 收益: 解决了因“多空双高”导致底部反转信号被错误清零的致命问题。
         """
-        print("    --- [最高作战指挥部 V525.0 · 双轨计分版] 启动...")
+        print("    --- [最高作战指挥部 V526.0 · 普罗米修斯解锁版] 启动...")
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
-        confidence_damper = 1.0 - chimera_conflict_score
         
-        # 常规轨道的计分逻辑保持不变，作为基础分数
+        # [代码修改] 引入“普罗米修斯解锁协议”
+        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
+        
+        # 步骤1: 识别每日的最强进攻信号及其类型
+        dominant_signal_type = self._get_dominant_offense_type(score_details_df)
+        
+        # 步骤2: 根据信号类型动态计算信心阻尼器
+        # 当最强信号是'positional'时，给予豁免，只进行轻微抑制
+        is_reversal_day = (dominant_signal_type == 'positional')
+        # 在反转日，阻尼器效果减半；在非反转日，保持全力抑制
+        dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
+        confidence_damper = 1.0 - dynamic_chimera_score
+        
+        # 步骤3: 使用动态阻尼器计算最终得分
         df['final_score'] = (df['entry_score'] * confidence_damper)
         
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         
-        # 分别获取常规判断参数和神谕判断参数
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         p_judge_prophet = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
         
@@ -39,13 +49,11 @@ class JudgmentLayer:
         
         df['signal_type'] = '无信号'
         
-        # 准备所有判断条件
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
         is_hard_exit_veto = exit_triggers_df.any(axis=1)
         
-        # 优先级 1 (最低): 常规买入与风险否决
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         
@@ -53,25 +61,20 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
 
-        # 优先级 2: 硬性离场 (国王的卫队) - 覆盖常规信号
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
         df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
         df.loc[is_hard_exit_veto, 'final_score'] = 0
 
-        # 优先级 3 (最高): 先知入场 (神谕轨道) - 覆盖一切
         prophet_entry_threshold = get_param_value(p_judge_prophet.get('prophet_entry_threshold'), 0.6)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         
-        # 为神谕轨道计算独立的 final_score
         prophet_score_multiplier = get_param_value(p_judge_prophet.get('prophet_score_multiplier'), 1000)
         prophet_final_score = predictive_opp_score * prophet_score_multiplier
         
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
-        
-        # 神谕降临之日，其 final_score 由自身置信度决定，不再归零
         df.loc[is_prophet_entry, 'final_score'] = prophet_final_score[is_prophet_entry]
         
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
@@ -216,6 +219,30 @@ class JudgmentLayer:
         self.strategy.atomic_states['ALERT_REASON'] = alert_reason
         return alert_level, alert_reason, fused_risks_df
 
+    def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。
+        """
+        if score_details_df.empty:
+            return pd.Series('unknown', index=score_details_df.index)
+
+        # 获取信号字典
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        
+        # 找出得分最高的信号列名
+        dominant_signal_names = score_details_df.idxmax(axis=1)
+        
+        # 创建一个从信号名到类型的映射
+        signal_to_type_map = {
+            name: meta.get('type', 'unknown') 
+            for name, meta in score_map.items() 
+            if isinstance(meta, dict)
+        }
+        
+        # 将最强信号名映射到其类型
+        dominant_types = dominant_signal_names.map(signal_to_type_map).fillna('unknown')
+        
+        return dominant_types
 
 
 
