@@ -253,6 +253,11 @@
             "distance_accel": 0.5,
             "slope_accel": 0.5
           }
+        },
+        "bias_overheat_params": {
+          "description": "【赫淮斯托斯卡尺】用于计算顶部风险的绝对乖离率阈值。",
+          "warning_threshold": 0.15,
+          "danger_threshold": 0.25
         }
       },
       "panic_selling_setup_params": {

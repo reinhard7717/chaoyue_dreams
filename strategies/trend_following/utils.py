@@ -219,10 +219,9 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V6.1 · 赫尔墨斯之翼优化版】计算全局的底部和顶部上下文分数
-    - 性能优化: 对顶部上下文分数计算中的`misalignment_score`部分进行了完全向量化，
-                  使用Numpy矩阵运算替代了原有的for循环，提升了计算效率。
-    - 核心逻辑: 保持“雅典娜神盾”三位一体的底部识别逻辑和顶部上下文计算逻辑不变。
+    【V7.1 · 赫淮斯托斯卡尺协议版】计算全局的底部和顶部上下文分数
+    - 核心革命: 签署“赫淮斯托斯卡尺协议”，用绝对阈值重构“乖离过热分”，根治“相对性近视”问题。
+    - 新核心逻辑: 顶部风险分中的“过热分”不再使用相对排名，而是基于可配置的绝对BIAS阈值进行线性映射。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -230,20 +229,13 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         print("      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'close_D'列，无法计算上下文分数。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
         return empty_series, empty_series
-    
-    # --- 底部上下文分数计算 (雅典娜神盾协议，逻辑不变) ---
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
-
-    # 模式一：回踩底
+    # --- 底部上下文分数计算 (逻辑不变) ---
     ma55_lifeline = df.get('EMA_55_D', df['close_D'])
     distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
-
-    # 模式二：深渊底
     price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
     absolute_value_zone_score = 1.0 - price_pos_yearly
-
-    # 模式三：动态支撑底
     p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {}) if strategy_instance_ref else {}
     dynamic_support_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     if get_param_value(p_fib_support.get('enabled'), False):
@@ -258,16 +250,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
             support_line = historical_low * (1 - tolerance_pct)
             is_defended = df['low_D'] >= support_line
             dynamic_support_score.loc[trigger_mask & is_defended] = level_scores[period_str]
-
-    # 神盾合一
     deep_bottom_context_score_values = np.maximum.reduce([
-        lifeline_support_score.values, 
-        absolute_value_zone_score.values, 
+        lifeline_support_score.values,
+        absolute_value_zone_score.values,
         dynamic_support_score.values
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
-
-    # 底部上下文融合
     rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
@@ -289,33 +277,38 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         safe_scores = np.maximum(stacked_scores, 1e-9)
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
-
-    # --- 顶部上下文分数计算 ---
+    # --- 顶部上下文分数计算 (赫淮斯托斯卡尺协议改造) ---
+    # 维度一: 价格拉伸分 (不变)
     ma55 = df.get('EMA_55_D', df['close_D'])
     rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-    
-    # 对均线排列分的计算进行完全向量化
+    # 维度二: 均线混乱分 (不变)
     ma_periods = [5, 13, 21, 55]
     short_ma_cols = [f'EMA_{ma_periods[i]}_D' for i in range(len(ma_periods) - 1)]
     long_ma_cols = [f'EMA_{ma_periods[i+1]}_D' for i in range(len(ma_periods) - 1)]
-
-    # 检查所有需要的列是否存在
     if all(col in df for col in short_ma_cols + long_ma_cols):
-        # 将所有短期和长期均线数据一次性提取为Numpy数组
         short_mas = df[short_ma_cols].values
         long_mas = df[long_ma_cols].values
-        # 使用Numpy进行矩阵比较，得到一个布尔矩阵
         misalignment_matrix = (short_mas < long_mas).astype(np.float32)
-        # 沿列轴计算均值，一次性得到所有日期的均线混乱分数
         misalignment_score_values = np.mean(misalignment_matrix, axis=1)
         misalignment_score = pd.Series(misalignment_score_values, index=df.index)
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
-        
-    top_context_score = (stretch_score * misalignment_score).astype(np.float32)
-    
+    # [代码修改] 维度三: 乖离过热分 (从JSON配置中读取绝对阈值)
+    bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
+    warning_threshold = get_param_value(bias_params.get('warning_threshold'), 0.15)
+    danger_threshold = get_param_value(bias_params.get('danger_threshold'), 0.25)
+    bias_abs = df.get('BIAS_21_D', pd.Series(0, index=df.index)).abs()
+    denominator = danger_threshold - warning_threshold
+    if denominator <= 1e-6:
+        overheat_score = (bias_abs > danger_threshold).astype(float)
+    else:
+        overheat_score = ((bias_abs - warning_threshold) / denominator).clip(0, 1)
+    overheat_score = overheat_score.fillna(0.0)
+    # [代码修改] 三位一体融合，使用几何平均，更能体现风险共振
+    top_context_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
+    top_context_score = top_context_score.astype(np.float32)
     return bottom_context_score, top_context_score
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
@@ -402,12 +395,10 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
         del atomic_states['strategy_instance_ref']
-    
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
     # --- 2. 上下文计算 ---
@@ -417,9 +408,9 @@ def transmute_health_to_ultimate_signals(
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
+    # [代码修改] 调用公共函数
     trend_confirmation_context = calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
-    
     # [代码新增] 为“赫尔墨斯之靴”计算专属上下文
     tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
     macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
@@ -436,7 +427,6 @@ def transmute_health_to_ultimate_signals(
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
-    
     # [代码修改] 战略反转只在趋势未确认时最强，与战术反转形成互补
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
     # [代码新增] 战术回调反转 (Tactical Pullback Reversal)
@@ -447,14 +437,12 @@ def transmute_health_to_ultimate_signals(
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
-    
     # 看跌共振 (Bearish Resonance)
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['d_intensity'].get(p, default_series)) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
-    
     # 顶部反转 (Top Reversal)
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
@@ -462,7 +450,6 @@ def transmute_health_to_ultimate_signals(
     bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
     overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
     final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
-    
     # --- 4. 组装并返回最终信号字典 ---
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
@@ -473,7 +460,6 @@ def transmute_health_to_ultimate_signals(
     }
     for signal_name, score in final_signal_map.items():
         states[signal_name] = score.astype(np.float32)
-        
     return states
 
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
@@ -536,36 +522,23 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
 
 def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
-    【V2.1 · 赫尔墨斯之翼优化版】趋势确认上下文计算器 (波塞冬三叉戟)
-    - 战略意义: 三位一体地评估一个上升趋势的质量，避免在弱势、伪冒或过热的趋势中追高。
-                一个高质量的上升趋势必须同时满足：强度足够、方向正确、姿态健康。
-    - 核心逻辑: 趋势确认分 = 强度分 * 方向分 * 健康分
+    【V3.0 · 伊卡洛斯协议版】趋势确认上下文计算器 (波塞冬三叉戟)
+    - 核心革命: 签署“伊卡洛斯协议”，将“趋势健康度(BIAS)”从确认逻辑中剥离，避免因趋势过热导致确认失效的“伊卡洛斯问题”。
+    - 新核心逻辑: 趋势确认分 = 趋势强度分 * 趋势方向分。一个纯粹的、只判断趋势是否存在及方向的强大引擎。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-
     adx_threshold = get_param_value(params.get('adx_threshold'), 20)
-    
     # 叉戟一: 趋势强度 (ADX) - 浪潮有多高？
     adx = df.get('ADX_14_D', pd.Series(0, index=df.index))
     is_trending = (adx > adx_threshold).astype(np.float32)
     strength_score = normalize_score(adx, df.index, window=norm_window, ascending=True) * is_trending
-
     # 叉戟二: 趋势方向 (PDI/NDI) - 浪潮往哪边涌？
     pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
     ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
     direction_score = (pdi > ndi).astype(np.float32)
-
-    # 叉戟三: 趋势健康度 (BIAS) - 船身是否倾斜过度？
-    bias_abs = df.get('BIAS_21_D', pd.Series(0, index=df.index)).abs()
-    # 乖离越大，分数越高，代表越“不健康”
-    unhealthiness_score = normalize_score(bias_abs, df.index, window=norm_window, ascending=True)
-    # 健康度与不健康度相反
-    health_score = 1.0 - unhealthiness_score
-    
-    # 最终融合：三叉戟合一，必须三者兼备
-    trend_confirmation_score = (strength_score * direction_score * health_score)
-
+    # [代码修改] 最终融合：现在是二叉戟合一，更纯粹、更强大
+    trend_confirmation_score = (strength_score * direction_score)
     return trend_confirmation_score.clip(0, 1).astype(np.float32)
 
 def calculate_tactical_reversal_score(
