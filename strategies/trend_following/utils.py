@@ -588,15 +588,17 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V9.0 · 卡戎摆渡协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 引入“无效状态”(NaN)来标记引力区外的K线，当滚动求和时，
-                  NaN会被自动忽略，完美实现了“离开引力区即重置确认计数”的逻辑。
+    【V10.0 · 阿波罗七弦琴协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 引入“确认冷却期”，一旦任何确认信号触发，将在N天内静默，
+                  确保“确认”是一次性神谕事件，强制系统将逻辑切换到“上升共振”状态。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
+    # [代码新增] 引入新的冷却期参数
+    confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
     confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
@@ -614,12 +616,11 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
         return gaia_score
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # 引入“无效状态”(NaN)
+    is_in_influence_zone_full = pd.Series(False, index=df.index)
+    is_in_influence_zone_full.loc[valid_indices] = is_in_influence_zone
     is_standing_firm = (df[close_col] > acting_lifeline).astype(float)
     is_standing_firm_in_zone = is_standing_firm.copy()
-    # 将不在引力区内的状态设置为NaN，这样rolling().sum()会忽略它们
-    is_standing_firm_in_zone.loc[valid_indices[~is_in_influence_zone]] = np.nan
-    # 确认的基础条件现在基于一个包含NaN的序列，实现了离开引力区即重置计数
+    is_standing_firm_in_zone.loc[~is_in_influence_zone_full] = np.nan
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
     active_zone_indices = is_in_influence_zone[is_in_influence_zone].index
     if active_zone_indices.empty:
@@ -629,8 +630,18 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     full_is_defended.loc[active_zone_indices] = is_defended
     was_recently_defended = full_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
     is_confirmed_base_active = is_confirmed_base.loc[active_zone_indices]
-    is_standard_confirmed = is_confirmed_base_active & ~was_recently_defended[active_zone_indices]
-    is_aegis_confirmed = is_confirmed_base_active & was_recently_defended[active_zone_indices]
+    # [代码新增] 建立冷却期逻辑
+    # 1. 先计算今天是否可能触发确认（无视冷却）
+    could_be_standard_confirmed = is_confirmed_base_active & ~was_recently_defended[active_zone_indices]
+    could_be_aegis_confirmed = is_confirmed_base_active & was_recently_defended[active_zone_indices]
+    is_any_confirmation_today = pd.Series(False, index=df.index)
+    is_any_confirmation_today.loc[active_zone_indices] = could_be_standard_confirmed | could_be_aegis_confirmed
+    # 2. 检查过去是否已经进入冷却期
+    was_recently_confirmed = is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
+    # 3. 最终的确认信号必须在非冷却期才能触发
+    is_standard_confirmed = could_be_standard_confirmed & ~was_recently_confirmed[active_zone_indices]
+    is_aegis_confirmed = could_be_aegis_confirmed & ~was_recently_confirmed[active_zone_indices]
+    # 应用分数
     gaia_score.loc[active_zone_indices[is_defended]] = defense_score
     gaia_score.loc[active_zone_indices[is_standard_confirmed]] = confirmation_score
     gaia_score.loc[active_zone_indices[is_aegis_confirmed]] = aegis_confirmation_score

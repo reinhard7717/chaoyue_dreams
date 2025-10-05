@@ -268,7 +268,8 @@
           "influence_zone_pct": 0.03,
           "defense_score": 0.6,
           "confirmation_score": 0.8,
-          "aegis_confirmation_score": 1.0
+          "aegis_confirmation_score": 1.0,
+          "confirmation_cooldown_period": 10
         }
       },
       "panic_selling_setup_params": {
