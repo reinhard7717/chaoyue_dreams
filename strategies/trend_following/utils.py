@@ -225,7 +225,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
-    close_col, high_col, low_col = 'close_qfq', 'high_qfq', 'low_qfq'
+    close_col, high_col, low_col = 'close', 'high', 'low'
     if close_col not in df.columns:
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
