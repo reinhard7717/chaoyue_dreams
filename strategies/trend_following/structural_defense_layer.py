@@ -33,7 +33,7 @@ class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseL
                 triggers_df['EXIT_TREND_BROKEN'] = df['close_D'] < df[tactical_ma_col]
             else:
                 print(f"    -> [结构防御层-警告] 无法找到战术移动平均线列: {tactical_ma_col}，战术防线未激活。")
-            # [代码修改] 不再使用静态的strategic_ma_col，而是从原子状态中获取动态的“最后防线”
+            # 不再使用静态的strategic_ma_col，而是从原子状态中获取动态的“最后防线”
             last_stand_line = self.strategy.atomic_states.get('LAST_STAND_LINE')
             strategic_exit_confirmation_days = get_param_value(p_trailing.get('strategic_exit_confirmation_days'), 2)
             if last_stand_line is not None and not last_stand_line.empty:

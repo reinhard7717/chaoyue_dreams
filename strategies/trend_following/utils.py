@@ -202,7 +202,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('EMA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
-    # [代码新增] --- “最后防线”中央发布模块 ---
+    # --- “最后防线”中央发布模块 ---
     gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
     support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233])
     ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
@@ -379,10 +379,10 @@ def transmute_health_to_ultimate_signals(
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
-    # [代码修改] 调用公共函数
+    # 调用公共函数
     trend_confirmation_context = calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
-    # [代码新增] 为“赫尔墨斯之靴”计算专属上下文
+    # 为“赫尔墨斯之靴”计算专属上下文
     tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
     macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
     macro_trend_permit_context = trend_confirmation_context.rolling(window=macro_window, min_periods=1).mean()
@@ -398,9 +398,9 @@ def transmute_health_to_ultimate_signals(
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
-    # [代码修改] 战略反转只在趋势未确认时最强，与战术反转形成互补
+    # 战略反转只在趋势未确认时最强，与战术反转形成互补
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
-    # [代码新增] 战术回调反转 (Tactical Pullback Reversal)
+    # 战术回调反转 (Tactical Pullback Reversal)
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
     # 看涨共振 (Bullish Resonance)
     bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
@@ -508,7 +508,7 @@ def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_wi
     pdi = df.get('PDI_14_D', pd.Series(0, index=df.index))
     ndi = df.get('NDI_14_D', pd.Series(0, index=df.index))
     direction_score = (pdi > ndi).astype(np.float32)
-    # [代码修改] 最终融合：现在是二叉戟合一，更纯粹、更强大
+    # 最终融合：现在是二叉戟合一，更纯粹、更强大
     trend_confirmation_score = (strength_score * direction_score)
     return trend_confirmation_score.clip(0, 1).astype(np.float32)
 
@@ -588,9 +588,9 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V8.0 · 赫菲斯托斯熔炉协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“赫菲斯托斯熔炉协议”，净化确认逻辑的输入源。
-                  现在只有在“引力区”内的站稳，才会被计入滚动确认天数。
+    【V9.0 · 卡戎摆渡协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 引入“无效状态”(NaN)来标记引力区外的K线，当滚动求和时，
+                  NaN会被自动忽略，完美实现了“离开引力区即重置确认计数”的逻辑。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -614,12 +614,13 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
         return gaia_score
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # [代码修改] 净化输入源：创建一个只包含引力区内信息的布尔序列
-    is_in_influence_zone_full = pd.Series(False, index=df.index)
-    is_in_influence_zone_full.loc[valid_indices] = is_in_influence_zone
-    # [代码修改] 确认的基础条件现在必须同时满足“高于生命线”和“在引力区内”
-    is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone_full
-    is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window).sum() >= confirmation_window
+    # 引入“无效状态”(NaN)
+    is_standing_firm = (df[close_col] > acting_lifeline).astype(float)
+    is_standing_firm_in_zone = is_standing_firm.copy()
+    # 将不在引力区内的状态设置为NaN，这样rolling().sum()会忽略它们
+    is_standing_firm_in_zone.loc[valid_indices[~is_in_influence_zone]] = np.nan
+    # 确认的基础条件现在基于一个包含NaN的序列，实现了离开引力区即重置计数
+    is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
     active_zone_indices = is_in_influence_zone[is_in_influence_zone].index
     if active_zone_indices.empty:
         return gaia_score
@@ -654,7 +655,7 @@ def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Seri
         period_str = str(period)
         if period_str not in level_scores: continue
         historical_low = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
-        # [代码修改] 将单一的下探判断，升级为完整的“下探-收回”防守逻辑
+        # 将单一的下探判断，升级为完整的“下探-收回”防守逻辑
         support_line_upper = historical_low * (1 + tolerance_pct)
         support_line_lower = historical_low * (1 - tolerance_pct)
         is_defended = (df[low_col] <= support_line_upper) & (df[close_col] >= support_line_lower)

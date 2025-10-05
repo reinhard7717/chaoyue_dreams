@@ -54,7 +54,7 @@ class CognitiveIntelligence:
         df = self.synthesize_ultimate_confirmation_scores(df)
         df = self.synthesize_ignition_resonance_score(df)
         df = self.synthesize_reversal_resonance_scores(df)
-        # [代码新增] 调用新的战术反转共振融合引擎
+        # 调用新的战术反转共振融合引擎
         df = self.synthesize_tactical_reversal_resonance(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
@@ -63,7 +63,7 @@ class CognitiveIntelligence:
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
         
-        # [代码修改] 净化并重构 bullish_scores 的构成
+        # 净化并重构 bullish_scores 的构成
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
@@ -72,7 +72,7 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
-            # [代码修改] 移除所有零散的战术信号，替换为经过融合的终极战术共振信号
+            # 移除所有零散的战术信号，替换为经过融合的终极战术共振信号
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
@@ -420,17 +420,17 @@ class CognitiveIntelligence:
         pattern_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BOTTOM_REVERSAL')
         pattern_top = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_TOP_REVERSAL')
         
-        # [代码新增] 获取“雅典娜之盾”的裁决
+        # 获取“雅典娜之盾”的裁决
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
 
         states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION'] = (fusion_bullish * pattern_bullish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION'] = (fusion_bearish * pattern_bearish).astype(np.float32)
         
-        # [代码修改] 应用“雅典娜之盾”的最终否决权
+        # 应用“雅典娜之盾”的最终否决权
         ultimate_bottom_raw = fusion_bottom * pattern_bottom
         states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION'] = (ultimate_bottom_raw * bottom_context_score).astype(np.float32)
         
-        # [代码修改] 应用“雅典娜之盾”的最终否决权 (顶部版本)
+        # 应用“雅典娜之盾”的最终否决权 (顶部版本)
         ultimate_top_raw = fusion_top * pattern_top
         states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION'] = (ultimate_top_raw * top_context_score).astype(np.float32)
         
@@ -478,7 +478,7 @@ class CognitiveIntelligence:
         bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         
-        # [代码新增] 获取“雅典娜之盾”的裁决
+        # 获取“雅典娜之盾”的裁决
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
 
         # --- 底部反转共振分数 ---
@@ -497,7 +497,7 @@ class CognitiveIntelligence:
             weights_array /= weights_array.sum()
             stacked_scores = np.stack(bottom_scores_np, axis=0)
             bottom_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            # [代码修改] 应用“雅典娜之盾”的最终否决权
+            # 应用“雅典娜之盾”的最终否决权
             bottom_reversal_values = bottom_reversal_values_raw * bottom_context_score.values
             bottom_reversal_score = pd.Series(bottom_reversal_values, index=df.index, dtype=np.float32)
         else:
@@ -520,7 +520,7 @@ class CognitiveIntelligence:
             weights_array = np.array(top_weights_np)
             weights_array /= weights_array.sum()
             stacked_scores = np.stack(top_scores_np, axis=0)
-            # [代码修改] 应用“雅典娜之盾”的最终否决权 (顶部版本)
+            # 应用“雅典娜之盾”的最终否决权 (顶部版本)
             top_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
             top_reversal_values = top_reversal_values_raw * top_context_score.values
             top_reversal_score = pd.Series(top_reversal_values, index=df.index, dtype=np.float32)

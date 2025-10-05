@@ -442,7 +442,7 @@ class IntelligenceLayer:
                       彻底解剖并展示 bottom/top 上下文分数的每一个组成部分。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
-        # [代码新增] 在主审判前，先由忒弥斯天平公开称量所有证据
+        # 在主审判前，先由忒弥斯天平公开称量所有证据
         self._deploy_themis_scales_probe(probe_date)
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
@@ -459,7 +459,7 @@ class IntelligenceLayer:
         # 2. 加载信号字典和参数
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        # [代码修改] 直接调用导入的公共函数，实现真正的独立验证
+        # 直接调用导入的公共函数，实现真正的独立验证
         atomic['strategy_instance_ref'] = self.strategy
         bottom_context, top_context = calculate_context_scores(df, atomic)
         trend_confirmation_context = calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
@@ -546,10 +546,10 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.3 · 赫菲斯托斯熔炉协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 探针现在完整重演 calculate_context_scores 的融合逻辑，
-                      包括对三大底部组件(常规、盖亚、历史低点)的 np.maximum 操作，
-                      彻底消除探针与实际计算的逻辑盲点。
+        【V1.4 · 盖亚显微镜版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 为盖亚基石组件增加超详细的“显微镜”级别的中间过程数据展示，
+                      包括 acting_lifeline, is_in_influence_zone, is_standing_firm_in_zone,
+                      is_confirmed_base, is_defended, was_recently_defended 等。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -559,10 +559,13 @@ class IntelligenceLayer:
         print("\n  --- [结构性支撑审查] 关键均线系统快照 ---")
         ma_periods_to_probe = [5, 55, 144, 233]
         close_price = df.get('close_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
+        low_price = df.get('low_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         if isinstance(close_price, (float, np.floating)):
             print(f"    - {'close_D':<12}: {close_price:.2f}  (当日收盘价)")
+            print(f"    - {'low_D':<12}: {low_price:.2f}  (当日最低价)")
         else:
             print(f"    - {'close_D':<12}: {close_price}")
+            print(f"    - {'low_D':<12}: {low_price}")
         for period in ma_periods_to_probe:
             col_name = f'EMA_{period}_D'
             ma_value = df.get(col_name, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
@@ -571,8 +574,6 @@ class IntelligenceLayer:
             else:
                 print(f"    - {col_name:<12}: {ma_value}")
         print("\n  --- [天平左侧] 底部上下文解剖 ---")
-        # [代码修改] 完整重演 calculate_context_scores 的逻辑
-        # 1. 计算“常规底部”分
         depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
         ma55_lifeline = df.get('EMA_55_D', df['close_D'])
         is_deep_bearish_zone = (df['close_D'] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -591,15 +592,38 @@ class IntelligenceLayer:
         bottom_context_score_raw = (deep_bottom_context_score**context_weights['price_pos'] * rsi_w_oversold_score**context_weights['rsi_w'] * cycle_trough_score**context_weights['cycle'])
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
-        # 2. 计算“盖亚基石”分
         gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
-        # 3. 计算“历史低点”分
+        # 盖亚基石显微镜探针
+        print("      --- [盖亚显微镜] 深入解剖 ---")
+        support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233])
+        confirmation_window = get_param_value(gaia_params.get('confirmation_window'), 3)
+        aegis_lookback_window = get_param_value(gaia_params.get('aegis_lookback_window'), 5)
+        influence_zone_pct = get_param_value(gaia_params.get('influence_zone_pct'), 0.03)
+        g_ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
+        g_ma_df = df[g_ma_cols]
+        g_ma_df_below_price = g_ma_df.where(g_ma_df.le(df['close_D'], axis=0))
+        g_acting_lifeline = g_ma_df_below_price.max(axis=1).ffill()
+        g_upper_bound = g_acting_lifeline * (1 + influence_zone_pct)
+        g_is_in_influence_zone = df['close_D'].between(g_acting_lifeline, g_upper_bound)
+        g_is_standing_firm = (df['close_D'] > g_acting_lifeline).astype(float)
+        g_is_standing_firm_in_zone = g_is_standing_firm.copy()
+        g_is_standing_firm_in_zone[~g_is_in_influence_zone] = np.nan
+        g_is_confirmed_base = g_is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+        g_is_defended = (df['low_D'] <= g_acting_lifeline) & (df['close_D'] >= g_acting_lifeline) & g_is_in_influence_zone
+        g_was_recently_defended = g_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
+        print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
+        print(f"        - influence_zone (引力区): [{g_acting_lifeline.get(probe_date, np.nan):.4f}, {g_upper_bound.get(probe_date, np.nan):.4f}]")
+        print(f"        - is_in_influence_zone (是否在引力区): {g_is_in_influence_zone.get(probe_date, False)}")
+        print(f"        - is_standing_firm_in_zone (有效站稳计数): {g_is_standing_firm_in_zone.get(probe_date, np.nan)}")
+        print(f"        - is_confirmed_base (是否确认站稳): {g_is_confirmed_base.get(probe_date, False)}")
+        print(f"        - is_defended (是否防守): {g_is_defended.get(probe_date, False)}")
+        print(f"        - was_recently_defended (近期是否防守过): {g_was_recently_defended.get(probe_date, False)}")
+        print("      --------------------------")
         p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {})
         historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
         print(f"    - [组件3] 历史低点支撑分: {historical_low_support_score.get(probe_date, 0.0):.4f}")
-        # 4. 模拟最终融合
         structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score)
         final_bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score)
         print(f"    - [融合步骤1] 结构支撑分 (盖亚 vs 历史低点): {structural_support_score.get(probe_date, 0.0):.4f}")
