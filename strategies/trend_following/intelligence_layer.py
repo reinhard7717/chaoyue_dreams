@@ -437,97 +437,70 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 阿波罗之光协议版】“宙斯之雷”终极法医探针
-        - 核心革命: 签署“阿波罗之光协议”，使探针的解剖逻辑与主引擎的“双轨反转系统”完全同步。
-        - 新核心能力:
-          1. [引入新神祇]: 探针现在能够独立重算所有关键上下文，如 bottom_context_score 和 trend_confirmation_context。
-          2. [重演审判]: 能够模拟 transmute_health_to_ultimate_signals 的完整逻辑，区分战略与战术信号。
-          3. [揭示抑制]: 当信号被抑制时，能清晰展示是哪个“神盾”或“抑制器”在起作用。
+        【V2.2 · 忒弥斯天平协议版】“宙斯之雷”终极法医探针
+        - 核心升级: 签署“忒弥斯天平协议”，在主探针执行前，调用全新的子探针 `_deploy_themis_scales_probe`，
+                      彻底解剖并展示 bottom/top 上下文分数的每一个组成部分。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
-        
+        # [代码新增] 在主审判前，先由忒弥斯天平公开称量所有证据
+        self._deploy_themis_scales_probe(probe_date)
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
-        
-        def get_val(name, date, default=0.0): # 默认值改为0.0，更安全
+        def get_val(name, date, default=0.0):
             series = atomic.get(name)
             if series is None: return default
             return series.get(date, default)
-
         # 1. 调取最终判决
         final_score = df.loc[probe_date].get('final_score', 0)
         final_signal = df.loc[probe_date].get('signal_type', '未知')
-        
         print(f"\n  [链路层 1] 最终裁决")
         print(f"    - 【最终信号】: {final_signal}")
         print(f"    - 【最终得分】: {final_score:.0f}")
-
         # 2. 加载信号字典和参数
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        
-        # [代码新增] 引入新神祇：在探针内部重算所有关键上下文
+        # [代码修改] 直接调用导入的公共函数，实现真正的独立验证
         atomic['strategy_instance_ref'] = self.strategy
         bottom_context, top_context = calculate_context_scores(df, atomic)
         trend_confirmation_context = calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
         del atomic['strategy_instance_ref']
-        
         bottom_context_val = bottom_context.get(probe_date, 0.0)
         top_context_val = top_context.get(probe_date, 0.0)
         trend_confirmation_val = trend_confirmation_context.get(probe_date, 0.0)
-
         active_offense = []
         active_risks = []
-
         # 3. 遍历所有可能的信号，重演审判过程
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
-
             signal_value_raw = get_val(signal_name, probe_date, 0.0)
-            
-            # 只处理当天有潜在得分的信号
             if abs(signal_value_raw) < 1e-6:
                 continue
-
             base_score = 0
             is_risk = meta.get('type') == 'risk'
-            
             if is_risk:
                 base_score = meta.get('penalty_weight', 0) * -1
             elif 'score' in meta:
                 base_score = meta.get('score', 0)
-            
             if abs(base_score) < 1e-6:
                 continue
-
             signal_value_final = signal_value_raw
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
-
-            # [代码新增] 对战略和战术信号进行特殊解剖
             if 'BOTTOM_REVERSAL' in signal_name:
-                # 重演战略反转的抑制过程
                 signal_value_final = signal_value_raw * bottom_context_val * (1 - trend_confirmation_val)
                 explanation = (f"原始值: {signal_value_raw:.4f} "
                                f"x 底部上下文: {bottom_context_val:.2f} "
                                f"x (1 - 趋势确认: {trend_confirmation_val:.2f}) "
                                f"* 基础分: {base_score:.0f}")
             elif 'TACTICAL_REVERSAL' in signal_name:
-                # 战术反转信号的逻辑在 transmute 内部已经完整，无需额外处理
-                # 这里可以添加对构成它的三要素的解剖
-                pass # 保持原样
+                pass
             elif 'TOP_REVERSAL' in signal_name and not is_risk:
-                 # 这是认知层的融合信号，也受上下文影响
                  signal_value_final = signal_value_raw * top_context_val
                  explanation = (f"原始值: {signal_value_raw:.4f} "
                                 f"x 顶部上下文: {top_context_val:.2f} "
                                 f"* 基础分: {base_score:.0f}")
-
             contribution = signal_value_final * base_score
-            
-            # 只有最终贡献不为0的才展示
-            if abs(contribution) < 0.5: # 贡献小于0.5分则忽略
+            if abs(contribution) < 0.5:
                 continue
-
             signal_info = {
                 'name': meta.get('cn_name', signal_name),
                 'raw_value': signal_value_raw,
@@ -537,16 +510,13 @@ class IntelligenceLayer:
                 'explanation': explanation,
                 'category': meta.get('category', '未知类别')
             }
-
             if is_risk:
                 active_risks.append(signal_info)
             else:
                 active_offense.append(signal_info)
-
         # 4. 按贡献度排序并展示
         active_offense.sort(key=lambda x: x['contribution'], reverse=True)
         active_risks.sort(key=lambda x: x['contribution'], reverse=False)
-
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
         total_offense = 0
         if not active_offense:
@@ -557,7 +527,6 @@ class IntelligenceLayer:
                 total_offense += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【进攻项总分】: {total_offense:.0f}")
-
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
         total_risk = 0
         if not active_risks:
@@ -568,15 +537,78 @@ class IntelligenceLayer:
                 total_risk += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【风险项总分】: {total_risk:.0f}")
-
         # 5. 终极对质
         print("\n  [链路层 4] 终极对质")
         recalculated_final_score = total_offense + total_risk
         print(f"    - [探针重算总分]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_final_score:.0f}")
         print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
-        
         print("\n--- “宙斯之雷”审查完毕 ---")
 
+    def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“忒弥斯天平”上下文解剖探针
+        - 核心职责: 作为“宙斯之雷”的子探针，彻底解剖并展示 bottom/top 上下文分数的每一个组成部分及其数值。
+        """
+        print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        # 模拟 calculate_context_scores 的完整过程并打印每一步
+        strategy_instance_ref = self.strategy
+        p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
+        print("\n  --- [天平左侧] 底部上下文解剖 ---")
+        # 1. 深度底部上下文
+        ma55_lifeline = df.get('EMA_55_D', df['close_D'])
+        distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
+        lifeline_support_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
+        price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
+        absolute_value_zone_score = 1.0 - price_pos_yearly
+        # ... (dynamic_support_score 逻辑较为复杂，暂时只打印最终结果)
+        atomic['strategy_instance_ref'] = self.strategy
+        bottom_context, top_context = calculate_context_scores(df, atomic)
+        del atomic['strategy_instance_ref']
+        print(f"    - [组件1] 生命线支撑分 (与MA55距离): {lifeline_support_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [组件2] 绝对价值区位分 (年内位置): {absolute_value_zone_score.get(probe_date, 0.0):.4f}")
+        # 2. 宏观周期上下文
+        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+        cycle_phase = atomic.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
+        cycle_trough_score = (1 - cycle_phase) / 2.0
+        print(f"    - [组件3] 周线RSI超卖分: {rsi_w_oversold_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [组件4] FFT周期波谷分: {cycle_trough_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [最终裁决] 底部上下文总分: {bottom_context.get(probe_date, 0.0):.4f}")
+        print("\n  --- [天平右侧] 顶部上下文解剖 ---")
+        # 1. 价格拉伸分
+        ma55 = df.get('EMA_55_D', df['close_D'])
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
+        stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+        # 2. 均线混乱分
+        ma_periods = [5, 13, 21, 55]
+        short_ma_cols = [f'EMA_{ma_periods[i]}_D' for i in range(len(ma_periods) - 1)]
+        long_ma_cols = [f'EMA_{ma_periods[i+1]}_D' for i in range(len(ma_periods) - 1)]
+        if all(col in df for col in short_ma_cols + long_ma_cols):
+            short_mas = df[short_ma_cols].values
+            long_mas = df[long_ma_cols].values
+            misalignment_matrix = (short_mas < long_mas).astype(np.float32)
+            misalignment_score_values = np.mean(misalignment_matrix, axis=1)
+            misalignment_score = pd.Series(misalignment_score_values, index=df.index)
+        else:
+            misalignment_score = pd.Series(0.5, index=df.index)
+        # 3. 乖离过热分
+        bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
+        warning_threshold = get_param_value(bias_params.get('warning_threshold'), 0.15)
+        danger_threshold = get_param_value(bias_params.get('danger_threshold'), 0.25)
+        bias_abs = df.get('BIAS_21_D', pd.Series(0, index=df.index)).abs()
+        denominator = danger_threshold - warning_threshold
+        if denominator <= 1e-6:
+            overheat_score = (bias_abs > danger_threshold).astype(float)
+        else:
+            overheat_score = ((bias_abs - warning_threshold) / denominator).clip(0, 1)
+        overheat_score = overheat_score.fillna(0.0)
+        print(f"    - [组件1] 价格拉伸分: {stretch_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [组件2] 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [组件3] 乖离过热分 (绝对值): {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
+        print(f"    - [最终裁决] 顶部上下文总分: {top_context.get(probe_date, 0.0):.4f}")
+        print("\n--- “忒弥斯天平”称量完毕 ---")
 
 
 
