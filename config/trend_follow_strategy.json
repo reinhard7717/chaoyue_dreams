@@ -261,12 +261,14 @@
         },
         "gaia_bedrock_params": {
           "enabled": true,
-          "description": "【V2.0 · 赫菲斯托斯之砧协议版】引入引力区和与防守挂钩的确认逻辑。",
+          "description": "【V3.0 · 雅典娜神盾协议版】引入三级信号体系：神盾构筑(1.0)、常规确认(0.8)、阵地防守(0.6)。",
           "support_levels": [55, 89, 144, 233],
           "confirmation_window": 3,
+          "aegis_lookback_window": 5,
           "influence_zone_pct": 0.03,
           "defense_score": 0.6,
-          "confirmation_score": 1.0
+          "confirmation_score": 0.8,
+          "aegis_confirmation_score": 1.0
         }
       },
       "panic_selling_setup_params": {

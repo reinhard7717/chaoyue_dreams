@@ -53,38 +53,6 @@ def ensure_numeric_types(df: pd.DataFrame) -> pd.DataFrame:
         # print("      -> 所有数值列类型正常，无需转换。")
     return df
 
-# def fuse_multi_level_scores(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str, weights: Dict[str, float] = None) -> pd.Series:
-#     """
-#     【新增辅助函数】融合S/A/B等多层置信度分数。
-#     - 逻辑: 根据给定的权重，将 'SCORE_..._S', 'SCORE_..._A', 'SCORE_..._B' 等分数
-#             加权融合成一个单一的综合分数。
-#     - :param atomic_states: 包含所有原子状态的字典。
-#     - :param df_index: DataFrame的索引，用于创建Series。
-#     - :param base_name: 分数的基础名称 (例如 'MA_BULLISH_RESONANCE').
-#     - :param weights: 一个字典，定义了 'S', 'A', 'B' 等级的权重。
-#     - :return: 融合后的分数 (pd.Series).
-#     """
-#     if weights is None:
-#         weights = {'S': 1.0, 'A': 0.6, 'B': 0.3}
-#     total_score = pd.Series(0.0, index=df_index)
-#     total_weight = 0.0
-#     # 动态地获取并加权S/A/B等级的分数
-#     for level, weight in weights.items():
-#         score_name = f"SCORE_{base_name}_{level}"
-#         if score_name in atomic_states:
-#             score_series = atomic_states[score_name]
-#             total_score += score_series * weight
-#             total_weight += weight
-#     # 如果没有找到任何等级的分数，返回一个中性分数
-#     if total_weight == 0:
-#         # 尝试获取没有等级的单一分数
-#         single_score_name = f"SCORE_{base_name}"
-#         if single_score_name in atomic_states:
-#             return atomic_states[single_score_name]
-#         return pd.Series(0.5, index=df_index)
-#     # 归一化处理
-#     return (total_score / total_weight).clip(0, 1)
-
 def get_unified_score(atomic_states: Dict[str, pd.Series], df_index: pd.Index, base_name: str) -> pd.Series:
     """
     【V1.0 · 净化版】获取唯一的、归一化的终极信号分数。
@@ -219,12 +187,11 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V8.4 · 字段净化版】计算全局的底部和顶部上下文分数
-    - 核心修正: 移除所有_qfq后缀，使用DAO层提供的标准字段名。核心逻辑不变。
+    【V9.0 · 万神殿协议版】计算全局的底部和顶部上下文分数
+    - 核心革命: 建立统一的“结构支撑层”，让“盖亚基石(均线支撑)”和“历史低点支撑”平等竞争。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
-    # 移除_qfq后缀，使用标准字段名
     close_col, high_col, low_col = 'close_D', 'high_D', 'low_D'
     if close_col not in df.columns:
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
@@ -233,10 +200,10 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
-    # 移除_qfq后缀
     ma55_lifeline = df.get('EMA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
     # --- 底部上下文分数计算 ---
+    # [代码修改] “前期低点支撑”逻辑已被移出，这里只计算非结构性组件
     ma55_slope = ma55_lifeline.diff(3).fillna(0)
     slope_moderator = (0.5 + 0.5 * np.tanh(ma55_slope * 100)).fillna(0.5)
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
@@ -244,35 +211,19 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
     price_pos_yearly = normalize_score(df[close_col], df.index, window=250, ascending=True, default_value=0.5)
     absolute_value_zone_score = 1.0 - price_pos_yearly
-    p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {}) if strategy_instance_ref else {}
-    dynamic_support_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    if get_param_value(p_fib_support.get('enabled'), False):
-        fib_periods = get_param_value(p_fib_support.get('periods'), [34, 55, 89, 144, 233])
-        tolerance_pct = get_param_value(p_fib_support.get('tolerance_pct'), 0.01)
-        level_scores = get_param_value(p_fib_support.get('level_scores'), {})
-        trigger_mask = df[close_col] < ma55_lifeline
-        for period in fib_periods:
-            period_str = str(period)
-            if period_str not in level_scores: continue
-            historical_low = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
-            support_line = historical_low * (1 - tolerance_pct)
-            is_defended = df[low_col] >= support_line
-            dynamic_support_score.loc[trigger_mask & is_defended] = level_scores[period_str]
-    gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
-    gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
+    # [代码修改] deep_bottom_context_score不再包含dynamic_support_score
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
-        absolute_value_zone_score.values,
-        dynamic_support_score.values
+        absolute_value_zone_score.values
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
-    # 移除_qfq后缀
     rsi_w_col = 'RSI_13_W'
     rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
     score_components = {'price_pos': deep_bottom_context_score, 'rsi_w': rsi_w_oversold_score, 'cycle': cycle_trough_score}
+    # ... (后续的加权平均逻辑保持不变) ...
     valid_scores, valid_weights = [], []
     for name, weight in context_weights.items():
         if name in score_components and weight > 0:
@@ -289,15 +240,25 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
-    bottom_context_score = np.maximum(conventional_bottom_score, gaia_bedrock_support_score).astype(np.float32)
-    # --- 顶部上下文分数计算 ---
-    # 移除_qfq后缀
+    # [代码新增] --- 万神殿裁决 ---
+    # 1. 召唤“盖亚基石”之神 (均线支撑)
+    gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
+    gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
+    # 2. 召唤“历史低点”之神 (价格支撑)
+    p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {}) if strategy_instance_ref else {}
+    historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
+    # 3. 选出最强的结构之神
+    structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
+    # --- 最终对决 ---
+    # [代码修改] 使用统一的 structural_support_score 进行最终对决
+    bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
+    # --- 顶部上下文分数计算 (逻辑不变) ---
+    # ... (顶部逻辑保持不变) ...
     ma55 = df.get('EMA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df[close_col] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
     ma_periods = [5, 13, 21, 55]
-    # 移除_qfq后缀
     short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
     long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
     if all(col in df for col in short_ma_cols + long_ma_cols):
@@ -308,7 +269,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         misalignment_score = pd.Series(misalignment_score_values, index=df.index)
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
-    # 移除_qfq后缀
     bias_col = 'BIAS_21_D'
     bias_abs = df.get(bias_col, pd.Series(0, index=df.index)).abs()
     bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
@@ -630,18 +590,21 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V3.0 · 赫菲斯托斯之砧协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命:
-      1. 引入“引力区”(Zone of Influence)概念，只有当价格靠近支撑线时才激活。
-      2. 重铸“确认”逻辑，必须与近期发生的“防守”行为挂钩。
+    【V6.0 · 赫尔墨斯信使协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 最终解耦！严格区分三种独立的底部信号：
+      1. 阵地防守 (0.6分)
+      2. 常规确认 (未经防守的站稳, 0.8分)
+      3. 神盾构筑 (经过防守的站稳, 1.0分)
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
+    aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
-    confirmation_score = get_param_value(params.get('confirmation_score'), 1.0)
+    confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
+    aegis_confirmation_score = get_param_value(params.get('aegis_confirmation_score'), 1.0)
     close_col, low_col = 'close_D', 'low_D'
     ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
     if not ma_cols:
@@ -649,24 +612,69 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     ma_df = df[ma_cols]
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
     acting_lifeline = ma_df_below_price.max(axis=1)
-    # [代码新增] 1. 定义“引力区”
-    upper_bound = acting_lifeline * (1 + influence_zone_pct)
-    # 价格必须在支撑线和其上方的引力区之间，才认为支撑关系有效
-    is_in_influence_zone = df[close_col].between(acting_lifeline, upper_bound)
-    # [代码修改] 2. “防守”和“确认”逻辑现在必须在引力区内才有效
-    is_defended = (df[low_col] <= acting_lifeline) & (df[close_col] >= acting_lifeline)
-    # [代码修改] 3. “确认”必须基于近期发生的“防守”
-    #   检查在过去N天内，是否至少有一次成功的防守
-    was_recently_defended = is_defended.rolling(window=confirmation_window, min_periods=1).sum() > 0
-    #   确认条件：近期被防守过，且当前价格仍在支撑线之上
-    is_confirmed = was_recently_defended & (df[close_col] > acting_lifeline)
-    # 4. 计分，并用“引力区”作为最终开关
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 只有在引力区内，才考虑给分
-    gaia_score.loc[is_in_influence_zone & is_defended] = defense_score
-    gaia_score.loc[is_in_influence_zone & is_confirmed] = confirmation_score # 确认信号覆盖防守信号
+    valid_indices = acting_lifeline.dropna().index
+    if valid_indices.empty:
+        return gaia_score
+    # 1. 【纪律】定义“引力区”
+    upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
+    is_in_influence_zone = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
+    active_zone_indices = is_in_influence_zone[is_in_influence_zone].index
+    if active_zone_indices.empty:
+        return gaia_score
+    # 2. 【信号定义】
+    #    信号1: 阵地防守
+    is_defended = (df.loc[active_zone_indices, low_col] <= acting_lifeline[active_zone_indices]) & (df.loc[active_zone_indices, close_col] >= acting_lifeline[active_zone_indices])
+    #    为后续计算准备一个完整的防守序列
+    full_is_defended = pd.Series(False, index=df.index)
+    full_is_defended.loc[active_zone_indices] = is_defended
+    was_recently_defended = full_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
+    #    确认的基础条件
+    is_confirmed_base = (df[close_col] > acting_lifeline).rolling(window=confirmation_window).sum().loc[active_zone_indices] >= confirmation_window
+    #    [代码修改] 信号2 vs 信号3: 通过布尔运算实现严格解耦
+    #    信号2: 常规确认 (站稳了，但近期没有防守)
+    is_standard_confirmed = is_confirmed_base & ~was_recently_defended[active_zone_indices]
+    #    信号3: 神盾构筑 (站稳了，且近期有过防守)
+    is_aegis_confirmed = is_confirmed_base & was_recently_defended[active_zone_indices]
+    # 3. 【计分】按优先级应用分数
+    #    注意：这里的索引必须是 active_zone_indices 与各自信号为True的索引的交集
+    #    为了简化，我们直接在已经筛选过的 active_zone_indices 上应用布尔掩码
+    #    应用防守分
+    gaia_score.loc[active_zone_indices[is_defended]] = defense_score
+    #    应用常规确认分 (由于信号互斥，无需担心覆盖神盾信号)
+    gaia_score.loc[active_zone_indices[is_standard_confirmed]] = confirmation_score
+    #    应用神盾构筑分 (会覆盖同一天的防守分，这是符合预期的)
+    gaia_score.loc[active_zone_indices[is_aegis_confirmed]] = aegis_confirmation_score
     return gaia_score.astype(np.float32)
 
+def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:
+    """
+    【V1.0 · 万神殿协议版】“历史低点”支撑分计算引擎
+    - 从calculate_context_scores中剥离，成为独立的结构支撑“神祇”。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    close_col, low_col = 'close_D', 'low_D'
+    ma55_lifeline = df.get('EMA_55_D', df[close_col])
+    fib_periods = get_param_value(params.get('periods'), [34, 55, 89, 144, 233])
+    tolerance_pct = get_param_value(params.get('tolerance_pct'), 0.01)
+    level_scores = get_param_value(params.get('level_scores'), {})
+    dynamic_support_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 触发条件：只有当价格低于MA55时，才考虑历史低点支撑
+    trigger_mask = df[close_col] < ma55_lifeline
+    for period in fib_periods:
+        period_str = str(period)
+        if period_str not in level_scores: continue
+        # 计算N周期内的最低价（不含当天），作为支撑线
+        historical_low = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
+        support_line = historical_low * (1 + tolerance_pct) # 给予一定容忍度
+        # 判断是否在支撑线上方获得防守
+        is_defended = df[low_col] <= support_line
+        # 在触发区域内且获得防守的点，赋予分数
+        # 使用np.maximum确保取得更高周期的更高分数
+        score_mask = trigger_mask & is_defended
+        dynamic_support_score.loc[score_mask] = np.maximum(dynamic_support_score.loc[score_mask], level_scores[period_str])
+    return dynamic_support_score.astype(np.float32)
 
 
 
