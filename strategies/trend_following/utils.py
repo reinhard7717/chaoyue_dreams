@@ -225,7 +225,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
-    close_col, high_col, low_col = 'close', 'high', 'low'
+    close_col, high_col, low_col = 'close_D', 'high_D', 'low_D'
     if close_col not in df.columns:
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
@@ -233,7 +233,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
-    ma55_lifeline = df.get('EMA_55_D_qfq', df[close_col])
+    ma55_lifeline = df.get('EMA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
     # --- 底部上下文分数计算 ---
     ma55_slope = ma55_lifeline.diff(3).fillna(0)
@@ -265,7 +265,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         dynamic_support_score.values
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
-    rsi_w_col = 'RSI_13_W_qfq'
+    rsi_w_col = 'RSI_13_W'
     rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
@@ -289,13 +289,13 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
     bottom_context_score = np.maximum(conventional_bottom_score, gaia_bedrock_support_score).astype(np.float32)
     # --- 顶部上下文分数计算 (逻辑不变) ---
-    ma55 = df.get('EMA_55_D_qfq', df[close_col])
+    ma55 = df.get('EMA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df[close_col] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
     ma_periods = [5, 13, 21, 55]
-    short_ma_cols = [f'EMA_{p}_D_qfq' for p in ma_periods[:-1]]
-    long_ma_cols = [f'EMA_{p}_D_qfq' for p in ma_periods[1:]]
+    short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
+    long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
     if all(col in df for col in short_ma_cols + long_ma_cols):
         short_mas = df[short_ma_cols].values
         long_mas = df[long_ma_cols].values
@@ -304,7 +304,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         misalignment_score = pd.Series(misalignment_score_values, index=df.index)
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
-    bias_col = 'BIAS_21_D_qfq'
+    bias_col = 'BIAS_21_D'
     bias_abs = df.get(bias_col, pd.Series(0, index=df.index)).abs()
     bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
     warning_threshold = get_param_value(bias_params.get('warning_threshold'), 0.15)
@@ -634,9 +634,9 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
     confirmation_score = get_param_value(params.get('confirmation_score'), 1.0)
-    close_col, low_col = 'close_qfq', 'low_qfq'
+    close_col, low_col = 'close', 'low'
     # 1. 收集所有防线指挥官
-    ma_cols = [f'EMA_{p}_D_qfq' for p in support_levels if f'EMA_{p}_D_qfq' in df.columns]
+    ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
     if not ma_cols:
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_df = df[ma_cols]
