@@ -630,34 +630,41 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V2.1 · 字段净化版】“盖亚基石”支撑分计算引擎
-    - 核心修正: 移除所有_qfq后缀，使用DAO层提供的标准字段名。核心逻辑不变。
+    【V3.0 · 赫菲斯托斯之砧协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命:
+      1. 引入“引力区”(Zone of Influence)概念，只有当价格靠近支撑线时才激活。
+      2. 重铸“确认”逻辑，必须与近期发生的“防守”行为挂钩。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
+    influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
     confirmation_score = get_param_value(params.get('confirmation_score'), 1.0)
-    # 移除_qfq后缀，使用标准字段名
     close_col, low_col = 'close_D', 'low_D'
-    # 1. 收集所有防线指挥官
-    # 移除_qfq后缀
     ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
     if not ma_cols:
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_df = df[ma_cols]
-    # 2. 任命“代理总指挥”
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
     acting_lifeline = ma_df_below_price.max(axis=1)
-    # 3. 基于“代理总指挥”进行战况评估
+    # [代码新增] 1. 定义“引力区”
+    upper_bound = acting_lifeline * (1 + influence_zone_pct)
+    # 价格必须在支撑线和其上方的引力区之间，才认为支撑关系有效
+    is_in_influence_zone = df[close_col].between(acting_lifeline, upper_bound)
+    # [代码修改] 2. “防守”和“确认”逻辑现在必须在引力区内才有效
     is_defended = (df[low_col] <= acting_lifeline) & (df[close_col] >= acting_lifeline)
-    is_above_acting_lifeline = df[close_col] > acting_lifeline
-    is_confirmed = is_above_acting_lifeline.rolling(window=confirmation_window).sum() >= confirmation_window
-    # 4. 计分
+    # [代码修改] 3. “确认”必须基于近期发生的“防守”
+    #   检查在过去N天内，是否至少有一次成功的防守
+    was_recently_defended = is_defended.rolling(window=confirmation_window, min_periods=1).sum() > 0
+    #   确认条件：近期被防守过，且当前价格仍在支撑线之上
+    is_confirmed = was_recently_defended & (df[close_col] > acting_lifeline)
+    # 4. 计分，并用“引力区”作为最终开关
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    gaia_score[is_defended] = defense_score
-    gaia_score[is_confirmed] = confirmation_score
+    # 只有在引力区内，才考虑给分
+    gaia_score.loc[is_in_influence_zone & is_defended] = defense_score
+    gaia_score.loc[is_in_influence_zone & is_confirmed] = confirmation_score # 确认信号覆盖防守信号
     return gaia_score.astype(np.float32)
 
 

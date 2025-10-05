@@ -261,9 +261,10 @@
         },
         "gaia_bedrock_params": {
           "enabled": true,
-          "description": "【盖亚基石协议】在MA55高高在上时，启用多层次深度支撑逻辑。",
+          "description": "【V2.0 · 赫菲斯托斯之砧协议版】引入引力区和与防守挂钩的确认逻辑。",
           "support_levels": [55, 89, 144, 233],
           "confirmation_window": 3,
+          "influence_zone_pct": 0.03,
           "defense_score": 0.6,
           "confirmation_score": 1.0
         }
