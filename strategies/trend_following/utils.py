@@ -219,12 +219,12 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V8.3 · 得墨忒耳收获协议版】(逻辑保持不变, 仅为展示完整性)
-    - 核心逻辑: 最终底部上下文分 = max(盖亚基石分, 受深度过滤器约束的常规底部组件分)。
-    - 协同作战: 此函数接收由“宙斯权杖协议”计算出的、更智能的gaia_bedrock_support_score。
+    【V8.4 · 字段净化版】计算全局的底部和顶部上下文分数
+    - 核心修正: 移除所有_qfq后缀，使用DAO层提供的标准字段名。核心逻辑不变。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
+    # 移除_qfq后缀，使用标准字段名
     close_col, high_col, low_col = 'close_D', 'high_D', 'low_D'
     if close_col not in df.columns:
         print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
@@ -233,6 +233,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
+    # 移除_qfq后缀
     ma55_lifeline = df.get('EMA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
     # --- 底部上下文分数计算 ---
@@ -265,6 +266,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         dynamic_support_score.values
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
+    # 移除_qfq后缀
     rsi_w_col = 'RSI_13_W'
     rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
@@ -288,12 +290,14 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
     bottom_context_score = np.maximum(conventional_bottom_score, gaia_bedrock_support_score).astype(np.float32)
-    # --- 顶部上下文分数计算 (逻辑不变) ---
+    # --- 顶部上下文分数计算 ---
+    # 移除_qfq后缀
     ma55 = df.get('EMA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df[close_col] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
     ma_periods = [5, 13, 21, 55]
+    # 移除_qfq后缀
     short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
     long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
     if all(col in df for col in short_ma_cols + long_ma_cols):
@@ -304,6 +308,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         misalignment_score = pd.Series(misalignment_score_values, index=df.index)
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
+    # 移除_qfq后缀
     bias_col = 'BIAS_21_D'
     bias_abs = df.get(bias_col, pd.Series(0, index=df.index)).abs()
     bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
@@ -625,8 +630,8 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V2.0 · 宙斯权杖协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 引入“代理总指挥”(Acting Lifeline)概念。对每一天，动态寻找低于收盘价的、最强的那条长期均线作为支撑基准。
+    【V2.1 · 字段净化版】“盖亚基石”支撑分计算引擎
+    - 核心修正: 移除所有_qfq后缀，使用DAO层提供的标准字段名。核心逻辑不变。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -634,28 +639,25 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
     confirmation_score = get_param_value(params.get('confirmation_score'), 1.0)
-    close_col, low_col = 'close', 'low'
+    # 移除_qfq后缀，使用标准字段名
+    close_col, low_col = 'close_D', 'low_D'
     # 1. 收集所有防线指挥官
+    # 移除_qfq后缀
     ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
     if not ma_cols:
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_df = df[ma_cols]
-    # 2. 任命“代理总指挥”：对每一天，找到低于收盘价的最高指挥官
-    #    首先，将所有高于收盘价的均线值设为NaN，表示它们不是支撑
+    # 2. 任命“代理总指挥”
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
-    #    然后，从剩下的有效支撑中，选出最大的那一个作为“代理总指挥”
     acting_lifeline = ma_df_below_price.max(axis=1)
     # 3. 基于“代理总指挥”进行战况评估
-    #    如果某天价格低于所有支撑线，acting_lifeline会是NaN，后续判断自动为False
     is_defended = (df[low_col] <= acting_lifeline) & (df[close_col] >= acting_lifeline)
-    #    注意：这里的确认逻辑也应该基于动态的acting_lifeline，但rolling无法直接作用于动态基准。
-    #    我们简化处理：只要连续N天收盘价都高于其各自的代理总指挥，就视为确认。
     is_above_acting_lifeline = df[close_col] > acting_lifeline
     is_confirmed = is_above_acting_lifeline.rolling(window=confirmation_window).sum() >= confirmation_window
     # 4. 计分
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     gaia_score[is_defended] = defense_score
-    gaia_score[is_confirmed] = confirmation_score # 确认信号覆盖防守信号
+    gaia_score[is_confirmed] = confirmation_score
     return gaia_score.astype(np.float32)
 
 
