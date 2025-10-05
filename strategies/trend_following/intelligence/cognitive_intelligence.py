@@ -37,46 +37,49 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V2.9 · 职责净化版】顶层认知总分合成模块
+        【V3.1 · 赫尔墨斯之杖协议版】顶层认知总分合成模块
+        - 核心革命: 签署“赫尔墨斯之杖协议”，引入独立的战术反转共振融合引擎。
+        - 新核心逻辑:
+          1. 新增 synthesize_tactical_reversal_resonance 方法，对所有领域的战术反转信号进行加权几何平均融合。
+          2. COGNITIVE_BULLISH_SCORE 现在消费经过融合的、高价值的 COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE 信号。
         """
-        # print("        -> [顶层认知总分合成模块 V2.9 · 职责净化版] 启动...")
-        # --- 步骤 0: 预处理 ---
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
         self.strategy.atomic_states.update(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-        # --- 步骤 1: 执行本模块的核心认知融合任务 ---
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
         df = self.synthesize_structural_fusion_scores(df)
         df = self.synthesize_ultimate_confirmation_scores(df)
         df = self.synthesize_ignition_resonance_score(df)
         df = self.synthesize_reversal_resonance_scores(df)
+        # [代码新增] 调用新的战术反转共振融合引擎
+        df = self.synthesize_tactical_reversal_resonance(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
-        # 在所有依赖项计算完毕后，调用“天使长”诊断引擎
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        # --- 步骤 2: 汇总所有“机会”与“风险”类认知分数 ---
+        
+        # [代码修改] 净化并重构 bullish_scores 的构成
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
+            # [代码修改] 移除所有零散的战术信号，替换为经过融合的终极战术共振信号
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
-        # print("        -> [顶层认知总分合成模块 V2.9] 认知升级完成。")
         return df
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -395,38 +398,42 @@ class CognitiveIntelligence:
 
     def synthesize_ultimate_confirmation_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
-        【V1.3 · 信号净化版】终极确认融合模块
-        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
+        【V2.0 · 波塞冬三叉戟协议版】终极确认融合模块
+        - 核心革命: 签署“波塞冬三叉戟协议”，为终极底部确认信号装上“雅典娜之盾”最终否决权。
         """
-        # print("        -> [终极确认融合模块 V1.3 信号净化版] 启动...")
         states = {}
         atomic = self.strategy.atomic_states
-        # 更新依赖信号名，移除_S后缀
         required_fusion_signals = [
             'COGNITIVE_FUSION_BULLISH_RESONANCE', 'COGNITIVE_FUSION_BEARISH_RESONANCE',
             'COGNITIVE_FUSION_BOTTOM_REVERSAL', 'COGNITIVE_FUSION_TOP_REVERSAL'
         ]
-        missing_fusion_signals = [s for s in required_fusion_signals if s not in atomic]
-        if missing_fusion_signals:
+        if any(s not in atomic for s in required_fusion_signals):
             return df
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 更新获取的信号名，移除_S后缀
         fusion_bullish = atomic.get('COGNITIVE_FUSION_BULLISH_RESONANCE', default_series)
         fusion_bearish = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE', default_series)
         fusion_bottom = atomic.get('COGNITIVE_FUSION_BOTTOM_REVERSAL', default_series)
         fusion_top = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL', default_series)
         
-        # 使用新的 get_unified_score 函数
         pattern_bullish = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BULLISH_RESONANCE')
         pattern_bearish = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BEARISH_RESONANCE')
         pattern_bottom = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_BOTTOM_REVERSAL')
         pattern_top = get_unified_score(self.strategy.atomic_states, df.index, 'PATTERN_TOP_REVERSAL')
         
-        # 移除所有输出信号名中的_S后缀
+        # [代码新增] 获取“雅典娜之盾”的裁决
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+
         states['COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION'] = (fusion_bullish * pattern_bullish).astype(np.float32)
         states['COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION'] = (fusion_bearish * pattern_bearish).astype(np.float32)
-        states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION'] = (fusion_bottom * pattern_bottom).astype(np.float32)
-        states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION'] = (fusion_top * pattern_top).astype(np.float32)
+        
+        # [代码修改] 应用“雅典娜之盾”的最终否决权
+        ultimate_bottom_raw = fusion_bottom * pattern_bottom
+        states['COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION'] = (ultimate_bottom_raw * bottom_context_score).astype(np.float32)
+        
+        # [代码修改] 应用“雅典娜之盾”的最终否决权 (顶部版本)
+        ultimate_top_raw = fusion_top * pattern_top
+        states['COGNITIVE_ULTIMATE_TOP_CONFIRMATION'] = (ultimate_top_raw * top_context_score).astype(np.float32)
+        
         self.strategy.atomic_states.update(states)
         return df
 
@@ -461,9 +468,9 @@ class CognitiveIntelligence:
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.8 · 信号净化版】多域反转共振分数合成模块
-        - 核心重构: 使用 get_unified_score 消费唯一的终极信号，并净化输出信号名。
-        - 优化说明: 融合算法从加法改为加权几何平均，并使用Numpy高效实现，更能体现“共振”特性。
+        【V3.0 · 波塞冬三叉戟协议版】多域反转共振分数合成模块
+        - 核心革命: 签署“波塞冬三叉戟协议”，为底部反转共振信号装上“雅典娜之盾”最终否决权。
+        - 新核心逻辑: 最终的底部反转共振分，必须乘以 bottom_context_score，确保只在宏观底部区域才有效。
         """
         states = {}
         default_score = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -471,8 +478,10 @@ class CognitiveIntelligence:
         bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         
+        # [代码新增] 获取“雅典娜之盾”的裁决
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+
         # --- 底部反转共振分数 ---
-        # 全面使用 get_unified_score 消费各领域净化后的底部反转信号
         bottom_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
@@ -480,25 +489,23 @@ class CognitiveIntelligence:
             'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
             'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
         }
-        
-        # 使用Numpy实现加权几何平均，替代原先的加法融合
         bottom_scores_np = [s.values for d, s in bottom_sources.items() if bottom_weights.get(d, 0) > 0]
         bottom_weights_np = [w for d, w in bottom_weights.items() if d in bottom_sources and w > 0]
         
         if bottom_scores_np:
             weights_array = np.array(bottom_weights_np)
-            weights_array /= weights_array.sum() # 权重归一化
+            weights_array /= weights_array.sum()
             stacked_scores = np.stack(bottom_scores_np, axis=0)
-            # 计算加权几何平均，要求多领域协同出现反转信号
-            bottom_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            bottom_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            # [代码修改] 应用“雅典娜之盾”的最终否决权
+            bottom_reversal_values = bottom_reversal_values_raw * bottom_context_score.values
             bottom_reversal_score = pd.Series(bottom_reversal_values, index=df.index, dtype=np.float32)
         else:
-            bottom_reversal_score = default_score.copy() # 修改(健壮性): 使用copy避免潜在的引用问题
+            bottom_reversal_score = default_score.copy()
 
         states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = bottom_reversal_score
 
         # --- 顶部反转共振分数 ---
-        # 全面使用 get_unified_score 消费各领域净化后的顶部反转信号
         top_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
@@ -506,20 +513,19 @@ class CognitiveIntelligence:
             'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
             'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
         }
-
-        # 同样使用Numpy实现顶部反转的加权几何平均
         top_scores_np = [s.values for d, s in top_sources.items() if top_weights.get(d, 0) > 0]
         top_weights_np = [w for d, w in top_weights.items() if d in top_sources and w > 0]
 
         if top_scores_np:
             weights_array = np.array(top_weights_np)
-            weights_array /= weights_array.sum() # 权重归一化
+            weights_array /= weights_array.sum()
             stacked_scores = np.stack(top_scores_np, axis=0)
-            # 计算加权几何平均
-            top_reversal_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            # [代码修改] 应用“雅典娜之盾”的最终否决权 (顶部版本)
+            top_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            top_reversal_values = top_reversal_values_raw * top_context_score.values
             top_reversal_score = pd.Series(top_reversal_values, index=df.index, dtype=np.float32)
         else:
-            top_reversal_score = default_score.copy() # 修改(健壮性): 使用copy
+            top_reversal_score = default_score.copy()
 
         states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = top_reversal_score
         
@@ -736,6 +742,47 @@ class CognitiveIntelligence:
         states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
         return states
 
+    def synthesize_tactical_reversal_resonance(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 · 新增 · 赫尔墨斯之杖】战术反转共振融合引擎
+        - 核心职责: 融合所有情报域的 TACTICAL_REVERSAL 信号，形成统一的、高价值的认知层战术共振信号。
+        - 融合算法: 加权几何平均，确保只有多领域共振时才能产生高分。
+        """
+        states = {}
+        default_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        p = get_params_block(self.strategy, 'reversal_resonance_params', {})
+        # 为战术反转共振定义独立的权重
+        tactical_weights = p.get('tactical_resonance_weights', {'mechanics': 0.2, 'chip': 0.2, 'foundation': 0.1, 'behavior': 0.2, 'structure': 0.2, 'ff': 0.1})
+        
+        # --- 战术反转共振分数 ---
+        tactical_sources = {
+            'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_TACTICAL_REVERSAL'),
+            'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TACTICAL_REVERSAL'),
+            'foundation': get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_TACTICAL_REVERSAL'),
+            'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TACTICAL_REVERSAL'),
+            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TACTICAL_REVERSAL'),
+            'ff': get_unified_score(self.strategy.atomic_states, df.index, 'FF_TACTICAL_REVERSAL')
+        }
+        
+        tactical_scores_np = [s.values for d, s in tactical_sources.items() if tactical_weights.get(d, 0) > 0]
+        tactical_weights_np = [w for d, w in tactical_weights.items() if d in tactical_sources and w > 0]
+        
+        if tactical_scores_np:
+            weights_array = np.array(tactical_weights_np)
+            weights_array /= weights_array.sum() # 权重归一化
+            stacked_scores = np.stack(tactical_scores_np, axis=0)
+            # 使用数值稳定的log-exp方法计算加权几何平均
+            safe_scores = np.maximum(stacked_scores, 1e-9)
+            weighted_log_sum = np.sum(np.log(safe_scores) * weights_array[:, np.newaxis], axis=0)
+            tactical_reversal_values = np.exp(weighted_log_sum)
+            tactical_reversal_score = pd.Series(tactical_reversal_values, index=df.index, dtype=np.float32)
+        else:
+            tactical_reversal_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        states['COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE'] = tactical_reversal_score
+        
+        self.strategy.atomic_states.update(states)
+        return df
 
 
 

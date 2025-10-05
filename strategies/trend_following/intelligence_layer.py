@@ -365,60 +365,6 @@ class IntelligenceLayer:
         print(f"    - [实际警报]: Level {alert_level} ({alert_reason})")
         print("--- 先知离场神谕探针解剖完毕 ---")
 
-    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
-        """
-        【V1.0 · 新增】“宙斯之雷”终极对质探针
-        - 核心职责: 作为最终审判者，将乐观的“最终决策”与悲观的“头号风险”并列，
-                      一针见血地揭示系统的“风险麻痹症”。
-        """
-        print("\n--- [探针] 正在召唤: ⚡️【宙斯之雷 · 终极对质探针】⚡️ ---")
-        
-        # 1. 调取最终判决
-        final_score = self.strategy.df_indicators.loc[probe_date].get('final_score', 0)
-        final_signal = self.strategy.df_indicators.loc[probe_date].get('signal_type', '未知')
-        
-        print(f"  [最终判决] 🧐: {final_signal} (最终得分: {final_score:.0f})")
-
-        # 2. 传唤所有风险证人
-        score_map = get_params_block(self.strategy, 'score_type_map', {})
-        active_risks = []
-        for signal_name, meta in score_map.items():
-            if isinstance(meta, dict) and meta.get('type') == 'risk':
-                if signal_name in self.strategy.atomic_states:
-                    risk_score = self.strategy.atomic_states[signal_name].get(probe_date, 0.0)
-                    if risk_score > 0:
-                        # 将原始风险分（0-1）转换为更易读的千分制
-                        display_score = risk_score * 1000
-                        active_risks.append({
-                            'name': meta.get('cn_name', signal_name),
-                            'score': display_score
-                        })
-        
-        if not active_risks:
-            print("  [风险审查] ✅: 当日无任何激活的风险信号。")
-            print("--- “宙斯之雷”审查完毕 ---")
-            return
-
-        # 3. 找出头号公敌
-        active_risks.sort(key=lambda x: x['score'], reverse=True)
-        dominant_risk = active_risks[0]
-        
-        print(f"  [风险审查] 😠: 当日共激活 {len(active_risks)} 项风险，其中：")
-        print(f"    - 🔥 头号公敌: 【{dominant_risk['name']}】 (风险值: {dominant_risk['score']:.0f})")
-        
-        # 4. 终极对质与宣判
-        print("\n  [终极对质] ⚖️:")
-        if final_signal == '买入信号' and dominant_risk['score'] > 300: # 风险值大于300即可认为显著
-            print(f"    - 宣判: 🤦 失败！系统在【{dominant_risk['name']}】风险值高达 {dominant_risk['score']:.0f} 的情况下，")
-            print("             依然给出了“买入信号”，这是典型的“风险麻痹症”。")
-            print("    - 病因分析: 进攻信号得分过高，而风险信号未能触发足够高的警报等级以否决买入。")
-        elif final_signal == '买入信号':
-            print("    - 宣判: 🤔 存疑。系统在存在风险的情况下给出了“买入信号”，但主风险项未达显著水平。")
-        else:
-            print("    - 宣判: ✅ 合理。系统最终决策与风险评估基本一致。")
-            
-        print("--- “宙斯之雷”审查完毕 ---")
-
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
         【V1.2 · 雅典娜智慧版】“赫淮斯托斯熔炉”探针
@@ -491,15 +437,19 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“宙斯之雷”终极法医探针
-        - 核心职责: 作为最终审判者，将最终得分的构成彻底解剖，展示所有进攻项和风险项的贡献。
+        【V2.0 · 阿波罗之光协议版】“宙斯之雷”终极法医探针
+        - 核心革命: 签署“阿波罗之光协议”，使探针的解剖逻辑与主引擎的“双轨反转系统”完全同步。
+        - 新核心能力:
+          1. [引入新神祇]: 探针现在能够独立重算所有关键上下文，如 bottom_context_score 和 trend_confirmation_context。
+          2. [重演审判]: 能够模拟 transmute_health_to_ultimate_signals 的完整逻辑，区分战略与战术信号。
+          3. [揭示抑制]: 当信号被抑制时，能清晰展示是哪个“神盾”或“抑制器”在起作用。
         """
-        print("\n--- [探针] 正在召唤: ⚡️【宙斯之雷 · 终极得分解剖探针】⚡️ ---")
+        print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
         
-        def get_val(name, date, default=np.nan):
+        def get_val(name, date, default=0.0): # 默认值改为0.0，更安全
             series = atomic.get(name)
             if series is None: return default
             return series.get(date, default)
@@ -512,20 +462,31 @@ class IntelligenceLayer:
         print(f"    - 【最终信号】: {final_signal}")
         print(f"    - 【最终得分】: {final_score:.0f}")
 
-        # 2. 加载信号字典，这是所有计分的蓝图
+        # 2. 加载信号字典和参数
         score_map = get_params_block(self.strategy, 'score_type_map', {})
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         
+        # [代码新增] 引入新神祇：在探针内部重算所有关键上下文
+        atomic['strategy_instance_ref'] = self.strategy
+        bottom_context, top_context = self.cognitive_intel.tactic_engine.calculate_context_scores(df, atomic)
+        trend_confirmation_context = self.cognitive_intel.tactic_engine._calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
+        del atomic['strategy_instance_ref']
+        
+        bottom_context_val = bottom_context.get(probe_date, 0.0)
+        top_context_val = top_context.get(probe_date, 0.0)
+        trend_confirmation_val = trend_confirmation_context.get(probe_date, 0.0)
+
         active_offense = []
         active_risks = []
 
-        # 3. 遍历所有可能的信号，计算其贡献
+        # 3. 遍历所有可能的信号，重演审判过程
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
 
-            signal_value = get_val(signal_name, probe_date, 0.0)
+            signal_value_raw = get_val(signal_name, probe_date, 0.0)
             
-            # 只处理当天有得分的信号
-            if abs(signal_value) < 1e-6:
+            # 只处理当天有潜在得分的信号
+            if abs(signal_value_raw) < 1e-6:
                 continue
 
             base_score = 0
@@ -539,16 +500,41 @@ class IntelligenceLayer:
             if abs(base_score) < 1e-6:
                 continue
 
-            # 处理双极性信号
-            # 对于bipolar信号，其原始值就在[-1, 1]区间，直接乘以基础分即可
-            # 对于unipolar信号，其原始值在[0, 1]区间，也直接乘以基础分
-            contribution = signal_value * base_score
+            signal_value_final = signal_value_raw
+            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
+
+            # [代码新增] 对战略和战术信号进行特殊解剖
+            if 'BOTTOM_REVERSAL' in signal_name:
+                # 重演战略反转的抑制过程
+                signal_value_final = signal_value_raw * bottom_context_val * (1 - trend_confirmation_val)
+                explanation = (f"原始值: {signal_value_raw:.4f} "
+                               f"x 底部上下文: {bottom_context_val:.2f} "
+                               f"x (1 - 趋势确认: {trend_confirmation_val:.2f}) "
+                               f"* 基础分: {base_score:.0f}")
+            elif 'TACTICAL_REVERSAL' in signal_name:
+                # 战术反转信号的逻辑在 transmute 内部已经完整，无需额外处理
+                # 这里可以添加对构成它的三要素的解剖
+                pass # 保持原样
+            elif 'TOP_REVERSAL' in signal_name and not is_risk:
+                 # 这是认知层的融合信号，也受上下文影响
+                 signal_value_final = signal_value_raw * top_context_val
+                 explanation = (f"原始值: {signal_value_raw:.4f} "
+                                f"x 顶部上下文: {top_context_val:.2f} "
+                                f"* 基础分: {base_score:.0f}")
+
+            contribution = signal_value_final * base_score
+            
+            # 只有最终贡献不为0的才展示
+            if abs(contribution) < 0.5: # 贡献小于0.5分则忽略
+                continue
 
             signal_info = {
                 'name': meta.get('cn_name', signal_name),
-                'raw_value': signal_value,
+                'raw_value': signal_value_raw,
+                'final_value': signal_value_final,
                 'base_score': base_score,
                 'contribution': contribution,
+                'explanation': explanation,
                 'category': meta.get('category', '未知类别')
             }
 
@@ -559,7 +545,7 @@ class IntelligenceLayer:
 
         # 4. 按贡献度排序并展示
         active_offense.sort(key=lambda x: x['contribution'], reverse=True)
-        active_risks.sort(key=lambda x: x['contribution'], reverse=False) # 风险按贡献的负值排序
+        active_risks.sort(key=lambda x: x['contribution'], reverse=False)
 
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
         total_offense = 0
@@ -567,7 +553,7 @@ class IntelligenceLayer:
             print("    - 当日无任何激活的进攻信号。")
         else:
             for item in active_offense:
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_value']:.4f} * 基础分: {item['base_score']:.0f})")
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
                 total_offense += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【进攻项总分】: {total_offense:.0f}")
@@ -578,7 +564,7 @@ class IntelligenceLayer:
             print("    - 当日无任何激活的风险信号。")
         else:
             for item in active_risks:
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_value']:.4f} * 基础分: {item['base_score']:.0f})")
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
                 total_risk += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【风险项总分】: {total_risk:.0f}")
