@@ -588,9 +588,9 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V7.0 · 记忆增强版】“盖亚基石”支撑分计算引擎
-    - 核心修复: 对 acting_lifeline 使用 .ffill()，为滚动计算提供一个无NaN的、稳定的参照物，
-                    彻底解决因NaN值导致确认逻辑持续误判的问题。
+    【V8.0 · 赫菲斯托斯熔炉协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“赫菲斯托斯熔炉协议”，净化确认逻辑的输入源。
+                  现在只有在“引力区”内的站稳，才会被计入滚动确认天数。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -607,7 +607,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_df = df[ma_cols]
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
-    # [代码修改] 使用ffill()为“代理总指挥”注入记忆，消除NaN毒素
     acting_lifeline = ma_df_below_price.max(axis=1).ffill()
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     valid_indices = acting_lifeline.dropna().index
@@ -615,6 +614,12 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
         return gaia_score
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
+    # [代码修改] 净化输入源：创建一个只包含引力区内信息的布尔序列
+    is_in_influence_zone_full = pd.Series(False, index=df.index)
+    is_in_influence_zone_full.loc[valid_indices] = is_in_influence_zone
+    # [代码修改] 确认的基础条件现在必须同时满足“高于生命线”和“在引力区内”
+    is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone_full
+    is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window).sum() >= confirmation_window
     active_zone_indices = is_in_influence_zone[is_in_influence_zone].index
     if active_zone_indices.empty:
         return gaia_score
@@ -622,8 +627,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     full_is_defended = pd.Series(False, index=df.index)
     full_is_defended.loc[active_zone_indices] = is_defended
     was_recently_defended = full_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
-    # [代码修改] 确认的基础条件现在基于一个无NaN的acting_lifeline，计算将是可靠的
-    is_confirmed_base = (df[close_col] > acting_lifeline).rolling(window=confirmation_window).sum() >= confirmation_window
     is_confirmed_base_active = is_confirmed_base.loc[active_zone_indices]
     is_standard_confirmed = is_confirmed_base_active & ~was_recently_defended[active_zone_indices]
     is_aegis_confirmed = is_confirmed_base_active & was_recently_defended[active_zone_indices]

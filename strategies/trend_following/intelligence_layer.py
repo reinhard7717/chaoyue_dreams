@@ -546,16 +546,16 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.2 · 阿波罗之眼协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 签署“阿波罗之眼”协议，在报告开头新增“结构性支撑审查”模块，
-                      清晰展示从5到233周期的所有关键均线数值。
+        【V1.3 · 赫菲斯托斯熔炉协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 探针现在完整重演 calculate_context_scores 的融合逻辑，
+                      包括对三大底部组件(常规、盖亚、历史低点)的 np.maximum 操作，
+                      彻底消除探针与实际计算的逻辑盲点。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         strategy_instance_ref = self.strategy
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
-        # [代码新增] “阿波罗之眼”模块：提供关键均线系统的全景快照
         print("\n  --- [结构性支撑审查] 关键均线系统快照 ---")
         ma_periods_to_probe = [5, 55, 144, 233]
         close_price = df.get('close_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
@@ -571,37 +571,50 @@ class IntelligenceLayer:
             else:
                 print(f"    - {col_name:<12}: {ma_value}")
         print("\n  --- [天平左侧] 底部上下文解剖 ---")
-        # 模拟 calculate_context_scores 的完整过程并打印每一步
+        # [代码修改] 完整重演 calculate_context_scores 的逻辑
+        # 1. 计算“常规底部”分
+        depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
         ma55_lifeline = df.get('EMA_55_D', df['close_D'])
+        is_deep_bearish_zone = (df['close_D'] < ma55_lifeline * (1 - depth_threshold)).astype(float)
+        ma55_slope = ma55_lifeline.diff(3).fillna(0)
+        slope_moderator = (0.5 + 0.5 * np.tanh(ma55_slope * 100)).fillna(0.5)
         distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
-        lifeline_support_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
+        lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
+        lifeline_support_score = lifeline_support_score_raw * slope_moderator
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
         absolute_value_zone_score = 1.0 - price_pos_yearly
-        # 在探针中独立重算盖亚基石支撑分
-        gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
-        # 注意：这里我们使用上一个指令中未修改的_calculate_gaia_bedrock_support，以观察其原始行为
-        gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
-        atomic['strategy_instance_ref'] = self.strategy
-        # 注意：这里我们使用上一个指令中未修改的calculate_context_scores，以观察其原始行为
-        bottom_context, top_context = calculate_context_scores(df, atomic)
-        del atomic['strategy_instance_ref']
-        print(f"    - [组件1] 生命线支撑分 (与MA55距离): {lifeline_support_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [组件2] 绝对价值区位分 (年内位置): {absolute_value_zone_score.get(probe_date, 0.0):.4f}")
+        deep_bottom_context_score = np.maximum(lifeline_support_score, absolute_value_zone_score)
         rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
         cycle_phase = atomic.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
         cycle_trough_score = (1 - cycle_phase) / 2.0
-        print(f"    - [组件3] 周线RSI超卖分: {rsi_w_oversold_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [组件4] FFT周期波谷分: {cycle_trough_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [组件5 · 待验] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [最终裁决] 底部上下文总分: {bottom_context.get(probe_date, 0.0):.4f}")
+        context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
+        bottom_context_score_raw = (deep_bottom_context_score**context_weights['price_pos'] * rsi_w_oversold_score**context_weights['rsi_w'] * cycle_trough_score**context_weights['cycle'])
+        conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
+        print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
+        # 2. 计算“盖亚基石”分
+        gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
+        gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
+        print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
+        # 3. 计算“历史低点”分
+        p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {})
+        historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
+        print(f"    - [组件3] 历史低点支撑分: {historical_low_support_score.get(probe_date, 0.0):.4f}")
+        # 4. 模拟最终融合
+        structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score)
+        final_bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score)
+        print(f"    - [融合步骤1] 结构支撑分 (盖亚 vs 历史低点): {structural_support_score.get(probe_date, 0.0):.4f}")
+        print(f"    - [最终裁决] 底部上下文总分 (常规 vs 结构): {final_bottom_context_score.get(probe_date, 0.0):.4f}")
         print("\n  --- [天平右侧] 顶部上下文解剖 ---")
+        atomic['strategy_instance_ref'] = self.strategy
+        _, top_context = calculate_context_scores(df, atomic)
+        del atomic['strategy_instance_ref']
         ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
         stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
         ma_periods = [5, 13, 21, 55]
-        short_ma_cols = [f'EMA_{ma_periods[i]}_D' for i in range(len(ma_periods) - 1)]
-        long_ma_cols = [f'EMA_{ma_periods[i+1]}_D' for i in range(len(ma_periods) - 1)]
+        short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
+        long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
         if all(col in df for col in short_ma_cols + long_ma_cols):
             short_mas = df[short_ma_cols].values
             long_mas = df[long_ma_cols].values
