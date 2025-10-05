@@ -588,9 +588,10 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V11.0 · 克洛诺斯校准协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 彻底重构冷却期逻辑，修复“时间旅行”悖论。
-                  现在冷却期严格在确认事件发生的 *次日* 才开始计算，确保因果律正确。
+    【V12.0 · 赫尔墨斯信使协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“赫尔墨斯信使协议”，所有中间布尔序列均在完整索引上初始化，
+                  再进行定点更新，彻底根除“索引错位”的致命缺陷。
+    - 优化: 回归完全向量化计算，废除低效的迭代循环。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -613,43 +614,25 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     valid_indices = acting_lifeline.dropna().index
     if valid_indices.empty:
         return gaia_score
+    # [代码修改] 所有布尔序列均在完整索引上初始化
+    is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
-    is_in_influence_zone = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    is_in_influence_zone_full = pd.Series(False, index=df.index)
-    is_in_influence_zone_full.loc[valid_indices] = is_in_influence_zone
+    is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
     is_standing_firm = (df[close_col] > acting_lifeline).astype(float)
     is_standing_firm_in_zone = is_standing_firm.copy()
-    is_standing_firm_in_zone.loc[~is_in_influence_zone_full] = np.nan
+    is_standing_firm_in_zone.loc[~is_in_influence_zone] = np.nan
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-    active_zone_indices = is_in_influence_zone[is_in_influence_zone].index
-    if active_zone_indices.empty:
-        return gaia_score
-    is_defended = (df.loc[active_zone_indices, low_col] <= acting_lifeline[active_zone_indices]) & (df.loc[active_zone_indices, close_col] >= acting_lifeline[active_zone_indices])
-    full_is_defended = pd.Series(False, index=df.index)
-    full_is_defended.loc[active_zone_indices] = is_defended
-    was_recently_defended = full_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
-    # [代码修改] 重构冷却期逻辑
-    # 1. 初始化最终的确认信号序列
-    is_standard_confirmed = pd.Series(False, index=df.index)
-    is_aegis_confirmed = pd.Series(False, index=df.index)
-    # 2. 遍历所有可能触发的日期，逐日判断
-    for idx in active_zone_indices:
-        # 检查当天是否满足基础确认条件
-        if not is_confirmed_base.get(idx, False):
-            continue
-        # 检查当天是否处于冷却期 (回看过去N天是否已经有过最终确认)
-        start_lookback = idx - pd.Timedelta(days=confirmation_cooldown_period)
-        # 关键修正：只检查在当前日期 *之前* 的确认事件
-        past_confirmations = is_standard_confirmed.loc[start_lookback:idx - pd.Timedelta(days=1)].sum() + \
-                             is_aegis_confirmed.loc[start_lookback:idx - pd.Timedelta(days=1)].sum()
-        if past_confirmations > 0:
-            continue # 如果处于冷却期，则跳过
-        # 如果不处于冷却期，则根据防守历史决定触发哪种确认
-        if was_recently_defended.get(idx, False):
-            is_aegis_confirmed.loc[idx] = True
-        else:
-            is_standard_confirmed.loc[idx] = True
-    # 3. 批量应用分数
+    is_defended = pd.Series(False, index=df.index)
+    is_defended.loc[is_in_influence_zone] = (df.loc[is_in_influence_zone, low_col] <= acting_lifeline[is_in_influence_zone]) & (df.loc[is_in_influence_zone, close_col] >= acting_lifeline[is_in_influence_zone])
+    was_recently_defended = is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
+    # [代码修改] 回归向量化计算冷却期
+    could_be_standard_confirmed = is_confirmed_base & ~was_recently_defended
+    could_be_aegis_confirmed = is_confirmed_base & was_recently_defended
+    is_any_confirmation_today = could_be_standard_confirmed | could_be_aegis_confirmed
+    was_recently_confirmed = is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
+    is_standard_confirmed = could_be_standard_confirmed & ~was_recently_confirmed
+    is_aegis_confirmed = could_be_aegis_confirmed & ~was_recently_confirmed
+    # [代码修改] 现在所有布尔序列索引都已对齐，可以安全赋值
     gaia_score.loc[is_defended] = np.maximum(gaia_score.loc[is_defended], defense_score)
     gaia_score.loc[is_standard_confirmed] = confirmation_score
     gaia_score.loc[is_aegis_confirmed] = aegis_confirmation_score
