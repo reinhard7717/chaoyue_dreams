@@ -588,16 +588,15 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V10.0 · 阿波罗七弦琴协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 引入“确认冷却期”，一旦任何确认信号触发，将在N天内静默，
-                  确保“确认”是一次性神谕事件，强制系统将逻辑切换到“上升共振”状态。
+    【V11.0 · 克洛诺斯校准协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 彻底重构冷却期逻辑，修复“时间旅行”悖论。
+                  现在冷却期严格在确认事件发生的 *次日* 才开始计算，确保因果律正确。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
-    # [代码新增] 引入新的冷却期参数
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
@@ -629,22 +628,31 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     full_is_defended = pd.Series(False, index=df.index)
     full_is_defended.loc[active_zone_indices] = is_defended
     was_recently_defended = full_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
-    is_confirmed_base_active = is_confirmed_base.loc[active_zone_indices]
-    # [代码新增] 建立冷却期逻辑
-    # 1. 先计算今天是否可能触发确认（无视冷却）
-    could_be_standard_confirmed = is_confirmed_base_active & ~was_recently_defended[active_zone_indices]
-    could_be_aegis_confirmed = is_confirmed_base_active & was_recently_defended[active_zone_indices]
-    is_any_confirmation_today = pd.Series(False, index=df.index)
-    is_any_confirmation_today.loc[active_zone_indices] = could_be_standard_confirmed | could_be_aegis_confirmed
-    # 2. 检查过去是否已经进入冷却期
-    was_recently_confirmed = is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
-    # 3. 最终的确认信号必须在非冷却期才能触发
-    is_standard_confirmed = could_be_standard_confirmed & ~was_recently_confirmed[active_zone_indices]
-    is_aegis_confirmed = could_be_aegis_confirmed & ~was_recently_confirmed[active_zone_indices]
-    # 应用分数
-    gaia_score.loc[active_zone_indices[is_defended]] = defense_score
-    gaia_score.loc[active_zone_indices[is_standard_confirmed]] = confirmation_score
-    gaia_score.loc[active_zone_indices[is_aegis_confirmed]] = aegis_confirmation_score
+    # [代码修改] 重构冷却期逻辑
+    # 1. 初始化最终的确认信号序列
+    is_standard_confirmed = pd.Series(False, index=df.index)
+    is_aegis_confirmed = pd.Series(False, index=df.index)
+    # 2. 遍历所有可能触发的日期，逐日判断
+    for idx in active_zone_indices:
+        # 检查当天是否满足基础确认条件
+        if not is_confirmed_base.get(idx, False):
+            continue
+        # 检查当天是否处于冷却期 (回看过去N天是否已经有过最终确认)
+        start_lookback = idx - pd.Timedelta(days=confirmation_cooldown_period)
+        # 关键修正：只检查在当前日期 *之前* 的确认事件
+        past_confirmations = is_standard_confirmed.loc[start_lookback:idx - pd.Timedelta(days=1)].sum() + \
+                             is_aegis_confirmed.loc[start_lookback:idx - pd.Timedelta(days=1)].sum()
+        if past_confirmations > 0:
+            continue # 如果处于冷却期，则跳过
+        # 如果不处于冷却期，则根据防守历史决定触发哪种确认
+        if was_recently_defended.get(idx, False):
+            is_aegis_confirmed.loc[idx] = True
+        else:
+            is_standard_confirmed.loc[idx] = True
+    # 3. 批量应用分数
+    gaia_score.loc[is_defended] = np.maximum(gaia_score.loc[is_defended], defense_score)
+    gaia_score.loc[is_standard_confirmed] = confirmation_score
+    gaia_score.loc[is_aegis_confirmed] = aegis_confirmation_score
     return gaia_score.astype(np.float32)
 
 def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:

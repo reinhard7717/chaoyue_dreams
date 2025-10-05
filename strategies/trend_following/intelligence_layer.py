@@ -546,8 +546,8 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.5 · 阿波罗七弦琴协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 探针现在能够解剖“确认冷却期”逻辑，展示所有相关的中间变量。
+        【V1.6 · 克洛诺斯校准协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 探针逻辑与主引擎的迭代式冷却期判断保持一致。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -594,6 +594,7 @@ class IntelligenceLayer:
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
+        # [代码修改] 探针逻辑与新的迭代逻辑保持一致
         support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233])
         confirmation_window = get_param_value(gaia_params.get('confirmation_window'), 3)
         aegis_lookback_window = get_param_value(gaia_params.get('aegis_lookback_window'), 5)
@@ -617,21 +618,26 @@ class IntelligenceLayer:
         if not g_active_zone_indices.empty:
             g_is_defended.loc[g_active_zone_indices] = (df.loc[g_active_zone_indices, 'low_D'] <= g_acting_lifeline[g_active_zone_indices]) & (df.loc[g_active_zone_indices, 'close_D'] >= g_acting_lifeline[g_active_zone_indices])
         g_was_recently_defended = g_is_defended.rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
-        g_is_confirmed_base_active = g_is_confirmed_base.loc[g_active_zone_indices] if not g_active_zone_indices.empty else pd.Series(False, index=g_active_zone_indices)
-        g_could_be_standard = g_is_confirmed_base_active & ~g_was_recently_defended[g_active_zone_indices]
-        g_could_be_aegis = g_is_confirmed_base_active & g_was_recently_defended[g_active_zone_indices]
-        g_is_any_confirmation_today = pd.Series(False, index=df.index)
-        if not g_active_zone_indices.empty:
-            g_is_any_confirmation_today.loc[g_active_zone_indices] = g_could_be_standard | g_could_be_aegis
-        g_was_recently_confirmed = g_is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
+        # 模拟迭代逻辑来判断冷却期
+        is_std_confirmed_series = pd.Series(False, index=df.index)
+        is_aegis_confirmed_series = pd.Series(False, index=df.index)
+        for idx in df.index:
+            if idx > probe_date: break
+            if not g_is_confirmed_base.get(idx, False): continue
+            start_lookback = idx - pd.Timedelta(days=confirmation_cooldown_period)
+            past_confirmations = is_std_confirmed_series.loc[start_lookback:idx - pd.Timedelta(days=1)].sum() + \
+                                 is_aegis_confirmed_series.loc[start_lookback:idx - pd.Timedelta(days=1)].sum()
+            if past_confirmations > 0: continue
+            if g_was_recently_defended.get(idx, False):
+                is_aegis_confirmed_series.loc[idx] = True
+            else:
+                is_std_confirmed_series.loc[idx] = True
+        is_in_cooldown_on_probe_date = (is_std_confirmed_series.shift(1).rolling(confirmation_cooldown_period).sum() + is_aegis_confirmed_series.shift(1).rolling(confirmation_cooldown_period).sum()).get(probe_date, 0) > 0
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
-        print(f"        - influence_zone (引力区): [{g_acting_lifeline.get(probe_date, np.nan):.4f}, {g_upper_bound.get(probe_date, np.nan):.4f}]")
-        print(f"        - is_in_influence_zone (是否在引力区): {g_is_in_influence_zone_full.get(probe_date, False)}")
-        print(f"        - is_standing_firm_in_zone (有效站稳计数): {g_is_standing_firm_in_zone.get(probe_date, np.nan)}")
         print(f"        - is_confirmed_base (是否确认站稳): {g_is_confirmed_base.get(probe_date, False)}")
         print(f"        - is_defended (是否防守): {g_is_defended.get(probe_date, False)}")
         print(f"        - was_recently_defended (近期是否防守过): {g_was_recently_defended.get(probe_date, False)}")
-        print(f"        - was_recently_confirmed (是否处于冷却期): {g_was_recently_confirmed.get(probe_date, False)}")
+        print(f"        - is_in_cooldown (是否处于冷却期): {is_in_cooldown_on_probe_date}")
         print("      --------------------------")
         p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {})
         historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
