@@ -388,11 +388,11 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V4.0 · 阿瑞斯之矛协议版】终极信号中央合成引擎
-    - 核心革命: 签署“阿瑞斯之矛协议”，修正“反转”信号的计算哲学。
+    【V5.0 · 赫尔墨斯之靴协议版】终极信号中央合成引擎
+    - 核心革命: 签署“赫尔墨斯之靴协议”，建立“战略反转”与“战术反转”的双轨制。
     - 新核心逻辑:
-      - 【底部反转】强度不再与 d_intensity 挂钩，而是正比于 s_bull，反比于 s_bear。
-      - 【顶部反转】强度不再与 d_intensity 挂钩，而是正比于 s_bear，反比于 s_bull。
+      1. 【战略反转】: 维持“雅典娜之盾”逻辑，并增加 (1-趋势确认) 因子，确保其只在趋势混沌或下跌时活跃。
+      2. 【战术反转】: 新增独立的计算路径，融合“宏观趋势许可”、“动态反转加速度”和“微观动能”，用于捕捉上升趋势中的回调买点。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -410,8 +410,7 @@ def transmute_health_to_ultimate_signals(
     
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
     default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-
-    # --- 上下文计算 (保持不变) ---
+    # --- 2. 上下文计算 ---
     new_high_params = get_param_value(params.get('new_high_context_params'), {})
     new_high_context_score = _calculate_new_high_context(df, new_high_params)
     atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score
@@ -420,6 +419,8 @@ def transmute_health_to_ultimate_signals(
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
     trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
+    
+    # [代码新增] 为“赫尔墨斯之靴”计算专属上下文
     tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
     macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
     macro_trend_permit_context = trend_confirmation_context.rolling(window=macro_window, min_periods=1).mean()
@@ -427,11 +428,8 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
-
-    # --- 信号计算 ---
-    
+    # --- 3. 信号计算 ---
     # 战略底部反转 (Strategic Bottom Reversal)
-    # 阿瑞斯之矛协议：反转强度由 s_bull 和 s_bear 的消长关系决定，而非 d_intensity
     bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) for p in periods}
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
@@ -439,19 +437,18 @@ def transmute_health_to_ultimate_signals(
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     
+    # [代码修改] 战略反转只在趋势未确认时最强，与战术反转形成互补
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
-
-    # 战术回调反转 (Tactical Pullback Reversal)
+    # [代码新增] 战术回调反转 (Tactical Pullback Reversal)
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
-
-    # 看涨共振 (Bullish Resonance) - 逻辑保持不变，依然由 d_intensity 驱动
+    # 看涨共振 (Bullish Resonance)
     bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
     
-    # 看跌共振 (Bearish Resonance) - 逻辑保持不变
+    # 看跌共振 (Bearish Resonance)
     bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['d_intensity'].get(p, default_series)) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
@@ -459,7 +456,6 @@ def transmute_health_to_ultimate_signals(
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
     
     # 顶部反转 (Top Reversal)
-    # 阿瑞斯之矛协议：反转强度由 s_bear 和 s_bull 的消长关系决定
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
     bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
@@ -467,16 +463,17 @@ def transmute_health_to_ultimate_signals(
     overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
     final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
     
-    # --- 6. 组装并返回最终信号字典 ---
+    # --- 4. 组装并返回最终信号字典 ---
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
-        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
+        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent), # [代码新增]
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
         f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
     for signal_name, score in final_signal_map.items():
         states[signal_name] = score.astype(np.float32)
+        
     return states
 
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
@@ -579,22 +576,19 @@ def calculate_tactical_reversal_score(
     norm_window: int
 ) -> pd.Series:
     """
-    【V1.3 · 赫尔墨斯之翼注释升级版】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
+    【V1.0 · 新增】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
     - 战略意义: 捕捉上升趋势中的健康回调买点。它模拟了飞行员的操作：先获得飞行许可，再等待有利气流，最后点燃引擎。
     - 核心公式: 战术反转分 = 飞行许可 * 有利气流 * 引擎推力
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-
     momentum_weight = get_param_value(params.get('momentum_weight'), 0.5)
     relational_power_weight = get_param_value(params.get('relational_power_weight'), 0.5)
     
     # 准入证: 飞行许可 (Permit to Fly) - 宏观趋势是否允许进行看涨操作？
     trend_permission_score = atomic_states.get('CONTEXT_MACRO_TREND_PERMIT', pd.Series(0.0, index=df.index))
-
     # 核心驱动: 有利气流 (Favorable Wind) - 短期结构是否已形成反转加速度？
     dynamic_reversal_context_score = atomic_states.get('CONTEXT_DYNAMIC_REVERSAL', pd.Series(0.0, index=df.index))
-
     # 最终推力: 引擎推力 (Engine Thrust) - 此刻是否有多周期动能和关系力量的共振？
     relational_power = atomic_states.get('SCORE_ATOMIC_RELATIONAL_DYNAMICS', pd.Series(0.5, index=df.index))
     short_term_momentum = overall_health.get('d_intensity', {}).get(1, pd.Series(0.5, index=df.index))
@@ -602,7 +596,6 @@ def calculate_tactical_reversal_score(
         relational_power * relational_power_weight +
         short_term_momentum * momentum_weight
     )
-
     # 最终融合
     tactical_reversal_score = (
         trend_permission_score *
@@ -614,14 +607,13 @@ def calculate_tactical_reversal_score(
 
 def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
-    【V1.1 · 赫尔墨斯之翼注释升级版】动态反转上下文计算器 (二阶求导引擎)
+    【V1.0 · 新增】动态反转上下文计算器 (二阶求导引擎)
     - 战略意义: 捕捉趋势的“拐点”，即变化率的变化率达到最大的时刻。这使得系统能在反转的最早期、
                 最具爆发力的时刻介入，而非等待趋势形成后再追赶。
     - 核心逻辑: 通过对“均线距离”和“均线斜率”进行二阶求导，量化反转的“加速度”。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-
     short_ma_period = get_param_value(params.get('short_ma_period'), 5)
     mid_ma_period = get_param_value(params.get('mid_ma_period'), 21)
     slope_period = get_param_value(params.get('slope_period'), 3)
@@ -630,22 +622,18 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
     short_ma_col = f'EMA_{short_ma_period}_D'
     mid_ma_col = f'EMA_{mid_ma_period}_D'
     short_ma_slope_col = f'SLOPE_{slope_period}_EMA_{short_ma_period}_D'
-
     if not all(c in df.columns for c in [short_ma_col, mid_ma_col, short_ma_slope_col]):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-
     # 维度一: 均线距离的收敛加速度 (Convergence Acceleration)
     # 衡量短期均线从下方“追赶”中期均线的加速度。
     ma_distance = df[short_ma_col] - df[mid_ma_col]
     ma_distance_slope = ma_distance.diff(slope_period).fillna(0)
     distance_accel_score = normalize_score(ma_distance_slope, df.index, window=norm_window, ascending=True)
-
     # 维度二: 短期均线斜率的扭转加速度 (Slope Turn Acceleration)
     # 衡量短期均线自身从“向下”扭转为“向上”的加速度。
     short_ma_slope = df[short_ma_slope_col]
     short_ma_slope_accel = short_ma_slope.diff(slope_period).fillna(0)
     slope_accel_score = normalize_score(short_ma_slope_accel, df.index, window=norm_window, ascending=True)
-
     # 最终融合: 两个维度的加速度加权求和，形成最终的动态反转分数
     dynamic_reversal_score = (
         distance_accel_score * weights.get('distance_accel', 0.5) +
