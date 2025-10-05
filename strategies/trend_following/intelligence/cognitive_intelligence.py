@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
 from enum import Enum
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score, calculate_context_scores
 from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 
