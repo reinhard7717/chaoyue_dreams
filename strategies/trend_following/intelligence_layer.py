@@ -546,42 +546,42 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“忒弥斯天平”上下文解剖探针
-        - 核心职责: 作为“宙斯之雷”的子探针，彻底解剖并展示 bottom/top 上下文分数的每一个组成部分及其数值。
+        【V1.1 · 盖亚基石协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 新增对“盖亚基石支撑分”的独立计算和展示。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        # 模拟 calculate_context_scores 的完整过程并打印每一步
         strategy_instance_ref = self.strategy
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
         print("\n  --- [天平左侧] 底部上下文解剖 ---")
-        # 1. 深度底部上下文
+        # 模拟 calculate_context_scores 的完整过程并打印每一步
         ma55_lifeline = df.get('EMA_55_D', df['close_D'])
         distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
         lifeline_support_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
         absolute_value_zone_score = 1.0 - price_pos_yearly
-        # ... (dynamic_support_score 逻辑较为复杂，暂时只打印最终结果)
+        # [代码新增] 在探针中独立重算盖亚基石支撑分
+        gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
+        gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         atomic['strategy_instance_ref'] = self.strategy
         bottom_context, top_context = calculate_context_scores(df, atomic)
         del atomic['strategy_instance_ref']
         print(f"    - [组件1] 生命线支撑分 (与MA55距离): {lifeline_support_score.get(probe_date, 0.0):.4f}")
         print(f"    - [组件2] 绝对价值区位分 (年内位置): {absolute_value_zone_score.get(probe_date, 0.0):.4f}")
-        # 2. 宏观周期上下文
         rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
         cycle_phase = atomic.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
         cycle_trough_score = (1 - cycle_phase) / 2.0
         print(f"    - [组件3] 周线RSI超卖分: {rsi_w_oversold_score.get(probe_date, 0.0):.4f}")
         print(f"    - [组件4] FFT周期波谷分: {cycle_trough_score.get(probe_date, 0.0):.4f}")
+        # [代码新增] 展示盖亚基石支撑分
+        print(f"    - [组件5 · 新增] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print(f"    - [最终裁决] 底部上下文总分: {bottom_context.get(probe_date, 0.0):.4f}")
         print("\n  --- [天平右侧] 顶部上下文解剖 ---")
-        # 1. 价格拉伸分
         ma55 = df.get('EMA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
         stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        # 2. 均线混乱分
         ma_periods = [5, 13, 21, 55]
         short_ma_cols = [f'EMA_{ma_periods[i]}_D' for i in range(len(ma_periods) - 1)]
         long_ma_cols = [f'EMA_{ma_periods[i+1]}_D' for i in range(len(ma_periods) - 1)]
@@ -593,7 +593,6 @@ class IntelligenceLayer:
             misalignment_score = pd.Series(misalignment_score_values, index=df.index)
         else:
             misalignment_score = pd.Series(0.5, index=df.index)
-        # 3. 乖离过热分
         bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
         warning_threshold = get_param_value(bias_params.get('warning_threshold'), 0.15)
         danger_threshold = get_param_value(bias_params.get('danger_threshold'), 0.25)

@@ -12,13 +12,13 @@
         "description": "加载高级筹码指标，为筹码情报引擎提供基础数据。"
       },
       "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233] }] },
-      "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55] }] },
+      "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55, 89, 144, 233] }] },
       "boll_bands_and_width": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [21], "std_dev": 2.0 }] },
       "rsi": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [13] }] },
       "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }, { "apply_on": ["W"], "periods": [12, 26, 9] }] },
       "dmi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [14] }] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
-      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55] }, { "apply_on": ["W"], "periods": [20] }] },
+      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55, 89, 144, 233] }, { "apply_on": ["W"], "periods": [20] }] },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
       "roc": { "enabled": true, "configs": [ { "apply_on": ["D"], "periods": [12] } ] },
       "price_volume_ma_comparison": {
@@ -258,6 +258,14 @@
           "description": "【赫淮斯托斯卡尺】用于计算顶部风险的绝对乖离率阈值。",
           "warning_threshold": 0.15,
           "danger_threshold": 0.25
+        },
+        "gaia_bedrock_params": {
+          "enabled": true,
+          "description": "【盖亚基石协议】在MA55高高在上时，启用多层次深度支撑逻辑。",
+          "support_levels": [55, 89, 144, 233],
+          "confirmation_window": 3,
+          "defense_score": 0.6,
+          "confirmation_score": 1.0
         }
       },
       "panic_selling_setup_params": {
