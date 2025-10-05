@@ -19,7 +19,7 @@ from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
-from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score, calculate_trend_confirmation_context
+from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score, calculate_trend_confirmation_context, _calculate_gaia_bedrock_support
 
 class IntelligenceLayer:
     """
