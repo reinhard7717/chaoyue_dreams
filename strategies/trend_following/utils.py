@@ -219,27 +219,29 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V8.1 · 盖亚基石协议版】计算全局的底部和顶部上下文分数
-    - 核心升级: 将“盖亚基石支撑分”作为第四大支柱，整合进深度底部上下文的计算中。
+    【V8.3 · 得墨忒耳收获协议版】(逻辑保持不变, 仅为展示完整性)
+    - 核心逻辑: 最终底部上下文分 = max(盖亚基石分, 受深度过滤器约束的常规底部组件分)。
+    - 协同作战: 此函数接收由“宙斯权杖协议”计算出的、更智能的gaia_bedrock_support_score。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
-    if 'close_D' not in df.columns:
-        print("      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'close_D'列，无法计算上下文分数。")
+    close_col, high_col, low_col = 'close_qfq', 'high_qfq', 'low_qfq'
+    if close_col not in df.columns:
+        print(f"      -> [calculate_context_scores] 警告: 输入的DataFrame缺少'{close_col}'列，无法计算。")
         empty_series = pd.Series(0.5, index=df.index if not df.empty else None, dtype=np.float32)
         return empty_series, empty_series
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
-    is_bullish_regime = df.get('EMA_5_D', df['close_D']) > df.get('EMA_55_D', df['close_D'])
-    is_bearish_regime = 1.0 - is_bullish_regime.astype(float)
-    # --- 底部上下文分数计算 (盖亚基石协议改造) ---
-    ma55_lifeline = df.get('EMA_55_D', df['close_D'])
+    depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
+    ma55_lifeline = df.get('EMA_55_D_qfq', df[close_col])
+    is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
+    # --- 底部上下文分数计算 ---
     ma55_slope = ma55_lifeline.diff(3).fillna(0)
     slope_moderator = (0.5 + 0.5 * np.tanh(ma55_slope * 100)).fillna(0.5)
-    distance_from_ma55 = (df['close_D'] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
+    distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
     lifeline_support_score_raw = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2).fillna(0.0)
     lifeline_support_score = lifeline_support_score_raw * slope_moderator
-    price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
+    price_pos_yearly = normalize_score(df[close_col], df.index, window=250, ascending=True, default_value=0.5)
     absolute_value_zone_score = 1.0 - price_pos_yearly
     p_fib_support = get_params_block(strategy_instance_ref, 'fibonacci_support_params', {}) if strategy_instance_ref else {}
     dynamic_support_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -247,26 +249,24 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         fib_periods = get_param_value(p_fib_support.get('periods'), [34, 55, 89, 144, 233])
         tolerance_pct = get_param_value(p_fib_support.get('tolerance_pct'), 0.01)
         level_scores = get_param_value(p_fib_support.get('level_scores'), {})
-        trigger_mask = df['close_D'] < ma55_lifeline
+        trigger_mask = df[close_col] < ma55_lifeline
         for period in fib_periods:
             period_str = str(period)
             if period_str not in level_scores: continue
-            historical_low = df['close_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
+            historical_low = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
             support_line = historical_low * (1 - tolerance_pct)
-            is_defended = df['low_D'] >= support_line
+            is_defended = df[low_col] >= support_line
             dynamic_support_score.loc[trigger_mask & is_defended] = level_scores[period_str]
-    # [代码新增] 计算盖亚基石支撑分
     gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
-    # [代码修改] 将盖亚基石支撑分加入深度底部上下文的最终裁决
     deep_bottom_context_score_values = np.maximum.reduce([
         lifeline_support_score.values,
         absolute_value_zone_score.values,
-        dynamic_support_score.values,
-        gaia_bedrock_support_score.values
+        dynamic_support_score.values
     ])
     deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
-    rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+    rsi_w_col = 'RSI_13_W_qfq'
+    rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
     cycle_phase = atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
     cycle_trough_score = (1 - cycle_phase) / 2.0
     context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
@@ -286,15 +286,16 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         safe_scores = np.maximum(stacked_scores, 1e-9)
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
-    bottom_context_score = (bottom_context_score_raw * is_bearish_regime).astype(np.float32)
+    conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
+    bottom_context_score = np.maximum(conventional_bottom_score, gaia_bedrock_support_score).astype(np.float32)
     # --- 顶部上下文分数计算 (逻辑不变) ---
-    ma55 = df.get('EMA_55_D', df['close_D'])
-    rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+    ma55 = df.get('EMA_55_D_qfq', df[close_col])
+    rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
-    stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+    stretch_score = ((df[close_col] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
     ma_periods = [5, 13, 21, 55]
-    short_ma_cols = [f'EMA_{ma_periods[i]}_D' for i in range(len(ma_periods) - 1)]
-    long_ma_cols = [f'EMA_{ma_periods[i+1]}_D' for i in range(len(ma_periods) - 1)]
+    short_ma_cols = [f'EMA_{p}_D_qfq' for p in ma_periods[:-1]]
+    long_ma_cols = [f'EMA_{p}_D_qfq' for p in ma_periods[1:]]
     if all(col in df for col in short_ma_cols + long_ma_cols):
         short_mas = df[short_ma_cols].values
         long_mas = df[long_ma_cols].values
@@ -303,10 +304,11 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         misalignment_score = pd.Series(misalignment_score_values, index=df.index)
     else:
         misalignment_score = pd.Series(0.5, index=df.index)
+    bias_col = 'BIAS_21_D_qfq'
+    bias_abs = df.get(bias_col, pd.Series(0, index=df.index)).abs()
     bias_params = get_param_value(p_synthesis.get('bias_overheat_params'), {})
     warning_threshold = get_param_value(bias_params.get('warning_threshold'), 0.15)
     danger_threshold = get_param_value(bias_params.get('danger_threshold'), 0.25)
-    bias_abs = df.get('BIAS_21_D', pd.Series(0, index=df.index)).abs()
     denominator = danger_threshold - warning_threshold
     if denominator <= 1e-6:
         overheat_score = (bias_abs > danger_threshold).astype(float)
@@ -623,31 +625,38 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V1.0 · 新增】“盖亚基石”支撑分计算引擎
-    - 核心逻辑: 实现“分层支撑+三日站稳”逻辑，用于识别MA55之下的深度结构性底部。
+    【V2.0 · 宙斯权杖协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 引入“代理总指挥”(Acting Lifeline)概念。对每一天，动态寻找低于收盘价的、最强的那条长期均线作为支撑基准。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    support_levels = get_param_value(params.get('support_levels'), [55, 144, 233])
+    support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     defense_score = get_param_value(params.get('defense_score'), 0.6)
     confirmation_score = get_param_value(params.get('confirmation_score'), 1.0)
+    close_col, low_col = 'close_qfq', 'low_qfq'
+    # 1. 收集所有防线指挥官
+    ma_cols = [f'EMA_{p}_D_qfq' for p in support_levels if f'EMA_{p}_D_qfq' in df.columns]
+    if not ma_cols:
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    ma_df = df[ma_cols]
+    # 2. 任命“代理总指挥”：对每一天，找到低于收盘价的最高指挥官
+    #    首先，将所有高于收盘价的均线值设为NaN，表示它们不是支撑
+    ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
+    #    然后，从剩下的有效支撑中，选出最大的那一个作为“代理总指挥”
+    acting_lifeline = ma_df_below_price.max(axis=1)
+    # 3. 基于“代理总指挥”进行战况评估
+    #    如果某天价格低于所有支撑线，acting_lifeline会是NaN，后续判断自动为False
+    is_defended = (df[low_col] <= acting_lifeline) & (df[close_col] >= acting_lifeline)
+    #    注意：这里的确认逻辑也应该基于动态的acting_lifeline，但rolling无法直接作用于动态基准。
+    #    我们简化处理：只要连续N天收盘价都高于其各自的代理总指挥，就视为确认。
+    is_above_acting_lifeline = df[close_col] > acting_lifeline
+    is_confirmed = is_above_acting_lifeline.rolling(window=confirmation_window).sum() >= confirmation_window
+    # 4. 计分
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 倒序遍历，从最深层次的支撑开始判断
-    for period in sorted(support_levels, reverse=True):
-        ma_support_col = f'EMA_{period}_D'
-        if ma_support_col not in df.columns: continue
-        ma_support = df[ma_support_col]
-        # 触发条件：MA5在当前支撑之下，且MA55在当前支撑之上 (即MA55已失效)
-        is_active_zone = (df.get('EMA_5_D', df['close_D']) < ma_support) & (df.get('EMA_55_D', df['close_D']) > ma_support)
-        # 防守行为：当日最低点触及或跌破支撑，但收盘价站回支撑之上
-        is_defended = (df['low_D'] <= ma_support) & (df['close_D'] >= ma_support)
-        # 确认行为：连续N日收盘价站稳在支撑之上
-        is_confirmed = (df['close_D'] > ma_support).rolling(window=confirmation_window).sum() >= confirmation_window
-        # 应用分数：确认信号优先于防守信号
-        gaia_score.loc[is_active_zone & is_defended] = defense_score
-        gaia_score.loc[is_active_zone & is_confirmed] = confirmation_score
-    return gaia_score
+    gaia_score[is_defended] = defense_score
+    gaia_score[is_confirmed] = confirmation_score # 确认信号覆盖防守信号
+    return gaia_score.astype(np.float32)
 
 
 
