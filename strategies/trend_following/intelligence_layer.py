@@ -19,7 +19,7 @@ from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, calculate_context_scores, normalize_score, calculate_trend_confirmation_context
 
 class IntelligenceLayer:
     """
@@ -468,8 +468,8 @@ class IntelligenceLayer:
         
         # [代码新增] 引入新神祇：在探针内部重算所有关键上下文
         atomic['strategy_instance_ref'] = self.strategy
-        bottom_context, top_context = self.cognitive_intel.tactic_engine.calculate_context_scores(df, atomic)
-        trend_confirmation_context = self.cognitive_intel.tactic_engine._calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
+        bottom_context, top_context = calculate_context_scores(df, atomic)
+        trend_confirmation_context = calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
         del atomic['strategy_instance_ref']
         
         bottom_context_val = bottom_context.get(probe_date, 0.0)

@@ -417,7 +417,7 @@ def transmute_health_to_ultimate_signals(
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
-    trend_confirmation_context = _calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
+    trend_confirmation_context = calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
     
     # [代码新增] 为“赫尔墨斯之靴”计算专属上下文
@@ -534,7 +534,7 @@ def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
     final_score_values = final_scores_np / total_weight
     return pd.Series(final_score_values, index=df.index).clip(0, 1).astype(np.float32)
 
-def _calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
+def calculate_trend_confirmation_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
     【V2.1 · 赫尔墨斯之翼优化版】趋势确认上下文计算器 (波塞冬三叉戟)
     - 战略意义: 三位一体地评估一个上升趋势的质量，避免在弱势、伪冒或过热的趋势中追高。
