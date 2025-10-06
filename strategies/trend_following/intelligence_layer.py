@@ -751,10 +751,12 @@ class IntelligenceLayer:
 
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
         """
-        【V2.5 · 先知增补协议版】“宙斯之雷”终极法医探针
-        - 核心升级: 签署“先知增补协议”，修复探针无法看到`playbook_states`信号的致命BUG。
-        - 核心逻辑: 修改内部的`get_val`辅助函数，使其能同时从`atomic_states`和`playbook_states`
-                      中获取信号，确保探针的视野与OffensiveLayer完全一致。
+        【V2.6 · 记忆烙印协议版】“宙斯之雷”终极法医探针
+        - 核心升级: 签署“记忆烙印协议”，修复探针因丢失内部信号名而导致的“失忆症”。
+        - 核心逻辑:
+          1. 在构建进攻/风险项列表时，同时存入内部信号名 `internal_name`。
+          2. `_get_dominant_offense_type_for_probe` 方法现在基于 `internal_name` 进行精准查找。
+        - 收益: 探针的奇美拉冲突豁免逻辑与 JudgmentLayer 完全同步，确保了验证结果的绝对可靠。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         self._deploy_themis_scales_probe(probe_date)
@@ -804,7 +806,8 @@ class IntelligenceLayer:
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
             contribution = processed_signal_value * base_score
             if abs(contribution) < 0.5: continue
-            active_offense.append({'name': meta.get('cn_name', signal_name), 'contribution': contribution, 'explanation': explanation})
+            # [代码修改] 为探针植入记忆烙印：同时存储 internal_name
+            active_offense.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
             total_offense += contribution
         active_offense.sort(key=lambda x: x['contribution'], reverse=True)
         if not active_offense:
@@ -830,7 +833,8 @@ class IntelligenceLayer:
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
             contribution = processed_signal_value * base_score
             if abs(contribution) < 0.5: continue
-            active_risks.append({'name': meta.get('cn_name', signal_name), 'contribution': contribution, 'explanation': explanation})
+            # [代码修改] 为探针植入记忆烙印：同时存储 internal_name
+            active_risks.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
             total_risk += contribution
         active_risks.sort(key=lambda x: x['contribution'], reverse=False)
         if not active_risks:
@@ -853,21 +857,22 @@ class IntelligenceLayer:
         print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
         print("\n--- “宙斯之雷”审查完毕 ---")
 
-    # [代码新增] 将此方法从文件顶层移入 IntelligenceLayer 类内部
     def _get_dominant_offense_type_for_probe(self, total_offense_score: float, active_offense: list) -> str:
         """
-        【V1.0 · 新增】为“宙斯之雷”探针专门提供的、用于模拟“最强进攻信号类型”判断的辅助方法。
+        【V1.1 · 记忆烙印协议版】为“宙斯之雷”探针专门提供的、用于模拟“最强进攻信号类型”判断的辅助方法。
+        - 核心升级: 不再依赖脆弱的中文名反查，而是直接使用 `internal_name` 进行精准查找。
         """
         if total_offense_score <= 0 or not active_offense:
             return 'unknown'
-        # active_offense 已经按贡献度降序排列
-        dominant_signal_name_cn = active_offense[0]['name']
-        # 从 score_map 中反向查找信号类型
+        # [代码修改] 直接获取主导信号的内部名称
+        dominant_signal_internal_name = active_offense[0].get('internal_name')
+        if not dominant_signal_internal_name:
+            return 'unknown'
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        for signal_name, meta in score_map.items():
-            if isinstance(meta, dict) and meta.get('cn_name') == dominant_signal_name_cn:
-                return meta.get('type', 'unknown')
-        return 'unknown'
+        # [代码修改] 使用内部名称进行精准、可靠的查找
+        meta = score_map.get(dominant_signal_internal_name, {})
+        return meta.get('type', 'unknown')
+
 
 
 
