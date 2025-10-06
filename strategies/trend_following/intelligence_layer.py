@@ -546,8 +546,9 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.15 · 阿瑞斯之矛协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 探针的防守解剖模块彻底改造，以完全匹配“阿瑞斯之矛”的权重累加计分法。
+        【V1.16 · 皮提亚统一协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 签署“皮提亚统一协议”，彻底重铸防守质量解剖模块，使其汇报内容
+                      与“阿瑞斯之矛”引擎的权重累加逻辑完全统一。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -556,29 +557,33 @@ class IntelligenceLayer:
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
         gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
         cooldown_reset_volume_ma_period = get_param_value(gaia_params.get('cooldown_reset_volume_ma_period'), 55)
-        # [代码新增] 增加阿瑞斯之矛协议所需的成交量均线列名
         ares_vol_ma_col = 'VOL_MA_5_D'
         cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
         print("\n  --- [结构性支撑审查] 关键均线系统快照 ---")
         ma_periods_to_probe = [5, 55, 144, 233, 377]
         close_price = df.get('close_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
-        open_price = df.get('open_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A') # 新增
+        open_price = df.get('open_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         low_price = df.get('low_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         high_price = df.get('high_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         volume = df.get('volume_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
-        ares_volume_ma = df.get(ares_vol_ma_col, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A') # 新增
+        ares_volume_ma = df.get(ares_vol_ma_col, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         cooldown_volume_ma = df.get(cooldown_vol_ma_col, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         if isinstance(close_price, (float, np.floating)):
             print(f"    - {'high_D':<12}: {high_price:.2f}  (当日最高价)")
-            print(f"    - {'open_D':<12}: {open_price:.2f}  (当日开盘价)") # 新增
+            print(f"    - {'open_D':<12}: {open_price:.2f}  (当日开盘价)")
             print(f"    - {'close_D':<12}: {close_price:.2f}  (当日收盘价)")
             print(f"    - {'low_D':<12}: {low_price:.2f}  (当日最低价)")
             print(f"    - {'volume_D':<12}: {volume:,.0f}  (当日成交量)")
-            print(f"    - {ares_vol_ma_col:<12}: {ares_volume_ma:,.0f}  (阿瑞斯之矛-成交量均线)") # 新增
+            print(f"    - {ares_vol_ma_col:<12}: {ares_volume_ma:,.0f}  (阿瑞斯之矛-成交量均线)")
             print(f"    - {cooldown_vol_ma_col:<12}: {cooldown_volume_ma:,.0f}  (冷却重置-成交量均线)")
         else:
-            # ... 省略N/A情况的打印 ...
-            pass
+            print(f"    - {'high_D':<12}: {high_price}")
+            print(f"    - {'open_D':<12}: {open_price}")
+            print(f"    - {'close_D':<12}: {close_price}")
+            print(f"    - {'low_D':<12}: {low_price}")
+            print(f"    - {'volume_D':<12}: {volume}")
+            print(f"    - {ares_vol_ma_col:<12}: {ares_volume_ma}")
+            print(f"    - {cooldown_vol_ma_col:<12}: {cooldown_volume_ma}")
         for period in ma_periods_to_probe:
             col_name = f'EMA_{period}_D'
             ma_value = df.get(col_name, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
@@ -587,7 +592,6 @@ class IntelligenceLayer:
             else:
                 print(f"    - {col_name:<12}: {ma_value}")
         print("\n  --- [天平左侧] 底部上下文解剖 ---")
-        # ... 此处到盖亚显微镜之间的代码无变化，省略 ...
         depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
         ma55_lifeline = df.get('EMA_55_D', df['close_D'])
         is_deep_bearish_zone = (df['close_D'] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -628,7 +632,6 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        # [代码修改] 探针同步阿瑞斯之矛的计分逻辑
         g_defense_quality_score = pd.Series(0.0, index=df.index)
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
         g_defense_quality_score.loc[g_base_defense_condition] = defense_base_score
@@ -658,7 +661,7 @@ class IntelligenceLayer:
                 g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
         print(f"        - is_in_cooldown (是否处于冷却期): {g_is_in_cooldown_on_probe_date}")
-        # [代码修改] 彻底改造防守质量解剖模块
+        # [代码修改] 彻底重铸防守质量解剖模块的汇报逻辑
         print("        --- [防守质量解剖 (阿瑞斯之矛)] ---")
         base_cond_val = g_base_defense_condition.get(probe_date, False)
         yang_line_val = g_is_yang_line.get(probe_date, False)
@@ -671,16 +674,17 @@ class IntelligenceLayer:
             if dominance_val: score += defense_dominance_weight
             if volume_val: score += defense_volume_weight
         score = min(score, 1.0)
-        print(f"          - 基础条件 (触线+下影): {base_cond_val} -> 基础分 {defense_base_score if base_cond_val else 0.0}")
-        print(f"          - 权重1 (主权宣告-收阳): {yang_line_val} -> 加分 {defense_yang_line_weight if yang_line_val and base_cond_val else 0.0}")
-        print(f"          - 权重2 (韧性胜利-下影优势): {dominance_val} -> 加分 {defense_dominance_weight if dominance_val and base_cond_val else 0.0}")
-        print(f"          - 权重3 (主力参战-放量): {volume_val} -> 加分 {defense_volume_weight if volume_val and base_cond_val else 0.0}")
+        print(f"          - 基础条件 (触线+下影): {base_cond_val} -> 基础分 {defense_base_score if base_cond_val else 0.0:.2f}")
+        print(f"          - 权重1 (主权宣告-收阳): {yang_line_val} -> 加分 {defense_yang_line_weight if yang_line_val and base_cond_val else 0.0:.2f}")
+        print(f"          - 权重2 (韧性胜利-下影优势): {dominance_val} -> 加分 {defense_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
+        print(f"          - 权重3 (主力参战-放量): {volume_val} -> 加分 {defense_volume_weight if volume_val and base_cond_val else 0.0:.2f}")
         print(f"          - 当日最终防守质量分: {score:.4f}")
         print("        --- [确认质量评估 (所罗门审判)] ---")
         recent_quality_val = g_max_recent_defense_quality.get(probe_date, 0.0)
         is_confirmed_val = g_is_confirmed_base.get(probe_date, False)
         is_aegis_candidate = is_confirmed_val and not g_is_in_cooldown_on_probe_date and recent_quality_val > 0
         is_standard_candidate = is_confirmed_val and not g_is_in_cooldown_on_probe_date and recent_quality_val == 0
+        print(f"          - is_confirmed_base (是否满足站稳天数): {is_confirmed_val}")
         print(f"          - 近期最高防守质量分 (lookback={aegis_lookback_window}d): {recent_quality_val:.4f}")
         if is_aegis_candidate:
             aegis_score = confirmation_score + recent_quality_val * aegis_quality_bonus_factor
