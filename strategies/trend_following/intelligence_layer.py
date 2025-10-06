@@ -759,11 +759,9 @@ class IntelligenceLayer:
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         self._deploy_themis_scales_probe(probe_date)
         atomic = self.strategy.atomic_states
-        # [代码新增] 让探针能够看到 playbook_states
         playbook = self.strategy.playbook_states
         df = self.strategy.df_indicators
         def get_val(name, date, default=0.0):
-            # [代码修改] 增补探针的视野，使其能同时搜索 atomic_states 和 playbook_states
             series = atomic.get(name, playbook.get(name))
             if series is None: return default
             return series.get(date, default)
@@ -854,6 +852,22 @@ class IntelligenceLayer:
         print(f"    - [探针重算最终分(final_score)]: {recalculated_entry_score:.0f} * (1 - 奇美拉冲突:{dynamic_chimera_score:.2f}) = {recalculated_final_score:.0f}")
         print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
         print("\n--- “宙斯之雷”审查完毕 ---")
+
+    # [代码新增] 将此方法从文件顶层移入 IntelligenceLayer 类内部
+    def _get_dominant_offense_type_for_probe(self, total_offense_score: float, active_offense: list) -> str:
+        """
+        【V1.0 · 新增】为“宙斯之雷”探针专门提供的、用于模拟“最强进攻信号类型”判断的辅助方法。
+        """
+        if total_offense_score <= 0 or not active_offense:
+            return 'unknown'
+        # active_offense 已经按贡献度降序排列
+        dominant_signal_name_cn = active_offense[0]['name']
+        # 从 score_map 中反向查找信号类型
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        for signal_name, meta in score_map.items():
+            if isinstance(meta, dict) and meta.get('cn_name') == dominant_signal_name_cn:
+                return meta.get('type', 'unknown')
+        return 'unknown'
 
 
 
