@@ -11,14 +11,14 @@
         "enabled": true,
         "description": "加载高级筹码指标，为筹码情报引擎提供基础数据。"
       },
-      "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233] }] },
-      "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55, 89, 144, 233] }] },
+      "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233, 377] }] },
+      "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55, 89, 144, 233, 377] }] },
       "boll_bands_and_width": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [21], "std_dev": 2.0 }] },
       "rsi": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [13] }] },
       "macd": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [13, 34, 8] }, { "apply_on": ["W"], "periods": [12, 26, 9] }] },
       "dmi": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [14] }] },
       "cmf": { "enabled": true, "apply_on": ["D", "W"], "periods": [21] },
-      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55, 89, 144, 233] }, { "apply_on": ["W"], "periods": [20] }] },
+      "bias": { "enabled": true, "configs": [{ "apply_on": ["D"], "periods": [21, 55, 89, 144, 233, 377] }, { "apply_on": ["W"], "periods": [20] }] },
       "atr": { "enabled": true, "apply_on": ["D", "W"], "periods": [14] },
       "roc": { "enabled": true, "configs": [ { "apply_on": ["D"], "periods": [12] } ] },
       "price_volume_ma_comparison": {

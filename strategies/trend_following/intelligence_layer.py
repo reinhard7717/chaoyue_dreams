@@ -546,8 +546,8 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.9 · 代达罗斯迷宫协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 探针的“防守行为解剖”模块现在能完整解剖三层迷宫考验的全部细节。
+        【V1.10 · 普罗米修斯解锁协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 探针同步迭代式冷却期逻辑，并增加对EMA_377_D的监控。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -555,16 +555,17 @@ class IntelligenceLayer:
         strategy_instance_ref = self.strategy
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
         print("\n  --- [结构性支撑审查] 关键均线系统快照 ---")
-        ma_periods_to_probe = [5, 55, 144, 233]
+        # [代码修改] 增加377均线
+        ma_periods_to_probe = [5, 55, 144, 233, 377]
         close_price = df.get('close_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         low_price = df.get('low_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
-        high_price = df.get('high_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A') # 新增
+        high_price = df.get('high_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         if isinstance(close_price, (float, np.floating)):
-            print(f"    - {'high_D':<12}: {high_price:.2f}  (当日最高价)") # 新增
+            print(f"    - {'high_D':<12}: {high_price:.2f}  (当日最高价)")
             print(f"    - {'close_D':<12}: {close_price:.2f}  (当日收盘价)")
             print(f"    - {'low_D':<12}: {low_price:.2f}  (当日最低价)")
         else:
-            print(f"    - {'high_D':<12}: {high_price}") # 新增
+            print(f"    - {'high_D':<12}: {high_price}")
             print(f"    - {'close_D':<12}: {close_price}")
             print(f"    - {'low_D':<12}: {low_price}")
         for period in ma_periods_to_probe:
@@ -597,8 +598,8 @@ class IntelligenceLayer:
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
-        # [代码修改] 探针逻辑与新的三层迷宫考验完全同步
-        support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233])
+        # [代码修改] 探针同步新的迭代逻辑
+        support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233, 377])
         confirmation_window = get_param_value(gaia_params.get('confirmation_window'), 3)
         aegis_lookback_window = get_param_value(gaia_params.get('aegis_lookback_window'), 5)
         confirmation_cooldown_period = get_param_value(gaia_params.get('confirmation_cooldown_period'), 10)
@@ -612,10 +613,6 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        g_is_standing_firm = (df['close_D'] > g_acting_lifeline).astype(float)
-        g_is_standing_firm_in_zone = g_is_standing_firm.copy()
-        g_is_standing_firm_in_zone.loc[~g_is_in_influence_zone] = np.nan
-        g_is_confirmed_base = g_is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
         g_defense_quality_score = pd.Series(0.0, index=df.index)
         g_touched_lifeline = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone
         g_has_lower_shadow = df['close_D'] > df['low_D']
@@ -624,15 +621,23 @@ class IntelligenceLayer:
         g_strength_condition = (g_lower_shadow / df['close_D'].replace(0, np.nan)) > lower_shadow_strength_pct
         g_upper_shadow = df['high_D'] - df['close_D']
         g_dominance_condition = g_lower_shadow > g_upper_shadow
-        g_was_recently_defended = (g_base_defense_condition | g_strength_condition | g_dominance_condition).rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
-        g_could_be_standard_confirmed = g_is_confirmed_base & ~g_was_recently_defended
-        g_could_be_aegis_confirmed = g_is_confirmed_base & g_was_recently_defended
-        g_is_any_confirmation_today = g_could_be_standard_confirmed | g_could_be_aegis_confirmed
-        g_was_recently_confirmed = g_is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
+        g_was_recently_defended = (g_base_defense_condition).rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
+        g_is_standing_firm = (df['close_D'] > g_acting_lifeline).astype(float)
+        g_is_standing_firm_in_zone = g_is_standing_firm.copy()
+        g_is_standing_firm_in_zone.loc[~g_is_in_influence_zone] = np.nan
+        g_is_confirmed_base = g_is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+        g_is_in_cooldown = False
+        g_last_confirmation_date = pd.NaT
+        for idx in g_is_confirmed_base[g_is_confirmed_base].index:
+            if idx > probe_date: break
+            if pd.notna(g_last_confirmation_date) and (idx - g_last_confirmation_date).days < confirmation_cooldown_period:
+                if idx == probe_date: g_is_in_cooldown = True
+                continue
+            g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
         print(f"        - is_confirmed_base (是否满足站稳天数): {g_is_confirmed_base.get(probe_date, False)}")
         print(f"        - was_recently_defended (近期是否防守过): {g_was_recently_defended.get(probe_date, False)}")
-        print(f"        - is_in_cooldown (是否处于冷却期): {g_was_recently_confirmed.get(probe_date, False)}")
+        print(f"        - is_in_cooldown (是否处于冷却期): {g_is_in_cooldown}")
         print("        --- [防守质量解剖 (三层迷宫)] ---")
         lifeline_val = g_acting_lifeline.get(probe_date, np.nan)
         low_val = df.get('low_D').get(probe_date, np.nan)

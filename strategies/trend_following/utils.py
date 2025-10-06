@@ -588,14 +588,13 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V14.0 · 代达罗斯迷宫协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“代达罗斯迷宫协议”，废除简单的is_defended，引入三层考验的“防守质量分”，
-                  从形态、强度、优势三个维度严格认证防守行为。
+    【V15.0 · 普罗米修斯解锁协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“普罗米修斯解锁协议”，回归严谨的迭代式状态机来处理冷却期，
+                  彻底修复“时间悖论”bug，确保信号生成的因果律正确。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    # [代码修改] 增加新的分层防守分数和强度参数
-    support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233])
+    support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233, 377]) # 增加377
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
@@ -613,41 +612,40 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     ma_df = df[ma_cols]
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
     acting_lifeline = ma_df_below_price.max(axis=1).ffill()
-    gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     valid_indices = acting_lifeline.dropna().index
     if valid_indices.empty:
-        return gaia_score
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
     is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # [代码修改] 引入三层迷宫考验，计算 defense_quality_score
     defense_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # Tier 1: 基础考验 (触及防线 + 存在下影线)
     touched_lifeline = (df[low_col] < acting_lifeline) & is_in_influence_zone
     has_lower_shadow = df[close_col] > df[low_col]
     base_defense_condition = touched_lifeline & has_lower_shadow
     defense_quality_score.loc[base_defense_condition] = defense_score_tier1
-    # Tier 2: 力量考验 (下影线强度)
     lower_shadow = df[close_col] - df[low_col]
     strength_condition = (lower_shadow / df[close_col].replace(0, np.nan)) > lower_shadow_strength_pct
     defense_quality_score.loc[base_defense_condition & strength_condition] = defense_score_tier2
-    # Tier 3: 优势考验 (下影线优势)
     upper_shadow = df[high_col] - df[close_col]
     dominance_condition = lower_shadow > upper_shadow
     defense_quality_score.loc[base_defense_condition & strength_condition & dominance_condition] = defense_score_tier3
-    # [代码修改] 更新 was_recently_defended 的判断依据
     was_recently_defended = (defense_quality_score > 0).rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
     is_standing_firm = (df[close_col] > acting_lifeline).astype(float)
     is_standing_firm_in_zone = is_standing_firm.copy()
     is_standing_firm_in_zone.loc[~is_in_influence_zone] = np.nan
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-    could_be_standard_confirmed = is_confirmed_base & ~was_recently_defended
-    could_be_aegis_confirmed = is_confirmed_base & was_recently_defended
-    is_any_confirmation_today = could_be_standard_confirmed | could_be_aegis_confirmed
-    was_recently_confirmed = is_any_confirmation_today.shift(1).rolling(window=confirmation_cooldown_period, min_periods=1).sum() > 0
-    is_standard_confirmed = could_be_standard_confirmed & ~was_recently_confirmed
-    is_aegis_confirmed = could_be_aegis_confirmed & ~was_recently_confirmed
-    # [代码修改] 调整计分顺序，确保高优先级信号覆盖低优先级信号
+    # [代码修改] 回归严谨的迭代式状态机来处理冷却期
+    is_standard_confirmed = pd.Series(False, index=df.index)
+    is_aegis_confirmed = pd.Series(False, index=df.index)
+    last_confirmation_date = pd.NaT
+    for idx in is_confirmed_base[is_confirmed_base].index:
+        if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
+            continue # 处于冷却期，跳过
+        if was_recently_defended.get(idx, False):
+            is_aegis_confirmed.loc[idx] = True
+        else:
+            is_standard_confirmed.loc[idx] = True
+        last_confirmation_date = idx # 更新最近一次确认日期
     gaia_score = defense_quality_score.copy()
     gaia_score.loc[is_standard_confirmed] = confirmation_score
     gaia_score.loc[is_aegis_confirmed] = aegis_confirmation_score
