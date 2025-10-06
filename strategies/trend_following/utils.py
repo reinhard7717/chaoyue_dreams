@@ -623,7 +623,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # [代码修改] 步骤1: 独立计算防守质量分序列 (包含卡珊德拉预警)
+    # 步骤1: 独立计算防守质量分序列 (包含卡珊德拉预警)
     defense_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     base_defense_condition = (df[low_col] < acting_lifeline) & is_in_influence_zone & (df[close_col] > df[low_col])
     defense_quality_score.loc[base_defense_condition] = defense_base_score
@@ -638,7 +638,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_cassandra_warning = (upper_shadow > lower_shadow) & has_volume_spike
     defense_quality_score.loc[is_in_influence_zone & is_cassandra_warning] = 0.0
     defense_quality_score = defense_quality_score.clip(0, 1.0)
-    # [代码修改] 步骤2: 独立计算确认分序列
+    # 步骤2: 独立计算确认分序列
     max_recent_defense_quality = defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
     is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
@@ -658,7 +658,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
             else:
                 confirmation_score_series.loc[idx] = confirmation_score
             last_confirmation_date = idx
-    # [代码修改] 步骤3: 终极审判 - 取两者的最大值
+    # 步骤3: 终极审判 - 取两者的最大值
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
 

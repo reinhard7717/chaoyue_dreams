@@ -632,7 +632,7 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        # [代码修改] 探针同步最终审判逻辑
+        # 探针同步最终审判逻辑
         # 步骤1: 计算独立防守分
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
         g_is_yang_line = df['close_D'] > df['open_D']
@@ -672,7 +672,7 @@ class IntelligenceLayer:
                     g_confirmation_score_series.loc[idx] = confirmation_score
                 g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
-        # [代码修改] 改造汇报逻辑
+        # 改造汇报逻辑
         print("        --- [防守质量解剖 (赫尔墨斯信使)] ---")
         base_cond_val = g_base_defense_condition.get(probe_date, False)
         yang_line_val = g_is_yang_line.get(probe_date, False)
@@ -705,7 +705,7 @@ class IntelligenceLayer:
         else:
             print(f"          - 审判类型: 无 (is_confirmed={is_confirmed_val}, in_cooldown={g_is_in_cooldown_on_probe_date})")
         print(f"          - 当日独立确认分: {confirmation_score_today:.4f}")
-        # [代码新增] 增加最终审判的汇报模块
+        # 增加最终审判的汇报模块
         print("        --- [最终审判 (忒弥斯天平)] ---")
         final_score = max(defense_score_today, confirmation_score_today)
         print(f"          - 裁决: max(独立防守分, 独立确认分) = max({defense_score_today:.4f}, {confirmation_score_today:.4f}) = {final_score:.4f}")

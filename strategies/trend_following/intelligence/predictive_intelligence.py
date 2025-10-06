@@ -38,20 +38,22 @@ class PredictiveIntelligence:
 
     def _diagnose_climactic_exhaustion(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
         """
-        【V1.3 · 三位一体融合版】诊断“高潮衰竭”风险
-        - 核心革命: 废除二进制的“门控”逻辑，升级为“三位一体”的模拟信号融合。
-                      最终风险分 = (亢奋分 * 权重) + (天量分 * 权重) + (K线疲弱分 * 权重)。
-        - 收益: 解决了因单一维度（如亢奋分）未达到极端阈值而导致整个预警系统哑火的致命缺陷，
-                使得“先知”的判断更加综合、稳健，能在多个风险因素共振时发出更可靠的警报。
+        【V1.4 · 哈迪斯审判协议版】诊断“高潮衰竭”风险
+        - 核心革命: 签署“哈迪斯审判协议”，为“先知”注入上下文感知能力。
+        - 核心逻辑: 引入权威的`bottom_context_score`作为“上下文阻尼器”。
+                      最终风险 = 原始风险 * (1 - 底部上下文分数)。
+                      这使得模型能够在识别出底部结构时，自动抑制“高潮衰竭”风险，
+                      从而区分“顶部派发高潮”与“底部恐慌高潮”。
         """
+        # 步骤0: 引入权威的底部上下文分数作为“阻尼器”
+        from strategies.trend_following.utils import calculate_context_scores
+        bottom_context_score, _ = calculate_context_scores(df, atomic_states)
+        contextual_damper = (1.0 - bottom_context_score).clip(0, 1)
         # 1. 支柱一: 亢奋分 (Euphoria Score)
         euphoria_score = atomic_states.get('COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION', pd.Series(0, index=df.index))
-        
         # 2. 支柱二: 天量分 (Climax Volume Score) - 从二进制门升级为模拟分数
         vol_lookback = get_param_value(self.params.get('exhaustion_vol_lookback'), 20)
-        # 使用 normalize_score 生成0-1之间的模拟天量分
         volume_score = normalize_score(df['volume_D'], df.index, window=vol_lookback, ascending=True)
-        
         # 3. 支柱三: K线疲弱分 (Kline Weakness Score)
         high_low_range = df['high_D'] - df['low_D']
         upper_shadow = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
@@ -61,17 +63,15 @@ class PredictiveIntelligence:
         upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1)
         weak_close_score = 1 - close_position_in_range
         kline_weakness_score = upper_shadow_score * 0.4 + weak_close_score * 0.6
-        
         # 4. 三位一体融合 (Trinity Fusion)
-        # 废除旧的门控逻辑，采用加权算术平均进行融合
         weights = get_param_value(self.params.get('trinity_fusion_weights'), {'euphoria': 0.2, 'volume': 0.4, 'kline': 0.4})
-        
-        final_risk_score = (
+        raw_risk_score = (
             euphoria_score * weights['euphoria'] +
             volume_score * weights['volume'] +
             kline_weakness_score * weights['kline']
         )
-        
+        # 步骤5: 应用哈迪斯审判，使用上下文阻尼器进行最终裁决
+        final_risk_score = raw_risk_score * contextual_damper
         return final_risk_score.clip(0, 1)
 
     def _diagnose_capitulation_reversal(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
