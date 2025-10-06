@@ -546,15 +546,15 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.12 · 哈迪斯面纱协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 探针现在能解剖“冷却重置”信号，展示其所有判断细节，包括成交量对比。
+        【V1.13 · 阿波罗七弦琴协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 探针完全模拟中央集权的循环仲裁逻辑，确保诊断与最终结果一致。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         strategy_instance_ref = self.strategy
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
-        gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {}) # 提前获取参数
+        gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
         cooldown_reset_volume_ma_period = get_param_value(gaia_params.get('cooldown_reset_volume_ma_period'), 55)
         vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
         print("\n  --- [结构性支撑审查] 关键均线系统快照 ---")
@@ -562,14 +562,14 @@ class IntelligenceLayer:
         close_price = df.get('close_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         low_price = df.get('low_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         high_price = df.get('high_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
-        volume = df.get('volume_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A') # 新增
-        volume_ma = df.get(vol_ma_col, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A') # 新增
+        volume = df.get('volume_D', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
+        volume_ma = df.get(vol_ma_col, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         if isinstance(close_price, (float, np.floating)):
             print(f"    - {'high_D':<12}: {high_price:.2f}  (当日最高价)")
             print(f"    - {'close_D':<12}: {close_price:.2f}  (当日收盘价)")
             print(f"    - {'low_D':<12}: {low_price:.2f}  (当日最低价)")
-            print(f"    - {'volume_D':<12}: {volume:,.0f}  (当日成交量)") # 新增
-            print(f"    - {vol_ma_col:<12}: {volume_ma:,.0f}  (成交量均线)") # 新增
+            print(f"    - {'volume_D':<12}: {volume:,.0f}  (当日成交量)")
+            print(f"    - {vol_ma_col:<12}: {volume_ma:,.0f}  (成交量均线)")
         else:
             # ... 省略N/A情况的打印 ...
             pass
@@ -603,7 +603,7 @@ class IntelligenceLayer:
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
-        # [代码修改] 探针同步新的冷却重置逻辑
+        # [代码修改] 探针同步新的中央集权循环逻辑
         support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233, 377])
         confirmation_window = get_param_value(gaia_params.get('confirmation_window'), 3)
         aegis_lookback_window = get_param_value(gaia_params.get('aegis_lookback_window'), 5)
@@ -614,8 +614,8 @@ class IntelligenceLayer:
         g_ma_df = df[g_ma_cols]
         g_ma_df_below_price = g_ma_df.where(g_ma_df.le(df['close_D'], axis=0))
         g_acting_lifeline = g_ma_df_below_price.max(axis=1).ffill()
-        g_valid_indices = g_acting_lifeline.dropna().index
         g_is_in_influence_zone = pd.Series(False, index=df.index)
+        g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
         g_defense_quality_score = pd.Series(0.0, index=df.index)
@@ -630,12 +630,12 @@ class IntelligenceLayer:
         g_is_standing_firm_in_zone = g_is_standing_firm.copy()
         g_is_standing_firm_in_zone.loc[~g_is_in_influence_zone] = np.nan
         g_is_confirmed_base = g_is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-        g_is_in_cooldown = False
+        g_is_in_cooldown_on_probe_date = False
         g_last_confirmation_date = pd.NaT
-        for idx in g_valid_indices:
+        for idx in df.index:
             if idx > probe_date: break
             if pd.notna(g_last_confirmation_date) and (idx - g_last_confirmation_date).days < confirmation_cooldown_period:
-                if idx == probe_date: g_is_in_cooldown = True
+                if idx == probe_date: g_is_in_cooldown_on_probe_date = True
                 if g_is_cooldown_reset_signal.get(idx, False):
                     g_last_confirmation_date = pd.NaT
                 continue
@@ -644,7 +644,7 @@ class IntelligenceLayer:
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
         print(f"        - is_confirmed_base (是否满足站稳天数): {g_is_confirmed_base.get(probe_date, False)}")
         print(f"        - was_recently_defended (近期是否防守过): {g_was_recently_defended.get(probe_date, False)}")
-        print(f"        - is_in_cooldown (是否处于冷却期): {g_is_in_cooldown}")
+        print(f"        - is_in_cooldown (是否处于冷却期): {g_is_in_cooldown_on_probe_date}")
         print("        --- [防守质量解剖 (三层迷宫)] ---")
         # ... 此处到下一个修改点之间的代码无变化，省略 ...
         lifeline_val = g_acting_lifeline.get(probe_date, np.nan)
@@ -665,7 +665,6 @@ class IntelligenceLayer:
         print(f"          - Tier 1 (基础): (low < lifeline -> {touched}) AND (close > low -> {has_ls})")
         print(f"          - Tier 2 (力量): (c-l)/c > {lower_shadow_strength_pct:.0%} -> {strength_pct:.2f}% > {lower_shadow_strength_pct:.0%} -> {strength}")
         print(f"          - Tier 3 (优势): (c-l) > (h-c) -> {lower_shadow_val:.2f} > {upper_shadow_val:.2f} -> {dominance}")
-        # [代码新增] 增加冷却重置信号的解剖
         print("        --- [冷却重置解剖 (哈迪斯面纱)] ---")
         reset_cond1 = g_upper_shadow.get(probe_date, 0) > g_lower_shadow.get(probe_date, 0)
         reset_cond2 = df.get('volume_D').get(probe_date, 0) > df.get(vol_ma_col).get(probe_date, np.inf)
