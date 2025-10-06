@@ -11,72 +11,54 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V526.0 · 普罗米修斯解锁协议版】
-        - 核心革命: 为“奇美拉阻尼器”引入“反转豁免”机制，防止其在底部反转时过度抑制。
+        【V527.0 · 圣殿骑士审查协议版】
+        - 核心革命: 签署“圣殿骑士审查协议”，重新定义硬性离场信号的否决权范围。
         - 核心逻辑:
-        1. 识别当日最强的进攻信号类型。
-        2. 如果最强信号是'positional'(反转/位置型)，则大幅削弱'奇美拉冲突分'的抑制效果。
-        3. 在其他情况(如'dynamic'动态追涨)下，保持原有的严格抑制。
-        - 收益: 解决了因“多空双高”导致底部反转信号被错误清零的致命问题。
+          1. 剥夺了硬性离场信号 (`is_hard_exit_veto`) 在“建仓决策”阶段的否决权。
+          2. 硬性离场信号的职责被严格限定在“持仓管理”阶段，由 `simulation_layer` 专门处理。
+        - 收益: 解决了在空仓时，因价格处于短期均线下方（战术性挖坑）而导致强力底部买入信号被错误否决的致命问题。
         """
-        print("    --- [最高作战指挥部 V526.0 · 普罗米修斯解锁版] 启动...")
+        print("    --- [最高作战指挥部 V527.0 · 圣殿骑士审查协议版] 启动...") # 修改版本号
         df = self.strategy.df_indicators
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
-        
-        # 引入“普罗米修斯解锁协议”
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
-        
-        # 步骤1: 识别每日的最强进攻信号及其类型
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
-        
-        # 步骤2: 根据信号类型动态计算信心阻尼器
-        # 当最强信号是'positional'时，给予豁免，只进行轻微抑制
         is_reversal_day = (dominant_signal_type == 'positional')
-        # 在反转日，阻尼器效果减半；在非反转日，保持全力抑制
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        
-        # 步骤3: 使用动态阻尼器计算最终得分
         df['final_score'] = (df['entry_score'] * confidence_damper)
-        
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         p_judge_prophet = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
-        
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
-        
         df['signal_type'] = '无信号'
-        
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
         exit_triggers_df = self.strategy.exit_triggers
-        is_hard_exit_veto = exit_triggers_df.any(axis=1)
-        
+        # [代码修改] 移除 is_hard_exit_veto 的计算和使用，将其否决权移交给 simulation_layer
+        # is_hard_exit_veto = exit_triggers_df.any(axis=1)
+        # potential_buy_condition = is_score_sufficient & ~is_veto_by_alert & ~is_hard_exit_veto
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         df.loc[alert_veto_condition, 'final_score'] = 0
-
+        # [代码修改] 将硬性离场信号的 final_score 清零和信号类型覆盖的逻辑也一并移除，完全交由 simulation_layer 处理
+        # 这样，即使当天有硬性离场信号，如果分数足够高，我们仍然能看到“买入信号”的原始意图，只是在模拟中不会建仓。
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        df.loc[strategic_exit_mask, 'signal_type'] = '战略失效离场'
-        df.loc[tactical_exit_mask, 'signal_type'] = '趋势破位离场'
-        df.loc[is_hard_exit_veto, 'final_score'] = 0
-
+        # 只有在 potential_buy_condition 不满足时，才考虑离场信号覆盖，避免买入信号被覆盖
+        df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
+        df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
+        # df.loc[is_hard_exit_veto, 'final_score'] = 0 # 此行逻辑也移除
         prophet_entry_threshold = get_param_value(p_judge_prophet.get('prophet_entry_threshold'), 0.6)
         predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
-        
         prophet_score_multiplier = get_param_value(p_judge_prophet.get('prophet_score_multiplier'), 1000)
         prophet_final_score = predictive_opp_score * prophet_score_multiplier
-        
         df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
         df.loc[is_prophet_entry, 'final_score'] = prophet_final_score[is_prophet_entry]
-        
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
