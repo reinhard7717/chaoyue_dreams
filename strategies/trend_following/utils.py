@@ -588,9 +588,9 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V18.0 · 阿波罗七弦琴协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“阿波罗七弦琴协议”，建立中央集权的迭代循环。循环内部统一裁决
-                  冷却、确认、防守的优先级，彻底根除冷却期内出现防守分的问题。
+    【V19.0 · 所罗门审判协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“所罗门审判协议”，确认信号继承防守质量。神盾构筑分值不再固定，
+                  而是根据近期最高防守质量动态计算，实现对信号质量的智慧审判。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -604,7 +604,8 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     defense_score_tier3 = get_param_value(params.get('defense_score_tier3'), 0.7)
     lower_shadow_strength_pct = get_param_value(params.get('lower_shadow_strength_pct'), 0.01)
     confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
-    aegis_confirmation_score = get_param_value(params.get('aegis_confirmation_score'), 1.0)
+    # [代码新增] 神盾构筑的质量奖励系数
+    aegis_quality_bonus_factor = get_param_value(params.get('aegis_quality_bonus_factor'), 0.25)
     cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
     close_col, low_col, high_col, vol_col = 'close_D', 'low_D', 'high_D', 'volume_D'
     vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
@@ -633,31 +634,33 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     upper_shadow = df[high_col] - df[close_col]
     dominance_condition = lower_shadow > upper_shadow
     defense_quality_score.loc[base_defense_condition & strength_condition & dominance_condition] = defense_score_tier3
-    was_recently_defended = (defense_quality_score > 0).rolling(window=aegis_lookback_window, min_periods=1).sum() > 0
+    # [代码修改] was_recently_defended 升级为传递质量分数的 max_recent_defense_quality
+    max_recent_defense_quality = defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
     is_standing_firm = (df[close_col] > acting_lifeline).astype(float)
     is_standing_firm_in_zone = is_standing_firm.copy()
     is_standing_firm_in_zone.loc[~is_in_influence_zone] = np.nan
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
     is_cooldown_reset_signal = (upper_shadow > lower_shadow) & (df[vol_col] > df[vol_ma_col])
-    # [代码修改] 重铸循环，建立中央集权的计分仲裁
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     last_confirmation_date = pd.NaT
     for idx in df.index:
-        # 优先级1: 冷却期审查
         if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
-            gaia_score.loc[idx] = 0.0 # 强制归零
+            gaia_score.loc[idx] = 0.0
             if is_cooldown_reset_signal.get(idx, False):
-                last_confirmation_date = pd.NaT # 重置冷却状态
-            continue # 结束当天裁决
-        # 优先级2: 确认信号裁决
+                last_confirmation_date = pd.NaT
+            continue
         if is_confirmed_base.get(idx, False):
-            if was_recently_defended.get(idx, False):
-                gaia_score.loc[idx] = aegis_confirmation_score
+            # [代码修改] 引入质量审判逻辑
+            recent_quality = max_recent_defense_quality.get(idx, 0.0)
+            if recent_quality > 0:
+                # 神盾构筑分 = 基础分 + 质量奖励分
+                aegis_score = confirmation_score + recent_quality * aegis_quality_bonus_factor
+                gaia_score.loc[idx] = min(aegis_score, 1.0) # 确保分数不超过1.0
             else:
+                # 常规确认
                 gaia_score.loc[idx] = confirmation_score
-            last_confirmation_date = idx # 启动新冷却期
-            continue # 结束当天裁决
-        # 优先级3: 防守信号裁决
+            last_confirmation_date = idx
+            continue
         gaia_score.loc[idx] = defense_quality_score.get(idx, 0.0)
     return gaia_score.astype(np.float32)
 
