@@ -109,29 +109,28 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.1 · 双神谕探针版】法医探针调度中心
-        - 核心升级: 新增对“神谕离场”信号的专属解剖探针。
+        【V2.2 · 赫尔墨斯信使协议版】法医探针调度中心
+        - 核心升级: 签署“赫尔墨斯信使协议”。在部署探针前，预先计算权威的上下文分数，
+                      并将其作为“信使”传递给“宙斯之雷”探针，确保探针的解剖逻辑与
+                      主引擎的计分逻辑完全同步。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
             return
-
         probe_dates_list = debug_params.get('probe_dates')
-        
         if not probe_dates_list:
             single_date = debug_params.get('probe_date')
             if single_date:
                 probe_dates_list = [single_date]
-
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-            
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.1] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.2] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        # [代码新增] 赫尔墨斯信使协议：预先计算并准备好要传递的上下文分数
+        from .utils import calculate_context_scores
+        bottom_context_score, top_context_score = calculate_context_scores(self.strategy.df_indicators, self.strategy.atomic_states)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
-
             probe_date = pd.to_datetime(probe_date_str)
             if self.strategy.df_indicators.index.tz is not None:
                 try:
@@ -142,20 +141,12 @@ class IntelligenceLayer:
                     except Exception as e_conv:
                          print(f"    -> [法医探针] 错误: 转换探针日期 {probe_date_str} 时区失败: {e_conv}。")
                          continue
-            
             if probe_date not in self.strategy.df_indicators.index:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
-
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            
-            # 部署双神谕探针
-            # self._deploy_prophet_entry_probe(probe_date) # 将原函数重命名，权责更清晰
-            # self._deploy_prophet_exit_probe(probe_date)  # 新增神谕离场探针
-            
-            # “宙斯之雷”终极探针
-            self._deploy_zeus_thunderbolt_probe(probe_date)
-        
+            # [代码修改] 将上下文分数作为“信使”传递给探针
+            self._deploy_zeus_thunderbolt_probe(probe_date, bottom_context_score, top_context_score)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):
@@ -758,6 +749,112 @@ class IntelligenceLayer:
         print(f"    - [最终裁决] 顶部上下文总分: {top_context.get(probe_date, 0.0):.4f}")
         print("\n--- “忒弥斯天平”称量完毕 ---")
 
+    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
+        """
+        【V2.3 · 赫淮斯托斯同步版】“宙斯之雷”终极法医探针
+        - 核心升级: 1. 接收由“赫尔墨斯信使”传递来的权威上下文分数。
+                    2. 在重算逻辑中，完全复刻 OffensiveLayer 的上下文压制规则，
+                       确保探针的计算过程与引擎的实际计分过程完全一致。
+        """
+        print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
+        self._deploy_themis_scales_probe(probe_date)
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        def get_val(name, date, default=0.0):
+            series = atomic.get(name)
+            if series is None: return default
+            return series.get(date, default)
+        final_score = df.loc[probe_date].get('final_score', 0)
+        final_signal = df.loc[probe_date].get('signal_type', '未知')
+        print(f"\n  [链路层 1] 最终裁决")
+        print(f"    - 【最终信号】: {final_signal}")
+        print(f"    - 【最终得分】: {final_score:.0f}")
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        # [代码新增] 获取上下文压制参数，与 OffensiveLayer 保持一致
+        p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
+        bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
+        top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
+        # [代码修改] 直接使用传入的上下文分数
+        bottom_context_val = bottom_context_score.get(probe_date, 0.0)
+        top_context_val = top_context_score.get(probe_date, 0.0)
+        active_offense = []
+        active_risks = []
+        total_offense = 0
+        total_risk = 0
+        print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
+        # 为了分开打印，先收集所有信号
+        all_signals_to_process = []
+        for signal_name, meta in score_map.items():
+            if not isinstance(meta, dict): continue
+            signal_value_raw = get_val(signal_name, probe_date, 0.0)
+            if abs(signal_value_raw) < 1e-6: continue
+            base_score = meta.get('score', 0)
+            if abs(base_score) < 1e-6: continue
+            all_signals_to_process.append({'name': signal_name, 'meta': meta, 'raw_value': signal_value_raw, 'base_score': base_score})
+        # 分别处理进攻和风险
+        for item in all_signals_to_process:
+            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
+            is_risk = meta.get('type') == 'risk'
+            if is_risk: continue # 先只处理进攻项
+            # [代码修改] 完全复刻 OffensiveLayer 的上下文压制逻辑
+            processed_signal_value = signal_value_raw
+            context_role = meta.get('context_role', 'neutral')
+            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
+            if context_role == 'bottom_opportunity' and base_score > 0:
+                damper = (1.0 - top_context_val.clip(lower=top_context_threshold))
+                processed_signal_value *= damper
+                if damper < 1.0:
+                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
+            contribution = processed_signal_value * base_score
+            if abs(contribution) < 0.5: continue
+            active_offense.append({'name': meta.get('cn_name', signal_name), 'contribution': contribution, 'explanation': explanation})
+            total_offense += contribution
+        active_offense.sort(key=lambda x: x['contribution'], reverse=True)
+        if not active_offense:
+            print("    - 当日无任何激活的进攻信号。")
+        else:
+            for item in active_offense:
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
+        print(f"    ----------------------------------")
+        print(f"    - 【进攻项总分】: {total_offense:.0f}")
+        print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
+        for item in all_signals_to_process:
+            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
+            is_risk = meta.get('type') == 'risk'
+            if not is_risk: continue # 再处理风险项
+            # [代码修改] 完全复刻 OffensiveLayer 的上下文压制逻辑
+            processed_signal_value = signal_value_raw
+            context_role = meta.get('context_role', 'neutral')
+            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
+            if context_role == 'top_risk' and base_score < 0:
+                damper = (1.0 - bottom_context_val.clip(lower=bottom_context_threshold))
+                processed_signal_value *= damper
+                if damper < 1.0:
+                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
+            contribution = processed_signal_value * base_score
+            if abs(contribution) < 0.5: continue
+            active_risks.append({'name': meta.get('cn_name', signal_name), 'contribution': contribution, 'explanation': explanation})
+            total_risk += contribution
+        active_risks.sort(key=lambda x: x['contribution'], reverse=False)
+        if not active_risks:
+            print("    - 当日无任何激活的风险信号。")
+        else:
+            for item in active_risks:
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
+        print(f"    ----------------------------------")
+        print(f"    - 【风险项总分】: {total_risk:.0f}")
+        print("\n  [链路层 4] 终极对质")
+        recalculated_entry_score = total_offense + total_risk
+        print(f"    - [探针重算入场分(entry_score)]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_entry_score:.0f}")
+        # 模拟 JudgmentLayer 的最终得分计算
+        chimera_conflict_score = get_val('COGNITIVE_SCORE_CHIMERA_CONFLICT', probe_date, 0.0)
+        dominant_signal_type = 'positional' # 假设为反转日以模拟豁免
+        dynamic_chimera_score = chimera_conflict_score * 0.5 if dominant_signal_type == 'positional' else chimera_conflict_score
+        confidence_damper = 1.0 - dynamic_chimera_score
+        recalculated_final_score = recalculated_entry_score * confidence_damper
+        print(f"    - [探针重算最终分(final_score)]: {recalculated_entry_score:.0f} * (1 - 奇美拉冲突:{dynamic_chimera_score:.2f}) = {recalculated_final_score:.0f}")
+        print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
+        print("\n--- “宙斯之雷”审查完毕 ---")
 
 
 
