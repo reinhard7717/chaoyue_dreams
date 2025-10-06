@@ -546,9 +546,9 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.16 · 皮提亚统一协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 签署“皮提亚统一协议”，彻底重铸防守质量解剖模块，使其汇报内容
-                      与“阿瑞斯之矛”引擎的权重累加逻辑完全统一。
+        【V1.17 · 卡珊德拉预警协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 防守解剖模块增加“卡珊德拉预警”的最高优先级判断，并明确展示
+                      放量加分与下影优势的绑定关系。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -632,17 +632,20 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        g_defense_quality_score = pd.Series(0.0, index=df.index)
+        # [代码修改] 探针同步卡珊德拉预警逻辑
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
-        g_defense_quality_score.loc[g_base_defense_condition] = defense_base_score
         g_is_yang_line = df['close_D'] > df['open_D']
         g_lower_shadow = df['close_D'] - df['low_D']
         g_upper_shadow = df['high_D'] - df['close_D']
         g_has_dominance = g_lower_shadow > g_upper_shadow
         g_has_volume_spike = df['volume_D'] > df[ares_vol_ma_col]
+        g_is_cassandra_warning = (g_upper_shadow > g_lower_shadow) & g_has_volume_spike
+        g_defense_quality_score = pd.Series(0.0, index=df.index)
+        g_defense_quality_score.loc[g_base_defense_condition] = defense_base_score
         g_defense_quality_score.loc[g_base_defense_condition & g_is_yang_line] += defense_yang_line_weight
         g_defense_quality_score.loc[g_base_defense_condition & g_has_dominance] += defense_dominance_weight
-        g_defense_quality_score.loc[g_base_defense_condition & g_has_volume_spike] += defense_volume_weight
+        g_defense_quality_score.loc[g_base_defense_condition & g_has_dominance & g_has_volume_spike] += defense_volume_weight
+        g_defense_quality_score.loc[g_base_defense_condition & g_is_cassandra_warning] = 0.0
         g_defense_quality_score = g_defense_quality_score.clip(0, 1.0)
         g_max_recent_defense_quality = g_defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
         g_is_standing_firm_in_zone = (df['close_D'] > g_acting_lifeline) & g_is_in_influence_zone
@@ -660,24 +663,23 @@ class IntelligenceLayer:
             if g_is_confirmed_base.get(idx, False):
                 g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
-        print(f"        - is_in_cooldown (是否处于冷却期): {g_is_in_cooldown_on_probe_date}")
-        # [代码修改] 彻底重铸防守质量解剖模块的汇报逻辑
-        print("        --- [防守质量解剖 (阿瑞斯之矛)] ---")
+        print(f"        - is_in_cooldown (确认冷却期): {g_is_in_cooldown_on_probe_date}")
+        # [代码修改] 重构防守质量解剖模块以反映卡珊德拉预警
+        print("        --- [防守质量解剖 (卡珊德拉预警)] ---")
         base_cond_val = g_base_defense_condition.get(probe_date, False)
         yang_line_val = g_is_yang_line.get(probe_date, False)
         dominance_val = g_has_dominance.get(probe_date, False)
         volume_val = g_has_volume_spike.get(probe_date, False)
-        score = 0.0
-        if base_cond_val:
-            score += defense_base_score
-            if yang_line_val: score += defense_yang_line_weight
-            if dominance_val: score += defense_dominance_weight
-            if volume_val: score += defense_volume_weight
-        score = min(score, 1.0)
-        print(f"          - 基础条件 (触线+下影): {base_cond_val} -> 基础分 {defense_base_score if base_cond_val else 0.0:.2f}")
-        print(f"          - 权重1 (主权宣告-收阳): {yang_line_val} -> 加分 {defense_yang_line_weight if yang_line_val and base_cond_val else 0.0:.2f}")
-        print(f"          - 权重2 (韧性胜利-下影优势): {dominance_val} -> 加分 {defense_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
-        print(f"          - 权重3 (主力参战-放量): {volume_val} -> 加分 {defense_volume_weight if volume_val and base_cond_val else 0.0:.2f}")
+        cassandra_val = g_is_cassandra_warning.get(probe_date, False)
+        score = g_defense_quality_score.get(probe_date, 0.0)
+        print(f"          - 预警判定 (卡珊德拉): (上影>下影 AND 放量) -> {cassandra_val}")
+        if cassandra_val and base_cond_val:
+            print(f"          - 裁决: 触发卡珊德拉预警，防守质量分强制归零。")
+        else:
+            print(f"          - 基础条件 (触线+下影): {base_cond_val} -> 基础分 {defense_base_score if base_cond_val else 0.0:.2f}")
+            print(f"          - 权重1 (主权宣告-收阳): {yang_line_val} -> 加分 {defense_yang_line_weight if yang_line_val and base_cond_val else 0.0:.2f}")
+            print(f"          - 权重2 (韧性胜利-下影优势): {dominance_val} -> 加分 {defense_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
+            print(f"          - 权重3 (主力参战-放量): {volume_val and dominance_val} (需下影优势) -> 加分 {defense_volume_weight if volume_val and dominance_val and base_cond_val else 0.0:.2f}")
         print(f"          - 当日最终防守质量分: {score:.4f}")
         print("        --- [确认质量评估 (所罗门审判)] ---")
         recent_quality_val = g_max_recent_defense_quality.get(probe_date, 0.0)

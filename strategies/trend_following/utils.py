@@ -588,9 +588,9 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V20.0 · 阿瑞斯之矛协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“阿瑞斯之矛协议”，重铸防守质量分。采用“基础分+权重累加”模式，
-                  从收阳、下影优势、放量三个维度综合评估防守反击的力度。
+    【V21.0 · 卡珊德拉预警协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“卡珊德拉预警协议”。当出现“上影线>下影线+放量”的失败反扑信号时，
+                  防守质量分强制归零。放量加分项必须与“下影线优势”绑定，确保只奖励有效的进攻。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -599,7 +599,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
-    # [代码修改] 替换为阿瑞斯之矛的权重参数
     defense_base_score = get_param_value(params.get('defense_base_score'), 0.4)
     defense_yang_line_weight = get_param_value(params.get('defense_yang_line_weight'), 0.1)
     defense_dominance_weight = get_param_value(params.get('defense_dominance_weight'), 0.2)
@@ -607,7 +606,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
     aegis_quality_bonus_factor = get_param_value(params.get('aegis_quality_bonus_factor'), 0.25)
     cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
-    # [代码新增] 增加open和新的vol_ma列
     close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
     ares_vol_ma_col = 'VOL_MA_5_D'
     cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
@@ -625,27 +623,29 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # [代码修改] 实施阿瑞斯之矛协议，重铸defense_quality_score计算逻辑
+    # [代码修改] 实施卡珊德拉预警协议
     defense_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 1. 基础条件
     base_defense_condition = (df[low_col] < acting_lifeline) & is_in_influence_zone & (df[close_col] > df[low_col])
     defense_quality_score.loc[base_defense_condition] = defense_base_score
-    # 2. 定义权重条件
     is_yang_line = df[close_col] > df[open_col]
-    has_dominance = (df[close_col] - df[low_col]) > (df[high_col] - df[close_col])
+    lower_shadow = df[close_col] - df[low_col]
+    upper_shadow = df[high_col] - df[close_col]
+    has_dominance = lower_shadow > upper_shadow
     has_volume_spike = df[vol_col] > df[ares_vol_ma_col]
-    # 3. 权重累加
+    # 权重累加
     defense_quality_score.loc[base_defense_condition & is_yang_line] += defense_yang_line_weight
     defense_quality_score.loc[base_defense_condition & has_dominance] += defense_dominance_weight
-    defense_quality_score.loc[base_defense_condition & has_volume_spike] += defense_volume_weight
-    # 4. 封顶
+    # 放量加分必须与下影优势绑定
+    defense_quality_score.loc[base_defense_condition & has_dominance & has_volume_spike] += defense_volume_weight
+    # 卡珊德拉预警：失败的反扑，强制归零
+    is_cassandra_warning = (upper_shadow > lower_shadow) & has_volume_spike
+    defense_quality_score.loc[base_defense_condition & is_cassandra_warning] = 0.0
     defense_quality_score = defense_quality_score.clip(0, 1.0)
     max_recent_defense_quality = defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
     is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-    upper_shadow = df[high_col] - df[close_col]
-    lower_shadow = df[close_col] - df[low_col]
     is_cooldown_reset_signal = (upper_shadow > lower_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
+    # 恢复V20.0的中央仲裁循环
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     last_confirmation_date = pd.NaT
     for idx in df.index:
