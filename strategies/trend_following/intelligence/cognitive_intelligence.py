@@ -241,12 +241,11 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 赫淮斯托斯审判协议版】风险元融合模块
-        - 核心革命: 签署“赫淮斯托斯审判协议”，彻底废除“加权几何平均”的风险融合逻辑。
+        【V3.6 · 忒弥斯校准协议版】风险元融合模块
+        - 核心升级: 签署“忒弥斯校准协议”，废除“加权几何平均”的风险融合逻辑。
         - 新核心逻辑: 采用“取最大值”(`np.maximum.reduce`)的方式融合各维度风险。
-                      最终的 COGNITIVE_FUSED_RISK_SCORE 现在由最强的那个风险维度定义，
-                      确保任何单一的重大威胁都能被最高指挥部感知。
-        - 收益: 解决了因几何平均缺陷导致风险被错误压制、奇美拉阻尼器失效的致命问题。
+                      最终的 COGNITIVE_FUSED_RISK_SCORE 现在由最强的那个风险维度定义。
+        - 防御性编程 (新增): 对最终输出的风险分增加 clip(0, 2.0) 操作，防止极端值溢出。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -281,11 +280,9 @@ class CognitiveIntelligence:
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
             else:
                 fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        # [代码修改] 赫淮斯托斯审判协议核心：从“几何平均”升级为“取最大值”
         valid_scores_np = [score.values for score in fused_dimension_scores.values() if not score.empty]
         if valid_scores_np:
             stacked_scores = np.stack(valid_scores_np, axis=0)
-            # 使用 np.maximum.reduce 沿维度轴（axis=0）找到每日的最大风险分
             total_fused_risk_values = np.maximum.reduce(stacked_scores, axis=0)
             total_fused_risk_score = pd.Series(total_fused_risk_values, index=df.index, dtype=np.float32)
         else:
@@ -303,13 +300,37 @@ class CognitiveIntelligence:
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
             total_fused_risk_score_values = np.where(
                 is_resonance_triggered,
-                np.clip(total_fused_risk_score.values * penalty_multiplier, 0, 1),
+                total_fused_risk_score.values * penalty_multiplier,
                 total_fused_risk_score.values
             )
             total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
-        states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
+        # [代码修改] 新增防御性编程：对最终的原始风险分进行范围裁剪，防止极端值
+        states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.clip(0, 2.0).astype(np.float32)
         return states
+
+    def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
+        """
+        【V1.3 · 忒弥斯校准协议版】奇美拉冲突诊断引擎
+        - 核心革命: 签署“忒弥斯校准协议”，为风险分和看涨分建立统一的度量衡。
+        - 新核心逻辑:
+          1. 从配置中读取新的 `chimera_risk_normalization_base` 参数。
+          2. 在计算冲突前，将原始的 `COGNITIVE_FUSED_RISK_SCORE` 除以此基准值，将其归一化到[0,1]区间。
+          3. 使用两个都已归一化的分数来计算 `np.minimum`，确保比较的公平性。
+        - 收益: 彻底解决了因度量衡不统一导致的奇美拉冲突分被严重低估的致命BUG。
+        """
+        states = {}
+        p_judge = get_params_block(self.strategy, 'judgment_params', {})
+        # [代码修改] 从配置中读取新的风险归一化基准值
+        risk_norm_base = get_param_value(p_judge.get('chimera_risk_normalization_base'), 1000.0)
+        bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
+        # [代码修改] 获取原始风险分，并进行归一化处理
+        raw_risk_score = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
+        bearish_score_normalized = (raw_risk_score / risk_norm_base).clip(0, 1)
+        # [代码修改] 现在比较的是两个都在[0,1]区间的、度量衡统一的分数
+        conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
+        states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
+        self.strategy.atomic_states.update(states)
 
     def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame: 
         """
@@ -635,28 +656,6 @@ class CognitiveIntelligence:
         final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
         
-        self.strategy.atomic_states.update(states)
-
-    def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
-        """
-        【V1.2 · 奇美拉之力版】奇美拉冲突诊断引擎
-        - 核心修复: 移除了对 COGNITIVE_BULLISH_SCORE 错误的除以1000的操作。
-                      该分数已经是[0,1]区间的归一化值，无需再次缩放。
-        - 优化说明: 使用Numpy.minimum进行向量化计算，清晰高效。
-        """
-        states = {}
-        # 获取归一化后的多头分数和空头（风险）分数
-        # 移除了错误的 / 1000.0 操作，因为 COGNITIVE_BULLISH_SCORE 已经是[0,1]区间的归一化分数
-        bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
-        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
-        
-        # 奇美拉冲突分定义为多空力量的较小值。
-        # 逻辑是：只有当多头和空头力量都较强时，市场才处于真正的“冲突”或“高压”状态。
-        # 如果一方力量很弱，则市场是单边趋势或盘整，而非“冲突”。
-        # 使用np.minimum进行高效的向量化计算
-        conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
-        
-        states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
 
     def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

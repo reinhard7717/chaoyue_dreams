@@ -718,7 +718,8 @@
           "enabled": true,
           "final_score_threshold": { "value": 400 },
           "euphoria_veto_threshold": { "value": 0.85 },
-          "risk_overflow_threshold": { "value": 500 }
+          "risk_overflow_threshold": { "value": 500 },
+          "chimera_risk_normalization_base": { "value": 1000 }
         }
       },
       "fused_risk_scoring": {
