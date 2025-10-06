@@ -166,13 +166,16 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.5 · 雅典娜的精准版】风险裁决者 (Risk Adjudicator)
-        - 核心升级: 采纳指挥官的精准洞察，将“先知离场”的上下文过滤器从宽泛的 EMA55 收紧为严格的 EMA5。
-        - 核心逻辑: 仅当股价处于短期强势（收盘价 > EMA5）时，才允许“高潮衰竭”风险触发。
-                      这彻底解决了在“下跌中继”状态下，因成交量放大而错误触发顶部风险的致命缺陷。
+        【V2.6 · 雅典娜的精准协议版】风险裁决者 (Risk Adjudicator)
+        - 核心革命: 签署“雅典娜的精准协议”，将对“先知”预警的上下文审查权收归最高指挥部。
+        - 核心逻辑: 不再使用粗糙的EMA5作为上下文过滤器，而是调用权威的`calculate_context_scores`
+                      获取`bottom_context_score`。只有在市场不处于一个确定的底部时，
+                      “高潮衰竭”风险才被视为有效，从根源上解决了底部恐慌被误判为顶部派发的问题。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
+        # [代码新增] 步骤A: 引入权威的上下文计算工具
+        from .utils import calculate_context_scores
         risk_categories = {
             'ARCHANGEL_RISK': ['SCORE_ARCHANGEL_TOP_REVERSAL'],
             'TOP_REVERSAL': ['SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL', 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'],
@@ -194,12 +197,14 @@ class JudgmentLayer:
         level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
         level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
         level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
-        
-        # 将上下文过滤器从 EMA_55_D 升级为更精准的 EMA_5_D
-        is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
-        
+        # [代码新增] 步骤B: 获取权威的底部上下文分数
+        bottom_context_score, _ = calculate_context_scores(df, atomic)
+        bottom_context_suppression_threshold = get_param_value(p_judge.get('bottom_context_suppression_threshold'), 0.9)
+        # [代码修改] 步骤C: 使用权威上下文重构“先知”预警的触发条件
+        # 移除旧的、粗糙的 is_uptrend_context
+        is_prophet_warning_valid = (predictive_exhaustion_risk > prophet_threshold) & (bottom_context_score < bottom_context_suppression_threshold)
         conditions = [
-            (predictive_exhaustion_risk > prophet_threshold) & is_uptrend_context,
+            is_prophet_warning_valid, # 使用新的、经过上下文审查的条件
             fused_risks_df['ARCHANGEL_RISK'] > level_3_archangel_threshold,
             fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
             (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
@@ -209,8 +214,8 @@ class JudgmentLayer:
         choices_reason = [
             '红色警报: 先知-高潮衰竭',
             '红色警报: 天使长-明确顶部形态',
-            '红色警报: 顶部反转风险', 
-            '橙色警报: 共振或亢奋风险', 
+            '红色警报: 顶部反转风险',
+            '橙色警报: 共振或亢奋风险',
             '黄色警报: 微观结构风险'
         ]
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
