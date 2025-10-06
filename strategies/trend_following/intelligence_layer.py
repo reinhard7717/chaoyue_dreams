@@ -751,12 +751,12 @@ class IntelligenceLayer:
 
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
         """
-        【V2.6 · 记忆烙印协议版】“宙斯之雷”终极法医探针
-        - 核心升级: 签署“记忆烙印协议”，修复探针因丢失内部信号名而导致的“失忆症”。
-        - 核心逻辑:
-          1. 在构建进攻/风险项列表时，同时存入内部信号名 `internal_name`。
-          2. `_get_dominant_offense_type_for_probe` 方法现在基于 `internal_name` 进行精准查找。
-        - 收益: 探针的奇美拉冲突豁免逻辑与 JudgmentLayer 完全同步，确保了验证结果的绝对可靠。
+        【V2.7 · 回声定位协议版】“宙斯之雷”终极法医探针
+        - 核心升级: 签署“回声定位协议”，修复探针无法报告“被压制的风险”的BUG。
+        - 新核心逻辑:
+          1. 在处理风险项时，如果一个信号被“上下文阻尼器”影响，无论其最终贡献值是否为零，都必须报告。
+          2. 只有那些未被压制且贡献值本身就为零的信号才会被跳过。
+        - 收益: 探针现在可以清晰地展示哪些风险因为上下文而被主动压制，实现了过程的完全透明。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         self._deploy_themis_scales_probe(probe_date)
@@ -806,7 +806,6 @@ class IntelligenceLayer:
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
             contribution = processed_signal_value * base_score
             if abs(contribution) < 0.5: continue
-            # [代码修改] 为探针植入记忆烙印：同时存储 internal_name
             active_offense.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
             total_offense += contribution
         active_offense.sort(key=lambda x: x['contribution'], reverse=True)
@@ -825,15 +824,18 @@ class IntelligenceLayer:
             processed_signal_value = signal_value_raw
             context_role = meta.get('context_role', 'neutral')
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
+            damper_was_applied = False # [代码新增] 初始化阻尼器应用标记
             if context_role == 'top_risk' and base_score < 0:
                 suppression_factor = bottom_context_val if bottom_context_val >= bottom_context_threshold else 0.0
                 damper = 1.0 - suppression_factor
-                processed_signal_value *= damper
-                if damper < 1.0:
+                if damper < 1.0: # [代码修改] 检查阻尼器是否被激活
+                    damper_was_applied = True # [代码修改] 如果激活，则设置标记
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
+                processed_signal_value *= damper
             contribution = processed_signal_value * base_score
-            if abs(contribution) < 0.5: continue
-            # [代码修改] 为探针植入记忆烙印：同时存储 internal_name
+            # [代码修改] 回声定位协议：如果阻尼器被应用，则无论最终贡献值是否为零，都必须报告
+            if not damper_was_applied and abs(contribution) < 0.5:
+                continue
             active_risks.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
             total_risk += contribution
         active_risks.sort(key=lambda x: x['contribution'], reverse=False)
