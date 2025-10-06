@@ -11,14 +11,12 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V511.0 · 赫淮斯托斯协议版】
-        - 核心革命: 签署“赫淮斯托斯协议”，将上下文感知能力直接锻造进计分核心。
+        【V512.0 · 阿瑞斯精准打击协议版】
+        - 核心革命: 签署“阿瑞斯精准打击协议”，修复“赫淮斯托斯之锤”的逻辑瑕疵。
         - 核心逻辑:
-          1. [接收神谕] 本方法现在接收由更高层传递的权威上下文分数。
-          2. [锻造规则] 在计分循环内部，直接使用上下文分数对不合时宜的风险信号进行压制。
-             - 当底部上下文确认时，所有“顶部风险”信号的原始值将被削弱或归零。
-             - 当顶部上下文确认时，所有“底部机会”信号的原始值将被削弱或归零。
-        - 收益: 从计分的源头根除了“战略悖论”，确保了总分的逻辑一致性。
+          1. 废除错误的 `clip(lower=...)` 逻辑。
+          2. 采用全新的 `where` 条件判断，确保上下文阻尼器只在分数高于阈值时才被激活。
+        - 收益: 实现了对风险信号的精准外科手术式切除，避免了在非底部区域错误压制风险的重大BUG。
         """
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
@@ -26,7 +24,6 @@ class OffensiveLayer:
         atomic_states = self.strategy.atomic_states
         playbook_states = self.strategy.playbook_states
         total_score = pd.Series(0.0, index=df.index)
-        # [代码新增] 定义上下文压制参数
         p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
@@ -34,21 +31,21 @@ class OffensiveLayer:
             if not isinstance(meta, dict): continue
             signal_type = meta.get('type')
             score_value = meta.get('score', 0)
-            if signal_type == 'predictive':
-                continue
-            if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process', 'risk']: # 确保 risk 类型也被处理
+            # [代码修改] 将 'predictive' 类型也纳入处理范围，因为高潮衰竭风险需要被压制
+            if score_value != 0 and signal_type in ['positional', 'dynamic', 'playbook', 'process', 'risk', 'predictive']:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:
                     processed_signal_series = signal_series.astype(float)
-                    # [代码新增] 赫淮斯托斯锻造核心：应用上下文阻尼器
-                    context_role = meta.get('context_role', 'neutral') # 从配置中获取信号的角色
+                    context_role = meta.get('context_role', 'neutral')
                     if context_role == 'top_risk' and score_value < 0:
-                        # 如果是顶部风险，使用底部上下文进行压制
-                        damper = (1.0 - bottom_context_score.clip(lower=bottom_context_threshold)).fillna(1.0)
+                        # [代码修改] 阿瑞斯精准打击：使用 where 条件判断，只在高于阈值时进行压制
+                        suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
+                        damper = 1.0 - suppression_factor
                         processed_signal_series *= damper
                     elif context_role == 'bottom_opportunity' and score_value > 0:
-                        # 如果是底部机会，使用顶部上下文进行压制
-                        damper = (1.0 - top_context_score.clip(lower=top_context_threshold)).fillna(1.0)
+                        # [代码修改] 阿瑞斯精准打击：对底部机会应用同样的精准逻辑
+                        suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
+                        damper = 1.0 - suppression_factor
                         processed_signal_series *= damper
                     scoring_mode = meta.get('scoring_mode', 'bipolar')
                     if scoring_mode == 'unipolar':
