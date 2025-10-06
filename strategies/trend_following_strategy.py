@@ -38,38 +38,38 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V404.0 · 圣殿骑士版】
-        - 核心升级: 适配架构重塑，明确 IntelligenceLayer 是所有情报和防御信号的唯一来源。
+        【V405.0 · 普罗米修斯盗火协议版】
+        - 核心修复: 修复了因调用链断裂导致的 TypeError。
+        - 核心逻辑: 在情报层运行后，立即计算权威的上下文分数，并将其作为参数传递给进攻层，
+                      确保计分引擎在执行时能够感知上下文，完成“赫淮斯托斯协议”的闭环。
         """
         self.params = params
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        
         # --- 指挥链 1/7: 情报层 (现在是所有情报的唯一入口，包括硬性离场) ---
         self.intelligence_layer.run_all_diagnostics()
-        
+        # [代码新增] 步骤1.5: 普罗米修斯盗火 - 计算并获取权威的上下文分数
+        from .trend_following.utils import calculate_context_scores
+        bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
         # --- 指挥链 2/7: 进攻层 ---
-        entry_score, score_details_df = self.offensive_layer.calculate_entry_score(self.trigger_events)
+        # [代码修改] 将上下文分数作为“火种”注入计分引擎
+        entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
+            self.trigger_events,
+            bottom_context_score,
+            top_context_score
+        )
         self.df_indicators['entry_score'] = entry_score
-        
         # --- 指挥链 3/7: 预警层 ---
         risk_details_df = self.warning_layer.run_all_warnings()
-        
         # --- 指挥链 4/7: 统合判断层 (最终决策者) ---
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
-        
-        # [代码删除] 删除了对 exit_layer 的直接调用，现在由 intelligence_layer 统一管理
-        
         # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
-        
         if risk_details_df is None:
             risk_details_df = pd.DataFrame(index=self.df_indicators.index)
-        
         return self.df_indicators, score_details_df, risk_details_df
 
     def _merge_all_timeframes(self, all_dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
