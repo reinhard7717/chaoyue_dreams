@@ -751,17 +751,20 @@ class IntelligenceLayer:
 
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
         """
-        【V2.3 · 赫淮斯托斯同步版】“宙斯之雷”终极法医探针
-        - 核心升级: 1. 接收由“赫尔墨斯信使”传递来的权威上下文分数。
-                    2. 在重算逻辑中，完全复刻 OffensiveLayer 的上下文压制规则，
-                       确保探针的计算过程与引擎的实际计分过程完全一致。
+        【V2.5 · 先知增补协议版】“宙斯之雷”终极法医探针
+        - 核心升级: 签署“先知增补协议”，修复探针无法看到`playbook_states`信号的致命BUG。
+        - 核心逻辑: 修改内部的`get_val`辅助函数，使其能同时从`atomic_states`和`playbook_states`
+                      中获取信号，确保探针的视野与OffensiveLayer完全一致。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         self._deploy_themis_scales_probe(probe_date)
         atomic = self.strategy.atomic_states
+        # [代码新增] 让探针能够看到 playbook_states
+        playbook = self.strategy.playbook_states
         df = self.strategy.df_indicators
         def get_val(name, date, default=0.0):
-            series = atomic.get(name)
+            # [代码修改] 增补探针的视野，使其能同时搜索 atomic_states 和 playbook_states
+            series = atomic.get(name, playbook.get(name))
             if series is None: return default
             return series.get(date, default)
         final_score = df.loc[probe_date].get('final_score', 0)
@@ -770,11 +773,9 @@ class IntelligenceLayer:
         print(f"    - 【最终信号】: {final_signal}")
         print(f"    - 【最终得分】: {final_score:.0f}")
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        # [代码新增] 获取上下文压制参数，与 OffensiveLayer 保持一致
         p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
-        # [代码修改] 直接使用传入的上下文分数
         bottom_context_val = bottom_context_score.get(probe_date, 0.0)
         top_context_val = top_context_score.get(probe_date, 0.0)
         active_offense = []
@@ -782,7 +783,6 @@ class IntelligenceLayer:
         total_offense = 0
         total_risk = 0
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        # 为了分开打印，先收集所有信号
         all_signals_to_process = []
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
@@ -791,17 +791,16 @@ class IntelligenceLayer:
             base_score = meta.get('score', 0)
             if abs(base_score) < 1e-6: continue
             all_signals_to_process.append({'name': signal_name, 'meta': meta, 'raw_value': signal_value_raw, 'base_score': base_score})
-        # 分别处理进攻和风险
         for item in all_signals_to_process:
             signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
-            is_risk = meta.get('type') == 'risk'
-            if is_risk: continue # 先只处理进攻项
-            # [代码修改] 完全复刻 OffensiveLayer 的上下文压制逻辑
+            is_risk = meta.get('type') == 'risk' or (meta.get('type') == 'predictive' and base_score < 0)
+            if is_risk: continue
             processed_signal_value = signal_value_raw
             context_role = meta.get('context_role', 'neutral')
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
             if context_role == 'bottom_opportunity' and base_score > 0:
-                damper = (1.0 - top_context_val.clip(lower=top_context_threshold))
+                suppression_factor = top_context_val if top_context_val >= top_context_threshold else 0.0
+                damper = 1.0 - suppression_factor
                 processed_signal_value *= damper
                 if damper < 1.0:
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
@@ -820,14 +819,14 @@ class IntelligenceLayer:
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
         for item in all_signals_to_process:
             signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
-            is_risk = meta.get('type') == 'risk'
-            if not is_risk: continue # 再处理风险项
-            # [代码修改] 完全复刻 OffensiveLayer 的上下文压制逻辑
+            is_risk = meta.get('type') == 'risk' or (meta.get('type') == 'predictive' and base_score < 0)
+            if not is_risk: continue
             processed_signal_value = signal_value_raw
             context_role = meta.get('context_role', 'neutral')
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
             if context_role == 'top_risk' and base_score < 0:
-                damper = (1.0 - bottom_context_val.clip(lower=bottom_context_threshold))
+                suppression_factor = bottom_context_val if bottom_context_val >= bottom_context_threshold else 0.0
+                damper = 1.0 - suppression_factor
                 processed_signal_value *= damper
                 if damper < 1.0:
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
@@ -846,10 +845,10 @@ class IntelligenceLayer:
         print("\n  [链路层 4] 终极对质")
         recalculated_entry_score = total_offense + total_risk
         print(f"    - [探针重算入场分(entry_score)]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_entry_score:.0f}")
-        # 模拟 JudgmentLayer 的最终得分计算
         chimera_conflict_score = get_val('COGNITIVE_SCORE_CHIMERA_CONFLICT', probe_date, 0.0)
-        dominant_signal_type = 'positional' # 假设为反转日以模拟豁免
-        dynamic_chimera_score = chimera_conflict_score * 0.5 if dominant_signal_type == 'positional' else chimera_conflict_score
+        dominant_signal_type = self._get_dominant_offense_type_for_probe(recalculated_entry_score, active_offense)
+        is_reversal_day = (dominant_signal_type == 'positional')
+        dynamic_chimera_score = chimera_conflict_score * 0.5 if is_reversal_day else chimera_conflict_score
         confidence_damper = 1.0 - dynamic_chimera_score
         recalculated_final_score = recalculated_entry_score * confidence_damper
         print(f"    - [探针重算最终分(final_score)]: {recalculated_entry_score:.0f} * (1 - 奇美拉冲突:{dynamic_chimera_score:.2f}) = {recalculated_final_score:.0f}")
