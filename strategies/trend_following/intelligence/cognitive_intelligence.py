@@ -241,105 +241,66 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 赫利俄斯版】风险元融合模块
-        - 核心革命: 彻底废除“加权求和”的风险融合逻辑，升级为“加权几何平均”。
-                      确保最终的 COGNITIVE_FUSED_RISK_SCORE 被严格归一化到 [0, 1] 区间，
-                      解决了风险分“通货膨胀”和不可比的根本性设计缺陷。
-        - 优化说明: 预缓存Numpy数组、使用数值稳定的加权几何平均算法，并全程向量化操作。
+        【V3.5 · 赫淮斯托斯审判协议版】风险元融合模块
+        - 核心革命: 签署“赫淮斯托斯审判协议”，彻底废除“加权几何平均”的风险融合逻辑。
+        - 新核心逻辑: 采用“取最大值”(`np.maximum.reduce`)的方式融合各维度风险。
+                      最终的 COGNITIVE_FUSED_RISK_SCORE 现在由最强的那个风险维度定义，
+                      确保任何单一的重大威胁都能被最高指挥部感知。
+        - 收益: 解决了因几何平均缺陷导致风险被错误压制、奇美拉阻尼器失效的致命问题。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         if not get_param_value(p_fused_risk.get('enabled'), True):
             states['COGNITIVE_FUSED_RISK_SCORE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
-        
-        # --- 1. 预处理与缓存 ---
         risk_categories = p_fused_risk.get('risk_categories', {})
         all_required_signals = {s for signals in risk_categories.values() if isinstance(signals, dict) for s in signals if s != "说明"}
-        
-        # 预先将所有需要的Series转换为Numpy数组并缓存，避免在循环中重复转换，极大提升性能。
         signal_numpy_cache = {
             sig_name: self._get_atomic_score(df, sig_name, 0.0).values
             for sig_name in all_required_signals
         }
         default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
-
-        # --- 2. 维度内风险融合 (主次风险算法) ---
         fused_dimension_scores = {}
         secondary_risk_discount = p_fused_risk.get('intra_dimension_fusion_params', {}).get('secondary_risk_discount', 0.3)
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
-            
             category_signal_scores = []
             for signal_name, signal_params in signals.items():
                 if signal_name == "说明": continue
                 atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
                 processed_score = 1.0 - atomic_score_np if signal_params.get('inverse', False) else atomic_score_np
                 category_signal_scores.append(processed_score * signal_params.get('weight', 1.0))
-
             if category_signal_scores:
-                # 使用Numpy高效实现“主次风险融合算法”
                 stacked_scores = np.stack(category_signal_scores, axis=1)
                 sorted_scores = np.sort(stacked_scores, axis=1)
-                primary_risk_values = sorted_scores[:, -1] # 最高风险项
-                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0 # 次高风险项
+                primary_risk_values = sorted_scores[:, -1]
+                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0
                 dimension_risk_values = primary_risk_values + secondary_risk_values * secondary_risk_discount
                 dimension_risk_score = pd.Series(dimension_risk_values, index=df.index, dtype=np.float32)
                 fused_dimension_scores[category_name] = dimension_risk_score
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
             else:
                 fused_dimension_scores[category_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
-
-        # --- 3. 跨维度风险融合 (动态加权几何平均) ---
-        p_dynamic_weighting = p_fused_risk.get('dynamic_weighting_params', {})
-        base_weights = p_dynamic_weighting.get('base_weights', {})
-        is_early_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_EARLY', pd.Series(False, index=df.index))
-        is_late_stage = self.strategy.atomic_states.get('CONTEXT_TREND_STAGE_LATE', pd.Series(False, index=df.index))
-        
-        valid_scores_np = []
-        valid_weights_np = []
-        # 动态计算各风险维度的权重，并准备用于Numpy计算的数据
-        for category_name, base_weight in base_weights.items():
-            if category_name in fused_dimension_scores and base_weight > 0:
-                current_weight = pd.Series(base_weight, index=df.index)
-                if get_param_value(p_dynamic_weighting.get('enabled'), True):
-                    context_adjustments = p_dynamic_weighting.get('context_adjustments', {})
-                    early_adj = context_adjustments.get("CONTEXT_TREND_STAGE_EARLY", {}).get(category_name)
-                    if early_adj: current_weight = current_weight.where(~is_early_stage, current_weight * early_adj)
-                    late_adj = context_adjustments.get("CONTEXT_TREND_STAGE_LATE", {}).get(category_name)
-                    if late_adj: current_weight = current_weight.where(~is_late_stage, current_weight * late_adj)
-                valid_scores_np.append(fused_dimension_scores[category_name].values)
-                valid_weights_np.append(current_weight.values)
-
+        # [代码修改] 赫淮斯托斯审判协议核心：从“几何平均”升级为“取最大值”
+        valid_scores_np = [score.values for score in fused_dimension_scores.values() if not score.empty]
         if valid_scores_np:
             stacked_scores = np.stack(valid_scores_np, axis=0)
-            stacked_weights = np.stack(valid_weights_np, axis=0)
-            normalized_weights = stacked_weights / np.sum(stacked_weights, axis=0) # 权重归一化
-            
-            # 采用数值稳定的加权几何平均算法。
-            # G = exp(Σ(wi * log(si)))。增加1e-9避免log(0)导致计算错误。
-            # 此算法确保最终风险分在[0,1]区间，且对任何一个维度的极端风险都非常敏感。
-            total_fused_risk_values = np.exp(np.sum(normalized_weights * np.log(stacked_scores + 1e-9), axis=0))
+            # 使用 np.maximum.reduce 沿维度轴（axis=0）找到每日的最大风险分
+            total_fused_risk_values = np.maximum.reduce(stacked_scores, axis=0)
             total_fused_risk_score = pd.Series(total_fused_risk_values, index=df.index, dtype=np.float32)
         else:
             total_fused_risk_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-
-        # --- 4. 风险共振惩罚 ---
         p_resonance = p_fused_risk.get('resonance_penalty_params', {})
         if get_param_value(p_resonance.get('enabled'), True):
             core_dims = p_resonance.get('core_risk_dimensions', [])
             min_dims = p_resonance.get('min_dimensions_for_resonance', 2)
             threshold = p_resonance.get('risk_score_threshold', 0.6)
             penalty_multiplier = p_resonance.get('penalty_multiplier', 1.2)
-            
-            # 使用向量化操作计算同时处于高风险状态的维度数量
             high_risk_dimension_count = np.sum([
                 (fused_dimension_scores[dim].values > threshold)
                 for dim in core_dims if dim in fused_dimension_scores
             ], axis=0)
             is_resonance_triggered = (high_risk_dimension_count >= min_dims)
-            
-            # 使用np.where高效地对触发共振的风险分应用惩罚
             total_fused_risk_score_values = np.where(
                 is_resonance_triggered,
                 np.clip(total_fused_risk_score.values * penalty_multiplier, 0, 1),
@@ -347,7 +308,6 @@ class CognitiveIntelligence:
             )
             total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
-
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.astype(np.float32)
         return states
 
