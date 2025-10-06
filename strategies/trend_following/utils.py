@@ -588,13 +588,14 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V15.0 · 普罗米修斯解锁协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“普罗米修斯解锁协议”，回归严谨的迭代式状态机来处理冷却期，
-                  彻底修复“时间悖论”bug，确保信号生成的因果律正确。
+    【V17.0 · 哈迪斯面纱协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“哈迪斯面纱协议”，引入“冷却重置”机制。在冷却期内，
+                  若出现“上影线>下影线+放量”的确认失败信号，则立即重置冷却状态，
+                  使系统在次日重新进入寻找确认信号的戒备状态。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233, 377]) # 增加377
+    support_levels = get_param_value(params.get('support_levels'), [55, 89, 144, 233, 377])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
     aegis_lookback_window = get_param_value(params.get('aegis_lookback_window'), 5)
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
@@ -605,9 +606,14 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     lower_shadow_strength_pct = get_param_value(params.get('lower_shadow_strength_pct'), 0.01)
     confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
     aegis_confirmation_score = get_param_value(params.get('aegis_confirmation_score'), 1.0)
-    close_col, low_col, high_col = 'close_D', 'low_D', 'high_D'
+    # [代码新增] 引入冷却重置所需的成交量均线参数
+    cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
+    close_col, low_col, high_col, vol_col = 'close_D', 'low_D', 'high_D', 'volume_D'
+    vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
     ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
-    if not all(col in df.columns for col in [close_col, low_col, high_col] + ma_cols):
+    required_cols = [close_col, low_col, high_col, vol_col, vol_ma_col] + ma_cols
+    if not all(col in df.columns for col in required_cols):
+        print(f"盖亚基石模块缺少必要列，将返回0分。缺失列: {[c for c in required_cols if c not in df.columns]}")
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     ma_df = df[ma_cols]
     ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
@@ -634,18 +640,24 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_standing_firm_in_zone = is_standing_firm.copy()
     is_standing_firm_in_zone.loc[~is_in_influence_zone] = np.nan
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-    # [代码修改] 回归严谨的迭代式状态机来处理冷却期
+    # [代码新增] 计算“确认失败”信号
+    is_cooldown_reset_signal = (upper_shadow > lower_shadow) & (df[vol_col] > df[vol_ma_col])
     is_standard_confirmed = pd.Series(False, index=df.index)
     is_aegis_confirmed = pd.Series(False, index=df.index)
     last_confirmation_date = pd.NaT
-    for idx in is_confirmed_base[is_confirmed_base].index:
+    # [代码修改] 迭代循环中增加冷却重置逻辑
+    for idx in valid_indices:
         if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
-            continue # 处于冷却期，跳过
-        if was_recently_defended.get(idx, False):
-            is_aegis_confirmed.loc[idx] = True
-        else:
-            is_standard_confirmed.loc[idx] = True
-        last_confirmation_date = idx # 更新最近一次确认日期
+            if is_cooldown_reset_signal.get(idx, False):
+                last_confirmation_date = pd.NaT # 重置冷却期
+            continue
+        if is_confirmed_base.get(idx, False):
+            if was_recently_defended.get(idx, False):
+                is_aegis_confirmed.loc[idx] = True
+            else:
+                is_standard_confirmed.loc[idx] = True
+            last_confirmation_date = idx
+    # [代码撤回] 撤销V16的强制归零逻辑，恢复V15的计分方式
     gaia_score = defense_quality_score.copy()
     gaia_score.loc[is_standard_confirmed] = confirmation_score
     gaia_score.loc[is_aegis_confirmed] = aegis_confirmation_score
