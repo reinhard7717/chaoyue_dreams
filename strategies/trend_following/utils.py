@@ -588,9 +588,9 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V21.0 · 卡珊德拉预警协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 签署“卡珊德拉预警协议”。当出现“上影线>下影线+放量”的失败反扑信号时，
-                  防守质量分强制归零。放量加分项必须与“下影线优势”绑定，确保只奖励有效的进攻。
+    【V22.0 · 赫尔墨斯信使协议版】“盖亚基石”支撑分计算引擎
+    - 核心革命: 签署“赫尔墨斯信使协议”。卡珊德拉预警被赋予最高神权，其触发范围
+                  扩大至整个“影响区”，不再受基础条件束缚，作为最终否决权覆盖所有得分。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -623,7 +623,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # [代码修改] 实施卡珊德拉预警协议
     defense_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     base_defense_condition = (df[low_col] < acting_lifeline) & is_in_influence_zone & (df[close_col] > df[low_col])
     defense_quality_score.loc[base_defense_condition] = defense_base_score
@@ -632,20 +631,17 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     upper_shadow = df[high_col] - df[close_col]
     has_dominance = lower_shadow > upper_shadow
     has_volume_spike = df[vol_col] > df[ares_vol_ma_col]
-    # 权重累加
     defense_quality_score.loc[base_defense_condition & is_yang_line] += defense_yang_line_weight
     defense_quality_score.loc[base_defense_condition & has_dominance] += defense_dominance_weight
-    # 放量加分必须与下影优势绑定
     defense_quality_score.loc[base_defense_condition & has_dominance & has_volume_spike] += defense_volume_weight
-    # 卡珊德拉预警：失败的反扑，强制归零
+    # [代码修改] 解放卡珊德拉预警，赋予其在影响区内的最高否决权
     is_cassandra_warning = (upper_shadow > lower_shadow) & has_volume_spike
-    defense_quality_score.loc[base_defense_condition & is_cassandra_warning] = 0.0
+    defense_quality_score.loc[is_in_influence_zone & is_cassandra_warning] = 0.0
     defense_quality_score = defense_quality_score.clip(0, 1.0)
     max_recent_defense_quality = defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
     is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
     is_cooldown_reset_signal = (upper_shadow > lower_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
-    # 恢复V20.0的中央仲裁循环
     gaia_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     last_confirmation_date = pd.NaT
     for idx in df.index:

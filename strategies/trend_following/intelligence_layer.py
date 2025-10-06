@@ -632,7 +632,7 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        # [代码修改] 探针同步卡珊德拉预警逻辑
+        # [代码修改] 探针同步赫尔墨斯信使协议
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
         g_is_yang_line = df['close_D'] > df['open_D']
         g_lower_shadow = df['close_D'] - df['low_D']
@@ -645,7 +645,7 @@ class IntelligenceLayer:
         g_defense_quality_score.loc[g_base_defense_condition & g_is_yang_line] += defense_yang_line_weight
         g_defense_quality_score.loc[g_base_defense_condition & g_has_dominance] += defense_dominance_weight
         g_defense_quality_score.loc[g_base_defense_condition & g_has_dominance & g_has_volume_spike] += defense_volume_weight
-        g_defense_quality_score.loc[g_base_defense_condition & g_is_cassandra_warning] = 0.0
+        g_defense_quality_score.loc[g_is_in_influence_zone & g_is_cassandra_warning] = 0.0 # 最终否决权
         g_defense_quality_score = g_defense_quality_score.clip(0, 1.0)
         g_max_recent_defense_quality = g_defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
         g_is_standing_firm_in_zone = (df['close_D'] > g_acting_lifeline) & g_is_in_influence_zone
@@ -664,16 +664,17 @@ class IntelligenceLayer:
                 g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
         print(f"        - is_in_cooldown (确认冷却期): {g_is_in_cooldown_on_probe_date}")
-        # [代码修改] 重构防守质量解剖模块以反映卡珊德拉预警
-        print("        --- [防守质量解剖 (卡珊德拉预警)] ---")
+        # [代码修改] 重构防守质量解剖模块以反映最终否决权
+        print("        --- [防守质量解剖 (赫尔墨斯信使)] ---")
         base_cond_val = g_base_defense_condition.get(probe_date, False)
         yang_line_val = g_is_yang_line.get(probe_date, False)
         dominance_val = g_has_dominance.get(probe_date, False)
         volume_val = g_has_volume_spike.get(probe_date, False)
         cassandra_val = g_is_cassandra_warning.get(probe_date, False)
+        in_zone_val = g_is_in_influence_zone.get(probe_date, False)
         score = g_defense_quality_score.get(probe_date, 0.0)
-        print(f"          - 预警判定 (卡珊德拉): (上影>下影 AND 放量) -> {cassandra_val}")
-        if cassandra_val and base_cond_val:
+        print(f"          - 预警判定 (卡珊德拉): (在影响区内 {in_zone_val}) AND (上影>下影 AND 放量) -> {cassandra_val and in_zone_val}")
+        if cassandra_val and in_zone_val:
             print(f"          - 裁决: 触发卡珊德拉预警，防守质量分强制归零。")
         else:
             print(f"          - 基础条件 (触线+下影): {base_cond_val} -> 基础分 {defense_base_score if base_cond_val else 0.0:.2f}")
