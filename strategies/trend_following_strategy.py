@@ -22,58 +22,55 @@ class TrendFollowStrategy:
     """
     def __init__(self, orchestrator_instance):
         """
-        【V3.2 · 授权修正案版】
-        - 核心修复: 修复了致命的依赖注入错误。
-        - 核心逻辑: self.unified_config 现在正确地从 orchestrator_instance 中提取 .unified_config 字典，
-                      而不是错误地引用整个 orchestrator_instance 对象。
-        - 收益: 解决了因配置对象类型错误导致的 AttributeError，恢复了整个策略的初始化流程。
+        【V102.0 · 指挥链校准协议版】
+        - 核心修复: 修正了初始化方法，使其能正确接收总指挥实例(orchestrator_instance)。
+        - 核心逻辑: 不再将传入的实例本身当作配置，而是从实例中正确提取 unified_config 字典。
+        - 收益: 解决了因依赖注入不匹配导致的 AttributeError，使策略完全融入联邦制架构。
         """
+        # [代码修改] 参数名从 config 改为 orchestrator_instance，更符合语义
         self.orchestrator = orchestrator_instance
-        # [代码修改] 修正错误的授权，确保只获取配置字典，而不是整个总指挥对象
+        # [代码修改] 从总指挥实例中正确获取统一配置字典
         self.unified_config = self.orchestrator.unified_config
-        self.df_indicators = None
+        self.params = {}
         self.atomic_states = {}
-        self.trigger_events = {}
         self.playbook_states = {}
-        self.exit_triggers = None
+        self.trigger_events = {}
+        self.df_indicators = pd.DataFrame()
         self.intelligence_layer = IntelligenceLayer(self)
         self.offensive_layer = OffensiveLayer(self)
         self.warning_layer = WarningLayer(self)
+        self.structural_defense_layer = StructuralDefenseLayer(self)
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
 
 
-    def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V405.0 · 普罗米修斯盗火协议版】
-        - 核心修复: 修复了因调用链断裂导致的 TypeError。
-        - 核心逻辑: 在情报层运行后，立即计算权威的上下文分数，并将其作为参数传递给进攻层，
-                      确保计分引擎在执行时能够感知上下文，完成“赫淮斯托斯协议”的闭环。
+        【V407.0 · 联邦宪法修正案版】
+        - 核心升级: 移除了过时的 params 参数，现在所有配置都从 self.unified_config 获取。
+                      精简了指挥链，WarningLayer不再向JudgmentLayer传递风险细节。
         """
-        self.params = params
+        # [代码修改] 移除 params 参数，直接使用 self.unified_config
+        self.params = self.unified_config 
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        # --- 指挥链 1/7: 情报层 (现在是所有情报的唯一入口，包括硬性离场) ---
         self.intelligence_layer.run_all_diagnostics()
-        # 步骤1.5: 普罗米修斯盗火 - 计算并获取权威的上下文分数
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
-        # --- 指挥链 2/7: 进攻层 ---
-        # 将上下文分数作为“火种”注入计分引擎
+        # [代码修改] OffensiveLayer 现在返回包含所有进攻和风险贡献的 score_details_df
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,
             top_context_score
         )
         self.df_indicators['entry_score'] = entry_score
-        # --- 指挥链 3/7: 预警层 ---
+        # [代码修改] WarningLayer 仍然运行以收集原始风险值用于报告，但其结果不再传递给 JudgmentLayer
         risk_details_df = self.warning_layer.run_all_warnings()
-        # --- 指挥链 4/7: 统合判断层 (最终决策者) ---
+        # [代码修改] JudgmentLayer 现在接收包含所有贡献的 score_details_df
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
-        # --- 指挥链 6/7 & 7/7: 模拟层与报告层 ---
         self.simulation_layer.run_position_management_simulation()
         self.df_indicators = optimize_df_memory(self.df_indicators, verbose=False)
         if risk_details_df is None:
