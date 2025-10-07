@@ -11,45 +11,56 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V531.0 · 联邦宪法修正案版】
-        - 核心革命: 遵守联邦宪法，本层不再自行计算风险贡献。
-        - 核心逻辑: 彻底移除从 risk_details_df 计算 total_risk_contribution 的代码。
-                      完全信任从上游传入的 df['entry_score'] 已是包含风险的“净战斗力得分”。
-        - 收益: 简化了指挥链，确保了计分逻辑的单一来源。
+        【V532.0 · 幽灵驱逐协议版】
+        - 核心革命: 执行“幽灵驱逐协议”，彻底清除所有在主计分逻辑后对 final_score 和 signal_details_cn 进行覆写的潜伏代码。
+        - 核心逻辑: 严格遵循“计算 -> 裁决 -> 报告 -> 终结”的线性流程，杜绝任何形式的逻辑回环和事后篡改。
+        - 收益: 确保了 TrendFollow 策略的战报纯洁性，根除了导致分数被神秘篡改的“幽灵BUG”。
         """
-        print("    --- [最高作战指挥部 V531.0 · 联邦宪法修正案版] 启动...") # 修改版本号
+        print("    --- [最高作战指挥部 V532.0 · 幽灵驱逐协议版] 启动...") # 修改版本号
         df = self.strategy.df_indicators
-        # [代码删除] 移除风险贡献计算逻辑，因为 OffensiveLayer 已完成此工作
-        # if not risk_details_df.empty:
-        #     total_risk_contribution = risk_details_df.sum(axis=1)
-        #     df['entry_score'] = df['entry_score'] + total_risk_contribution.reindex(df.index).fillna(0)
-        df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
-        df['dynamic_action'] = self._get_dynamic_combat_action()
+        
+        # 步骤 1: 计算最终得分 (基于已包含风险的 entry_score)
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        # 此处的 'entry_score' 已经是净战斗力得分
         df['final_score'] = (df['entry_score'] * confidence_damper)
+        
+        # 步骤 2: 进行风险裁决
+        df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
+        df['dynamic_action'] = self._get_dynamic_combat_action()
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
+        
+        # 步骤 3: 根据得分和风险裁决，生成最终信号类型
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
+        
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
-        exit_triggers_df = self.strategy.exit_triggers
+        
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
+        
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0
+        df.loc[alert_veto_condition, 'final_score'] = 0 # 被否决的信号，最终分清零
+        
+        exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
+        
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
-        # risk_details_df 仍需传递给 summary 用于报告生成
+        
+        # [代码净化] 确保在此之后，没有任何逻辑会再次修改 'final_score' 或 'signal_type'。
+        # 所有与“先知”相关的判断、覆写逻辑必须被彻底清除。
+        
+        # 步骤 4: 生成人类可读的摘要报告 (基于最终确定的信号类型)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
+        
+        # 步骤 5: 终结信号，为下游提供统一接口
         self._finalize_signals()
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
