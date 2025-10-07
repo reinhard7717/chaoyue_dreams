@@ -272,35 +272,35 @@
           "aegis_confirmation_score": 1.0,
           "confirmation_cooldown_period": 10
         },
-      "uranus_ceiling_params": {
-        "enabled": true,
-        "description": "“乌拉诺斯穹顶”动态阻力系统参数，是盖亚基石的镜像。",
-        "resistance_levels": [34, 55, 89, 144, 233],
-        "confirmation_window": 3,
-        "rejection_lookback_window": 5,
-        "influence_zone_pct": 0.03,
-        "rejection_base_score": 0.4,
-        "rejection_yin_line_weight": 0.1,
-        "rejection_dominance_weight": 0.2,
-        "rejection_volume_weight": 0.3,
-        "confirmation_score": 0.8,
-        "rejection_quality_bonus_factor": 0.25,
-        "confirmation_cooldown_period": 10,
-        "cooldown_reset_volume_ma_period": 55
-      },
-      "fibonacci_resistance_params": {
-        "enabled": true,
-        "description": "历史高点阻力参数，是斐波那契支撑的镜像。",
-        "periods": [34, 55, 89, 144, 233],
-        "tolerance_pct": 0.01,
-        "level_scores": {
-          "34": 0.3,
-          "55": 0.4,
-          "89": 0.5,
-          "144": 0.6,
-          "233": 0.7
+        "uranus_ceiling_params": {
+          "enabled": true,
+          "description": "“乌拉诺斯穹顶”动态阻力系统参数，是盖亚基石的镜像。",
+          "resistance_levels": [34, 55, 89, 144, 233],
+          "confirmation_window": 3,
+          "rejection_lookback_window": 5,
+          "influence_zone_pct": 0.03,
+          "rejection_base_score": 0.4,
+          "rejection_yin_line_weight": 0.1,
+          "rejection_dominance_weight": 0.2,
+          "rejection_volume_weight": 0.3,
+          "confirmation_score": 0.8,
+          "rejection_quality_bonus_factor": 0.25,
+          "confirmation_cooldown_period": 10,
+          "cooldown_reset_volume_ma_period": 55
+        },
+        "fibonacci_resistance_params": {
+          "enabled": true,
+          "description": "历史高点阻力参数，是斐波那契支撑的镜像。",
+          "periods": [34, 55, 89, 144, 233],
+          "tolerance_pct": 0.01,
+          "level_scores": {
+            "34": 0.3,
+            "55": 0.4,
+            "89": 0.5,
+            "144": 0.6,
+            "233": 0.7
+          }
         }
-      }
       },
       "panic_selling_setup_params": {
         "enabled": true,
