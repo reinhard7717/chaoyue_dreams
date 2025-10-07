@@ -27,11 +27,15 @@ class OffensiveLayer:
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             score_value = meta.get('score', 0)
+            if score_value == 0:
+                score_value = meta.get('penalty_weight', 0)
             if score_value != 0:
                 signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
                 if signal_series is not None and not signal_series.empty:
                     processed_signal_series = signal_series.astype(float)
                     context_role = meta.get('context_role', 'neutral')
+                    
+                    # [代码修改] 修正风险信号的压制逻辑
                     if context_role == 'top_risk' and score_value < 0:
                         suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
@@ -40,9 +44,11 @@ class OffensiveLayer:
                         suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
                         processed_signal_series *= damper
+                        
                     scoring_mode = meta.get('scoring_mode', 'bipolar')
                     if scoring_mode == 'unipolar':
                         processed_signal_series = processed_signal_series.clip(lower=0)
+                        
                     bonus_amount = processed_signal_series * score_value
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount

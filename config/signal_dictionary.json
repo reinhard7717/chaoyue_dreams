@@ -32,6 +32,14 @@
             "type": "context",
             "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
         },
+        "SCORE_ARCHANGEL_TOP_REVERSAL": {
+            "cn_name": "【认知风险】天使长顶部反转",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2500,
+            "context_role": "top_risk",
+            "description": "【启示录四骑士】融合了上冲派发、天地板、高位回落和结构性压力（乌拉诺斯穹顶）的终极顶部风险裁决信号，具有最高优先级的否决权。"
+        },
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
             "category": "战术层-风险",
@@ -68,7 +76,8 @@
             "category": "预测层-风险",
             "type": "risk",
             "penalty_weight": -5000,
-            "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夜”特征，是最高优先级的风险预警。"
+            "context_role": "top_risk",
+            "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夕”特征，是最高优先级的风险预警。"
         },
         "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
             "cn_name": "【先知】恐慌投降反转",
@@ -208,6 +217,7 @@
             "category": "认知层-机会",
             "type": "positional",
             "score": 250,
+            "context_role": "bottom_opportunity",
             "description": "【B级战术信号】在建设性背景下，出现缩量、温和下跌，且筹码稳定、周期配合的回踩行为。"
         },
         "COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE": {
@@ -215,6 +225,7 @@
             "category": "认知层-机会",
             "type": "positional",
             "score": 300,
+            "context_role": "bottom_opportunity",
             "description": "【B级战术信号】在建设性背景下，出现放量、急跌的洗盘式回踩行为，通常是强庄所为。"
         },
         "COGNITIVE_SCORE_IGNITION_RESONANCE": {
@@ -229,6 +240,7 @@
             "category": "认知层-机会",
             "type": "positional",
             "score": 700,
+            "context_role": "bottom_opportunity",
             "description": "【A级主战信号】多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。"
         },
         "COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE": {
@@ -256,6 +268,7 @@
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -3000,
+            "context_role": "top_risk",
             "description": "【圣杯版】智慧型亢奋风险。仅当趋势进入“高度成熟”阶段后，市场的快速加速才会被视为危险的力竭信号。在趋势早期，此风险会被有效抑制。"
         },
         "COGNITIVE_FUSED_RISK_SCORE": {
@@ -277,6 +290,7 @@
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -700,
+            "context_role": "top_risk",
             "description": "【B级冲突信号】融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION": {
@@ -284,6 +298,7 @@
             "category": "认知层-机会",
             "type": "positional",
             "score": 500,
+            "context_role": "bottom_opportunity",
             "description": "【A级主战信号】融合结构与形态，对底部的最终确认。"
         },
         "COGNITIVE_ULTIMATE_TOP_CONFIRMATION": {
@@ -291,6 +306,7 @@
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -600,
+            "context_role": "top_risk",
             "description": "【B级冲突信号】融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE": {
@@ -502,6 +518,7 @@
             "category": "筹码层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】所有筹码支柱在所有周期上形成看跌共振。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
@@ -509,6 +526,7 @@
             "category": "筹码层-机会",
             "type": "positional",
             "score": 400,
+            "context_role": "bottom_opportunity",
             "description": "【阿瑞斯之矛协议】筹码动态健康度在【价格底部区域】形成强力反转信号。"
         },
         "SCORE_CHIP_TACTICAL_REVERSAL": {
@@ -516,6 +534,7 @@
             "category": "筹码层-机会",
             "type": "dynamic",
             "score": 350,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由筹码稳定、短期回调创造的战术性买入点。"
         },
         "SCORE_CHIP_TOP_REVERSAL": {
@@ -523,6 +542,7 @@
             "category": "筹码层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】筹码动态健康度在顶部形成强力反转风险。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
@@ -538,6 +558,7 @@
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】价格、成交量、K线形态在所有周期上形成看跌共振。"
         },
         "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
@@ -545,6 +566,7 @@
             "category": "行为层-机会",
             "type": "positional",
             "score": 350,
+            "context_role": "bottom_opportunity",
             "description": "【阿瑞斯之矛协议】行为动态健康度在【价格底部区域】形成强力反转信号。"
         },
         "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
@@ -552,6 +574,7 @@
             "category": "行为层-机会",
             "type": "dynamic",
             "score": 300,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由价量行为健康、短期回调创造的战术性买入点。"
         },
         "SCORE_BEHAVIOR_TOP_REVERSAL": {
@@ -559,6 +582,7 @@
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】行为动态健康度在顶部形成强力反转风险。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
@@ -574,6 +598,7 @@
             "category": "资金流-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FF_BOTTOM_REVERSAL": {
@@ -581,6 +606,7 @@
             "category": "资金流-机会",
             "type": "positional",
             "score": 300,
+            "context_role": "bottom_opportunity",
             "description": "在价格底部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转信号。"
         },
         "SCORE_FF_TACTICAL_REVERSAL": {
@@ -588,6 +614,7 @@
             "category": "资金流-机会",
             "type": "dynamic",
             "score": 250,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由资金面健康、短期回调创造的战术性买入点。"
         },
         "SCORE_FF_TOP_REVERSAL": {
@@ -595,6 +622,7 @@
             "category": "资金流-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】在价格顶部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转风险。"
         },
         "说明_structural_ultimate": "--- 结构层-终极信号 ---",
@@ -610,6 +638,7 @@
             "category": "结构层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看跌共振。"
         },
         "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
@@ -617,6 +646,7 @@
             "category": "结构层-机会",
             "type": "positional",
             "score": 250,
+            "context_role": "bottom_opportunity",
             "description": "结构动态健康度在底部形成强力反转信号。"
         },
         "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
@@ -624,6 +654,7 @@
             "category": "结构层-机会",
             "type": "dynamic",
             "score": 200,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场结构健康、短期回调创造的战术性买入点。"
         },
         "SCORE_STRUCTURE_TOP_REVERSAL": {
@@ -631,6 +662,7 @@
             "category": "结构层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】结构动态健康度在顶部形成强力反转风险。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
@@ -646,6 +678,7 @@
             "category": "力学层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看跌共振。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
@@ -653,6 +686,7 @@
             "category": "力学层-机会",
             "type": "positional",
             "score": 300,
+            "context_role": "bottom_opportunity",
             "description": "力学动态健康度在底部形成强力反转信号。"
         },
         "SCORE_DYN_TACTICAL_REVERSAL": {
@@ -660,6 +694,7 @@
             "category": "力学层-机会",
             "type": "dynamic",
             "score": 250,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场力学健康、短期回调创造的战术性买入点。"
         },
         "SCORE_DYN_TOP_REVERSAL": {
@@ -667,6 +702,7 @@
             "category": "力学层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】力学动态健康度在顶部形成强力反转风险。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
@@ -682,6 +718,7 @@
             "category": "基础层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
@@ -689,6 +726,7 @@
             "category": "基础层-机会",
             "type": "positional",
             "score": 200,
+            "context_role": "bottom_opportunity",
             "description": "基础指标动态健康度在底部形成强力反转信号。"
         },
         "SCORE_FOUNDATION_TACTICAL_REVERSAL": {
@@ -696,6 +734,7 @@
             "category": "基础层-机会",
             "type": "dynamic",
             "score": 150,
+            "context_role": "bottom_opportunity",
             "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由基础指标健康、短期回调创造的战术性买入点。"
         },
         "SCORE_FOUNDATION_TOP_REVERSAL": {
@@ -703,6 +742,7 @@
             "category": "基础层-风险",
             "type": "risk",
             "penalty_weight": -400,
+            "context_role": "top_risk",
             "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
