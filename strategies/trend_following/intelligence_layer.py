@@ -521,9 +521,9 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.21 · 忒弥斯最终宣告协议版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 签署“忒弥斯最终宣告协议”，新增“最终审判”汇报模块，完美镜像引擎的
-                      max(防守分, 确认分)最终裁决逻辑，实现引擎与探针的终极统一。
+        【V1.22 · 乌拉诺斯穹顶协议版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 签署“乌拉诺斯穹顶协议”，顶部上下文解剖逻辑与主引擎完全同步，
+                      能够解剖“常规顶部风险”与“结构性顶部风险”的最终对决。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -560,7 +560,7 @@ class IntelligenceLayer:
             print(f"    - {ares_vol_ma_col:<12}: {ares_volume_ma}")
             print(f"    - {cooldown_vol_ma_col:<12}: {cooldown_volume_ma}")
         for period in ma_periods_to_probe:
-            col_name = f'EMA_{period}_D'
+            col_name = f'MA_{period}_D' # [代码修改] 使用 MA
             ma_value = df.get(col_name, pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
             if isinstance(ma_value, (float, np.floating)):
                 print(f"    - {col_name:<12}: {ma_value:.2f}")
@@ -568,7 +568,7 @@ class IntelligenceLayer:
                 print(f"    - {col_name:<12}: {ma_value}")
         print("\n  --- [天平左侧] 底部上下文解剖 ---")
         depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
-        ma55_lifeline = df.get('EMA_55_D', df['close_D'])
+        ma55_lifeline = df.get('MA_55_D', df['close_D']) # [代码修改] 使用 MA
         is_deep_bearish_zone = (df['close_D'] < ma55_lifeline * (1 - depth_threshold)).astype(float)
         ma55_slope = ma55_lifeline.diff(3).fillna(0)
         slope_moderator = (0.5 + 0.5 * np.tanh(ma55_slope * 100)).fillna(0.5)
@@ -599,7 +599,7 @@ class IntelligenceLayer:
         defense_volume_weight = get_param_value(gaia_params.get('defense_volume_weight'), 0.3)
         confirmation_score = get_param_value(gaia_params.get('confirmation_score'), 0.8)
         aegis_quality_bonus_factor = get_param_value(gaia_params.get('aegis_quality_bonus_factor'), 0.25)
-        g_ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
+        g_ma_cols = [f'MA_{p}_D' for p in support_levels if f'MA_{p}_D' in df.columns] # [代码修改] 使用 MA
         g_ma_df = df[g_ma_cols]
         g_ma_df_below_price = g_ma_df.where(g_ma_df.le(df['close_D'], axis=0))
         g_acting_lifeline = g_ma_df_below_price.max(axis=1).ffill()
@@ -607,8 +607,6 @@ class IntelligenceLayer:
         g_valid_indices = g_acting_lifeline.dropna().index
         g_upper_bound = g_acting_lifeline[g_valid_indices] * (1 + influence_zone_pct)
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
-        # 探针同步最终审判逻辑
-        # 步骤1: 计算独立防守分
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
         g_is_yang_line = df['close_D'] > df['open_D']
         g_lower_shadow = df['close_D'] - df['low_D']
@@ -623,7 +621,6 @@ class IntelligenceLayer:
         g_defense_quality_score.loc[g_base_defense_condition & g_has_dominance & g_has_volume_spike] += defense_volume_weight
         g_defense_quality_score.loc[g_is_in_influence_zone & g_is_cassandra_warning] = 0.0
         g_defense_quality_score = g_defense_quality_score.clip(0, 1.0)
-        # 步骤2: 计算独立确认分
         g_max_recent_defense_quality = g_defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
         g_is_standing_firm_in_zone = (df['close_D'] > g_acting_lifeline) & g_is_in_influence_zone
         g_is_confirmed_base = g_is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
@@ -635,8 +632,7 @@ class IntelligenceLayer:
             if idx > probe_date: break
             if pd.notna(g_last_confirmation_date) and (idx - g_last_confirmation_date).days < confirmation_cooldown_period:
                 if idx == probe_date: g_is_in_cooldown_on_probe_date = True
-                if g_is_cooldown_reset_signal.get(idx, False):
-                    g_last_confirmation_date = pd.NaT
+                if g_is_cooldown_reset_signal.get(idx, False): g_last_confirmation_date = pd.NaT
                 continue
             if g_is_confirmed_base.get(idx, False):
                 recent_quality = g_max_recent_defense_quality.get(idx, 0.0)
@@ -647,14 +643,12 @@ class IntelligenceLayer:
                     g_confirmation_score_series.loc[idx] = confirmation_score
                 g_last_confirmation_date = idx
         print(f"        - acting_lifeline (代理总指挥): {g_acting_lifeline.get(probe_date, np.nan):.4f}")
-        # 改造汇报逻辑
         print("        --- [防守质量解剖 (赫尔墨斯信使)] ---")
-        base_cond_val = g_base_defense_condition.get(probe_date, False)
-        yang_line_val = g_is_yang_line.get(probe_date, False)
-        dominance_val = g_has_dominance.get(probe_date, False)
-        volume_val = g_has_volume_spike.get(probe_date, False)
-        cassandra_val = g_is_cassandra_warning.get(probe_date, False)
-        in_zone_val = g_is_in_influence_zone.get(probe_date, False)
+        base_cond_val, yang_line_val, dominance_val, volume_val, cassandra_val, in_zone_val = (
+            g_base_defense_condition.get(probe_date, False), g_is_yang_line.get(probe_date, False),
+            g_has_dominance.get(probe_date, False), g_has_volume_spike.get(probe_date, False),
+            g_is_cassandra_warning.get(probe_date, False), g_is_in_influence_zone.get(probe_date, False)
+        )
         defense_score_today = g_defense_quality_score.get(probe_date, 0.0)
         print(f"          - 预警判定 (卡珊德拉): (在影响区内 {in_zone_val}) AND (上影>下影 AND 放量) -> {cassandra_val and in_zone_val}")
         if cassandra_val and in_zone_val:
@@ -680,10 +674,9 @@ class IntelligenceLayer:
         else:
             print(f"          - 审判类型: 无 (is_confirmed={is_confirmed_val}, in_cooldown={g_is_in_cooldown_on_probe_date})")
         print(f"          - 当日独立确认分: {confirmation_score_today:.4f}")
-        # 增加最终审判的汇报模块
         print("        --- [最终审判 (忒弥斯天平)] ---")
-        final_score = max(defense_score_today, confirmation_score_today)
-        print(f"          - 裁决: max(独立防守分, 独立确认分) = max({defense_score_today:.4f}, {confirmation_score_today:.4f}) = {final_score:.4f}")
+        final_gaia_score = max(defense_score_today, confirmation_score_today)
+        print(f"          - 裁决: max(独立防守分, 独立确认分) = max({defense_score_today:.4f}, {confirmation_score_today:.4f}) = {final_gaia_score:.4f}")
         print("        --- [冷却重置解剖 (哈迪斯面纱)] ---")
         reset_cond1 = g_upper_shadow.get(probe_date, 0) > g_lower_shadow.get(probe_date, 0)
         reset_cond2 = df.get('volume_D').get(probe_date, 0) > df.get(cooldown_vol_ma_col).get(probe_date, np.inf)
@@ -698,17 +691,15 @@ class IntelligenceLayer:
         final_bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score)
         print(f"    - [融合步骤1] 结构支撑分 (盖亚 vs 历史低点): {structural_support_score.get(probe_date, 0.0):.4f}")
         print(f"    - [最终裁决] 底部上下文总分 (常规 vs 结构): {final_bottom_context_score.get(probe_date, 0.0):.4f}")
+        # [代码修改] 以下是顶部上下文解剖的全新逻辑
         print("\n  --- [天平右侧] 顶部上下文解剖 ---")
-        atomic['strategy_instance_ref'] = self.strategy
-        _, top_context = calculate_context_scores(df, atomic)
-        del atomic['strategy_instance_ref']
-        ma55 = df.get('EMA_55_D', df['close_D'])
+        ma55 = df.get('MA_55_D', df['close_D'])
         rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
         wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
         stretch_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
         ma_periods = [5, 13, 21, 55]
-        short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
-        long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
+        short_ma_cols = [f'MA_{p}_D' for p in ma_periods[:-1]]
+        long_ma_cols = [f'MA_{p}_D' for p in ma_periods[1:]]
         if all(col in df for col in short_ma_cols + long_ma_cols):
             short_mas = df[short_ma_cols].values
             long_mas = df[long_ma_cols].values
@@ -727,10 +718,33 @@ class IntelligenceLayer:
         else:
             overheat_score = ((bias_abs - warning_threshold) / denominator).clip(0, 1)
         overheat_score = overheat_score.fillna(0.0)
-        print(f"    - [组件1] 价格拉伸分: {stretch_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [组件2] 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
-        print(f"    - [组件3] 乖离过热分 (绝对值): {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
-        print(f"    - [最终裁决] 顶部上下文总分: {top_context.get(probe_date, 0.0):.4f}")
+        conventional_top_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
+        print(f"    - [组件1] 常规顶部得分 (传统三因子融合): {conventional_top_score.get(probe_date, 0.0):.4f}")
+        print(f"      - 价格拉伸分: {stretch_score.get(probe_date, 0.0):.4f}")
+        print(f"      - 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
+        print(f"      - 乖离过热分: {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
+        uranus_ceiling_resistance_score = self._deploy_uranus_ceiling_probe(probe_date)
+        p_fib_resistance = get_params_block(strategy_instance_ref, 'fibonacci_resistance_params', {})
+        historical_high_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        if get_param_value(p_fib_resistance.get('enabled'), False):
+            fib_periods = get_param_value(p_fib_resistance.get('periods'), [34, 55, 89, 144, 233])
+            tolerance_pct = get_param_value(p_fib_resistance.get('tolerance_pct'), 0.01)
+            level_scores = get_param_value(p_fib_resistance.get('level_scores'), {})
+            trigger_mask = df['close_D'] > ma55_lifeline
+            for period in fib_periods:
+                period_str = str(period)
+                if period_str not in level_scores: continue
+                historical_high = df['close_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
+                resistance_line_upper = historical_high * (1 + tolerance_pct)
+                resistance_line_lower = historical_high * (1 - tolerance_pct)
+                is_rejected = (df['high_D'] >= resistance_line_lower) & (df['close_D'] <= resistance_line_upper)
+                score_mask = trigger_mask & is_rejected
+                historical_high_resistance_score.loc[score_mask] = np.maximum(historical_high_resistance_score.loc[score_mask], level_scores[period_str])
+        structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score.get(probe_date, 0.0))
+        print(f"    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
+        print(f"      - 历史高点阻力分: {historical_high_resistance_score.get(probe_date, 0.0):.4f}")
+        final_top_context_score = np.maximum(conventional_top_score.get(probe_date, 0.0), structural_resistance_score)
+        print(f"    - [最终裁决] 顶部上下文总分 (常规 vs 结构): {final_top_context_score:.4f}")
         print("\n--- “忒弥斯天平”称量完毕 ---")
 
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
@@ -859,6 +873,112 @@ class IntelligenceLayer:
         meta = score_map.get(dominant_signal_internal_name, {})
         return meta.get('type', 'unknown')
 
+    def _deploy_uranus_ceiling_probe(self, probe_date: pd.Timestamp):
+        """
+        [新增] “乌拉诺斯穹顶”法医探针
+        - 核心职责: 钻透式解剖“乌拉诺斯穹顶”动态阻力分 (uranus_ceiling_resistance_score) 的计算过程。
+        """
+        print("\n      --- [乌拉诺斯显微镜] 深入解剖 ---")
+        df = self.strategy.df_indicators
+        strategy_instance_ref = self.strategy
+        uranus_params = get_params_block(strategy_instance_ref, 'uranus_ceiling_params', {})
+        if not get_param_value(uranus_params.get('enabled'), False):
+            print("        - 乌拉诺斯穹顶系统在配置中被禁用。")
+            return
+        resistance_levels = get_param_value(uranus_params.get('resistance_levels'), [55, 89, 144, 233, 377])
+        confirmation_window = get_param_value(uranus_params.get('confirmation_window'), 3)
+        rejection_lookback_window = get_param_value(uranus_params.get('rejection_lookback_window'), 5)
+        confirmation_cooldown_period = get_param_value(uranus_params.get('confirmation_cooldown_period'), 10)
+        influence_zone_pct = get_param_value(uranus_params.get('influence_zone_pct'), 0.03)
+        rejection_base_score = get_param_value(uranus_params.get('rejection_base_score'), 0.4)
+        rejection_yin_line_weight = get_param_value(uranus_params.get('rejection_yin_line_weight'), 0.1)
+        rejection_dominance_weight = get_param_value(uranus_params.get('rejection_dominance_weight'), 0.2)
+        rejection_volume_weight = get_param_value(uranus_params.get('rejection_volume_weight'), 0.3)
+        confirmation_score = get_param_value(uranus_params.get('confirmation_score'), 0.8)
+        rejection_quality_bonus_factor = get_param_value(uranus_params.get('rejection_quality_bonus_factor'), 0.25)
+        cooldown_reset_volume_ma_period = get_param_value(uranus_params.get('cooldown_reset_volume_ma_period'), 55)
+        close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
+        ares_vol_ma_col = 'VOL_MA_5_D'
+        cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
+        ma_cols = [f'MA_{p}_D' for p in resistance_levels if f'MA_{p}_D' in df.columns]
+        ma_df = df[ma_cols]
+        ma_df_above_price = ma_df.where(ma_df.ge(df[close_col], axis=0))
+        acting_ceiling = ma_df_above_price.min(axis=1).ffill()
+        is_in_influence_zone = pd.Series(False, index=df.index)
+        valid_indices = acting_ceiling.dropna().index
+        lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
+        is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
+        print(f"        - acting_ceiling (代理天花板): {acting_ceiling.get(probe_date, np.nan):.4f}")
+        print("        --- [拒绝质量解剖 (阿波罗之箭)] ---")
+        base_rejection_condition = (df['high_D'] > acting_ceiling) & is_in_influence_zone & (df['close_D'] < df['high_D'])
+        is_yin_line = df['close_D'] < df['open_D']
+        lower_shadow = df['close_D'] - df['low_D']
+        upper_shadow = df['high_D'] - df['close_D']
+        has_dominance = upper_shadow > lower_shadow
+        has_volume_spike = df['volume_D'] > df[ares_vol_ma_col]
+        is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
+        rejection_quality_score = pd.Series(0.0, index=df.index)
+        rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
+        rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
+        rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
+        rejection_quality_score.loc[base_rejection_condition & has_dominance & has_volume_spike] += rejection_volume_weight
+        rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
+        rejection_quality_score = rejection_quality_score.clip(0, 1.0)
+        base_cond_val, yin_line_val, dominance_val, volume_val, apollo_val, in_zone_val = (
+            base_rejection_condition.get(probe_date, False), is_yin_line.get(probe_date, False),
+            has_dominance.get(probe_date, False), has_volume_spike.get(probe_date, False),
+            is_apollo_absorption.get(probe_date, False), is_in_influence_zone.get(probe_date, False)
+        )
+        rejection_score_today = rejection_quality_score.get(probe_date, 0.0)
+        print(f"          - 预警判定 (阿波罗吸收): (在影响区内 {in_zone_val}) AND (下影>上影 AND 放量) -> {apollo_val and in_zone_val}")
+        if apollo_val and in_zone_val:
+            print(f"          - 裁决: 触发阿波罗吸收，拒绝质量分强制归零。")
+        else:
+            print(f"          - 基础条件 (触顶+回落): {base_cond_val} -> 基础分 {rejection_base_score if base_cond_val else 0.0:.2f}")
+            print(f"          - 权重1 (空头宣告-收阴): {yin_line_val} -> 加分 {rejection_yin_line_weight if yin_line_val and base_cond_val else 0.0:.2f}")
+            print(f"          - 权重2 (空头胜利-上影优势): {dominance_val} -> 加分 {rejection_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
+            print(f"          - 权重3 (主力派发-放量): {volume_val and dominance_val} (需上影优势) -> 加分 {rejection_volume_weight if volume_val and dominance_val and base_cond_val else 0.0:.2f}")
+        print(f"          - 当日独立拒绝分: {rejection_score_today:.4f}")
+        print("        --- [确认压制评估 (哈迪斯之锁)] ---")
+        max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
+        is_failing_to_break = (df['close_D'] < acting_ceiling) & is_in_influence_zone
+        is_confirmed_rejection = is_failing_to_break.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+        is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df['volume_D'] > df[cooldown_vol_ma_col])
+        confirmation_score_series = pd.Series(0.0, index=df.index)
+        last_confirmation_date = pd.NaT
+        is_in_cooldown_on_probe_date = False
+        for idx in df.index:
+            if idx > probe_date: break
+            if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
+                if idx == probe_date: is_in_cooldown_on_probe_date = True
+                if is_cooldown_reset_signal.get(idx, False): last_confirmation_date = pd.NaT
+                continue
+            if is_confirmed_rejection.get(idx, False):
+                recent_quality = max_recent_rejection_quality.get(idx, 0.0)
+                if recent_quality > 0:
+                    rejection_score = confirmation_score + recent_quality * rejection_quality_bonus_factor
+                    confirmation_score_series.loc[idx] = min(rejection_score, 1.0)
+                else:
+                    confirmation_score_series.loc[idx] = confirmation_score
+                last_confirmation_date = idx
+        is_confirmed_val = is_confirmed_rejection.get(probe_date, False)
+        recent_quality_val = max_recent_rejection_quality.get(probe_date, 0.0)
+        confirmation_score_today = confirmation_score_series.get(probe_date, 0.0)
+        print(f"          - is_confirmed_rejection (是否满足压制天数): {is_confirmed_val}")
+        print(f"          - is_in_cooldown (是否处于确认冷却期): {is_in_cooldown_on_probe_date}")
+        print(f"          - 近期最高拒绝质量分 (lookback={rejection_lookback_window}d): {recent_quality_val:.4f}")
+        if not is_in_cooldown_on_probe_date and is_confirmed_val:
+            if recent_quality_val > 0:
+                print(f"          - 审判类型: 强化压制 (基础分 {confirmation_score:.2f} + 质量奖励 {recent_quality_val:.2f} * {rejection_quality_bonus_factor:.2f})")
+            else:
+                print(f"          - 审判类型: 常规压制 (固定分 {confirmation_score:.2f})")
+        else:
+            print(f"          - 审判类型: 无 (is_confirmed={is_confirmed_val}, in_cooldown={is_in_cooldown_on_probe_date})")
+        print(f"          - 当日独立确认分: {confirmation_score_today:.4f}")
+        print("        --- [最终审判 (塔纳托斯之镰)] ---")
+        final_score = max(rejection_score_today, confirmation_score_today)
+        print(f"          - 裁决: max(独立拒绝分, 独立确认分) = max({rejection_score_today:.4f}, {confirmation_score_today:.4f}) = {final_score:.4f}")
+        return final_score
 
 
 
