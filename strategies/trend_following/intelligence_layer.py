@@ -878,16 +878,18 @@ class IntelligenceLayer:
 
     def _deploy_uranus_ceiling_probe(self, probe_date: pd.Timestamp):
         """
-        [新增] “乌拉诺斯穹顶”法医探针
-        - 核心职责: 钻透式解剖“乌拉诺斯穹顶”动态阻力分 (uranus_ceiling_resistance_score) 的计算过程。
+        【V1.1 · 寻址同步版】“乌拉诺斯穹顶”法医探针
+        - 核心修复: 修正了参数的读取路径，确保其与主引擎和忒弥斯天平探针的寻址逻辑完全一致。
         """
         print("\n      --- [乌拉诺斯显微镜] 深入解剖 ---")
         df = self.strategy.df_indicators
         strategy_instance_ref = self.strategy
-        uranus_params = get_params_block(strategy_instance_ref, 'uranus_ceiling_params', {})
+        # [代码修改] 修正参数读取路径，确保与主引擎和父探针一致
+        p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
+        uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
         if not get_param_value(uranus_params.get('enabled'), False):
             print("        - 乌拉诺斯穹顶系统在配置中被禁用。")
-            return 0.0 # [代码修改] 修复致命错误：确保在禁用时返回一个数值 0.0 而不是 None
+            return 0.0
         resistance_levels = get_param_value(uranus_params.get('resistance_levels'), [55, 89, 144, 233, 377])
         confirmation_window = get_param_value(uranus_params.get('confirmation_window'), 3)
         rejection_lookback_window = get_param_value(uranus_params.get('rejection_lookback_window'), 5)
