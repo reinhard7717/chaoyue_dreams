@@ -54,61 +54,52 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.7 · 统一计分法典版】
-        - 核心升级: 进攻项和风险项的来源统一。现在进攻项来自 score_details_df，风险项来自 risk_details_df。
+        【V3.8 · 赫尔墨斯净化协议版】
+        - 核心修复: 在进行数值计算和类型转换前，强制对所有可能为NaN的值进行净化处理。
+        - 核心逻辑: 在 get_risk_contribution 函数中，对 row['score'] 和 base_score 使用 .fillna(0) 或默认值。
+        - 收益: 彻底解决了因上游信号出现 NaN 值而导致的 ValueError 运行时崩溃问题。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        
         def process_details_df(details_df, is_risk_df=False):
             if details_df is None or details_df.empty: return pd.Series(dtype=object)
-            
-            # 筛选出非零分数的列，以提高效率
             active_cols = details_df.columns[(details_df != 0).any()]
             if active_cols.empty: return pd.Series(dtype=object)
-            
             long_df = details_df[active_cols].melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            long_df = long_df[long_df['score'] != 0].copy()
-
+            # [代码修改] 在处理前先用fillna(0)净化score列，避免后续操作因NaN出错
+            long_df = long_df[long_df['score'].fillna(0) != 0].copy()
             if long_df.empty: return pd.Series(dtype=object)
-            
             date_col_name = long_df.columns[0]
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
-            
-            # 根据是否为风险，决定分数的处理方式
             if is_risk_df:
-                # 风险信号的原始分是[0,1]，需要乘以其负分权重
                 def get_risk_contribution(row):
                     meta = score_map.get(row['signal'], {})
-                    base_score = meta.get('score', 0) # 风险信号的score是负数
-                    return int(row['score'] * base_score)
+                    # [代码修改] 对 base_score 和 row['score'] 进行健壮性处理
+                    base_score = meta.get('score', 0) if isinstance(meta, dict) else 0
+                    current_score = row.get('score', 0)
+                    # 确保在乘法前两者都是有效数值
+                    if pd.isna(current_score):
+                        current_score = 0.0
+                    return int(current_score * base_score)
                 long_df['contribution'] = long_df.apply(get_risk_contribution, axis=1)
             else:
-                # 进攻信号的score已经是贡献值
-                long_df['contribution'] = long_df['score'].astype(int)
-
+                # [代码修改] 对进攻项也进行净化
+                long_df['contribution'] = long_df['score'].fillna(0).astype(int)
+            # [代码修改] 过滤掉贡献值为0的项
+            long_df = long_df[long_df['contribution'] != 0]
             long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': row['contribution']}, axis=1)
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
-
-        # 进攻项来自 score_details_df，风险项来自 risk_details_df
         offense_summaries = process_details_df(score_details_df, is_risk_df=False)
         risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
-
         summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
-        
         def generate_final_summary(row):
             final_signal_type = signal_type_series.get(row.name)
-            # 只有在最终信号是买入时才展示进攻项
             if final_signal_type == '买入信号':
                 offense_list = row['offense'] if isinstance(row['offense'], list) else []
             else:
                 offense_list = []
-            
-            # 风险项总是展示
             risk_list = row['risk'] if isinstance(row['risk'], list) else []
-            
             return {'offense': offense_list, 'risk': risk_list}
-
         return summary_df.apply(generate_final_summary, axis=1)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
