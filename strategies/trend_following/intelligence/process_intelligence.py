@@ -161,21 +161,18 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.0.0 核心诊断 - 第二维】对“关系分”进行元分析，输出[-1, 1]双极分数。
+        【V2.1.0 · 形而上探针版】对“关系分”进行元分析，输出[-1, 1]双极分数。
+        - 核心升级: 部署“形而上探针”，在目标日期对“价与散户恐慌”信号的元分析过程进行钻透式解剖。
         """
         signal_name = config.get('name')
         df_index = df.index
-        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return {}
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
         relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
         relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-
-        # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
         bipolar_trend_strength = normalize_to_bipolar(
             series=relationship_trend,
             target_index=df_index,
@@ -188,14 +185,39 @@ class ProcessIntelligence:
             window=self.norm_window,
             sensitivity=self.bipolar_sensitivity
         )
-
-        # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
         trend_weight = self.meta_score_weights[0]
         accel_weight = self.meta_score_weights[1]
-
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险
-
+        meta_score = meta_score.clip(-1, 1).astype(np.float32)
+        # [代码新增] 部署“形而上”探针
+        if config.get('name') == 'PROCESS_META_PRICE_VS_RETAIL_PANIC':
+            debug_params = get_params_block(self.strategy, 'debug_params', {})
+            probe_dates_str = debug_params.get('probe_dates', [])
+            probe_dates_naive = [pd.to_datetime(d) for d in probe_dates_str]
+            probe_dates = []
+            if df.index.tz is not None:
+                for d in probe_dates_naive:
+                    try:
+                        probe_dates.append(d.tz_localize(df.index.tz))
+                    except TypeError:
+                        probe_dates.append(d.tz_convert(df.index.tz))
+            else:
+                probe_dates = probe_dates_naive
+            for date in probe_dates:
+                if date in df.index and date.date() == pd.to_datetime('2025-09-17').date():
+                    print(f"\n      -> [形而上探针 @ {date.date()}] 信号: PROCESS_META_PRICE_VS_RETAIL_PANIC")
+                    print(f"         --- [第一层: 瞬时关系] ---")
+                    print(f"         - 瞬时关系分 (relationship_score): {relationship_score.loc[date]:.4f}")
+                    print(f"         --- [第二层: 趋势与加速度] ---")
+                    print(f"         - 关系趋势 (relationship_trend): {relationship_trend.loc[date]:.4f}")
+                    print(f"         - 关系加速度 (relationship_accel): {relationship_accel.loc[date]:.4f}")
+                    print(f"         --- [第三层: 归一化] ---")
+                    print(f"         - 趋势强度 (bipolar_trend_strength): {bipolar_trend_strength.loc[date]:.4f}")
+                    print(f"         - 加速度强度 (bipolar_accel_strength): {bipolar_accel_strength.loc[date]:.4f}")
+                    print(f"         --- [第四层: 终极融合] ---")
+                    print(f"         - 融合公式: (趋势强度 * {trend_weight:.2f}) + (加速度强度 * {accel_weight:.2f})")
+                    print(f"         - 计算过程: ({bipolar_trend_strength.loc[date]:.4f} * {trend_weight:.2f}) + ({bipolar_accel_strength.loc[date]:.4f} * {accel_weight:.2f})")
+                    print(f"         - 最终元分数 (meta_score): {meta_score.loc[date]:.4f}\n")
         return {signal_name: meta_score}
 
     def _diagnose_strategy_sync(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
