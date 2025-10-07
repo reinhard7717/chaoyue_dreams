@@ -19,19 +19,19 @@ class ProcessIntelligence:
     """
     def __init__(self, strategy_instance):
         """
-        【V3.0.0 · 创世纪版】
+        【V3.1.0 · 法典统一版】
         - 核心升级: 注入四种全新的、深刻的“关系对”诊断任务，从底层重塑系统对市场博弈的理解。
-                      这包括：权力转移、隐秘吸筹、赢家信念、投降仪式。
+        - 核心修复: 强制加载并持有 score_type_map，确保所有诊断都遵循唯一的“信号法典”。
         """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
+        # [代码新增] 加载唯一的、权威的信号元数据字典
+        self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
         self.norm_window = get_param_value(self.params.get('norm_window'), 55)
         self.std_window = get_param_value(self.params.get('std_window'), 21)
         self.meta_window = get_param_value(self.params.get('meta_window'), 5)
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
-        
-        # 定义四种全新的、深刻的“关系对”诊断任务
         genesis_diagnostics = [
             {
                 "name": "PROCESS_META_POWER_TRANSFER", # 权力转移 (主力 vs 散户)
@@ -66,7 +66,6 @@ class ProcessIntelligence:
                 "description": "套牢盘最终放弃希望，不计成本卖出的过程。"
             }
         ]
-        
         default_diagnostics = get_param_value(self.params.get('diagnostics'), [])
         self.diagnostics_config = default_diagnostics + genesis_diagnostics
 
@@ -147,9 +146,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.1.0 · 语义感知版】对“关系分”进行元分析，输出分数。
-        - 核心修复: 引擎现在会读取配置中的 'scoring_mode'。如果为 'unipolar'，
-                      则会将最终的 meta_score 裁剪至 [0, 1] 区间，确保事件型信号只产生正面贡献。
+        【V2.2.0 · 法典统一版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 不再从计算配置中错误地读取 scoring_mode，而是从唯一的、权威的
+                      self.score_type_map (信号法典) 中获取，确保语义正确。
         - 收益: 彻底修复了因错误惩罚“隐秘吸筹”等单极性事件而导致在关键拐点分数过低的致命BUG。
         """
         signal_name = config.get('name')
@@ -180,8 +179,9 @@ class ProcessIntelligence:
         trend_weight = self.meta_score_weights[0]
         accel_weight = self.meta_score_weights[1]
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        # [代码修改] 新增语义感知逻辑
-        scoring_mode = config.get('scoring_mode', 'bipolar')
+        # 从权威的 self.score_type_map 获取信号元数据和计分模式
+        signal_meta = self.score_type_map.get(signal_name, {})
+        scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险

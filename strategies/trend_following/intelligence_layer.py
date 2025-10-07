@@ -582,10 +582,10 @@ class IntelligenceLayer:
         cycle_trough_score = (1 - cycle_phase) / 2.0
         context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
         bottom_context_score_raw = (deep_bottom_context_score**context_weights['price_pos'] * rsi_w_oversold_score**context_weights['rsi_w'] * cycle_trough_score**context_weights['cycle'])
-        # [代码修改] 补全 conventional_bottom_score 的计算
+        # 补全 conventional_bottom_score 的计算
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
-        # [代码修改] 补全 gaia_bedrock_support_score 的计算
+        # 补全 gaia_bedrock_support_score 的计算
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
@@ -884,7 +884,7 @@ class IntelligenceLayer:
         print("\n      --- [乌拉诺斯显微镜] 深入解剖 ---")
         df = self.strategy.df_indicators
         strategy_instance_ref = self.strategy
-        # [代码修改] 修正参数读取路径，确保与主引擎和父探针一致
+        # 修正参数读取路径，确保与主引擎和父探针一致
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
         uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
         if not get_param_value(uranus_params.get('enabled'), False):

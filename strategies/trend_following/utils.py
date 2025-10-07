@@ -245,7 +245,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
-    # [代码修改] 修正斐波那契支撑参数的读取路径
+    # 修正斐波那契支撑参数的读取路径
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
@@ -280,10 +280,10 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     overheat_score = overheat_score.fillna(0.0)
     conventional_top_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
     # 步骤2: 计算全新的结构性顶部阻力分数
-    # [代码修改] 修正参数读取路径，从 p_synthesis 内部获取，与 gaia_params 保持对称
+    # 修正参数读取路径，从 p_synthesis 内部获取，与 gaia_params 保持对称
     uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
     uranus_ceiling_resistance_score = _calculate_uranus_ceiling_resistance(df, uranus_params)
-    # [代码修改] 修正参数读取路径，从 p_synthesis 内部获取
+    # 修正参数读取路径，从 p_synthesis 内部获取
     p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
     historical_high_resistance_score = _calculate_historical_high_resistance(df, p_fib_resistance)
     structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score).astype(np.float32)

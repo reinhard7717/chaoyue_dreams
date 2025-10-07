@@ -35,7 +35,7 @@ class OffensiveLayer:
                     processed_signal_series = signal_series.astype(float)
                     context_role = meta.get('context_role', 'neutral')
                     
-                    # [代码修改] 修正风险信号的压制逻辑
+                    # 修正风险信号的压制逻辑
                     if context_role == 'top_risk' and score_value < 0:
                         suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
