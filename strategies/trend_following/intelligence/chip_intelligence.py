@@ -37,21 +37,17 @@ class ChipIntelligence:
 
     def diagnose_unified_chip_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V22.1 · 赫尔墨斯之翼优化版】筹码终极信号诊断引擎
-        - 性能优化: 1. 将普通几何平均的计算统一为更数值稳定的log-exp形式。
-                      2. 确保所有Numpy和Pandas操作都输出为内存效率更高的float32类型。
-        - 核心逻辑: 保持动态权重融合的核心逻辑不变，确保在部分数据支柱缺失时系统依然稳健。
+        【V22.2 · 哈迪斯协议版】筹码终极信号诊断引擎
+        - 核心升级: 签署“哈迪斯协议”，将每个支柱的独立健康度上报至 atomic_states，
+                      为“哈迪斯凝视”风险探针提供数据源。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        
-        # 步骤一：计算所有子维度的健康度
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'quantitative': self._calculate_quantitative_health,
@@ -60,55 +56,44 @@ class ChipIntelligence:
             'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
+        domain_upper = "CHIP" # [代码新增] 定义领域名称
         for name, calculator in calculators.items():
-            # 注意：此处的dynamic_weights参数在优化后已不再需要，为保持签名兼容性暂时保留
             s_bull, s_bear, d_intensity = calculator(df, norm_window, {}, periods)
+            # [代码新增] 哈迪斯协议：上报每个支柱的独立健康度
+            self.strategy.atomic_states[f'_PILLAR_HEALTH_{domain_upper}_{name}'] = {
+                's_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity
+            }
             health_data['s_bull'].append((name, s_bull)) 
             health_data['s_bear'].append((name, s_bear)) 
             health_data['d_intensity'].append((name, d_intensity))
-            
-        # 步骤二：对每个健康度类型进行多维度融合
         overall_health = {}
         use_equal_weights = not pillar_weights or sum(pillar_weights.values()) == 0
-        
         for health_type, health_sources_with_names in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
-                # 动态构建当前周期有效的支柱列表和权重列表
                 valid_pillars = []
                 valid_weights = []
                 for name, pillar_dict in health_sources_with_names:
                     if p in pillar_dict:
                         valid_pillars.append(pillar_dict[p].values)
                         valid_weights.append(pillar_weights.get(name, 0))
-
                 if not valid_pillars:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
                     continue
-
                 stacked_values = np.stack(valid_pillars, axis=0)
-                # 为避免log(0)错误，给所有值增加一个极小量
                 safe_stacked_values = np.maximum(stacked_values, 1e-9)
-                
                 if use_equal_weights:
-                    # 使用log-exp方式计算几何平均，以提高数值稳定性并统一代码路径
                     fused_values = np.exp(np.mean(np.log(safe_stacked_values), axis=0))
                 else:
                     weights_array = np.array(valid_weights)
                     total_weight = weights_array.sum()
                     if total_weight > 0:
                         normalized_weights = weights_array / total_weight
-                        # 计算加权几何平均
                         fused_values = np.exp(np.sum(np.log(safe_stacked_values) * normalized_weights[:, np.newaxis], axis=0))
                     else:
-                        # 权重和为0时，退化为数值稳定的标准几何平均
                         fused_values = np.exp(np.mean(np.log(safe_stacked_values), axis=0))
-
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-
         self.strategy.atomic_states['__CHIP_overall_health'] = overall_health
-        
-        # 步骤三：调用终极信号合成引擎
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,

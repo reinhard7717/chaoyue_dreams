@@ -91,10 +91,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.2 · 赫尔墨斯信使协议版】法医探针调度中心
-        - 核心升级: 签署“赫尔墨斯信使协议”。在部署探针前，预先计算权威的上下文分数，
-                      并将其作为“信使”传递给“宙斯之雷”探针，确保探针的解剖逻辑与
-                      主引擎的计分逻辑完全同步。
+        【V2.3 · 哈迪斯协议版】法医探针调度中心
+        - 核心升级: 新增对“哈迪斯凝视”风险探针的自动调度能力。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -106,8 +104,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.2] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        # 赫尔墨斯信使协议：预先计算并准备好要传递的上下文分数
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.3] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         from .utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.strategy.df_indicators, self.strategy.atomic_states)
         for probe_date_str in probe_dates_list:
@@ -127,8 +124,14 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            # 将上下文分数作为“信使”传递给探针
             self._deploy_zeus_thunderbolt_probe(probe_date, bottom_context_score, top_context_score)
+            # [代码新增] 自动调度“哈迪斯凝视”探针
+            if probe_date_str == '2025-09-17':
+                print("\n" + "="*25 + f" 检测到特定风险日期，启动哈迪斯凝视探针 " + "="*25)
+                self._deploy_hades_gaze_probe(probe_date, 'CHIP', 'BEARISH_RESONANCE')
+                self._deploy_hades_gaze_probe(probe_date, 'CHIP', 'TOP_REVERSAL')
+                self._deploy_hades_gaze_probe(probe_date, 'FUND_FLOW', 'BEARISH_RESONANCE')
+                self._deploy_hades_gaze_probe(probe_date, 'FUND_FLOW', 'TOP_REVERSAL')
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):
@@ -985,6 +988,103 @@ class IntelligenceLayer:
         print(f"          - 裁决: max(独立拒绝分, 独立确认分) = max({rejection_score_today:.4f}, {confirmation_score_today:.4f}) = {final_score:.4f}")
         return final_score
 
+    def _deploy_hades_gaze_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
+        """
+        【V1.0 · 新增】“哈迪斯凝视”终极风险探针
+        - 核心职责: 钻透式解剖终极风险信号，揭示其从支柱健康度到最终分数的完整计算链路。
+        - 调用示例: self._deploy_hades_gaze_probe(probe_date, 'CHIP', 'BEARISH_RESONANCE')
+        """
+        domain_upper = domain.upper()
+        signal_name = f'SCORE_{domain_upper}_{signal_type}'
+        print(f"\n--- [探针] 正在启用: 💀【哈迪斯凝视】💀 -> 解剖信号【{signal_name}】 ---")
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        def get_val(name, date, default=np.nan):
+            series = atomic.get(name)
+            if series is None: return default
+            return series.get(date, default)
+        # 链路层 1: 获取最终信号值
+        final_score_raw = get_val(signal_name, probe_date, 0.0)
+        score_map = get_params_block(self.strategy, 'score_type_map', {})
+        signal_meta = score_map.get(signal_name, {})
+        base_score = signal_meta.get('penalty_weight', signal_meta.get('score', 0))
+        final_score_contribution = final_score_raw * base_score
+        print(f"\n  [链路层 1] 最终风险贡献: {final_score_contribution:.0f}")
+        print(f"    - [公式]: 原始信号值 * 基础分")
+        print(f"    - [计算]: {final_score_raw:.4f} * {base_score} = {final_score_contribution:.2f}")
+        # 链路层 2: 反推到中央合成引擎的输出
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        resonance_tf_weights = get_param_value(p_synthesis.get('resonance_tf_weights'), {})
+        reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {})
+        overall_health_cache = atomic.get(f'__{domain_upper}_overall_health', {})
+        if not overall_health_cache:
+            print("    - [探针错误] 无法找到领域健康度缓存。解剖终止。")
+            return
+        # 提取探针日的整体健康度
+        s_bull_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bull', {}).items()}
+        s_bear_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bear', {}).items()}
+        d_intensity_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('d_intensity', {}).items()}
+        # 重算融合后的三维健康度
+        short_force_bull = (s_bull_health.get(1, 0.5) * s_bull_health.get(5, 0.5))**0.5
+        medium_trend_bull = (s_bull_health.get(13, 0.5) * s_bull_health.get(21, 0.5))**0.5
+        long_inertia_bull = s_bull_health.get(55, 0.5)
+        overall_bullish_health = (short_force_bull**resonance_tf_weights.get('short', 0.2) * 
+                                  medium_trend_bull**resonance_tf_weights.get('medium', 0.5) * 
+                                  long_inertia_bull**resonance_tf_weights.get('long', 0.3))
+        short_force_bear = (s_bear_health.get(1, 0.5) * s_bear_health.get(5, 0.5))**0.5
+        medium_trend_bear = (s_bear_health.get(13, 0.5) * s_bear_health.get(21, 0.5))**0.5
+        long_inertia_bear = s_bear_health.get(55, 0.5)
+        overall_bearish_health = (short_force_bear**resonance_tf_weights.get('short', 0.2) * 
+                                  medium_trend_bear**resonance_tf_weights.get('medium', 0.5) * 
+                                  long_inertia_bear**resonance_tf_weights.get('long', 0.3))
+        short_force_dyn = (d_intensity_health.get(1, 0.5) * d_intensity_health.get(5, 0.5))**0.5
+        medium_trend_dyn = (d_intensity_health.get(13, 0.5) * d_intensity_health.get(21, 0.5))**0.5
+        long_inertia_dyn = d_intensity_health.get(55, 0.5)
+        overall_dynamic_intensity = (short_force_dyn**resonance_tf_weights.get('short', 0.2) * 
+                                     medium_trend_dyn**resonance_tf_weights.get('medium', 0.5) * 
+                                     long_inertia_dyn**resonance_tf_weights.get('long', 0.3))
+        print(f"\n  [链路层 2] 反推 -> 中央合成引擎 (transmute_health_to_ultimate_signals)")
+        if signal_type == 'BEARISH_RESONANCE':
+            recalc_raw_score = overall_bearish_health * overall_dynamic_intensity
+            print(f"    - [公式]: 看跌共振 = 整体看跌健康度 * 整体动态强度")
+            print(f"    - [计算]: {overall_bearish_health:.4f} * {overall_dynamic_intensity:.4f} = {recalc_raw_score:.4f}")
+        elif signal_type == 'TOP_REVERSAL':
+            recalc_raw_score = overall_bearish_health * (1.0 - overall_bullish_health)
+            print(f"    - [公式]: 顶部反转 = 整体看跌健康度 * (1 - 整体看涨健康度)")
+            print(f"    - [计算]: {overall_bearish_health:.4f} * (1.0 - {overall_bullish_health:.4f}) = {recalc_raw_score:.4f}")
+        else:
+            print(f"    - [探针警告] 不支持的风险信号类型: {signal_type}")
+            return
+        print(f"    - [对比]: 实际原始值 {final_score_raw:.4f} vs 重算原始值 {recalc_raw_score:.4f}")
+        print(f"\n  [链路层 3] 钻透 -> 整体三维健康度来源")
+        print(f"    - 整体看涨健康度 (s_bull): {overall_bullish_health:.4f}")
+        print(f"    - 整体看跌健康度 (s_bear): {overall_bearish_health:.4f}  <-- 风险的主要来源之一")
+        print(f"    - 整体动态强度 (d_intensity): {overall_dynamic_intensity:.4f}  <-- 风险的主要来源之一")
+        print(f"\n  [链路层 4] 终极解剖 -> 各支柱健康度贡献 (以5日周期为例)")
+        pillar_configs = {
+            'CHIP': ['quantitative', 'advanced', 'internal', 'holder', 'fault'],
+            'FUND_FLOW': ['consensus', 'conviction', 'conflict', 'sentiment'],
+            'DYN': ['volatility', 'efficiency', 'momentum', 'inertia'],
+            'STRUCTURE': ['ma', 'mechanics', 'mtf', 'pattern'],
+            'BEHAVIOR': ['price', 'volume', 'kline'],
+            'FOUNDATION': ['ema', 'rsi', 'macd', 'cmf']
+        }
+        pillars = pillar_configs.get(domain_upper, [])
+        if not pillars:
+            print(f"    - [探针警告] 未找到领域 {domain_upper} 的支柱配置。")
+            return
+        print(f"    {'Pillar':<15} | {'s_bull':<10} | {'s_bear':<10} | {'d_intensity':<10}")
+        print(f"    {'-'*15} | {'-'*10} | {'-'*10} | {'-'*10}")
+        for pillar_name in pillars:
+            pillar_health = atomic.get(f'_PILLAR_HEALTH_{domain_upper}_{pillar_name}')
+            if not pillar_health:
+                print(f"    {pillar_name:<15} | {'N/A':<10} | {'N/A':<10} | {'N/A':<10}")
+                continue
+            s_b = pillar_health.get('s_bull', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
+            s_br = pillar_health.get('s_bear', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
+            d_i = pillar_health.get('d_intensity', {}).get(5, pd.Series(0.5)).get(probe_date, 0.5)
+            print(f"    {pillar_name:<15} | {s_b:<10.4f} | {s_br:<10.4f} | {d_i:<10.4f}")
+        print("\n--- “哈迪斯凝视”解剖完毕 ---")
 
 
 
