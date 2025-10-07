@@ -21,16 +21,12 @@ class JudgmentLayer:
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
         # 步骤 1: 计算基础最终得分 (保持浮点数)
-        debug_print(df.index[-1], f"进入审判庭。初始 entry_score: {df['entry_score'].iloc[-1]:.4f}")
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
         df['final_score'] = df['entry_score'] * confidence_damper # 结果是浮点数
-        for idx, row in df.iterrows():
-            if idx.date() in probe_dates:
-                debug_print(idx, f"奇美拉衰减计算: entry_score({row['entry_score']:.4f}) * damper({confidence_damper.get(idx, 1.0):.2f}) -> pre_final_score: {row['final_score']:.4f}")
         # 步骤 2: 进行风险裁决
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
@@ -46,9 +42,6 @@ class JudgmentLayer:
         # 步骤 4: 根据信号类型修正分数
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        for idx, row in df[alert_veto_condition].iterrows():
-            if idx.date() in probe_dates:
-                debug_print(idx, f"风险否决触发！final_score 从 {row['final_score']:.4f} 被强制清零。")
         df.loc[alert_veto_condition, 'final_score'] = 0.0 # 清零也用浮点数
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
@@ -56,20 +49,13 @@ class JudgmentLayer:
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
         # [代码新增] 步骤 5: 统一度量衡 - 在所有计算结束后，进行最终的四舍五入和类型转换
-        for idx, row in df.iterrows():
-            if idx.date() in probe_dates:
-                debug_print(idx, f"最终裁决完成。Signal_Type: '{row['signal_type']}', 浮点分: {row['final_score']:.4f}")
         # 应用“审判补丁”：在转换类型前，用0填充所有NaN值
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
-        for idx, row in df.iterrows():
-            if idx.date() in probe_dates:
-                debug_print(idx, f"统一度量衡后 -> 最终整数分: {row['final_score']}")
         # 步骤 6: 生成人类可读的摘要报告
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         # 步骤 7: 终结信号
         self._finalize_signals()
-        debug_print(df.index[-1], "审判流程结束。")
-
+ 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
         【V3.9.1 · 奥德修斯之眼协议版】
