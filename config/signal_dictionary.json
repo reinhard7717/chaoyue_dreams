@@ -61,7 +61,7 @@
             "cn_name": "【预测风险】高潮衰竭",
             "category": "预测层-风险",
             "type": "risk",
-            "penalty_weight": 5000,
+            "penalty_weight": -5000,
             "description": "【先知信号】在T日预测T+1崩盘风险。融合了极度亢奋、天量和冲高回落三大“崩盘前夜”特征，是最高优先级的风险预警。"
         },
         "PREDICTIVE_OPP_CAPITULATION_REVERSAL": {
@@ -249,7 +249,7 @@
             "cn_name": "【认知风险】亢奋加速",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 3000,
+            "penalty_weight": -3000,
             "description": "【圣杯版】智慧型亢奋风险。仅当趋势进入“高度成熟”阶段后，市场的快速加速才会被视为危险的力竭信号。在趋势早期，此风险会被有效抑制。"
         },
         "COGNITIVE_FUSED_RISK_SCORE": {
@@ -270,7 +270,7 @@
             "cn_name": "【认知风险】终极看跌确认",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 700,
+            "penalty_weight": -700,
             "description": "【B级冲突信号】融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION": {
@@ -284,7 +284,7 @@
             "cn_name": "【认知风险】终极顶部确认",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 600,
+            "penalty_weight": -600,
             "description": "【B级冲突信号】融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
         },
         "COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE": {
@@ -298,7 +298,7 @@
             "cn_name": "【认知风险】奇美拉冲突",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": 800,
+            "penalty_weight": -800,
             "description": "【B级冲突信号】量化“牛熊冲突”的激烈程度，当看涨和看跌力量同时处于高位时，此分值会很高。它将作为“信心阻尼器”压制进攻分，并作为一个独立的、强烈的风险信号。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
@@ -327,7 +327,7 @@
             "cn_name": "【微观风险】主导权转移(散户)",
             "category": "微观行为-风险",
             "type": "risk",
-            "penalty_weight": 2000,
+            "penalty_weight": -2000,
             "description": "交易颗粒度与集中度加速下降，市场主导权正从主力向散户转移，是经典的顶部派发风险。"
         },
         "COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING": {
@@ -341,14 +341,14 @@
             "cn_name": "【微观风险】主力信念瓦解",
             "category": "微观行为-风险",
             "type": "risk",
-            "penalty_weight": 2000,
+            "penalty_weight": -2000,
             "description": "核心主力(特大单)的买入意愿正在加速衰减，是比资金净流出更灵敏的顶部预警信号。"
         },
         "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": {
             "cn_name": "【微观风险】高位回落",
             "category": "微观行为-风险",
             "type": "risk",
-            "penalty_weight": 2800,
+            "penalty_weight": -2800,
             "description": "【重大风险】识别股价在经历上涨到达高位后，开始下跌的风险。此信号会施加严厉的惩罚。"
         },
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
@@ -495,7 +495,7 @@
             "cn_name": "【筹码终极风险】看跌共振",
             "category": "筹码层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】所有筹码支柱在所有周期上形成看跌共振。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
@@ -516,7 +516,7 @@
             "cn_name": "【筹码终极风险】顶部反转",
             "category": "筹码层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】筹码动态健康度在顶部形成强力反转风险。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
@@ -531,7 +531,7 @@
             "cn_name": "【行为终极风险】看跌共振",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】价格、成交量、K线形态在所有周期上形成看跌共振。"
         },
         "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
@@ -552,7 +552,7 @@
             "cn_name": "【行为终极风险】顶部反转",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】行为动态健康度在顶部形成强力反转风险。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
@@ -567,7 +567,7 @@
             "cn_name": "【资金终极风险】看跌共振",
             "category": "资金流-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FF_BOTTOM_REVERSAL": {
@@ -588,7 +588,7 @@
             "cn_name": "【资金终极风险】顶部反转",
             "category": "资金流-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】在价格顶部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转风险。"
         },
         "说明_structural_ultimate": "--- 结构层-终极信号 ---",
@@ -603,7 +603,7 @@
             "cn_name": "【结构终极风险】看跌共振",
             "category": "结构层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看跌共振。"
         },
         "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
@@ -624,7 +624,7 @@
             "cn_name": "【结构终极风险】顶部反转",
             "category": "结构层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】结构动态健康度在顶部形成强力反转风险。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
@@ -639,7 +639,7 @@
             "cn_name": "【力学终极风险】看跌共振",
             "category": "力学层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看跌共振。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
@@ -660,7 +660,7 @@
             "cn_name": "【力学终极风险】顶部反转",
             "category": "力学层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】力学动态健康度在顶部形成强力反转风险。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
@@ -675,7 +675,7 @@
             "cn_name": "【基础终极风险】看跌共振",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看跌共振。"
         },
         "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
@@ -696,7 +696,7 @@
             "cn_name": "【基础终极风险】顶部反转",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": 400,
+            "penalty_weight": -400,
             "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
@@ -759,7 +759,7 @@
             "cn_name": "【基础风险】波动率崩溃风险",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": 100,
+            "penalty_weight": -100,
             "description": "波动率高度扩张且市场处于震荡政权，是向下崩溃的高风险状态。"
         },
         "SCORE_TRENDING_REGIME": {

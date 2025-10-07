@@ -11,15 +11,18 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V528.0 · 退位诏书版】
-        - 核心革命: 签署“退位诏书”，剥夺“先知信号”篡夺“趋势跟踪”策略 final_score 的权力。
-        - 核心逻辑:
-          1. 先知信号（Prophet）现在只负责“标记” signal_type，不再覆盖 final_score。
-          2. final_score 字段现在完全专属于趋势跟踪策略的最终裁决。
-        - 收益: 实现了两大策略在判断层的彻底分离，为报告层进行独立记录铺平了道路。
+        【V531.0 · 联邦宪法修正案版】
+        - 核心革命: 遵守联邦宪法，本层不再自行计算风险贡献。
+        - 核心逻辑: 彻底移除从 risk_details_df 计算 total_risk_contribution 的代码。
+                      完全信任从上游传入的 df['entry_score'] 已是包含风险的“净战斗力得分”。
+        - 收益: 简化了指挥链，确保了计分逻辑的单一来源。
         """
-        print("    --- [最高作战指挥部 V528.0 · 退位诏书版] 启动...") # 修改版本号
+        print("    --- [最高作战指挥部 V531.0 · 联邦宪法修正案版] 启动...") # 修改版本号
         df = self.strategy.df_indicators
+        # [代码删除] 移除风险贡献计算逻辑，因为 OffensiveLayer 已完成此工作
+        # if not risk_details_df.empty:
+        #     total_risk_contribution = risk_details_df.sum(axis=1)
+        #     df['entry_score'] = df['entry_score'] + total_risk_contribution.reindex(df.index).fillna(0)
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
@@ -27,10 +30,10 @@ class JudgmentLayer:
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
+        # 此处的 'entry_score' 已经是净战斗力得分
         df['final_score'] = (df['entry_score'] * confidence_damper)
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
-        p_judge_prophet = get_params_block(self.strategy, 'prophet_oracle', {}).get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
@@ -45,47 +48,49 @@ class JudgmentLayer:
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
-        prophet_entry_threshold = get_param_value(p_judge_prophet.get('prophet_entry_threshold'), 0.6)
-        predictive_opp_score = self.strategy.atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df.index))
-        is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
-        # [代码修改] 先知信号只进行“标记”，不再篡夺 final_score
-        df.loc[is_prophet_entry, 'signal_type'] = '先知入场'
-        # [代码删除] 移除篡位逻辑：不再用先知分数覆盖趋势跟踪策略的最终分数
-        # prophet_score_multiplier = get_param_value(p_judge_prophet.get('prophet_score_multiplier'), 1000)
-        # prophet_final_score = predictive_opp_score * prophet_score_multiplier
-        # df.loc[is_prophet_entry, 'final_score'] = prophet_final_score[is_prophet_entry]
+        # risk_details_df 仍需传递给 summary 用于报告生成
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
         self._finalize_signals()
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.6 · 赫尔墨斯净化版】生成人类可读的信号摘要。
-        - 核心加固: 在进行 astype(int) 转换前，强制使用 .fillna(0) 对分数进行净化。
-        - 收益: 彻底解决了因上游信号出现 NaN 值而导致的 IntCastingNaNError 运行时崩溃问题，极大提升了报告系统的健壮性。
+        【V3.7 · 统一计分法典版】
+        - 核心升级: 进攻项和风险项的来源统一。现在进攻项来自 score_details_df，风险项来自 risk_details_df。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         
         def process_details_df(details_df, is_risk_df=False):
-            if details_df.empty: return pd.Series(dtype=object)
-            long_df = details_df.melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
+            if details_df is None or details_df.empty: return pd.Series(dtype=object)
             
-            if not is_risk_df:
-                # 在进行类型转换前，使用 .fillna(0) 净化数据，彻底杜绝因 NaN 值导致的 IntCastingNaNError。
-                long_df = long_df[long_df['score'].fillna(0).astype(int) != 0].copy()
-            else:
-                # 对风险信号也应用同样的净化逻辑，确保系统的绝对稳定。
-                long_df = long_df[(long_df['score'].fillna(0) * 1000).astype(int) > 0].copy()
+            # 筛选出非零分数的列，以提高效率
+            active_cols = details_df.columns[(details_df != 0).any()]
+            if active_cols.empty: return pd.Series(dtype=object)
+            
+            long_df = details_df[active_cols].melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
+            long_df = long_df[long_df['score'] != 0].copy()
 
             if long_df.empty: return pd.Series(dtype=object)
+            
             date_col_name = long_df.columns[0]
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
+            
+            # 根据是否为风险，决定分数的处理方式
             if is_risk_df:
-                long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': int(row['score'] * 1000.0)}, axis=1)
+                # 风险信号的原始分是[0,1]，需要乘以其负分权重
+                def get_risk_contribution(row):
+                    meta = score_map.get(row['signal'], {})
+                    base_score = meta.get('score', 0) # 风险信号的score是负数
+                    return int(row['score'] * base_score)
+                long_df['contribution'] = long_df.apply(get_risk_contribution, axis=1)
             else:
-                long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': int(row['score'])}, axis=1)
+                # 进攻信号的score已经是贡献值
+                long_df['contribution'] = long_df['score'].astype(int)
+
+            long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': row['contribution']}, axis=1)
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
 
+        # 进攻项来自 score_details_df，风险项来自 risk_details_df
         offense_summaries = process_details_df(score_details_df, is_risk_df=False)
         risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
 
@@ -93,11 +98,15 @@ class JudgmentLayer:
         
         def generate_final_summary(row):
             final_signal_type = signal_type_series.get(row.name)
-            if final_signal_type in ['买入信号', '先知入场']:
+            # 只有在最终信号是买入时才展示进攻项
+            if final_signal_type == '买入信号':
                 offense_list = row['offense'] if isinstance(row['offense'], list) else []
             else:
                 offense_list = []
+            
+            # 风险项总是展示
             risk_list = row['risk'] if isinstance(row['risk'], list) else []
+            
             return {'offense': offense_list, 'risk': risk_list}
 
         return summary_df.apply(generate_final_summary, axis=1)
@@ -111,8 +120,9 @@ class JudgmentLayer:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         
-        offensive_resonance_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE_S_PLUS', default_score)
-        risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE_S_PLUS', default_score)
+        # 注意：这里的信号名可能需要根据你的 intelligence layer 的最终输出进行调整
+        offensive_resonance_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE', default_score)
+        risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE', default_score)
         
         is_force_attack = offensive_resonance_score > 0.6
         is_avoid = risk_expansion_score > 0.6
@@ -135,50 +145,54 @@ class JudgmentLayer:
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
         
-        # 统一号令：任何一种入场信号，都必须升起'signal_entry'旗帜。
-        final_buy_condition = (df['signal_type'] == '买入信号') | (df['signal_type'] == '先知入场')
+        # 统一号令：只为“买入信号”升起'signal_entry'旗帜。
+        final_buy_condition = (df['signal_type'] == '买入信号')
         
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.5 · 雅典娜的精准版】(已撤销雅典娜协议) 风险裁决者 (Risk Adjudicator)
+        【V2.6 · 雅典娜精准版】风险裁决者 (Risk Adjudicator)
         - 核心升级: 采纳指挥官的精准洞察，将“先知离场”的上下文过滤器从宽泛的 EMA55 收紧为严格的 EMA5。
         - 核心逻辑: 仅当股价处于短期强势（收盘价 > EMA5）时，才允许“高潮衰竭”风险触发。
                       这彻底解决了在“下跌中继”状态下，因成交量放大而错误触发顶部风险的致命缺陷。
         """
-        # [代码撤销] 恢复到最原始的、无上下文感知的版本
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         risk_categories = {
             'ARCHANGEL_RISK': ['SCORE_ARCHANGEL_TOP_REVERSAL'],
             'TOP_REVERSAL': ['SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL', 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'],
             'BEARISH_RESONANCE': ['SCORE_BEHAVIOR_BEARISH_RESONANCE', 'SCORE_CHIP_BEARISH_RESONANCE', 'SCORE_FF_BEARISH_RESONANCE', 'SCORE_STRUCTURE_BEARISH_RESONANCE', 'SCORE_DYN_BEARISH_RESONANCE', 'SCORE_FOUNDATION_BEARISH_RESONANCE'],
-            'MICRO_RISK': ['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'],
+            'MICRO_RISK': ['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNİTIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'],
             'EUPHORIA_RISK': ['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION']
         }
         fused_risks = {}
         for category, signals in risk_categories.items():
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
-            fused_risks[category] = np.maximum.reduce(signal_scores)
+            fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
-        p_alerts = p_judge.get('alert_level_thresholds', {})
+        
+        p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
+        
         predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
-        prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
-        level_3_archangel_threshold = get_param_value(p_alerts.get('level_3_archangel_threshold'), 0.7)
-        level_3_threshold = get_param_value(p_alerts.get('level_3_top_reversal'), 0.8)
-        level_2_resonance_threshold = get_param_value(p_alerts.get('level_2_bearish_resonance'), 0.7)
-        level_2_euphoria_threshold = get_param_value(p_alerts.get('level_2_euphoria_risk'), 0.75)
-        level_1_threshold = get_param_value(p_alerts.get('level_1_micro_risk'), 0.6)
+        
+        prophet_threshold = get_param_value(p_judge, 'prophet_alert_threshold', 0.7)
+        archangel_threshold = get_param_value(p_judge, 'archangel_alert_threshold', 0.7)
+        top_reversal_threshold = get_param_value(p_judge, 'top_reversal_alert_threshold', 0.8)
+        resonance_threshold = get_param_value(p_judge, 'bearish_resonance_alert_threshold', 0.7)
+        euphoria_threshold = get_param_value(p_judge, 'euphoria_alert_threshold', 0.75)
+        micro_risk_threshold = get_param_value(p_judge, 'micro_risk_alert_threshold', 0.6)
+        
+        # 雅典娜的精准：将上下文过滤器从 EMA55 收紧为 EMA5
         is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
+        
         conditions = [
             (predictive_exhaustion_risk > prophet_threshold) & is_uptrend_context,
-            fused_risks_df['ARCHANGEL_RISK'] > level_3_archangel_threshold,
-            fused_risks_df['TOP_REVERSAL'] > level_3_threshold,
-            (fused_risks_df['BEARISH_RESONANCE'] > level_2_resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > level_2_euphoria_threshold),
-            fused_risks_df['MICRO_RISK'] > level_1_threshold,
+            fused_risks_df['ARCHANGEL_RISK'] > archangel_threshold,
+            fused_risks_df['TOP_REVERSAL'] > top_reversal_threshold,
+            (fused_risks_df['BEARISH_RESONANCE'] > resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > euphoria_threshold),
+            fused_risks_df['MICRO_RISK'] > micro_risk_threshold,
         ]
         choices_level = [3, 3, 3, 2, 1]
         choices_reason = [
@@ -190,16 +204,18 @@ class JudgmentLayer:
         ]
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
+        
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         self.strategy.atomic_states['ALERT_REASON'] = alert_reason
+        
         return alert_level, alert_reason, fused_risks_df
 
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 新增】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。
         """
-        if score_details_df.empty:
-            return pd.Series('unknown', index=score_details_df.index)
+        if score_details_df is None or score_details_df.empty:
+            return pd.Series('unknown', index=self.strategy.df_indicators.index)
 
         # 获取信号字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
@@ -217,7 +233,7 @@ class JudgmentLayer:
         # 将最强信号名映射到其类型
         dominant_types = dominant_signal_names.map(signal_to_type_map).fillna('unknown')
         
-        return dominant_types
+        return dominant_types.reindex(self.strategy.df_indicators.index).fillna('unknown')
 
 
 

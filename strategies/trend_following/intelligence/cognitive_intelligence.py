@@ -305,7 +305,7 @@ class CognitiveIntelligence:
             )
             total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
-        # [代码修改] 新增防御性编程：对最终的原始风险分进行范围裁剪，防止极端值
+        # 新增防御性编程：对最终的原始风险分进行范围裁剪，防止极端值
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.clip(0, 2.0).astype(np.float32)
         return states
 
@@ -321,13 +321,13 @@ class CognitiveIntelligence:
         """
         states = {}
         p_judge = get_params_block(self.strategy, 'judgment_params', {})
-        # [代码修改] 从配置中读取新的风险归一化基准值
+        # 从配置中读取新的风险归一化基准值
         risk_norm_base = get_param_value(p_judge.get('chimera_risk_normalization_base'), 1000.0)
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
-        # [代码修改] 获取原始风险分，并进行归一化处理
+        # 获取原始风险分，并进行归一化处理
         raw_risk_score = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
         bearish_score_normalized = (raw_risk_score / risk_norm_base).clip(0, 1)
-        # [代码修改] 现在比较的是两个都在[0,1]区间的、度量衡统一的分数
+        # 现在比较的是两个都在[0,1]区间的、度量衡统一的分数
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
         self.strategy.atomic_states.update(states)

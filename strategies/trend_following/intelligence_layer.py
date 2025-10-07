@@ -125,7 +125,7 @@ class IntelligenceLayer:
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
         print("\n" + "="*30 + f" [法医探针部署中心 V2.2] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        # [代码新增] 赫尔墨斯信使协议：预先计算并准备好要传递的上下文分数
+        # 赫尔墨斯信使协议：预先计算并准备好要传递的上下文分数
         from .utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.strategy.df_indicators, self.strategy.atomic_states)
         for probe_date_str in probe_dates_list:
@@ -145,7 +145,7 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            # [代码修改] 将上下文分数作为“信使”传递给探针
+            # 将上下文分数作为“信使”传递给探针
             self._deploy_zeus_thunderbolt_probe(probe_date, bottom_context_score, top_context_score)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
@@ -426,112 +426,113 @@ class IntelligenceLayer:
         print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 
     # 注入全新的“宙斯之雷”终极探针
-    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
+    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
         """
-        【V2.2 · 忒弥斯天平协议版】“宙斯之雷”终极法医探针
-        - 核心升级: 签署“忒弥斯天平协议”，在主探针执行前，调用全新的子探针 `_deploy_themis_scales_probe`，
-                      彻底解剖并展示 bottom/top 上下文分数的每一个组成部分。
+        【V2.8 · 统一计分法典同步版】“宙斯之雷”终极法医探针
+        - 核心升级: 同步“统一计分法典”，探针不再使用 penalty_weight。
+        - 新核心逻辑: 无论是进攻项还是风险项，基础分统一从 meta.get('score', 0) 获取。
+        - 收益: 确保了调试工具与主引擎的计分逻辑完全一致。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
-        # 在主审判前，先由忒弥斯天平公开称量所有证据
         self._deploy_themis_scales_probe(probe_date)
         atomic = self.strategy.atomic_states
+        playbook = self.strategy.playbook_states
         df = self.strategy.df_indicators
         def get_val(name, date, default=0.0):
-            series = atomic.get(name)
+            series = atomic.get(name, playbook.get(name))
             if series is None: return default
             return series.get(date, default)
-        # 1. 调取最终判决
         final_score = df.loc[probe_date].get('final_score', 0)
         final_signal = df.loc[probe_date].get('signal_type', '未知')
         print(f"\n  [链路层 1] 最终裁决")
         print(f"    - 【最终信号】: {final_signal}")
         print(f"    - 【最终得分】: {final_score:.0f}")
-        # 2. 加载信号字典和参数
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        # 直接调用导入的公共函数，实现真正的独立验证
-        atomic['strategy_instance_ref'] = self.strategy
-        bottom_context, top_context = calculate_context_scores(df, atomic)
-        trend_confirmation_context = calculate_trend_confirmation_context(df, p_synthesis.get('trend_confirmation_context_params', {}), p_synthesis.get('norm_window', 55))
-        del atomic['strategy_instance_ref']
-        bottom_context_val = bottom_context.get(probe_date, 0.0)
-        top_context_val = top_context.get(probe_date, 0.0)
-        trend_confirmation_val = trend_confirmation_context.get(probe_date, 0.0)
+        p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
+        bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
+        top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
+        bottom_context_val = bottom_context_score.get(probe_date, 0.0)
+        top_context_val = top_context_score.get(probe_date, 0.0)
         active_offense = []
         active_risks = []
-        # 3. 遍历所有可能的信号，重演审判过程
+        total_offense = 0
+        total_risk = 0
+        print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
+        all_signals_to_process = []
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_value_raw = get_val(signal_name, probe_date, 0.0)
-            if abs(signal_value_raw) < 1e-6:
-                continue
-            base_score = 0
-            is_risk = meta.get('type') == 'risk'
-            if is_risk:
-                base_score = meta.get('penalty_weight', 0) * -1
-            elif 'score' in meta:
-                base_score = meta.get('score', 0)
-            if abs(base_score) < 1e-6:
-                continue
-            signal_value_final = signal_value_raw
+            if abs(signal_value_raw) < 1e-6: continue
+            # 统一从 'score' 字段获取基础分
+            base_score = meta.get('score', 0)
+            if abs(base_score) < 1e-6: continue
+            all_signals_to_process.append({'name': signal_name, 'meta': meta, 'raw_value': signal_value_raw, 'base_score': base_score})
+        for item in all_signals_to_process:
+            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
+            # 风险判断基于 base_score 的正负
+            is_risk = base_score < 0
+            if is_risk: continue
+            processed_signal_value = signal_value_raw
+            context_role = meta.get('context_role', 'neutral')
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
-            if 'BOTTOM_REVERSAL' in signal_name:
-                signal_value_final = signal_value_raw * bottom_context_val * (1 - trend_confirmation_val)
-                explanation = (f"原始值: {signal_value_raw:.4f} "
-                               f"x 底部上下文: {bottom_context_val:.2f} "
-                               f"x (1 - 趋势确认: {trend_confirmation_val:.2f}) "
-                               f"* 基础分: {base_score:.0f}")
-            elif 'TACTICAL_REVERSAL' in signal_name:
-                pass
-            elif 'TOP_REVERSAL' in signal_name and not is_risk:
-                 signal_value_final = signal_value_raw * top_context_val
-                 explanation = (f"原始值: {signal_value_raw:.4f} "
-                                f"x 顶部上下文: {top_context_val:.2f} "
-                                f"* 基础分: {base_score:.0f}")
-            contribution = signal_value_final * base_score
-            if abs(contribution) < 0.5:
-                continue
-            signal_info = {
-                'name': meta.get('cn_name', signal_name),
-                'raw_value': signal_value_raw,
-                'final_value': signal_value_final,
-                'base_score': base_score,
-                'contribution': contribution,
-                'explanation': explanation,
-                'category': meta.get('category', '未知类别')
-            }
-            if is_risk:
-                active_risks.append(signal_info)
-            else:
-                active_offense.append(signal_info)
-        # 4. 按贡献度排序并展示
+            if context_role == 'bottom_opportunity' and base_score > 0:
+                suppression_factor = top_context_val if top_context_val >= top_context_threshold else 0.0
+                damper = 1.0 - suppression_factor
+                processed_signal_value *= damper
+                if damper < 1.0:
+                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
+            contribution = processed_signal_value * base_score
+            if abs(contribution) < 0.5: continue
+            active_offense.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
+            total_offense += contribution
         active_offense.sort(key=lambda x: x['contribution'], reverse=True)
-        active_risks.sort(key=lambda x: x['contribution'], reverse=False)
-        print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        total_offense = 0
         if not active_offense:
             print("    - 当日无任何激活的进攻信号。")
         else:
             for item in active_offense:
                 print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
-                total_offense += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【进攻项总分】: {total_offense:.0f}")
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
-        total_risk = 0
+        for item in all_signals_to_process:
+            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
+            # 风险判断基于 base_score 的正负
+            is_risk = base_score < 0
+            if not is_risk: continue
+            processed_signal_value = signal_value_raw
+            context_role = meta.get('context_role', 'neutral')
+            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
+            damper_was_applied = False
+            if context_role == 'top_risk' and base_score < 0:
+                suppression_factor = bottom_context_val if bottom_context_val >= bottom_context_threshold else 0.0
+                damper = 1.0 - suppression_factor
+                if damper < 1.0:
+                    damper_was_applied = True
+                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
+                processed_signal_value *= damper
+            contribution = processed_signal_value * base_score
+            if not damper_was_applied and abs(contribution) < 0.5:
+                continue
+            active_risks.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
+            total_risk += contribution
+        active_risks.sort(key=lambda x: x['contribution'], reverse=False)
         if not active_risks:
             print("    - 当日无任何激活的风险信号。")
         else:
             for item in active_risks:
                 print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
-                total_risk += item['contribution']
         print(f"    ----------------------------------")
         print(f"    - 【风险项总分】: {total_risk:.0f}")
-        # 5. 终极对质
         print("\n  [链路层 4] 终极对质")
-        recalculated_final_score = total_offense + total_risk
-        print(f"    - [探针重算总分]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_final_score:.0f}")
+        recalculated_entry_score = total_offense + total_risk
+        print(f"    - [探针重算入场分(entry_score)]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_entry_score:.0f}")
+        chimera_conflict_score = get_val('COGNITIVE_SCORE_CHIMERA_CONFLICT', probe_date, 0.0)
+        dominant_signal_type = self._get_dominant_offense_type_for_probe(recalculated_entry_score, active_offense)
+        is_reversal_day = (dominant_signal_type == 'positional')
+        dynamic_chimera_score = chimera_conflict_score * 0.5 if is_reversal_day else chimera_conflict_score
+        confidence_damper = 1.0 - dynamic_chimera_score
+        recalculated_final_score = recalculated_entry_score * confidence_damper
+        print(f"    - [探针重算最终分(final_score)]: {recalculated_entry_score:.0f} * (1 - 奇美拉冲突:{dynamic_chimera_score:.2f}) = {recalculated_final_score:.0f}")
         print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
         print("\n--- “宙斯之雷”审查完毕 ---")
 
@@ -824,16 +825,16 @@ class IntelligenceLayer:
             processed_signal_value = signal_value_raw
             context_role = meta.get('context_role', 'neutral')
             explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
-            damper_was_applied = False # [代码新增] 初始化阻尼器应用标记
+            damper_was_applied = False # 初始化阻尼器应用标记
             if context_role == 'top_risk' and base_score < 0:
                 suppression_factor = bottom_context_val if bottom_context_val >= bottom_context_threshold else 0.0
                 damper = 1.0 - suppression_factor
-                if damper < 1.0: # [代码修改] 检查阻尼器是否被激活
-                    damper_was_applied = True # [代码修改] 如果激活，则设置标记
+                if damper < 1.0: # 检查阻尼器是否被激活
+                    damper_was_applied = True # 如果激活，则设置标记
                     explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
                 processed_signal_value *= damper
             contribution = processed_signal_value * base_score
-            # [代码修改] 回声定位协议：如果阻尼器被应用，则无论最终贡献值是否为零，都必须报告
+            # 回声定位协议：如果阻尼器被应用，则无论最终贡献值是否为零，都必须报告
             if not damper_was_applied and abs(contribution) < 0.5:
                 continue
             active_risks.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
@@ -866,12 +867,12 @@ class IntelligenceLayer:
         """
         if total_offense_score <= 0 or not active_offense:
             return 'unknown'
-        # [代码修改] 直接获取主导信号的内部名称
+        # 直接获取主导信号的内部名称
         dominant_signal_internal_name = active_offense[0].get('internal_name')
         if not dominant_signal_internal_name:
             return 'unknown'
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        # [代码修改] 使用内部名称进行精准、可靠的查找
+        # 使用内部名称进行精准、可靠的查找
         meta = score_map.get(dominant_signal_internal_name, {})
         return meta.get('type', 'unknown')
 

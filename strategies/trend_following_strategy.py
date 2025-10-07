@@ -50,11 +50,11 @@ class TrendFollowStrategy:
         self.df_indicators = self._merge_all_timeframes(all_dfs)
         # --- 指挥链 1/7: 情报层 (现在是所有情报的唯一入口，包括硬性离场) ---
         self.intelligence_layer.run_all_diagnostics()
-        # [代码新增] 步骤1.5: 普罗米修斯盗火 - 计算并获取权威的上下文分数
+        # 步骤1.5: 普罗米修斯盗火 - 计算并获取权威的上下文分数
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
         # --- 指挥链 2/7: 进攻层 ---
-        # [代码修改] 将上下文分数作为“火种”注入计分引擎
+        # 将上下文分数作为“火种”注入计分引擎
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,

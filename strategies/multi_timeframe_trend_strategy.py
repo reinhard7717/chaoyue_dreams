@@ -13,6 +13,7 @@ import gc
 from services.indicator_services import IndicatorService
 from stock_models.index import TradeCalendar
 from strategies.trend_following_strategy import TrendFollowStrategy
+from strategies.prophet_signal_strategy import ProphetSignalStrategy
 from strategies.weekly_context_engine import WeeklyContextEngine
 from utils.cache_manager import CacheManager
 from utils.config_loader import load_strategy_config
@@ -37,25 +38,18 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self, cache_manager_instance: CacheManager):
         """
-        【V203.3 配置融合版】初始化总指挥部。
-        - 核心升级: 重构了配置加载逻辑，现在会自动加载并融合独立的信号字典文件。
+        【V205.0 · 双子星协议版】初始化总指挥部。
+        - 核心升级: 签署“双子星协议”，统一依赖注入模式，同时初始化两大主权策略。
         """
-        # print("--- [总指挥部] 正在初始化 (V203.3 配置融合版)... ---")
         unified_config_path = 'config/trend_follow_strategy.json'
-        # 调用新的配置加载与融合方法
         self.unified_config = self._load_and_merge_configs(unified_config_path)
         self.indicator_service = IndicatorService(cache_manager_instance)
-        # 1. 初始化战略参谋部 (周线上下文引擎)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        # print("    -> [OK] 战略参谋部 (WeeklyContextEngine) 已就位。") # 调整日志输出顺序
-        # 2. 初始化一线作战部队 (日线战术引擎)
-        self.tactical_engine = TrendFollowStrategy(config=self.unified_config)
-        # print("    -> [OK] 一线作战部队 (TrendFollowStrategy) 已就位。") # 调整日志输出顺序
-        # 内部状态变量
-        self.daily_analysis_df = None # 存储日线战术引擎的详细分析结果
-        # 从统一配置中自动发现所有需要的K线数据周期
+        # 统一依赖注入模式，将总指挥实例(self)传递给所有子策略
+        self.tactical_engine = TrendFollowStrategy(self)
+        self.prophet_engine = ProphetSignalStrategy(self)
+        self.daily_analysis_df = None
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-        # print(f"--- [总指挥部] 初始化完毕，已识别作战所需时间框架: {list(self.required_timeframes)} ---") # 调整日志输出顺序
 
     # 封装了配置加载与融合逻辑的私有方法
     def _load_and_merge_configs(self, main_config_path: str) -> dict:
@@ -135,27 +129,47 @@ class MultiTimeframeTrendStrategy:
 
     async def _run_tactical_engine(self, stock_code: str, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
-        【V508.0 · 终极信号适配版】
-        - 核心重构: 不再进行任何数据合并，直接将 all_dfs 传递给战术引擎。
+        【V511.0 · 双子星协议版】
+        - 核心革命: 作为联邦总指挥，协调两大主权策略的运行与战报合并。
+        - 核心逻辑:
+          1. 运行“趋势跟踪”引擎，获取其结果，并捕获其计算出的 atomic_states。
+          2. 将 atomic_states 作为情报，传递给“先知”引擎，获取其独立结果。
+          3. 合并两套战报，形成统一的最终报告。
         """
         try:
-            # 直接将 all_dfs 传递给战术引擎
+            # 步骤1: 运行“趋势跟踪”引擎，获取其结果和计算出的情报
             daily_analysis_df, score_details_df, risk_details_df = self.tactical_engine.apply_strategy(
-                all_dfs, self.unified_config, start_date_str=start_date_str
+                all_dfs, start_date_str=start_date_str
             )
             if daily_analysis_df is None or daily_analysis_df.empty:
-                print("    - [战术引擎] 引擎返回了空的分析结果。")
                 return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
             
-            records_tuple = await self.tactical_engine.prepare_db_records(
+            trend_follow_records = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,
                 score_details_df=score_details_df,
                 risk_details_df=risk_details_df,
-                params=self.tactical_engine.unified_config,
+                params=self.unified_config,
                 result_timeframe='D'
             )
-            return (records_tuple, daily_analysis_df, score_details_df, risk_details_df)
+
+            # 步骤2: 运行“先知”引擎，并将主引擎的情报(atomic_states)传递给它
+            prophet_records = await self.prophet_engine.apply_strategy(
+                stock_code, 
+                all_dfs['D'], 
+                self.tactical_engine.atomic_states
+            )
+
+            # 步骤3: 合并两大主权策略的战报
+            all_signals = trend_follow_records[0] + prophet_records[0]
+            all_details = trend_follow_records[1] + prophet_records[1]
+            all_daily_scores = trend_follow_records[2] + prophet_records[2]
+            all_score_components = trend_follow_records[3] + prophet_records[3]
+            all_daily_states = trend_follow_records[4] + prophet_records[4]
+            
+            combined_records = (all_signals, all_details, all_daily_scores, all_score_components, all_daily_states)
+
+            return (combined_records, daily_analysis_df, score_details_df, risk_details_df)
         except Exception as e:
             logger.error(f"在 {stock_code} 的战术引擎执行期间发生错误: {e}", exc_info=True)
             return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
