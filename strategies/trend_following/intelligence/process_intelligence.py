@@ -147,7 +147,10 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.0.0 核心诊断 - 第二维】对“关系分”进行元分析，输出[-1, 1]双极分数。
+        【V2.1.0 · 语义感知版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 引擎现在会读取配置中的 'scoring_mode'。如果为 'unipolar'，
+                      则会将最终的 meta_score 裁剪至 [0, 1] 区间，确保事件型信号只产生正面贡献。
+        - 收益: 彻底修复了因错误惩罚“隐秘吸筹”等单极性事件而导致在关键拐点分数过低的致命BUG。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -160,7 +163,6 @@ class ProcessIntelligence:
         # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
         relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
         relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-
         # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
         bipolar_trend_strength = normalize_to_bipolar(
             series=relationship_trend,
@@ -174,14 +176,15 @@ class ProcessIntelligence:
             window=self.norm_window,
             sensitivity=self.bipolar_sensitivity
         )
-
         # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
         trend_weight = self.meta_score_weights[0]
         accel_weight = self.meta_score_weights[1]
-
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        # [代码修改] 新增语义感知逻辑
+        scoring_mode = config.get('scoring_mode', 'bipolar')
+        if scoring_mode == 'unipolar':
+            meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险
-
         return {signal_name: meta_score}
 
     def _diagnose_strategy_sync(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
