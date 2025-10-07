@@ -11,106 +11,111 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V532.0 · 幽灵驱逐协议版】
-        - 核心革命: 执行“幽灵驱逐协议”，彻底清除所有在主计分逻辑后对 final_score 和 signal_details_cn 进行覆写的潜伏代码。
-        - 核心逻辑: 严格遵循“计算 -> 裁决 -> 报告 -> 终结”的线性流程，杜绝任何形式的逻辑回环和事后篡改。
-        - 收益: 确保了 TrendFollow 策略的战报纯洁性，根除了导致分数被神秘篡改的“幽灵BUG”。
+        【V533.1 · 奥德修斯之眼协议版】
+        - 核心升级: 在所有关键计算节点部署“观察哨”(print)，实时追踪分数和状态的流转。
+        - 收益: 提供一份详细的、逐帧的行动报告，以彻底揭示任何潜在的分数篡改行为。
         """
-        print("    --- [最高作战指挥部 V532.0 · 幽灵驱逐协议版] 启动...") # 修改版本号
+        print("    --- [最高作战指挥部 V533.1 · 奥德修斯之眼协议版] 启动...")
         df = self.strategy.df_indicators
-        
-        # 步骤 1: 计算最终得分 (基于已包含风险的 entry_score)
+        # [代码新增] 增加一个调试开关，只对探针日期打印详细信息
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
+        def debug_print(date, message):
+            if date.date() in probe_dates:
+                print(f"      -> [观察哨 @ {date.date()}] {message}")
+        # 步骤 1: 计算基础最终得分
+        debug_print(df.index[-1], f"进入审判庭。初始 entry_score: {df['entry_score'].iloc[-1]:.0f}")
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
         df['final_score'] = (df['entry_score'] * confidence_damper)
-        
-        # 步骤 2: 进行风险裁决
+        for idx, row in df.iterrows():
+            if idx.date() in probe_dates:
+                debug_print(idx, f"奇美拉衰减计算: entry_score({row['entry_score']:.0f}) * damper({confidence_damper.get(idx, 1.0):.2f}) -> pre_final_score: {row['final_score']:.0f}")
+        # 步骤 2: 进行权威的风险等级裁决
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
+        for idx, row in df.iterrows():
+            if idx.date() in probe_dates and row['alert_level'] > 0:
+                debug_print(idx, f"风险裁决完成。ALERT_LEVEL: {row['alert_level']}, REASON: {row['alert_reason']}")
         df['dynamic_action'] = self._get_dynamic_combat_action()
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        
-        # 步骤 3: 根据得分和风险裁决，生成最终信号类型
+        # 步骤 3: 根据得分和风险，生成唯一的最终信号类型
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
-        
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
         is_veto_by_alert = df['alert_level'] >= 3
-        
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        
+        # 步骤 4: 根据最终信号类型，反向修正分数和信号
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0 # 被否决的信号，最终分清零
-        
+        for idx, row in df[alert_veto_condition].iterrows():
+            if idx.date() in probe_dates:
+                debug_print(idx, f"风险否决触发！final_score 从 {row['final_score']:.0f} 被强制清零。")
+        df.loc[alert_veto_condition, 'final_score'] = 0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
-        
-        # [代码净化] 确保在此之后，没有任何逻辑会再次修改 'final_score' 或 'signal_type'。
-        # 所有与“先知”相关的判断、覆写逻辑必须被彻底清除。
-        
-        # 步骤 4: 生成人类可读的摘要报告 (基于最终确定的信号类型)
+        for idx, row in df.iterrows():
+            if idx.date() in probe_dates:
+                debug_print(idx, f"最终信号裁决完成。Signal_Type: '{row['signal_type']}', Final_Score: {row['final_score']:.0f}")
+        # 步骤 5: 生成人类可读的摘要报告
+        debug_print(df.index[-1], "进入报告生成模块 (_get_human_readable_summary)...")
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
-        
-        # 步骤 5: 终结信号，为下游提供统一接口
+        # 步骤 6: 终结信号
         self._finalize_signals()
+        debug_print(df.index[-1], "审判流程结束。")
 
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
         """
-        【V3.8 · 赫尔墨斯净化协议版】
-        - 核心修复: 在进行数值计算和类型转换前，强制对所有可能为NaN的值进行净化处理。
-        - 核心逻辑: 在 get_risk_contribution 函数中，对 row['score'] 和 base_score 使用 .fillna(0) 或默认值。
-        - 收益: 彻底解决了因上游信号出现 NaN 值而导致的 ValueError 运行时崩溃问题。
+        【V3.9.1 · 奥德修斯之眼协议版】
+        - 核心升级: 增加关键节点打印，追踪报告生成逻辑。
         """
+        # [代码新增] 增加调试打印
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
+        def debug_print(date, message):
+            if date.date() in probe_dates:
+                print(f"      -> [观察哨 @ {date.date()}] (报告生成) {message}")
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         def process_details_df(details_df, is_risk_df=False):
             if details_df is None or details_df.empty: return pd.Series(dtype=object)
-            active_cols = details_df.columns[(details_df != 0).any()]
+            active_cols = details_df.columns[(details_df.fillna(0) != 0).any()]
             if active_cols.empty: return pd.Series(dtype=object)
             long_df = details_df[active_cols].melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            # [代码修改] 在处理前先用fillna(0)净化score列，避免后续操作因NaN出错
             long_df = long_df[long_df['score'].fillna(0) != 0].copy()
             if long_df.empty: return pd.Series(dtype=object)
             date_col_name = long_df.columns[0]
             cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
             long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
-            if is_risk_df:
-                def get_risk_contribution(row):
-                    meta = score_map.get(row['signal'], {})
-                    # [代码修改] 对 base_score 和 row['score'] 进行健壮性处理
-                    base_score = meta.get('score', 0) if isinstance(meta, dict) else 0
-                    current_score = row.get('score', 0)
-                    # 确保在乘法前两者都是有效数值
-                    if pd.isna(current_score):
-                        current_score = 0.0
-                    return int(current_score * base_score)
-                long_df['contribution'] = long_df.apply(get_risk_contribution, axis=1)
-            else:
-                # [代码修改] 对进攻项也进行净化
-                long_df['contribution'] = long_df['score'].fillna(0).astype(int)
-            # [代码修改] 过滤掉贡献值为0的项
+            long_df['contribution'] = long_df['score'].fillna(0).astype(int)
             long_df = long_df[long_df['contribution'] != 0]
             long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': row['contribution']}, axis=1)
             return long_df.groupby(date_col_name)['summary_dict'].apply(list)
-        offense_summaries = process_details_df(score_details_df, is_risk_df=False)
-        risk_summaries = process_details_df(risk_details_df, is_risk_df=True)
-        summary_df = pd.DataFrame({'offense': offense_summaries, 'risk': risk_summaries}).reindex(self.strategy.df_indicators.index)
+        all_summaries = process_details_df(score_details_df, is_risk_df=False)
+        summary_df = pd.DataFrame({'details': all_summaries}).reindex(self.strategy.df_indicators.index)
         def generate_final_summary(row):
             final_signal_type = signal_type_series.get(row.name)
+            # [代码新增] 增加调试打印
+            debug_print(row.name, f"正在为最终信号 '{final_signal_type}' 生成报告详情...")
             if final_signal_type == '买入信号':
-                offense_list = row['offense'] if isinstance(row['offense'], list) else []
+                details_list = row['details'] if isinstance(row['details'], list) else []
+                offense_list = [d for d in details_list if d.get('score', 0) > 0]
+                risk_list = [d for d in details_list if d.get('score', 0) < 0]
+                # [代码新增] 增加调试打印
+                debug_print(row.name, f"裁决为'买入信号'，保留 {len(offense_list)} 个进攻项和 {len(risk_list)} 个风险项。")
+                return {'offense': offense_list, 'risk': risk_list}
             else:
-                offense_list = []
-            risk_list = row['risk'] if isinstance(row['risk'], list) else []
-            return {'offense': offense_list, 'risk': risk_list}
+                # [代码新增] 增加调试打印
+                debug_print(row.name, f"裁决非'买入信号'，清空所有进攻项和风险项。")
+                return {'offense': [], 'risk': []}
         return summary_df.apply(generate_final_summary, axis=1)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
