@@ -20,21 +20,29 @@ class TrendFollowStrategy:
     【V101.0 · 终极信号适配版】
     - 核心重构: 净化了 apply_strategy 的主流程，现在完全依赖 IntelligenceLayer 来完成所有情报的生成与融合。
     """
-    def __init__(self, config: dict):
-        self.unified_config = config
-        self.params = {}
+    def __init__(self, orchestrator_instance):
+        """
+        【V3.2 · 授权修正案版】
+        - 核心修复: 修复了致命的依赖注入错误。
+        - 核心逻辑: self.unified_config 现在正确地从 orchestrator_instance 中提取 .unified_config 字典，
+                      而不是错误地引用整个 orchestrator_instance 对象。
+        - 收益: 解决了因配置对象类型错误导致的 AttributeError，恢复了整个策略的初始化流程。
+        """
+        self.orchestrator = orchestrator_instance
+        # [代码修改] 修正错误的授权，确保只获取配置字典，而不是整个总指挥对象
+        self.unified_config = self.orchestrator.unified_config
+        self.df_indicators = None
         self.atomic_states = {}
-        self.playbook_states = {}
         self.trigger_events = {}
-        self.df_indicators = pd.DataFrame()
-        
+        self.playbook_states = {}
+        self.exit_triggers = None
         self.intelligence_layer = IntelligenceLayer(self)
         self.offensive_layer = OffensiveLayer(self)
         self.warning_layer = WarningLayer(self)
-        self.structural_defense_layer = StructuralDefenseLayer(self)
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
+
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], params: dict, start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
