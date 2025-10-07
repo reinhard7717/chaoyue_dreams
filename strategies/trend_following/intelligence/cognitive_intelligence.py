@@ -37,12 +37,11 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.1 · 赫尔墨斯之杖协议版】顶层认知总分合成模块
-        - 核心革命: 签署“赫尔墨斯之杖协议”，引入独立的战术反转共振融合引擎。
-        - 新核心逻辑:
-          1. 新增 synthesize_tactical_reversal_resonance 方法，对所有领域的战术反转信号进行加权几何平均融合。
-          2. COGNITIVE_BULLISH_SCORE 现在消费经过融合的、高价值的 COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE 信号。
+        【V3.2 · 指挥链审查版】顶层认知总分合成模块
+        - 核心升级: 部署“指挥链审查”探针，监控对微观行为引擎的调用。
         """
+        # [代码新增] 指挥链审查探针 - 级别 2
+        print("    -> [指挥链探针-2] CognitiveIntelligence: 即将调用 micro_behavior_engine.run_micro_behavior_synthesis...")
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
@@ -54,7 +53,6 @@ class CognitiveIntelligence:
         df = self.synthesize_ultimate_confirmation_scores(df)
         df = self.synthesize_ignition_resonance_score(df)
         df = self.synthesize_reversal_resonance_scores(df)
-        # 调用新的战术反转共振融合引擎
         df = self.synthesize_tactical_reversal_resonance(df)
         df = self.synthesize_industry_synergy_signals(df)
         df = self.synthesize_mean_reversion_signals(df)
@@ -62,8 +60,6 @@ class CognitiveIntelligence:
         self.synthesize_trend_acceleration_cascade(df)
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        
-        # 净化并重构 bullish_scores 的构成
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
@@ -72,7 +68,6 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
-            # 移除所有零散的战术信号，替换为经过融合的终极战术共振信号
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)

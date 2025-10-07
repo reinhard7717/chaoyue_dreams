@@ -25,24 +25,23 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 净化协议版】微观行为诊断引擎总指挥
-        - 核心革命: 移除了子引擎内部对 self.strategy.atomic_states 的直接写入操作。
-                      现在引擎遵循“纯函数”原则，只负责计算并返回结果，将状态更新的权力
-                      完全交还给上层调用者，彻底解决了“越权写入”导致的“状态污染”问题。
+        【V2.5 · 指挥链审查版】微观行为诊断引擎总指挥
+        - 核心升级: 部署“指挥链审查”探针，确认本模块是否被成功调用。
         """
+        # [代码新增] 指挥链审查探针 - 级别 3
+        print("    -> [指挥链探针-3] MicroBehaviorEngine: run_micro_behavior_synthesis 已被调用。")
         all_states = {}
-        # 简化了 update_states 辅助函数，只更新局部字典 all_states
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
-                # [代码删除] 移除了对 self.strategy.atomic_states 的直接写入，这是非法的“越权”行为
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        # 从本地正在构建的 all_states 字典中获取依赖，而不是从可能陈旧的全局状态中获取
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
+        # [代码新增] 指挥链审查探针 - 级别 4
+        print("    -> [指挥链探针-4] MicroBehaviorEngine: 即将调用 synthesize_reversal_reliability_score...")
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
@@ -114,9 +113,14 @@ class MicroBehaviorEngine:
         【V5.1 · 放大器侦测版】高质量战备可靠性诊断引擎
         - 核心升级: 部署“放大器侦测探针”，在目标日期打印出底部反转可靠性分数的放大过程。
         """
+        # [代码新增] 指挥链审查探针 - 级别 5
+        print("    -> [指挥链探针-5] MicroBehaviorEngine: synthesize_reversal_reliability_score 已被调用。")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
-        if not get_param_value(p.get('enabled'), True): return states
+        if not get_param_value(p.get('enabled'), True):
+            # [代码新增] 指挥链审查探针 - 级别 5.1 (配置禁用)
+            print("    -> [指挥链探针-5.1] MicroBehaviorEngine: synthesize_reversal_reliability_score 因配置禁用而退出。")
+            return states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         norm_window = get_param_value(p.get('norm_window'), 120)
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)

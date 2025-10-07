@@ -54,10 +54,9 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V415.0 · 先知计划版】情报层总指挥官
-        - 核心升级: 在认知层融合之后，审判日引擎裁决之前，插入“先知引擎”的预测诊断。
+        【V415.1 · 指挥链审查版】情报层总指挥官
+        - 核心升级: 部署“指挥链审查”探针，监控对认知层的调用。
         """
-        # print("--- [情报层总指挥官 V415.0 · 先知计划版] 开始执行所有诊断模块... ---")
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
         self.strategy.trigger_events = {}
@@ -66,16 +65,10 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        # --- 阶段一: 基础信号生成 (按依赖关系重构顺序) ---
-        # print("    - [阶段 1/6] 正在执行周期与基础过程诊断...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
-        # 阶段 1.5: 点燃关系动力引擎（解放普罗米修斯）
-        # 这个引擎依赖过程信号，且必须在所有终极信号引擎之前运行
         self._ignite_relational_dynamics_engine()
-        # --- 阶段二: 状态情报与战略过程诊断 ---
-        # print("    - [阶段 2/6] 正在执行状态情报与战略过程诊断...")
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -85,26 +78,17 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        # --- 阶段三: 跨域认知融合 ---
-        # print("    - [阶段 3/6] 正在执行认知层跨域元融合...")
+        # [代码新增] 指挥链审查探针 - 级别 1
+        print("    -> [指挥链探针-1] IntelligenceLayer: 即将调用 cognitive_intel.synthesize_cognitive_scores...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
-        # --- 阶段四: 先知引擎预测 ---
-        # print("    - [阶段 4/6] 正在启动“先知引擎”进行风险预测...")
         update_states(self.predictive_intel.run_predictive_diagnostics())
-        # --- 阶段五: 最终战法与剧本生成 ---
-        # print("    - [阶段 5/6] 正在生成最终战法与剧本...")
         trigger_events = self.playbook_engine.define_trigger_events(df)
         self.strategy.trigger_events.update(trigger_events)
         _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
         self.strategy.playbook_states.update(playbook_states)
-        # --- 阶段六: 硬性离场信号生成 ---
-        # print("    - [阶段 6/6] 正在生成硬性离场信号...")
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        # if get_param_value(debug_params.get('enabled'), False):
-        #     self.deploy_forensic_probes()
-        # print("--- [情报层总指挥官 V415.0] 所有诊断模块执行完毕。 ---")
         return self.strategy.trigger_events
 
     def deploy_forensic_probes(self):
