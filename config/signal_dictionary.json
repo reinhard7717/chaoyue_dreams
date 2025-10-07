@@ -56,6 +56,12 @@
             "type": "context",
             "description": "【波塞冬三叉戟】融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度，用于抑制战略性底部信号。"
         },
+        "LAST_STAND_LINE": {
+            "cn_name": "【内部】最后防线",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "【盖亚基石】动态计算出的、位于当前价格下方的最强MA支撑位。它是所有多头战术的最后防线和止损基准。"
+        },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
             "cn_name": "【预测风险】高潮衰竭",

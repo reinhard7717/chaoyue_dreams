@@ -314,6 +314,21 @@ class IndicatorCalculator:
             logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
 
+    async def calculate_ma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
+        """[新增]计算 MA (简单移动平均线)"""
+        if df is None or df.empty or close_col not in df.columns: return None
+        if len(df) < period: return None
+        try:
+            def _sync_ma():
+                # MA (Moving Average) 通常指的就是 SMA (Simple Moving Average)
+                return ta.sma(close=df[close_col], length=period, append=False)
+            ma_series = await asyncio.to_thread(_sync_ma)
+            if ma_series is None or not isinstance(ma_series, pd.Series) or ma_series.empty: return None
+            return pd.DataFrame({f'MA_{period}': ma_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 MA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
+            return None
+
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
         """计算 EMA (指数移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None

@@ -187,8 +187,8 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V10.0 · 战神之盾协议版】计算全局的底部和顶部上下文分数
-    - 核心革命: 新增核心职责，计算并向全系统发布“最后防线”(LAST_STAND_LINE)，统一攻防逻辑。
+    【V11.0 · 乌拉诺斯穹顶版】计算全局的底部和顶部上下文分数
+    - 核心革命: 顶部上下文分数计算逻辑被彻底重构，引入与底部对称的动态阻力系统。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -200,19 +200,16 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
-    ma55_lifeline = df.get('EMA_55_D', df[close_col])
+    ma55_lifeline = df.get('MA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
-    # --- “最后防线”中央发布模块 ---
     gaia_params = get_param_value(p_synthesis.get('gaia_bedrock_params'), {})
     support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233])
-    ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
+    ma_cols = [f'MA_{p}_D' for p in support_levels if f'MA_{p}_D' in df.columns]
     if ma_cols:
         ma_df = df[ma_cols]
         ma_df_below_price = ma_df.where(ma_df.le(df[close_col], axis=0))
-        # 计算并发布“最后防线”，使用ffill()确保其连续性
         last_stand_line = ma_df_below_price.max(axis=1).ffill()
         atomic_states['LAST_STAND_LINE'] = last_stand_line
-    # --- 底部上下文分数计算 ---
     ma55_slope = ma55_lifeline.diff(3).fillna(0)
     slope_moderator = (0.5 + 0.5 * np.tanh(ma55_slope * 100)).fillna(0.5)
     distance_from_ma55 = (df[close_col] - ma55_lifeline) / ma55_lifeline.replace(0, np.nan)
@@ -252,13 +249,15 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
-    ma55 = df.get('EMA_55_D', df[close_col])
+    # 以下是顶部上下文分数的全新计算逻辑
+    # 步骤1: 计算传统的顶部上下文分数（作为基准）
+    ma55 = df.get('MA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
     stretch_score = ((df[close_col] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
     ma_periods = [5, 13, 21, 55]
-    short_ma_cols = [f'EMA_{p}_D' for p in ma_periods[:-1]]
-    long_ma_cols = [f'EMA_{p}_D' for p in ma_periods[1:]]
+    short_ma_cols = [f'MA_{p}_D' for p in ma_periods[:-1]]
+    long_ma_cols = [f'MA_{p}_D' for p in ma_periods[1:]]
     if all(col in df for col in short_ma_cols + long_ma_cols):
         short_mas = df[short_ma_cols].values
         long_mas = df[long_ma_cols].values
@@ -278,8 +277,15 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     else:
         overheat_score = ((bias_abs - warning_threshold) / denominator).clip(0, 1)
     overheat_score = overheat_score.fillna(0.0)
-    top_context_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
-    top_context_score = top_context_score.astype(np.float32)
+    conventional_top_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
+    # 步骤2: 计算全新的结构性顶部阻力分数
+    uranus_params = get_params_block(strategy_instance_ref, 'uranus_ceiling_params', {}) if strategy_instance_ref else {}
+    uranus_ceiling_resistance_score = _calculate_uranus_ceiling_resistance(df, uranus_params)
+    p_fib_resistance = get_params_block(strategy_instance_ref, 'fibonacci_resistance_params', {}) if strategy_instance_ref else {}
+    historical_high_resistance_score = _calculate_historical_high_resistance(df, p_fib_resistance)
+    structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score).astype(np.float32)
+    # 步骤3: 最终融合，取传统分和结构分中的最大值，作为最终的顶部上下文分数
+    top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
     return bottom_context_score, top_context_score
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
@@ -435,59 +441,40 @@ def transmute_health_to_ultimate_signals(
 
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V2.1 · 赫尔墨斯之翼优化版】多维新高上下文分数计算器
-    - 性能优化: 废除了“先创建Series列表再求和”的低效模式，改为在预初始化的Numpy数组上进行
-                  原地累加，显著减少了内存分配和计算开销。
-    - 核心逻辑: 保持“价格突破、均线斜率、乖离健康度”三位一体的评估逻辑不变。
+    【V2.2 · MA基准版】多维新高上下文分数计算器
+    - 核心修改: 将趋势确认的均线斜率基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-
     periods = get_param_value(params.get('periods'), [5, 13, 21, 55])
     period_weights = get_param_value(params.get('period_weights'), {})
     bias_thresholds = get_param_value(params.get('bias_thresholds'), {})
     fusion_weights = get_param_value(params.get('fusion_weights'), {})
-    
-    # 预先初始化一个Numpy数组用于累加分数，避免创建Series列表
     final_scores_np = np.zeros(len(df.index), dtype=np.float32)
-    
     for p in periods:
         period_weight = period_weights.get(str(p), 0)
         if period_weight == 0:
             continue
-
-        # 维度一: 价格突破
         rolling_high = df['high_D'].rolling(window=p, min_periods=1).max().shift(1)
         is_new_high_score = (df['high_D'] > rolling_high).astype(np.float32)
-
-        # 维度二: 趋势确认 (均线斜率)
-        ma_slope_col = f'SLOPE_{p}_EMA_{p}_D'
+        ma_slope_col = f'SLOPE_{p}_MA_{p}_D'
         if ma_slope_col not in df.columns: ma_slope_col = f'SLOPE_{p}_close_D'
         ma_slope = df.get(ma_slope_col, pd.Series(0, index=df.index))
         ma_slope_score = normalize_score(ma_slope, df.index, window=p*2, ascending=True)
-
-        # 维度三: 乖离健康度
         bias_period = 21 if p <= 21 else 55
         bias_col = f'BIAS_{bias_period}_D'
         bias_threshold = bias_thresholds.get(str(bias_period), 0.2)
         bias_value = df.get(bias_col, pd.Series(0, index=df.index)).abs()
         bias_health_score = (1 - (bias_value / bias_threshold)).clip(0, 1)
-
-        # 三位一体融合，得到该周期的综合新高分
         period_new_high_score = (
             is_new_high_score * fusion_weights.get('new_high', 0.4) +
             ma_slope_score * fusion_weights.get('ma_slope', 0.3) +
             bias_health_score * fusion_weights.get('bias_health', 0.3)
         )
-        
-        # 直接在Numpy数组上进行加权累加
         final_scores_np += period_new_high_score.values * period_weight
-
     total_weight = sum(w for p, w in period_weights.items() if int(p) in periods)
     if total_weight == 0:
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-        
-    # 一次性完成归一化和Series创建
     final_score_values = final_scores_np / total_weight
     return pd.Series(final_score_values, index=df.index).clip(0, 1).astype(np.float32)
 
@@ -551,10 +538,8 @@ def calculate_tactical_reversal_score(
 
 def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
-    【V1.0 · 新增】动态反转上下文计算器 (二阶求导引擎)
-    - 战略意义: 捕捉趋势的“拐点”，即变化率的变化率达到最大的时刻。这使得系统能在反转的最早期、
-                最具爆发力的时刻介入，而非等待趋势形成后再追赶。
-    - 核心逻辑: 通过对“均线距离”和“均线斜率”进行二阶求导，量化反转的“加速度”。
+    【V1.1 · MA基准版】动态反转上下文计算器 (二阶求导引擎)
+    - 核心修改: 将二阶求导的均线基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -562,35 +547,27 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
     mid_ma_period = get_param_value(params.get('mid_ma_period'), 21)
     slope_period = get_param_value(params.get('slope_period'), 3)
     weights = get_param_value(params.get('fusion_weights'), {'distance_accel': 0.5, 'slope_accel': 0.5})
-    
-    short_ma_col = f'EMA_{short_ma_period}_D'
-    mid_ma_col = f'EMA_{mid_ma_period}_D'
-    short_ma_slope_col = f'SLOPE_{slope_period}_EMA_{short_ma_period}_D'
+    short_ma_col = f'MA_{short_ma_period}_D'
+    mid_ma_col = f'MA_{mid_ma_period}_D'
+    short_ma_slope_col = f'SLOPE_{slope_period}_MA_{short_ma_period}_D'
     if not all(c in df.columns for c in [short_ma_col, mid_ma_col, short_ma_slope_col]):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 维度一: 均线距离的收敛加速度 (Convergence Acceleration)
-    # 衡量短期均线从下方“追赶”中期均线的加速度。
     ma_distance = df[short_ma_col] - df[mid_ma_col]
     ma_distance_slope = ma_distance.diff(slope_period).fillna(0)
     distance_accel_score = normalize_score(ma_distance_slope, df.index, window=norm_window, ascending=True)
-    # 维度二: 短期均线斜率的扭转加速度 (Slope Turn Acceleration)
-    # 衡量短期均线自身从“向下”扭转为“向上”的加速度。
     short_ma_slope = df[short_ma_slope_col]
     short_ma_slope_accel = short_ma_slope.diff(slope_period).fillna(0)
     slope_accel_score = normalize_score(short_ma_slope_accel, df.index, window=norm_window, ascending=True)
-    # 最终融合: 两个维度的加速度加权求和，形成最终的动态反转分数
     dynamic_reversal_score = (
         distance_accel_score * weights.get('distance_accel', 0.5) +
         slope_accel_score * weights.get('slope_accel', 0.5)
     )
-    
     return dynamic_reversal_score.clip(0, 1).astype(np.float32)
 
 def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V23.0 · 忒弥斯最终审判协议版】“盖亚基石”支撑分计算引擎
-    - 核心革命: 重启“忒弥斯最终审判协议”。确认与防守信号彻底解耦，每日最终分数为
-                  两者中的最大值，确保最强烈的即时信号永不被“确认”的惯性所压制。
+    【V23.1 · MA基准版】“盖亚基石”支撑分计算引擎
+    - 核心修改: 将盖亚基石的均线支撑体系从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -609,7 +586,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
     ares_vol_ma_col = 'VOL_MA_5_D'
     cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
-    ma_cols = [f'EMA_{p}_D' for p in support_levels if f'EMA_{p}_D' in df.columns]
+    ma_cols = [f'MA_{p}_D' for p in support_levels if f'MA_{p}_D' in df.columns]
     required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, cooldown_vol_ma_col] + ma_cols
     if not all(col in df.columns for col in required_cols):
         print(f"盖亚基石模块缺少必要列，将返回0分。缺失列: {[c for c in required_cols if c not in df.columns]}")
@@ -623,7 +600,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_in_influence_zone = pd.Series(False, index=df.index)
     upper_bound = acting_lifeline[valid_indices] * (1 + influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(acting_lifeline[valid_indices], upper_bound)
-    # 步骤1: 独立计算防守质量分序列 (包含卡珊德拉预警)
     defense_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     base_defense_condition = (df[low_col] < acting_lifeline) & is_in_influence_zone & (df[close_col] > df[low_col])
     defense_quality_score.loc[base_defense_condition] = defense_base_score
@@ -638,7 +614,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     is_cassandra_warning = (upper_shadow > lower_shadow) & has_volume_spike
     defense_quality_score.loc[is_in_influence_zone & is_cassandra_warning] = 0.0
     defense_quality_score = defense_quality_score.clip(0, 1.0)
-    # 步骤2: 独立计算确认分序列
     max_recent_defense_quality = defense_quality_score.rolling(window=aegis_lookback_window, min_periods=1).max()
     is_standing_firm_in_zone = (df[close_col] > acting_lifeline) & is_in_influence_zone
     is_confirmed_base = is_standing_firm_in_zone.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
@@ -649,7 +624,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
         if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
             if is_cooldown_reset_signal.get(idx, False):
                 last_confirmation_date = pd.NaT
-            continue # 冷却期只压制新确认，所以直接跳过
+            continue
         if is_confirmed_base.get(idx, False):
             recent_quality = max_recent_defense_quality.get(idx, 0.0)
             if recent_quality > 0:
@@ -658,20 +633,18 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
             else:
                 confirmation_score_series.loc[idx] = confirmation_score
             last_confirmation_date = idx
-    # 步骤3: 终极审判 - 取两者的最大值
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
 
 def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V1.1 · 逻辑补完版】“历史低点”支撑分计算引擎
-    - 核心修复: 补全了“防守”逻辑，现在要求“下探”和“收回”两个动作同时满足，
-                    与盖亚基石的防守定义完全对齐。
+    【V1.2 · MA基准版】“历史低点”支撑分计算引擎
+    - 核心修改: 将触发掩码的均线基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     close_col, low_col = 'close_D', 'low_D'
-    ma55_lifeline = df.get('EMA_55_D', df[close_col])
+    ma55_lifeline = df.get('MA_55_D', df[close_col])
     fib_periods = get_param_value(params.get('periods'), [34, 55, 89, 144, 233])
     tolerance_pct = get_param_value(params.get('tolerance_pct'), 0.01)
     level_scores = get_param_value(params.get('level_scores'), {})
@@ -681,7 +654,6 @@ def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Seri
         period_str = str(period)
         if period_str not in level_scores: continue
         historical_low = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).min().shift(1)
-        # 将单一的下探判断，升级为完整的“下探-收回”防守逻辑
         support_line_upper = historical_low * (1 + tolerance_pct)
         support_line_lower = historical_low * (1 - tolerance_pct)
         is_defended = (df[low_col] <= support_line_upper) & (df[close_col] >= support_line_lower)
@@ -689,6 +661,114 @@ def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Seri
         dynamic_support_score.loc[score_mask] = np.maximum(dynamic_support_score.loc[score_mask], level_scores[period_str])
     return dynamic_support_score.astype(np.float32)
 
+def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
+    """
+    “历史高点”阻力分计算引擎
+    - 核心逻辑: 作为 _calculate_historical_low_support 的镜像，计算价格在触及不同周期的
+                历史高点区域后被拒绝的分数。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    close_col, high_col = 'close_D', 'high_D'
+    ma55_lifeline = df.get('MA_55_D', df[close_col])
+    fib_periods = get_param_value(params.get('periods'), [34, 55, 89, 144, 233])
+    tolerance_pct = get_param_value(params.get('tolerance_pct'), 0.01)
+    level_scores = get_param_value(params.get('level_scores'), {})
+    dynamic_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 触发掩码：只在价格处于MA55生命线上方时激活
+    trigger_mask = df[close_col] > ma55_lifeline
+    for period in fib_periods:
+        period_str = str(period)
+        if period_str not in level_scores: continue
+        # 计算滚动周期内的最高价，作为历史高点阻力
+        historical_high = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
+        # 定义阻力区域
+        resistance_line_upper = historical_high * (1 + tolerance_pct)
+        resistance_line_lower = historical_high * (1 - tolerance_pct)
+        # “被拒绝”的定义：当日最高价触及或超过阻力区下轨，但收盘价未能站稳在阻力区上轨之上
+        is_rejected = (df[high_col] >= resistance_line_lower) & (df[close_col] <= resistance_line_upper)
+        score_mask = trigger_mask & is_rejected
+        # 如果满足条件，则更新分数，取当前分数和新分数中的较大值
+        dynamic_resistance_score.loc[score_mask] = np.maximum(dynamic_resistance_score.loc[score_mask], level_scores[period_str])
+    return dynamic_resistance_score.astype(np.float32)
+
+def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
+    """
+    “乌拉诺斯穹顶”阻力分计算引擎
+    - 核心逻辑: 作为 _calculate_gaia_bedrock_support 的镜像，实现一个包含“拒绝”、“确认”和“冷却”
+                逻辑的复杂动态阻力评分系统。
+    """
+    if not get_param_value(params.get('enabled'), False):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 参数获取
+    resistance_levels = get_param_value(params.get('resistance_levels'), [55, 89, 144, 233, 377])
+    confirmation_window = get_param_value(params.get('confirmation_window'), 3)
+    rejection_lookback_window = get_param_value(params.get('rejection_lookback_window'), 5)
+    confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
+    influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
+    rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
+    rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
+    rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
+    rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
+    confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
+    rejection_quality_bonus_factor = get_param_value(params.get('rejection_quality_bonus_factor'), 0.25)
+    cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
+    # 列名定义
+    close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
+    ares_vol_ma_col = 'VOL_MA_5_D'
+    cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
+    ma_cols = [f'MA_{p}_D' for p in resistance_levels if f'MA_{p}_D' in df.columns]
+    required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, cooldown_vol_ma_col] + ma_cols
+    if not all(col in df.columns for col in required_cols):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 核心计算
+    ma_df = df[ma_cols]
+    ma_df_above_price = ma_df.where(ma_df.ge(df[close_col], axis=0))
+    acting_ceiling = ma_df_above_price.min(axis=1).ffill()
+    valid_indices = acting_ceiling.dropna().index
+    if valid_indices.empty:
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    is_in_influence_zone = pd.Series(False, index=df.index)
+    lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
+    is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
+    # 步骤1: 独立计算拒绝质量分
+    rejection_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+    base_rejection_condition = (df[high_col] > acting_ceiling) & is_in_influence_zone & (df[close_col] < df[high_col])
+    rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
+    is_yin_line = df[close_col] < df[open_col]
+    lower_shadow = df[close_col] - df[low_col]
+    upper_shadow = df[high_col] - df[close_col]
+    has_dominance = upper_shadow > lower_shadow
+    has_volume_spike = df[vol_col] > df[ares_vol_ma_col]
+    rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
+    rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
+    rejection_quality_score.loc[base_rejection_condition & has_dominance & has_volume_spike] += rejection_volume_weight
+    is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
+    rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
+    rejection_quality_score = rejection_quality_score.clip(0, 1.0)
+    # 步骤2: 独立计算确认分
+    max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
+    is_failing_to_break = (df[close_col] < acting_ceiling) & is_in_influence_zone
+    is_confirmed_rejection = is_failing_to_break.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+    is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
+    confirmation_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+    last_confirmation_date = pd.NaT
+    for idx in df.index:
+        if pd.notna(last_confirmation_date) and (idx - last_confirmation_date).days < confirmation_cooldown_period:
+            if is_cooldown_reset_signal.get(idx, False):
+                last_confirmation_date = pd.NaT
+            continue
+        if is_confirmed_rejection.get(idx, False):
+            recent_quality = max_recent_rejection_quality.get(idx, 0.0)
+            if recent_quality > 0:
+                rejection_score = confirmation_score + recent_quality * rejection_quality_bonus_factor
+                confirmation_score_series.loc[idx] = min(rejection_score, 1.0)
+            else:
+                confirmation_score_series.loc[idx] = confirmation_score
+            last_confirmation_date = idx
+    # 步骤3: 终极审判 - 取两者的最大值
+    uranus_score = np.maximum(rejection_quality_score, confirmation_score_series)
+    return uranus_score.astype(np.float32)
 
 
 

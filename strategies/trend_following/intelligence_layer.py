@@ -78,8 +78,6 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        # [代码新增] 指挥链审查探针 - 级别 1
-        print("    -> [指挥链探针-1] IntelligenceLayer: 即将调用 cognitive_intel.synthesize_cognitive_scores...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
         update_states(self.predictive_intel.run_predictive_diagnostics())
         trigger_events = self.playbook_engine.define_trigger_events(df)

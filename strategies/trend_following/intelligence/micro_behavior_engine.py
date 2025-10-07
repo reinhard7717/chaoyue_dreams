@@ -28,8 +28,6 @@ class MicroBehaviorEngine:
         【V2.5 · 指挥链审查版】微观行为诊断引擎总指挥
         - 核心升级: 部署“指挥链审查”探针，确认本模块是否被成功调用。
         """
-        # [代码新增] 指挥链审查探针 - 级别 3
-        print("    -> [指挥链探针-3] MicroBehaviorEngine: run_micro_behavior_synthesis 已被调用。")
         all_states = {}
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
@@ -40,8 +38,6 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
-        # [代码新增] 指挥链审查探针 - 级别 4
-        print("    -> [指挥链探针-4] MicroBehaviorEngine: 即将调用 synthesize_reversal_reliability_score...")
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
@@ -114,11 +110,9 @@ class MicroBehaviorEngine:
         - 核心修正: 签署“时区统一法案”，在探针中强制统一时间戳的时区信息，确保探针能够命中目标。
         - 收益: 修复了因时区不匹配导致探针失效的致命BUG。
         """
-        print("    -> [指挥链探针-5] MicroBehaviorEngine: synthesize_reversal_reliability_score 已被调用。")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
-            print("    -> [指挥链探针-5.1] MicroBehaviorEngine: synthesize_reversal_reliability_score 因配置禁用而退出。")
             return states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         norm_window = get_param_value(p.get('norm_window'), 120)
@@ -156,7 +150,7 @@ class MicroBehaviorEngine:
         )
         bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
         raw_reliability_score = (main_score * (1 + background_score * bonus_factor)).clip(0, 1)
-        # [代码修改] 应用“时区统一法案”
+        # 应用“时区统一法案”
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates_naive = [pd.to_datetime(d) for d in probe_dates_str]

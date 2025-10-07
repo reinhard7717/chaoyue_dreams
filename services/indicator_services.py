@@ -802,9 +802,8 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.10 · 地图净化版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修正: 从 indicator_method_map 中彻底移除了 ma_convergence 和 consolidation_period，
-                    完成了职责移交的最后一步清理，确保了代码的纯净和一致性。
+        【V110.11 · MA支持版】根据配置为指定时间周期计算所有技术指标。
+        - 核心新增: 增加对 'ma' (简单移动平均线) 的计算支持。
         """
         if not config:
             return df
@@ -815,9 +814,8 @@ class IndicatorService:
         df_for_calc = df.copy()
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
-        
-        # 从方法地图中移除已移交职责的键
         indicator_method_map = {
+            'ma': self.calculator.calculate_ma, # [代码新增] 增加 MA 计算方法映射
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
             'coppock': self.calculator.calculate_coppock, 'rsi': self.calculator.calculate_rsi, 'macd': self.calculator.calculate_macd,
             'dmi': self.calculator.calculate_dmi, 'roc': self.calculator.calculate_roc, 'boll_bands_and_width': self.calculator.calculate_boll_bands_and_width,
@@ -833,21 +831,17 @@ class IndicatorService:
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-
-        # --- 阶段一: 在统一的无后缀命名空间下，完成所有指标计算 ---
-        # 确认有序计算列表中不包含已移交职责的键
+        # 增加 'ma' 到有序计算列表
         ordered_calc_keys = [
-            'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
+            'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
             'fibonacci_levels'
         ]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
-            
             indicator_name = indicator_key.lower()
             if timeframe_key == 'W' and indicator_name in ['cmf', 'rsi']: continue
-            
             if indicator_name == 'zscore':
                 for z_config in params.get('configs', []):
                     if timeframe_key not in z_config.get("apply_on", []): continue
@@ -870,18 +864,15 @@ class IndicatorService:
                     except Exception as e:
                         logger.error(f"计算Z-score时出错: {e}", exc_info=True)
                 continue
-
             configs_to_process = params.get('configs', [params])
             for sub_config in configs_to_process:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    # 确认特殊处理逻辑中不包含已移交职责的键
                     if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
                         result_df = await method_to_call(df=df_for_calc, params=sub_config)
                         merge_results(result_df, df_for_calc)
                         break
-                    
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
@@ -909,8 +900,6 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
-
-        # --- 阶段二: 统一添加后缀并返回 ---
         suffix = f"_{timeframe_key}"
         rename_map = {
             col: f"{col}{suffix}" 

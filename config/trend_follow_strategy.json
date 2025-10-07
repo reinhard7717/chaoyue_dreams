@@ -11,6 +11,7 @@
         "enabled": true,
         "description": "加载高级筹码指标，为筹码情报引擎提供基础数据。"
       },
+      "ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 34, 55, 89, 144, 233, 377] }] },
       "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233, 377] }] },
       "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55, 89, 144, 233, 377] }] },
       "boll_bands_and_width": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [21], "std_dev": 2.0 }] },
@@ -262,7 +263,7 @@
         "gaia_bedrock_params": {
           "enabled": true,
           "description": "【V3.0 · 雅典娜神盾协议版】引入三级信号体系：神盾构筑(1.0)、常规确认(0.8)、阵地防守(0.6)。",
-          "support_levels": [55, 89, 144, 233],
+          "support_levels": [34, 55, 89, 144, 233],
           "confirmation_window": 3,
           "aegis_lookback_window": 5,
           "influence_zone_pct": 0.03,
@@ -270,7 +271,36 @@
           "confirmation_score": 0.8,
           "aegis_confirmation_score": 1.0,
           "confirmation_cooldown_period": 10
+        },
+      "uranus_ceiling_params": {
+        "enabled": true,
+        "description": "“乌拉诺斯穹顶”动态阻力系统参数，是盖亚基石的镜像。",
+        "resistance_levels": [34, 55, 89, 144, 233],
+        "confirmation_window": 3,
+        "rejection_lookback_window": 5,
+        "influence_zone_pct": 0.03,
+        "rejection_base_score": 0.4,
+        "rejection_yin_line_weight": 0.1,
+        "rejection_dominance_weight": 0.2,
+        "rejection_volume_weight": 0.3,
+        "confirmation_score": 0.8,
+        "rejection_quality_bonus_factor": 0.25,
+        "confirmation_cooldown_period": 10,
+        "cooldown_reset_volume_ma_period": 55
+      },
+      "fibonacci_resistance_params": {
+        "enabled": true,
+        "description": "历史高点阻力参数，是斐波那契支撑的镜像。",
+        "periods": [34, 55, 89, 144, 233],
+        "tolerance_pct": 0.01,
+        "level_scores": {
+          "34": 0.3,
+          "55": 0.4,
+          "89": 0.5,
+          "144": 0.6,
+          "233": 0.7
         }
+      }
       },
       "panic_selling_setup_params": {
         "enabled": true,
@@ -778,7 +808,7 @@
           "cyclical_regime_threshold": 0.3
         },
         "capitulation_reversal": {
-          "description": "【新增】恐慌投降反转剧本的触发参数。",
+          "description": "恐慌投降反转剧本的触发参数。",
           "trigger_threshold": 0.4
         }
       },

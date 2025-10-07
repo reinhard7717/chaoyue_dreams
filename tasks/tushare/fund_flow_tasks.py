@@ -110,14 +110,14 @@ def save_fund_flow_daily_data_today():
         logger.error(f"执行 save_fund_flow_daily_data_today (编排者模式) 时出错: {e}", exc_info=True)
         return {"status": "error", "message": f"Failed to dispatch task group: {e}"}
 
-# 【新增】用于 chord 的回调任务，在任务组完成后执行
+# 用于 chord 的回调任务，在任务组完成后执行
 @celery_app.task(queue='SaveHistoryData_TimeTrade', ignore_result=True)
 def log_fund_flow_group_completion(results):
     """
     Chord callback: 记录每日资金流任务组的完成情况。
     'results' 参数是组中所有任务返回值的列表，由Celery自动传入。
     """
-    # 【新增】这部分逻辑是从原 save_fund_flow_daily_data_today 任务中移动过来的
+    # 这部分逻辑是从原 save_fund_flow_daily_data_today 任务中移动过来的
     logger.info(f"所有当日资金流子任务已全部完成。收到了 {len(results)} 个子任务的结果。")
     print(f"调试信息：当日资金流数据获取任务组所有子任务已完成。")
 

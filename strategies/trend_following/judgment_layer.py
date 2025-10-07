@@ -15,7 +15,7 @@ class JudgmentLayer:
         - 核心修正: 在最终取整前，增加 .fillna(0) 操作，以处理因无入场信号而产生的 NaN 值。
         - 收益: 修复了 IntCastingNaNError 崩溃问题，确保审判流程的完整性。
         """
-        print("    --- [最高作战指挥部 V534.1 · 审判补丁版] 启动...") # [代码修改] 更新版本号
+        print("    --- [最高作战指挥部 V534.1 · 审判补丁版] 启动...") # 更新版本号
         df = self.strategy.df_indicators
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -62,7 +62,7 @@ class JudgmentLayer:
         for idx, row in df.iterrows():
             if idx.date() in probe_dates:
                 debug_print(idx, f"最终裁决完成。Signal_Type: '{row['signal_type']}', 浮点分: {row['final_score']:.4f}")
-        # [代码修改] 应用“审判补丁”：在转换类型前，用0填充所有NaN值
+        # 应用“审判补丁”：在转换类型前，用0填充所有NaN值
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         for idx, row in df.iterrows():
             if idx.date() in probe_dates:

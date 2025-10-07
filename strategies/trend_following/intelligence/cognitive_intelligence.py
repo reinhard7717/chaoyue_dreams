@@ -40,8 +40,6 @@ class CognitiveIntelligence:
         【V3.2 · 指挥链审查版】顶层认知总分合成模块
         - 核心升级: 部署“指挥链审查”探针，监控对微观行为引擎的调用。
         """
-        # [代码新增] 指挥链审查探针 - 级别 2
-        print("    -> [指挥链探针-2] CognitiveIntelligence: 即将调用 micro_behavior_engine.run_micro_behavior_synthesis...")
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
@@ -655,44 +653,31 @@ class CognitiveIntelligence:
 
     def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 地狱三头犬版】“天使长”顶部反转诊断引擎
-        - 核心职责: 融合三大致命顶部风险信号，识别最高优先级的离场信号。
-        - 融合算法: 采用“主次风险融合算法”，最终风险 = 主要风险 + (次要风险 * 折扣因子)。
-        - 优化说明: 完全使用Numpy向量化操作实现，效率极高。
+        【V3.0 · 启示录四骑士版】“天使长”顶部反转诊断引擎
+        - 核心革命: 引入第四位骑士——`top_context_score`，即由“乌拉诺斯穹顶”和“历史高点”
+                      共同铸就的“结构性压力”分，形成四位一体的终极风险裁决。
+        - 融合算法升级: 废除“主次风险融合算法”，升级为更稳健、更灵敏的“取最大值”融合。
+                          最终风险 = MAX(上冲派发, 天地板, 高位回落, 结构性压力)。
         """
         states = {}
-        # --- 1. 获取参数和信号 ---
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
-        p_archangel = p_judge.get('archangel_fusion_params', {})
-        secondary_risk_discount = get_param_value(p_archangel.get('secondary_risk_discount'), 0.4)
-        
-        # 从原子状态库中调集三大核心顶部风险信号
+        # 步骤一：获取所有需要的信号，包括新的 top_context_score
+        # 主动调用 calculate_context_scores 获取最核心的上下文分数
+        _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
         heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
         post_peak_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', 0.0)
-        
-        # --- 2. “地狱三头犬”融合算法 ---
-        # 将三个风险信号的Numpy数组堆叠成一个2D矩阵，便于向量化处理
+        # 步骤二：“启示录四骑士”融合算法
+        # 将四个风险信号的Numpy数组堆叠成一个2D矩阵
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
-            post_peak_risk.values
+            post_peak_risk.values,
+            top_context_score.values  # [代码新增] 引入第四位骑士
         ], axis=0)
-        
-        # 沿信号轴（axis=0）对每日的风险进行排序，高效找出最大和次大风险
-        sorted_risks = np.sort(risk_matrix, axis=0)
-        
-        # 提取主要风险（最高分）和次要风险（第二高分）
-        primary_risk = sorted_risks[-1]
-        secondary_risk = sorted_risks[-2]
-        
-        # 应用主次风险融合公式，突出主要矛盾，同时考虑次要矛盾的影响
-        archangel_score_values = primary_risk + (secondary_risk * secondary_risk_discount)
-        
-        # --- 3. 结果处理与保存 ---
-        # 使用np.clip确保最终分数不会超过1.0，保持归一化
+        # 使用 np.maximum.reduce 高效地找出每日最强的那个风险信号作为最终裁决
+        archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
+        # 步骤三：结果处理与保存
         archangel_score = np.clip(archangel_score_values, 0, 1)
-        
         states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
         return states
 
