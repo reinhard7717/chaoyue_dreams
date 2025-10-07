@@ -111,14 +111,12 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 关系元分析版】高质量战备可靠性诊断引擎
+        【V5.1 · 放大器侦测版】高质量战备可靠性诊断引擎
+        - 核心升级: 部署“放大器侦测探针”，在目标日期打印出底部反转可靠性分数的放大过程。
         """
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True): return states
-        
-        # 步骤一：计算原始的、纯粹的“可靠性”分数
-        # 内部逻辑保持不变，但其输出现在被视为“原始分”
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         norm_window = get_param_value(p.get('norm_window'), 120)
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
@@ -128,7 +126,6 @@ class MicroBehaviorEngine:
         states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score
         chip_accumulation_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
         chip_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL')
-        # 注意：此处的输入信号现在是经过关系元分析改造后的新信号，可靠性评估的质量已自动提升
         conviction_strengthening_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING')
         shareholder_turnover_score = np.maximum.reduce([
             chip_accumulation_score.values, chip_reversal_score.values, conviction_strengthening_score.values
@@ -156,19 +153,23 @@ class MicroBehaviorEngine:
         )
         bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
         raw_reliability_score = (main_score * (1 + background_score * bonus_factor)).clip(0, 1)
-
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        # 核心思想：一个可靠的反转，如果发生在均线结构也开始转好的背景下，其可靠性将得到进一步确认。
-        snapshot_score = raw_reliability_score * ma_context_score
-
-        # 步骤四：对快照分进行关系元分析，得到最终的动态调制分数
+        # [代码新增] 部署“放大器侦测探针”
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_dates = [pd.to_datetime(d) for d in probe_dates_str]
+        for date in probe_dates:
+            if date in df.index and date.date() == pd.to_datetime('2025-09-17').date():
+                print(f"\n      -> [放大器侦测探针 @ {date.date()}] 信号: COGNITIVE_SCORE_REVERSAL_RELIABILITY")
+                print(f"         - 基础分 (main_score): {main_score.loc[date]:.4f}")
+                print(f"         - 上下文分 (background_score): {background_score.loc[date]:.4f}")
+                print(f"         - 奖励因子 (bonus_factor): {bonus_factor:.2f}")
+                print(f"         - 放大公式: Base * (1 + Context * Factor)")
+                print(f"         - 计算过程: {main_score.loc[date]:.4f} * (1 + {background_score.loc[date]:.4f} * {bonus_factor:.2f})")
+                print(f"         - 放大后分数 (raw_reliability_score): {raw_reliability_score.loc[date]:.4f}")
+                print(f"         - 贡献增量 (Amplification): {(raw_reliability_score.loc[date] - main_score.loc[date]):.4f}\n")
+        snapshot_score = raw_reliability_score * self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         final_reliability_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-        
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score.astype(np.float32)
-        
         return states
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
