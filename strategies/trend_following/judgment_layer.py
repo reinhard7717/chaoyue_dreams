@@ -11,38 +11,34 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V533.1 · 奥德修斯之眼协议版】
-        - 核心升级: 在所有关键计算节点部署“观察哨”(print)，实时追踪分数和状态的流转。
-        - 收益: 提供一份详细的、逐帧的行动报告，以彻底揭示任何潜在的分数篡改行为。
+        【V534.0 · 度量衡统一法案版】
+        - 核心修正: 引入统一的最终取整步骤。所有中间计算保持浮点数，只在最后对 final_score 进行四舍五入和类型转换。
+        - 收益: 彻底消除了在计算链中因浮点数误差和截断导致的“1分钱”问题。
         """
-        print("    --- [最高作战指挥部 V533.1 · 奥德修斯之眼协议版] 启动...")
+        print("    --- [最高作战指挥部 V534.0 · 度量衡统一法案版] 启动...") # 更新版本号
         df = self.strategy.df_indicators
-        # [代码新增] 增加一个调试开关，只对探针日期打印详细信息
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
         def debug_print(date, message):
             if date.date() in probe_dates:
                 print(f"      -> [观察哨 @ {date.date()}] {message}")
-        # 步骤 1: 计算基础最终得分
-        debug_print(df.index[-1], f"进入审判庭。初始 entry_score: {df['entry_score'].iloc[-1]:.0f}")
+        # 步骤 1: 计算基础最终得分 (保持浮点数)
+        debug_print(df.index[-1], f"进入审判庭。初始 entry_score: {df['entry_score'].iloc[-1]:.4f}")
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        df['final_score'] = (df['entry_score'] * confidence_damper)
+        df['final_score'] = df['entry_score'] * confidence_damper # 结果是浮点数
         for idx, row in df.iterrows():
             if idx.date() in probe_dates:
-                debug_print(idx, f"奇美拉衰减计算: entry_score({row['entry_score']:.0f}) * damper({confidence_damper.get(idx, 1.0):.2f}) -> pre_final_score: {row['final_score']:.0f}")
-        # 步骤 2: 进行权威的风险等级裁决
+                debug_print(idx, f"奇美拉衰减计算: entry_score({row['entry_score']:.4f}) * damper({confidence_damper.get(idx, 1.0):.2f}) -> pre_final_score: {row['final_score']:.4f}")
+        # 步骤 2: 进行风险裁决
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
-        for idx, row in df.iterrows():
-            if idx.date() in probe_dates and row['alert_level'] > 0:
-                debug_print(idx, f"风险裁决完成。ALERT_LEVEL: {row['alert_level']}, REASON: {row['alert_reason']}")
         df['dynamic_action'] = self._get_dynamic_combat_action()
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        # 步骤 3: 根据得分和风险，生成唯一的最终信号类型
+        # 步骤 3: 生成最终信号类型
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
@@ -50,25 +46,29 @@ class JudgmentLayer:
         is_veto_by_alert = df['alert_level'] >= 3
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        # 步骤 4: 根据最终信号类型，反向修正分数和信号
+        # 步骤 4: 根据信号类型修正分数
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
         for idx, row in df[alert_veto_condition].iterrows():
             if idx.date() in probe_dates:
-                debug_print(idx, f"风险否决触发！final_score 从 {row['final_score']:.0f} 被强制清零。")
-        df.loc[alert_veto_condition, 'final_score'] = 0
+                debug_print(idx, f"风险否决触发！final_score 从 {row['final_score']:.4f} 被强制清零。")
+        df.loc[alert_veto_condition, 'final_score'] = 0.0 # 清零也用浮点数
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
+        # [代码新增] 步骤 5: 统一度量衡 - 在所有计算结束后，进行最终的四舍五入和类型转换
         for idx, row in df.iterrows():
             if idx.date() in probe_dates:
-                debug_print(idx, f"最终信号裁决完成。Signal_Type: '{row['signal_type']}', Final_Score: {row['final_score']:.0f}")
-        # 步骤 5: 生成人类可读的摘要报告
-        debug_print(df.index[-1], "进入报告生成模块 (_get_human_readable_summary)...")
+                debug_print(idx, f"最终裁决完成。Signal_Type: '{row['signal_type']}', 浮点分: {row['final_score']:.4f}")
+        df['final_score'] = df['final_score'].round().astype(int)
+        for idx, row in df.iterrows():
+            if idx.date() in probe_dates:
+                debug_print(idx, f"统一度量衡后 -> 最终整数分: {row['final_score']}")
+        # 步骤 6: 生成人类可读的摘要报告
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
-        # 步骤 6: 终结信号
+        # 步骤 7: 终结信号
         self._finalize_signals()
         debug_print(df.index[-1], "审判流程结束。")
 
@@ -205,7 +205,7 @@ class JudgmentLayer:
         ]
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
-        # [代码修改] 只将数值型的 alert_level 存入 atomic_states
+        # 只将数值型的 alert_level 存入 atomic_states
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
         # [代码删除] 不再将字符串类型的 alert_reason 存入 atomic_states
         # self.strategy.atomic_states['ALERT_REASON'] = alert_reason

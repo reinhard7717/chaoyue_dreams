@@ -38,53 +38,54 @@ class MultiTimeframeTrendStrategy:
 
     def __init__(self, cache_manager_instance: CacheManager):
         """
-        【V205.0 · 双子星协议版】初始化总指挥部。
-        - 核心升级: 签署“双子星协议”，统一依赖注入模式，同时初始化两大主权策略。
+        【V206.0 · 主权配置协议版】初始化总指挥部。
+        - 核心革命: 采纳最高指令，在初始化时即完成配置的净化与隔离。
+        - 核心逻辑:
+          1. 加载主配置和完整的信号字典。
+          2. 将信号字典拆分为两份独立的、纯净的配置：一份给 TrendFollow，一份给 Prophet。
+          3. 通过依赖注入，将专属配置传递给各自的策略实例。
+        - 收益: 实现了“主权独立，配置隔离”，彻底根除了配置污染问题。
         """
-        unified_config_path = 'config/trend_follow_strategy.json'
-        self.unified_config = self._load_and_merge_configs(unified_config_path)
-        self.indicator_service = IndicatorService(cache_manager_instance)
-        self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        # 统一依赖注入模式，将总指挥实例(self)传递给所有子策略
-        self.tactical_engine = TrendFollowStrategy(self)
-        self.prophet_engine = ProphetSignalStrategy(self)
-        self.daily_analysis_df = None
-        self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-
-    # 封装了配置加载与融合逻辑的私有方法
-    def _load_and_merge_configs(self, main_config_path: str) -> dict:
-        """
-        【V1.1 路径修复版】加载主策略配置文件，并自动合并信号字典。
-        - 核心修复 (本次修改):
-          - [BUG修复] 修正了信号字典的合并路径。现在它会被正确合并到 `four_layer_scoring_params` 内部，解决了下游模块找不到中文名和信号类型的问题。
-        """
-        # print(f"  -> [配置加载器] 正在加载主配置文件: {main_config_path}")
+        # 步骤1：加载主配置文件和完整的信号字典
+        main_config_path = 'config/trend_follow_strategy.json'
         main_config = load_strategy_config(main_config_path)
         config_dir = os.path.dirname(main_config_path)
         dict_path = os.path.join(config_dir, 'signal_dictionary.json')
+        
+        original_score_map = {}
         if os.path.exists(dict_path):
-            # print(f"  -> [配置加载器] 发现并加载信号字典: {dict_path}")
             try:
                 with open(dict_path, 'r', encoding='utf-8') as f:
-                    signal_dict_data = json.load(f)
-                if 'score_type_map' in signal_dict_data:
-                    # 定位到 trend_follow 参数块
-                    trend_follow_params = main_config.get('strategy_params', {}).get('trend_follow', {})
-                    # 将信号字典直接合并到 trend_follow 参数块下
-                    trend_follow_params['score_type_map'] = signal_dict_data['score_type_map']
-                    # 再把它放回主配置中
-                    main_config['strategy_params']['trend_follow'] = trend_follow_params
-                    # print("  -> [配置加载器] 信号字典已成功合并到 'four_layer_scoring_params' 中。")
-                else:
-                    logger.warning(f"信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
-                    print(f"  -> [配置加载器] 警告: 信号字典文件 {dict_path} 中未找到 'score_type_map' 键。")
-            except json.JSONDecodeError as e:
-                logger.error(f"解析信号字典文件 {dict_path} 失败: {e}")
-                print(f"  -> [配置加载器] 错误: 解析信号字典文件 {dict_path} 失败，请检查JSON格式。")
-        else:
-            logger.warning(f"未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
-            print(f"  -> [配置加载器] 警告: 未在 {config_dir} 目录下找到信号字典文件 'signal_dictionary.json'。")
-        return main_config
+                    original_score_map = json.load(f).get('score_type_map', {})
+            except Exception as e:
+                logger.error(f"加载或解析信号字典 {dict_path} 失败: {e}")
+
+        # 步骤2：执行“主权配置协议”，为每个策略准备专属配置
+        import copy
+        # 为 TrendFollow 准备纯净配置
+        trend_follow_config = copy.deepcopy(main_config)
+        trend_follow_score_map = {k: v for k, v in original_score_map.items() if 'PREDICTIVE_' not in k}
+        trend_follow_params = trend_follow_config.get('strategy_params', {}).get('trend_follow', {})
+        trend_follow_params['score_type_map'] = trend_follow_score_map
+        trend_follow_config['strategy_params']['trend_follow'] = trend_follow_params
+        
+        # 为 Prophet 准备纯净配置
+        prophet_config = copy.deepcopy(main_config)
+        prophet_score_map = {k: v for k, v in original_score_map.items() if 'PREDICTIVE_' in k}
+        # 先知策略的配置可能在不同的块中，我们直接在顶层注入
+        prophet_config.get('strategy_params', {}).get('trend_follow', {})['score_type_map'] = prophet_score_map
+
+        # 步骤3：使用专属配置初始化所有单元
+        self.unified_config = main_config # 保留一个完整的副本以备后用
+        self.indicator_service = IndicatorService(cache_manager_instance)
+        self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
+        
+        # 将专属配置注入到各个策略中
+        self.tactical_engine = TrendFollowStrategy(self, trend_follow_config)
+        self.prophet_engine = ProphetSignalStrategy(self, prophet_config)
+        
+        self.daily_analysis_df = None
+        self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
     
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
@@ -545,7 +546,7 @@ class MultiTimeframeTrendStrategy:
 
             print("    -> [阶段 1/3] 核心策略计算完成。")
 
-            # [代码修改] 步骤 2: 立即部署探针，确保其在最新的数据上运行
+            # 步骤 2: 立即部署探针，确保其在最新的数据上运行
             print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             if get_param_value(debug_params.get('enabled'), False):
@@ -554,7 +555,7 @@ class MultiTimeframeTrendStrategy:
             else:
                 print("    -> [信息] 法医探针在配置中被禁用，跳过解剖。")
 
-            # [代码修改] 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
+            # 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
             print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
             start_dt = pd.to_datetime(start_date)

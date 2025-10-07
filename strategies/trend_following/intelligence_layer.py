@@ -461,7 +461,7 @@ class IntelligenceLayer:
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_value_raw = get_val(signal_name, probe_date, 0.0)
-            # [代码修改] 增加类型检查防火墙
+            # 增加类型检查防火墙
             if not isinstance(signal_value_raw, (int, float, np.number)):
                 continue
             if abs(signal_value_raw) < 1e-6: continue

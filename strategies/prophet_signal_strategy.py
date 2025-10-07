@@ -12,12 +12,13 @@ class ProphetSignalStrategy:
                   并独立生成“先知入场”信号的数据库记录。
     - 架构定位: 与 TrendFollowStrategy 平级的“主权策略”。
     """
-    def __init__(self, orchestrator_instance):
+    def __init__(self, orchestrator_instance, strategy_config: dict):
         """
-        从总指挥处继承统一配置。
+        接收由总指挥分发的、纯净的专属配置。
         """
         self.orchestrator = orchestrator_instance
-        self.unified_config = self.orchestrator.unified_config
+        # 不再从总指挥处继承，而是使用注入的专属配置
+        self.unified_config = strategy_config
 
     async def apply_strategy(self, stock_code: str, df_daily: pd.DataFrame, atomic_states: dict) -> Tuple[List, List, List, List, List]:
         """

@@ -20,17 +20,15 @@ class TrendFollowStrategy:
     【V101.0 · 终极信号适配版】
     - 核心重构: 净化了 apply_strategy 的主流程，现在完全依赖 IntelligenceLayer 来完成所有情报的生成与融合。
     """
-    def __init__(self, orchestrator_instance):
+    def __init__(self, orchestrator_instance, strategy_config: dict):
         """
-        【V102.0 · 指挥链校准协议版】
-        - 核心修复: 修正了初始化方法，使其能正确接收总指挥实例(orchestrator_instance)。
-        - 核心逻辑: 不再将传入的实例本身当作配置，而是从实例中正确提取 unified_config 字典。
-        - 收益: 解决了因依赖注入不匹配导致的 AttributeError，使策略完全融入联邦制架构。
+        【V103.0 · 主权配置协议版】
+        - 核心修改: 初始化方法现在接收一份由总指挥分发的、纯净的专属配置 (strategy_config)。
+        - 收益: 策略单元不再需要关心配置的来源和净化过程，实现了更高的内聚和独立性。
         """
-        # [代码修改] 参数名从 config 改为 orchestrator_instance，更符合语义
         self.orchestrator = orchestrator_instance
-        # [代码修改] 从总指挥实例中正确获取统一配置字典
-        self.unified_config = self.orchestrator.unified_config
+        # 不再从总指挥处继承，而是使用注入的专属配置
+        self.unified_config = strategy_config
         self.params = {}
         self.atomic_states = {}
         self.playbook_states = {}
@@ -43,7 +41,6 @@ class TrendFollowStrategy:
         self.judgment_layer = JudgmentLayer(self)
         self.simulation_layer = SimulationLayer(self)
         self.reporting_layer = ReportingLayer(self)
-
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
