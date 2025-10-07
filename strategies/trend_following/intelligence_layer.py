@@ -428,10 +428,9 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
         """
-        【V2.8 · 统一计分法典同步版】“宙斯之雷”终极法医探针
-        - 核心升级: 同步“统一计分法典”，探针不再使用 penalty_weight。
-        - 新核心逻辑: 无论是进攻项还是风险项，基础分统一从 meta.get('score', 0) 获取。
-        - 收益: 确保了调试工具与主引擎的计分逻辑完全一致。
+        【V2.9 · 数据纯净法案版】“宙斯之雷”终极法医探针
+        - 核心修复: 增加类型检查防火墙，在对信号值进行数值操作前，确保其为数值类型。
+        - 收益: 彻底杜绝因 atomic_states 被污染（如混入字符串）而导致的探针崩溃。
         """
         print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
         self._deploy_themis_scales_probe(probe_date)
@@ -462,8 +461,10 @@ class IntelligenceLayer:
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_value_raw = get_val(signal_name, probe_date, 0.0)
+            # [代码修改] 增加类型检查防火墙
+            if not isinstance(signal_value_raw, (int, float, np.number)):
+                continue
             if abs(signal_value_raw) < 1e-6: continue
-            # 统一从 'score' 字段获取基础分
             base_score = meta.get('score', 0)
             if abs(base_score) < 1e-6: continue
             all_signals_to_process.append({'name': signal_name, 'meta': meta, 'raw_value': signal_value_raw, 'base_score': base_score})

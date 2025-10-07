@@ -155,9 +155,10 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.7 · API标准用法修正案版】风险裁决者 (Risk Adjudicator)
-        - 核心修复: 修正了对 get_param_value 函数的错误调用，解决了因传递过多参数导致的 TypeError。
-        - 核心逻辑: 严格遵循“先用 .get() 从字典取值，再用 get_param_value 解析”的标准用法。
+        【V2.8 · 数据纯净法案版】风险裁决者 (Risk Adjudicator)
+        - 核心修复: 不再将字符串类型的 alert_reason 存入 atomic_states，确保其只包含数值状态。
+        - 核心逻辑: alert_reason 作为最终描述性结果，直接返回给 make_final_decisions 方法处理。
+        - 收益: 根除了因数据类型污染导致的下游模块（如探针）崩溃问题。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -175,7 +176,6 @@ class JudgmentLayer:
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
         p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
         predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
-        # [代码修改] 修正所有 get_param_value 的调用方式
         prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
         archangel_threshold = get_param_value(p_judge.get('archangel_alert_threshold'), 0.7)
         top_reversal_threshold = get_param_value(p_judge.get('top_reversal_alert_threshold'), 0.8)
@@ -200,8 +200,10 @@ class JudgmentLayer:
         ]
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
+        # [代码修改] 只将数值型的 alert_level 存入 atomic_states
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
-        self.strategy.atomic_states['ALERT_REASON'] = alert_reason
+        # [代码删除] 不再将字符串类型的 alert_reason 存入 atomic_states
+        # self.strategy.atomic_states['ALERT_REASON'] = alert_reason
         return alert_level, alert_reason, fused_risks_df
 
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
