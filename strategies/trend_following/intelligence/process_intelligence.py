@@ -106,41 +106,55 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2.0 · 范围约束版】
-        - 核心修复: 对最终的 relationship_score 增加 .clip(-1, 1) 约束，彻底杜绝范围溢出问题。
+        【V2.3.0 · 普罗米修斯探针版】
+        - 核心升级: 部署“普罗米修斯探针”，在目标日期对“价与散户恐慌”信号进行钻透式解剖。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
-
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
                 return self.strategy.atomic_states.get(signal_name)
             return df.get(signal_name)
-
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
-        
         if signal_a is None or signal_b is None:
             print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
-
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if change_type == 'diff':
                 return series.diff(1).fillna(0)
             return ta.percent_return(series, length=1).fillna(0)
-
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
         relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
-        
-        # 增加范围约束，防止数学溢出
         relationship_score = relationship_score.clip(-1, 1)
-
+        # [代码新增] 部署“普罗米修斯”探针
+        if config.get('name') == 'PROCESS_META_PRICE_VS_RETAIL_PANIC':
+            debug_params = get_params_block(self.strategy, 'debug_params', {})
+            probe_dates_str = debug_params.get('probe_dates', [])
+            probe_dates_naive = [pd.to_datetime(d) for d in probe_dates_str]
+            probe_dates = []
+            if df.index.tz is not None:
+                for d in probe_dates_naive:
+                    try:
+                        probe_dates.append(d.tz_localize(df.index.tz))
+                    except TypeError:
+                        probe_dates.append(d.tz_convert(df.index.tz))
+            else:
+                probe_dates = probe_dates_naive
+            for date in probe_dates:
+                if date in df.index and date.date() == pd.to_datetime('2025-09-17').date():
+                    print(f"\n      -> [普罗米修斯探针 @ {date.date()}] 信号: PROCESS_META_PRICE_VS_RETAIL_PANIC")
+                    print(f"         - 信号A (价格动量): momentum_a = {momentum_a.loc[date]:.4f}")
+                    print(f"         - 信号B (散户恐慌推力): thrust_b = {thrust_b.loc[date]:.4f}")
+                    print(f"         - 关系因子 (k): {signal_b_factor_k:.2f}")
+                    print(f"         - 关系公式: momentum_a * (1 + k * thrust_b)")
+                    print(f"         - 计算过程: {momentum_a.loc[date]:.4f} * (1 + {signal_b_factor_k:.2f} * {thrust_b.loc[date]:.4f})")
+                    print(f"         - 最终关系分 (relationship_score): {relationship_score.loc[date]:.4f}\n")
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
