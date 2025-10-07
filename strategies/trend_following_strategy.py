@@ -45,7 +45,6 @@ class TrendFollowStrategy:
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         【V407.1 · 阿里阿德涅之线协议版】
-        - 核心升级: 在接收到 offensive_layer 的分数后，立即部署“观察哨”打印，以确认分数的传递过程。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -60,13 +59,6 @@ class TrendFollowStrategy:
             bottom_context_score,
             top_context_score
         )
-        # [代码新增] 部署“阿里阿德涅之线”观察哨
-        debug_params = get_params_block(self, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-        for date in entry_score.index:
-            if date.date() in probe_dates:
-                print(f"      -> [阿里阿德涅之线 @ {date.date()}] (Strategy) 接收到 OffensiveLayer 的 entry_score: {entry_score.loc[date]:.0f}")
         self.df_indicators['entry_score'] = entry_score
         risk_details_df = self.warning_layer.run_all_warnings()
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)

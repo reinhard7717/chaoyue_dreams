@@ -20,9 +20,6 @@ class JudgmentLayer:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-        def debug_print(date, message):
-            if date.date() in probe_dates:
-                print(f"      -> [观察哨 @ {date.date()}] {message}")
         # 步骤 1: 计算基础最终得分 (保持浮点数)
         debug_print(df.index[-1], f"进入审判庭。初始 entry_score: {df['entry_score'].iloc[-1]:.4f}")
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
@@ -82,9 +79,6 @@ class JudgmentLayer:
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-        def debug_print(date, message):
-            if date.date() in probe_dates:
-                print(f"      -> [观察哨 @ {date.date()}] (报告生成) {message}")
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         def process_details_df(details_df, is_risk_df=False):
             if details_df is None or details_df.empty: return pd.Series(dtype=object)
@@ -104,18 +98,12 @@ class JudgmentLayer:
         summary_df = pd.DataFrame({'details': all_summaries}).reindex(self.strategy.df_indicators.index)
         def generate_final_summary(row):
             final_signal_type = signal_type_series.get(row.name)
-            # [代码新增] 增加调试打印
-            debug_print(row.name, f"正在为最终信号 '{final_signal_type}' 生成报告详情...")
             if final_signal_type == '买入信号':
                 details_list = row['details'] if isinstance(row['details'], list) else []
                 offense_list = [d for d in details_list if d.get('score', 0) > 0]
                 risk_list = [d for d in details_list if d.get('score', 0) < 0]
-                # [代码新增] 增加调试打印
-                debug_print(row.name, f"裁决为'买入信号'，保留 {len(offense_list)} 个进攻项和 {len(risk_list)} 个风险项。")
                 return {'offense': offense_list, 'risk': risk_list}
             else:
-                # [代码新增] 增加调试打印
-                debug_print(row.name, f"裁决非'买入信号'，清空所有进攻项和风险项。")
                 return {'offense': [], 'risk': []}
         return summary_df.apply(generate_final_summary, axis=1)
 

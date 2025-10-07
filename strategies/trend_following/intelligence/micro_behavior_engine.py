@@ -165,16 +165,6 @@ class MicroBehaviorEngine:
         else:
             # 如果 df.index 没有时区信息，则保持探针日期为 naive
             probe_dates = probe_dates_naive
-        for date in probe_dates:
-            if date in df.index and date.date() == pd.to_datetime('2025-09-17').date():
-                print(f"\n      -> [放大器侦测探针 @ {date.date()}] 信号: COGNITIVE_SCORE_REVERSAL_RELIABILITY")
-                print(f"         - 基础分 (main_score): {main_score.loc[date]:.4f}")
-                print(f"         - 上下文分 (background_score): {background_score.loc[date]:.4f}")
-                print(f"         - 奖励因子 (bonus_factor): {bonus_factor:.2f}")
-                print(f"         - 放大公式: Base * (1 + Context * Factor)")
-                print(f"         - 计算过程: {main_score.loc[date]:.4f} * (1 + {background_score.loc[date]:.4f} * {bonus_factor:.2f})")
-                print(f"         - 放大后分数 (raw_reliability_score): {raw_reliability_score.loc[date]:.4f}")
-                print(f"         - 贡献增量 (Amplification): {(raw_reliability_score.loc[date] - main_score.loc[date]):.4f}\n")
         snapshot_score = raw_reliability_score * self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         final_reliability_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
         states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_reliability_score.astype(np.float32)
