@@ -11,9 +11,9 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V513.2 · 度量衡统一法案版】
-        - 核心修正: 移除返回前的 .astype(int) 转换，确保分数在计算链路中保持为高精度浮点数。
-        - 收益: 根除了因过早截断小数而导致的源头性分数误差。
+        【V515.0 · 最终验尸版】
+        - 核心升级: 部署“最终验尸”探针，在目标日期打印出每一个非零贡献的信号及其分数。
+        - 收益: 彻底揭示高分数的构成来源，终结所有关于分数来源的猜测。
         """
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
@@ -26,7 +26,13 @@ class OffensiveLayer:
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
-        probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
+        probe_dates = [pd.to_datetime(d) for d in probe_dates_str]
+        # [代码新增] 最终验尸探针 - 打印表头
+        for date in probe_dates:
+            if date in df.index:
+                print(f"\n" + "="*30 + f" [最终验尸 @ {date.date()}] " + "="*30)
+                print(f"  {'信号名称':<50} {'贡献分数':>15}")
+                print(f"  {'-'*50} {'-'*15}")
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             score_value = meta.get('score', 0)
@@ -49,11 +55,19 @@ class OffensiveLayer:
                     bonus_amount = processed_signal_series * score_value
                     total_score += bonus_amount
                     score_details_df[signal_name] = bonus_amount
-        for date in total_score.index:
-            if date.date() in probe_dates:
-                # 打印更精确的浮点数
-                print(f"      -> [阿里阿德涅之线 @ {date.date()}] (OffensiveLayer) 计分完成，返回前的 total_score: {total_score.loc[date]:.4f}")
-        # 移除 .astype(int)，保持浮点数精度
+                    # [代码新增] 在循环内部进行验尸打印
+                    for date in probe_dates:
+                        if date in bonus_amount.index:
+                            contribution = bonus_amount.loc[date]
+                            if pd.notna(contribution) and contribution != 0:
+                                print(f"  {signal_name:<50} {contribution:>15.2f}")
+        # [代码新增] 最终验尸探针 - 打印表尾
+        for date in probe_dates:
+             if date in df.index:
+                print(f"  {'-'*50} {'-'*15}")
+                print(f"  {'总计':<50} {total_score.loc[date]:>15.2f}")
+                print("="*77 + "\n")
+        # 保持浮点数以便观察，最终的取整在 judgment_layer 中完成
         return total_score.fillna(0), score_details_df.fillna(0)
 
 
