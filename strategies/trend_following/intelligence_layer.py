@@ -884,7 +884,7 @@ class IntelligenceLayer:
         uranus_params = get_params_block(strategy_instance_ref, 'uranus_ceiling_params', {})
         if not get_param_value(uranus_params.get('enabled'), False):
             print("        - 乌拉诺斯穹顶系统在配置中被禁用。")
-            return
+            return 0.0 # [代码修改] 修复致命错误：确保在禁用时返回一个数值 0.0 而不是 None
         resistance_levels = get_param_value(uranus_params.get('resistance_levels'), [55, 89, 144, 233, 377])
         confirmation_window = get_param_value(uranus_params.get('confirmation_window'), 3)
         rejection_lookback_window = get_param_value(uranus_params.get('rejection_lookback_window'), 5)
