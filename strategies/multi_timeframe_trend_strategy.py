@@ -513,22 +513,23 @@ class MultiTimeframeTrendStrategy:
 
     async def debug_run_for_period(self, stock_code: str, start_date: str, end_date: str):
         """
-        【V323.2 · 健壮性修复版】
-        - 核心修复:
-          - [时区兼容] 解决了因 DataFrame 索引为“感知时区”(tz-aware)而开始/结束日期为“天真时区”(tz-naive) 导致的 TypeError。
-          - [索引健壮] 增加了对索引类型的检查，避免在索引不是 DatetimeIndex 时（如 RangeIndex）调用 .tz 属性而引发 AttributeError。
+        【V324.0 · 真理之镜协议版】
+        - 核心修复: 修正了探针与最终报告数据源不一致的致命BUG。
+        - 核心逻辑:
+          1. 在核心策略计算完成后，立即使用返回的最新数据部署法医探针。
+          2. 确保探针的解剖报告和最终的信号透视报告，都基于同一次运行的、完全相同的数据。
+        - 收益: 实现了调试信息的绝对同步，确保所见即所得，根除了因数据不同步导致的认知混乱。
         """
         print("=" * 80)
-        print(f"--- [历史回溯调试启动 V323.2 · 健壮性修复版] ---") # 更新版本号
+        print(f"--- [历史回溯调试启动 V324.0 · 真理之镜协议版] ---") # 更新版本号
         print(f"    -> 股票代码: {stock_code}")
         print(f"    -> 回测时段: {start_date} to {end_date}")
         print("=" * 80)
         try:
             # 步骤 1: 独立执行数据准备和战术引擎，并捕获所有返回结果
-            print("    -> [阶段 1/2] 正在执行核心策略计算，以捕获调试所需数据...")
+            print("    -> [阶段 1/3] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
-            # 增加对返回值的健壮性处理
             engine_results = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
@@ -538,25 +539,27 @@ class MultiTimeframeTrendStrategy:
 
             _records_tuple, daily_analysis_df, score_details_df, risk_details_df = engine_results
 
-            # 增加对 daily_analysis_df 的有效性检查
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("[严重错误] 战术引擎未能生成有效的分析数据(daily_analysis_df)，调试终止。")
                 return
 
-            print("    -> [阶段 1/2] 核心策略计算完成，已捕获所有中间过程数据。")
+            print("    -> [阶段 1/3] 核心策略计算完成。")
 
-            # 步骤 2: 检查并部署探针
-            # debug_params = get_params_block(self.tactical_engine, 'debug_params')
-            # if get_param_value(debug_params.get('enabled'), False):
-            #     self.tactical_engine.intelligence_layer.deploy_forensic_probes()
+            # [代码修改] 步骤 2: 立即部署探针，确保其在最新的数据上运行
+            print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
+            debug_params = get_params_block(self.tactical_engine, 'debug_params')
+            if get_param_value(debug_params.get('enabled'), False):
+                # 确保探针使用的是本次运行的最新 atomic_states
+                self.tactical_engine.intelligence_layer.deploy_forensic_probes()
+            else:
+                print("    -> [信息] 法医探针在配置中被禁用，跳过解剖。")
 
-            # 步骤 3: 使用捕获的、完整的 daily_analysis_df 进行报告生成
-            print(f"\n    -> [阶段 2/2] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
+            # [代码修改] 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
+            print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
             
-            # 增加索引类型检查，修复 AttributeError
             if isinstance(daily_analysis_df.index, pd.DatetimeIndex) and daily_analysis_df.index.tz is not None:
                 target_timezone = daily_analysis_df.index.tz
                 start_dt = start_dt.tz_localize(target_timezone)
@@ -566,7 +569,6 @@ class MultiTimeframeTrendStrategy:
             
             if debug_period_df.empty:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
-                # 增加对完整数据的检查提示
                 print(f"    -> 提示: 请检查完整数据(daily_analysis_df)的索引范围是否覆盖此期间。完整数据范围: {daily_analysis_df.index.min()} to {daily_analysis_df.index.max()}")
                 return
 
@@ -577,7 +579,6 @@ class MultiTimeframeTrendStrategy:
                 final_score_val = row.get('final_score', 'N/A')
                 signal_type = row.get('signal_type', '无信号')
                 
-                # 格式化输出，使其更对齐
                 final_score_str = f"{final_score_val:<7.0f}" if isinstance(final_score_val, (int, float)) else "N/A"
                 print(f"\n{time_str} [最终得分: {final_score_str}] [最终信号: {signal_type}]")
                 
