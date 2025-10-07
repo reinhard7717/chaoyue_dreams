@@ -110,15 +110,14 @@ class MicroBehaviorEngine:
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 放大器侦测版】高质量战备可靠性诊断引擎
-        - 核心升级: 部署“放大器侦测探针”，在目标日期打印出底部反转可靠性分数的放大过程。
+        【V5.2 · 时区统一法案版】高质量战备可靠性诊断引擎
+        - 核心修正: 签署“时区统一法案”，在探针中强制统一时间戳的时区信息，确保探针能够命中目标。
+        - 收益: 修复了因时区不匹配导致探针失效的致命BUG。
         """
-        # [代码新增] 指挥链审查探针 - 级别 5
         print("    -> [指挥链探针-5] MicroBehaviorEngine: synthesize_reversal_reliability_score 已被调用。")
         states = {}
         p = get_params_block(self.strategy, 'reversal_reliability_params', {})
         if not get_param_value(p.get('enabled'), True):
-            # [代码新增] 指挥链审查探针 - 级别 5.1 (配置禁用)
             print("    -> [指挥链探针-5.1] MicroBehaviorEngine: synthesize_reversal_reliability_score 因配置禁用而退出。")
             return states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -157,10 +156,21 @@ class MicroBehaviorEngine:
         )
         bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
         raw_reliability_score = (main_score * (1 + background_score * bonus_factor)).clip(0, 1)
-        # [代码新增] 部署“放大器侦测探针”
+        # [代码修改] 应用“时区统一法案”
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
-        probe_dates = [pd.to_datetime(d) for d in probe_dates_str]
+        probe_dates_naive = [pd.to_datetime(d) for d in probe_dates_str]
+        probe_dates = []
+        if df.index.tz is not None:
+            # 如果 df.index 具有时区信息，则将探针日期本地化到相同的时区
+            for d in probe_dates_naive:
+                try:
+                    probe_dates.append(d.tz_localize(df.index.tz))
+                except TypeError: # 如果日期已经有时区，则尝试转换
+                    probe_dates.append(d.tz_convert(df.index.tz))
+        else:
+            # 如果 df.index 没有时区信息，则保持探针日期为 naive
+            probe_dates = probe_dates_naive
         for date in probe_dates:
             if date in df.index and date.date() == pd.to_datetime('2025-09-17').date():
                 print(f"\n      -> [放大器侦测探针 @ {date.date()}] 信号: COGNITIVE_SCORE_REVERSAL_RELIABILITY")
