@@ -1764,7 +1764,7 @@ class StockTimeTradeDAO(BaseDAO):
             
             # 批量获取股票对象
             unique_codes = df['stock_code'].unique().tolist()
-            stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(unique_codes)
+            stock_map = await self.stock_basic_dao.get_stocks_by_codes(unique_codes)
             df['stock'] = df['stock_code'].map(stock_map)
             df.dropna(subset=['stock'], inplace=True)
             # 按模型分发数据
