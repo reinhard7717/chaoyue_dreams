@@ -629,7 +629,7 @@ class IndicatorService:
                 object_cols = data.select_dtypes(include=['object']).columns
                 for col in object_cols:
                     data[col] = pd.to_numeric(data[col], errors='coerce')
-                # [代码修改] 在分类逻辑中增加对 'price_limit' 标签的识别
+                # 在分类逻辑中增加对 'price_limit' 标签的识别
                 if tag in ['legacy_supplemental', 'advanced_chips', 'daily_basic', 'fund_flow_ths', 'fund_flow_dc', 'fund_flow_tushare', 'advanced_fund_flow', 'price_limit']:
                     supplemental_dfs[tag] = data
                 else:

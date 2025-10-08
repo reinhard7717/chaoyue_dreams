@@ -46,15 +46,15 @@ def is_limit_up(df_row: pd.Series, tolerance: float = 0.005) -> bool:
     【V1.1 · 精确制导修正版】判断给定行（代表一天）的K线是否为涨停。
     - 核心修正: 使用带有 '_D' 后缀的列名，与数据管道的最终输出保持一致。
     """
-    # [代码修改] 使用 'close_D'
+    # 使用 'close_D'
     close_price = df_row.get('close_D')
     if pd.isna(close_price):
         return False
-    # [代码修改] 优先使用 'up_limit_D'
+    # 优先使用 'up_limit_D'
     up_limit_price = df_row.get('up_limit_D')
     if pd.notna(up_limit_price) and up_limit_price > 0:
         return close_price >= up_limit_price * (1 - tolerance)
-    # [代码修改] 回退方案使用 'pre_close_D'
+    # 回退方案使用 'pre_close_D'
     pre_close = df_row.get('pre_close_D')
     if pd.isna(pre_close):
         return False
@@ -76,15 +76,15 @@ def is_limit_down(df_row: pd.Series, tolerance: float = 0.005) -> bool:
     【V1.1 · 精确制导修正版】判断给定行（代表一天）的K线是否为跌停。
     - 核心修正: 使用带有 '_D' 后缀的列名，与数据管道的最终输出保持一致。
     """
-    # [代码修改] 使用 'close_D'
+    # 使用 'close_D'
     close_price = df_row.get('close_D')
     if pd.isna(close_price):
         return False
-    # [代码修改] 优先使用 'down_limit_D'
+    # 优先使用 'down_limit_D'
     down_limit_price = df_row.get('down_limit_D')
     if pd.notna(down_limit_price) and down_limit_price > 0:
         return close_price <= down_limit_price * (1 + tolerance)
-    # [代码修改] 回退方案使用 'pre_close_D'
+    # 回退方案使用 'pre_close_D'
     pre_close = df_row.get('pre_close_D')
     if pd.isna(pre_close):
         return False
@@ -247,8 +247,8 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V11.1 · 结构对称版】计算全局的底部和顶部上下文分数
-    - 核心修复: 修正了顶部风险参数的读取路径，使其与底部支撑参数的读取方式保持结构对称。
+    【V11.2 · 神盾协议版】计算全局的底部和顶部上下文分数
+    - 核心修改: 将乌拉诺斯参数传递给历史高点阻力计算函数，以实现统一的质量评估。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -259,6 +259,7 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         return empty_series, empty_series
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
+    # ... [底部上下文分数计算逻辑保持不变] ...
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('MA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -305,13 +306,11 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
-    # 修正斐波那契支撑参数的读取路径
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
-    # 以下是顶部上下文分数的全新计算逻辑
-    # 步骤1: 计算传统的顶部上下文分数（作为基准）
+    # ... [顶部上下文分数计算逻辑] ...
     ma55 = df.get('MA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
@@ -339,15 +338,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         overheat_score = ((bias_abs - warning_threshold) / denominator).clip(0, 1)
     overheat_score = overheat_score.fillna(0.0)
     conventional_top_score = (stretch_score * misalignment_score * overheat_score)**(1/3)
-    # 步骤2: 计算全新的结构性顶部阻力分数
-    # 修正参数读取路径，从 p_synthesis 内部获取，与 gaia_params 保持对称
     uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
     uranus_ceiling_resistance_score = _calculate_uranus_ceiling_resistance(df, uranus_params)
-    # 修正参数读取路径，从 p_synthesis 内部获取
     p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
-    historical_high_resistance_score = _calculate_historical_high_resistance(df, p_fib_resistance)
+    # 将乌拉诺斯参数 (包含拒绝质量评估的权重) 传递给历史高点计算函数
+    historical_high_resistance_score = _calculate_historical_high_resistance(df, p_fib_resistance, uranus_params)
     structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score).astype(np.float32)
-    # 步骤3: 最终融合，取传统分和结构分中的最大值，作为最终的顶部上下文分数
     top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
     return bottom_context_score, top_context_score
 
@@ -726,102 +722,72 @@ def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Seri
         dynamic_support_score.loc[score_mask] = np.maximum(dynamic_support_score.loc[score_mask], level_scores[period_str])
     return dynamic_support_score.astype(np.float32)
 
-def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
+def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict, quality_params: Dict) -> pd.Series:
     """
-    【V1.1 · 真理之镜修正版】“历史高点”阻力分计算引擎
-    - 核心修复: 1. 使用 'high_D' (最高价) 而非 'close_D' (收盘价) 来计算真实的历史高点。
-                2. 优化“拒绝”逻辑，精确捕捉“触及或突破前高后回落”的顶部形态。
+    【V2.0 · 神盾协议版】“历史高点”阻力分计算引擎
+    - 核心升级: 调用通用的 _calculate_rejection_quality_score 函数来评估拒绝质量。
+    - 融合逻辑: 最终得分 = 拒绝质量分 * 阻力位战略重要性分。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     close_col, high_col = 'close_D', 'high_D'
     ma55_lifeline = df.get('MA_55_D', df[close_col])
     fib_periods = get_param_value(params.get('periods'), [34, 55, 89, 144, 233])
-    tolerance_pct = get_param_value(params.get('tolerance_pct'), 0.01)
     level_scores = get_param_value(params.get('level_scores'), {})
     dynamic_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     trigger_mask = df[close_col] > ma55_lifeline
     for period in fib_periods:
         period_str = str(period)
         if period_str not in level_scores: continue
-        # [代码修改] 使用 high_D 来寻找真实的滚动周期内最高价，这才是“历史高点”的正确定义。
         historical_high = df[high_col].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
-        # 定义阻力线 (允许微小误差)
-        resistance_line = historical_high * (1 - tolerance_pct)
-        # [代码修改] 优化“被拒绝”的定义：当日最高价触及或突破了历史高点，但收盘价未能站稳在历史高点之上。
-        # 这是一个经典的“假突破”或“上影线试探”的顶部信号。
-        is_rejected = (df[high_col] >= resistance_line) & (df[close_col] < historical_high)
-        score_mask = trigger_mask & is_rejected
-        dynamic_resistance_score.loc[score_mask] = np.maximum(dynamic_resistance_score.loc[score_mask], level_scores[period_str])
+        # 调用通用函数评估拒绝质量
+        rejection_quality = _calculate_rejection_quality_score(df, quality_params, historical_high)
+        # 融合逻辑：战术质量 * 战略重要性
+        strategic_importance = level_scores[period_str]
+        period_score = rejection_quality * strategic_importance
+        # 应用触发掩码，并更新最终分数
+        final_period_score = period_score.where(trigger_mask, 0)
+        dynamic_resistance_score = np.maximum(dynamic_resistance_score, final_period_score)
     return dynamic_resistance_score.astype(np.float32)
 
 def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    【V2.5 · 精确制导修正版】“乌拉诺斯穹顶”阻力分计算引擎
-    - 核心修正: “伊卡洛斯之陨”协议现在使用 'up_limit_D' 列名，与数据管道的最终输出保持一致。
+    【V3.0 · 神盾协议版】“乌拉诺斯穹顶”阻力分计算引擎
+    - 核心升级: 不再包含拒绝质量评估逻辑，而是调用通用的 _calculate_rejection_quality_score 函数。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # ... [获取参数的代码保持不变] ...
     resistance_levels = get_param_value(params.get('resistance_levels'), [55, 89, 144, 233, 377])
     confirmation_window = get_param_value(params.get('confirmation_window'), 3)
-    rejection_lookback_window = get_param_value(params.get('rejection_lookback_window'), 5)
     confirmation_cooldown_period = get_param_value(params.get('confirmation_cooldown_period'), 10)
-    influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
-    rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
-    rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
-    rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
-    rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
     confirmation_score = get_param_value(params.get('confirmation_score'), 0.8)
     rejection_quality_bonus_factor = get_param_value(params.get('rejection_quality_bonus_factor'), 0.25)
     cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
-    min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.25)
-    icarus_fall_bonus = get_param_value(params.get('icarus_fall_bonus'), 0.5)
+    rejection_lookback_window = get_param_value(params.get('rejection_lookback_window'), 5)
     close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
-    ares_vol_ma_col = 'VOL_MA_5_D'
     cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
     ma_cols = [f'MA_{p}_D' for p in resistance_levels if f'MA_{p}_D' in df.columns]
-    # [代码修改] 检查 'up_limit_D' 是否存在
-    required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, cooldown_vol_ma_col, 'up_limit_D'] + ma_cols
-    if not all(col in df.columns for col in required_cols):
-        print(f"乌拉诺斯穹顶模块缺少必要列，将返回0分。缺失列: {[c for c in required_cols if c not in df.columns]}")
+    if not all(col in df.columns for col in [close_col, open_col, low_col, high_col, vol_col, cooldown_vol_ma_col] + ma_cols):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 1. 寻找代理天花板 (acting_ceiling)
     ma_df = df[ma_cols]
     ma_df_above_price = ma_df.where(ma_df.ge(df[close_col], axis=0))
     acting_ceiling = ma_df_above_price.min(axis=1).ffill()
-    valid_indices = acting_ceiling.dropna().index
-    if valid_indices.empty:
-        return pd.Series(0.0, index=df.index, dtype=np.float32)
-    is_in_influence_zone = pd.Series(False, index=df.index)
-    lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
-    is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
-    rejection_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    base_rejection_condition = (df[high_col] > acting_ceiling) & is_in_influence_zone & (df[close_col] < df[high_col])
-    rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
-    is_yin_line = df[close_col] < df[open_col]
-    upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
-    lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
-    kline_range = (df[high_col] - df[low_col]).replace(0, np.nan)
-    upper_shadow_ratio = upper_shadow / kline_range
-    is_upper_shadow_significant = upper_shadow_ratio > min_shadow_ratio
-    has_dominance = (upper_shadow > lower_shadow) & is_upper_shadow_significant
-    has_volume_spike = df[vol_col] > df[ares_vol_ma_col]
-    rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
-    rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
-    volume_ratio = df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan)
-    proportional_volume_score = normalize_score(volume_ratio, df.index, window=cooldown_reset_volume_ma_period, ascending=True)
-    dynamic_volume_contribution = rejection_volume_weight * proportional_volume_score
-    volume_mask = base_rejection_condition & has_dominance & has_volume_spike
-    rejection_quality_score.loc[volume_mask] += dynamic_volume_contribution.loc[volume_mask]
-    # [代码修改] “伊卡洛斯之陨”协议使用 'up_limit_D'
-    limit_up_price = df['up_limit_D']
-    is_icarus_fall = (df[high_col] >= limit_up_price * 0.995) & (df[close_col] < df[high_col] * 0.98)
-    rejection_quality_score.loc[is_icarus_fall] += icarus_fall_bonus
-    is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
-    rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
-    rejection_quality_score = rejection_quality_score.clip(0, 1.0)
+    # 2. 调用通用函数计算拒绝质量分
+    rejection_quality_score = _calculate_rejection_quality_score(df, params, acting_ceiling)
+    # 3. 计算确认压制分 (逻辑不变)
     max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
+    is_in_influence_zone = pd.Series(False, index=df.index)
+    valid_indices = acting_ceiling.dropna().index
+    if not valid_indices.empty:
+        influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
+        lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
+        is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
     is_failing_to_break = (df[close_col] < acting_ceiling) & is_in_influence_zone
     is_confirmed_rejection = is_failing_to_break.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
+    upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
+    lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
     is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
     confirmation_score_series = pd.Series(0.0, index=df.index, dtype=np.float32)
     last_confirmation_date = pd.NaT
@@ -838,9 +804,67 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
             else:
                 confirmation_score_series.loc[idx] = confirmation_score
             last_confirmation_date = idx
+    # 4. 最终融合
     uranus_score = np.maximum(rejection_quality_score, confirmation_score_series)
     return uranus_score.astype(np.float32)
 
+def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistance_line: pd.Series) -> pd.Series:
+    """
+    【V1.0 · 新增-神盾协议核心】通用拒绝质量评估引擎 (阿波罗之箭)
+    - 核心职责: 评估价格对任意给定的阻力线 (resistance_line) 的拒绝质量。
+    - 输入: df, 包含权重和阈值的参数字典, 以及作为阻力位的 Series。
+    - 输出: 一个 0-1 之间的分数，量化了拒绝的质量和强度。
+    """
+    # 从参数中获取所有必要的配置
+    influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
+    rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
+    rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
+    rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
+    rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
+    min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.25)
+    icarus_fall_base_score = get_param_value(params.get('icarus_fall_base_score'), 0.8)
+    cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
+    close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
+    ares_vol_ma_col = 'VOL_MA_5_D'
+    # 检查必需列
+    required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, 'up_limit_D']
+    if not all(col in df.columns for col in required_cols):
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    # 1. 定义影响区和基础拒绝条件
+    valid_indices = resistance_line.dropna().index
+    if valid_indices.empty:
+        return pd.Series(0.0, index=df.index, dtype=np.float32)
+    is_in_influence_zone = pd.Series(False, index=df.index)
+    lower_bound = resistance_line[valid_indices] * (1 - influence_zone_pct)
+    is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, resistance_line[valid_indices])
+    base_rejection_condition = (df[high_col] > resistance_line) & is_in_influence_zone & (df[close_col] < df[high_col])
+    # 2. 计算各项质量加权分
+    rejection_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+    rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
+    is_yin_line = df[close_col] < df[open_col]
+    upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
+    lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
+    kline_range = (df[high_col] - df[low_col]).replace(0, np.nan)
+    upper_shadow_ratio = upper_shadow / kline_range
+    is_upper_shadow_significant = upper_shadow_ratio > min_shadow_ratio
+    has_dominance = (upper_shadow > lower_shadow) & is_upper_shadow_significant
+    has_volume_spike = df[vol_col] > df[ares_vol_ma_col]
+    rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
+    rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
+    volume_ratio = df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan)
+    proportional_volume_score = normalize_score(volume_ratio, df.index, window=cooldown_reset_volume_ma_period, ascending=True)
+    dynamic_volume_contribution = rejection_volume_weight * proportional_volume_score
+    volume_mask = base_rejection_condition & has_dominance & has_volume_spike
+    rejection_quality_score.loc[volume_mask] += dynamic_volume_contribution.loc[volume_mask]
+    # 3. 应用绝对否决/奖励规则
+    # 伊卡洛斯之陨 (涨停回落)
+    limit_up_price = df['up_limit_D']
+    is_icarus_fall = (df[high_col] >= limit_up_price * 0.995) & (df[close_col] < df[high_col] * 0.98)
+    rejection_quality_score.loc[is_icarus_fall] = np.maximum(rejection_quality_score.loc[is_icarus_fall], icarus_fall_base_score)
+    # 阿波罗吸收 (多头强势吸收)
+    is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
+    rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
+    return rejection_quality_score.clip(0, 1.0)
 
 
 

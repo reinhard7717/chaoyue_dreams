@@ -740,7 +740,7 @@ class IntelligenceLayer:
             for period in fib_periods:
                 period_str = str(period)
                 if period_str not in level_scores: continue
-                # [代码修改] 使用 high_D 来寻找真实的滚动周期内最高价
+                # 使用 high_D 来寻找真实的滚动周期内最高价
                 rolling_high_series = df['high_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
                 historical_high_val = rolling_high_series.at[probe_date]
                 # [代码新增] 打印每个周期的前高值
@@ -759,11 +759,11 @@ class IntelligenceLayer:
                     new_score = level_scores[period_str]
                     historical_high_resistance_score.at[probe_date] = max(current_score, new_score)
                     print(f"          - 裁决: 触发！得分为 {new_score:.2f}。当前总分更新为: {historical_high_resistance_score.at[probe_date]:.2f}")
-        # [代码修改] 探针现在只显示当日的值
+        # 探针现在只显示当日的值
         final_historical_high_score = historical_high_resistance_score.get(probe_date, 0.0)
         structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, final_historical_high_score)
         print(f"    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
-        # [代码修改] 探针现在只显示当日的值
+        # 探针现在只显示当日的值
         print(f"      - 历史高点阻力分: {final_historical_high_score:.4f}")
         final_top_context_score = np.maximum(conventional_top_score.get(probe_date, 0.0), structural_resistance_score)
         print(f"    - [最终裁决] 顶部上下文总分 (常规 vs 结构): {final_top_context_score:.4f}")
@@ -827,7 +827,7 @@ class IntelligenceLayer:
         print("        --- [拒绝质量解剖 (阿波罗之箭)] ---")
         base_rejection_condition = (df['high_D'] > acting_ceiling) & is_in_influence_zone & (df['close_D'] < df['high_D'])
         is_yin_line = df['close_D'] < df['open_D']
-        # [代码修改] 修正上下影线计算，使其与主引擎完全一致
+        # 修正上下影线计算，使其与主引擎完全一致
         upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
         lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
         has_dominance = upper_shadow > lower_shadow
