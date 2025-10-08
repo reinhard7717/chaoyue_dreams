@@ -37,8 +37,9 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.2 · 指挥链审查版】顶层认知总分合成模块
-        - 核心升级: 部署“指挥链审查”探针，监控对微观行为引擎的调用。
+        【V3.3 · 幽灵信号斩断版】顶层认知总分合成模块
+        - 核心修复: 调整了函数调用顺序，确保在调用 _diagnose_archangel_top_reversal 之前，
+                      所有必需的上下文分数（特别是 top_context_score）已经被计算并存入 atomic_states。
         """
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -56,8 +57,14 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
+        
+        # 在调用“天使长”之前，确保所有上下文分数已计算完毕
+        # calculate_context_scores 会将结果存入 self.strategy.atomic_states
+        calculate_context_scores(df, self.strategy.atomic_states)
+        
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
+        
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
@@ -70,8 +77,11 @@ class CognitiveIntelligence:
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
+        
+        # 确保在调用风险融合之前，所有风险信号（包括天使长）都已就位
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
+        
         self.synthesize_chimera_conflict_score(df)
         return df
 
@@ -258,10 +268,10 @@ class CognitiveIntelligence:
                 if signal_name == "说明": continue
                 atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
                 processed_score = 1.0 - atomic_score_np if signal_params.get('inverse', False) else atomic_score_np
-                # [代码修改] 在此处将原始信号值与权重相乘
+                # 在此处将原始信号值与权重相乘
                 category_signal_scores.append(processed_score * signal_params.get('weight', 1.0))
             if category_signal_scores:
-                # [代码修改] 堆叠后，直接取最大值作为该维度的风险分
+                # 堆叠后，直接取最大值作为该维度的风险分
                 stacked_scores = np.stack(category_signal_scores, axis=0)
                 dimension_risk_values = np.maximum.reduce(stacked_scores, axis=0)
                 dimension_risk_score = pd.Series(dimension_risk_values, index=df.index, dtype=np.float32)
@@ -648,30 +658,26 @@ class CognitiveIntelligence:
 
     def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 启示录四骑士版】“天使长”顶部反转诊断引擎
-        - 核心革命: 引入第四位骑士——`top_context_score`，即由“乌拉诺斯穹顶”和“历史高点”
-                      共同铸就的“结构性压力”分，形成四位一体的终极风险裁决。
-        - 融合算法升级: 废除“主次风险融合算法”，升级为更稳健、更灵敏的“取最大值”融合。
-                          最终风险 = MAX(上冲派发, 天地板, 高位回落, 结构性压力)。
+        【V3.1 · 幽灵信号斩断版】“天使长”顶部反转诊断引擎
+        - 核心修复: 不再重复调用 calculate_context_scores，而是直接从 atomic_states 中消费
+                      已经计算好的、最权威的 top_context_score，彻底解决信号黑洞问题。
         """
         states = {}
-        # 步骤一：获取所有需要的信号，包括新的 top_context_score
-        # 主动调用 calculate_context_scores 获取最核心的上下文分数
-        _, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        # 不再重复计算，而是直接从状态库中消费最权威的信号
+        top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
+        
         upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
         heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
         post_peak_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', 0.0)
-        # 步骤二：“启示录四骑士”融合算法
-        # 将四个风险信号的Numpy数组堆叠成一个2D矩阵
+        
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
             post_peak_risk.values,
-            top_context_score.values  # 引入第四位骑士
+            top_context_score.values
         ], axis=0)
-        # 使用 np.maximum.reduce 高效地找出每日最强的那个风险信号作为最终裁决
+        
         archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
-        # 步骤三：结果处理与保存
         archangel_score = np.clip(archangel_score_values, 0, 1)
         states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
         return states

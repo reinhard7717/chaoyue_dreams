@@ -123,7 +123,7 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            # [代码修改] 修正调用签名，不再传递多余参数
+            # 修正调用签名，不再传递多余参数
             self._deploy_zeus_thunderbolt_probe(probe_date)
             # 自动调度“哈迪斯凝视”探针
             if probe_date_str == '2025-09-17':
@@ -413,22 +413,18 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.4 · 数据源修复版】终极得分构成解剖探针
-        - 核心修复: 彻底移除了对尚未生成的 self.strategy.df_results 的依赖，改为直接从 atomic_states 和 df_indicators 中获取数据，解决 AttributeError 崩溃问题。
-        - 核心升级: 调整并增加探针调用顺序，构建“忒弥斯->天使长->赫淮斯托斯”的完整证据链。
+        【V2.5 · 信号细节修复版】终极得分构成解剖探针
+        - 核心修复: 修正了从 df_indicators['signal_details_cn'] 中解析进攻项和风险项的逻辑，确保探针能正确显示所有得分细节。
         """
         print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针⚡️⚡️】---")
-        # [代码修改] 调整调用顺序，构建完整证据链
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
         self._deploy_hephaestus_forge_probe(probe_date)
         
-        # [代码修改] 彻底重构数据获取逻辑，不再依赖 df_results
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         
         print("\n  [链路层 1] 最终裁决")
-        # 直接从 df_indicators 中获取最终分数和信号
         final_score = df.get('final_score', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         final_signal = df.get('signal_type', pd.Series('N/A', index=df.index)).get(probe_date, 'N/A')
         
@@ -439,21 +435,25 @@ class IntelligenceLayer:
             print(f"    - 【最终得分】: {final_score}")
             
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        # 从 df_indicators 中获取信号详情
+        # 修正了从 df_indicators 中解析信号细节的逻辑
         score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
         try:
+            # 检查是否已经是字典，如果不是（是字符串），则加载
             score_details = json.loads(score_details_json_str) if isinstance(score_details_json_str, str) else score_details_json_str
-        except json.JSONDecodeError:
+            if not isinstance(score_details, dict): score_details = {} # 防御性编程
+        except (json.JSONDecodeError, TypeError):
             score_details = {}
             
         offense_items = score_details.get('offense', [])
         offense_total = 0
         if offense_items:
+            # 确保 offense_items 是一个列表
+            if not isinstance(offense_items, list): offense_items = []
             for item in sorted(offense_items, key=lambda x: x.get('score', 0), reverse=True):
-                # 探针内重算贡献度
-                base_score = item.get('base_score', 0)
+                if not isinstance(item, dict): continue # 防御性编程
+                contribution = item.get('score', 0) # 直接使用 'score' 字段，它已经是贡献度
                 raw_score = item.get('raw_score', 0)
-                contribution = raw_score * base_score
+                base_score = item.get('base_score', 0)
                 print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
                 offense_total += contribution
         print("    ----------------------------------")
@@ -463,10 +463,12 @@ class IntelligenceLayer:
         risk_items = score_details.get('risk', [])
         risk_total = 0
         if risk_items:
+            if not isinstance(risk_items, list): risk_items = []
             for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
-                base_score = item.get('base_score', 0)
+                if not isinstance(item, dict): continue
+                contribution = item.get('score', 0)
                 raw_score = item.get('raw_score', 0)
-                contribution = raw_score * base_score
+                base_score = item.get('base_score', 0)
                 print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
                 risk_total += contribution
         print("    ----------------------------------")
@@ -710,7 +712,7 @@ class IntelligenceLayer:
         print(f"      - 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
         print(f"      - 乖离过热分: {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
         
-        # [代码修改] 乌拉诺斯探针现在只返回一个分数，不再需要其内部细节
+        # 乌拉诺斯探针现在只返回一个分数，不再需要其内部细节
         uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
         from .utils import _calculate_uranus_ceiling_resistance, _calculate_historical_high_resistance
         uranus_ceiling_resistance_score_series = _calculate_uranus_ceiling_resistance(df, uranus_params)
@@ -720,11 +722,11 @@ class IntelligenceLayer:
         p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
         
         print("      --- [历史高点显微镜] 深入解剖 ---")
-        # [代码修改] 调用主引擎的函数来获取最终分数，以确保一致性
+        # 调用主引擎的函数来获取最终分数，以确保一致性
         historical_high_resistance_score_series = _calculate_historical_high_resistance(df, p_fib_resistance, uranus_params)
         final_historical_high_score = historical_high_resistance_score_series.get(probe_date, 0.0)
 
-        # [代码修改] 循环体现在只负责打印解剖过程，不再进行计算
+        # 循环体现在只负责打印解剖过程，不再进行计算
         if get_param_value(p_fib_resistance.get('enabled'), False):
             fib_periods = get_param_value(p_fib_resistance.get('periods'), [34, 55, 89, 144, 233])
             level_scores = get_param_value(p_fib_resistance.get('level_scores'), {})
@@ -817,7 +819,7 @@ class IntelligenceLayer:
         
         print(f"        - acting_ceiling (代理天花板): {acting_ceiling.get(probe_date, np.nan):.4f}")
         
-        # 2. [代码修改] 调用通用的阿波罗之箭探针来获取拒绝质量分
+        # 2. 调用通用的阿波罗之箭探针来获取拒绝质量分
         rejection_score_today = self._deploy_apollo_arrow_probe(probe_date, uranus_params, acting_ceiling)
         
         # 3. [代码重构] 确认压制评估逻辑保持不变，但需要重新计算 rejection_quality_score 序列
@@ -999,7 +1001,7 @@ class IntelligenceLayer:
         rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
         rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
         min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.15) # 已按您的要求修改
-        # [代码修改] 废除icarus_fall_base_score，引入icarus_fall_bonus
+        # 废除icarus_fall_base_score，引入icarus_fall_bonus
         icarus_fall_bonus = get_param_value(params.get('icarus_fall_bonus'), 0.5)
         cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
         close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
@@ -1037,7 +1039,7 @@ class IntelligenceLayer:
         # 4. 应用绝对否决/奖励规则
         limit_up_price_val = df.at[probe_date, 'up_limit_D']
         is_icarus_fall_val = (df.at[probe_date, high_col] >= limit_up_price_val * 0.995) & (df.at[probe_date, close_col] < df.at[probe_date, high_col] * 0.98)
-        # [代码修改] 将伊卡洛斯之陨的逻辑从“取最大值”改为“叠加奖励分”
+        # 将伊卡洛斯之陨的逻辑从“取最大值”改为“叠加奖励分”
         icarus_bonus_val = icarus_fall_bonus if is_icarus_fall_val else 0.0
         rejection_quality_score_val += icarus_bonus_val
         is_apollo_absorption_val = (lower_shadow_val > upper_shadow_val) & has_volume_spike_val
@@ -1054,7 +1056,7 @@ class IntelligenceLayer:
         print(f"          - 权重2 (空头胜利-上影优势): (上影>下影 AND 上影显著) -> {has_dominance_val} -> 加分 {dominance_bonus:.2f}")
         print(f"          - 权重3 (主力派发-放量): {has_volume_spike_val and has_dominance_val} -> 加分 {volume_bonus:.2f}")
         print(f"          ---")
-        # [代码修改] 修改打印说明，反映叠加逻辑
+        # 修改打印说明，反映叠加逻辑
         print(f"          - 💀 塔纳托斯之镰 (涨停回落): {is_icarus_fall_val} -> 额外奖励分 {icarus_bonus_val:.2f}")
         print(f"          - ☀️ 阿波罗吸收 (多头反噬): {is_apollo_absorption_val and is_in_influence_zone_val} -> 若触发，分数强制归零")
         print(f"          - 最终裁决 (战术质量分): {final_score:.4f}")
