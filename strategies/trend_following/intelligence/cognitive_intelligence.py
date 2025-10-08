@@ -57,14 +57,11 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
-        
-        # 在调用“天使长”之前，确保所有上下文分数已计算完毕
+        # [代码修改] 在调用“天使长”之前，确保所有上下文分数已计算完毕
         # calculate_context_scores 会将结果存入 self.strategy.atomic_states
         calculate_context_scores(df, self.strategy.atomic_states)
-        
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        
         bullish_scores = [
             self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
@@ -77,11 +74,9 @@ class CognitiveIntelligence:
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-        
-        # 确保在调用风险融合之前，所有风险信号（包括天使长）都已就位
+        # [代码修改] 确保在调用风险融合之前，所有风险信号（包括天使长）都已就位
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
-        
         self.synthesize_chimera_conflict_score(df)
         return df
 
@@ -663,20 +658,17 @@ class CognitiveIntelligence:
                       已经计算好的、最权威的 top_context_score，彻底解决信号黑洞问题。
         """
         states = {}
-        # 不再重复计算，而是直接从状态库中消费最权威的信号
+        # [代码修改] 不再重复计算，而是直接从状态库中消费最权威的信号
         top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
-        
         upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
         heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
         post_peak_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', 0.0)
-        
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
             post_peak_risk.values,
             top_context_score.values
         ], axis=0)
-        
         archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
         archangel_score = np.clip(archangel_score_values, 0, 1)
         states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)

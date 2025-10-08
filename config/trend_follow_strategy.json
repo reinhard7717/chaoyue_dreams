@@ -783,6 +783,7 @@
             "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 }
           },
           "cognitive_risk": {
+            "SCORE_ARCHANGEL_TOP_REVERSAL": { "weight": 2.5 },
             "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
             "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
             "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },

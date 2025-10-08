@@ -420,22 +420,18 @@ class IntelligenceLayer:
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
         self._deploy_hephaestus_forge_probe(probe_date)
-        
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        
         print("\n  [链路层 1] 最终裁决")
         final_score = df.get('final_score', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
         final_signal = df.get('signal_type', pd.Series('N/A', index=df.index)).get(probe_date, 'N/A')
-        
         print(f"    - 【最终信号】: {final_signal}")
         if isinstance(final_score, (float, np.floating)):
             print(f"    - 【最终得分】: {final_score:.0f}")
         else:
             print(f"    - 【最终得分】: {final_score}")
-            
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        # 修正了从 df_indicators 中解析信号细节的逻辑
+        # [代码修改] 修正了从 df_indicators 中解析信号细节的逻辑
         score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
         try:
             # 检查是否已经是字典，如果不是（是字符串），则加载
@@ -443,7 +439,6 @@ class IntelligenceLayer:
             if not isinstance(score_details, dict): score_details = {} # 防御性编程
         except (json.JSONDecodeError, TypeError):
             score_details = {}
-            
         offense_items = score_details.get('offense', [])
         offense_total = 0
         if offense_items:
@@ -458,7 +453,6 @@ class IntelligenceLayer:
                 offense_total += contribution
         print("    ----------------------------------")
         print(f"    - 【进攻项总分】: {offense_total:.0f}")
-        
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
         risk_items = score_details.get('risk', [])
         risk_total = 0
@@ -473,7 +467,6 @@ class IntelligenceLayer:
                 risk_total += contribution
         print("    ----------------------------------")
         print(f"    - 【风险项总分】: {risk_total:.0f}")
-        
         print("\n  [链路层 4] 终极对质")
         entry_score_recalc = offense_total + risk_total
         chimera_conflict_score = atomic.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
