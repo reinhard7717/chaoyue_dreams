@@ -234,11 +234,9 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.6 · 忒弥斯校准协议版】风险元融合模块
-        - 核心升级: 签署“忒弥斯校准协议”，废除“加权几何平均”的风险融合逻辑。
-        - 新核心逻辑: 采用“取最大值”(`np.maximum.reduce`)的方式融合各维度风险。
-                      最终的 COGNITIVE_FUSED_RISK_SCORE 现在由最强的那个风险维度定义。
-        - 防御性编程 (新增): 对最终输出的风险分增加 clip(0, 2.0) 操作，防止极端值溢出。
+        【V3.7 · 风险量化透明化版】风险元融合模块
+        - 核心升级: 简化维度内融合逻辑，直接采用“取最大值”的方式，确保权重被正确应用到最强的风险信号上。
+        - 收益: 使每个维度的风险分计算过程更加透明，易于调试和理解。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -253,7 +251,6 @@ class CognitiveIntelligence:
         }
         default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
         fused_dimension_scores = {}
-        secondary_risk_discount = p_fused_risk.get('intra_dimension_fusion_params', {}).get('secondary_risk_discount', 0.3)
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
             category_signal_scores = []
@@ -261,13 +258,12 @@ class CognitiveIntelligence:
                 if signal_name == "说明": continue
                 atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
                 processed_score = 1.0 - atomic_score_np if signal_params.get('inverse', False) else atomic_score_np
+                # [代码修改] 在此处将原始信号值与权重相乘
                 category_signal_scores.append(processed_score * signal_params.get('weight', 1.0))
             if category_signal_scores:
-                stacked_scores = np.stack(category_signal_scores, axis=1)
-                sorted_scores = np.sort(stacked_scores, axis=1)
-                primary_risk_values = sorted_scores[:, -1]
-                secondary_risk_values = sorted_scores[:, -2] if sorted_scores.shape[1] > 1 else 0
-                dimension_risk_values = primary_risk_values + secondary_risk_values * secondary_risk_discount
+                # [代码修改] 堆叠后，直接取最大值作为该维度的风险分
+                stacked_scores = np.stack(category_signal_scores, axis=0)
+                dimension_risk_values = np.maximum.reduce(stacked_scores, axis=0)
                 dimension_risk_score = pd.Series(dimension_risk_values, index=df.index, dtype=np.float32)
                 fused_dimension_scores[category_name] = dimension_risk_score
                 states[f'FUSED_RISK_SCORE_{category_name.upper()}'] = dimension_risk_score
@@ -298,7 +294,6 @@ class CognitiveIntelligence:
             )
             total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
-        # 新增防御性编程：对最终的原始风险分进行范围裁剪，防止极端值
         states['COGNITIVE_FUSED_RISK_SCORE'] = total_fused_risk_score.clip(0, 2.0).astype(np.float32)
         return states
 
