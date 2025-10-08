@@ -929,6 +929,20 @@
             "category": "基础层-环境",
             "type": "context",
             "description": "基于Hurst指数，量化市场的趋势性强度。"
+        },
+        "SCORE_RISK_VPA_EFFICIENCY_DECLINING": {
+            "cn_name": "【VPA风险】效率下降",
+            "category": "基础层-风险",
+            "type": "risk",
+            "penalty_weight": -150,
+            "description": "VPA效率指标持续走低，表明投入的成交量无法有效推动价格，是潜在的上涨乏力或派发风险。"
+        },
+        "SCORE_RISK_VPA_VOLUME_ACCELERATING": {
+            "cn_name": "【VPA风险】成交量加速",
+            "category": "基础层-风险",
+            "type": "risk",
+            "penalty_weight": -150,
+            "description": "成交量出现异常加速，在趋势顶部或底部都可能是力竭或恐慌的信号。"
         }
     }
 }

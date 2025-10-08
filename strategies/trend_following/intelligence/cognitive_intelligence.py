@@ -37,8 +37,8 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.6 · 战术感知版】顶层认知总分合成模块
-        - 核心升级: 新增调用 `synthesize_tactical_opportunity_fusion`，将所有战术机会信号纳入最终决策。
+        【V3.7 · 全维感知版】顶层认知总分合成模块
+        - 核心升级: 将筹码层的“真实吸筹”信号纳入最终看涨分数的计算，增强对主力核心行为的感知。
         """
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -56,7 +56,6 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
-        # 调用新的战术机会融合引擎
         self.synthesize_tactical_opportunity_fusion(df)
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
@@ -74,8 +73,9 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
-            # 将新融合的战术机会信号加入最终看涨分数计算
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION').values,
+            # 将筹码层的“真实吸筹”信号纳入最终看涨分数计算
+            self._get_atomic_score(df, 'SCORE_CHIP_TRUE_ACCUMULATION').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
@@ -440,12 +440,12 @@ class CognitiveIntelligence:
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.2 · 可靠性增强版】多域反转共振分数合成模块
-        - 核心升级: 引入“反转可靠性”作为共振分数的强大放大器，实现战略与战术的协同。
+        【V3.3 · 潜力激活版】多域反转共振分数合成模块
+        - 核心升级: 引入“恐慌投降潜力”作为共振分数的另一个强大放大器。
         """
         states = {}
         default_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {}) # [代码新增]
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
         bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
         top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
@@ -467,12 +467,15 @@ class CognitiveIntelligence:
             weights_array /= weights_array.sum()
             stacked_scores = np.stack(bottom_scores_np, axis=0)
             bottom_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            # 引入“反转可靠性”作为放大器
             reversal_reliability_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY', 0.0)
             reliability_bonus_factor = get_param_value(p_cognitive.get('reversal_reliability_bonus_factor'), 0.5)
             reliability_amplifier = 1.0 + (reversal_reliability_score.values * reliability_bonus_factor)
-            # 应用上下文和可靠性放大器
-            bottom_reversal_values = bottom_reversal_values_raw * bottom_context_score.values * reliability_amplifier
+            # 引入“恐慌投降潜力”作为第二个放大器
+            capitulation_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL', 0.0)
+            capitulation_bonus_factor = get_param_value(p_cognitive.get('capitulation_potential_bonus_factor'), 0.5)
+            capitulation_amplifier = 1.0 + (capitulation_potential_score.values * capitulation_bonus_factor)
+            # 应用上下文和两个放大器
+            bottom_reversal_values = bottom_reversal_values_raw * bottom_context_score.values * reliability_amplifier * capitulation_amplifier
             bottom_reversal_score = pd.Series(bottom_reversal_values, index=df.index, dtype=np.float32).clip(0, 1)
         else:
             bottom_reversal_score = default_score.copy()

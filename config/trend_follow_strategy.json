@@ -717,7 +717,8 @@
         "enabled": true,
         "description": "【V2.1 · 战术感知版】顶层认知引擎的专属参数块。",
         "reversal_reliability_bonus_factor": 0.5,
-        "comment_bonus_factor": "【新增】在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
+        "capitulation_potential_bonus_factor": 0.5,
+        "comment_bonus_factor": "在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
         "cascade_fusion_weights": {
           "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
@@ -823,7 +824,9 @@
             "SCORE_FOUNDATION_BEARISH_RESONANCE": { "weight": 1.0 },
             "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 },
             "SCORE_FOUNDATION_VOL_EXPANSION_RISK": { "weight": 0.8 },
-            "SCORE_FOUNDATION_PANIC_SELLING_RISK": { "weight": 1.5 }
+            "SCORE_FOUNDATION_PANIC_SELLING_RISK": { "weight": 1.5 },
+            "SCORE_RISK_VPA_EFFICIENCY_DECLINING": { "weight": 1.0 },
+            "SCORE_RISK_VPA_VOLUME_ACCELERATING": { "weight": 1.0 }
           },
           "cognitive_risk": {
             "SCORE_ARCHANGEL_TOP_REVERSAL": { "weight": 2.5 },

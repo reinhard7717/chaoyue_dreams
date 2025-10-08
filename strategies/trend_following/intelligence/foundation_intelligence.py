@@ -15,36 +15,42 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 战术升维版】基础情报分析总指挥
-        - 核心重构 (本次修改):
-          - [新增步骤] 在生成所有原子信号后，调用新的 `diagnose_tactical_foundation_signals` 引擎，
-                      将战术原子信号融合成新的战术终极信号。
-        - 优化说明: 1. 将 `ma_context_score` 的计算提前至此，仅计算一次，避免在下游模块中重复计算，显著提升性能。
-                      2. 将 `ma_context_score` 作为参数传递给需要的下游分析模块。
+        【V5.1 · VPA风险感知版】基础情报分析总指挥
+        - 核心升级: 新增调用 `diagnose_vpa_risks`，补完对VPA相关风险的独立诊断能力。
         """
         df = self.strategy.df_indicators
         all_states = {}
-
-        # 提前计算均线趋势上下文分数，避免在各子模块中重复计算。
-        # 这是本次优化的核心，将原有的5次重复计算减少为1次。
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
-        # 步骤 1: 执行唯一的、统一的终极信号引擎
-        # 传入预先计算好的 ma_context_score
         unified_states = self.diagnose_unified_foundation_signals(df, ma_context_score)
         all_states.update(unified_states)
-
-        # 步骤 2: 执行具有特殊战术意义的模块，生成战术原子信号
-        # 传入预先计算好的 ma_context_score
         all_states.update(self.diagnose_volatility_intelligence(df, ma_context_score))
         all_states.update(self.diagnose_classic_indicators_atomics(df, ma_context_score))
-        
-        # 步骤 3: 调用新的战术终极信号合成引擎
-        # 这个引擎会从 atomic_states 中读取刚刚生成的战术原子信号，并将其融合成终极信号
         tactical_ultimate_states = self.diagnose_tactical_foundation_signals(df)
         all_states.update(tactical_ultimate_states)
-        
+        # 调用新的VPA风险诊断引擎
+        vpa_risk_states = self.diagnose_vpa_risks(df)
+        all_states.update(vpa_risk_states)
         return all_states
+
+    def diagnose_vpa_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】VPA风险诊断引擎
+        - 核心职责: 补完对VPA相关风险的独立诊断能力，生成可直接消费的风险信号。
+        """
+        states = {}
+        norm_window = 120
+        
+        # 1. VPA效率下降风险
+        # 效率指标本身越低风险越高，因此使用 ascending=False
+        vpa_efficiency_decline_risk = normalize_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, norm_window, ascending=False)
+        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = vpa_efficiency_decline_risk.astype(np.float32)
+        
+        # 2. VPA成交量加速风险
+        # 成交量加速度越大，风险越高
+        vpa_volume_accelerating_risk = normalize_score(df.get('ACCEL_5_volume_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = vpa_volume_accelerating_risk.astype(np.float32)
+        
+        return states
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
