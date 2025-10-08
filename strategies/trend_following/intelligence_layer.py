@@ -413,7 +413,8 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.3 · 完整证据链版】终极得分构成解剖探针
+        【V2.4 · 数据源修复版】终极得分构成解剖探针
+        - 核心修复: 彻底移除了对尚未生成的 self.strategy.df_results 的依赖，改为直接从 atomic_states 和 df_indicators 中获取数据，解决 AttributeError 崩溃问题。
         - 核心升级: 调整并增加探针调用顺序，构建“忒弥斯->天使长->赫淮斯托斯”的完整证据链。
         """
         print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针⚡️⚡️】---")
@@ -421,35 +422,59 @@ class IntelligenceLayer:
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
         self._deploy_hephaestus_forge_probe(probe_date)
+        
+        # [代码修改] 彻底重构数据获取逻辑，不再依赖 df_results
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        
         print("\n  [链路层 1] 最终裁决")
-        final_score = self.strategy.df_results.get('final_score', pd.Series(np.nan, index=self.strategy.df_results.index)).get(probe_date, 'N/A')
-        final_signal = self.strategy.df_results.get('final_signal_str', pd.Series('N/A', index=self.strategy.df_results.index)).get(probe_date, 'N/A')
+        # 直接从 df_indicators 中获取最终分数和信号
+        final_score = df.get('final_score', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
+        final_signal = df.get('signal_type', pd.Series('N/A', index=df.index)).get(probe_date, 'N/A')
+        
         print(f"    - 【最终信号】: {final_signal}")
         if isinstance(final_score, (float, np.floating)):
             print(f"    - 【最终得分】: {final_score:.0f}")
         else:
             print(f"    - 【最终得分】: {final_score}")
+            
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        offense_items = self.strategy.df_results.get('__activated_offense_items', {}).get(probe_date, [])
+        # 从 df_indicators 中获取信号详情
+        score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
+        try:
+            score_details = json.loads(score_details_json_str) if isinstance(score_details_json_str, str) else score_details_json_str
+        except json.JSONDecodeError:
+            score_details = {}
+            
+        offense_items = score_details.get('offense', [])
         offense_total = 0
         if offense_items:
-            for item in sorted(offense_items, key=lambda x: x['contribution'], reverse=True):
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_score']:.4f} * 基础分: {item['base_score']})")
-                offense_total += item['contribution']
+            for item in sorted(offense_items, key=lambda x: x.get('score', 0), reverse=True):
+                # 探针内重算贡献度
+                base_score = item.get('base_score', 0)
+                raw_score = item.get('raw_score', 0)
+                contribution = raw_score * base_score
+                print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
+                offense_total += contribution
         print("    ----------------------------------")
         print(f"    - 【进攻项总分】: {offense_total:.0f}")
+        
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
-        risk_items = self.strategy.df_results.get('__activated_risk_items', {}).get(probe_date, [])
+        risk_items = score_details.get('risk', [])
         risk_total = 0
         if risk_items:
-            for item in sorted(risk_items, key=lambda x: abs(x['contribution']), reverse=True):
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_score']:.4f} * 基础分: {item['base_score']})")
-                risk_total += item['contribution']
+            for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
+                base_score = item.get('base_score', 0)
+                raw_score = item.get('raw_score', 0)
+                contribution = raw_score * base_score
+                print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
+                risk_total += contribution
         print("    ----------------------------------")
         print(f"    - 【风险项总分】: {risk_total:.0f}")
+        
         print("\n  [链路层 4] 终极对质")
         entry_score_recalc = offense_total + risk_total
-        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=self.strategy.df_results.index)).get(probe_date, 0.0)
+        chimera_conflict_score = atomic.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         final_score_recalc = entry_score_recalc * (1 - chimera_conflict_score)
         print(f"    - [探针重算入场分(entry_score)]: {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {entry_score_recalc:.0f}")
         print(f"    - [探针重算最终分(final_score)]: {entry_score_recalc:.0f} * (1 - 奇美拉冲突:{chimera_conflict_score:.2f}) = {final_score_recalc:.0f}")
