@@ -728,9 +728,9 @@ def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Seri
 
 def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
-    “历史高点”阻力分计算引擎
-    - 核心逻辑: 作为 _calculate_historical_low_support 的镜像，计算价格在触及不同周期的
-                历史高点区域后被拒绝的分数。
+    【V1.1 · 真理之镜修正版】“历史高点”阻力分计算引擎
+    - 核心修复: 1. 使用 'high_D' (最高价) 而非 'close_D' (收盘价) 来计算真实的历史高点。
+                2. 优化“拒绝”逻辑，精确捕捉“触及或突破前高后回落”的顶部形态。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -740,20 +740,18 @@ def _calculate_historical_high_resistance(df: pd.DataFrame, params: Dict) -> pd.
     tolerance_pct = get_param_value(params.get('tolerance_pct'), 0.01)
     level_scores = get_param_value(params.get('level_scores'), {})
     dynamic_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 触发掩码：只在价格处于MA55生命线上方时激活
     trigger_mask = df[close_col] > ma55_lifeline
     for period in fib_periods:
         period_str = str(period)
         if period_str not in level_scores: continue
-        # 计算滚动周期内的最高价，作为历史高点阻力
-        historical_high = df[close_col].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
-        # 定义阻力区域
-        resistance_line_upper = historical_high * (1 + tolerance_pct)
-        resistance_line_lower = historical_high * (1 - tolerance_pct)
-        # “被拒绝”的定义：当日最高价触及或超过阻力区下轨，但收盘价未能站稳在阻力区上轨之上
-        is_rejected = (df[high_col] >= resistance_line_lower) & (df[close_col] <= resistance_line_upper)
+        # [代码修改] 使用 high_D 来寻找真实的滚动周期内最高价，这才是“历史高点”的正确定义。
+        historical_high = df[high_col].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
+        # 定义阻力线 (允许微小误差)
+        resistance_line = historical_high * (1 - tolerance_pct)
+        # [代码修改] 优化“被拒绝”的定义：当日最高价触及或突破了历史高点，但收盘价未能站稳在历史高点之上。
+        # 这是一个经典的“假突破”或“上影线试探”的顶部信号。
+        is_rejected = (df[high_col] >= resistance_line) & (df[close_col] < historical_high)
         score_mask = trigger_mask & is_rejected
-        # 如果满足条件，则更新分数，取当前分数和新分数中的较大值
         dynamic_resistance_score.loc[score_mask] = np.maximum(dynamic_resistance_score.loc[score_mask], level_scores[period_str])
     return dynamic_resistance_score.astype(np.float32)
 
