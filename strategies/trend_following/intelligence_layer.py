@@ -787,13 +787,12 @@ class IntelligenceLayer:
 
     def _deploy_uranus_ceiling_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.1 · 寻址同步版】“乌拉诺斯穹顶”法医探针
-        - 核心修复: 修正了参数的读取路径，确保其与主引擎和忒弥斯天平探针的寻址逻辑完全一致。
+        【V1.2 · 伊卡洛斯之陨协议审查版】“乌拉诺斯穹顶”法医探针
+        - 核心升级: 新增“伊卡洛斯之陨”协议的专属审查模块，用于精确解剖“涨停回落”风险。
         """
         print("\n      --- [乌拉诺斯显微镜] 深入解剖 ---")
         df = self.strategy.df_indicators
         strategy_instance_ref = self.strategy
-        # 修正参数读取路径，确保与主引擎和父探针一致
         p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {})
         uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
         if not get_param_value(uranus_params.get('enabled'), False):
@@ -811,6 +810,8 @@ class IntelligenceLayer:
         confirmation_score = get_param_value(uranus_params.get('confirmation_score'), 0.8)
         rejection_quality_bonus_factor = get_param_value(uranus_params.get('rejection_quality_bonus_factor'), 0.25)
         cooldown_reset_volume_ma_period = get_param_value(uranus_params.get('cooldown_reset_volume_ma_period'), 55)
+        # [代码新增] 为“伊卡洛斯之陨”协议获取参数
+        icarus_fall_bonus = get_param_value(uranus_params.get('icarus_fall_bonus'), 0.5)
         close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
         ares_vol_ma_col = 'VOL_MA_5_D'
         cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
@@ -826,8 +827,9 @@ class IntelligenceLayer:
         print("        --- [拒绝质量解剖 (阿波罗之箭)] ---")
         base_rejection_condition = (df['high_D'] > acting_ceiling) & is_in_influence_zone & (df['close_D'] < df['high_D'])
         is_yin_line = df['close_D'] < df['open_D']
-        lower_shadow = df['close_D'] - df['low_D']
-        upper_shadow = df['high_D'] - df['close_D']
+        # [代码修改] 修正上下影线计算，使其与主引擎完全一致
+        upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
+        lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
         has_dominance = upper_shadow > lower_shadow
         has_volume_spike = df['volume_D'] > df[ares_vol_ma_col]
         is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
@@ -836,6 +838,10 @@ class IntelligenceLayer:
         rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
         rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
         rejection_quality_score.loc[base_rejection_condition & has_dominance & has_volume_spike] += rejection_volume_weight
+        # [代码新增] 在探针中复现“伊卡洛斯之陨”协议的计算逻辑
+        limit_up_price = df.get('up_limit_D', pd.Series(np.nan, index=df.index))
+        is_icarus_fall = (df[high_col] >= limit_up_price * 0.995) & (df[close_col] < df[high_col] * 0.98)
+        rejection_quality_score.loc[is_icarus_fall] += icarus_fall_bonus
         rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
         rejection_quality_score = rejection_quality_score.clip(0, 1.0)
         base_cond_val, yin_line_val, dominance_val, volume_val, apollo_val, in_zone_val = (
@@ -852,7 +858,16 @@ class IntelligenceLayer:
             print(f"          - 权重1 (空头宣告-收阴): {yin_line_val} -> 加分 {rejection_yin_line_weight if yin_line_val and base_cond_val else 0.0:.2f}")
             print(f"          - 权重2 (空头胜利-上影优势): {dominance_val} -> 加分 {rejection_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
             print(f"          - 权重3 (主力派发-放量): {volume_val and dominance_val} (需上影优势) -> 加分 {rejection_volume_weight if volume_val and dominance_val and base_cond_val else 0.0:.2f}")
-        print(f"          - 当日独立拒绝分: {rejection_score_today:.4f}")
+        # [代码新增] 植入“伊卡洛斯之陨”协议的专属审查模块
+        print("        --- [伊卡洛斯之陨协议审查 (涨停回落)] ---")
+        icarus_cond1 = df.at[probe_date, high_col] >= limit_up_price.get(probe_date, np.inf) * 0.995
+        icarus_cond2 = df.at[probe_date, close_col] < df.at[probe_date, high_col] * 0.98
+        icarus_triggered = is_icarus_fall.get(probe_date, False)
+        print(f"          - 涨停价: {limit_up_price.get(probe_date, 'N/A'):.2f}")
+        print(f"          - 条件1 (触及涨停): (最高价 {df.at[probe_date, high_col]:.2f} >= 涨停价*0.995) -> {'✅' if icarus_cond1 else '❌'}")
+        print(f"          - 条件2 (大幅回落): (收盘价 {df.at[probe_date, close_col]:.2f} < 最高价*0.98) -> {'✅' if icarus_cond2 else '❌'}")
+        print(f"          - 裁决: {'触发！' if icarus_triggered else '未触发。'} -> 奖励分 {icarus_fall_bonus if icarus_triggered else 0.0:.2f}")
+        print(f"          - 当日独立拒绝分 (含所有加成): {rejection_score_today:.4f}")
         print("        --- [确认压制评估 (哈迪斯之锁)] ---")
         max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
         is_failing_to_break = (df['close_D'] < acting_ceiling) & is_in_influence_zone
