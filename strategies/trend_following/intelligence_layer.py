@@ -1144,15 +1144,19 @@ class IntelligenceLayer:
 
     def _deploy_archangel_diagnosis_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“天使长诊断探针” - 四骑士审查
-        - 核心职责: 专门解剖 _diagnose_archangel_top_reversal 函数的内部逻辑，
-                      为 SCORE_ARCHANGEL_TOP_REVERSAL 的真实值提供确凿证据。
+        【V1.1 · 权限修复版】“天使长诊断探针” - 四骑士审查
+        - 核心修复: 在调用 calculate_context_scores 之前，为其注入必需的 'strategy_instance_ref' 上下文引用，
+                      解决因缺少权限导致计算结果为0的致命BUG。
         """
         print("\n--- [探针] 正在启用: 👼【天使长诊断探针 · 四骑士审查】👼 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         # 步骤一：获取“第四骑士” - 结构性压力分
+        # [代码新增] 注入计算所需的上下文引用
+        atomic['strategy_instance_ref'] = self.strategy
         _, top_context_score_series = calculate_context_scores(df, atomic)
+        # [代码新增] 计算完毕后，立即移除临时引用，保持状态纯净
+        del atomic['strategy_instance_ref']
         top_context_score = top_context_score_series.get(probe_date, 0.0)
         # 步骤二：获取其他三位骑士的信号值
         upthrust_risk = atomic.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
