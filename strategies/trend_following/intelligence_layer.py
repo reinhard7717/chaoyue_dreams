@@ -411,7 +411,7 @@ class IntelligenceLayer:
         print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 
     # 注入全新的“宙斯之雷”终极探针
-    def _deploy_zeus_thunder_probe(self, probe_date: pd.Timestamp):
+    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
         【V2.3 · 完整证据链版】终极得分构成解剖探针
         - 核心升级: 调整并增加探针调用顺序，构建“忒弥斯->天使长->赫淮斯托斯”的完整证据链。
