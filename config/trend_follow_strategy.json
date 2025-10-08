@@ -287,7 +287,7 @@
           "rejection_quality_bonus_factor": 0.25,
           "confirmation_cooldown_period": 10,
           "cooldown_reset_volume_ma_period": 55,
-          "min_shadow_ratio": 0.25,
+          "min_shadow_ratio": 0.15,
           "icarus_fall_base_score": 0.8
         },
         "fibonacci_resistance_params": {
