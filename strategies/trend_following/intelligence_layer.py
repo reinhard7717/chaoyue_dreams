@@ -524,8 +524,8 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.24 · 流程完整性修复版】“忒弥斯天平”上下文解剖探针
-        - 核心修复: 补全了探针中遗漏的 `gaia_bedrock_support_score` 和 `conventional_bottom_score` 的计算步骤，修复了 NameError 崩溃。
+        【V1.25 · 真理追溯版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 为“历史高点阻力分”的计算过程增加详细的追溯日志，明确打印出每个周期找到的前高值及其日期。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -585,10 +585,8 @@ class IntelligenceLayer:
         cycle_trough_score = (1 - cycle_phase) / 2.0
         context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
         bottom_context_score_raw = (deep_bottom_context_score**context_weights['price_pos'] * rsi_w_oversold_score**context_weights['rsi_w'] * cycle_trough_score**context_weights['cycle'])
-        # 补全 conventional_bottom_score 的计算
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
-        # 补全 gaia_bedrock_support_score 的计算
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
@@ -731,6 +729,8 @@ class IntelligenceLayer:
         print(f"      - 乖离过热分: {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
         uranus_ceiling_resistance_score = self._deploy_uranus_ceiling_probe(probe_date)
         p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
+        # [代码新增] 启动历史高点阻力分的详细探针
+        print("      --- [历史高点显微镜] 深入解剖 ---")
         historical_high_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         if get_param_value(p_fib_resistance.get('enabled'), False):
             fib_periods = get_param_value(p_fib_resistance.get('periods'), [34, 55, 89, 144, 233])
@@ -740,15 +740,31 @@ class IntelligenceLayer:
             for period in fib_periods:
                 period_str = str(period)
                 if period_str not in level_scores: continue
-                historical_high = df['close_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
-                resistance_line_upper = historical_high * (1 + tolerance_pct)
-                resistance_line_lower = historical_high * (1 - tolerance_pct)
-                is_rejected = (df['high_D'] >= resistance_line_lower) & (df['close_D'] <= resistance_line_upper)
-                score_mask = trigger_mask & is_rejected
-                historical_high_resistance_score.loc[score_mask] = np.maximum(historical_high_resistance_score.loc[score_mask], level_scores[period_str])
-        structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score.get(probe_date, 0.0))
+                # [代码修改] 使用 high_D 来寻找真实的滚动周期内最高价
+                rolling_high_series = df['high_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
+                historical_high_val = rolling_high_series.at[probe_date]
+                # [代码新增] 打印每个周期的前高值
+                if pd.notna(historical_high_val):
+                    historical_high_date = rolling_high_series.loc[:probe_date].idxmax()
+                    print(f"        - {period}日周期: 找到前高 {historical_high_val:.2f} (日期: {historical_high_date.strftime('%Y-%m-%d')})")
+                else:
+                    print(f"        - {period}日周期: 未找到有效前高。")
+                    continue
+                resistance_line = historical_high_val * (1 - tolerance_pct)
+                is_rejected = (df.at[probe_date, 'high_D'] >= resistance_line) & (df.at[probe_date, 'close_D'] < historical_high_val)
+                # [代码新增] 打印判断过程
+                print(f"          - 判断: (当日最高 {df.at[probe_date, 'high_D']:.2f} >= 阻力线 {resistance_line:.2f}) AND (当日收盘 {df.at[probe_date, 'close_D']:.2f} < 前高 {historical_high_val:.2f}) -> {'✅' if is_rejected else '❌'}")
+                if trigger_mask.at[probe_date] and is_rejected:
+                    current_score = historical_high_resistance_score.at[probe_date]
+                    new_score = level_scores[period_str]
+                    historical_high_resistance_score.at[probe_date] = max(current_score, new_score)
+                    print(f"          - 裁决: 触发！得分为 {new_score:.2f}。当前总分更新为: {historical_high_resistance_score.at[probe_date]:.2f}")
+        # [代码修改] 探针现在只显示当日的值
+        final_historical_high_score = historical_high_resistance_score.get(probe_date, 0.0)
+        structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, final_historical_high_score)
         print(f"    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
-        print(f"      - 历史高点阻力分: {historical_high_resistance_score.get(probe_date, 0.0):.4f}")
+        # [代码修改] 探针现在只显示当日的值
+        print(f"      - 历史高点阻力分: {final_historical_high_score:.4f}")
         final_top_context_score = np.maximum(conventional_top_score.get(probe_date, 0.0), structural_resistance_score)
         print(f"    - [最终裁决] 顶部上下文总分 (常规 vs 结构): {final_top_context_score:.4f}")
         print("\n--- “忒弥斯天平”称量完毕 ---")
