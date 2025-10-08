@@ -411,115 +411,52 @@ class IntelligenceLayer:
         print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
 
     # 注入全新的“宙斯之雷”终极探针
-    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp, bottom_context_score: pd.Series, top_context_score: pd.Series):
+    def _deploy_zeus_thunder_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.9 · 数据纯净法案版】“宙斯之雷”终极法医探针
-        - 核心修复: 增加类型检查防火墙，在对信号值进行数值操作前，确保其为数值类型。
-        - 收益: 彻底杜绝因 atomic_states 被污染（如混入字符串）而导致的探针崩溃。
+        【V2.3 · 完整证据链版】终极得分构成解剖探针
+        - 核心升级: 调整并增加探针调用顺序，构建“忒弥斯->天使长->赫淮斯托斯”的完整证据链。
         """
-        print("\n--- [探针] 正在召唤:⚡️【宙斯之雷 · 终极得分解剖探针.⚡️⚡    ---")
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针⚡️⚡️】---")
+        # [代码修改] 调整调用顺序，构建完整证据链
         self._deploy_themis_scales_probe(probe_date)
-        atomic = self.strategy.atomic_states
-        playbook = self.strategy.playbook_states
-        df = self.strategy.df_indicators
-        def get_val(name, date, default=0.0):
-            series = atomic.get(name, playbook.get(name))
-            if series is None: return default
-            return series.get(date, default)
-        final_score = df.loc[probe_date].get('final_score', 0)
-        final_signal = df.loc[probe_date].get('signal_type', '未知')
-        print(f"\n  [链路层 1] 最终裁决")
+        self._deploy_archangel_diagnosis_probe(probe_date)
+        self._deploy_hephaestus_forge_probe(probe_date)
+        print("\n  [链路层 1] 最终裁决")
+        final_score = self.strategy.df_results.get('final_score', pd.Series(np.nan, index=self.strategy.df_results.index)).get(probe_date, 'N/A')
+        final_signal = self.strategy.df_results.get('final_signal_str', pd.Series('N/A', index=self.strategy.df_results.index)).get(probe_date, 'N/A')
         print(f"    - 【最终信号】: {final_signal}")
-        print(f"    - 【最终得分】: {final_score:.0f}")
-        score_map = get_params_block(self.strategy, 'score_type_map', {})
-        p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
-        bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
-        top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
-        bottom_context_val = bottom_context_score.get(probe_date, 0.0)
-        top_context_val = top_context_score.get(probe_date, 0.0)
-        active_offense = []
-        active_risks = []
-        total_offense = 0
-        total_risk = 0
+        if isinstance(final_score, (float, np.floating)):
+            print(f"    - 【最终得分】: {final_score:.0f}")
+        else:
+            print(f"    - 【最终得分】: {final_score}")
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        all_signals_to_process = []
-        for signal_name, meta in score_map.items():
-            if not isinstance(meta, dict): continue
-            signal_value_raw = get_val(signal_name, probe_date, 0.0)
-            # 增加类型检查防火墙
-            if not isinstance(signal_value_raw, (int, float, np.number)):
-                continue
-            if abs(signal_value_raw) < 1e-6: continue
-            base_score = meta.get('score', 0)
-            if abs(base_score) < 1e-6: continue
-            all_signals_to_process.append({'name': signal_name, 'meta': meta, 'raw_value': signal_value_raw, 'base_score': base_score})
-        for item in all_signals_to_process:
-            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
-            # 风险判断基于 base_score 的正负
-            is_risk = base_score < 0
-            if is_risk: continue
-            processed_signal_value = signal_value_raw
-            context_role = meta.get('context_role', 'neutral')
-            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
-            if context_role == 'bottom_opportunity' and base_score > 0:
-                suppression_factor = top_context_val if top_context_val >= top_context_threshold else 0.0
-                damper = 1.0 - suppression_factor
-                processed_signal_value *= damper
-                if damper < 1.0:
-                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 顶部压制:{top_context_val:.2f}) * 基础分: {base_score:.0f}"
-            contribution = processed_signal_value * base_score
-            if abs(contribution) < 0.5: continue
-            active_offense.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
-            total_offense += contribution
-        active_offense.sort(key=lambda x: x['contribution'], reverse=True)
-        if not active_offense:
-            print("    - 当日无任何激活的进攻信号。")
-        else:
-            for item in active_offense:
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
-        print(f"    ----------------------------------")
-        print(f"    - 【进攻项总分】: {total_offense:.0f}")
+        offense_items = self.strategy.df_results.get('__activated_offense_items', {}).get(probe_date, [])
+        offense_total = 0
+        if offense_items:
+            for item in sorted(offense_items, key=lambda x: x['contribution'], reverse=True):
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_score']:.4f} * 基础分: {item['base_score']})")
+                offense_total += item['contribution']
+        print("    ----------------------------------")
+        print(f"    - 【进攻项总分】: {offense_total:.0f}")
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
-        for item in all_signals_to_process:
-            signal_name, meta, signal_value_raw, base_score = item['name'], item['meta'], item['raw_value'], item['base_score']
-            # 风险判断基于 base_score 的正负
-            is_risk = base_score < 0
-            if not is_risk: continue
-            processed_signal_value = signal_value_raw
-            context_role = meta.get('context_role', 'neutral')
-            explanation = f"原始值: {signal_value_raw:.4f} * 基础分: {base_score:.0f}"
-            damper_was_applied = False
-            if context_role == 'top_risk' and base_score < 0:
-                suppression_factor = bottom_context_val if bottom_context_val >= bottom_context_threshold else 0.0
-                damper = 1.0 - suppression_factor
-                if damper < 1.0:
-                    damper_was_applied = True
-                    explanation = f"原始值: {signal_value_raw:.4f} * (1 - 底部压制:{bottom_context_val:.2f}) * 基础分: {base_score:.0f}"
-                processed_signal_value *= damper
-            contribution = processed_signal_value * base_score
-            if not damper_was_applied and abs(contribution) < 0.5:
-                continue
-            active_risks.append({'name': meta.get('cn_name', signal_name), 'internal_name': signal_name, 'contribution': contribution, 'explanation': explanation})
-            total_risk += contribution
-        active_risks.sort(key=lambda x: x['contribution'], reverse=False)
-        if not active_risks:
-            print("    - 当日无任何激活的风险信号。")
-        else:
-            for item in active_risks:
-                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  ({item['explanation']})")
-        print(f"    ----------------------------------")
-        print(f"    - 【风险项总分】: {total_risk:.0f}")
+        risk_items = self.strategy.df_results.get('__activated_risk_items', {}).get(probe_date, [])
+        risk_total = 0
+        if risk_items:
+            for item in sorted(risk_items, key=lambda x: abs(x['contribution']), reverse=True):
+                print(f"    - 【{item['name']}】: {item['contribution']:.0f}  (原始值: {item['raw_score']:.4f} * 基础分: {item['base_score']})")
+                risk_total += item['contribution']
+        print("    ----------------------------------")
+        print(f"    - 【风险项总分】: {risk_total:.0f}")
         print("\n  [链路层 4] 终极对质")
-        recalculated_entry_score = total_offense + total_risk
-        print(f"    - [探针重算入场分(entry_score)]: {total_offense:.0f} (进攻) + {total_risk:.0f} (风险) = {recalculated_entry_score:.0f}")
-        chimera_conflict_score = get_val('COGNITIVE_SCORE_CHIMERA_CONFLICT', probe_date, 0.0)
-        dominant_signal_type = self._get_dominant_offense_type_for_probe(recalculated_entry_score, active_offense)
-        is_reversal_day = (dominant_signal_type == 'positional')
-        dynamic_chimera_score = chimera_conflict_score * 0.5 if is_reversal_day else chimera_conflict_score
-        confidence_damper = 1.0 - dynamic_chimera_score
-        recalculated_final_score = recalculated_entry_score * confidence_damper
-        print(f"    - [探针重算最终分(final_score)]: {recalculated_entry_score:.0f} * (1 - 奇美拉冲突:{dynamic_chimera_score:.2f}) = {recalculated_final_score:.0f}")
-        print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {recalculated_final_score:.0f}")
+        entry_score_recalc = offense_total + risk_total
+        chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=self.strategy.df_results.index)).get(probe_date, 0.0)
+        final_score_recalc = entry_score_recalc * (1 - chimera_conflict_score)
+        print(f"    - [探针重算入场分(entry_score)]: {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {entry_score_recalc:.0f}")
+        print(f"    - [探针重算最终分(final_score)]: {entry_score_recalc:.0f} * (1 - 奇美拉冲突:{chimera_conflict_score:.2f}) = {final_score_recalc:.0f}")
+        if isinstance(final_score, (float, np.floating)):
+            print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
+        else:
+            print(f"    - [对比]: 实际值 {final_score} vs 重算值 {final_score_recalc:.0f}")
         print("\n--- “宙斯之雷”审查完毕 ---")
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
@@ -1098,6 +1035,122 @@ class IntelligenceLayer:
         print(f"          - 最终裁决 (战术质量分): {final_score:.4f}")
         return final_score
 
+    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“赫淮斯托斯熔炉”探针 - 风险融合过程解剖
+        - 核心职责: 完美复刻并解剖 synthesize_fused_risk_scores 的内部计算过程，
+                      暴露风险信号在融合过程中的每一步变化，为决策提供确凿证据。
+                      此探针只用于诊断，其内部逻辑反映的是当前引擎的真实状态（包含缺陷）。
+        """
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖】🔥 ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
+        if not get_param_value(p_fused_risk.get('enabled'), True):
+            print("    - 风险融合模块未启用，跳过解剖。")
+            return
+        print("  --- [阶段1] 信号输入审查 ---")
+        risk_categories = p_fused_risk.get('risk_categories', {})
+        all_required_signals = {s for signals in risk_categories.values() if isinstance(signals, dict) for s in signals if s != "说明"}
+        signal_value_cache = {}
+        for sig_name in sorted(list(all_required_signals)):
+            val = atomic.get(sig_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+            signal_value_cache[sig_name] = val
+            # 关键输入信号高亮显示
+            if "ARCHANGEL" in sig_name:
+                print(f"    - 关键输入信号 [{sig_name}]: {val:.4f}  <-- 风险源头")
+            else:
+                print(f"    - 输入信号 [{sig_name}]: {val:.4f}")
+        print("\n  --- [阶段2] 维度内融合解剖 (当前引擎的“主次风险”算法) ---")
+        fused_dimension_scores = {}
+        secondary_risk_discount = p_fused_risk.get('intra_dimension_fusion_params', {}).get('secondary_risk_discount', 0.3)
+        for category_name, signals in risk_categories.items():
+            if category_name == "说明": continue
+            print(f"\n    -> 正在处理维度: [{category_name.upper()}]")
+            category_signal_scores = []
+            for signal_name, signal_params in signals.items():
+                if signal_name == "说明": continue
+                atomic_score = signal_value_cache.get(signal_name, 0.0)
+                processed_score = 1.0 - atomic_score if signal_params.get('inverse', False) else atomic_score
+                weighted_score = processed_score * signal_params.get('weight', 1.0)
+                category_signal_scores.append(weighted_score)
+                print(f"      - 信号 '{signal_name}':")
+                print(f"        - 原始值: {atomic_score:.4f} -> 处理后: {processed_score:.4f} -> 加权后: {weighted_score:.4f} (权重: {signal_params.get('weight', 1.0)})")
+            if category_signal_scores:
+                sorted_scores = sorted(category_signal_scores, reverse=True)
+                primary_risk = sorted_scores[0]
+                secondary_risk = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
+                dimension_risk = primary_risk + secondary_risk * secondary_risk_discount
+                fused_dimension_scores[category_name] = dimension_risk
+                print(f"      - 维度内融合计算 (主次风险算法):")
+                print(f"        - 主要风险: {primary_risk:.4f}")
+                print(f"        - 次要风险: {secondary_risk:.4f} (折扣率: {secondary_risk_discount})")
+                print(f"        - 维度总风险 = {primary_risk:.4f} + {secondary_risk:.4f} * {secondary_risk_discount} = {dimension_risk:.4f}")
+            else:
+                fused_dimension_scores[category_name] = 0.0
+                print(f"      - 维度内无信号，总风险为 0.0")
+        print("\n  --- [阶段3] 跨维度融合解剖 ---")
+        valid_scores = list(fused_dimension_scores.values())
+        if valid_scores:
+            total_fused_risk = max(valid_scores)
+            print(f"    - 所有维度风险分: { {k: f'{v:.4f}' for k, v in fused_dimension_scores.items()} }")
+            print(f"    - 裁决: 取最大值 -> {total_fused_risk:.4f}")
+        else:
+            total_fused_risk = 0.0
+            print(f"    - 无有效维度风险分，总分为 0.0")
+        print("\n  --- [阶段4] 共振惩罚解剖 ---")
+        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
+        if get_param_value(p_resonance.get('enabled'), True):
+            core_dims = p_resonance.get('core_risk_dimensions', [])
+            min_dims = p_resonance.get('min_dimensions_for_resonance', 2)
+            threshold = p_resonance.get('risk_score_threshold', 0.6)
+            penalty_multiplier = p_resonance.get('penalty_multiplier', 1.2)
+            high_risk_dimension_count = sum(1 for dim in core_dims if fused_dimension_scores.get(dim, 0.0) > threshold)
+            is_resonance_triggered = (high_risk_dimension_count >= min_dims)
+            print(f"    - 共振诊断: {high_risk_dimension_count}个核心维度 > {threshold} (要求: {min_dims}个) -> 触发: {is_resonance_triggered}")
+            if is_resonance_triggered:
+                final_risk_score = total_fused_risk * penalty_multiplier
+                print(f"    - 共振惩罚: {total_fused_risk:.4f} * {penalty_multiplier} = {final_risk_score:.4f}")
+            else:
+                final_risk_score = total_fused_risk
+                print(f"    - 未触发共振惩罚。")
+        else:
+            final_risk_score = total_fused_risk
+            print(f"    - 共振惩罚模块未启用。")
+        final_risk_score = min(final_risk_score, 2.0) # clip
+        print("\n  --- [最终裁决] ---")
+        print(f"    - 🔥 熔炉产物 (COGNITIVE_FUSED_RISK_SCORE): {final_risk_score:.4f}")
+        print("--- “赫淮斯托斯熔炉”探针运行完毕 ---\n")
+
+    def _deploy_archangel_diagnosis_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“天使长诊断探针” - 四骑士审查
+        - 核心职责: 专门解剖 _diagnose_archangel_top_reversal 函数的内部逻辑，
+                      为 SCORE_ARCHANGEL_TOP_REVERSAL 的真实值提供确凿证据。
+        """
+        print("\n--- [探针] 正在启用: 👼【天使长诊断探针 · 四骑士审查】👼 ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        # 步骤一：获取“第四骑士” - 结构性压力分
+        _, top_context_score_series = calculate_context_scores(df, atomic)
+        top_context_score = top_context_score_series.get(probe_date, 0.0)
+        # 步骤二：获取其他三位骑士的信号值
+        upthrust_risk = atomic.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        heaven_earth_risk = atomic.get('SCORE_BOARD_HEAVEN_EARTH', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        post_peak_risk = atomic.get('COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        print("  --- [输入审查] 启示录四骑士信号值 ---")
+        print(f"    - 骑士1 (上冲派发): {upthrust_risk:.4f}")
+        print(f"    - 骑士2 (天地板): {heaven_earth_risk:.4f}")
+        print(f"    - 骑士3 (高位回落): {post_peak_risk:.4f}")
+        print(f"    - 骑士4 (结构性压力): {top_context_score:.4f}  <-- 来自“忒弥斯天平”")
+        # 步骤三：复刻融合逻辑并提供证据
+        risk_values = [upthrust_risk, heaven_earth_risk, post_peak_risk, top_context_score]
+        archangel_score = max(risk_values)
+        print("\n  --- [融合裁决] ---")
+        print(f"    - 融合算法: max(骑士1, 骑士2, 骑士3, 骑士4)")
+        print(f"    - 计算过程: max({upthrust_risk:.4f}, {heaven_earth_risk:.4f}, {post_peak_risk:.4f}, {top_context_score:.4f}) = {archangel_score:.4f}")
+        print(f"    - 最终结论 (SCORE_ARCHANGEL_TOP_REVERSAL 的真实值): {archangel_score:.4f}")
+        print("--- “天使长诊断探针”运行完毕 ---")
 
 
 
