@@ -1025,8 +1025,8 @@ class IntelligenceLayer:
 
     def _deploy_apollo_arrow_probe(self, probe_date: pd.Timestamp, params: Dict, resistance_line: pd.Series) -> float:
         """
-        【V1.1 · 影线长度显式化版】通用拒绝质量评估探针 (阿波罗之箭)
-        - 核心升级: 新增对上下影线具体长度的打印，使“空头胜利”的判断过程更加透明。
+        【V1.3 · 塔纳托斯之镰探针版】通用拒绝质量评估探针 (阿波罗之箭)
+        - 核心升级: 完全同步“伊卡洛斯之陨”的风险叠加逻辑，并清晰打印奖励分。
         """
         print("        --- [阿波罗之箭评估] ---")
         df = self.strategy.df_indicators
@@ -1036,8 +1036,9 @@ class IntelligenceLayer:
         rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
         rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
         rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
-        min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.25)
-        icarus_fall_base_score = get_param_value(params.get('icarus_fall_base_score'), 0.8)
+        min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.15) # 已按您的要求修改
+        # [代码修改] 废除icarus_fall_base_score，引入icarus_fall_bonus
+        icarus_fall_bonus = get_param_value(params.get('icarus_fall_bonus'), 0.5)
         cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
         close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
         ares_vol_ma_col = 'VOL_MA_5_D'
@@ -1050,17 +1051,14 @@ class IntelligenceLayer:
         if pd.isna(res_val):
             print("          - 目标阻力位当日无有效值，评估跳过。")
             return 0.0
-        
         # 2. 计算影响区和基础条件
         lower_bound_val = res_val * (1 - influence_zone_pct)
         is_in_influence_zone_val = lower_bound_val <= df.at[probe_date, close_col] <= res_val
         base_rejection_condition_val = (df.at[probe_date, high_col] > res_val) & is_in_influence_zone_val & (df.at[probe_date, close_col] < df.at[probe_date, high_col])
-        
         # 3. 计算各项质量加权分
         rejection_quality_score_val = 0.0
         if base_rejection_condition_val:
             rejection_quality_score_val = rejection_base_score
-        
         is_yin_line_val = df.at[probe_date, close_col] < df.at[probe_date, open_col]
         upper_shadow_val = df.at[probe_date, high_col] - max(df.at[probe_date, open_col], df.at[probe_date, close_col])
         lower_shadow_val = min(df.at[probe_date, open_col], df.at[probe_date, close_col]) - df.at[probe_date, low_col]
@@ -1068,42 +1066,36 @@ class IntelligenceLayer:
         upper_shadow_ratio_val = upper_shadow_val / kline_range_val if kline_range_val > 0 else 0
         is_upper_shadow_significant_val = upper_shadow_ratio_val > min_shadow_ratio
         has_dominance_val = (upper_shadow_val > lower_shadow_val) & is_upper_shadow_significant_val
-        
         yin_line_bonus = rejection_yin_line_weight if base_rejection_condition_val and is_yin_line_val else 0.0
         dominance_bonus = rejection_dominance_weight if base_rejection_condition_val and has_dominance_val else 0.0
-        
         has_volume_spike_val = df.at[probe_date, vol_col] > df.at[probe_date, ares_vol_ma_col]
         proportional_volume_score_val = normalize_score(df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan), df.index, window=cooldown_reset_volume_ma_period, ascending=True).get(probe_date, 0.0)
         volume_bonus = rejection_volume_weight * proportional_volume_score_val if base_rejection_condition_val and has_dominance_val and has_volume_spike_val else 0.0
-        
         rejection_quality_score_val += yin_line_bonus + dominance_bonus + volume_bonus
-        
         # 4. 应用绝对否决/奖励规则
         limit_up_price_val = df.at[probe_date, 'up_limit_D']
         is_icarus_fall_val = (df.at[probe_date, high_col] >= limit_up_price_val * 0.995) & (df.at[probe_date, close_col] < df.at[probe_date, high_col] * 0.98)
-        if is_icarus_fall_val:
-            rejection_quality_score_val = max(rejection_quality_score_val, icarus_fall_base_score)
-
+        # [代码修改] 将伊卡洛斯之陨的逻辑从“取最大值”改为“叠加奖励分”
+        icarus_bonus_val = icarus_fall_bonus if is_icarus_fall_val else 0.0
+        rejection_quality_score_val += icarus_bonus_val
         is_apollo_absorption_val = (lower_shadow_val > upper_shadow_val) & has_volume_spike_val
         if is_in_influence_zone_val and is_apollo_absorption_val:
             rejection_quality_score_val = 0.0
-
         final_score = np.clip(rejection_quality_score_val, 0, 1.0)
-
         # 5. 打印详细解剖过程
         print(f"          - 目标阻力线: {res_val:.2f}")
         print(f"          - 影响区: [{lower_bound_val:.2f}, {res_val:.2f}] -> 收盘价({df.at[probe_date, close_col]:.2f})是否在内: {'✅' if is_in_influence_zone_val else '❌'}")
         print(f"          - 基础条件 (触顶+回落): {base_rejection_condition_val} -> 基础分 {rejection_base_score if base_rejection_condition_val else 0.0:.2f}")
         print(f"          - 权重1 (空头宣告-收阴): {is_yin_line_val} -> 加分 {yin_line_bonus:.2f}")
-        # [代码新增] 打印上下影线的具体长度
         print(f"          - 影线长度: 上影 {upper_shadow_val:.2f} vs 下影 {lower_shadow_val:.2f}")
-        print(f"          - 权重2 (空头胜利-上影优势): {has_dominance_val} -> 加分 {dominance_bonus:.2f}")
+        print(f"          - 上影线显著性检查: (上影率 {upper_shadow_ratio_val:.2f} > 阈值 {min_shadow_ratio:.2f}) -> {is_upper_shadow_significant_val}")
+        print(f"          - 权重2 (空头胜利-上影优势): (上影>下影 AND 上影显著) -> {has_dominance_val} -> 加分 {dominance_bonus:.2f}")
         print(f"          - 权重3 (主力派发-放量): {has_volume_spike_val and has_dominance_val} -> 加分 {volume_bonus:.2f}")
         print(f"          ---")
-        print(f"          - 伊卡洛斯之陨 (涨停回落): {is_icarus_fall_val} -> 若触发，分数至少为 {icarus_fall_base_score:.2f}")
-        print(f"          - 阿波罗吸收 (多头反噬): {is_apollo_absorption_val and is_in_influence_zone_val} -> 若触发，分数强制归零")
+        # [代码修改] 修改打印说明，反映叠加逻辑
+        print(f"          - 💀 塔纳托斯之镰 (涨停回落): {is_icarus_fall_val} -> 额外奖励分 {icarus_bonus_val:.2f}")
+        print(f"          - ☀️ 阿波罗吸收 (多头反噬): {is_apollo_absorption_val and is_in_influence_zone_val} -> 若触发，分数强制归零")
         print(f"          - 最终裁决 (战术质量分): {final_score:.4f}")
-        
         return final_score
 
 
