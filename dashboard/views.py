@@ -170,7 +170,6 @@ def trend_following_list(request):
         'all_playbooks': unique_playbooks,
         'selected_playbooks': selected_playbooks_pks,
         'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
-        'cache_bust': int(timezone.now().timestamp()),
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
@@ -230,7 +229,6 @@ def prophet_signal_list(request):
         'page_obj': page_obj,
         'total_count': paginator.count,
         'selected_date': target_date.strftime('%Y-%m-%d') if target_date else '',
-        'cache_bust': int(timezone.now().timestamp()),
     }
     # 渲染一个新的、专用的模板
     return render(request, 'dashboard/prophet_signal_list.html', context)
