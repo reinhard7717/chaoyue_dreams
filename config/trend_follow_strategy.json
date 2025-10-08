@@ -225,12 +225,7 @@
         "trend_confirmation_context_params": {
           "enabled": { "value": true },
           "description": "【波塞冬三叉戟】评估趋势的强度、方向和健康度，以更智能地抑制底部信号。",
-          "adx_threshold": { "value": 20 },
-          "fusion_weights": {
-            "strength": 0.4,
-            "direction": 0.4,
-            "health": 0.2
-          }
+          "adx_threshold": { "value": 20 }
         },
         "tactical_reversal_params": {
           "enabled": { "value": true },
@@ -262,15 +257,19 @@
         },
         "gaia_bedrock_params": {
           "enabled": true,
-          "description": "【V3.0 · 雅典娜神盾协议版】引入三级信号体系：神盾构筑(1.0)、常规确认(0.8)、阵地防守(0.6)。",
+          "description": "【V3.1 · 参数校准版】盖亚基石动态支撑系统，引入与乌拉诺斯穹顶对齐的详细权重。",
           "support_levels": [34, 55, 89, 144, 233],
           "confirmation_window": 3,
           "aegis_lookback_window": 5,
           "influence_zone_pct": 0.03,
-          "defense_score": 0.6,
+          "defense_base_score": 0.4,
+          "defense_yang_line_weight": 0.1,
+          "defense_dominance_weight": 0.2,
+          "defense_volume_weight": 0.3,
           "confirmation_score": 0.8,
-          "aegis_confirmation_score": 1.0,
-          "confirmation_cooldown_period": 10
+          "aegis_quality_bonus_factor": 0.25,
+          "confirmation_cooldown_period": 10,
+          "cooldown_reset_volume_ma_period": 55
         },
         "uranus_ceiling_params": {
           "enabled": true,
@@ -512,11 +511,29 @@
         "description": "【V1.0】量价分析(VPA)动态风险诊断引擎参数。",
         "norm_window": 55
       },
+      "continuation_reversal_params": {
+        "enabled": true,
+        "description": "延续性反转诊断引擎参数。",
+        "ma_periods": [5, 13, 21, 55],
+        "support_lookback_periods": [5, 13, 21, 55],
+        "support_period_weights": { "5": 0.8, "13": 1.0, "21": 1.2, "55": 1.4, "sbc": 2.0 },
+        "support_tolerance_pct": 0.015,
+        "confluence_bonus_factor": 0.3,
+        "sbc_threshold_pct": 0.05
+      },
       "price_volume_atomic_params": {
         "enabled": true,
         "description": "【V1.0】量价原子信号引擎参数，如价格在近期区间位置、缩量下跌等。",
         "norm_window": 55,
-        "range_lookback": 21
+        "range_lookback": 21,
+        "liquidity_drain_params": {
+          "description": "流动性枯竭风险诊断参数。",
+          "window": 20
+        },
+        "exhaustion_reversal_params": {
+          "description": "卖盘衰竭反转机会诊断参数。",
+          "window": 5
+        }
       },
       "capitulation_reversal_params": {
         "enabled": true,
@@ -644,18 +661,33 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V2.5 · 圣杯版】此模块现在只定义特定于资金流领域的意图和支柱权重。",
+        "description": "【V2.6 · 商神杖激活版】此模块现在定义特定于资金流领域的意图和支柱权重，并新增均线健康度评估配置。",
         "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
         "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 },
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
+        },
         "relational_meta_analysis_params": {
           "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
           "velocity_weight": 0.6,
           "acceleration_weight": 0.4
         }
       },
+
       "micro_behavior_params": {
         "enabled": true,
-        "description": "【V1.0 · 新增】微观行为引擎的专属参数块，用于关系元分析。",
+        "description": "【V1.1 · 商神杖激活版】微观行为引擎的专属参数块，用于关系元分析。",
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
+        },
         "relational_meta_analysis_params": {
           "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
           "velocity_weight": 0.6,
@@ -683,7 +715,9 @@
       },
       "cognitive_intelligence_params": {
         "enabled": true,
-        "description": "【V2.0 · 关系元分析版】顶层认知引擎的专属参数块。",
+        "description": "【V2.1 · 战术感知版】顶层认知引擎的专属参数块。",
+        "reversal_reliability_bonus_factor": 0.5,
+        "comment_bonus_factor": "【新增】在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
         "cascade_fusion_weights": {
           "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
@@ -708,7 +742,14 @@
       },
       "tactic_engine_params": {
         "enabled": true,
-        "description": "【V1.0 · 新增】战术引擎的专属参数块，用于关系元分析。",
+        "description": "【V1.1 · 商神杖激活版】战术引擎的专属参数块，用于关系元分析。",
+        "ma_health_fusion_weights": {
+          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
+          "alignment": 0.15,
+          "slope": 0.15,
+          "accel": 0.2,
+          "relational": 0.5
+        },
         "relational_meta_analysis_params": {
           "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
           "velocity_weight": 0.6,
@@ -780,7 +821,9 @@
           },
           "foundation_risk": {
             "SCORE_FOUNDATION_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 }
+            "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_FOUNDATION_VOL_EXPANSION_RISK": { "weight": 0.8 },
+            "SCORE_FOUNDATION_PANIC_SELLING_RISK": { "weight": 1.5 }
           },
           "cognitive_risk": {
             "SCORE_ARCHANGEL_TOP_REVERSAL": { "weight": 2.5 },
@@ -789,6 +832,14 @@
             "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
             "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false }
           }
+        },
+        "resonance_penalty_params": {
+          "enabled": true,
+          "description": "风险共振惩罚参数。当多个核心风险维度同时超阈值时，对最终风险分进行惩罚性放大。",
+          "core_risk_dimensions": ["behavioral_risk", "chip_risk", "fund_flow_risk", "cognitive_risk"],
+          "min_dimensions_for_resonance": 2,
+          "risk_score_threshold": 0.6,
+          "penalty_multiplier": 1.2
         },
         "dynamic_weighting_params": {
           "enabled": true,
@@ -832,6 +883,19 @@
         "ignition_weights": { "early": 0.5, "vol": 0.2, "potential": 0.3 },
         "main_reliability_weights": { "shareholder": 0.5, "ignition": 0.5 },
         "reversal_reliability_bonus_factor": 0.5
+      },
+      "reversal_resonance_params": {
+        "enabled": true,
+        "说明": "【V1.0 · 参数校准版】多域反转共振分数合成模块参数。",
+        "bottom_resonance_weights": {
+          "mechanics": 0.3, "chip": 0.3, "foundation": 0.2, "behavior": 0.2, "structure": 0.3
+        },
+        "top_resonance_weights": {
+          "mechanics": 0.3, "chip": 0.3, "foundation": 0.2, "behavior": 0.2, "structure": 0.3
+        },
+        "tactical_resonance_weights": {
+          "mechanics": 0.2, "chip": 0.2, "foundation": 0.1, "behavior": 0.2, "structure": 0.2, "ff": 0.1
+        }
       },
       "post_peak_downturn_risk_params": {
         "enabled": true,

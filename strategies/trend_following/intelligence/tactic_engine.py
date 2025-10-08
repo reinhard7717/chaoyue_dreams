@@ -23,19 +23,17 @@ class TacticEngine:
 
     def run_tactic_synthesis(self, df: pd.DataFrame, pullback_enhancements: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 权责统一版】战术引擎总指挥
-        - 核心革命: 新增对筹码相关剧本的合成职责，实现战术逻辑的中央集权。
+        【V3.1 · 逻辑统一版】战术引擎总指挥
+        - 核心修复: 废除分裂的函数，调用统一的、功能完备的剧本合成器。
         """
         all_states = {}
-        # 步骤 1: 计算具有依赖性的前置信号
         panic_states = self.synthesize_panic_selling_setup(df)
         all_states.update(panic_states)
         
-        # 步骤 2: 通过“信使通道”（函数参数）将依赖直接传递给下游方法
         all_states.update(self.synthesize_v_reversal_ace_playbook(df, setup_score=panic_states.get('SCORE_SETUP_PANIC_SELLING')))
         
-        # 调用新增的、中央集权的筹码剧本合成器
-        all_states.update(self.synthesize_chip_related_playbooks(df))
+        # 调用全新的、逻辑统一的“筹码价格滞后”剧本合成器
+        all_states.update(self.synthesize_chip_price_lag_playbook(df))
 
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
@@ -44,20 +42,19 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 赫淮斯托斯熔炉重铸协议版】恐慌抛售战备(Setup)信号生成模块
-        - 核心修正: 签署“赫淮斯托斯熔炉重铸协议”，修正“价格暴跌”支柱的逻辑。
-        - 核心逻辑: intraday_low_pct_change 的计算结果将被 clip(upper=0)，确保只有真正的下跌才能贡献分数。
-        - 收益: 彻底杜绝了因高开导致“价格暴跌”支柱被错误激活的逻辑漏洞。
+        【V4.1 · 商神杖激活版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
+        p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
         
-        # 签署“赫淮斯托斯熔炉重铸协议”，确保只有负值被考虑
         intraday_low_pct_change = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
 
-        ma_structure_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 调用全新的、功能更强大的四维均线健康度评估引擎
+        ma_health_score = self._calculate_ma_health(df, p_tactic, 55)
         
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
@@ -98,7 +95,7 @@ class TacticEngine:
             chip_integrity_score * pillar_weights.get('chip_integrity', 0) +
             despair_context_score * pillar_weights.get('despair_context', 0) +
             structural_test_score * pillar_weights.get('structural_test', 0) +
-            ma_structure_score * pillar_weights.get('ma_structure', 0)
+            ma_health_score * pillar_weights.get('ma_structure', 0) # 使用新的 ma_health_score
         ).astype(np.float32)
         
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
@@ -119,57 +116,60 @@ class TacticEngine:
 
     def synthesize_v_reversal_ace_playbook(self, df: pd.DataFrame, setup_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 关系元分析版】V型反转王牌剧本
-        - 核心革命: 对“昨日恐慌+今日反转”的原始剧本信号，进行关系元分析，评估其与市场结构的共振关系。
+        【V2.1 · 商神杖激活版】V型反转王牌剧本
+        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
         """
         states = {}
-        # 步骤一：计算原始的、纯粹的剧本分数
+        p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
         trigger_dominant_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
         if setup_score is None:
             setup_score = pd.Series(0.0, index=df.index)
         was_setup_yesterday = setup_score.shift(1).fillna(0.0)
         is_triggered_today = trigger_dominant_reversal_score
         raw_playbook_score = (was_setup_yesterday * is_triggered_today)
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # 步骤三：构建关系快照分：V型反转发生在均线结构也开始转好的背景下，信号最强
-        snapshot_score = raw_playbook_score * ma_context_score
-        # 步骤四：对关系进行元分析
+        # 调用全新的、功能更强大的四维均线健康度评估引擎
+        ma_health_score = self._calculate_ma_health(df, p_tactic, 55)
+        snapshot_score = raw_playbook_score * ma_health_score # 使用新的 ma_health_score
         final_playbook_score = self._perform_tactic_relational_meta_analysis(df, snapshot_score)
-        # 使用最终分数更新信号
         states['SCORE_PLAYBOOK_V_REVERSAL_ACE'] = final_playbook_score.astype(np.float32)
         states['PLAYBOOK_V_REVERSAL_ACE'] = final_playbook_score > 0.3
         return states
 
     def synthesize_chip_price_lag_playbook(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 关系元分析版】“筹码共振-价格滞后”战术剧本
-        - 核心革命: 对“战备”和“剧本”两个阶段均注入关系元分析，实现智能的层层递进。
+        【V3.0 · 逻辑统一版】“筹码共振-价格滞后”战术剧本
+        - 核心修复: 整合了“战备”信号和“剧本”信号的计算逻辑，解决了逻辑分裂和僵尸代码问题。
+        - 核心升级: 全面采用四维均线健康度评估，并对战备和剧本两个阶段都注入关系元分析。
         """
         states = {}
-        # 获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # --- 1. 重构 SCORE_SETUP_CHIP_RESONANCE_READY ---
+        p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
+        # 调用全新的、功能更强大的四维均线健康度评估引擎
+        ma_health_score = self._calculate_ma_health(df, p_tactic, 55)
+        
+        # --- 1. 计算“战备”信号: SCORE_SETUP_CHIP_RESONANCE_READY ---
         chip_resonance_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
         price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, window=60, ascending=False)
         volatility_compression_score = get_unified_score(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         raw_setup_score = (chip_resonance_score * price_momentum_suppressed_score * volatility_compression_score)
-        # 构建关系快照分：筹码战备就绪，如果发生在均线结构良好的背景下，则更可靠
-        snapshot_setup = raw_setup_score * ma_context_score
-        # 对关系进行元分析
+        snapshot_setup = raw_setup_score * ma_health_score
         final_setup_score = self._perform_tactic_relational_meta_analysis(df, snapshot_setup)
         states['SCORE_SETUP_CHIP_RESONANCE_READY'] = final_setup_score.astype(np.float32)
-        # --- 2. 重构 SCORE_PLAYBOOK_CHIP_PRICE_LAG ---
+        
+        # --- 2. 计算“剧本”信号: SCORE_PLAYBOOK_CHIP_PRICE_LAG ---
         trigger_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', 0.0)
-        # 使用新的、经过升维的 final_setup_score
         raw_playbook_score = final_setup_score.shift(1).fillna(0.0) * trigger_score
-        # 构建关系快照分：剧本触发时，如果均线结构也支持，则信号最强
-        snapshot_playbook = raw_playbook_score * ma_context_score
-        # 对关系进行元分析
+        snapshot_playbook = raw_playbook_score * ma_health_score
         final_playbook_score = self._perform_tactic_relational_meta_analysis(df, snapshot_playbook)
-        # 使用最终分数更新信号
         states['SCORE_PLAYBOOK_CHIP_PRICE_LAG'] = final_playbook_score.astype(np.float32)
         states['PLAYBOOK_CHIP_PRICE_LAG'] = final_playbook_score > 0.5
+
+        # --- 3. 计算“恐慌投降反转”剧本 ---
+        capitulation_potential = self._get_atomic_score(df, 'SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL', 0.0)
+        reversal_confirmation = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
+        final_capitulation_score = capitulation_potential.shift(1).fillna(0.0) * reversal_confirmation
+        states['SCORE_PLAYBOOK_CAPITULATION_REVERSAL'] = final_capitulation_score.astype(np.float32)
+        states['PLAYBOOK_CAPITULATION_REVERSAL'] = final_capitulation_score > 0.4 # 增加布尔型剧本触发信号
+
         return states
 
     def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -434,58 +434,44 @@ class TacticEngine:
         final_score = (state_score * dynamic_leverage).clip(0, 1)
         return final_score.astype(np.float32)
 
-    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
+    def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】计算均线趋势上下文分数
-        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
+        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
         """
-        # 确保所有需要的均线都存在
-        ma_cols = [f'EMA_{p}_D' for p in periods]
+        p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
+        weights = {
+            'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
+            'slope': get_param_value(p_ma_health.get('slope'), 0.15),
+            'accel': get_param_value(p_ma_health.get('accel'), 0.2),
+            'relational': get_param_value(p_ma_health.get('relational'), 0.5)
+        }
+        ma_periods = [5, 13, 21, 55]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.5, index=df.index)
-        # 均线排列健康度
-        alignment_scores = []
-        for i in range(len(periods) - 1):
-            short_ma = df[f'EMA_{periods[i]}_D']
-            long_ma = df[f'EMA_{periods[i+1]}_D']
-            alignment_scores.append((short_ma > long_ma).astype(float))
-        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
-        # 价格位置健康度 (价格应在所有均线之上)
-        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
-        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
-        # 融合得到最终的趋势上下文分数
-        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
-        return ma_context_score.astype(np.float32)
-
-    def synthesize_chip_related_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 新增】中央集权的筹码相关剧本合成器
-        - 核心职责: 消费来自筹码层和其他层的原子/上下文信号，合成跨领域的战术剧本分数。
-        """
-        states = {}
-
-        # --- 剧本一: 筹码价格滞后 (Chip Price Lag) ---
-        # 消费由 TacticEngine 自己生成的战备分
-        chip_resonance_ready_score = self._get_atomic_score(df, 'SCORE_SETUP_CHIP_RESONANCE_READY', 0.0)
-        # 消费来自微观行为层的点火信号
-        trigger_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', 0.0)
-        
-        final_chip_lag_score = chip_resonance_ready_score.shift(1).fillna(0.0) * trigger_score
-        states['SCORE_PLAYBOOK_CHIP_PRICE_LAG'] = final_chip_lag_score
-        states['PLAYBOOK_CHIP_PRICE_LAG'] = final_chip_lag_score > 0.5
-
-        # --- 剧本二: 恐慌投降反转 (Capitulation Reversal) ---
-        # 消费来自筹码层的“潜力”信号
-        capitulation_potential = self._get_atomic_score(df, 'SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL', 0.0)
-        # 消费来自行为层的“反转确认”信号
-        reversal_confirmation = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
-        
-        # 剧本逻辑：昨日具备投降潜力，且今日行为上出现反转确认
-        final_capitulation_score = capitulation_potential.shift(1).fillna(0.0) * reversal_confirmation
-        states['SCORE_PLAYBOOK_CAPITULATION_REVERSAL'] = final_capitulation_score.astype(np.float32)
-        
-        return states
-
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in slope_cols):
+            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
+            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+        else:
+            slope_health = np.full(len(df.index), 0.5)
+        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in accel_cols):
+            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
+            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+        else:
+            accel_health = np.full(len(df.index), 0.5)
+        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
+        scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum()
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
 
 

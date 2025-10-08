@@ -48,38 +48,39 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V14.0 · 圣杯契约版】
-        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
-                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
-        - 优化说明: 1. 接收预计算的 `ma_context_score` 并传递给子计算器，避免重复计算。
-                      2. 使用Numpy向量化计算几何平均数，高效融合各维度健康度。
+        【V14.1 · 权重激活版】
+        - 核心修复: 激活 pillar_weights 配置，使用加权几何平均数融合各支柱健康度，确保配置生效。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        # --- 1. 获取核心配置参数 ---
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         
-        # --- 2. 计算各维度的三维健康度 ---
+        # 读取支柱权重配置
+        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
+        
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
-        # 将 ma_context_score 传入需要的子计算器
         calculators = {
             'ema': lambda: self._calculate_ema_health(df, norm_window, periods),
             'rsi': lambda: self._calculate_rsi_health(df, norm_window, periods, ma_context_score),
             'macd': lambda: self._calculate_macd_health(df, norm_window, periods, ma_context_score),
             'cmf': lambda: self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
         }
+        
+        # 提前构建权重数组
+        weight_keys = list(calculators.keys())
+        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
+        weights_array /= weights_array.sum() # 权重归一化
+
         for name, calculator in calculators.items():
-            # 注意：原 `dynamic_weights` 参数在子函数中并未使用，因此从调用中移除
             s_bull, s_bear, d_intensity = calculator()
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
             health_data['d_intensity'].append(d_intensity)
 
-        # --- 3. 融合各维度健康度，得到整体健康度 ---
         overall_health = {}
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
@@ -87,15 +88,14 @@ class FoundationIntelligence:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
                     stacked_values = np.stack(components_for_period, axis=0)
-                    # 使用几何平均数进行融合，要求各维度协同健康
-                    fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+                    # 使用加权几何平均数进行融合，确保权重配置生效
+                    fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
         
-        # --- 4. 调用中央合成引擎，生成最终信号 ---
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,

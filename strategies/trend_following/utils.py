@@ -810,26 +810,23 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
 
 def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistance_line: pd.Series) -> pd.Series:
     """
-    【V1.1 · 塔纳托斯之镰版】通用拒绝质量评估引擎 (阿波罗之箭)
-    - 核心升级: “伊卡洛斯之陨”不再是设定一个基础分，而是作为奖励分进行叠加，实现风险放大。
+    【V1.2 · 参数校准版】通用拒绝质量评估引擎 (阿波罗之箭)
+    - 核心修复: 修正了 'icarus_fall' 的参数名，使其能正确读取配置文件中的 'icarus_fall_base_score'。
     """
-    # 从参数中获取所有必要的配置
     influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
     rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
     rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
     rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
     rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
-    min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.15) # 已按您的要求修改
-    # 废除icarus_fall_base_score，引入icarus_fall_bonus
-    icarus_fall_bonus = get_param_value(params.get('icarus_fall_bonus'), 0.5)
+    min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.15)
+    # 修正参数名，从 'icarus_fall_bonus' 改为 'icarus_fall_base_score' 以匹配配置文件
+    icarus_fall_bonus = get_param_value(params.get('icarus_fall_base_score'), 0.5)
     cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
     close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
     ares_vol_ma_col = 'VOL_MA_5_D'
-    # 检查必需列
     required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, 'up_limit_D']
     if not all(col in df.columns for col in required_cols):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
-    # 1. 定义影响区和基础拒绝条件
     valid_indices = resistance_line.dropna().index
     if valid_indices.empty:
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -837,7 +834,6 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
     lower_bound = resistance_line[valid_indices] * (1 - influence_zone_pct)
     is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, resistance_line[valid_indices])
     base_rejection_condition = (df[high_col] > resistance_line) & is_in_influence_zone & (df[close_col] < df[high_col])
-    # 2. 计算各项质量加权分
     rejection_quality_score = pd.Series(0.0, index=df.index, dtype=np.float32)
     rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
     is_yin_line = df[close_col] < df[open_col]
@@ -855,10 +851,8 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
     dynamic_volume_contribution = rejection_volume_weight * proportional_volume_score
     volume_mask = base_rejection_condition & has_dominance & has_volume_spike
     rejection_quality_score.loc[volume_mask] += dynamic_volume_contribution.loc[volume_mask]
-    # 3. 应用绝对否决/奖励规则
     limit_up_price = df['up_limit_D']
     is_icarus_fall = (df[high_col] >= limit_up_price * 0.995) & (df[close_col] < df[high_col] * 0.98)
-    # 将伊卡洛斯之陨的逻辑从“取最大值”改为“叠加奖励分”
     rejection_quality_score.loc[is_icarus_fall] += icarus_fall_bonus
     is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
     rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0

@@ -97,12 +97,15 @@ class StructuralIntelligence:
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
     def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
-        """【V4.0 · 关系元分析版】计算MA支柱的三维健康度"""
+        """
+        【V4.1 · 逻辑净化版】计算MA支柱的三维健康度
+        - 核心修复: 移除了对 `_perform_structural_relational_meta_analysis` 的冗余调用。
+                      MA健康度本身已是四维融合的先进模型，无需再次进行动态调制。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
         ma_periods = [5, 13, 21, 55]
-        # 步骤一：计算原始的、纯粹的MA健康度分数
         bull_alignment_scores, bear_alignment_scores = [], []
         for i in range(len(ma_periods) - 1):
             short_col, long_col = f'EMA_{ma_periods[i]}_D', f'EMA_{ma_periods[i+1]}_D'
@@ -131,29 +134,29 @@ class StructuralIntelligence:
             avg_accel_health * fusion_weights.get('accel', 0.2) +
             avg_relational_health * fusion_weights.get('relational', 0.5)
         )
-        # 步骤二：MA健康度本身就是与均线结构的关系，直接作为快照分
+        # MA健康度本身就是最终的静态分和动态分，不再进行二次加工
         snapshot_score = raw_ma_health_score
-        # 步骤三：对快照分进行关系元分析，得到最终的动态调制分数
-        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
+        unified_d_intensity = raw_ma_health_score
         for p in periods:
             s_bull[p] = snapshot_score
-            s_bear[p] = static_bear_score # 看跌分保持简单，只看排列
+            s_bear[p] = static_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
 
     def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
-        """【V4.0 · 关系元分析版】计算力学支柱的三维健康度"""
+        """
+        【V4.1 · 上下文统一版】计算力学支柱的三维健康度
+        - 核心修复: 废除过时的 `_calculate_ma_trend_context`，改用先进的 `_calculate_ma_health` 作为上下文。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 步骤一：计算原始的、纯粹的力学健康度分数
         raw_mechanics_score = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
+        # 调用先进的四维MA健康度评估作为上下文
+        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
+        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
+        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
         snapshot_score = raw_mechanics_score * ma_context_score
-        # 步骤四：对快照分进行关系元分析，得到最终的动态调制分数
         unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        # 看跌分也应体现关系
-        bear_snapshot_score = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False) * (1 - ma_context_score)
+        bear_snapshot_score = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False) * ma_bear_context_score
         for p in periods:
             s_bull[p] = snapshot_score
             s_bear[p] = bear_snapshot_score
@@ -161,9 +164,11 @@ class StructuralIntelligence:
         return s_bull, s_bear, d_intensity
 
     def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
-        """【V3.0 · 关系元分析版】计算MTF(多时间框架)支柱的三维健康度"""
+        """
+        【V3.1 · 上下文统一版】计算MTF(多时间框架)支柱的三维健康度
+        - 核心修复: 废除过时的 `_calculate_ma_trend_context`，改用先进的 `_calculate_ma_health` 作为上下文。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 步骤一：计算原始的、纯粹的MTF健康度分数 (周线结构)
         weekly_cols = [col for col in df.columns if 'EMA' in col and col.endswith('_W')]
         if len(weekly_cols) > 1:
             bull_align_matrix = np.stack([(df[weekly_cols[i]] > df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
@@ -172,13 +177,13 @@ class StructuralIntelligence:
             raw_mtf_bear_score = pd.Series(np.mean(bear_align_matrix, axis=0), index=df.index, dtype=np.float32)
         else:
             raw_mtf_bull_score = raw_mtf_bear_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        # 步骤二：获取均线趋势上下文分数 (日线结构)
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # 步骤三：构建“瞬时关系快照分”(周线与日线结构的共振)
+        # 调用先进的四维MA健康度评估作为上下文
+        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
+        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
+        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
         snapshot_score = raw_mtf_bull_score * ma_context_score
-        # 步骤四：对快照分进行关系元分析
         unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        bear_snapshot_score = raw_mtf_bear_score * (1 - ma_context_score)
+        bear_snapshot_score = raw_mtf_bear_score * ma_bear_context_score
         for p in periods:
             s_bull[p] = snapshot_score
             s_bear[p] = bear_snapshot_score
@@ -186,21 +191,26 @@ class StructuralIntelligence:
         return s_bull, s_bear, d_intensity
 
     def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
-        """【V3.0 · 关系元分析版】计算形态支柱的三维健康度"""
+        """
+        【V4.0 · 重建连接版】计算形态支柱的三维健康度
+        - 核心修复: 废除使用废弃原子信号的旧逻辑，改为正确消费由 `PatternIntelligence` 引擎产出的核心信号。
+        """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 步骤一：计算原始的、纯粹的形态分数
-        is_accumulation = df.get('is_accumulation_D', 0).astype(float)
-        is_consolidation = df.get('is_consolidation_D', 0).astype(float)
-        is_distribution = df.get('is_distribution_D', 0).astype(float)
-        raw_pattern_bull_score = pd.Series(np.maximum(is_accumulation, is_consolidation), index=df.index)
-        raw_pattern_bear_score = pd.Series(is_distribution, index=df.index)
-        # 步骤二：获取均线趋势上下文分数
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # 步骤三：构建“瞬时关系快照分”
+        # 从原子状态库中正确获取由 PatternIntelligence 生成的信号
+        bullish_resonance_score = self.strategy.atomic_states.get('SCORE_PATTERN_BULLISH_RESONANCE', pd.Series(0.5, index=df.index))
+        bottom_reversal_score = self.strategy.atomic_states.get('SCORE_PATTERN_BOTTOM_REVERSAL', pd.Series(0.5, index=df.index))
+        bearish_resonance_score = self.strategy.atomic_states.get('SCORE_PATTERN_BEARISH_RESONANCE', pd.Series(0.5, index=df.index))
+        top_reversal_score = self.strategy.atomic_states.get('SCORE_PATTERN_TOP_REVERSAL', pd.Series(0.5, index=df.index))
+        # 形态分数现在是两种看涨模式的融合
+        raw_pattern_bull_score = (bullish_resonance_score + bottom_reversal_score).clip(0, 1)
+        raw_pattern_bear_score = (bearish_resonance_score + top_reversal_score).clip(0, 1)
+        # 调用先进的四维MA健康度评估作为上下文
+        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
+        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
+        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
         snapshot_score = raw_pattern_bull_score * ma_context_score
-        # 步骤四：对快照分进行关系元分析
         unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        bear_snapshot_score = raw_pattern_bear_score * (1 - ma_context_score)
+        bear_snapshot_score = raw_pattern_bear_score * ma_bear_context_score
         for p in periods:
             s_bull[p] = snapshot_score
             s_bear[p] = bear_snapshot_score
@@ -239,29 +249,6 @@ class StructuralIntelligence:
         dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
         final_score = (state_score * dynamic_leverage).clip(0, 1)
         return final_score.astype(np.float32)
-
-    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
-        """
-        【V1.0 · 新增】计算均线趋势上下文分数
-        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
-        """
-        # 确保所有需要的均线都存在
-        ma_cols = [f'EMA_{p}_D' for p in periods]
-        if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.5, index=df.index)
-        # 均线排列健康度
-        alignment_scores = []
-        for i in range(len(periods) - 1):
-            short_ma = df[f'EMA_{periods[i]}_D']
-            long_ma = df[f'EMA_{periods[i+1]}_D']
-            alignment_scores.append((short_ma > long_ma).astype(float))
-        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
-        # 价格位置健康度 (价格应在所有均线之上)
-        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
-        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
-        # 融合得到最终的趋势上下文分数
-        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
-        return ma_context_score.astype(np.float32)
 
 
 

@@ -151,9 +151,6 @@ class BehavioralIntelligence:
         upthrust_score = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score.name] = upthrust_score
         
-        ma_breakdown_score = self._diagnose_ma_breakdown(df, params)
-        atomic_signals[ma_breakdown_score.name] = ma_breakdown_score
-        
         return atomic_signals
 
     def _calculate_price_health(self, df: pd.DataFrame, norm_window: int, min_periods: int, periods: list) -> tuple:
@@ -486,44 +483,6 @@ class BehavioralIntelligence:
         
         return final_signal_dict.get(signal_name, default_series)
 
-    def _diagnose_ma_breakdown(self, df: pd.DataFrame, params: dict) -> pd.Series:
-        """
-        【V2.0 · 关系元分析版】均线破位风险诊断引擎
-        - 核心升级: 采用“关系元分析”范式，捕捉“破位关系”的加速恶化拐点。
-        """
-        p = get_params_block(self.strategy, 'structure_breakdown_params', {})
-        if not get_param_value(p.get('enabled'), False):
-            return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
-        
-        breakdown_ma_period = get_param_value(p.get('breakdown_ma_period'), 21)
-        ma_col = f'EMA_{breakdown_ma_period}_D'
-        if not all(col in df.columns for col in ['close_D', 'volume_D', ma_col]):
-            return pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN')
-            
-        norm_window = get_param_value(p.get('norm_window'), 55)
-        min_periods = max(1, norm_window // 5)
-
-        # 第一维度：计算“瞬时破位关系快照分”
-        # 破位深度分
-        breakdown_depth = ((df[ma_col] - df['close_D']) / df[ma_col].replace(0, np.nan)).fillna(0)
-        breakdown_depth_score = breakdown_depth.where(df['close_D'] < df[ma_col], 0).clip(0)
-        normalized_depth_score = normalize_score(breakdown_depth_score, df.index, norm_window, ascending=True)
-        
-        # 成交量放大分
-        volume_increase_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
-        
-        # 融合得到快照分
-        snapshot_score = (normalized_depth_score * volume_increase_score).astype(np.float32)
-
-        # 第二维度：调用核心引擎，分析“风险关系”的拐点
-        final_signal_dict = self._perform_relational_meta_analysis(
-            df=df,
-            snapshot_score=snapshot_score,
-            signal_name='SCORE_BEHAVIOR_MA_BREAKDOWN'
-        )
-        
-        return final_signal_dict.get('SCORE_BEHAVIOR_MA_BREAKDOWN', pd.Series(0.0, index=df.index, name='SCORE_BEHAVIOR_MA_BREAKDOWN'))
-
     def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 关系元分析版】
@@ -551,36 +510,19 @@ class BehavioralIntelligence:
             signal_name='SCORE_RISK_VPA_STAGNATION'
         )
         states.update(stagnation_risk_states)
-
-        # 保持其他信号的原子性
-        efficiency_decline_magnitude = df['SLOPE_5_VPA_EFFICIENCY_D'].where(df['SLOPE_5_VPA_EFFICIENCY_D'] < 0, 0).abs()
-        efficiency_decline_score = efficiency_decline_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = efficiency_decline_score.astype(np.float32)
-        
-        volume_accel_magnitude = df['ACCEL_5_volume_D'].where(df['ACCEL_5_volume_D'] > 0, 0)
-        volume_accelerating_score = volume_accel_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = volume_accelerating_score.astype(np.float32)
         
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 关系元分析版】
-        - 核心升级: 对“流动性枯竭风险”信号采用“关系元分析”范式重构。
+        【V8.1 · 幽灵信号净化版】
+        - 核心修改: 移除了对 SCORE_PRICE_POSITION_IN_RECENT_RANGE 这个幽灵信号的计算。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
         norm_window = get_param_value(p.get('norm_window'), 120)
         min_periods = max(1, norm_window // 5)
-        
-        lookback_period = get_param_value(p.get('range_lookback'), 20)
-        rolling_high = df['high_D'].rolling(window=lookback_period).max()
-        rolling_low = df['low_D'].rolling(window=lookback_period).min()
-        price_range = (rolling_high - rolling_low).replace(0, np.nan)
-        close_position_in_range = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
-        states['SCORE_PRICE_POSITION_IN_RECENT_RANGE'] = close_position_in_range.astype(np.float32)
-        
         vol_ma_col = 'VOL_MA_21_D'
         if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
@@ -589,20 +531,14 @@ class BehavioralIntelligence:
             volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
             states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
 
-        # 对“流动性枯竭风险”进行关系元分析重构
         p_drain = p.get('liquidity_drain_params', {})
         drain_window = get_param_value(p_drain.get('window'), 20)
         
-        # 第一维度：计算“瞬时流动性枯竭快照分”
-        # 价格下跌幅度分
         price_drop_magnitude = df['pct_change_D'].clip(upper=0).abs()
         price_drop_score = normalize_score(price_drop_magnitude, df.index, drain_window, ascending=True)
-        # 成交量萎缩幅度分
         volume_shrink_score = normalize_score(df['volume_D'], df.index, drain_window, ascending=False)
-        # 融合得到快照分
         drain_snapshot_score = (price_drop_score * volume_shrink_score).astype(np.float32)
 
-        # 第二维度：调用核心引擎
         liquidity_drain_states = self._perform_relational_meta_analysis(
             df=df,
             snapshot_score=drain_snapshot_score,
@@ -617,6 +553,9 @@ class BehavioralIntelligence:
         price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index))
         stabilization_score = is_stabilizing * normalize_score(price_volatility, df.index, norm_window, ascending=False)
         volume_dry_up_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
+        
+        # 此处需要 close_position_in_range，从 _diagnose_advanced_atomic_signals 获取
+        close_position_in_range = self.strategy.atomic_states.get('SCORE_PRICE_POSITION_IN_RANGE', pd.Series(0.5, index=df.index))
         context_score = 1 - close_position_in_range
         snapshot_score = (stabilization_score * volume_dry_up_score * context_score)
         

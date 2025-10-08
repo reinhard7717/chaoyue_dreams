@@ -19,9 +19,10 @@ class ProcessIntelligence:
     """
     def __init__(self, strategy_instance):
         """
-        【V3.1.0 · 法典统一版】
-        - 核心升级: 注入四种全新的、深刻的“关系对”诊断任务，从底层重塑系统对市场博弈的理解。
-        - 核心修复: 强制加载并持有 score_type_map，确保所有诊断都遵循唯一的“信号法典”。
+        【V3.2.0 · 单一来源版】
+        - 核心修复: 彻底移除在代码中硬编码的 `genesis_diagnostics` 列表。
+        - 核心升级: 确保 `process_intelligence_params.diagnostics` 配置是诊断任务的唯一真相来源，
+                      消除了重复执行的严重BUG，并遵循了“配置即代码”的最佳实践。
         """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
@@ -32,42 +33,10 @@ class ProcessIntelligence:
         self.meta_window = get_param_value(self.params.get('meta_window'), 5)
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
-        genesis_diagnostics = [
-            {
-                "name": "PROCESS_META_POWER_TRANSFER", # 权力转移 (主力 vs 散户)
-                "type": "meta_analysis", "task_type": "base",
-                "signal_A": "main_force_net_flow_consensus_D", "source_A": "df", "change_type_A": "diff",
-                "signal_B": "retail_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
-                "signal_b_factor_k": -1.0, # 关键：主力流入 vs 散户流出，捕捉背离
-                "description": "主力从散户手中夺取控制权的过程。"
-            },
-            {
-                "name": "PROCESS_META_STEALTH_ACCUMULATION", # 隐秘吸筹 (筹码 vs 价格)
-                "type": "meta_analysis", "task_type": "base",
-                "signal_A": "concentration_90pct_D", "source_A": "df", "change_type_A": "diff",
-                "signal_B": "pct_change_D", "source_B": "df", "change_type_B": "diff",
-                "signal_b_factor_k": -0.5, # 关键：奖励筹码集中时价格的稳定或下跌
-                "description": "主力在不拉高价格的情况下悄悄收集筹码的过程。"
-            },
-            {
-                "name": "PROCESS_META_WINNER_CONVICTION", # 赢家信念 (利润 vs 换手)
-                "type": "meta_analysis", "task_type": "base",
-                "signal_A": "winner_profit_margin_D", "source_A": "df", "change_type_A": "diff",
-                "signal_B": "turnover_from_winners_ratio_D", "source_B": "df", "change_type_B": "diff",
-                "signal_b_factor_k": -1.0, # 关键：利润增加但换手减少，代表信念坚定
-                "description": "获利盘拒绝出售，预期更高价格的过程。"
-            },
-            {
-                "name": "PROCESS_META_LOSER_CAPITULATION", # 投降仪式 (套牢 vs 换手)
-                "type": "meta_analysis", "task_type": "base",
-                "signal_A": "turnover_from_losers_ratio_D", "source_A": "df", "change_type_A": "diff",
-                "signal_B": "total_loser_rate_D", "source_B": "df", "change_type_B": "diff",
-                "signal_b_factor_k": 1.0, # 关键：套牢盘比例高位时，其换手率的加速
-                "description": "套牢盘最终放弃希望，不计成本卖出的过程。"
-            }
-        ]
-        default_diagnostics = get_param_value(self.params.get('diagnostics'), [])
-        self.diagnostics_config = default_diagnostics + genesis_diagnostics
+        
+        # 移除硬编码的 'genesis_diagnostics' 列表
+        # 直接从配置文件加载所有诊断任务，确保其为唯一真相来源
+        self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """

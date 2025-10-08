@@ -29,27 +29,21 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 圣杯契约版】
-        - 核心革命: 不再读取本地的、重复的合成参数，而是从最高指挥部获取唯一的“圣杯”配置
-                      (`ultimate_signal_synthesis_params`)，并将其传递给中央合成引擎。
-        - 优化说明: 1. 将均线趋势上下文(`ma_context_score`)的计算提前，避免在循环中重复计算4次，显著提升效率。
-                      2. 使用Numpy向量化计算加权几何平均数，高效融合各维度健康度。
+        【V13.0 · 商神杖激活版】
+        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        # --- 1. 获取核心配置参数 ---
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
 
-        # 提前计算均线趋势上下文分数，避免在各健康度计算器中重复执行。
-        # 这是本方法最核心的性能优化点。
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 调用全新的、功能更强大的均线健康度计算引擎
+        ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
 
-        # --- 2. 计算各维度的三维健康度 ---
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
         calculators = {
             'volatility': self._calculate_volatility_health,
@@ -58,19 +52,17 @@ class DynamicMechanicsEngine:
             'inertia': self._calculate_inertia_health,
         }
         
-        # 循环调用各维度计算器，并传入预先计算好的 ma_context_score
         for name, calculator in calculators.items():
-            # 注意：原 `dynamic_weights` 参数在子函数中并未使用，因此从调用中移除
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, periods, ma_context_score)
+            # 将 ma_health_score 传递给子函数，作为统一的上下文
+            s_bull, s_bear, d_intensity = calculator(df, norm_window, periods, ma_health_score)
             health_data['s_bull'].append(s_bull) 
             health_data['s_bear'].append(s_bear) 
             health_data['d_intensity'].append(d_intensity)
 
-        # --- 3. 融合各维度健康度，得到整体健康度 ---
         overall_health = {}
         weight_keys = list(calculators.keys())
         weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
-        weights_array /= weights_array.sum() # 权重归一化，确保总权重为1
+        weights_array /= weights_array.sum()
 
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
@@ -80,14 +72,11 @@ class DynamicMechanicsEngine:
                 if not valid_pillars: continue
                 
                 stacked_values = np.stack(valid_pillars, axis=0)
-                # 使用加权几何平均数进行融合。该算法能有效惩罚任何一个维度的短板，更能体现“健康”的综合性。
-                # 公式: G = (s1^w1 * s2^w2 * ... * sn^wn)
                 fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
                 overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
 
-        # --- 4. 调用中央合成引擎，生成最终信号 ---
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -101,6 +90,64 @@ class DynamicMechanicsEngine:
     # ==============================================================================
     # 以下为重构后的健康度组件计算器
     # ==============================================================================
+    def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
+        - 四大维度:
+          1. 排列 (Alignment): 均线是否呈多头排列。
+          2. 斜率 (Slope): 均线趋势的强度。
+          3. 加速度 (Acceleration): 均线趋势的加速能力。
+          4. 关系 (Relational): 均线族的收敛/发散状态。
+        """
+        p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
+        weights = {
+            'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
+            'slope': get_param_value(p_ma_health.get('slope'), 0.15),
+            'accel': get_param_value(p_ma_health.get('accel'), 0.2),
+            'relational': get_param_value(p_ma_health.get('relational'), 0.5)
+        }
+        
+        ma_periods = [5, 13, 21, 55]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
+        if not all(col in df.columns for col in ma_cols):
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        
+        # 维度1: 排列健康度 (Alignment Health)
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+
+        # 维度2: 斜率健康度 (Slope Health)
+        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in slope_cols):
+            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
+            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+        else:
+            slope_health = np.full(len(df.index), 0.5)
+
+        # 维度3: 加速度健康度 (Acceleration Health)
+        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in accel_cols):
+            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
+            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+        else:
+            accel_health = np.full(len(df.index), 0.5)
+
+        # 维度4: 关系健康度 (Relational Health) - 衡量均线收敛性
+        # 使用均线值的标准差作为发散度的代理指标，标准差越小，收敛性越好
+        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
+
+        # 最终融合：加权几何平均
+        scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum() # 归一化
+
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
     def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
@@ -251,40 +298,6 @@ class DynamicMechanicsEngine:
         
         return final_score.astype(np.float32)
 
-    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
-        """
-        【V1.0 · 新增】计算均线趋势上下文分数
-        - 核心逻辑: 综合评估均线排列和价格位置，输出一个统一的[0, 1]区间的趋势健康分。
-                      分数越高，代表均线多头排列越整齐，且价格处于强势位置。
-        - 优化说明: 使用Numpy进行向量化计算，避免循环，效率高。
-        """
-        # 确保所有需要的均线列都存在于DataFrame中
-        ma_cols = [f'EMA_{p}_D' for p in periods]
-        if not all(col in df.columns for col in ma_cols):
-            # 如果缺少任何一根均线，则无法判断趋势，返回中性值0.5
-            return pd.Series(0.5, index=df.index, dtype=np.float32)
-
-        # --- 1. 均线排列健康度 (Alignment Health) ---
-        # 评估均线是否呈多头排列（短期均线在长期均线之上）。
-        # 使用列表推导式和np.mean高效计算。
-        alignment_scores = [
-            (df[f'EMA_{periods[i]}_D'] > df[f'EMA_{periods[i+1]}_D']).astype(float).values
-            for i in range(len(periods) - 1)
-        ]
-        # 对所有排列关系的分数取平均，得到总的排列健康度
-        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
-
-        # --- 2. 价格位置健康度 (Position Health) ---
-        # 评估当前价格是否在所有关键均线之上，代表强势特征。
-        position_scores = [(df['close_D'] > df[col]).astype(float).values for col in ma_cols]
-        # 对所有位置关系的分数取平均，得到总的位置健康度
-        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
-
-        # --- 3. 融合得到最终分数 ---
-        # 使用几何平均数融合排列健康度和位置健康度，要求两者俱佳。
-        ma_context_score_values = (alignment_health * position_health)**0.5
-        
-        return pd.Series(ma_context_score_values, index=df.index, dtype=np.float32)
 
 
 

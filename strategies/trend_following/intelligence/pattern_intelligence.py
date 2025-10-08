@@ -17,18 +17,19 @@ class PatternIntelligence:
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 信号净化版】形态分析总指挥
-        - 核心修复: 净化了所有输出信号的名称，移除了 '_S' 后缀，以完全对齐信号字典。
+        【V3.0 · 全功能版】形态分析总指挥
+        - 核心升级: 补完缺失的“四位一体”看跌形态识别逻辑，使引擎具备完整的风险诊断能力。
+        - 信号净化: 所有输出信号名称与信号字典完全对齐。
         """
-        # print("      -> 正在运行 [形态智能引擎 V2.2 · 信号净化版]...") # 更新版本号
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
             return {}
         
-        # --- 底部反转形态识别 (四位一体，增加预测能力) ---
+        # --- 看涨形态识别 (四位一体) ---
+        rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
+        macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
         
         # 模式一: RSI从超卖区反转 (经典V反)
-        rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         was_oversold = (rsi.rolling(window=5, min_periods=1).min() < 35)
         is_recovering = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) > 0)
         score_rsi_reversal = (was_oversold & is_recovering).astype(float)
@@ -38,37 +39,65 @@ class PatternIntelligence:
         score_consolidation_breakout = is_breaking_consolidation * 0.8
         
         # 模式三: MACD柱状线金叉 (趋势扭转)
-        macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
         is_macd_bull_cross = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
         score_macd_bullish_cross = is_macd_bull_cross
 
         # 模式四: 下跌动能衰竭 (预测性指标)
         rsi_slope_abs = df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)).abs()
         macd_hist_slope_abs = df.get('SLOPE_1_MACDh_13_34_8_D', pd.Series(0, index=df.index)).abs()
-        # 归一化，值越小分数越高 (ascending=False)
         rsi_exhaustion_score = normalize_score(rsi_slope_abs, df.index, window=60, ascending=False)
         macd_exhaustion_score = normalize_score(macd_hist_slope_abs, df.index, window=60, ascending=False)
         score_momentum_exhaustion = (rsi_exhaustion_score * macd_exhaustion_score)**0.5
         
-        # 融合四种模式: 只要有一种模式触发，就认为形态成立
+        # 融合四种看涨模式
         bottom_pattern_score = np.maximum.reduce([
             score_rsi_reversal.values, 
             score_consolidation_breakout.values, 
             score_macd_bullish_cross.values,
-            score_momentum_exhaustion.values # 加入新的预测性分数
+            score_momentum_exhaustion.values
         ])
         bottom_pattern_score = pd.Series(bottom_pattern_score, index=df.index)
 
-        # 看涨共振形态逻辑保持不变
+        # 看涨共振形态
         bullish_pattern_score = (rsi > 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
+
+        # --- 看跌形态识别 (四位一体) ---
+        # 模式一: RSI从超买区回落 (顶部反转)
+        was_overbought = (rsi.rolling(window=5, min_periods=1).max() > 70)
+        is_falling = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) < 0)
+        score_rsi_top_reversal = (was_overbought & is_falling).astype(float)
+
+        # 模式二: 跌破动态盘整平台 (箱体破位)
+        is_breaking_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        score_consolidation_breakdown = is_breaking_down * 0.8
+
+        # 模式三: MACD柱状线死叉 (趋势扭转)
+        is_macd_bear_cross = ((macd_hist < 0) & (macd_hist.shift(1) >= 0)).astype(float)
+        score_macd_bearish_cross = is_macd_bear_cross
+
+        # 模式四: 上涨动能衰竭 (预测性指标)
+        # 与下跌动能衰竭逻辑相同，因为都是衡量动能的“绝对值”在减弱
+        score_up_momentum_exhaustion = score_momentum_exhaustion
+
+        # 融合四种看跌模式
+        top_pattern_score = np.maximum.reduce([
+            score_rsi_top_reversal.values,
+            score_consolidation_breakdown.values,
+            score_macd_bearish_cross.values,
+            score_up_momentum_exhaustion.values
+        ])
+        top_pattern_score = pd.Series(top_pattern_score, index=df.index)
+
+        # 看跌共振形态
+        bearish_pattern_score = (rsi < 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
+
         states = {
             'SCORE_PATTERN_BOTTOM_REVERSAL': bottom_pattern_score.astype(np.float32),
             'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
+            # 使用计算出的看跌信号替换硬编码的0
+            'SCORE_PATTERN_TOP_REVERSAL': top_pattern_score.astype(np.float32),
+            'SCORE_PATTERN_BEARISH_RESONANCE': bearish_pattern_score.astype(np.float32),
         }
-        
-        states['SCORE_PATTERN_TOP_REVERSAL'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-        states['SCORE_PATTERN_BEARISH_RESONANCE'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-
         return states
 
 

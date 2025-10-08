@@ -596,7 +596,7 @@ class IndicatorService:
             return ('advanced_fund_flow', df)
         tasks.append(_fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, base_needed_bars))
 
-        # [代码新增] 增加获取每日涨跌停价格的任务
+        # 增加获取每日涨跌停价格的任务
         async def _fetch_price_limit_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True).date() if trade_time else None
             # 调用我们新创建的DAO方法

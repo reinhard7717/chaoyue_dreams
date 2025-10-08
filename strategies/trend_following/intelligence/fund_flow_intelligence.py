@@ -30,18 +30,13 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.5 · 削藩令版】终极资金流信号诊断模块
-        - 核心革命: 1. 废除独立的参数初始化“内阁” `_initialize_ff_params`。
-                      2. 实现中央直辖，所有参数均从中央的 `p_conf` 和 `p_synthesis` 获取。
-                      3. 重构下级函数的调用，确保它们被动接收来自中央的统一参数。
-        - 优化说明: 1. 将 `ma_context_score` 的计算提前至此，仅计算一次，避免在下游模块中重复计算11次，显著提升性能。
-                      2. 将 `ma_context_score` 作为参数传递给下游分析模块。
+        【V2.6 · 商神杖激活版】终极资金流信号诊断模块
+        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return {}
         
-        # --- 1. 从中央获取所有参数 ---
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
@@ -59,16 +54,13 @@ class FundFlowIntelligence:
             'md_flow': {'base': 'net_md_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
         }
 
-        # --- 2. 预计算共享的上下文分数 ---
-        # 提前计算均线趋势上下文分数，避免在各支柱健康度计算中重复执行。
-        # 这是本模块最核心的性能优化点，将11次重复计算减少为1次。
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+        # 调用全新的、功能更强大的均线健康度计算引擎
+        ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
 
-        # --- 3. 执行信号合成流水线 ---
-        # 向下级函数传递预计算的 ma_context_score
-        pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods, ma_context_score)
+        # 将 ma_health_score 传递给子函数，作为统一的上下文
+        pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods, ma_health_score)
         fused_health = self._fuse_health_with_intent_weights(df, pillar_health, pillar_configs, p_conf, periods)
         final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)
         states = self._assign_graded_states(final_scores)
@@ -144,10 +136,9 @@ class FundFlowIntelligence:
     
     def _synthesize_final_signals(self, df: pd.DataFrame, fused_health: Dict, context_scores: Dict, p_synthesis: Dict) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 圣杯契约版】
-        - 核心革命: 参数 `params` 已更名为 `p_synthesis`，明确表示其接收的是中央“圣杯”配置。
+        【V5.3 · 战术激活版】
+        - 核心修复: 将被遗忘的“战术反转”信号纳入最终信号合成流程。
         """
-        # 传入唯一的“圣杯”配置
         resonance_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -167,26 +158,27 @@ class FundFlowIntelligence:
             'bottom_reversal': reversal_signals['SCORE_FF_BOTTOM_REVERSAL'],
             'bearish_resonance': resonance_signals['SCORE_FF_BEARISH_RESONANCE'],
             'top_reversal': reversal_signals['SCORE_FF_TOP_REVERSAL'],
+            # 新增对战术反转信号的提取
+            'tactical_reversal': resonance_signals['SCORE_FF_TACTICAL_REVERSAL'],
         }
         return final_scores
 
     def _assign_graded_states(self, final_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.6 · 信号净化版】将最终信号赋值给状态字典。
-        - 核心重构: 废除S/A/B分级，只输出唯一的、归一化的终极信号。
-                      信号名不再包含 _S_PLUS 后缀，实现命名的终极简化。
+        【V2.7 · 战术激活版】将最终信号赋值给状态字典。
+        - 核心修复: 增加对“战术反转”信号的处理。
         """
         states = {}
-        # 信号命名净化：废除S/A/B分级，只使用唯一的、归一化的终极信号名
         prefix_map = {
             'bullish_resonance': 'SCORE_FF_BULLISH_RESONANCE',
             'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
             'bearish_resonance': 'SCORE_FF_BEARISH_RESONANCE',
             'top_reversal': 'SCORE_FF_TOP_REVERSAL',
+            # 新增战术反转信号的映射
+            'tactical_reversal': 'SCORE_FF_TACTICAL_REVERSAL',
         }
         for key, score in final_scores.items():
             signal_name = prefix_map[key]
-            # 只生成唯一的、归一化的信号，其名称不包含任何等级后缀
             states[signal_name] = score.astype(np.float32)
         return states
 
@@ -268,32 +260,54 @@ class FundFlowIntelligence:
         
         return final_score.astype(np.float32)
 
-    def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
+    def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】计算均线趋势上下文分数
-        - 核心逻辑: 评估短期、中期、长期均线的排列和价格位置，输出一个统一的趋势健康分。
+        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
         """
-        # 确保所有需要的均线都存在
-        ma_cols = [f'EMA_{p}_D' for p in periods]
-        if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.5, index=df.index)
-
-        # 均线排列健康度
-        alignment_scores = []
-        for i in range(len(periods) - 1):
-            short_ma = df[f'EMA_{periods[i]}_D']
-            long_ma = df[f'EMA_{periods[i+1]}_D']
-            alignment_scores.append((short_ma > long_ma).astype(float))
+        p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
+        weights = {
+            'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
+            'slope': get_param_value(p_ma_health.get('slope'), 0.15),
+            'accel': get_param_value(p_ma_health.get('accel'), 0.2),
+            'relational': get_param_value(p_ma_health.get('relational'), 0.5)
+        }
         
-        alignment_health = np.mean(alignment_scores, axis=0) if alignment_scores else np.full(len(df.index), 0.5)
+        ma_periods = [5, 13, 21, 55]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
+        if not all(col in df.columns for col in ma_cols):
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
 
-        # 价格位置健康度 (价格应在所有均线之上)
-        position_scores = [(df['close_D'] > df[col]).astype(float) for col in ma_cols]
-        position_health = np.mean(position_scores, axis=0) if position_scores else np.full(len(df.index), 0.5)
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
 
-        # 融合得到最终的趋势上下文分数
-        ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
-        return ma_context_score.astype(np.float32)
+        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in slope_cols):
+            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
+            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+        else:
+            slope_health = np.full(len(df.index), 0.5)
+
+        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
+        if all(col in df.columns for col in accel_cols):
+            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
+            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+        else:
+            accel_health = np.full(len(df.index), 0.5)
+
+        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
+
+        scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum()
+
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+
 
 
 

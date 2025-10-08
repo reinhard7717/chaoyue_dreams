@@ -206,6 +206,30 @@
             "score": 1200,
             "description": "【S级战略信号】融合深度价值区、股东换血、趋势企稳三大要素，综合评估当前底部反转的可靠程度，是策略转向的核心依据。"
         },
+        "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": {
+            "cn_name": "【内部】深度底部区域",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "融合了年内价格位置和周线RSI超卖，评估当前是否处于深度价值区域。"
+        },
+        "SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT": {
+            "cn_name": "【内部】股东质量改善",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "融合了筹码共振、筹码反转和主力信念加强，评估股东结构是否正在向积极方向转变。"
+        },
+        "INTERNAL_SCORE_TREND_POTENTIAL": {
+            "cn_name": "【内部】趋势潜力分",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "基于FFT趋势能量的斜率，评估市场从周期性向趋势性转变的潜力。"
+        },
+        "SCORE_IGNITION_CONFIRMATION": {
+            "cn_name": "【内部】点火确认分",
+            "category": "内部计分-上下文",
+            "type": "context",
+            "description": "融合了早期动能、波动率压缩和趋势潜力，评估点火信号的确认强度。"
+        },
         "COGNITIVE_SCORE_TREND_QUALITY": {
             "cn_name": "【认知】趋势质量分",
             "category": "认知层-环境",
@@ -373,6 +397,18 @@
             "penalty_weight": -2800,
             "description": "【重大风险】识别股价在经历上涨到达高位后，开始下跌的风险。此信号会施加严厉的惩罚。"
         },
+        "INTERNAL_SCORE_VOLUME_CALMNESS": {
+            "cn_name": "【内部】成交量静谧度",
+            "category": "内部计分-战术",
+            "type": "context",
+            "description": "用于恐慌抛售战备计算的内部支柱分，衡量成交量的萎缩程度。"
+        },
+        "SCORE_SETUP_CHIP_RESONANCE_READY": {
+            "cn_name": "【战备】筹码共振就绪",
+            "category": "战法-环境",
+            "type": "context",
+            "description": "“筹码价格滞后”剧本的战备信号，表示筹码共振、价格受压、波动压缩的状态已就绪。"
+        },
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
         "SCORE_SETUP_PANIC_SELLING": {
             "cn_name": "【战法】恐慌抛售备战",
@@ -503,7 +539,30 @@
             "type": "playbook",
             "description": "执行“周期底捞”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
-
+        "SCORE_CHIP_TRUE_ACCUMULATION": {
+            "cn_name": "【筹码】真实吸筹",
+            "category": "筹码层-机会",
+            "type": "context",
+            "description": "融合了拉升吸筹和打压吸筹的综合信号，代表主力真实的筹码收集意图。"
+        },
+        "SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION": {
+            "cn_name": "【筹码】拉升吸筹",
+            "category": "筹码层-机会",
+            "type": "context",
+            "description": "在上升趋势中，筹码依然在集中，且获利盘惜售。"
+        },
+        "SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION": {
+            "cn_name": "【筹码】打压吸筹",
+            "category": "筹码层-机会",
+            "type": "context",
+            "description": "在下跌或盘整趋势中，筹码逆势集中。"
+        },
+        "SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL": {
+            "cn_name": "【筹码】恐慌投降潜力",
+            "category": "筹码层-机会",
+            "type": "context",
+            "description": "基于筹码分布和行为，诊断市场是否具备“恐慌投降后反转”的潜力，供上层战术引擎消费。"
+        },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 ---",
         "SCORE_CHIP_BULLISH_RESONANCE": {
@@ -745,6 +804,57 @@
             "context_role": "top_risk",
             "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
         },
+        "SCORE_FOUNDATION_VOL_COMPRESSION_OPP": {
+            "cn_name": "【基础战术】波动压缩机会",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "description": "【战术信号】融合了波动率压缩的“状态”与“动态”，是强烈的突破前夕机会信号。"
+        },
+        "SCORE_FOUNDATION_VOL_EXPANSION_RISK": {
+            "cn_name": "【基础战术风险】波动扩张风险",
+            "category": "基础层-风险",
+            "type": "risk",
+            "penalty_weight": -200,
+            "description": "【战术信号】融合了波动率扩张的“状态”与“动态”，是强烈的顶部或破位风险信号。"
+        },
+        "SCORE_FOUNDATION_IGNITION_CONFIRMATION": {
+            "cn_name": "【基础战术】量价点火确认",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "description": "【战术信号】融合了量价点火的“状态”与“动态”，是强烈的上涨确认信号。"
+        },
+        "SCORE_FOUNDATION_PANIC_SELLING_RISK": {
+            "cn_name": "【基础战术风险】恐慌抛售风险",
+            "category": "基础层-风险",
+            "type": "risk",
+            "penalty_weight": -300,
+            "description": "【战术信号】融合了恐慌抛售的“状态”与“动态”，是强烈的下跌风险信号。"
+        },
+        "说明_pattern_intelligence": "--- 形态层-支柱信号 (Pattern Intelligence Pillar) ---",
+        "SCORE_PATTERN_BOTTOM_REVERSAL": {
+            "cn_name": "【形态支柱】底部反转",
+            "category": "结构层-形态支柱",
+            "type": "context",
+            "description": "形态支柱健康度：四位一体（RSI反转、平台突破、MACD金叉、动能衰竭）的底部反转形态分。"
+        },
+        "SCORE_PATTERN_BULLISH_RESONANCE": {
+            "cn_name": "【形态支柱】看涨共振",
+            "category": "结构层-形态支柱",
+            "type": "context",
+            "description": "形态支柱健康度：RSI处于强势区且ADX趋势度高的看涨共振形态分。"
+        },
+        "SCORE_PATTERN_TOP_REVERSAL": {
+            "cn_name": "【形态支柱风险】顶部反转",
+            "category": "结构层-形态支柱",
+            "type": "context",
+            "description": "形态支柱健康度：四位一体（RSI回落、平台破位、MACD死叉、动能衰竭）的顶部反转形态风险分。"
+        },
+        "SCORE_PATTERN_BEARISH_RESONANCE": {
+            "cn_name": "【形态支柱风险】看跌共振",
+            "category": "结构层-形态支柱",
+            "type": "context",
+            "description": "形态支柱健康度：RSI处于弱势区且ADX趋势度高的看跌共振形态风险分。"
+        },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "SCORE_UNIVERSAL_BOTTOM_PATTERN": {
             "cn_name": "【内部】通用底部形态",
@@ -776,6 +886,12 @@
             "category": "周期层-环境",
             "type": "context",
             "description": "FFT识别出的当前市场最显著的波动周期（天）。"
+        },
+        "DOMINANT_CYCLE_POWER": {
+            "cn_name": "【周期】主导周期强度",
+            "category": "周期层-环境",
+            "type": "context",
+            "description": "FFT识别出的主导周期的能量占比，量化了该周期的显著性或强度。是评估周期信号可靠性的关键依据。"
         },
         "DOMINANT_CYCLE_PHASE": {
             "cn_name": "【周期】当前相位",

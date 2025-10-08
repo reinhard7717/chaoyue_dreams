@@ -431,7 +431,7 @@ class IntelligenceLayer:
         else:
             print(f"    - 【最终得分】: {final_score}")
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        # [代码修改] 修正了从 df_indicators 中解析信号细节的逻辑
+        # 修正了从 df_indicators 中解析信号细节的逻辑
         score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
         try:
             # 检查是否已经是字典，如果不是（是字符串），则加载
@@ -1152,10 +1152,10 @@ class IntelligenceLayer:
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         # 步骤一：获取“第四骑士” - 结构性压力分
-        # [代码新增] 注入计算所需的上下文引用
+        # 注入计算所需的上下文引用
         atomic['strategy_instance_ref'] = self.strategy
         _, top_context_score_series = calculate_context_scores(df, atomic)
-        # [代码新增] 计算完毕后，立即移除临时引用，保持状态纯净
+        # 计算完毕后，立即移除临时引用，保持状态纯净
         del atomic['strategy_instance_ref']
         top_context_score = top_context_score_series.get(probe_date, 0.0)
         # 步骤二：获取其他三位骑士的信号值
