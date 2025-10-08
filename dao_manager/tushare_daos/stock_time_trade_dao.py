@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_minute_data_model_by_code_and_timelevel
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_minute_data_model_by_code_and_timelevel, get_stk_limit_model_by_code
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockCyqPerf, StockDailyBasic, StockWeeklyData, StockMonthlyData
@@ -1728,10 +1728,158 @@ class StockTimeTradeDAO(BaseDAO):
             unique_fields=['stock', 'trade_time', 'price']
         )
 
+    # 新增保存每日涨跌停价格的方法
+    @with_rate_limit(name='api_stk_limit')
+    async def save_stk_limit_history(self, trade_date: date = None, start_date: date = None, end_date: date = None, *, limiter) -> dict:
+        """
+        【V1.1 · 速率限制版】根据指定的日期或日期范围，获取并保存全市场股票的每日涨跌停价格。
+        - 采用分表策略进行存储。
+        - 使用向量化操作和批量写入，性能高效。
+        - 集成了 'api_stk_limit' 速率限制，确保调用安全。
+        """
+        api_params = {}
+        if trade_date:
+            api_params['trade_date'] = trade_date.strftime('%Y%m%d')
+        if start_date:
+            api_params['start_date'] = start_date.strftime('%Y%m%d')
+        if end_date:
+            api_params['end_date'] = end_date.strftime('%Y%m%d')
+        if not api_params:
+            logger.warning("save_stk_limit_history: 必须提供 trade_date 或 start_date/end_date。")
+            return {"status": "error", "message": "Date parameter is required."}
+        try:
+            # 在API调用前，使用注入的limiter进行速率检查和等待
+            while not await limiter.acquire():
+                print(f"PID[{os.getpid()}] API[api_stk_limit] 速率超限，等待10秒后重试...")
+                await asyncio.sleep(10)
+            
+            print(f"调试: DAO准备调用Tushare API [stk_limit]，参数: {api_params}")
+            df = self.ts_pro.stk_limit(**api_params)
+            if df.empty:
+                logger.info("Tushare API [stk_limit] 没有返回任何数据，任务结束。")
+                return {"status": "success", "message": "No data returned from API.", "saved_count": 0}
+            # --- 数据处理与分表 ---
+            df.rename(columns={'ts_code': 'stock_code'}, inplace=True)
+            df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
+            
+            # 批量获取股票对象
+            unique_codes = df['stock_code'].unique().tolist()
+            stock_map = await self.stock_basic_info_dao.get_stocks_by_codes(unique_codes)
+            df['stock'] = df['stock_code'].map(stock_map)
+            df.dropna(subset=['stock'], inplace=True)
+            # 按模型分发数据
+            data_by_model = defaultdict(list)
+            for record in df.to_dict('records'):
+                model_class = get_stk_limit_model_by_code(record['stock_code'])
+                if model_class:
+                    data_by_model[model_class].append({
+                        'stock': record['stock'],
+                        'trade_time': record['trade_time'],
+                        'pre_close': record.get('pre_close'),
+                        'up_limit': record['up_limit'],
+                        'down_limit': record['down_limit'],
+                    })
+            # 批量保存
+            save_tasks = []
+            for model_class, data_list in data_by_model.items():
+                task = self._save_all_to_db_native_upsert(
+                    model_class=model_class,
+                    data_list=data_list,
+                    unique_fields=['stock', 'trade_time']
+                )
+                save_tasks.append(task)
+            
+            results = await asyncio.gather(*save_tasks)
+            total_saved = sum(res.get("创建/更新成功", 0) for res in results if isinstance(res, dict))
+            
+            return {"status": "success", "message": f"Saved {total_saved} stock limit price records.", "saved_count": total_saved}
+        except Exception as e:
+            logger.error(f"保存每日涨跌停价格时发生错误: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
 
+    # 新增根据股票代码和交易日期获取涨跌停价的方法
+    async def get_price_limit_by_date(self, stock_code: str, trade_date: date) -> Optional[Dict]:
+        """
+        【V1.0 · 精确制导数据接口】
+        根据股票代码和交易日期，从正确的分表中获取单日的涨跌停价格数据。
+        Args:
+            stock_code (str): 股票代码, 例如 '000001.SZ'。
+            trade_date (date): 交易日期 (datetime.date 对象)。
+        Returns:
+            Optional[Dict]: 包含涨跌停价信息的字典，如果未找到则返回 None。
+                            例如: {'up_limit': 15.06, 'down_limit': 12.32, 'pre_close': 13.69}
+        """
+        try:
+            # 步骤1: 使用辅助函数动态确定需要查询的模型
+            model_class = get_stk_limit_model_by_code(stock_code)
+            if not model_class:
+                logger.warning(f"[DAO] get_price_limit_by_date: 未能为股票 {stock_code} 找到对应的涨跌停价格模型。")
+                return None
+            # 步骤2: 使用 Django 5 的原生异步 ORM 方法 .afirst() 高效查询
+            # .afirst() 在找到第一条匹配记录后立即返回，或在无匹配时返回 None，非常适合此场景。
+            limit_data_obj = await model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time=trade_date
+            ).afirst()
+            # 步骤3: 处理查询结果
+            if not limit_data_obj:
+                # 如果数据库中没有当天的记录，则明确返回 None
+                return None
+            # 步骤4: 将查询到的模型对象转换为干净的字典格式返回，与策略层解耦
+            return {
+                'up_limit': limit_data_obj.up_limit,
+                'down_limit': limit_data_obj.down_limit,
+                'pre_close': limit_data_obj.pre_close,
+            }
+        except Exception as e:
+            logger.error(f"[DAO] get_price_limit_by_date: 查询 {stock_code} 在 {trade_date} 的涨跌停价时发生错误: {e}", exc_info=True)
+            return None
 
+    async def get_price_limit_data(self, stock_code: str, end_date: Optional[datetime.date], limit: int) -> pd.DataFrame:
+        """
+        【V1.0 · 服务层专用接口】
+        获取指定股票在截止日期前的N条涨跌停价格历史数据。
+        
+        Args:
+            stock_code (str): 股票代码。
+            end_date (Optional[datetime.date]): 查询的截止日期。如果为None，则从最新日期开始。
+            limit (int): 需要获取的记录数量。
+        
+        Returns:
+            pd.DataFrame: 包含涨跌停价历史数据的DataFrame，索引为'trade_time'。
+        """
+        try:
+            # 步骤1: 动态确定查询模型
+            model_class = get_stk_limit_model_by_code(stock_code)
+            if not model_class:
+                logger.warning(f"[DAO] get_price_limit_data: 未能为股票 {stock_code} 找到模型。")
+                return pd.DataFrame()
 
+            # 步骤2: 构建查询
+            queryset = model_class.objects.filter(stock__stock_code=stock_code)
+            if end_date:
+                queryset = queryset.filter(trade_time__lte=end_date)
+            
+            # 步骤3: 执行查询并转换为DataFrame
+            # 使用 .values() 直接获取字典列表，比获取模型实例更高效
+            data_list = await sync_to_async(list)(
+                queryset.order_by('-trade_time')[:limit].values(
+                    'trade_time', 'up_limit', 'down_limit', 'pre_close'
+                )
+            )
 
+            if not data_list:
+                return pd.DataFrame()
+
+            # 步骤4: 格式化为标准DataFrame
+            df = pd.DataFrame(data_list)
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            df.sort_index(inplace=True) # 确保返回的DataFrame是按时间升序排列的
+            return df
+        except Exception as e:
+            logger.error(f"[DAO] get_price_limit_data: 查询 {stock_code} 涨跌停价时出错: {e}", exc_info=True)
+            return pd.DataFrame()
 
 
 

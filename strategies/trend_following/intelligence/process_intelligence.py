@@ -25,7 +25,7 @@ class ProcessIntelligence:
         """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
-        # [代码新增] 加载唯一的、权威的信号元数据字典
+        # 加载唯一的、权威的信号元数据字典
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
         self.norm_window = get_param_value(self.params.get('norm_window'), 55)
         self.std_window = get_param_value(self.params.get('std_window'), 21)

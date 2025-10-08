@@ -284,6 +284,10 @@ API_RATE_LIMITS = {
         'MAX_CALLS': 190, # 每分钟190次 (Tushare限制200)
         'PERIOD': 60,
     },
+    'api_stk_limit': {
+        'MAX_CALLS': 195,
+        'PERIOD': 60,
+    },
     # 你可以在这里添加任意多的API接口速率配置
     'api_realtime_quote': {
         'MAX_CALLS': 500,  # 假设这个接口限制更高
@@ -528,6 +532,11 @@ CELERY_BEAT_SCHEDULE = {
     #     'schedule': timedelta(seconds=15),
     #     'options': {'queue': 'intraday_queue'},
     # },
+    '每天运行一次: 今日涨跌停价格数据': {
+        'task': 'tasks.tushare.stock_time_trade_tasks.save_stk_limit_data_today_task',
+        'schedule': crontab(minute=5, hour=9, day_of_week='mon,tue,wed,thu,fri'),
+        'options': {'queue': 'SaveData_TimeTrade'}
+    },
     '每天运行一次: 今日分钟K线数据': {
         'task': 'tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_today_task',
         'schedule': crontab(minute=25, hour=19, day_of_week='mon,tue,wed,thu,fri'),

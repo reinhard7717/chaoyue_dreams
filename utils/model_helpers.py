@@ -13,6 +13,7 @@ from stock_models.time_trade import (
     StockMinuteData_1_SH, StockMinuteData_5_SH, StockMinuteData_15_SH, StockMinuteData_30_SH, StockMinuteData_60_SH,
     StockMinuteData_1_KC, StockMinuteData_5_KC, StockMinuteData_15_KC, StockMinuteData_30_KC, StockMinuteData_60_KC,
     StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
+    StockPriceLimit_SZ, StockPriceLimit_SH, StockPriceLimit_CY,StockPriceLimit_KC, StockPriceLimit_BJ,
 )
 
 from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
@@ -204,8 +205,45 @@ def get_advanced_fund_flow_metrics_model_by_code(stock_code: str):
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
         return AdvancedFundFlowMetrics_SZ  # 默认返回深市主板
 
+def get_price_limit_percent(stock_code: str) -> float:
+    """
+    【公共辅助函数】根据股票代码返回其对应的涨跌停限制比例。
+    Args:
+        stock_code (str): 股票代码，例如 '300030.SZ'。
+    Returns:
+        float: 涨跌停比例 (0.1, 0.2, 0.3)。
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        # 创业板
+        return 0.2
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        # 科创板
+        return 0.2
+    elif stock_code.endswith('.BJ'):
+        # 北交所
+        return 0.3
+    elif stock_code.endswith('.SZ') or stock_code.endswith('.SH'):
+        # 沪深主板
+        return 0.1
+    # 默认返回主板限制
+    return 0.1
 
-
+# 新增获取涨跌停价格分表模型的辅助函数
+def get_stk_limit_model_by_code(stock_code: str) -> Optional[Type[models.Model]]:
+    """
+    【公共辅助函数】根据股票代码返回对应的每日涨跌停价格分表Model。
+    """
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return StockPriceLimit_CY
+    elif stock_code.endswith('.SZ'):
+        return StockPriceLimit_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return StockPriceLimit_KC
+    elif stock_code.endswith('.SH'):
+        return StockPriceLimit_SH
+    elif stock_code.endswith('.BJ'):
+        return StockPriceLimit_BJ
+    return None # 对于无法识别的股票代码返回None
 
 
 

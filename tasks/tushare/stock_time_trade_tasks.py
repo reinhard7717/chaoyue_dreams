@@ -125,7 +125,7 @@ def save_stocks_minute_data_today_batch(stock_codes, trade_time_str=None, cache_
     async_to_sync(main)()
     print(f"保存股票 {len(stock_codes)} 个的当日分钟级交易数据完成。")
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(queue='SaveData_TimeTrade')
 def on_all_minute_data_saved(results, trade_time_str=None):
     logger.info(f"所有分钟数据批量任务已全部完成。")
@@ -858,7 +858,7 @@ def save_minute_data_this_week_batch(stock_codes: str, cache_manager=None):
     result = async_to_sync(main)()
     # logger.info(f"保存股票 {stock_codes} 的分钟级交易数据完成. 结果: {result}")nute_data_this_week_batch.执行批量保存任务时发生意外错误: {e}", exc_info=True)
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_this_week_task', queue='celery')
 @with_cache_manager
 def save_stocks_minute_data_this_week_task(batch_size: int = 10, cache_manager=None):
@@ -1006,7 +1006,7 @@ def save_minute_data_history_batch(stock_code: str, time_level: str, cache_manag
         # 用同步方式运行异步main
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_minute_data_history_task', queue='celery')
 @with_cache_manager
 def save_stocks_minute_data_history_task(cache_manager=None):
@@ -1053,7 +1053,7 @@ def save_day_data_history_batch(stock_codes: List[str], cache_manager=None):
     # [代码已修复] 移除错误的递归调用，只执行一次 main 函数
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_day_data_history_task', queue='celery')
 @with_cache_manager
 def save_stocks_day_data_history_task(batch_size: int = 13, cache_manager=None):
@@ -1100,7 +1100,7 @@ def save_daily_basic_data_history_batch(stock_codes: List[str], cache_manager=No
         return await stock_time_trade_dao.save_stock_daily_basic_history_by_stock_codes(stock_codes)
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_daily_basic_data_history_task', queue='celery')
 @with_cache_manager
 def save_stocks_daily_basic_data_history_task(batch_size: int = 16, cache_manager=None):
@@ -1151,7 +1151,7 @@ def save_week_data_history_batch(stock_codes: List[str], cache_manager=None):
         return await stock_time_trade_dao.save_weekly_time_trade_by_stock_codes(stock_codes)
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_week_data_history_task', queue='celery')
 @with_cache_manager
 def save_stocks_week_data_history_task(batch_size: int = 15, cache_manager=None):
@@ -1210,7 +1210,7 @@ def save_month_data_history_batch(stock_codes: List[str], cache_manager=None):
         logger.info(f"历史(月线)数据任务 结果：{result}")
     async_to_sync(main)()
 
-# --- 修改后的调度器任务 ---
+# --- 调度器任务 ---
 @celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_month_data_history_task', queue='celery')
 @with_cache_manager
 def save_stocks_month_data_history_task(batch_size: int = 50, cache_manager=None):
@@ -1346,6 +1346,154 @@ def refetch_incomplete_cyq_chips(record_threshold=1000):
         print(f"执行任务 refetch_incomplete_cyq_chips 时发生严重错误: {e}")
         logger.error(f"执行任务 refetch_incomplete_cyq_chips 时发生严重错误: {e}", exc_info=True)
         raise
+
+# ===================================================
+#      每日涨跌停价格任务
+# ===================================================
+
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stk_limit_data_today_task', queue='SaveData_TimeTrade')
+@with_cache_manager
+def save_stk_limit_data_today_task(cache_manager=None):
+    """
+    【V1.0 · 新增】获取并保存【当日】全市场股票的涨跌停价格。
+    - 核心逻辑:
+      1. 检查当天是否为交易日。
+      2. 如果是，则调用DAO方法获取并保存当天的涨跌停价格数据。
+    """
+    task_name = 'save_stk_limit_data_today_task'
+    logger.info(f"任务启动: {task_name} - 开始获取当日涨跌停价格...")
+    print(f"[{task_name}] 任务启动...")
+
+    today_date = timezone.now().date()
+
+    # 使用 TradeCalendar 模型检查当天是否为交易日
+    if not TradeCalendar.is_trade_date(today_date):
+        message = f"[{task_name}] 今天 ({today_date}) 不是交易日，任务跳过。"
+        logger.info(message)
+        print(message)
+        return {"status": "skipped", "message": message}
+
+    try:
+        stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        
+        async def main():
+            print(f"[{task_name}] 开始为交易日 {today_date} 保存涨跌停价格...")
+            result = await stock_time_trade_dao.save_stk_limit_history(trade_date=today_date)
+            print(f"[{task_name}] 保存交易日 {today_date} 的涨跌停价格完成。结果: {result}")
+            return result
+
+        task_result = async_to_sync(main)()
+        logger.info(f"任务成功: {task_name} - {task_result}")
+        return task_result
+    except Exception as e:
+        logger.error(f"任务失败: {task_name} 执行时发生严重错误: {e}", exc_info=True)
+        raise e
+
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stk_limit_data_yesterday_task', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def save_stk_limit_data_yesterday_task(cache_manager=None):
+    """
+    【V1.0 · 新增】获取并保存【昨日】（即上一个交易日）全市场股票的涨跌停价格。
+    - 核心逻辑:
+      1. 使用 TradeCalendar 查找今天之前的最近一个交易日。
+      2. 如果找到，则调用DAO方法获取并保存该交易日的涨跌停价格数据。
+    """
+    task_name = 'save_stk_limit_data_yesterday_task'
+    logger.info(f"任务启动: {task_name} - 开始获取上一个交易日的涨跌停价格...")
+    print(f"[{task_name}] 任务启动...")
+
+    today_date = timezone.now().date()
+    
+    # 使用 TradeCalendar 查找上一个交易日，这比简单地减一天更准确
+    last_trade_date = TradeCalendar.get_latest_trade_date(reference_date=today_date)
+
+    if not last_trade_date:
+        message = f"[{task_name}] 未能找到 {today_date} 之前的任何交易日，任务跳过。"
+        logger.warning(message)
+        print(message)
+        return {"status": "skipped", "message": message}
+
+    try:
+        stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+        
+        async def main():
+            print(f"[{task_name}] 开始为上一个交易日 {last_trade_date} 保存涨跌停价格...")
+            result = await stock_time_trade_dao.save_stk_limit_history(trade_date=last_trade_date)
+            print(f"[{task_name}] 保存上一个交易日 {last_trade_date} 的涨跌停价格完成。结果: {result}")
+            return result
+
+        task_result = async_to_sync(main)()
+        logger.info(f"任务成功: {task_name} - {task_result}")
+        return task_result
+    except Exception as e:
+        logger.error(f"任务失败: {task_name} 执行时发生严重错误: {e}", exc_info=True)
+        raise e
+
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stk_limit_data_history_task', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def save_stk_limit_data_history_task(num_days: Optional[int] = None, cache_manager=None):
+    """
+    【V1.1 · 逐日回溯版】获取并保存【历史】全市场股票的涨跌停价格。
+    - 核心逻辑:
+      1. 根据 num_days 参数或默认历史起点(2010年)，从交易日历获取所有需要处理的交易日列表。
+      2. 从最新日期开始，【逐日】循环调用DAO方法，获取并保存当天的涨跌停价数据。
+      3. 这种逐日处理的方式虽然API调用次数更多，但任务状态更清晰，便于监控和断点续传。
+    
+    Args:
+        num_days (Optional[int]): 需要回溯的交易日数量。如果为None，则执行全历史回溯。
+    """
+    task_name = 'save_stk_limit_data_history_task'
+    logger.info(f"任务启动: {task_name} (逐日回溯版) - num_days={num_days}")
+    print(f"[{task_name}] 任务启动 (逐日回溯版)，回溯天数: {'全历史' if num_days is None else num_days}")
+
+    stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+    today_date = timezone.now().date()
+    
+    # 核心逻辑重构：改为逐日获取
+    date_list = []
+    if num_days is not None:
+        # 场景一：获取最近 N 个交易日
+        # get_latest_n_trade_dates 返回的列表已按日期降序排列（从近到远）
+        date_list = TradeCalendar.get_latest_n_trade_dates(n=num_days, reference_date=today_date)
+        print(f"[{task_name}] 已确定回溯最近 {len(date_list)} 个交易日。")
+    else:
+        # 场景二：全历史回溯
+        start_date = datetime.date(2010, 1, 1)
+        # get_trade_dates_between 返回升序列表，我们需要反转它以实现从近到远的回溯
+        date_list = sorted(TradeCalendar.get_trade_dates_between(start_date, today_date), reverse=True)
+        print(f"[{task_name}] 已确定全历史回溯范围: {start_date} 到 {today_date}，共 {len(date_list)} 个交易日。")
+
+    if not date_list:
+        message = f"[{task_name}] 未能从交易日历中获取到任何需要处理的日期，任务终止。"
+        logger.warning(message)
+        print(message)
+        return {"status": "skipped", "message": message}
+
+    total_saved_count = 0
+    total_dates = len(date_list)
+    try:
+        async def main():
+            nonlocal total_saved_count
+            # 从最新日期开始，逐日向前回溯
+            for i, trade_date in enumerate(date_list):
+                print(f"[{task_name}] 正在处理第 {i+1}/{total_dates} 个交易日: {trade_date}...")
+                # 每次循环调用DAO，只处理单日数据
+                result = await stock_time_trade_dao.save_stk_limit_history(trade_date=trade_date)
+                saved_count = result.get('saved_count', 0)
+                total_saved_count += saved_count
+                print(f"[{task_name}] 交易日 {trade_date} 处理完成，保存了 {saved_count} 条记录。")
+                # 在每次API调用后稍作停顿，对API接口更友好
+                await asyncio.sleep(0.5)
+
+        async_to_sync(main)()
+        
+        message = f"任务成功: {task_name} - 共处理 {total_dates} 个交易日，总计保存 {total_saved_count} 条记录。"
+        logger.info(message)
+        print(message)
+        return {"status": "success", "message": message, "total_saved": total_saved_count}
+    except Exception as e:
+        logger.error(f"任务失败: {task_name} 执行时发生严重错误: {e}", exc_info=True)
+        raise e
 
 #  ================ 清理非交易日数据任务 ================
 

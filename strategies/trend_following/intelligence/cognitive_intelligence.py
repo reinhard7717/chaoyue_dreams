@@ -672,7 +672,7 @@ class CognitiveIntelligence:
             upthrust_risk.values,
             heaven_earth_risk.values,
             post_peak_risk.values,
-            top_context_score.values  # [代码新增] 引入第四位骑士
+            top_context_score.values  # 引入第四位骑士
         ], axis=0)
         # 使用 np.maximum.reduce 高效地找出每日最强的那个风险信号作为最终裁决
         archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)

@@ -48,7 +48,7 @@ class JudgmentLayer:
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
-        # [代码新增] 步骤 5: 统一度量衡 - 在所有计算结束后，进行最终的四舍五入和类型转换
+        # 步骤 5: 统一度量衡 - 在所有计算结束后，进行最终的四舍五入和类型转换
         # 应用“审判补丁”：在转换类型前，用0填充所有NaN值
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         # 步骤 6: 生成人类可读的摘要报告
@@ -61,7 +61,7 @@ class JudgmentLayer:
         【V3.9.1 · 奥德修斯之眼协议版】
         - 核心升级: 增加关键节点打印，追踪报告生成逻辑。
         """
-        # [代码新增] 增加调试打印
+        # 增加调试打印
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]

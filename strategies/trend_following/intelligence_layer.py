@@ -125,7 +125,7 @@ class IntelligenceLayer:
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             self._deploy_zeus_thunderbolt_probe(probe_date, bottom_context_score, top_context_score)
-            # [代码新增] 自动调度“哈迪斯凝视”探针
+            # 自动调度“哈迪斯凝视”探针
             if probe_date_str == '2025-09-17':
                 print("\n" + "="*25 + f" 检测到特定风险日期，启动哈迪斯凝视探针 " + "="*25)
                 self._deploy_hades_gaze_probe(probe_date, 'CHIP', 'BEARISH_RESONANCE')
@@ -990,7 +990,9 @@ class IntelligenceLayer:
 
     def _deploy_hades_gaze_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
         """
-        【V1.0 · 新增】“哈迪斯凝视”终极风险探针
+        【V1.1 · 赫淮斯托斯重铸版】“哈迪斯凝视”终极风险探针
+        - 核心修复: 彻底修正了计算顺序的颠倒错误。探针现在严格遵循“先在周期内相乘，再跨周期融合”的
+                      正确逻辑，确保重算结果与主引擎完全一致。
         - 核心职责: 钻透式解剖终极风险信号，揭示其从支柱健康度到最终分数的完整计算链路。
         - 调用示例: self._deploy_hades_gaze_probe(probe_date, 'CHIP', 'BEARISH_RESONANCE')
         """
@@ -1024,39 +1026,44 @@ class IntelligenceLayer:
         s_bull_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bull', {}).items()}
         s_bear_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bear', {}).items()}
         d_intensity_health = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('d_intensity', {}).items()}
-        # 重算融合后的三维健康度
-        short_force_bull = (s_bull_health.get(1, 0.5) * s_bull_health.get(5, 0.5))**0.5
-        medium_trend_bull = (s_bull_health.get(13, 0.5) * s_bull_health.get(21, 0.5))**0.5
-        long_inertia_bull = s_bull_health.get(55, 0.5)
-        overall_bullish_health = (short_force_bull**resonance_tf_weights.get('short', 0.2) * 
-                                  medium_trend_bull**resonance_tf_weights.get('medium', 0.5) * 
-                                  long_inertia_bull**resonance_tf_weights.get('long', 0.3))
-        short_force_bear = (s_bear_health.get(1, 0.5) * s_bear_health.get(5, 0.5))**0.5
-        medium_trend_bear = (s_bear_health.get(13, 0.5) * s_bear_health.get(21, 0.5))**0.5
-        long_inertia_bear = s_bear_health.get(55, 0.5)
-        overall_bearish_health = (short_force_bear**resonance_tf_weights.get('short', 0.2) * 
-                                  medium_trend_bear**resonance_tf_weights.get('medium', 0.5) * 
-                                  long_inertia_bear**resonance_tf_weights.get('long', 0.3))
-        short_force_dyn = (d_intensity_health.get(1, 0.5) * d_intensity_health.get(5, 0.5))**0.5
-        medium_trend_dyn = (d_intensity_health.get(13, 0.5) * d_intensity_health.get(21, 0.5))**0.5
-        long_inertia_dyn = d_intensity_health.get(55, 0.5)
-        overall_dynamic_intensity = (short_force_dyn**resonance_tf_weights.get('short', 0.2) * 
-                                     medium_trend_dyn**resonance_tf_weights.get('medium', 0.5) * 
-                                     long_inertia_dyn**resonance_tf_weights.get('long', 0.3))
         print(f"\n  [链路层 2] 反推 -> 中央合成引擎 (transmute_health_to_ultimate_signals)")
+        # 修正计算顺序：先在每个周期内相乘，再跨周期融合
+        recalc_raw_score = 0.0
         if signal_type == 'BEARISH_RESONANCE':
-            recalc_raw_score = overall_bearish_health * overall_dynamic_intensity
-            print(f"    - [公式]: 看跌共振 = 整体看跌健康度 * 整体动态强度")
-            print(f"    - [计算]: {overall_bearish_health:.4f} * {overall_dynamic_intensity:.4f} = {recalc_raw_score:.4f}")
+            print(f"    - [公式]: 看跌共振 = Fuse(各周期s_bear * 各周期d_intensity)")
+            period_scores = {p: s_bear_health.get(p, 0.5) * d_intensity_health.get(p, 0.5) for p in s_bear_health.keys()}
+            print(f"    - [周期内计算]:")
+            for p, score in period_scores.items():
+                print(f"      - {p:<2}日周期: s_bear({s_bear_health.get(p, 0.5):.4f}) * d_intensity({d_intensity_health.get(p, 0.5):.4f}) = {score:.4f}")
+            short_force = (period_scores.get(1, 0.5) * period_scores.get(5, 0.5))**0.5
+            medium_trend = (period_scores.get(13, 0.5) * period_scores.get(21, 0.5))**0.5
+            long_inertia = period_scores.get(55, 0.5)
+            recalc_raw_score = (short_force**resonance_tf_weights.get('short', 0.2) * 
+                                medium_trend**resonance_tf_weights.get('medium', 0.5) * 
+                                long_inertia**resonance_tf_weights.get('long', 0.3))
+            print(f"    - [跨周期融合计算]: Fuse(...) = {recalc_raw_score:.4f}")
         elif signal_type == 'TOP_REVERSAL':
-            recalc_raw_score = overall_bearish_health * (1.0 - overall_bullish_health)
-            print(f"    - [公式]: 顶部反转 = 整体看跌健康度 * (1 - 整体看涨健康度)")
-            print(f"    - [计算]: {overall_bearish_health:.4f} * (1.0 - {overall_bullish_health:.4f}) = {recalc_raw_score:.4f}")
+            print(f"    - [公式]: 顶部反转 = Fuse(各周期s_bear * (1 - 各周期s_bull))")
+            period_scores = {p: s_bear_health.get(p, 0.5) * (1.0 - s_bull_health.get(p, 0.5)) for p in s_bear_health.keys()}
+            print(f"    - [周期内计算]:")
+            for p, score in period_scores.items():
+                print(f"      - {p:<2}日周期: s_bear({s_bear_health.get(p, 0.5):.4f}) * (1 - s_bull({s_bull_health.get(p, 0.5):.4f})) = {score:.4f}")
+            short_force = (period_scores.get(1, 0.5) * period_scores.get(5, 0.5))**0.5
+            medium_trend = (period_scores.get(13, 0.5) * period_scores.get(21, 0.5))**0.5
+            long_inertia = period_scores.get(55, 0.5)
+            recalc_raw_score = (short_force**reversal_tf_weights.get('short', 0.6) * 
+                                medium_trend**reversal_tf_weights.get('medium', 0.3) * 
+                                long_inertia**reversal_tf_weights.get('long', 0.1))
+            print(f"    - [跨周期融合计算]: Fuse(...) = {recalc_raw_score:.4f}")
         else:
             print(f"    - [探针警告] 不支持的风险信号类型: {signal_type}")
             return
         print(f"    - [对比]: 实际原始值 {final_score_raw:.4f} vs 重算原始值 {recalc_raw_score:.4f}")
-        print(f"\n  [链路层 3] 钻透 -> 整体三维健康度来源")
+        # 链路层3和4保持不变，但现在其分析更有意义
+        print(f"\n  [链路层 3] 钻透 -> 整体三维健康度来源 (融合后的参考值)")
+        overall_bullish_health = ( ( (s_bull_health.get(1,0.5)*s_bull_health.get(5,0.5))**0.5 )**resonance_tf_weights.get('short',0.2) * ( (s_bull_health.get(13,0.5)*s_bull_health.get(21,0.5))**0.5 )**resonance_tf_weights.get('medium',0.5) * (s_bull_health.get(55,0.5))**resonance_tf_weights.get('long',0.3) )
+        overall_bearish_health = ( ( (s_bear_health.get(1,0.5)*s_bear_health.get(5,0.5))**0.5 )**resonance_tf_weights.get('short',0.2) * ( (s_bear_health.get(13,0.5)*s_bear_health.get(21,0.5))**0.5 )**resonance_tf_weights.get('medium',0.5) * (s_bear_health.get(55,0.5))**resonance_tf_weights.get('long',0.3) )
+        overall_dynamic_intensity = ( ( (d_intensity_health.get(1,0.5)*d_intensity_health.get(5,0.5))**0.5 )**resonance_tf_weights.get('short',0.2) * ( (d_intensity_health.get(13,0.5)*d_intensity_health.get(21,0.5))**0.5 )**resonance_tf_weights.get('medium',0.5) * (d_intensity_health.get(55,0.5))**resonance_tf_weights.get('long',0.3) )
         print(f"    - 整体看涨健康度 (s_bull): {overall_bullish_health:.4f}")
         print(f"    - 整体看跌健康度 (s_bear): {overall_bearish_health:.4f}  <-- 风险的主要来源之一")
         print(f"    - 整体动态强度 (d_intensity): {overall_dynamic_intensity:.4f}  <-- 风险的主要来源之一")

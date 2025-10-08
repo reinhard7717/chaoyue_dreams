@@ -1403,7 +1403,6 @@ class StockCyqPerf(models.Model):
         return f"{self.stock.stock_code} {self.trade_time}"
 
 # 高级筹码指标模型
-
 class BaseAdvancedChipMetrics(models.Model):
     """
     【V6.0 抽象基类 & 衍生特征持久化版】
@@ -2035,6 +2034,62 @@ class DailyTurnoverDistribution(models.Model):
     def __str__(self):
         return f"Distribution for {self.intraday_dynamics.stock.stock_code} on {self.intraday_dynamics.trade_date}"
 
+# 每日涨跌停价格模型
+class StockPriceLimit(models.Model):
+    """每日涨跌停价格"""
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits', verbose_name='股票')
+    # 为 trade_time 字段添加数据库索引
+    trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+    pre_close = models.FloatField(null=True, blank=True, verbose_name='昨日收盘价')
+    up_limit = models.FloatField(verbose_name='涨停价')
+    down_limit = models.FloatField(verbose_name='跌停价')
+
+    class Meta:
+        abstract = True # 声明为抽象基类，自身不创建数据表
+        ordering = ['-trade_time']
+
+    def __str__(self):
+        return f"{self.stock.stock_code} on {self.trade_time}: Up({self.up_limit}), Down({self.down_limit})"
+
+class StockPriceLimit_SZ(StockPriceLimit):
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits_sz', verbose_name='股票')
+    class Meta(StockPriceLimit.Meta):
+        db_table = 'stock_price_limit_sz'
+        unique_together = ('stock', 'trade_time')
+        verbose_name = '每日涨跌停价格(深市)'
+        verbose_name_plural = verbose_name
+
+class StockPriceLimit_SH(StockPriceLimit):
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits_sh', verbose_name='股票')
+    class Meta(StockPriceLimit.Meta):
+        db_table = 'stock_price_limit_sh'
+        unique_together = ('stock', 'trade_time')
+        verbose_name = '每日涨跌停价格(沪市)'
+        verbose_name_plural = verbose_name
+
+class StockPriceLimit_CY(StockPriceLimit):
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits_cy', verbose_name='股票')
+    class Meta(StockPriceLimit.Meta):
+        db_table = 'stock_price_limit_cy'
+        unique_together = ('stock', 'trade_time')
+        verbose_name = '每日涨跌停价格(创业板)'
+        verbose_name_plural = verbose_name
+
+class StockPriceLimit_KC(StockPriceLimit):
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits_kc', verbose_name='股票')
+    class Meta(StockPriceLimit.Meta):
+        db_table = 'stock_price_limit_kc'
+        unique_together = ('stock', 'trade_time')
+        verbose_name = '每日涨跌停价格(科创板)'
+        verbose_name_plural = verbose_name
+
+class StockPriceLimit_BJ(StockPriceLimit):
+    stock = models.ForeignKey('StockInfo', on_delete=models.CASCADE, to_field='stock_code', related_name='price_limits_bj', verbose_name='股票')
+    class Meta(StockPriceLimit.Meta):
+        db_table = 'stock_price_limit_bj'
+        unique_together = ('stock', 'trade_time')
+        verbose_name = '每日涨跌停价格(北交所)'
+        verbose_name_plural = verbose_name
 
 
 

@@ -56,10 +56,10 @@ class ChipIntelligence:
             'holder': self._calculate_holder_behavior_health,
             'fault': self._calculate_fault_health,
         }
-        domain_upper = "CHIP" # [代码新增] 定义领域名称
+        domain_upper = "CHIP" # 定义领域名称
         for name, calculator in calculators.items():
             s_bull, s_bear, d_intensity = calculator(df, norm_window, {}, periods)
-            # [代码新增] 哈迪斯协议：上报每个支柱的独立健康度
+            # 哈迪斯协议：上报每个支柱的独立健康度
             self.strategy.atomic_states[f'_PILLAR_HEALTH_{domain_upper}_{name}'] = {
                 's_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity
             }
