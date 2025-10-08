@@ -91,8 +91,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.3 · 哈迪斯协议版】法医探针调度中心
-        - 核心升级: 新增对“哈迪斯凝视”风险探针的自动调度能力。
+        【V2.4 · 调用链路修复版】法医探针调度中心
+        - 核心修复: 修正了对 _deploy_zeus_thunderbolt_probe 的调用，移除了多余的参数，解决 TypeError 崩溃问题。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -105,8 +105,7 @@ class IntelligenceLayer:
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
         print("\n" + "="*30 + f" [法医探针部署中心 V2.3] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        from .utils import calculate_context_scores
-        bottom_context_score, top_context_score = calculate_context_scores(self.strategy.df_indicators, self.strategy.atomic_states)
+        # [代码删除] 移除对上下文分数的预计算，因为新的探针链会自行处理
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -124,7 +123,8 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            self._deploy_zeus_thunderbolt_probe(probe_date, bottom_context_score, top_context_score)
+            # [代码修改] 修正调用签名，不再传递多余参数
+            self._deploy_zeus_thunderbolt_probe(probe_date)
             # 自动调度“哈迪斯凝视”探针
             if probe_date_str == '2025-09-17':
                 print("\n" + "="*25 + f" 检测到特定风险日期，启动哈迪斯凝视探针 " + "="*25)
