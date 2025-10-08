@@ -37,9 +37,9 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.3 · 幽灵信号斩断版】顶层认知总分合成模块
-        - 核心修复: 调整了函数调用顺序，确保在调用 _diagnose_archangel_top_reversal 之前，
-                      所有必需的上下文分数（特别是 top_context_score）已经被计算并存入 atomic_states。
+        【V3.4 · 信号捕获版】顶层认知总分合成模块
+        - 核心修复: 捕获并保存 calculate_context_scores 的返回值，确保 top_context_score 被正确写入 atomic_states，
+                      从而彻底解决“天使长”信号黑洞问题。
         """
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -57,9 +57,10 @@ class CognitiveIntelligence:
         df = self.synthesize_mean_reversion_signals(df)
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
-        # [代码修改] 在调用“天使长”之前，确保所有上下文分数已计算完毕
-        # calculate_context_scores 会将结果存入 self.strategy.atomic_states
-        calculate_context_scores(df, self.strategy.atomic_states)
+        # [代码修改] 捕获并保存 calculate_context_scores 的返回值
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
+        self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
         bullish_scores = [
@@ -74,7 +75,6 @@ class CognitiveIntelligence:
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-        # [代码修改] 确保在调用风险融合之前，所有风险信号（包括天使长）都已就位
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
