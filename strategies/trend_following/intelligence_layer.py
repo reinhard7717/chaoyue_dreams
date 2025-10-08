@@ -524,8 +524,8 @@ class IntelligenceLayer:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.25 · 真理追溯版】“忒弥斯天平”上下文解剖探针
-        - 核心升级: 为“历史高点阻力分”的计算过程增加详细的追溯日志，明确打印出每个周期找到的前高值及其日期。
+        【V1.26 · 神盾协议探针版】“忒弥斯天平”上下文解剖探针
+        - 核心升级: 历史高点显微镜现在调用通用的阿波罗之箭探针，并展示“质量x重要性”的融合逻辑。
         """
         print("\n--- [探针] 正在启用: ⚖️【忒弥斯天平 · 上下文解剖】⚖️ ---")
         df = self.strategy.df_indicators
@@ -579,12 +579,32 @@ class IntelligenceLayer:
         lifeline_support_score = lifeline_support_score_raw * slope_moderator
         price_pos_yearly = normalize_score(df['close_D'], df.index, window=250, ascending=True, default_value=0.5)
         absolute_value_zone_score = 1.0 - price_pos_yearly
-        deep_bottom_context_score = np.maximum(lifeline_support_score, absolute_value_zone_score)
-        rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
+        deep_bottom_context_score_values = np.maximum.reduce([
+            lifeline_support_score.values,
+            absolute_value_zone_score.values
+        ])
+        deep_bottom_context_score = pd.Series(deep_bottom_context_score_values, index=df.index, dtype=np.float32)
+        rsi_w_col = 'RSI_13_W'
+        rsi_w_oversold_score = normalize_score(df.get(rsi_w_col, pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
         cycle_phase = atomic.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
         cycle_trough_score = (1 - cycle_phase) / 2.0
         context_weights = get_param_value(p_synthesis.get('bottom_context_weights'), {'price_pos': 0.5, 'rsi_w': 0.3, 'cycle': 0.2})
-        bottom_context_score_raw = (deep_bottom_context_score**context_weights['price_pos'] * rsi_w_oversold_score**context_weights['rsi_w'] * cycle_trough_score**context_weights['cycle'])
+        score_components = {'price_pos': deep_bottom_context_score, 'rsi_w': rsi_w_oversold_score, 'cycle': cycle_trough_score}
+        valid_scores, valid_weights = [], []
+        for name, weight in context_weights.items():
+            if name in score_components and weight > 0:
+                valid_scores.append(score_components[name].values)
+                valid_weights.append(weight)
+        if not valid_scores:
+            bottom_context_score_raw = pd.Series(0.5, index=df.index, dtype=np.float32)
+        else:
+            weights_array = np.array(valid_weights)
+            total_weight = weights_array.sum()
+            normalized_weights = weights_array / total_weight if total_weight > 0 else np.full_like(weights_array, 1.0 / len(weights_array))
+            stacked_scores = np.stack(valid_scores, axis=0)
+            safe_scores = np.maximum(stacked_scores, 1e-9)
+            weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
+            bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
@@ -611,8 +631,8 @@ class IntelligenceLayer:
         g_is_in_influence_zone.loc[g_valid_indices] = df.loc[g_valid_indices, 'close_D'].between(g_acting_lifeline[g_valid_indices], g_upper_bound)
         g_base_defense_condition = (df['low_D'] < g_acting_lifeline) & g_is_in_influence_zone & (df['close_D'] > df['low_D'])
         g_is_yang_line = df['close_D'] > df['open_D']
-        g_lower_shadow = df['close_D'] - df['low_D']
-        g_upper_shadow = df['high_D'] - df['close_D']
+        g_upper_shadow = df['high_D'] - np.maximum(df['open_D'], df['close_D'])
+        g_lower_shadow = np.minimum(df['open_D'], df['close_D']) - df['low_D']
         g_has_dominance = g_lower_shadow > g_upper_shadow
         g_has_volume_spike = df['volume_D'] > df[ares_vol_ma_col]
         g_is_cassandra_warning = (g_upper_shadow > g_lower_shadow) & g_has_volume_spike
@@ -727,44 +747,60 @@ class IntelligenceLayer:
         print(f"      - 价格拉伸分: {stretch_score.get(probe_date, 0.0):.4f}")
         print(f"      - 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
         print(f"      - 乖离过热分: {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
-        uranus_ceiling_resistance_score = self._deploy_uranus_ceiling_probe(probe_date)
+        
+        # [代码修改] 乌拉诺斯探针现在只返回一个分数，不再需要其内部细节
+        uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
+        from .utils import _calculate_uranus_ceiling_resistance, _calculate_historical_high_resistance
+        uranus_ceiling_resistance_score_series = _calculate_uranus_ceiling_resistance(df, uranus_params)
+        uranus_ceiling_resistance_score = uranus_ceiling_resistance_score_series.get(probe_date, 0.0)
+        self._deploy_uranus_ceiling_probe(probe_date) # 探针调用保持，用于显示细节
+
         p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
-        # [代码新增] 启动历史高点阻力分的详细探针
+        
         print("      --- [历史高点显微镜] 深入解剖 ---")
-        historical_high_resistance_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # [代码修改] 调用主引擎的函数来获取最终分数，以确保一致性
+        historical_high_resistance_score_series = _calculate_historical_high_resistance(df, p_fib_resistance, uranus_params)
+        final_historical_high_score = historical_high_resistance_score_series.get(probe_date, 0.0)
+
+        # [代码修改] 循环体现在只负责打印解剖过程，不再进行计算
         if get_param_value(p_fib_resistance.get('enabled'), False):
             fib_periods = get_param_value(p_fib_resistance.get('periods'), [34, 55, 89, 144, 233])
-            tolerance_pct = get_param_value(p_fib_resistance.get('tolerance_pct'), 0.01)
             level_scores = get_param_value(p_fib_resistance.get('level_scores'), {})
-            trigger_mask = df['close_D'] > ma55
+            
             for period in fib_periods:
                 period_str = str(period)
                 if period_str not in level_scores: continue
-                # 使用 high_D 来寻找真实的滚动周期内最高价
+                
                 rolling_high_series = df['high_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
-                historical_high_val = rolling_high_series.at[probe_date]
-                # [代码新增] 打印每个周期的前高值
+                historical_high_val = rolling_high_series.get(probe_date)
+                
                 if pd.notna(historical_high_val):
                     historical_high_date = rolling_high_series.loc[:probe_date].idxmax()
-                    print(f"        - {period}日周期: 找到前高 {historical_high_val:.2f} (日期: {historical_high_date.strftime('%Y-%m-%d')})")
+                    print(f"\n        - {period}日周期: 找到前高 {historical_high_val:.2f} (日期: {historical_high_date.strftime('%Y-%m-%d')})")
                 else:
-                    print(f"        - {period}日周期: 未找到有效前高。")
+                    print(f"\n        - {period}日周期: 未找到有效前高。")
                     continue
-                resistance_line = historical_high_val * (1 - tolerance_pct)
-                is_rejected = (df.at[probe_date, 'high_D'] >= resistance_line) & (df.at[probe_date, 'close_D'] < historical_high_val)
-                # [代码新增] 打印判断过程
-                print(f"          - 判断: (当日最高 {df.at[probe_date, 'high_D']:.2f} >= 阻力线 {resistance_line:.2f}) AND (当日收盘 {df.at[probe_date, 'close_D']:.2f} < 前高 {historical_high_val:.2f}) -> {'✅' if is_rejected else '❌'}")
-                if trigger_mask.at[probe_date] and is_rejected:
-                    current_score = historical_high_resistance_score.at[probe_date]
-                    new_score = level_scores[period_str]
-                    historical_high_resistance_score.at[probe_date] = max(current_score, new_score)
-                    print(f"          - 裁决: 触发！得分为 {new_score:.2f}。当前总分更新为: {historical_high_resistance_score.at[probe_date]:.2f}")
-        # 探针现在只显示当日的值
-        final_historical_high_score = historical_high_resistance_score.get(probe_date, 0.0)
+                
+                # 1. 调用通用的阿波罗之箭探针，评估战术质量
+                temp_resistance_series = pd.Series(np.nan, index=df.index)
+                temp_resistance_series.at[probe_date] = historical_high_val
+                rejection_quality = self._deploy_apollo_arrow_probe(probe_date, uranus_params, temp_resistance_series)
+
+                # 2. 获取战略重要性
+                strategic_importance = level_scores[period_str]
+                
+                # 3. 融合并计算最终风险分
+                final_period_score = rejection_quality * strategic_importance
+                
+                print(f"        --- [融合裁决] ---")
+                print(f"          - 战术质量分 (来自阿波罗之箭): {rejection_quality:.4f}")
+                print(f"          - 战略重要性分 (来自配置): {strategic_importance:.2f}")
+                print(f"          - ⚖️ 周期风险分 = 质量 * 重要性 = {rejection_quality:.4f} * {strategic_importance:.2f} = {final_period_score:.4f}")
+
         structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, final_historical_high_score)
-        print(f"    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
-        # 探针现在只显示当日的值
-        print(f"      - 历史高点阻力分: {final_historical_high_score:.4f}")
+        print(f"\n    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
+        print(f"      - 乌拉诺斯穹顶(均线)阻力分: {uranus_ceiling_resistance_score:.4f}")
+        print(f"      - 历史高点(价格)阻力分: {final_historical_high_score:.4f}")
         final_top_context_score = np.maximum(conventional_top_score.get(probe_date, 0.0), structural_resistance_score)
         print(f"    - [最终裁决] 顶部上下文总分 (常规 vs 结构): {final_top_context_score:.4f}")
         print("\n--- “忒弥斯天平”称量完毕 ---")
@@ -787,8 +823,8 @@ class IntelligenceLayer:
 
     def _deploy_uranus_ceiling_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.2 · 伊卡洛斯之陨协议审查版】“乌拉诺斯穹顶”法医探针
-        - 核心升级: 新增“伊卡洛斯之陨”协议的专属审查模块，用于精确解剖“涨停回落”风险。
+        【V1.3 · 神盾协议探针版】“乌拉诺斯穹顶”法医探针
+        - 核心升级: 调用通用的 _deploy_apollo_arrow_probe 探针来解剖拒绝质量。
         """
         print("\n      --- [乌拉诺斯显微镜] 深入解剖 ---")
         df = self.strategy.df_indicators
@@ -798,81 +834,51 @@ class IntelligenceLayer:
         if not get_param_value(uranus_params.get('enabled'), False):
             print("        - 乌拉诺斯穹顶系统在配置中被禁用。")
             return 0.0
+        
+        # [代码重构] 大部分参数获取移至阿波罗之箭探针，这里只保留确认压制所需的参数
         resistance_levels = get_param_value(uranus_params.get('resistance_levels'), [55, 89, 144, 233, 377])
         confirmation_window = get_param_value(uranus_params.get('confirmation_window'), 3)
         rejection_lookback_window = get_param_value(uranus_params.get('rejection_lookback_window'), 5)
         confirmation_cooldown_period = get_param_value(uranus_params.get('confirmation_cooldown_period'), 10)
-        influence_zone_pct = get_param_value(uranus_params.get('influence_zone_pct'), 0.03)
-        rejection_base_score = get_param_value(uranus_params.get('rejection_base_score'), 0.4)
-        rejection_yin_line_weight = get_param_value(uranus_params.get('rejection_yin_line_weight'), 0.1)
-        rejection_dominance_weight = get_param_value(uranus_params.get('rejection_dominance_weight'), 0.2)
-        rejection_volume_weight = get_param_value(uranus_params.get('rejection_volume_weight'), 0.3)
         confirmation_score = get_param_value(uranus_params.get('confirmation_score'), 0.8)
         rejection_quality_bonus_factor = get_param_value(uranus_params.get('rejection_quality_bonus_factor'), 0.25)
         cooldown_reset_volume_ma_period = get_param_value(uranus_params.get('cooldown_reset_volume_ma_period'), 55)
-        # [代码新增] 为“伊卡洛斯之陨”协议获取参数
-        icarus_fall_bonus = get_param_value(uranus_params.get('icarus_fall_bonus'), 0.5)
+        
         close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
-        ares_vol_ma_col = 'VOL_MA_5_D'
         cooldown_vol_ma_col = f'VOL_MA_{cooldown_reset_volume_ma_period}_D'
+        
+        # 1. 寻找代理天花板
         ma_cols = [f'MA_{p}_D' for p in resistance_levels if f'MA_{p}_D' in df.columns]
         ma_df = df[ma_cols]
         ma_df_above_price = ma_df.where(ma_df.ge(df[close_col], axis=0))
         acting_ceiling = ma_df_above_price.min(axis=1).ffill()
-        is_in_influence_zone = pd.Series(False, index=df.index)
-        valid_indices = acting_ceiling.dropna().index
-        lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
-        is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
+        
         print(f"        - acting_ceiling (代理天花板): {acting_ceiling.get(probe_date, np.nan):.4f}")
-        print("        --- [拒绝质量解剖 (阿波罗之箭)] ---")
-        base_rejection_condition = (df['high_D'] > acting_ceiling) & is_in_influence_zone & (df['close_D'] < df['high_D'])
-        is_yin_line = df['close_D'] < df['open_D']
-        # 修正上下影线计算，使其与主引擎完全一致
-        upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
-        lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
-        has_dominance = upper_shadow > lower_shadow
-        has_volume_spike = df['volume_D'] > df[ares_vol_ma_col]
-        is_apollo_absorption = (lower_shadow > upper_shadow) & has_volume_spike
-        rejection_quality_score = pd.Series(0.0, index=df.index)
-        rejection_quality_score.loc[base_rejection_condition] = rejection_base_score
-        rejection_quality_score.loc[base_rejection_condition & is_yin_line] += rejection_yin_line_weight
-        rejection_quality_score.loc[base_rejection_condition & has_dominance] += rejection_dominance_weight
-        rejection_quality_score.loc[base_rejection_condition & has_dominance & has_volume_spike] += rejection_volume_weight
-        # [代码新增] 在探针中复现“伊卡洛斯之陨”协议的计算逻辑
-        limit_up_price = df.get('up_limit_D', pd.Series(np.nan, index=df.index))
-        is_icarus_fall = (df[high_col] >= limit_up_price * 0.995) & (df[close_col] < df[high_col] * 0.98)
-        rejection_quality_score.loc[is_icarus_fall] += icarus_fall_bonus
-        rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
-        rejection_quality_score = rejection_quality_score.clip(0, 1.0)
-        base_cond_val, yin_line_val, dominance_val, volume_val, apollo_val, in_zone_val = (
-            base_rejection_condition.get(probe_date, False), is_yin_line.get(probe_date, False),
-            has_dominance.get(probe_date, False), has_volume_spike.get(probe_date, False),
-            is_apollo_absorption.get(probe_date, False), is_in_influence_zone.get(probe_date, False)
-        )
-        rejection_score_today = rejection_quality_score.get(probe_date, 0.0)
-        print(f"          - 预警判定 (阿波罗吸收): (在影响区内 {in_zone_val}) AND (下影>上影 AND 放量) -> {apollo_val and in_zone_val}")
-        if apollo_val and in_zone_val:
-            print(f"          - 裁决: 触发阿波罗吸收，拒绝质量分强制归零。")
-        else:
-            print(f"          - 基础条件 (触顶+回落): {base_cond_val} -> 基础分 {rejection_base_score if base_cond_val else 0.0:.2f}")
-            print(f"          - 权重1 (空头宣告-收阴): {yin_line_val} -> 加分 {rejection_yin_line_weight if yin_line_val and base_cond_val else 0.0:.2f}")
-            print(f"          - 权重2 (空头胜利-上影优势): {dominance_val} -> 加分 {rejection_dominance_weight if dominance_val and base_cond_val else 0.0:.2f}")
-            print(f"          - 权重3 (主力派发-放量): {volume_val and dominance_val} (需上影优势) -> 加分 {rejection_volume_weight if volume_val and dominance_val and base_cond_val else 0.0:.2f}")
-        # [代码新增] 植入“伊卡洛斯之陨”协议的专属审查模块
-        print("        --- [伊卡洛斯之陨协议审查 (涨停回落)] ---")
-        icarus_cond1 = df.at[probe_date, high_col] >= limit_up_price.get(probe_date, np.inf) * 0.995
-        icarus_cond2 = df.at[probe_date, close_col] < df.at[probe_date, high_col] * 0.98
-        icarus_triggered = is_icarus_fall.get(probe_date, False)
-        print(f"          - 涨停价: {limit_up_price.get(probe_date, 'N/A'):.2f}")
-        print(f"          - 条件1 (触及涨停): (最高价 {df.at[probe_date, high_col]:.2f} >= 涨停价*0.995) -> {'✅' if icarus_cond1 else '❌'}")
-        print(f"          - 条件2 (大幅回落): (收盘价 {df.at[probe_date, close_col]:.2f} < 最高价*0.98) -> {'✅' if icarus_cond2 else '❌'}")
-        print(f"          - 裁决: {'触发！' if icarus_triggered else '未触发。'} -> 奖励分 {icarus_fall_bonus if icarus_triggered else 0.0:.2f}")
-        print(f"          - 当日独立拒绝分 (含所有加成): {rejection_score_today:.4f}")
+        
+        # 2. [代码修改] 调用通用的阿波罗之箭探针来获取拒绝质量分
+        rejection_score_today = self._deploy_apollo_arrow_probe(probe_date, uranus_params, acting_ceiling)
+        
+        # 3. [代码重构] 确认压制评估逻辑保持不变，但需要重新计算 rejection_quality_score 序列
+        from .utils import _calculate_rejection_quality_score
+        rejection_quality_score = _calculate_rejection_quality_score(df, uranus_params, acting_ceiling)
+
         print("        --- [确认压制评估 (哈迪斯之锁)] ---")
         max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
-        is_failing_to_break = (df['close_D'] < acting_ceiling) & is_in_influence_zone
+        
+        influence_zone_pct = get_param_value(uranus_params.get('influence_zone_pct'), 0.03)
+        is_in_influence_zone = pd.Series(False, index=df.index)
+        valid_indices = acting_ceiling.dropna().index
+        if not valid_indices.empty:
+            lower_bound = acting_ceiling[valid_indices] * (1 - influence_zone_pct)
+            is_in_influence_zone.loc[valid_indices] = df.loc[valid_indices, close_col].between(lower_bound, acting_ceiling[valid_indices])
+
+        is_failing_to_break = (df[close_col] < acting_ceiling) & is_in_influence_zone
         is_confirmed_rejection = is_failing_to_break.rolling(window=confirmation_window, min_periods=confirmation_window).sum() >= confirmation_window
-        is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df['volume_D'] > df[cooldown_vol_ma_col])
+        
+        upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
+        lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
+        is_cooldown_reset_signal = (lower_shadow > upper_shadow) & (df[vol_col] > df[cooldown_vol_ma_col])
+        
         confirmation_score_series = pd.Series(0.0, index=df.index)
         last_confirmation_date = pd.NaT
         is_in_cooldown_on_probe_date = False
@@ -890,9 +896,11 @@ class IntelligenceLayer:
                 else:
                     confirmation_score_series.loc[idx] = confirmation_score
                 last_confirmation_date = idx
+        
         is_confirmed_val = is_confirmed_rejection.get(probe_date, False)
         recent_quality_val = max_recent_rejection_quality.get(probe_date, 0.0)
         confirmation_score_today = confirmation_score_series.get(probe_date, 0.0)
+        
         print(f"          - is_confirmed_rejection (是否满足压制天数): {is_confirmed_val}")
         print(f"          - is_in_cooldown (是否处于确认冷却期): {is_in_cooldown_on_probe_date}")
         print(f"          - 近期最高拒绝质量分 (lookback={rejection_lookback_window}d): {recent_quality_val:.4f}")
@@ -904,6 +912,7 @@ class IntelligenceLayer:
         else:
             print(f"          - 审判类型: 无 (is_confirmed={is_confirmed_val}, in_cooldown={is_in_cooldown_on_probe_date})")
         print(f"          - 当日独立确认分: {confirmation_score_today:.4f}")
+        
         print("        --- [最终审判 (塔纳托斯之镰)] ---")
         final_score = max(rejection_score_today, confirmation_score_today)
         print(f"          - 裁决: max(独立拒绝分, 独立确认分) = max({rejection_score_today:.4f}, {confirmation_score_today:.4f}) = {final_score:.4f}")
@@ -1014,6 +1023,88 @@ class IntelligenceLayer:
             print(f"    {pillar_name:<15} | {s_b:<10.4f} | {s_br:<10.4f} | {d_i:<10.4f}")
         print("\n--- “哈迪斯凝视”解剖完毕 ---")
 
+    def _deploy_apollo_arrow_probe(self, probe_date: pd.Timestamp, params: Dict, resistance_line: pd.Series) -> float:
+        """
+        【V1.1 · 影线长度显式化版】通用拒绝质量评估探针 (阿波罗之箭)
+        - 核心升级: 新增对上下影线具体长度的打印，使“空头胜利”的判断过程更加透明。
+        """
+        print("        --- [阿波罗之箭评估] ---")
+        df = self.strategy.df_indicators
+        # 从参数中获取所有必要的配置
+        influence_zone_pct = get_param_value(params.get('influence_zone_pct'), 0.03)
+        rejection_base_score = get_param_value(params.get('rejection_base_score'), 0.4)
+        rejection_yin_line_weight = get_param_value(params.get('rejection_yin_line_weight'), 0.1)
+        rejection_dominance_weight = get_param_value(params.get('rejection_dominance_weight'), 0.2)
+        rejection_volume_weight = get_param_value(params.get('rejection_volume_weight'), 0.3)
+        min_shadow_ratio = get_param_value(params.get('min_shadow_ratio'), 0.25)
+        icarus_fall_base_score = get_param_value(params.get('icarus_fall_base_score'), 0.8)
+        cooldown_reset_volume_ma_period = get_param_value(params.get('cooldown_reset_volume_ma_period'), 55)
+        close_col, open_col, low_col, high_col, vol_col = 'close_D', 'open_D', 'low_D', 'high_D', 'volume_D'
+        ares_vol_ma_col = 'VOL_MA_5_D'
+        # 检查必需列
+        required_cols = [close_col, open_col, low_col, high_col, vol_col, ares_vol_ma_col, 'up_limit_D']
+        if not all(col in df.columns for col in required_cols):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 1. 获取当日关键数据
+        res_val = resistance_line.get(probe_date, np.nan)
+        if pd.isna(res_val):
+            print("          - 目标阻力位当日无有效值，评估跳过。")
+            return 0.0
+        
+        # 2. 计算影响区和基础条件
+        lower_bound_val = res_val * (1 - influence_zone_pct)
+        is_in_influence_zone_val = lower_bound_val <= df.at[probe_date, close_col] <= res_val
+        base_rejection_condition_val = (df.at[probe_date, high_col] > res_val) & is_in_influence_zone_val & (df.at[probe_date, close_col] < df.at[probe_date, high_col])
+        
+        # 3. 计算各项质量加权分
+        rejection_quality_score_val = 0.0
+        if base_rejection_condition_val:
+            rejection_quality_score_val = rejection_base_score
+        
+        is_yin_line_val = df.at[probe_date, close_col] < df.at[probe_date, open_col]
+        upper_shadow_val = df.at[probe_date, high_col] - max(df.at[probe_date, open_col], df.at[probe_date, close_col])
+        lower_shadow_val = min(df.at[probe_date, open_col], df.at[probe_date, close_col]) - df.at[probe_date, low_col]
+        kline_range_val = (df.at[probe_date, high_col] - df.at[probe_date, low_col])
+        upper_shadow_ratio_val = upper_shadow_val / kline_range_val if kline_range_val > 0 else 0
+        is_upper_shadow_significant_val = upper_shadow_ratio_val > min_shadow_ratio
+        has_dominance_val = (upper_shadow_val > lower_shadow_val) & is_upper_shadow_significant_val
+        
+        yin_line_bonus = rejection_yin_line_weight if base_rejection_condition_val and is_yin_line_val else 0.0
+        dominance_bonus = rejection_dominance_weight if base_rejection_condition_val and has_dominance_val else 0.0
+        
+        has_volume_spike_val = df.at[probe_date, vol_col] > df.at[probe_date, ares_vol_ma_col]
+        proportional_volume_score_val = normalize_score(df[vol_col] / df[ares_vol_ma_col].replace(0, np.nan), df.index, window=cooldown_reset_volume_ma_period, ascending=True).get(probe_date, 0.0)
+        volume_bonus = rejection_volume_weight * proportional_volume_score_val if base_rejection_condition_val and has_dominance_val and has_volume_spike_val else 0.0
+        
+        rejection_quality_score_val += yin_line_bonus + dominance_bonus + volume_bonus
+        
+        # 4. 应用绝对否决/奖励规则
+        limit_up_price_val = df.at[probe_date, 'up_limit_D']
+        is_icarus_fall_val = (df.at[probe_date, high_col] >= limit_up_price_val * 0.995) & (df.at[probe_date, close_col] < df.at[probe_date, high_col] * 0.98)
+        if is_icarus_fall_val:
+            rejection_quality_score_val = max(rejection_quality_score_val, icarus_fall_base_score)
+
+        is_apollo_absorption_val = (lower_shadow_val > upper_shadow_val) & has_volume_spike_val
+        if is_in_influence_zone_val and is_apollo_absorption_val:
+            rejection_quality_score_val = 0.0
+
+        final_score = np.clip(rejection_quality_score_val, 0, 1.0)
+
+        # 5. 打印详细解剖过程
+        print(f"          - 目标阻力线: {res_val:.2f}")
+        print(f"          - 影响区: [{lower_bound_val:.2f}, {res_val:.2f}] -> 收盘价({df.at[probe_date, close_col]:.2f})是否在内: {'✅' if is_in_influence_zone_val else '❌'}")
+        print(f"          - 基础条件 (触顶+回落): {base_rejection_condition_val} -> 基础分 {rejection_base_score if base_rejection_condition_val else 0.0:.2f}")
+        print(f"          - 权重1 (空头宣告-收阴): {is_yin_line_val} -> 加分 {yin_line_bonus:.2f}")
+        # [代码新增] 打印上下影线的具体长度
+        print(f"          - 影线长度: 上影 {upper_shadow_val:.2f} vs 下影 {lower_shadow_val:.2f}")
+        print(f"          - 权重2 (空头胜利-上影优势): {has_dominance_val} -> 加分 {dominance_bonus:.2f}")
+        print(f"          - 权重3 (主力派发-放量): {has_volume_spike_val and has_dominance_val} -> 加分 {volume_bonus:.2f}")
+        print(f"          ---")
+        print(f"          - 伊卡洛斯之陨 (涨停回落): {is_icarus_fall_val} -> 若触发，分数至少为 {icarus_fall_base_score:.2f}")
+        print(f"          - 阿波罗吸收 (多头反噬): {is_apollo_absorption_val and is_in_influence_zone_val} -> 若触发，分数强制归零")
+        print(f"          - 最终裁决 (战术质量分): {final_score:.4f}")
+        
+        return final_score
 
 
 
