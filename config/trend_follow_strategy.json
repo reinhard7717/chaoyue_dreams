@@ -163,7 +163,8 @@
       "strategy_info": {
         "name": { "value": "TrendFollow" },
         "save_all_days": { "value": false },
-        "save_daily_states": { "value": false }
+        "save_daily_states": { "value": false },
+        "min_entry_score_for_db": { "value": 50 }
       },
       "prophet_oracle": {
         "说明": "【V1.0 · 新增】先知神谕策略专属配置模块。",

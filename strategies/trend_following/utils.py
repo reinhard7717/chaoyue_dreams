@@ -692,9 +692,9 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
             else:
                 confirmation_score_series.loc[idx] = confirmation_score
             last_confirmation_date = idx
-    # 新增开始: 将确认分数作为一个独立的信号存入 atomic_states
+    # 将确认分数作为一个独立的信号存入 atomic_states
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = confirmation_score_series.astype(np.float32)
-    # 新增结束
+    
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
 

@@ -43,7 +43,9 @@ class ReportingLayer:
         save_all_days = get_param_value(trend_follow_strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
-        # [代码删除] 移除所有与先知策略相关的变量
+        # 获取 entry_score 的最低记录阈值
+        min_entry_score_for_db = get_param_value(trend_follow_strategy_info.get('min_entry_score_for_db'), 50)
+        
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -52,7 +54,6 @@ class ReportingLayer:
             '战略失效离场': TradingSignal.SignalType.SELL,
             '风险否决': TradingSignal.SignalType.WARN,
             '先知离场': TradingSignal.SignalType.SELL,
-            # [代码删除] '先知入场' 不再由本策略处理
         }
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
@@ -61,12 +62,11 @@ class ReportingLayer:
             risk_score_val = row.get('risk_score', 0.0)
             db_risk_score = risk_score_val * 1000 if pd.notna(risk_score_val) else 0.0
             final_score_for_signal = row.get('final_score', 0.0)
-            # strategy_name 硬编码为本策略的名称
             strategy_name = trend_follow_name
             signal_obj = TradingSignal(
                 stock_id=stock_code, trade_time=trade_time, timeframe=result_timeframe, strategy_name=strategy_name,
                 signal_type=signal_enum,
-                entry_score=row.get('entry_score', 0.0), 
+                entry_score=row.get('entry_score', 0.0),
                 risk_score=db_risk_score,
                 final_score=final_score_for_signal,
                 close_price=row.get('close_D', 0.0)
@@ -81,23 +81,31 @@ class ReportingLayer:
         daily_score_map = {}
         summary_score_names = {'SCORE_REVERSAL_OFFENSE', 'SCORE_RESONANCE_OFFENSE', 'SCORE_PLAYBOOK_SYNERGY', 'SCORE_TRIGGER'}
         for trade_time, row in result_df.iterrows():
-            # 移除所有对'先知入场'的特殊判断，统一处理
             daily_score_strategy_name = trend_follow_name
             offensive_score_val = row.get('entry_score', 0)
             risk_score_val = row.get('risk_score', 0.0)
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
             db_risk_score = int(risk_score_val * 1000) if pd.notna(risk_score_val) else 0
+            # 修改开始: 增加一个判断条件，决定是否创建 StrategyDailyScore 记录
+            # 条件1: save_all_days 为 True
+            # 条件2: 当天有明确的信号 (非'无信号')
+            # 条件3: entry_score 大于等于阈值
+            should_save_record = save_all_days or (row['signal_type'] != '无信号') or (db_offensive_score >= min_entry_score_for_db)
+            if not should_save_record:
+                continue # 如果不满足任何一个保存条件，则跳过当天的记录创建
+            # 修改结束
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code, trade_date=trade_time.date(), strategy_name=daily_score_strategy_name,
                 offensive_score=db_offensive_score,
                 risk_score=db_risk_score,
-                final_score=row.get('final_score', 0.0), 
+                final_score=row.get('final_score', 0.0),
                 signal_type=row.get('signal_type', '无信号'),
                 trade_action=row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value),
                 score_details_json=_convert_numpy_types_for_json(row.get('signal_details_cn', {}))
             )
-            if save_all_days or (row['signal_type'] != '无信号'):
-                daily_scores_to_create.append(daily_score_obj)
+            # 修改开始: 移除原有的 if 判断，因为过滤逻辑已前置
+            daily_scores_to_create.append(daily_score_obj)
+            # 修改结束
             daily_score_map[trade_time] = daily_score_obj
             def create_component(signal_name, score_value):
                 playbook_obj = self.playbooks_cache.get(signal_name)
@@ -107,12 +115,11 @@ class ReportingLayer:
                 db_score_value = int(score_value) if pd.notna(score_value) else 0
                 if db_score_value < 0: score_type = 'penalty'
                 score_components_to_create.append(StrategyScoreComponent(
-                    daily_score=daily_score_obj, 
-                    playbook=playbook_obj, 
-                    score_type=score_type, 
+                    daily_score=daily_score_obj,
+                    playbook=playbook_obj,
+                    score_type=score_type,
                     score_value=db_score_value
                 ))
-            # score_details_df 现在包含正负分，所以不过滤 score > 0
             if not score_details_df.empty and trade_time in score_details_df.index:
                 for name, score in score_details_df.loc[trade_time][score_details_df.loc[trade_time] != 0].items():
                     if name not in summary_score_names: create_component(name, score)
