@@ -1165,10 +1165,10 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.4 · 类型修复版】“雅典娜智慧”探针 - 认知层终极底部确认解剖
-        - 核心修复: 修复了对 float 类型对象调用 .clip() 方法的 AttributeError。
-                      使用 np.clip() 函数来正确地对单个浮点数进行范围限制。
-        - 核心升级: 为每个输入组件增加了“显微镜”功能，钻透式解剖其自身的计算逻辑和原始数据来源。
+        【V1.5 · 信号名终极修正版】“雅典娜智慧”探针
+        - 核心修复: 再次修正对中间状态信号的引用名称，彻底移除所有不应存在的 "SCORE_" 前缀，
+                      确保探针能正确从 atomic_states 中获取所有输入值。
+        - 核心升级: 为每个输入组件增加了“显微镜”功能。
         """
         print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖】🦉 ---")
         df = self.strategy.df_indicators
@@ -1176,7 +1176,9 @@ class IntelligenceLayer:
         def get_val(name, date, default=0.0):
             series = atomic.get(name)
             if series is None:
-                # 静默处理，在显微镜中统一报告
+                # 修改开始: 在显微镜中统一报告，并增加警告
+                print(f"      - [警告] 探针无法在 atomic_states 中找到信号: {name}")
+                # 修改结束
                 return default
             return series.get(date, default)
         # 链路层 1: 获取最终信号值
@@ -1187,30 +1189,34 @@ class IntelligenceLayer:
         print("\n  [链路层 2] 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)")
         print(f"    - [核心公式]: 原始分 = 融合底部确认分 * 形态底部确认分")
         # 组件 A: 融合底部确认分
+        # 修改开始: 移除错误的 "SCORE_" 前缀
         reversal_reliability = get_val('COGNITIVE_BOTTOM_REVERSAL_RELIABILITY', probe_date)
         capitulation_potential = get_val('COGNITIVE_CAPITULATION_POTENTIAL', probe_date)
+        # 修改结束
         fusion_bottom_recalc = (reversal_reliability * capitulation_potential) ** 0.5
         print("\n    --- [组件 A] 融合底部确认分 (fusion_bottom) ---")
+        # 修改开始: 修正打印的信号名称
         print(f"      - [探针重算] 融合底部确认分 = ({reversal_reliability:.4f} * {capitulation_potential:.4f}) ^ 0.5 = {fusion_bottom_recalc:.4f}")
+        # 修改结束
         # 组件 A 的显微镜
         print("\n        --- [组件A显微镜] ---")
-        print("        [1] 反转可靠性 (COGNITIVE_BOTTOM_REVERSAL_RELIABILITY):")
+        # 修改开始: 修正打印的信号名称
+        print(f"        [1] 反转可靠性 (COGNITIVE_BOTTOM_REVERSAL_RELIABILITY): {reversal_reliability:.4f}")
+        # 修改结束
         main_reliability = get_val('SCORE_COGNITIVE_MAIN_RELIABILITY', probe_date)
         ignition_score = get_val('SCORE_COGNITIVE_IGNITION', probe_date)
-        # 获取认知智能参数块
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        # 从正确的参数块中获取奖励因子
         bonus_factor = get_param_value(p_cognitive.get('reversal_reliability_bonus_factor'), 0.5)
-        # 修改开始: 使用 np.clip() 函数替代 .clip() 方法
         raw_reversal_reliability = main_reliability * (1 + ignition_score * bonus_factor)
         reversal_reliability_recalc = np.clip(raw_reversal_reliability, 0, 1.0)
-        # 修改结束
         print(f"          - 公式: (主要可靠性 * (1 + 点火分 * 奖励因子)).clip(0, 1)")
         print(f"          - 主要可靠性 (SCORE_COGNITIVE_MAIN_RELIABILITY): {main_reliability:.4f}")
         print(f"          - 点火分 (SCORE_COGNITIVE_IGNITION): {ignition_score:.4f}")
         print(f"          - 奖励因子: {bonus_factor:.2f}")
         print(f"          - 重算值: ({main_reliability:.4f} * (1 + {ignition_score:.4f} * {bonus_factor:.2f})) = {reversal_reliability_recalc:.4f}")
-        print("        [2] 投降潜力 (COGNITIVE_CAPITULATION_POTENTIAL):")
+        # 修改开始: 修正打印的信号名称
+        print(f"        [2] 投降潜力 (COGNITIVE_CAPITULATION_POTENTIAL): {capitulation_potential:.4f}")
+        # 修改结束
         panic_setup = get_val('SCORE_SETUP_PANIC_SELLING', probe_date)
         despair_context = get_val('SCORE_CONTEXT_DESPAIR', probe_date)
         capitulation_potential_recalc = (panic_setup * despair_context) ** 0.5
@@ -1219,14 +1225,20 @@ class IntelligenceLayer:
         print(f"          - 绝望背景 (SCORE_CONTEXT_DESPAIR): {despair_context:.4f}")
         print(f"          - 重算值: ({panic_setup:.4f} * {despair_context:.4f}) ^ 0.5 = {capitulation_potential_recalc:.4f}")
         # 组件 B: 形态底部确认分
+        # 修改开始: 移除错误的 "SCORE_" 前缀
         pattern_reversal = get_val('PATTERN_BULLISH_REVERSAL', probe_date)
         gap_support = get_val('PATTERN_GAP_SUPPORT', probe_date)
+        # 修改结束
         pattern_bottom_recalc = (pattern_reversal * gap_support) ** 0.5
         print("\n    --- [组件 B] 形态底部确认分 (pattern_bottom) ---")
+        # 修改开始: 修正打印的信号名称
         print(f"      - [探针重算] 形态底部确认分 = ({pattern_reversal:.4f} * {gap_support:.4f}) ^ 0.5 = {pattern_bottom_recalc:.4f}")
+        # 修改结束
         # 组件 B 的显微镜
         print("\n        --- [组件B显微镜] ---")
-        print("        [1] 形态看涨反转 (PATTERN_BULLISH_REVERSAL):")
+        # 修改开始: 修正打印的信号名称
+        print(f"        [1] 形态看涨反转 (PATTERN_BULLISH_REVERSAL): {pattern_reversal:.4f}")
+        # 修改结束
         atomic_patterns = ['ATOMIC_KLINE_HAMMER', 'ATOMIC_KLINE_MORNING_STAR', 'ATOMIC_KLINE_BULLISH_ENGULFING', 'ATOMIC_KLINE_PIERCING_LINE']
         pattern_values = {p: get_val(p, probe_date) for p in atomic_patterns}
         pattern_reversal_recalc = max(pattern_values.values()) if pattern_values else 0.0
@@ -1234,7 +1246,9 @@ class IntelligenceLayer:
         for name, value in pattern_values.items():
             print(f"          - {name}: {value:.4f}")
         print(f"          - 重算值: max(...) = {pattern_reversal_recalc:.4f}")
-        print("        [2] 缺口支撑 (PATTERN_GAP_SUPPORT):")
+        # 修改开始: 修正打印的信号名称
+        print(f"        [2] 缺口支撑 (PATTERN_GAP_SUPPORT): {gap_support:.4f}")
+        # 修改结束
         gap_support_state = get_val('STATE_GAP_SUPPORT_ACTIVE', probe_date)
         print(f"          - 公式: 这是一个状态信号，代表是否存在有效的向上跳空缺口支撑。")
         print(f"          - 当前值 (STATE_GAP_SUPPORT_ACTIVE): {gap_support_state:.4f}")
