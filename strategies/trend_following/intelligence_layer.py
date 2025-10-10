@@ -419,6 +419,9 @@ class IntelligenceLayer:
         print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针⚡️⚡️】---")
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
+        # 新增开始
+        self._deploy_athena_wisdom_probe(probe_date)
+        # 新增结束
         self._deploy_hephaestus_forge_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -1159,6 +1162,62 @@ class IntelligenceLayer:
         print(f"    - 计算过程: max({upthrust_risk:.4f}, {heaven_earth_risk:.4f}, {post_peak_risk:.4f}, {top_context_score:.4f}) = {archangel_score:.4f}")
         print(f"    - 最终结论 (SCORE_ARCHANGEL_TOP_REVERSAL 的真实值): {archangel_score:.4f}")
         print("--- “天使长诊断探针”运行完毕 ---")
+
+    def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“雅典娜智慧”探针 - 认知层终极底部确认解剖
+        - 核心职责: 钻透式解剖 COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION 信号，
+                      揭示其从“融合底部”和“形态底部”到最终与“底部上下文”相乘的完整逻辑链路。
+        """
+        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖】🦉 ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        def get_val(name, date, default=0.0):
+            series = atomic.get(name)
+            if series is None:
+                print(f"      - [警告] 探针无法在 atomic_states 中找到信号: {name}")
+                return default
+            return series.get(date, default)
+        # 链路层 1: 获取最终信号值
+        final_score = get_val('COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION', probe_date)
+        print(f"\n  [链路层 1] 最终确认成品: COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION = {final_score:.4f}")
+        print(f"    - [核心公式]: 终极确认分 = 原始终极底部确认分 * 底部上下文分数")
+        # 链路层 2: 反推原始终极底部确认分 (ultimate_bottom_raw)
+        print("\n  [链路层 2] 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)")
+        print(f"    - [核心公式]: 原始分 = 融合底部确认分 * 形态底部确认分")
+        # 链路层 3: 钻透 -> 融合底部确认分 (fusion_bottom)
+        print("\n    --- [组件 A] 融合底部确认分 (fusion_bottom) ---")
+        print(f"      - [核心公式]: (反转可靠性 * 投降潜力) ^ 0.5")
+        reversal_reliability = get_val('SCORE_COGNITIVE_BOTTOM_REVERSAL_RELIABILITY', probe_date)
+        capitulation_potential = get_val('SCORE_COGNITIVE_CAPITULATION_POTENTIAL', probe_date)
+        fusion_bottom_recalc = (reversal_reliability * capitulation_potential) ** 0.5
+        print(f"        - 反转可靠性 (SCORE_COGNITIVE_BOTTOM_REVERSAL_RELIABILITY): {reversal_reliability:.4f}")
+        print(f"        - 投降潜力 (SCORE_COGNITIVE_CAPITULATION_POTENTIAL): {capitulation_potential:.4f}")
+        print(f"        - [探针重算] 融合底部确认分 = ({reversal_reliability:.4f} * {capitulation_potential:.4f}) ^ 0.5 = {fusion_bottom_recalc:.4f}")
+        # 链路层 4: 钻透 -> 形态底部确认分 (pattern_bottom)
+        print("\n    --- [组件 B] 形态底部确认分 (pattern_bottom) ---")
+        print(f"      - [核心公式]: (形态看涨反转 * 缺口支撑) ^ 0.5")
+        pattern_reversal = get_val('SCORE_PATTERN_BULLISH_REVERSAL', probe_date)
+        gap_support = get_val('SCORE_PATTERN_GAP_SUPPORT', probe_date)
+        pattern_bottom_recalc = (pattern_reversal * gap_support) ** 0.5
+        print(f"        - 形态看涨反转 (SCORE_PATTERN_BULLISH_REVERSAL): {pattern_reversal:.4f}")
+        print(f"        - 缺口支撑 (SCORE_PATTERN_GAP_SUPPORT): {gap_support:.4f}")
+        print(f"        - [探针重算] 形态底部确认分 = ({pattern_reversal:.4f} * {gap_support:.4f}) ^ 0.5 = {pattern_bottom_recalc:.4f}")
+        # 链路层 5: 钻透 -> 底部上下文分数 (bottom_context_score)
+        print("\n    --- [调节器] 底部上下文分数 (bottom_context_score) ---")
+        atomic['strategy_instance_ref'] = self.strategy
+        bottom_context_score_series, _ = calculate_context_scores(df, atomic)
+        del atomic['strategy_instance_ref']
+        bottom_context_score = bottom_context_score_series.get(probe_date, 0.0)
+        print(f"      - [探针获取] 底部上下文分数: {bottom_context_score:.4f} (详情请见“忒弥斯天平”探针)")
+        # 最终验证
+        print("\n  [最终验证]")
+        ultimate_bottom_raw_recalc = fusion_bottom_recalc * pattern_bottom_recalc
+        print(f"    - [探针重算] 原始终极底部确认分 = {fusion_bottom_recalc:.4f} * {pattern_bottom_recalc:.4f} = {ultimate_bottom_raw_recalc:.4f}")
+        final_score_recalc = ultimate_bottom_raw_recalc * bottom_context_score
+        print(f"    - [探针重算] 终极确认分 = {ultimate_bottom_raw_recalc:.4f} * {bottom_context_score:.4f} = {final_score_recalc:.4f}")
+        print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {final_score_recalc:.4f}")
+        print("--- “雅典娜智慧”探针解剖完毕 ---")
 
 
 
