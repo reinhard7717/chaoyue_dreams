@@ -247,8 +247,9 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V11.2 · 神盾协议版】计算全局的底部和顶部上下文分数
-    - 核心修改: 将乌拉诺斯参数传递给历史高点阻力计算函数，以实现统一的质量评估。
+    【V11.3 · 确认逻辑融合版】计算全局的底部和顶部上下文分数
+    - 核心修改: 将“历史低点支撑分”也纳入“底部确认”信号的计算范畴，实现“或”逻辑。
+                  无论“盖亚基石”还是“历史低点”支撑生效，都会激活 SCORE_FOUNDATION_BOTTOM_CONFIRMED。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -304,11 +305,15 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
-    # 修改开始: 将 atomic_states 传递给 _calculate_gaia_bedrock_support
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic_states)
-    # 修改结束
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
+    # 修改开始: 融合历史低点支撑分到“盖亚基石确认”信号中，实现“或”逻辑
+    # 这一步确保了无论哪种结构性支撑被触发，都会被视为一种“确认”
+    gaia_confirmation_score = atomic_states.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
+    fused_confirmation_score = np.maximum(gaia_confirmation_score, historical_low_support_score)
+    atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = fused_confirmation_score.astype(np.float32)
+    # 修改结束
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
     ma55 = df.get('MA_55_D', df[close_col])

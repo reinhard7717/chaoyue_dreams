@@ -1165,12 +1165,11 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 革命性重构版】“雅典娜智慧”探针
+        【V2.1 · 基础层解剖版】“雅典娜智慧”探针
+        - 核心升级: 新增对组件A内部“基础层反转分”的深度解剖，揭示其由多周期健康度融合而来的过程。
         - 核心重构: 彻底废除基于过时逻辑的旧探针，根据最新的代码库，重建了完全正确的信号解剖链路。
-                      确保探针的每一步计算都与主引擎的真实行为完全一致。
-        - 核心职责: 钻透式解剖 COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION 信号的真实构成。
         """
-        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V2.0】🦉 ---")
+        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V2.1】🦉 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         def get_val(name, date, default=0.0):
@@ -1179,16 +1178,13 @@ class IntelligenceLayer:
                 print(f"      - [警告] 探针无法在 atomic_states 中找到信号: {name}")
                 return default
             return series.get(date, default)
-
         # 链路层 1: 最终成品
         final_score = get_val('COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION', probe_date)
         print(f"\n  [链路层 1] 最终确认成品: COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION = {final_score:.4f}")
         print(f"    - [核心公式]: 终极确认分 = 原始终极底部确认分 * 底部上下文分数")
-
         # 链路层 2: 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)
         print("\n  [链路层 2] 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)")
         print(f"    - [核心公式]: 原始分 = 认知融合底部反转分 * 形态底部反转分")
-
         # --- [组件 A] 认知融合底部反转分 (COGNITIVE_FUSION_BOTTOM_REVERSAL) ---
         fusion_bottom_val = get_val('COGNITIVE_FUSION_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 A] 认知融合底部反转分 (COGNITIVE_FUSION_BOTTOM_REVERSAL): {fusion_bottom_val:.4f} ---")
@@ -1199,11 +1195,31 @@ class IntelligenceLayer:
         structure_bottom = get_val('SCORE_STRUCTURE_BOTTOM_REVERSAL', probe_date)
         behavior_bottom = get_val('SCORE_BEHAVIOR_BOTTOM_REVERSAL', probe_date)
         print(f"        - 基础层反转 (SCORE_FOUNDATION_BOTTOM_REVERSAL): {foundation_bottom:.4f}")
+        # 修改开始: 新增基础层反转的深度解剖显微镜
+        print("\n          --- [基础层反转显微镜] ---")
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        health = atomic.get('__FOUNDATION_overall_health', {})
+        if not health:
+            print("            - [警告] 探针无法找到 '__FOUNDATION_overall_health' 缓存。")
+        else:
+            s_bull = health.get('s_bull', {})
+            s_bear = health.get('s_bear', {})
+            bullish_reversal_health = {p: s_bull.get(p, pd.Series(0.5)).get(probe_date, 0.5) * (1 - s_bear.get(p, pd.Series(0.5)).get(probe_date, 0.5)) for p in periods}
+            bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
+            bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
+            bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
+            print(f"            - 短周期反转健康度 (1,5d): {bullish_short_force_rev:.4f}")
+            print(f"            - 中周期反转健康度 (13,21d): {bullish_medium_trend_rev:.4f}")
+            print(f"            - 长周期反转健康度 (55d): {bullish_long_inertia_rev:.4f}")
+            overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
+            print(f"            - [探针重算] 基础层反转触发分(未加成) = {overall_bullish_reversal_trigger:.4f}")
+        # 修改结束
         print(f"        - 结构层反转 (SCORE_STRUCTURE_BOTTOM_REVERSAL): {structure_bottom:.4f}")
         print(f"        - 行为层反转 (SCORE_BEHAVIOR_BOTTOM_REVERSAL): {behavior_bottom:.4f}")
         fusion_bottom_recalc = foundation_bottom * structure_bottom * behavior_bottom
         print(f"        - [探针重算] 融合分 = {foundation_bottom:.4f} * {structure_bottom:.4f} * {behavior_bottom:.4f} = {fusion_bottom_recalc:.4f}")
-
         # --- [组件 B] 形态底部反转分 (SCORE_PATTERN_BOTTOM_REVERSAL) ---
         pattern_bottom_val = get_val('SCORE_PATTERN_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 B] 形态底部反转分 (SCORE_PATTERN_BOTTOM_REVERSAL): {pattern_bottom_val:.4f} ---")
@@ -1212,30 +1228,24 @@ class IntelligenceLayer:
         print("\n        --- [组件B显微镜] ---")
         rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        
         was_oversold = (rsi.rolling(window=5, min_periods=1).min() < 35)
         is_recovering = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) > 0)
         score_rsi_reversal = (was_oversold & is_recovering).astype(float).get(probe_date, 0.0)
-        
         is_breaking_consolidation = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
         score_consolidation_breakout = (is_breaking_consolidation * 0.8).get(probe_date, 0.0)
-        
         is_macd_bull_cross = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
         score_macd_bullish_cross = is_macd_bull_cross.get(probe_date, 0.0)
-
         rsi_slope_abs = df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)).abs()
         macd_hist_slope_abs = df.get('SLOPE_1_MACDh_13_34_8_D', pd.Series(0, index=df.index)).abs()
         rsi_exhaustion_score = normalize_score(rsi_slope_abs, df.index, window=60, ascending=False)
         macd_exhaustion_score = normalize_score(macd_hist_slope_abs, df.index, window=60, ascending=False)
         score_momentum_exhaustion = ((rsi_exhaustion_score * macd_exhaustion_score)**0.5).get(probe_date, 0.0)
-
         print(f"        - 模式1: RSI反转分: {score_rsi_reversal:.4f}")
         print(f"        - 模式2: 平台突破分: {score_consolidation_breakout:.4f}")
         print(f"        - 模式3: MACD金叉分: {score_macd_bullish_cross:.4f}")
         print(f"        - 模式4: 动能衰竭分: {score_momentum_exhaustion:.4f}")
         pattern_bottom_recalc = max(score_rsi_reversal, score_consolidation_breakout, score_macd_bullish_cross, score_momentum_exhaustion)
         print(f"        - [探针重算] 形态分 = max(...) = {pattern_bottom_recalc:.4f}")
-
         # --- [调节器] 底部上下文分数 (bottom_context_score) ---
         print("\n    --- [调节器] 底部上下文分数 (bottom_context_score) ---")
         atomic['strategy_instance_ref'] = self.strategy
@@ -1243,7 +1253,6 @@ class IntelligenceLayer:
         del atomic['strategy_instance_ref']
         bottom_context_score = bottom_context_score_series.get(probe_date, 0.0)
         print(f"      - [探针获取] 底部上下文分数: {bottom_context_score:.4f} (详情请见“忒弥斯天平”探针)")
-
         # --- [最终验证] ---
         print("\n  [最终验证]")
         ultimate_bottom_raw_recalc = fusion_bottom_recalc * pattern_bottom_recalc
