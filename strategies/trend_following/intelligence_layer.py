@@ -1165,11 +1165,11 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.1 · 基础层解剖版】“雅典娜智慧”探针
-        - 核心升级: 新增对组件A内部“基础层反转分”的深度解剖，揭示其由多周期健康度融合而来的过程。
-        - 核心重构: 彻底废除基于过时逻辑的旧探针，根据最新的代码库，重建了完全正确的信号解剖链路。
+        【V2.2 · 支柱解剖版】“雅典娜智慧”探针
+        - 核心升级: 新增“基础层支柱解剖”模块，钻透式解剖基础层反转分的四大支柱(EMA, RSI, MACD, CMF)
+                      的原始数据和快照分，彻底揭示其低分根源。
         """
-        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V2.1】🦉 ---")
+        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V2.2】🦉 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         def get_val(name, date, default=0.0):
@@ -1195,8 +1195,8 @@ class IntelligenceLayer:
         structure_bottom = get_val('SCORE_STRUCTURE_BOTTOM_REVERSAL', probe_date)
         behavior_bottom = get_val('SCORE_BEHAVIOR_BOTTOM_REVERSAL', probe_date)
         print(f"        - 基础层反转 (SCORE_FOUNDATION_BOTTOM_REVERSAL): {foundation_bottom:.4f}")
-        # 修改开始: 新增基础层反转的深度解剖显微镜
-        print("\n          --- [基础层反转显微镜] ---")
+        # --- [基础层反转显微镜 V2] ---
+        print("\n          --- [基础层反转显微镜 V2] ---")
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
@@ -1215,6 +1215,57 @@ class IntelligenceLayer:
             print(f"            - 长周期反转健康度 (55d): {bullish_long_inertia_rev:.4f}")
             overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
             print(f"            - [探针重算] 基础层反转触发分(未加成) = {overall_bullish_reversal_trigger:.4f}")
+        # 修改开始: 新增基础层支柱的深度解剖
+        print("\n            --- [基础层支柱解剖 (关系快照分)] ---")
+        norm_window = 55
+        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
+        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
+        weight_keys = ['ema', 'rsi', 'macd', 'cmf']
+        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
+        weights_array /= weights_array.sum()
+        # 1. EMA 支柱
+        fusion_weights = p_conf.get('ma_health_fusion_weights', {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
+        ma_periods = [5, 13, 21, 55]
+        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
+        alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
+        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D' if p != 1 else 'SLOPE_1_close_D'], df.index, norm_window) + 1) / 2.0) for p in ma_periods]
+        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D' if p != 1 else 'ACCEL_1_close_D'], df.index, norm_window) + 1) / 2.0) for p in ma_periods]
+        relational_health_scores = []
+        for short_p, long_p in [(5, 21), (13, 55)]:
+            spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
+            relational_health_scores.append((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0)
+        avg_slope_health = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5)
+        avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5)
+        avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5)
+        ema_snapshot_score = (alignment_score * fusion_weights.get('alignment', 0.1) + avg_slope_health * fusion_weights.get('slope', 0.2) + avg_accel_health * fusion_weights.get('accel', 0.2) + avg_relational_health * fusion_weights.get('relational', 0.5))
+        # 2. RSI 支柱
+        rsi_snapshot_score = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
+        # 3. MACD 支柱
+        macd_snapshot_score = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
+        # 4. CMF 支柱
+        cmf_snapshot_score = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
+        # 打印探针日期前后数据
+        print("              日期 |   收盘 | RSI(13) | MACD Hist | CMF(21) || EMA快照分 | RSI快照分 | MACD快照分 | CMF快照分")
+        print("              " + "-"*85)
+        for i in range(-2, 2):
+            date = probe_date + pd.Timedelta(days=i)
+            if date in df.index:
+                close_val = df.loc[date, 'close_D']
+                rsi_val = df.loc[date, 'RSI_13_D']
+                macd_val = df.loc[date, 'MACDh_13_34_8_D']
+                cmf_val = df.loc[date, 'CMF_21_D']
+                ema_score = ema_snapshot_score.get(date, 0.0)
+                rsi_score = rsi_snapshot_score.get(date, 0.0)
+                macd_score = macd_snapshot_score.get(date, 0.0)
+                cmf_score = cmf_snapshot_score.get(date, 0.0)
+                is_probe_day = ">>" if i == 0 else "  "
+                print(f"            {is_probe_day}{date.strftime('%m-%d')} | {close_val:6.2f} | {rsi_val:7.2f} | {macd_val:9.4f} | {cmf_val:7.4f} || {ema_score:10.4f} | {rsi_score:9.4f} | {macd_score:10.4f} | {cmf_score:9.4f}")
+        # 融合计算
+        s_bull_components = [ema_snapshot_score, rsi_snapshot_score, macd_snapshot_score, cmf_snapshot_score]
+        s_bull_stacked = np.stack([s.values for s in s_bull_components], axis=0)
+        fused_s_bull_values = np.prod(s_bull_stacked ** weights_array[:, np.newaxis], axis=0)
+        fused_s_bull_series = pd.Series(fused_s_bull_values, index=df.index)
+        print(f"            - [探针重算] {probe_date.strftime('%Y-%m-%d')} 的融合看涨健康分(s_bull): {fused_s_bull_series.get(probe_date, 0.0):.4f}")
         # 修改结束
         print(f"        - 结构层反转 (SCORE_STRUCTURE_BOTTOM_REVERSAL): {structure_bottom:.4f}")
         print(f"        - 行为层反转 (SCORE_BEHAVIOR_BOTTOM_REVERSAL): {behavior_bottom:.4f}")
