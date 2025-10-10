@@ -564,7 +564,9 @@ class IntelligenceLayer:
             bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
-        gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
+        # 修改开始: 在探针调用时，传入 atomic_states
+        gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic)
+        # 修改结束
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
         support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233, 377])
@@ -704,56 +706,38 @@ class IntelligenceLayer:
         print(f"      - 价格拉伸分: {stretch_score.get(probe_date, 0.0):.4f}")
         print(f"      - 均线混乱分: {misalignment_score.get(probe_date, 0.0):.4f}")
         print(f"      - 乖离过热分: {overheat_score.get(probe_date, 0.0):.4f} (原始BIAS: {bias_abs.get(probe_date, 0.0):.2%})")
-        
-        # 乌拉诺斯探针现在只返回一个分数，不再需要其内部细节
         uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
         from .utils import _calculate_uranus_ceiling_resistance, _calculate_historical_high_resistance
         uranus_ceiling_resistance_score_series = _calculate_uranus_ceiling_resistance(df, uranus_params)
         uranus_ceiling_resistance_score = uranus_ceiling_resistance_score_series.get(probe_date, 0.0)
-        self._deploy_uranus_ceiling_probe(probe_date) # 探针调用保持，用于显示细节
-
+        self._deploy_uranus_ceiling_probe(probe_date)
         p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
-        
         print("      --- [历史高点显微镜] 深入解剖 ---")
-        # 调用主引擎的函数来获取最终分数，以确保一致性
         historical_high_resistance_score_series = _calculate_historical_high_resistance(df, p_fib_resistance, uranus_params)
         final_historical_high_score = historical_high_resistance_score_series.get(probe_date, 0.0)
-
-        # 循环体现在只负责打印解剖过程，不再进行计算
         if get_param_value(p_fib_resistance.get('enabled'), False):
             fib_periods = get_param_value(p_fib_resistance.get('periods'), [34, 55, 89, 144, 233])
             level_scores = get_param_value(p_fib_resistance.get('level_scores'), {})
-            
             for period in fib_periods:
                 period_str = str(period)
                 if period_str not in level_scores: continue
-                
                 rolling_high_series = df['high_D'].rolling(window=period, min_periods=max(1, int(period*0.8))).max().shift(1)
                 historical_high_val = rolling_high_series.get(probe_date)
-                
                 if pd.notna(historical_high_val):
                     historical_high_date = rolling_high_series.loc[:probe_date].idxmax()
                     print(f"\n        - {period}日周期: 找到前高 {historical_high_val:.2f} (日期: {historical_high_date.strftime('%Y-%m-%d')})")
                 else:
                     print(f"\n        - {period}日周期: 未找到有效前高。")
                     continue
-                
-                # 1. 调用通用的阿波罗之箭探针，评估战术质量
                 temp_resistance_series = pd.Series(np.nan, index=df.index)
                 temp_resistance_series.at[probe_date] = historical_high_val
                 rejection_quality = self._deploy_apollo_arrow_probe(probe_date, uranus_params, temp_resistance_series)
-
-                # 2. 获取战略重要性
                 strategic_importance = level_scores[period_str]
-                
-                # 3. 融合并计算最终风险分
                 final_period_score = rejection_quality * strategic_importance
-                
                 print(f"        --- [融合裁决] ---")
                 print(f"          - 战术质量分 (来自阿波罗之箭): {rejection_quality:.4f}")
                 print(f"          - 战略重要性分 (来自配置): {strategic_importance:.2f}")
                 print(f"          - ⚖️ 周期风险分 = 质量 * 重要性 = {rejection_quality:.4f} * {strategic_importance:.2f} = {final_period_score:.4f}")
-
         structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, final_historical_high_score)
         print(f"\n    - [组件2] 结构性阻力得分: {structural_resistance_score:.4f}")
         print(f"      - 乌拉诺斯穹顶(均线)阻力分: {uranus_ceiling_resistance_score:.4f}")
