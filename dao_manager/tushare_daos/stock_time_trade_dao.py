@@ -433,6 +433,56 @@ class StockTimeTradeDAO(BaseDAO):
         return stock_daily_data_list
 
     # =============== A股分钟行情 ===============
+    async def get_intraday_kline_by_date(self, stock_code: str, trade_date: datetime.date, time_level: str = '1') -> Optional[pd.DataFrame]:
+        """
+        【V2.0 · 战术数据接口】获取指定股票在指定交易日的所有分钟K线数据。
+        - 核心升级: 1. 方法更名，语义更清晰。
+                      2. 增加 time_level 参数，使其能灵活获取1分钟、5分钟等不同级别的日内数据。
+                      3. 统一时区处理逻辑，确保返回的DataFrame索引是标准的UTC时区。
+        Args:
+            stock_code (str): 股票代码。
+            trade_date (datetime.date): 交易日期。
+            time_level (str): 时间级别, e.g., '1', '5', '30'. 默认为 '1'。
+        Returns:
+            Optional[pd.DataFrame]: 包含当日分钟K线数据的DataFrame，如果获取失败则为None。
+        """
+        try:
+            # [代码修改] 使用 time_level 参数动态获取模型
+            model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
+            if not model_class:
+                logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
+                return None
+
+            # [代码修改] 简化时间范围构建，使用Django ORM的 __date 功能
+            kline_queryset = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__date=trade_date
+            ).order_by('trade_time')
+
+            kline_values = await sync_to_async(list)(kline_queryset.values(
+                'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
+            ))
+
+            if not kline_values:
+                # 日志信息更清晰
+                logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
+                return None
+
+            df = pd.DataFrame.from_records(kline_values)
+            
+            # [代码修改] 统一时区处理逻辑
+            # 从数据库取出的时间已经是UTC，直接设置为索引
+            df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
+            df.set_index('trade_time', inplace=True)
+            df.rename(columns={'vol': 'volume'}, inplace=True)
+            
+            logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的 {time_level}分钟 K线 for {stock_code}")
+            return df
+
+        except Exception as e:
+            logger.error(f"获取当日 {time_level}分钟 K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
+            return None
+
     async def get_1_min_kline_time_by_day(self, stock_code: str, trade_date: datetime.date) -> Optional[pd.DataFrame]:
         """
         获取指定股票在指定日期的所有1分钟K线数据。

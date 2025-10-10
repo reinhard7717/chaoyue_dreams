@@ -259,7 +259,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         return empty_series, empty_series
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
-    # ... [底部上下文分数计算逻辑保持不变] ...
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('MA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -305,12 +304,13 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
-    gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params)
+    # 修改开始: 将 atomic_states 传递给 _calculate_gaia_bedrock_support
+    gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic_states)
+    # 修改结束
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
-    # ... [顶部上下文分数计算逻辑] ...
     ma55 = df.get('MA_55_D', df[close_col])
     rolling_high_55d = df[high_col].rolling(window=55, min_periods=21).max()
     wave_channel_height = (rolling_high_55d - ma55).replace(0, 1e-9)
@@ -341,7 +341,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     uranus_params = get_param_value(p_synthesis.get('uranus_ceiling_params'), {})
     uranus_ceiling_resistance_score = _calculate_uranus_ceiling_resistance(df, uranus_params)
     p_fib_resistance = get_param_value(p_synthesis.get('fibonacci_resistance_params'), {})
-    # 将乌拉诺斯参数 (包含拒绝质量评估的权重) 传递给历史高点计算函数
     historical_high_resistance_score = _calculate_historical_high_resistance(df, p_fib_resistance, uranus_params)
     structural_resistance_score = np.maximum(uranus_ceiling_resistance_score, historical_high_resistance_score).astype(np.float32)
     top_context_score = np.maximum(conventional_top_score, structural_resistance_score).astype(np.float32)
@@ -623,7 +622,7 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
     )
     return dynamic_reversal_score.clip(0, 1).astype(np.float32)
 
-def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series:
+def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 修改开始: 增加 atomic_states 参数
     """
     【V23.2 · 影线逻辑修正版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，
@@ -664,7 +663,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
     base_defense_condition = (df[low_col] < acting_lifeline) & is_in_influence_zone & (df[close_col] > df[low_col])
     defense_quality_score.loc[base_defense_condition] = defense_base_score
     is_yang_line = df[close_col] > df[open_col]
-    # 使用精确的通用公式计算上下影线
     upper_shadow = df[high_col] - np.maximum(df[open_col], df[close_col])
     lower_shadow = np.minimum(df[open_col], df[close_col]) - df[low_col]
     has_dominance = lower_shadow > upper_shadow
@@ -694,6 +692,9 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict) -> pd.Series
             else:
                 confirmation_score_series.loc[idx] = confirmation_score
             last_confirmation_date = idx
+    # 新增开始: 将确认分数作为一个独立的信号存入 atomic_states
+    atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = confirmation_score_series.astype(np.float32)
+    # 新增结束
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
 

@@ -1053,6 +1053,70 @@ class IndicatorCalculator:
             logger.error(f"计算价格/成交量与均线比率时发生未知错误: {e}", exc_info=True)
             return None
 
+    async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
+        """[新增] 计算唐奇安通道 (Donchian Channels)"""
+        required_cols = [high_col, low_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        if len(df) < period:
+            return None
+        try:
+            def _sync_donchian():
+                return ta.donchian(high=df[high_col], low=df[low_col], lower_length=period, upper_length=period, append=False)
+            donchian_df = await asyncio.to_thread(_sync_donchian)
+            if donchian_df is None or donchian_df.empty:
+                return None
+            return donchian_df
+        except Exception as e:
+            logger.error(f"计算 Donchian Channels (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_squeeze(self, df: pd.DataFrame, bb_period: int = 21, kc_period: int = 21, atr_period: int = 13, bb_std: float = 2.0, kc_mult: float = 1.5) -> Optional[pd.DataFrame]:
+        """[新增] 计算布林带与肯特纳通道的压缩 (Squeeze) 状态"""
+        required_cols = ['high', 'low', 'close']
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        if len(df) < max(bb_period, kc_period, atr_period):
+            return None
+        try:
+            def _sync_squeeze():
+                # pandas-ta的squeeze指标直接计算了压缩状态
+                return ta.squeeze(
+                    high=df['high'], low=df['low'], close=df['close'],
+                    bb_length=bb_period, bb_std=bb_std,
+                    kc_length=kc_period, kc_scalar=kc_mult,
+                    atr_length=atr_period,
+                    append=False
+                )
+            squeeze_df = await asyncio.to_thread(_sync_squeeze)
+            if squeeze_df is None or squeeze_df.empty:
+                return None
+            # 我们只需要SQZ_ON这一列，它是一个布尔值（0或1）
+            squeeze_on_col = f'SQZ_ON'
+            if squeeze_on_col in squeeze_df.columns:
+                return squeeze_df[[squeeze_on_col]]
+            return None
+        except Exception as e:
+            logger.error(f"计算 Squeeze (bb={bb_period}, kc={kc_period}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_eom(self, df: pd.DataFrame, period: int = 13, high_col='high', low_col='low', volume_col='volume') -> Optional[pd.DataFrame]:
+        """[新增] 计算简易波动指标 (Ease of Movement)"""
+        required_cols = [high_col, low_col, volume_col]
+        if df is None or df.empty or not all(c in df.columns for c in required_cols):
+            return None
+        if len(df) < period:
+            return None
+        try:
+            def _sync_eom():
+                return ta.eom(high=df[high_col], low=df[low_col], volume=df[volume_col], length=period, append=False)
+            eom_df = await asyncio.to_thread(_sync_eom)
+            if eom_df is None or eom_df.empty:
+                return None
+            return eom_df
+        except Exception as e:
+            logger.error(f"计算 EOM (周期 {period}) 出错: {e}", exc_info=True)
+            return None
 
 
 

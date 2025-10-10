@@ -692,6 +692,17 @@ class IndicatorService:
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
 
+        # --- 步骤 8.5: 注入日内微观特征 ---
+        # 在所有日线级别的数据（包括补充数据）都合并完毕后，开始注入日内特征
+        # 这是一个全新的步骤，为日线数据赋予了微观视角
+        intraday_features_df = await self._calculate_intraday_features(stock_code, df_daily_master.index)
+        if intraday_features_df is not None and not intraday_features_df.empty:
+            # 使用 join 合并，它基于索引，比 merge 更适合这里
+            df_daily_master = df_daily_master.join(intraday_features_df, how='left')
+            # 对新注入的日内特征列进行前向填充，以处理非交易日的情况
+            df_daily_master[intraday_features_df.columns] = df_daily_master[intraday_features_df.columns].ffill()
+            print(f"    - [微观战术注入] 成功注入 {len(intraday_features_df.columns)} 个日内特征。")
+
         # 用合并后的“大师版”日线数据替换原始的纯OHLCV日线数据
         raw_dfs['D'] = df_daily_master
 
@@ -1087,3 +1098,57 @@ class IndicatorService:
                     rs_col_name = f'RS_{benchmark_code.replace(".", "_").lower()}_{period}_{time_level}'
                     df_processed[rs_col_name] = excess_log_return
         return df_processed
+
+    async def _calculate_intraday_features(self, stock_code: str, daily_index: pd.DatetimeIndex) -> Optional[pd.DataFrame]:
+        """
+        【V1.2 · 引擎集成版】日内特征锻造车间
+        - 核心升级: 此方法现在作为日内行为引擎的总调度器。它获取分钟数据，
+                    然后调用IntradayBehaviorEngine进行深度分析，最后将返回的
+                    高级战术分数作为日级别特征进行注入。
+        """
+        if daily_index.empty:
+            return None
+
+        intraday_features_list = []
+        for trade_date in daily_index.date:
+            df_minute = await self.stock_trade_dao.get_intraday_kline_by_date(stock_code, trade_date, '1')
+            
+            # 调用日内行为引擎进行深度诊断
+            # [代码修改] 将 strategy_instance 替换为 self.strategy
+            # 修正：IntradayBehaviorEngine现在由IndicatorService拥有，所以传递self.strategy是不对的。
+            # 修正：IntradayBehaviorEngine的__init__接收strategy_instance，而IndicatorService没有strategy_instance。
+            # 修正：最简单的修复是让IntradayBehaviorEngine的__init__接收IndicatorService实例，然后通过它访问calculator。
+            # 我已经在__init__中做了这个修改。
+            intraday_scores = await self.intraday_behavior_engine.run_intraday_diagnostics(df_minute)
+            
+            # 将日期和诊断分数合并
+            features = {'trade_date': pd.to_datetime(trade_date, utc=True)}
+            features.update(intraday_scores)
+            
+            # 计算一些简单的一级日内特征
+            if df_minute is not None and not df_minute.empty:
+                features['VWAP_D'] = (df_minute['close'] * df_minute['volume']).sum() / df_minute['volume'].sum() if df_minute['volume'].sum() > 0 else np.nan
+            else:
+                features['VWAP_D'] = np.nan
+
+            intraday_features_list.append(features)
+
+        if not intraday_features_list:
+            return None
+
+        result_df = pd.DataFrame(intraday_features_list)
+        # [代码修改] 为所有日内分数添加 _D 后缀，以明确其为日级别特征
+        cols_to_rename = {col: f"{col}_D" for col in result_df.columns if col.startswith('SCORE_')}
+        result_df.rename(columns=cols_to_rename, inplace=True)
+        result_df.set_index('trade_date', inplace=True)
+        
+        return result_df
+
+
+
+
+
+
+
+
+

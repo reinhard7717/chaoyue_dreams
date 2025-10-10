@@ -7,6 +7,7 @@ from enum import Enum
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score, calculate_context_scores
 from strategies.trend_following.intelligence.micro_behavior_engine import MicroBehaviorEngine
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
+from strategies.trend_following.intelligence.intraday_behavior_engine import IntradayBehaviorEngine
 
 class MainForceState(Enum):
     """
@@ -28,6 +29,7 @@ class CognitiveIntelligence:
         self.strategy = strategy_instance
         self.micro_behavior_engine = MicroBehaviorEngine(strategy_instance)
         self.tactic_engine = TacticEngine(strategy_instance)
+        self.intraday_behavior_engine = IntradayBehaviorEngine(strategy_instance)
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """

@@ -804,6 +804,13 @@
             "context_role": "top_risk",
             "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
         },
+        "SCORE_FOUNDATION_BOTTOM_CONFIRMED": {
+            "cn_name": "【基础战术】底部确认",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【战术信号】基于盖亚基石协议，在关键支撑位连续N日站稳后触发的确认信号，代表阵地已巩固。"
+        },
         "SCORE_FOUNDATION_VOL_COMPRESSION_OPP": {
             "cn_name": "【基础战术】波动压缩机会",
             "category": "基础层-机会",
