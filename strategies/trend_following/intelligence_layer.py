@@ -1165,7 +1165,8 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“雅典娜智慧”探针 - 认知层终极底部确认解剖
+        【V1.1 · 信号名修正版】“雅典娜智慧”探针 - 认知层终极底部确认解剖
+        - 核心修正: 修正了对中间状态信号的引用名称，移除了错误的 "SCORE_" 前缀，确保探针能正确从 atomic_states 中获取输入值。
         - 核心职责: 钻透式解剖 COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION 信号，
                       揭示其从“融合底部”和“形态底部”到最终与“底部上下文”相乘的完整逻辑链路。
         """
@@ -1188,20 +1189,28 @@ class IntelligenceLayer:
         # 链路层 3: 钻透 -> 融合底部确认分 (fusion_bottom)
         print("\n    --- [组件 A] 融合底部确认分 (fusion_bottom) ---")
         print(f"      - [核心公式]: (反转可靠性 * 投降潜力) ^ 0.5")
-        reversal_reliability = get_val('SCORE_COGNITIVE_BOTTOM_REVERSAL_RELIABILITY', probe_date)
-        capitulation_potential = get_val('SCORE_COGNITIVE_CAPITULATION_POTENTIAL', probe_date)
+        # 修改开始: 移除错误的 "SCORE_" 前缀
+        reversal_reliability = get_val('COGNITIVE_BOTTOM_REVERSAL_RELIABILITY', probe_date)
+        capitulation_potential = get_val('COGNITIVE_CAPITULATION_POTENTIAL', probe_date)
+        # 修改结束
         fusion_bottom_recalc = (reversal_reliability * capitulation_potential) ** 0.5
-        print(f"        - 反转可靠性 (SCORE_COGNITIVE_BOTTOM_REVERSAL_RELIABILITY): {reversal_reliability:.4f}")
-        print(f"        - 投降潜力 (SCORE_COGNITIVE_CAPITULATION_POTENTIAL): {capitulation_potential:.4f}")
+        # 修改开始: 修正打印的信号名称
+        print(f"        - 反转可靠性 (COGNITIVE_BOTTOM_REVERSAL_RELIABILITY): {reversal_reliability:.4f}")
+        print(f"        - 投降潜力 (COGNITIVE_CAPITULATION_POTENTIAL): {capitulation_potential:.4f}")
+        # 修改结束
         print(f"        - [探针重算] 融合底部确认分 = ({reversal_reliability:.4f} * {capitulation_potential:.4f}) ^ 0.5 = {fusion_bottom_recalc:.4f}")
         # 链路层 4: 钻透 -> 形态底部确认分 (pattern_bottom)
         print("\n    --- [组件 B] 形态底部确认分 (pattern_bottom) ---")
         print(f"      - [核心公式]: (形态看涨反转 * 缺口支撑) ^ 0.5")
-        pattern_reversal = get_val('SCORE_PATTERN_BULLISH_REVERSAL', probe_date)
-        gap_support = get_val('SCORE_PATTERN_GAP_SUPPORT', probe_date)
+        # 修改开始: 移除错误的 "SCORE_" 前缀
+        pattern_reversal = get_val('PATTERN_BULLISH_REVERSAL', probe_date)
+        gap_support = get_val('PATTERN_GAP_SUPPORT', probe_date)
+        # 修改结束
         pattern_bottom_recalc = (pattern_reversal * gap_support) ** 0.5
-        print(f"        - 形态看涨反转 (SCORE_PATTERN_BULLISH_REVERSAL): {pattern_reversal:.4f}")
-        print(f"        - 缺口支撑 (SCORE_PATTERN_GAP_SUPPORT): {gap_support:.4f}")
+        # 修改开始: 修正打印的信号名称
+        print(f"        - 形态看涨反转 (PATTERN_BULLISH_REVERSAL): {pattern_reversal:.4f}")
+        print(f"        - 缺口支撑 (PATTERN_GAP_SUPPORT): {gap_support:.4f}")
+        # 修改结束
         print(f"        - [探针重算] 形态底部确认分 = ({pattern_reversal:.4f} * {gap_support:.4f}) ^ 0.5 = {pattern_bottom_recalc:.4f}")
         # 链路层 5: 钻透 -> 底部上下文分数 (bottom_context_score)
         print("\n    --- [调节器] 底部上下文分数 (bottom_context_score) ---")
