@@ -1165,10 +1165,10 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.2 · 显微镜版】“雅典娜智慧”探针 - 认知层终极底部确认解剖
-        - 核心升级: 为每个输入组件增加了“显微镜”功能，钻透式解剖其自身的计算逻辑和原始数据来源，
-                      以回答“为什么这个组件是零”的问题。
-        - 核心职责: 钻透式解剖 COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION 信号。
+        【V1.3 · 属性修复版】“雅典娜智慧”探针 - 认知层终极底部确认解剖
+        - 核心修复: 修正了获取参数的错误方式，不再尝试访问不存在的 'cognitive_intel.params' 属性，
+                      而是遵循标准模式从主策略实例中获取参数块，解决了 AttributeError 崩溃问题。
+        - 核心升级: 为每个输入组件增加了“显微镜”功能，钻透式解剖其自身的计算逻辑和原始数据来源。
         """
         print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖】🦉 ---")
         df = self.strategy.df_indicators
@@ -1197,7 +1197,12 @@ class IntelligenceLayer:
         print("        [1] 反转可靠性 (COGNITIVE_BOTTOM_REVERSAL_RELIABILITY):")
         main_reliability = get_val('SCORE_COGNITIVE_MAIN_RELIABILITY', probe_date)
         ignition_score = get_val('SCORE_COGNITIVE_IGNITION', probe_date)
-        bonus_factor = get_param_value(self.cognitive_intel.params.get('reversal_reliability_bonus_factor'), 0.5)
+        # 新增开始: 获取认知智能参数块
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        # 新增结束
+        # 修改开始: 从正确的参数块中获取奖励因子
+        bonus_factor = get_param_value(p_cognitive.get('reversal_reliability_bonus_factor'), 0.5)
+        # 修改结束
         reversal_reliability_recalc = (main_reliability * (1 + ignition_score * bonus_factor)).clip(0, 1)
         print(f"          - 公式: (主要可靠性 * (1 + 点火分 * 奖励因子)).clip(0, 1)")
         print(f"          - 主要可靠性 (SCORE_COGNITIVE_MAIN_RELIABILITY): {main_reliability:.4f}")
