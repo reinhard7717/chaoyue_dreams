@@ -453,7 +453,37 @@
             "type": "playbook",
             "description": "融合了震荡市环境和价格位置的最终均值回归买入剧本分数。具体分值由计分引擎定义。"
         },
-
+        "说明_intraday_behavior_engine": "--- 日内行为引擎信号 (IntradayBehavior Engine) ---",
+        "SCORE_INTRADAY_EFFICIENCY_DYNAMICS": {
+            "cn_name": "【日内】攻击效率动态",
+            "category": "日内行为-机会",
+            "type": "context",
+            "description": "基于EOM指标的元分析，衡量日内价量攻击效率的动态变化。正分表示效率提升。"
+        },
+        "SCORE_INTRADAY_CONSISTENCY_DYNAMICS": {
+            "cn_name": "【日内】趋势一致性动态",
+            "category": "日内行为-机会",
+            "type": "context",
+            "description": "基于TRIX指标的元分析，衡量日内趋势的平滑动能变化。正分表示动能增强。"
+        },
+        "SCORE_INTRADAY_BREAKOUT_POTENTIAL": {
+            "cn_name": "【日内】突破潜力",
+            "category": "日内行为-机会",
+            "type": "context",
+            "description": "基于Squeeze指标的元分析，衡量日内波动率压缩与释放的动态。正分表示突破潜力增加。"
+        },
+        "SCORE_INTRADAY_BOTTOM_REVERSAL_DYNAMICS": {
+            "cn_name": "【日内】底部反转动态",
+            "category": "日内行为-机会",
+            "type": "context",
+            "description": "基于KDJ超卖和金叉的元分析，衡量日内底部反转的动态强度。正分表示反转正在形成。"
+        },
+        "SCORE_INTRADAY_TOP_REVERSAL_DYNAMICS": {
+            "cn_name": "【日内风险】顶部反转动态",
+            "category": "日内行为-风险",
+            "type": "risk",
+            "description": "基于KDJ超买和死叉的元分析，衡量日内顶部反转的动态强度。正分表示顶部风险正在形成。"
+        },
         "说明_playbook_engine": "--- 剧本引擎信号 (Playbook Engine) ---",
         "PLAYBOOK_V_REVERSAL_ACE": {
             "cn_name": "【剧本】V型反转王牌",

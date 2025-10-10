@@ -736,6 +736,41 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION'] = pd.Series(fused_tactical_opportunity, index=df.index, dtype=np.float32)
         self.strategy.atomic_states.update(states)
 
+    async def synthesize_intraday_confirmation(self, df: pd.DataFrame) -> None:
+        """
+        【V1.0 · 新增】日内微观确认合成模块
+        - 核心职责: 遍历所有需要进行日内确认的日期，调用IntradayBehaviorEngine，
+                    并将返回的战术分数注入到atomic_states中。
+        """
+        # 这是一个简化的触发逻辑：当任何一个核心底部信号大于0.5时，就触发日内分析
+        # 未来可以设计更精细的触发器
+        trigger_series = (self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE') > 0.5)
+        dates_to_check = df.index[trigger_series]
+        
+        if dates_to_check.empty:
+            return # 如果没有需要检查的日期，直接返回
+        
+        print(f"    -> [日内引擎触发] 发现 {len(dates_to_check)} 个潜在机会日，启动微观分析...")
+        
+        for trade_date in dates_to_check:
+            # [代码修改] 修正访问路径：通过 self.strategy.orchestrator 访问顶层的 indicator_service
+            df_minute = await self.strategy.orchestrator.indicator_service.stock_trade_dao.get_intraday_kline_by_date(
+                self.strategy.stock_code, 
+                trade_date.date()
+            )
+            
+            # 调用日内行为引擎进行深度诊断
+            intraday_scores = await self.intraday_behavior_engine.run_intraday_diagnostics(df_minute)
+            
+            # 将返回的日内战术分数注入到对应日期的atomic_states中
+            for score_name, score_value in intraday_scores.items():
+                # 确保该信号的Series存在
+                if score_name not in self.strategy.atomic_states:
+                    self.strategy.atomic_states[score_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
+                # 更新当天的分数
+                self.strategy.atomic_states[score_name].loc[trade_date] = score_value
+        
+        print(f"    -> [日内引擎] 微观分析完成。")
 
 
 

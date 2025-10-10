@@ -15,8 +15,8 @@ class IntradayBehaviorEngine:
     def __init__(self, strategy_instance):
         """[修改] 初始化时加载专属配置，并获取指标计算器的引用"""
         self.strategy = strategy_instance
-        # [代码修改] 获取对IndicatorCalculator的引用，以便调用其方法
-        self.calculator = strategy_instance.indicator_service.calculator
+        # [代码修改] 修正访问路径：通过 orchestrator 访问顶层的 indicator_service
+        self.calculator = strategy_instance.orchestrator.indicator_service.calculator
         # [代码修改] 从策略配置中加载本引擎的专属参数块
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
         self.fib_periods = [5, 8, 13, 21, 34, 55]
