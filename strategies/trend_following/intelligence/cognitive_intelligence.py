@@ -738,9 +738,8 @@ class CognitiveIntelligence:
 
     async def synthesize_intraday_confirmation(self, df: pd.DataFrame) -> None:
         """
-        【V1.0 · 新增】日内微观确认合成模块
-        - 核心职责: 遍历所有需要进行日内确认的日期，调用IntradayBehaviorEngine，
-                    并将返回的战术分数注入到atomic_states中。
+        【V1.1 · 路径修正版】日内微观确认合成模块
+        - 核心修正: 修正了获取分钟数据时对 indicator_service 的访问路径。
         """
         # 这是一个简化的触发逻辑：当任何一个核心底部信号大于0.5时，就触发日内分析
         # 未来可以设计更精细的触发器
