@@ -449,15 +449,17 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.5 · 信号细节修复版】终极得分构成解剖探针
-        - 核心修复: 修正了从 df_indicators['signal_details_cn'] 中解析进攻项和风险项的逻辑，确保探针能正确显示所有得分细节。
+        【V3.0 · 宙斯最终敕令版】终极得分构成解剖探针
+        - 核心革命: 颁布“宙斯最终敕令”，修正探针逻辑，正确处理“奇美拉冲突”的仲裁者地位。
+        - 新核心逻辑: 1. 在计算风险总分时，显式剥离“奇美拉冲突”惩罚项。
+                      2. 计算出“冲突前置总分” (所有其他信号之和)。
+                      3. 最后将“冲突前置总分”乘以 (1 - 奇美拉冲突分)，实现与主引擎的完美逻辑同步。
+        - 收益: 彻底解决了因“奇美拉冲突”被双重计算导致的最终得分验证失败问题。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针⚡️⚡️】---")
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.0】⚡️---") # 修改: 更新探针版本
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
-        # 新增开始
         self._deploy_athena_wisdom_probe(probe_date)
-        # 新增结束
         self._deploy_hephaestus_forge_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -469,32 +471,31 @@ class IntelligenceLayer:
             print(f"    - 【最终得分】: {final_score:.0f}")
         else:
             print(f"    - 【最终得分】: {final_score}")
+        # 修改开始: 部署“宙斯最终敕令”逻辑
         print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        # 修正了从 df_indicators 中解析信号细节的逻辑
         score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
         try:
-            # 检查是否已经是字典，如果不是（是字符串），则加载
             score_details = json.loads(score_details_json_str) if isinstance(score_details_json_str, str) else score_details_json_str
-            if not isinstance(score_details, dict): score_details = {} # 防御性编程
+            if not isinstance(score_details, dict): score_details = {}
         except (json.JSONDecodeError, TypeError):
             score_details = {}
         offense_items = score_details.get('offense', [])
         offense_total = 0
         if offense_items:
-            # 确保 offense_items 是一个列表
             if not isinstance(offense_items, list): offense_items = []
             for item in sorted(offense_items, key=lambda x: x.get('score', 0), reverse=True):
-                if not isinstance(item, dict): continue # 防御性编程
-                contribution = item.get('score', 0) # 直接使用 'score' 字段，它已经是贡献度
+                if not isinstance(item, dict): continue
+                contribution = item.get('score', 0)
                 raw_score = item.get('raw_score', 0)
                 base_score = item.get('base_score', 0)
-                print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
+                print(f"    - 【{item.get('name', 'N/A')}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
                 offense_total += contribution
         print("    ----------------------------------")
         print(f"    - 【进攻项总分】: {offense_total:.0f}")
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
         risk_items = score_details.get('risk', [])
-        risk_total = 0
+        risk_total_with_chimera = 0 # 包含奇美拉冲突的总风险
+        chimera_penalty_in_list = 0 # 单独记录列表中的奇美拉惩罚值
         if risk_items:
             if not isinstance(risk_items, list): risk_items = []
             for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
@@ -502,20 +503,28 @@ class IntelligenceLayer:
                 contribution = item.get('score', 0)
                 raw_score = item.get('raw_score', 0)
                 base_score = item.get('base_score', 0)
-                print(f"    - 【{item.get('name', 'N/A')}】: {contribution:.0f}  (原始值: {raw_score:.4f} * 基础分: {base_score})")
-                risk_total += contribution
+                item_name = item.get('name', 'N/A')
+                print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
+                risk_total_with_chimera += contribution
+                if '奇美拉冲突' in item_name:
+                    chimera_penalty_in_list = contribution
         print("    ----------------------------------")
-        print(f"    - 【风险项总分】: {risk_total:.0f}")
-        print("\n  [链路层 4] 终极对质")
-        entry_score_recalc = offense_total + risk_total
+        print(f"    - 【风险项总分(含奇美拉)】: {risk_total_with_chimera:.0f}")
+        print("\n  [链路层 4] 终极对质 (宙斯最终敕令)")
+        # 1. 剥离奇美拉惩罚，计算冲突前置总分
+        true_risk_total = risk_total_with_chimera - chimera_penalty_in_list
+        pre_conflict_entry_score = offense_total + true_risk_total
+        print(f"    - [探针重算] 冲突前置总分 = {offense_total:.0f} (进攻) + ({risk_total_with_chimera:.0f} - {chimera_penalty_in_list:.0f}) (真实风险) = {pre_conflict_entry_score:.0f}")
+        # 2. 获取真实的奇美拉冲突调节器
         chimera_conflict_score = atomic.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-        final_score_recalc = entry_score_recalc * (1 - chimera_conflict_score)
-        print(f"    - [探针重算入场分(entry_score)]: {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {entry_score_recalc:.0f}")
-        print(f"    - [探针重算最终分(final_score)]: {entry_score_recalc:.0f} * (1 - 奇美拉冲突:{chimera_conflict_score:.2f}) = {final_score_recalc:.0f}")
+        # 3. 执行最终仲裁
+        final_score_recalc = pre_conflict_entry_score * (1 - chimera_conflict_score)
+        print(f"    - [探针重算] 最终得分 = {pre_conflict_entry_score:.0f} * (1 - 奇美拉冲突调节器:{chimera_conflict_score:.2f}) = {final_score_recalc:.0f}")
         if isinstance(final_score, (float, np.floating)):
             print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
         else:
             print(f"    - [对比]: 实际值 {final_score} vs 重算值 {final_score_recalc:.0f}")
+        # 修改结束
         print("\n--- “宙斯之雷”审查完毕 ---")
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp):
