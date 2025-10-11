@@ -459,7 +459,7 @@ class IntelligenceLayer:
         self._deploy_athena_wisdom_probe(probe_date)
         self._deploy_hephaestus_forge_probe(probe_date)
         self._deploy_hermes_caduceus_probe(probe_date)
-        self._deploy_hermes_verdict_probe(probe_date)
+        # self._deploy_hermes_verdict_probe(probe_date)
         self._deploy_ares_spear_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
