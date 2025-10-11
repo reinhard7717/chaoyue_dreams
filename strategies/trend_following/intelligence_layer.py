@@ -449,20 +449,18 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V3.2 · 商神杖召唤版】终极得分构成解剖探针
-        - 核心升级: 在主探针链中正式召唤“商神杖探针”，用于对微观风险信号进行钻透式解剖。
-        - 收益: 确保每次解剖都能对“权力转移风险”这类复杂信号进行彻底的审查。
+        【V3.4.1 · 宙斯之雷协议版】终极得分构成解剖探针
+        - 核心升级: 调用 V1.1 版本的“阿瑞斯之矛探针”，确保其逻辑正确性。
+        - 收益: 恢复了探针系统刺穿“拉高出货”等市场顶层欺诈行为的能力。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.2】⚡️---") # 修改: 更新探针版本
-        # self._deploy_themis_scales_probe(probe_date)
-        # self._deploy_archangel_diagnosis_probe(probe_date)
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.4.1】⚡️---") # 修改: 更新探针版本
+        self._deploy_themis_scales_probe(probe_date)
+        self._deploy_archangel_diagnosis_probe(probe_date)
         self._deploy_athena_wisdom_probe(probe_date)
-        # self._deploy_hephaestus_forge_probe(probe_date)
-        # 新增开始: 召唤“商神杖探针”
+        self._deploy_hephaestus_forge_probe(probe_date)
         self._deploy_hermes_caduceus_probe(probe_date)
-        # 新增开始: 召唤“阿瑞斯之矛探针”
+        self._deploy_hermes_verdict_probe(probe_date)
         self._deploy_ares_spear_probe(probe_date)
-        # 新增结束
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         print("\n  [链路层 1] 最终裁决")
@@ -505,7 +503,7 @@ class IntelligenceLayer:
             if not isinstance(risk_items, list): risk_items = []
             for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
                 if not isinstance(item, dict): continue
-                contribution = item.get('score', 0)
+                contribution = item.get('score', o, 0)
                 raw_score = item.get('raw_score', 0)
                 base_score = item.get('base_score', 0)
                 item_name = item.get('name', 'N/A')
@@ -1312,11 +1310,13 @@ class IntelligenceLayer:
 
     def _deploy_ares_spear_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“阿瑞斯之矛探针” - 主力信念瓦解解剖
-        - 核心职责: 靶向解剖 COGNITIVE_SCORE_RISK_MAIN_FORCE_BELIEF_COLLAPSE 信号。
-        - 收益: 揭示系统是如何通过分析“看涨力量的衰竭”来识别最危险的“拉高出货”陷阱。
+        【V1.1 · 宙斯之雷协议版】“阿瑞斯之矛探针” - 主力信念瓦解解剖
+        - 核心修正: 部署“宙斯之雷协议”，修正了原始风险分的计算逻辑。
+          - 错误逻辑: (-score).clip(0)
+          - 正确逻辑: 1 - score
+        - 收益: 确保探针能够正确复现“主力信念瓦解”风险的产生过程，使其恢复神力。
         """
-        print("\n--- [探针] 正在启用: ⚔️【阿瑞斯之矛探针 · 主力信念瓦解解剖】⚔️ ---")
+        print("\n--- [探针] 正在启用: ⚔️【阿瑞斯之矛探针 V1.1 · 宙斯之雷协议版】⚔️ ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
         engine = self.cognitive_intel.micro_behavior_engine
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
@@ -1325,16 +1325,18 @@ class IntelligenceLayer:
             if series is None: return default
             return series.get(date, default)
         print("\n  --- 解剖【看跌】主力信念瓦解风险 ---")
-        # 这里的逻辑是反向的：当“看涨”的力量（大单、控盘）的动量为负时，风险就产生了
         granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
         _, granularity_holo_up = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
         _, dominance_holo_up = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
-        # 当看涨动量为负时，-granularity_momentum_up 会变成正数，代表风险
-        raw_score = ((-granularity_momentum_up).clip(0) * granularity_holo_up * (-dominance_momentum_up).clip(0) * dominance_holo_up)
+        # 修改开始: 修正原始风险分的计算公式
+        risk_from_granularity = (1 - granularity_momentum_up).clip(0)
+        risk_from_dominance = (1 - dominance_momentum_up).clip(0)
+        raw_score = (risk_from_granularity * granularity_holo_up * risk_from_dominance * dominance_holo_up)
+        # 修改结束
         ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
         snapshot_score = raw_score * (1 - ma_health_score)
-        print(f"    - [原始分]: (大单动量衰竭 * 控盘动量衰竭) = {get_val(raw_score, probe_date):.4f}")
+        print(f"    - [原始分]: (1 - 大单动量) * (1 - 控盘动量) = {get_val(raw_score, probe_date):.4f}")
         print(f"    - [上下文]: (1 - 均线健康度 {get_val(ma_health_score, probe_date):.4f}) = {1-get_val(ma_health_score, probe_date):.4f}")
         print(f"    - [快照分]: {get_val(raw_score, probe_date):.4f} * {1-get_val(ma_health_score, probe_date):.4f} = {get_val(snapshot_score, probe_date):.4f}")
         final_score = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
