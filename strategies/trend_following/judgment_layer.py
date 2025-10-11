@@ -56,42 +56,65 @@ class JudgmentLayer:
         # 步骤 7: 终结信号
         self._finalize_signals()
  
-    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, signal_type_series: pd.Series) -> pd.Series:
+    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V3.9.1 · 奥德修斯之眼协议版】
-        - 核心升级: 增加关键节点打印，追踪报告生成逻辑。
+        【V4.0 · 真理之镜协议版】
+        - 核心革命: 签署“真理之镜协议”，彻底修复信号细节报告的生成逻辑。
+        - 新核心逻辑:
+          1. 不再合并进攻项和风险项，而是分开处理，确保数据纯净。
+          2. 正确地从 score_map 中为每个信号查找其 'raw_score_source' 和 'base_score'。
+          3. 将真实的 raw_score 和 base_score 写入最终的 JSON 报告。
+        - 收益: 解决了“宙斯之雷”探针因读取错误的原始值和基础分而产生误判的根源问题。
         """
-        # 增加调试打印
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        def process_details_df(details_df, is_risk_df=False):
-            if details_df is None or details_df.empty: return pd.Series(dtype=object)
-            active_cols = details_df.columns[(details_df.fillna(0) != 0).any()]
-            if active_cols.empty: return pd.Series(dtype=object)
-            long_df = details_df[active_cols].melt(ignore_index=False, var_name='signal', value_name='score').reset_index()
-            long_df = long_df[long_df['score'].fillna(0) != 0].copy()
-            if long_df.empty: return pd.Series(dtype=object)
-            date_col_name = long_df.columns[0]
-            cn_name_map = {k: v.get('cn_name', k) for k, v in score_map.items() if isinstance(v, dict)}
-            long_df['cn_name'] = long_df['signal'].map(cn_name_map).fillna(long_df['signal'])
-            long_df['contribution'] = long_df['score'].fillna(0).astype(int)
-            long_df = long_df[long_df['contribution'] != 0]
-            long_df['summary_dict'] = long_df.apply(lambda row: {'name': row['cn_name'], 'score': row['contribution']}, axis=1)
-            return long_df.groupby(date_col_name)['summary_dict'].apply(list)
-        all_summaries = process_details_df(score_details_df, is_risk_df=False)
-        summary_df = pd.DataFrame({'details': all_summaries}).reindex(self.strategy.df_indicators.index)
-        def generate_final_summary(row):
-            final_signal_type = signal_type_series.get(row.name)
-            if final_signal_type == '买入信号':
-                details_list = row['details'] if isinstance(row['details'], list) else []
-                offense_list = [d for d in details_list if d.get('score', 0) > 0]
-                risk_list = [d for d in details_list if d.get('score', 0) < 0]
-                return {'offense': offense_list, 'risk': risk_list}
-            else:
-                return {'offense': [], 'risk': []}
-        return summary_df.apply(generate_final_summary, axis=1)
+        atomic = self.strategy.atomic_states
+        df = self.strategy.df_indicators
+        def process_details(details_df, is_risk):
+            if details_df is None or details_df.empty:
+                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
+            
+            # 将所有列转换为数值类型，无法转换的填充为0
+            details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
+            
+            # 找出有非零值的日期和信号
+            active_rows = details_df_numeric[details_df_numeric.abs().sum(axis=1) > 0]
+            if active_rows.empty:
+                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
+            
+            summary_list = []
+            for idx, row in active_rows.iterrows():
+                daily_summary = []
+                active_signals = row[row != 0]
+                for signal_name, contribution in active_signals.items():
+                    meta = score_map.get(signal_name, {})
+                    raw_score_source = meta.get('raw_score_source', signal_name)
+                    raw_score = atomic.get(raw_score_source, pd.Series(0.0, index=df.index)).get(idx, 0.0)
+                    
+                    # 基础分逻辑
+                    base_score_key = 'penalty_weight' if is_risk else 'score'
+                    base_score = meta.get(base_score_key, 0)
+
+                    daily_summary.append({
+                        'name': meta.get('cn_name', signal_name),
+                        'score': int(round(contribution)),
+                        'raw_score': raw_score,
+                        'base_score': base_score
+                    })
+                summary_list.append(pd.Series([daily_summary], index=[idx]))
+            
+            if not summary_list:
+                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
+            
+            return pd.concat(summary_list).reindex(df.index, fill_value=[])
+        offense_summaries = process_details(score_details_df, is_risk=False)
+        risk_summaries = process_details(risk_details_df, is_risk=True)
+        def generate_final_summary(idx):
+            return {
+                'offense': offense_summaries.get(idx, []),
+                'risk': risk_summaries.get(idx, [])
+            }
+        # 使用 apply 和 lambda 函数来逐行生成最终的 JSON 对象
+        return df.index.to_series().apply(generate_final_summary)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
