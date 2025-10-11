@@ -1165,11 +1165,12 @@ class IntelligenceLayer:
 
     def _deploy_athena_wisdom_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.2 · 支柱解剖版】“雅典娜智慧”探针
-        - 核心升级: 新增“基础层支柱解剖”模块，钻透式解剖基础层反转分的四大支柱(EMA, RSI, MACD, CMF)
-                      的原始数据和快照分，彻底揭示其低分根源。
+        【V3.0 · 普罗米修斯之火同步版】“雅典娜智慧”探针
+        - 核心革命: 探针的重算逻辑已与主引擎的“普罗米修斯之火”协议完全同步。
+        - 新核心逻辑: 探针内部完美复刻“加权几何平均 + 关系元分析”的两阶段认知过程。
+        - 收益: 彻底解决了探针与主引擎逻辑脱节导致的巨大验证偏差，恢复了探针的诊断能力。
         """
-        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V2.2】🦉 ---")
+        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V3.0】🦉 ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         def get_val(name, date, default=0.0):
@@ -1178,104 +1179,63 @@ class IntelligenceLayer:
                 print(f"      - [警告] 探针无法在 atomic_states 中找到信号: {name}")
                 return default
             return series.get(date, default)
-        # 链路层 1: 最终成品
         final_score = get_val('COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION', probe_date)
         print(f"\n  [链路层 1] 最终确认成品: COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION = {final_score:.4f}")
         print(f"    - [核心公式]: 终极确认分 = 原始终极底部确认分 * 底部上下文分数")
-        # 链路层 2: 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)
         print("\n  [链路层 2] 解剖 -> 原始终极底部确认分 (ultimate_bottom_raw)")
         print(f"    - [核心公式]: 原始分 = 认知融合底部反转分 * 形态底部反转分")
-        # --- [组件 A] 认知融合底部反转分 (COGNITIVE_FUSION_BOTTOM_REVERSAL) ---
         fusion_bottom_val = get_val('COGNITIVE_FUSION_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 A] 认知融合底部反转分 (COGNITIVE_FUSION_BOTTOM_REVERSAL): {fusion_bottom_val:.4f} ---")
-        print(f"      - [核心公式]: 基础层反转 * 结构层反转 * 行为层反转")
-        # 组件 A 的显微镜
-        print("\n        --- [组件A显微镜] ---")
-        foundation_bottom = get_val('SCORE_FOUNDATION_BOTTOM_REVERSAL', probe_date)
-        structure_bottom = get_val('SCORE_STRUCTURE_BOTTOM_REVERSAL', probe_date)
-        behavior_bottom = get_val('SCORE_BEHAVIOR_BOTTOM_REVERSAL', probe_date)
-        print(f"        - 基础层反转 (SCORE_FOUNDATION_BOTTOM_REVERSAL): {foundation_bottom:.4f}")
-        # --- [基础层反转显微镜 V2] ---
-        print("\n          --- [基础层反转显微镜 V2] ---")
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        health = atomic.get('__FOUNDATION_overall_health', {})
-        if not health:
-            print("            - [警告] 探针无法找到 '__FOUNDATION_overall_health' 缓存。")
-        else:
-            s_bull = health.get('s_bull', {})
-            s_bear = health.get('s_bear', {})
-            bullish_reversal_health = {p: s_bull.get(p, pd.Series(0.5)).get(probe_date, 0.5) * (1 - s_bear.get(p, pd.Series(0.5)).get(probe_date, 0.5)) for p in periods}
-            bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
-            bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
-            bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-            print(f"            - 短周期反转健康度 (1,5d): {bullish_short_force_rev:.4f}")
-            print(f"            - 中周期反转健康度 (13,21d): {bullish_medium_trend_rev:.4f}")
-            print(f"            - 长周期反转健康度 (55d): {bullish_long_inertia_rev:.4f}")
-            overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-            print(f"            - [探针重算] 基础层反转触发分(未加成) = {overall_bullish_reversal_trigger:.4f}")
-        # 新增基础层支柱的深度解剖
-        print("\n            --- [基础层支柱解剖 (关系快照分)] ---")
-        norm_window = 55
-        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        weight_keys = ['ema', 'rsi', 'macd', 'cmf']
-        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
+        # 新增开始: 部署与主引擎完全同步的“普罗米修斯之火”重算逻辑
+        print(f"      - [核心公式]: MetaAnalysis(GeometricMean(基础, 结构, 行为))")
+        print("\n        --- [组件A显微镜 · 普罗米修斯之火重算] ---")
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        fusion_weights_conf = get_param_value(p_cognitive.get('cognitive_fusion_weights'), {})
+        foundation_bottom = get_unified_score(atomic, df.index, 'FOUNDATION_BOTTOM_REVERSAL')
+        structure_bottom = get_unified_score(atomic, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
+        behavior_bottom = get_unified_score(atomic, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
+        print(f"        - 输入1: 基础层反转分 = {foundation_bottom.get(probe_date, 0.0):.4f}")
+        print(f"        - 输入2: 结构层反转分 = {structure_bottom.get(probe_date, 0.0):.4f}")
+        print(f"        - 输入3: 行为层反转分 = {behavior_bottom.get(probe_date, 0.0):.4f}")
+        print("\n        --- [阶段一: 奥林匹斯众神殿 · 共识快照] ---")
+        scores_to_fuse = [foundation_bottom.values, structure_bottom.values, behavior_bottom.values]
+        weights_to_fuse = [
+            fusion_weights_conf.get('foundation', 0.33),
+            fusion_weights_conf.get('structure', 0.33),
+            fusion_weights_conf.get('behavior', 0.34)
+        ]
+        weights_array = np.array(weights_to_fuse)
         weights_array /= weights_array.sum()
-        # 1. EMA 支柱
-        fusion_weights = p_conf.get('ma_health_fusion_weights', {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
-        ma_periods = [5, 13, 21, 55]
-        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
-        alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5)
-        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D' if p != 1 else 'SLOPE_1_close_D'], df.index, norm_window) + 1) / 2.0) for p in ma_periods]
-        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D' if p != 1 else 'ACCEL_1_close_D'], df.index, norm_window) + 1) / 2.0) for p in ma_periods]
-        relational_health_scores = []
-        for short_p, long_p in [(5, 21), (13, 55)]:
-            spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
-            relational_health_scores.append((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0)
-        avg_slope_health = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5)
-        avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5)
-        avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5)
-        ema_snapshot_score = (alignment_score * fusion_weights.get('alignment', 0.1) + avg_slope_health * fusion_weights.get('slope', 0.2) + avg_accel_health * fusion_weights.get('accel', 0.2) + avg_relational_health * fusion_weights.get('relational', 0.5))
-        # 2. RSI 支柱
-        rsi_snapshot_score = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
-        # 3. MACD 支柱
-        macd_snapshot_score = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
-        # 4. CMF 支柱
-        cmf_snapshot_score = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
-        # 打印探针日期前后数据
-        print("              日期 |   收盘 | RSI(13) | MACD Hist | CMF(21) || EMA快照分 | RSI快照分 | MACD快照分 | CMF快照分")
-        print("              " + "-"*85)
-        for i in range(-2, 2):
-            date = probe_date + pd.Timedelta(days=i)
-            if date in df.index:
-                close_val = df.loc[date, 'close_D']
-                rsi_val = df.loc[date, 'RSI_13_D']
-                macd_val = df.loc[date, 'MACDh_13_34_8_D']
-                cmf_val = df.loc[date, 'CMF_21_D']
-                ema_score = ema_snapshot_score.get(date, 0.0)
-                rsi_score = rsi_snapshot_score.get(date, 0.0)
-                macd_score = macd_snapshot_score.get(date, 0.0)
-                cmf_score = cmf_snapshot_score.get(date, 0.0)
-                is_probe_day = ">>" if i == 0 else "  "
-                print(f"            {is_probe_day}{date.strftime('%m-%d')} | {close_val:6.2f} | {rsi_val:7.2f} | {macd_val:9.4f} | {cmf_val:7.4f} || {ema_score:10.4f} | {rsi_score:9.4f} | {macd_score:10.4f} | {cmf_score:9.4f}")
-        # 融合计算
-        s_bull_components = [ema_snapshot_score, rsi_snapshot_score, macd_snapshot_score, cmf_snapshot_score]
-        s_bull_stacked = np.stack([s.values for s in s_bull_components], axis=0)
-        fused_s_bull_values = np.prod(s_bull_stacked ** weights_array[:, np.newaxis], axis=0)
-        fused_s_bull_series = pd.Series(fused_s_bull_values, index=df.index)
-        print(f"            - [探针重算] {probe_date.strftime('%Y-%m-%d')} 的融合看涨健康分(s_bull): {fused_s_bull_series.get(probe_date, 0.0):.4f}")
-        
-        print(f"        - 结构层反转 (SCORE_STRUCTURE_BOTTOM_REVERSAL): {structure_bottom:.4f}")
-        print(f"        - 行为层反转 (SCORE_BEHAVIOR_BOTTOM_REVERSAL): {behavior_bottom:.4f}")
-        fusion_bottom_recalc = foundation_bottom * structure_bottom * behavior_bottom
-        print(f"        - [探针重算] 融合分 = {foundation_bottom:.4f} * {structure_bottom:.4f} * {behavior_bottom:.4f} = {fusion_bottom_recalc:.4f}")
-        # --- [组件 B] 形态底部反转分 (SCORE_PATTERN_BOTTOM_REVERSAL) ---
+        stacked_scores = np.stack(scores_to_fuse, axis=0)
+        safe_scores = np.maximum(stacked_scores, 1e-9)
+        log_signals = np.log(safe_scores)
+        weighted_log_sum = np.sum(log_signals * weights_array[:, np.newaxis], axis=0)
+        consensus_snapshot_score = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
+        print(f"          - [探针重算] 共识快照分 (GeometricMean) @ {probe_date.date()}: {consensus_snapshot_score.get(probe_date, 0.0):.4f}")
+        print("\n        --- [阶段二: 普罗米修斯之火 · 动态锻造] ---")
+        p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
+        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        meta_window = 5
+        norm_window = 55
+        state_score_val = consensus_snapshot_score.clip(0, 1).get(probe_date, 0.0)
+        relationship_trend = consensus_snapshot_score.diff(meta_window).fillna(0)
+        velocity_score_series = normalize_to_bipolar(series=relationship_trend, target_index=df.index, window=norm_window, sensitivity=1.0)
+        velocity_score_val = velocity_score_series.get(probe_date, 0.0)
+        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        acceleration_score_series = normalize_to_bipolar(series=relationship_accel, target_index=df.index, window=norm_window, sensitivity=1.0)
+        acceleration_score_val = acceleration_score_series.get(probe_date, 0.0)
+        print(f"          - 状态分 (State): {state_score_val:.4f}")
+        print(f"          - 速度分 (Velocity): {velocity_score_val:.4f}")
+        print(f"          - 加速度分 (Acceleration): {acceleration_score_val:.4f}")
+        fusion_bottom_recalc = (state_score_val * w_state + velocity_score_val * w_velocity + acceleration_score_val * w_acceleration).clip(0, 1)
+        print(f"          - [探针重算] 最终融合分 = ({state_score_val:.2f}*{w_state} + {velocity_score_val:.2f}*{w_velocity} + {acceleration_score_val:.2f}*{w_acceleration}) = {fusion_bottom_recalc:.4f}")
+        print(f"          - [对比]: 实际值 {fusion_bottom_val:.4f} vs 重算值 {fusion_bottom_recalc:.4f}")
+        # 新增结束
         pattern_bottom_val = get_val('SCORE_PATTERN_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 B] 形态底部反转分 (SCORE_PATTERN_BOTTOM_REVERSAL): {pattern_bottom_val:.4f} ---")
         print(f"      - [核心公式]: max(RSI反转, 平台突破, MACD金叉, 动能衰竭)")
-        # 组件 B 的显微镜
         print("\n        --- [组件B显微镜] ---")
         rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
@@ -1297,14 +1257,12 @@ class IntelligenceLayer:
         print(f"        - 模式4: 动能衰竭分: {score_momentum_exhaustion:.4f}")
         pattern_bottom_recalc = max(score_rsi_reversal, score_consolidation_breakout, score_macd_bullish_cross, score_momentum_exhaustion)
         print(f"        - [探针重算] 形态分 = max(...) = {pattern_bottom_recalc:.4f}")
-        # --- [调节器] 底部上下文分数 (bottom_context_score) ---
         print("\n    --- [调节器] 底部上下文分数 (bottom_context_score) ---")
         atomic['strategy_instance_ref'] = self.strategy
         bottom_context_score_series, _ = calculate_context_scores(df, atomic)
         del atomic['strategy_instance_ref']
         bottom_context_score = bottom_context_score_series.get(probe_date, 0.0)
         print(f"      - [探针获取] 底部上下文分数: {bottom_context_score:.4f} (详情请见“忒弥斯天平”探针)")
-        # --- [最终验证] ---
         print("\n  [最终验证]")
         ultimate_bottom_raw_recalc = fusion_bottom_recalc * pattern_bottom_recalc
         print(f"    - [探针重算] 原始终极底部确认分 = {fusion_bottom_recalc:.4f} * {pattern_bottom_recalc:.4f} = {ultimate_bottom_raw_recalc:.4f}")
