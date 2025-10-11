@@ -1230,45 +1230,37 @@ class IntelligenceLayer:
 
     def _deploy_hermes_caduceus_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“商神杖探针” - 权力转移风险解剖
-        - 核心职责: 钻透式解剖 COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL 信号，
-                      从最原始的数据输入到最终的动态锻造输出，揭示其完整计算链路。
-        - 收益: 为理解和验证微观结构风险信号的产生提供了最高透明度的诊断工具。
+        【V1.2 · 终极解剖版】“商神杖探针” - 权力转移风险解剖
+        - 核心升级: 在打印斜率的同时，增加打印当天的指标原始值，提供完整的诊断证据链。
+        - 收益: 彻底阐明了风险信号的源头数据，使诊断报告的透明度和可信度达到极致。
         """
-        print("\n--- [探针] 正在启用: ☤【商神杖探针 · 权力转移风险解剖】☤ ---")
+        print("\n--- [探针] 正在启用: ☤【商神杖探针 V1.2 · 权力转移风险解剖】☤ ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        engine = self.cognitive_intel.micro_behavior_engine # 获取引擎实例
+        engine = self.cognitive_intel.micro_behavior_engine
         def get_val(series, date, default=0.0):
             if series is None: return default
             return series.get(date, default)
-        # --- 链路层 1: 最终信号值 ---
         final_score = get_val(atomic.get('COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'), probe_date)
-        print(f"\n  [链路层 1] 最终风险分: {final_score:.4f}")
-        # --- 链路层 2: 反推抑制力场 ---
-        print("\n  [链路层 2] 解剖 -> 抑制力场 (近期反转上下文)")
-        suppression_factor = get_val(atomic.get('SCORE_CONTEXT_RECENT_REVERSAL'), probe_date)
-        suppression_factor = 1.0 - suppression_factor
+        print(f"\n  [链路层 1] 最终信号值: COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL = {final_score:.4f}")
+        print("    - [解读]: 这是经过动态锻造和上下文抑制后的最终风险分。")
+        suppression_context = get_val(atomic.get('SCORE_CONTEXT_RECENT_REVERSAL'), probe_date)
+        suppression_factor = 1.0 - suppression_context
         dynamic_score = final_score / suppression_factor if suppression_factor > 0 else 0.0
+        print(f"\n  [链路层 2] 解剖 -> 上下文抑制力场")
         print(f"    - [公式]: 最终分 = 动态锻造分 * (1 - 近期反转上下文)")
-        print(f"    - 近期反转上下文: {1.0 - suppression_factor:.4f} -> 抑制因子: {suppression_factor:.4f}")
+        print(f"    - 近期反转上下文 (SCORE_CONTEXT_RECENT_REVERSAL): {suppression_context:.4f}")
+        print(f"    - 抑制因子 (Suppression Factor): 1.0 - {suppression_context:.4f} = {suppression_factor:.4f}")
         print(f"    - [反推] 动态锻造分 = {final_score:.4f} / {suppression_factor:.4f} = {dynamic_score:.4f}")
-        # --- 链路层 3: 反推动态锻造过程 ---
-        print("\n  [链路层 3] 解剖 -> 动态锻造 (关系元分析)")
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-        print(f"    - [公式]: (状态分*{w_state}) + (速度分*{w_velocity}) + (加速度分*{w_acceleration})")
-        # --- 链路层 4: 反推关系快照分 ---
-        print("\n  [链路层 4] 解剖 -> 关系快照分")
-        print(f"    - [公式]: 快照分 = 原始风险分 * (1 - 均线健康度)")
-        # --- 链路层 5: 反推原始风险分 & 均线健康度 ---
-        print("\n  [链路层 5] 解剖 -> 原始风险分 & 均线健康度")
-        print(f"    - [公式]: 原始风险分 = GranularityMomentum * GranularityHolo * DominanceMomentum * DominanceHolo")
+        print(f"\n  [链路层 3] 解剖 -> 动态锻造 (关系元分析)")
+        print(f"    - [公式]: (状态分 * {w_state}) + (速度分 * {w_velocity}) + (加速度分 * {w_acceleration})")
+        print(f"    - [解读]: 捕捉风险的“变化趋势”，即使当前风险值不高，但只要增长迅猛，也会得到高分。")
         norm_window = 120
-        # 重新计算所有组件
         ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
         granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
         dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
@@ -1276,36 +1268,43 @@ class IntelligenceLayer:
         _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
         power_shift_to_retail_risk_raw = (granularity_momentum_down * granularity_holo_down * dominance_momentum_down * dominance_holo_down)
         snapshot_power_shift_risk = power_shift_to_retail_risk_raw * (1 - ma_health_score)
-        # 打印所有组件在探针日的值
-        print("\n    --- [组件解剖 @ {probe_date.date()}] ---")
-        print(f"      - 均线健康度: {get_val(ma_health_score, probe_date):.4f}")
-        print(f"      - 原始风险分:")
-        print(f"        - Granularity Momentum (Down): {get_val(granularity_momentum_down, probe_date):.4f} (原始斜率: {get_val(df.get('SLOPE_5_avg_order_value_D'), probe_date):.2f})")
-        print(f"        - Granularity Holo (Down)    : {get_val(granularity_holo_down, probe_date):.4f}")
-        print(f"        - Dominance Momentum (Down)  : {get_val(dominance_momentum_down, probe_date):.4f} (原始斜率: {get_val(df.get('SLOPE_5_trade_concentration_index_D'), probe_date):.2f})")
-        print(f"        - Dominance Holo (Down)      : {get_val(dominance_holo_down, probe_date):.4f}")
-        print(f"      - [重算] 原始风险分 = {get_val(power_shift_to_retail_risk_raw, probe_date):.4f}")
-        print(f"      - [重算] 关系快照分 = {get_val(power_shift_to_retail_risk_raw, probe_date):.4f} * (1 - {get_val(ma_health_score, probe_date):.4f}) = {get_val(snapshot_power_shift_risk, probe_date):.4f}")
-        # 重新计算动态锻造过程
+        print(f"\n  [链路层 4] 解剖 -> 关系快照分 (Snapshot Score)")
+        print(f"    - [公式]: 快照分 = 原始风险分 * (1 - 均线健康度)")
+        print(f"    - [解读]: 权力向散户转移的风险，在均线结构恶化时 (健康度低) 最为危险。")
+        print(f"\n  [链路层 5] 解剖 -> 原始风险分 & 均线健康度 @ {probe_date.date()}")
+        print(f"    - [公式]: 原始风险分 = GranularityMomentum * GranularityHolo * DominanceMomentum * DominanceHolo")
+        print(f"    ---")
+        print(f"    - 均线健康度 (ma_health_score): {get_val(ma_health_score, probe_date):.4f}")
+        print(f"    - 原始风险分:")
+        gmd_val = get_val(granularity_momentum_down, probe_date)
+        ghd_val = get_val(granularity_holo_down, probe_date)
+        dmd_val = get_val(dominance_momentum_down, probe_date)
+        dhd_val = get_val(dominance_holo_down, probe_date)
+        # 新增开始: 获取原始指标值
+        raw_avg_order_val = get_val(df.get('avg_order_value_D'), probe_date)
+        raw_trade_conc_val = get_val(df.get('trade_concentration_index_D'), probe_date)
+        # 修改打印行以包含原始值
+        print(f"      - Granularity Momentum (Down): {gmd_val:.4f} (原始斜率: {get_val(df.get('SLOPE_5_avg_order_value_D'), probe_date):.2f}, 当日数值: {raw_avg_order_val:,.2f}) <-- 关键证据: 订单散户化")
+        print(f"      - Granularity Holo (Down)    : {ghd_val:.4f}")
+        print(f"      - Dominance Momentum (Down)  : {dmd_val:.4f} (原始斜率: {get_val(df.get('SLOPE_5_trade_concentration_index_D'), probe_date):.2f}, 当日数值: {raw_trade_conc_val:.4f}) <-- 关键证据: 交易分散化")
+        # 新增/修改结束
+        print(f"      - Dominance Holo (Down)      : {dhd_val:.4f}")
+        print(f"    - [重算] 原始风险分 = {gmd_val:.4f} * {ghd_val:.4f} * {dmd_val:.4f} * {dhd_val:.4f} = {get_val(power_shift_to_retail_risk_raw, probe_date):.4f}")
+        print(f"    - [重算] 关系快照分 = {get_val(power_shift_to_retail_risk_raw, probe_date):.4f} * (1 - {get_val(ma_health_score, probe_date):.4f}) = {get_val(snapshot_power_shift_risk, probe_date):.4f}")
         state_score = snapshot_power_shift_risk.clip(0, 1)
         relationship_trend = snapshot_power_shift_risk.diff(5).fillna(0)
         velocity_score = normalize_to_bipolar(series=relationship_trend, target_index=df.index, window=55, sensitivity=1.0)
         relationship_accel = relationship_trend.diff(5).fillna(0)
         acceleration_score = normalize_to_bipolar(series=relationship_accel, target_index=df.index, window=55, sensitivity=1.0)
-        final_dynamic_risk_recalc = (
-            get_val(state_score, probe_date) * w_state +
-            get_val(velocity_score, probe_date) * w_velocity +
-            get_val(acceleration_score, probe_date) * w_acceleration
-        ).clip(0, 1)
-        print("\n    --- [动态锻造重算] ---")
-        print(f"      - 状态分: {get_val(state_score, probe_date):.4f}")
-        print(f"      - 速度分: {get_val(velocity_score, probe_date):.4f}")
-        print(f"      - 加速度分: {get_val(acceleration_score, probe_date):.4f}")
-        print(f"      - [重算] 动态锻造分 = {final_dynamic_risk_recalc:.4f}")
-        # --- 最终验证 ---
-        print("\n  [最终验证]")
+        final_dynamic_risk_recalc = (get_val(state_score, probe_date) * w_state + get_val(velocity_score, probe_date) * w_velocity + get_val(acceleration_score, probe_date) * w_acceleration).clip(0, 1)
+        print(f"\n  [链路层 6] 动态锻造重算")
+        print(f"    - 状态分 (State)      : {get_val(state_score, probe_date):.4f}  <-- 当前风险水平")
+        print(f"    - 速度分 (Velocity)   : {get_val(velocity_score, probe_date):.4f}  <-- 风险增长速度")
+        print(f"    - 加速度分 (Acceleration): {get_val(acceleration_score, probe_date):.4f}  <-- 风险增长加速度")
+        print(f"    - [重算] 动态锻造分 = {final_dynamic_risk_recalc:.4f} <-- 趋势放大风险!")
         final_score_recalc = final_dynamic_risk_recalc * suppression_factor
-        print(f"    - [探针重算] 最终风险分 = {final_dynamic_risk_recalc:.4f} * {suppression_factor:.4f} = {final_score_recalc:.4f}")
+        print(f"\n  [最终验证]")
+        print(f"    - [探针重算] 最终风险分 = {final_dynamic_risk_recalc:.4f} (动态锻造分) * {suppression_factor:.4f} (抑制因子) = {final_score_recalc:.4f}")
         print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {final_score_recalc:.4f}")
         print("--- “商神杖探针”解剖完毕 ---")
 
