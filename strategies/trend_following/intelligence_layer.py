@@ -456,7 +456,7 @@ class IntelligenceLayer:
         print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.2】⚡️---") # 修改: 更新探针版本
         # self._deploy_themis_scales_probe(probe_date)
         # self._deploy_archangel_diagnosis_probe(probe_date)
-        # self._deploy_athena_wisdom_probe(probe_date)
+        self._deploy_athena_wisdom_probe(probe_date)
         # self._deploy_hephaestus_forge_probe(probe_date)
         # 新增开始: 召唤“商神杖探针”
         self._deploy_hermes_caduceus_probe(probe_date)

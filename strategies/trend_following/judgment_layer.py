@@ -11,27 +11,24 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V534.1 · 审判补丁版】
-        - 核心修正: 在最终取整前，增加 .fillna(0) 操作，以处理因无入场信号而产生的 NaN 值。
-        - 收益: 修复了 IntCastingNaNError 崩溃问题，确保审判流程的完整性。
+        【V534.2 · 指挥链校准版】
+        - 核心修正: 修正了对 _get_human_readable_summary 的调用，移除了多余的 signal_type 参数，解决 TypeError 崩溃问题。
+        - 收益: 确保了审判层在生成最终信号细节报告时，调用链的正确性。
         """
-        print("    --- [最高作战指挥部 V534.1 · 审判补丁版] 启动...") # 更新版本号
+        print("    --- [最高作战指挥部 V534.2 · 指挥链校准版] 启动...") # 修改: 更新版本号
         df = self.strategy.df_indicators
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
-        # 步骤 1: 计算基础最终得分 (保持浮点数)
         chimera_conflict_score = self.strategy.atomic_states.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index))
         dominant_signal_type = self._get_dominant_offense_type(score_details_df)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score.where(~is_reversal_day, chimera_conflict_score * 0.5)
         confidence_damper = 1.0 - dynamic_chimera_score
-        df['final_score'] = df['entry_score'] * confidence_damper # 结果是浮点数
-        # 步骤 2: 进行风险裁决
+        df['final_score'] = df['entry_score'] * confidence_damper
         df['alert_level'], df['alert_reason'], fused_risks_df = self._adjudicate_risk_level()
         df['dynamic_action'] = self._get_dynamic_combat_action()
         df['risk_score'] = self.strategy.atomic_states.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).fillna(0.0)
-        # 步骤 3: 生成最终信号类型
         p_judge_common = get_params_block(self.strategy, 'four_layer_scoring_params').get('judgment_params', {})
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
@@ -39,21 +36,18 @@ class JudgmentLayer:
         is_veto_by_alert = df['alert_level'] >= 3
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
-        # 步骤 4: 根据信号类型修正分数
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
         df.loc[alert_veto_condition, 'signal_type'] = '风险否决'
-        df.loc[alert_veto_condition, 'final_score'] = 0.0 # 清零也用浮点数
+        df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
         tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
-        # 步骤 5: 统一度量衡 - 在所有计算结束后，进行最终的四舍五入和类型转换
-        # 应用“审判补丁”：在转换类型前，用0填充所有NaN值
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
-        # 步骤 6: 生成人类可读的摘要报告
-        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df, df['signal_type'])
-        # 步骤 7: 终结信号
+        # 修改开始: 移除多余的 df['signal_type'] 参数，以匹配新的方法签名
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
+        # 修改结束
         self._finalize_signals()
  
     def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
