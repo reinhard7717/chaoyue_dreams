@@ -5,10 +5,10 @@ from users.models import FavoriteStock
 from stock_models.stock_analytics import PositionTracker, TradingSignal
 
 class Command(BaseCommand):
-    help = '【V2.1 兼容V4.0模型版】从 FavoriteStock 迁移数据到 PositionTracker，为所有自选股创建追踪器。' # 修改: 更新帮助信息
+    help = '【V2.1 兼容V4.0模型版】从 FavoriteStock 迁移数据到 PositionTracker，为所有自选股创建追踪器。' # 更新帮助信息
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS('开始从 FavoriteStock 迁移数据到 PositionTracker (V2.1)...')) # 修改: 更新版本号
+        self.stdout.write(self.style.SUCCESS('开始从 FavoriteStock 迁移数据到 PositionTracker (V2.1)...')) # 更新版本号
         User = get_user_model()
         all_users = User.objects.all()
         total_created_holding = 0
@@ -39,9 +39,9 @@ class Command(BaseCommand):
                         stock=stock,
                         status=PositionTracker.Status.HOLDING,
                         # 移除: 'entry_signal' 字段已在V4.0模型中移除
-                        average_cost=latest_buy_signal.close_price, # 修改: 'entry_price' 字段已更新为 'average_cost'
+                        average_cost=latest_buy_signal.close_price, # 'entry_price' 字段已更新为 'average_cost'
                         # 移除: 'entry_date' 字段已在V4.0模型中移除
-                        current_quantity=100,  # 修改: 'quantity' 字段已更名为 'current_quantity'
+                        current_quantity=100,  # 'quantity' 字段已更名为 'current_quantity'
                     )
                     total_created_holding += 1
                     self.stdout.write(self.style.SUCCESS(f"    -> 成功为 {stock.stock_code} 创建了 [持仓中] 追踪器。"))
@@ -51,8 +51,8 @@ class Command(BaseCommand):
                         user=user,
                         stock=stock,
                         status=PositionTracker.Status.WATCHING,
-                        current_quantity=0,  # 修改: 观察中的记录，持仓量应为0
-                        average_cost=0,      # 修改: 观察中的记录，成本应为0
+                        current_quantity=0,  # 观察中的记录，持仓量应为0
+                        average_cost=0,      # 观察中的记录，成本应为0
                     )
                     total_created_watching += 1
                     self.stdout.write(self.style.SUCCESS(f"    -> 为 {stock.stock_code} 创建了 [观察中] 追踪器。"))

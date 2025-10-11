@@ -1476,7 +1476,7 @@ def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, low
     bbw_change = bbw.diff()
     bbw_std = bbw.rolling(INTERNAL_PERIOD_REF, min_periods=max(1, INTERNAL_PERIOD_REF // 2)).std().fillna(method='ffill').fillna(method='bfill').fillna(0)
     is_expanding_bands = bbw_change > bbw_std * 0.5
-    is_contracting_bands = bbw_change < -bbw_std * 0.5 # 修改: is_contracting_bands 已定义
+    is_contracting_bands = bbw_change < -bbw_std * 0.5 # is_contracting_bands 已定义
 
     # 4. 挤牌状态 (Squeeze)
     bbw_squeeze_threshold = bbw.rolling(window=INTERNAL_PERIOD_REF, min_periods=max(1, INTERNAL_PERIOD_REF // 2)).quantile(0.15)
@@ -1554,21 +1554,21 @@ def calculate_boll_score(close: pd.Series, upper: pd.Series, mid: pd.Series, low
 
     # 7.2 收缩行走 (布林带收缩) - 新增逻辑
     # 价格接近上轨且布林带收缩，趋势可能减弱
-    walking_up_contracting = ((percent_b > 0.85) & (percent_b <= 0.95) & is_contracting_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 修改: 新增条件
-    score.loc[walking_up_contracting] = np.minimum(score.loc[walking_up_contracting], 35.0) # 修改: 分数更接近中性
+    walking_up_contracting = ((percent_b > 0.85) & (percent_b <= 0.95) & is_contracting_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 新增条件
+    score.loc[walking_up_contracting] = np.minimum(score.loc[walking_up_contracting], 35.0) # 分数更接近中性
 
     # 价格接近下轨且布林带收缩，趋势可能减弱或筑底
-    walking_down_contracting = ((percent_b < 0.15) & (percent_b >= 0.05) & is_contracting_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 修改: 新增条件
-    score.loc[walking_down_contracting] = np.maximum(score.loc[walking_down_contracting], 65.0) # 修改: 分数更接近中性
+    walking_down_contracting = ((percent_b < 0.15) & (percent_b >= 0.05) & is_contracting_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 新增条件
+    score.loc[walking_down_contracting] = np.maximum(score.loc[walking_down_contracting], 65.0) # 分数更接近中性
 
     # 7.3 稳定行走 (布林带既不扩张也不收缩) - 调整逻辑
     # 确保不与强劲行走和收缩行走重叠
-    is_stable_bands = ~is_expanding_bands & ~is_contracting_bands # 修改: 定义稳定带子条件
+    is_stable_bands = ~is_expanding_bands & ~is_contracting_bands # 定义稳定带子条件
 
-    walking_up_stable = ((percent_b > 0.85) & (percent_b <= 0.95) & is_stable_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 修改: 使用 is_stable_bands
+    walking_up_stable = ((percent_b > 0.85) & (percent_b <= 0.95) & is_stable_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 使用 is_stable_bands
     score.loc[walking_up_stable] = np.minimum(score.loc[walking_up_stable], 30.0)
 
-    walking_down_stable = ((percent_b < 0.15) & (percent_b >= 0.05) & is_stable_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 修改: 使用 is_stable_bands
+    walking_down_stable = ((percent_b < 0.15) & (percent_b >= 0.05) & is_stable_bands).rolling(window=N_walk_days, min_periods=min_walk_periods).sum() >= N_walk_days # 使用 is_stable_bands
     score.loc[walking_down_stable] = np.maximum(score.loc[walking_down_stable], 70.0)
 
     # 8. 在布林带内部的位置 (非极端、非穿越中轨时，更平滑的评分)
@@ -2767,7 +2767,7 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
     q_mom_neg_25 = mom_s_negative.quantile(0.25) if not mom_s_negative.empty else 0 # 更负的值
     q_mom_neg_50 = mom_s_negative.quantile(0.50) if not mom_s_negative.empty else 0
     q_mom_neg_75 = mom_s_negative.quantile(0.75) if not mom_s_negative.empty else 0 # 接近0的负值
-    # 修改: 定义 q_mom_neg_10
+    # 定义 q_mom_neg_10
     q_mom_neg_10 = mom_s_negative.quantile(0.10) if not mom_s_negative.empty else 0 # 极负值判断
     min_mom_neg = mom_s_negative.min() if not mom_s_negative.empty else 0
 
@@ -2805,7 +2805,7 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
     # 2.1 多头趋势 (mom_s > 0 且非金叉点)
     bullish_trend_cond = not_cross_cond & (mom_s > 1e-6)
     if bullish_trend_cond.any():
-        # 修改: 动态构建 xp 和 fp，包含 q_mom_pos_25
+        # 动态构建 xp 和 fp，包含 q_mom_pos_25
         xp_raw = [0, q_mom_pos_25, q_mom_pos_50, q_mom_pos_75, q_mom_pos_90, max_mom_pos]
         fp_raw = [50.0, 55.0, 60.0, 70.0, 80.0, 85.0] # 对应的分数
 
@@ -2852,7 +2852,7 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
     # 2.2 空头趋势 (mom_s < 0 且非死叉点)
     bearish_trend_cond = not_cross_cond & (mom_s < -1e-6)
     if bearish_trend_cond.any():
-        # 修改: 动态构建 xp 和 fp，包含 q_mom_neg_75
+        # 动态构建 xp 和 fp，包含 q_mom_neg_75
         # 注意: xp_raw 必须是单调递增的，所以从最负到0
         xp_raw = [min_mom_neg, q_mom_neg_25, q_mom_neg_50, q_mom_neg_75, 0]
         fp_raw = [15.0, 20.0, 30.0, 40.0, 50.0] # 对应的分数
@@ -2908,14 +2908,14 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
                 score.loc[mom_s >= top_1_percentile_val] = np.maximum(score.loc[mom_s >= top_1_percentile_val], 95.0)
 
     # 极弱MOM (例如小于10分位数)，分数推向更低
-    # 修改: 使用已定义的 q_mom_neg_10
+    # 使用已定义的 q_mom_neg_10
     if q_mom_neg_10 < 0 and not mom_s_negative.empty:
         extreme_bearish_cond = mom_s <= q_mom_neg_10
         score.loc[extreme_bearish_cond] = np.minimum(score.loc[extreme_bearish_cond], 15.0)
-        # 修改: 使用已定义的 q_mom_neg_10
+        # 使用已定义的 q_mom_neg_10
         if min_mom_neg < q_mom_neg_10:
             bottom_1_percentile_val = mom_s_negative.quantile(0.01) if not mom_s_negative.empty else min_mom_neg
-            # 修改: 使用已定义的 q_mom_neg_10
+            # 使用已定义的 q_mom_neg_10
             if bottom_1_percentile_val < q_mom_neg_10:
                  score.loc[mom_s <= bottom_1_percentile_val] = np.minimum(score.loc[mom_s <= bottom_1_percentile_val], 5.0)
 
@@ -3026,36 +3026,36 @@ def calculate_willr_score(willr: pd.Series) -> pd.Series:
     trend_to_os_neutral = core_neutral_cond & (willr_s < willr_prev)
     score.loc[trend_to_os_neutral] = np.maximum(score.loc[trend_to_os_neutral], 55.0)
     
-    # 2.4 考虑WILLR变化率 (ROC) 对中性区评分的微调 # 修改: 解锁并深化2.4节
+    # 2.4 考虑WILLR变化率 (ROC) 对中性区评分的微调 # 解锁并深化2.4节
     roc = willr_s.diff() # 计算WILLR的变化率
 
     # 定义ROC的阈值
-    roc_sharp_fall_th = -10.0  # WILLR急剧下降的阈值 (看涨) # 修改: 定义ROC急剧下降阈值
-    roc_very_sharp_fall_th = -20.0 # WILLR非常急剧下降的阈值 (更看涨) # 修改: 定义ROC非常急剧下降阈值
-    roc_sharp_rise_th = 10.0   # WILLR急剧上升的阈值 (看跌) # 修改: 定义ROC急剧上升阈值
-    roc_very_sharp_rise_th = 20.0  # WILLR非常急剧上升的阈值 (更看跌) # 修改: 定义ROC非常急剧上升阈值
+    roc_sharp_fall_th = -10.0  # WILLR急剧下降的阈值 (看涨) # 定义ROC急剧下降阈值
+    roc_very_sharp_fall_th = -20.0 # WILLR非常急剧下降的阈值 (更看涨) # 定义ROC非常急剧下降阈值
+    roc_sharp_rise_th = 10.0   # WILLR急剧上升的阈值 (看跌) # 定义ROC急剧上升阈值
+    roc_very_sharp_rise_th = 20.0  # WILLR非常急剧上升的阈值 (更看跌) # 定义ROC非常急剧上升阈值
 
     # 识别急剧变化条件，并确保在核心中性区内
     # 急剧下降 (看涨信号增强)
-    sharp_fall_cond = core_neutral_cond & (roc < roc_sharp_fall_th) & roc.notna() # 修改: 识别急剧下降条件
-    very_sharp_fall_cond = core_neutral_cond & (roc < roc_very_sharp_fall_th) & roc.notna() # 修改: 识别非常急剧下降条件
+    sharp_fall_cond = core_neutral_cond & (roc < roc_sharp_fall_th) & roc.notna() # 识别急剧下降条件
+    very_sharp_fall_cond = core_neutral_cond & (roc < roc_very_sharp_fall_th) & roc.notna() # 识别非常急剧下降条件
 
     # 急剧上升 (看跌信号增强)
-    sharp_rise_cond = core_neutral_cond & (roc > roc_sharp_rise_th) & roc.notna() # 修改: 识别急剧上升条件
-    very_sharp_rise_cond = core_neutral_cond & (roc > roc_very_sharp_rise_th) & roc.notna() # 修改: 识别非常急剧上升条件
+    sharp_rise_cond = core_neutral_cond & (roc > roc_sharp_rise_th) & roc.notna() # 识别急剧上升条件
+    very_sharp_rise_cond = core_neutral_cond & (roc > roc_very_sharp_rise_th) & roc.notna() # 识别非常急剧上升条件
 
     # 应用评分调整
     # 极度急剧下降：大幅增加看涨倾向
-    score.loc[very_sharp_fall_cond] = np.maximum(score.loc[very_sharp_fall_cond], 65.0) # 修改: 极度急剧下降，分数提升至65
+    score.loc[very_sharp_fall_cond] = np.maximum(score.loc[very_sharp_fall_cond], 65.0) # 极度急剧下降，分数提升至65
     # 急剧下降：增加看涨倾向
     # 确保不覆盖更强的“极度急剧下降”信号
-    score.loc[sharp_fall_cond & ~very_sharp_fall_cond] = np.maximum(score.loc[sharp_fall_cond & ~very_sharp_fall_cond], 60.0) # 修改: 急剧下降，分数提升至60
+    score.loc[sharp_fall_cond & ~very_sharp_fall_cond] = np.maximum(score.loc[sharp_fall_cond & ~very_sharp_fall_cond], 60.0) # 急剧下降，分数提升至60
 
     # 极度急剧上升：大幅增加看跌倾向
-    score.loc[very_sharp_rise_cond] = np.minimum(score.loc[very_sharp_rise_cond], 35.0) # 修改: 极度急剧上升，分数降低至35
+    score.loc[very_sharp_rise_cond] = np.minimum(score.loc[very_sharp_rise_cond], 35.0) # 极度急剧上升，分数降低至35
     # 急剧上升：增加看跌倾向
     # 确保不覆盖更强的“极度急剧上升”信号
-    score.loc[sharp_rise_cond & ~very_sharp_rise_cond] = np.minimum(score.loc[sharp_rise_cond & ~very_sharp_rise_cond], 40.0) # 修改: 急剧上升，分数降低至40
+    score.loc[sharp_rise_cond & ~very_sharp_rise_cond] = np.minimum(score.loc[sharp_rise_cond & ~very_sharp_rise_cond], 40.0) # 急剧上升，分数降低至40
 
     # 确保分数在0-100之间
     return score.clip(0, 100)

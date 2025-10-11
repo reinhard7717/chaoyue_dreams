@@ -248,7 +248,7 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
     【V11.3 · 确认逻辑融合版】计算全局的底部和顶部上下文分数
-    - 核心修改: 将“历史低点支撑分”也纳入“底部确认”信号的计算范畴，实现“或”逻辑。
+    - 将“历史低点支撑分”也纳入“底部确认”信号的计算范畴，实现“或”逻辑。
                   无论“盖亚基石”还是“历史低点”支撑生效，都会激活 SCORE_FOUNDATION_BOTTOM_CONFIRMED。
     """
     if isinstance(df, dict):
@@ -505,7 +505,7 @@ def transmute_health_to_ultimate_signals(
 def _calculate_new_high_context(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
     【V2.2 · MA基准版】多维新高上下文分数计算器
-    - 核心修改: 将趋势确认的均线斜率基准从 EMA 替换为 MA。
+    - 将趋势确认的均线斜率基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -602,7 +602,7 @@ def calculate_tactical_reversal_score(
 def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
     """
     【V1.1 · MA基准版】动态反转上下文计算器 (二阶求导引擎)
-    - 核心修改: 将二阶求导的均线基准从 EMA 替换为 MA。
+    - 将二阶求导的均线基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -706,7 +706,7 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
 def _calculate_historical_low_support(df: pd.DataFrame, params: Dict) -> pd.Series:
     """
     【V1.2 · MA基准版】“历史低点”支撑分计算引擎
-    - 核心修改: 将触发掩码的均线基准从 EMA 替换为 MA。
+    - 将触发掩码的均线基准从 EMA 替换为 MA。
     """
     if not get_param_value(params.get('enabled'), False):
         return pd.Series(0.0, index=df.index, dtype=np.float32)

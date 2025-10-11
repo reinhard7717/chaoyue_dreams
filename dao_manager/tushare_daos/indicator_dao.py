@@ -133,7 +133,7 @@ class IndicatorDAO(BaseDAO):
               结合 order_by('-trade_time')[:limit] 来获取最新的N条数据。
         - 收益: 确保了无论是否提供截止时间，DAO层都能正确、高效地返回所需的数据，
                 彻底解决了“阿尔法猎手”全量数据获取失败的根本问题。
-        - 关键修改: 统一分钟线模型选择逻辑，并确保返回的DataFrame已完全标准化。
+        - 关键统一分钟线模型选择逻辑，并确保返回的DataFrame已完全标准化。
         """
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)

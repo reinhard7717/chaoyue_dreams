@@ -551,7 +551,7 @@ def _polyfit_slope(series: pd.Series) -> float:
 def _calculate_slope(series: pd.Series, window: int) -> pd.Series:
     """
     【修改 V3.1 - 增加健壮性】
-    - 核心修改: 增加了对 pandas_ta.linreg 返回 None 的防御性检查。
+    - 增加了对 pandas_ta.linreg 返回 None 的防御性检查。
                 在极少数情况下（例如输入数据全是NaN或存在其他问题），linreg 可能会返回 None，
                 导致 'NoneType' object has no attribute 'iloc' 错误。
                 此修改通过捕获 None 返回值并返回一个全为 NaN 的 Series 来防止程序崩溃。
@@ -1114,7 +1114,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标...")
     df = merged_df.copy()
     # --- 1. 计算共识资金流 (修正版，增加缺失数据源告警) ---
-    # 修改开始: 增加对缺失列的显式打印告警
+    # 增加对缺失列的显式打印告警
     print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标... 可用列: {df.columns.tolist()}")
     # 定义各共识指标及其可能的源列
     consensus_map = {
@@ -1146,7 +1146,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
         else:
             # 如果所有源列都不存在，则将目标列填充为NaN
             df[target_col] = np.nan
-    # 修改结束
+    
     # --- 2. 计算基础衍生指标 ---
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']

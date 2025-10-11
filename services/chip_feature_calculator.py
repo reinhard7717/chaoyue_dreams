@@ -37,19 +37,19 @@ class ChipFeatureCalculator:
     def calculate_all_metrics(self) -> dict:
         """
         【V13.0 cyq_perf 数据源升维版】
-        - 修改: 调用重构后的 _get_summary_metrics_from_context 和 _calculate_concentration_from_perf 方法。
+        - 调用重构后的 _get_summary_metrics_from_context 和 _calculate_concentration_from_perf 方法。
         """
         # --- 0. 前置检查 ---
-        # 修改: 检查 cyq_perf 提供的关键字段
+        # 检查 cyq_perf 提供的关键字段
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
 
         # --- 1. 基础指标计算 ---
-        # 修改: 调用新的方法
+        # 调用新的方法
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info) # 必须先更新上下文，后续计算会用到
         peaks_info = self._calculate_peaks()
-        concentration_info = self._calculate_concentration_from_perf() # 修改: 调用新方法
+        concentration_info = self._calculate_concentration_from_perf() # 调用新方法
         winner_structure_info = self._calculate_winner_structure()
         holder_costs_info = self._calculate_holder_costs()
         pressure_support_info = self._calculate_pressure_support()

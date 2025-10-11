@@ -73,7 +73,7 @@ class FundFlowIntelligence:
     def _calculate_all_pillar_health(self, df: pd.DataFrame, pillar_configs: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict[str, Dict]:
         """
         【V4.0 · 关系元分析版】计算所有资金流支柱的健康度
-        - 核心修改: 调用经过“关系元分析”改造后的 `_calculate_pillar_health` 方法。
+        - 调用经过“关系元分析”改造后的 `_calculate_pillar_health` 方法。
         - 优化说明: 接收预计算的 `ma_context_score` 并将其传递给子计算器，避免重复计算。
         """
         pillar_health = {} # 修改(规范): 初始化为空字典
@@ -87,7 +87,7 @@ class FundFlowIntelligence:
     def _fuse_health_with_intent_weights(self, df: pd.DataFrame, pillar_health: Dict, pillar_configs: Dict, p_conf: Dict, periods: list) -> Dict[str, Dict[str, Dict[int, pd.Series]]]:
         """
         【V2.6 · 削藩令版】执行意图驱动的加权融合
-        - 核心修改: 签名变更，被动接收来自上级的统一指令。
+        - 签名变更，被动接收来自上级的统一指令。
         - 优化说明: 1. 使用Numpy进行加权几何平均数的高效向量化计算。
                       2. 优化了默认值处理，使用预创建的Numpy数组代替循环中创建Series，更高效、更健壮。
         """

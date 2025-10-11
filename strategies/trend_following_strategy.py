@@ -23,7 +23,7 @@ class TrendFollowStrategy:
     def __init__(self, orchestrator_instance, strategy_config: dict):
         """
         【V103.0 · 主权配置协议版】
-        - 核心修改: 初始化方法现在接收一份由总指挥分发的、纯净的专属配置 (strategy_config)。
+        - 初始化方法现在接收一份由总指挥分发的、纯净的专属配置 (strategy_config)。
         - 收益: 策略单元不再需要关心配置的来源和净化过程，实现了更高的内聚和独立性。
         """
         self.orchestrator = orchestrator_instance

@@ -205,7 +205,7 @@ class IndicatorCalculator:
             return None
         try:
             def _sync_kc():
-                # --- 代码修改: 统一使用 ta.kc() 直接调用，其行为更可预测 ---
+                # --- 统一使用 ta.kc() 直接调用，其行为更可预测 ---
                 return ta.kc(high=df[high_col], low=df[low_col], close=df[close_col], length=ema_period, atr_length=atr_period, scalar=atr_multiplier, mamode="ema", append=False)
             
             kc_df = await asyncio.to_thread(_sync_kc)

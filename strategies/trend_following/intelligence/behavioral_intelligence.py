@@ -516,7 +516,7 @@ class BehavioralIntelligence:
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.1 · 幽灵信号净化版】
-        - 核心修改: 移除了对 SCORE_PRICE_POSITION_IN_RECENT_RANGE 这个幽灵信号的计算。
+        - 移除了对 SCORE_PRICE_POSITION_IN_RECENT_RANGE 这个幽灵信号的计算。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')

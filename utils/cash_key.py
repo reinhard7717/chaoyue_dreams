@@ -575,7 +575,7 @@ class StockCashKey(CashKey):
 
 class StrategyCashKey(CashKey):
     def __init__(self):
-        self.cache_manager = None  # 修改: 改为 None，等待异步初始化
+        self.cache_manager = None  # 改为 None，等待异步初始化
 
     async def initialize(self):
         self.cache_manager = await cache_manager  # 异步初始化

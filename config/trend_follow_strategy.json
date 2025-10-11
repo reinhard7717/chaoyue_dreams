@@ -743,6 +743,18 @@
       "cognitive_intelligence_params": {
         "enabled": true,
         "description": "【V2.1 · 战术感知版】顶层认知引擎的专属参数块。",
+        "cognitive_fusion_weights": {
+            "description": "【雅典娜的均衡天平】废除对行为层的过度依赖，实现基础、结构、行为三大领域的权重均等，相信“众神殿的共识”。",
+            "foundation": 0.33,
+            "structure": 0.33,
+            "behavior": 0.34
+        },
+        "relational_meta_analysis_params": {
+          "description": "【普罗米修斯之火协议】对“众神殿共识”进行关系元分析，分析共识形成的速度与加速度。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
+          "acceleration_weight": 0.4
+        },
         "reversal_reliability_bonus_factor": 0.5,
         "capitulation_potential_bonus_factor": 0.5,
         "comment_bonus_factor": "在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
@@ -750,11 +762,6 @@
           "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
           "accel": 0.7
-        },
-        "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
-          "acceleration_weight": 0.4
         },
         "bottom_reversal_fusion_weights": {
             "description": "在融合多域底部反转信号时，对战术剧本信号的加权。",

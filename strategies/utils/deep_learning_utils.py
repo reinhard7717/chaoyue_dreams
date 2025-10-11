@@ -222,7 +222,7 @@ class PositionalEncoding(nn.Module):
         if d_model % 2 != 0: # 处理 d_model 为奇数的情况，确保 pe[:, d_model-1] 被填充
             # 修正：当d_model为奇数时，pe[:, 1::2] 的最后一列可能没有对应的 div_term
             # 应该使用与倒数第二个偶数项相同的 div_term
-            pe[:, d_model-1] = torch.cos(position * div_term[d_model//2 -1]) # 修改: 确保奇数维度的cos项使用正确的频率
+            pe[:, d_model-1] = torch.cos(position * div_term[d_model//2 -1]) # 确保奇数维度的cos项使用正确的频率
 
         # pe 形状 (max_len, d_model)
         # Transformer通常期望 (seq_len, batch_size, d_model) 或 (batch_size, seq_len, d_model)
@@ -357,7 +357,7 @@ class TransformerModel(nn.Module):
         # 1. 输入嵌入: (batch_size, window_size, num_features) -> (batch_size, window_size, d_model)
         # 在 AMP 模式下，嵌入层通常在 autocast 区域内执行，以利用 float16 计算
         # 乘以 sqrt(d_model) 是一种常见的缩放技巧，有助于位置编码和后续层
-        src_embedded = self.embedding(src) * math.sqrt(self.d_model) # 修改: 使用 math.sqrt
+        src_embedded = self.embedding(src) * math.sqrt(self.d_model) # 使用 math.sqrt
 
         # 2. 添加位置编码: (batch_size, window_size, d_model)
         src_pos_encoded = self.pos_encoder(src_embedded)
@@ -703,20 +703,20 @@ def prepare_data_for_transformer(
     while True: # 循环检查直到CPU占用低于阈值
         try:
             # 获取系统整体CPU使用率，interval=1 表示在1秒内采样
-            cpu_usage = psutil.cpu_percent(interval=1) # 修改: 使用 psutil 获取 CPU 使用率
+            cpu_usage = psutil.cpu_percent(interval=1) # 使用 psutil 获取 CPU 使用率
             print(f"prepare_data_for_transformer: 当前系统CPU占用率: {cpu_usage:.2f}%") # 使用 print 输出调试信息
-            if cpu_usage > CPU_THRESHOLD: # 修改: 判断是否超过阈值
+            if cpu_usage > CPU_THRESHOLD: # 判断是否超过阈值
                 print(f"prepare_data_for_transformer: 警告 - CPU占用过高 ({cpu_usage:.2f}%)，等待 {CPU_CHECK_INTERVAL} 秒...") # 使用 print 输出调试信息
-                time.sleep(CPU_CHECK_INTERVAL) # 修改: 暂停执行
+                time.sleep(CPU_CHECK_INTERVAL) # 暂停执行
             else:
                 print(f"prepare_data_for_transformer: CPU占用正常 ({cpu_usage:.2f}%)，继续。") # 使用 print 输出调试信息
-                break # 修改: CPU占用正常，退出循环
-        except ImportError: # 修改: 处理 psutil 未安装的情况
+                break # CPU占用正常，退出循环
+        except ImportError: # 处理 psutil 未安装的情况
             print("prepare_data_for_transformer: 警告 - 未安装 psutil，跳过CPU检查。") # 使用 print 输出调试信息
-            break # 修改: psutil 未安装，退出循环
-        except Exception as e_cpu: # 修改: 捕获其他可能的异常
+            break # psutil 未安装，退出循环
+        except Exception as e_cpu: # 捕获其他可能的异常
             print(f"prepare_data_for_transformer: 错误 - 检查CPU占用失败: {e_cpu}") # 使用 print 输出调试信息
-            break # 修改: 发生错误，退出循环
+            break # 发生错误，退出循环
 
     # --- 7. (可选) 基于模型的特征选择 (仅当PCA未应用或PCA后仍希望进一步选择时) ---
     # 通常 PCA 和基于模型的特征选择是互斥的，或按特定顺序进行。这里假设 PCA 优先。
@@ -1801,7 +1801,7 @@ def predict_with_transformer_model(
     model.eval() # 设置模型为评估模式 (禁用 dropout, batchnorm更新 等)
     with torch.no_grad(): # 在预测阶段不计算梯度，节省内存和计算
         # 预测阶段也可以使用 autocast 来加速，特别是如果模型在训练时使用了 AMP
-        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 修改: 预测阶段也使用 autocast (仅限 CUDA)
+        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 预测阶段也使用 autocast (仅限 CUDA)
             try:
                 # 模型输出形状通常是 (batch_size, 1)，这里 batch_size 是 1
                 predicted_scaled_tensor = model(X_predict_tensor)
@@ -1872,7 +1872,7 @@ def evaluate_transformer_model(
     # mae_eval_metric = nn.L1Loss(reduction='sum') # 移除内部定义，使用传入的 mae_metric
     with torch.no_grad(): # 在评估阶段不计算梯度
         # 评估阶段也可以使用 autocast 来加速，特别是如果模型在训练时使用了 AMP
-        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 修改: 评估阶段也使用 autocast (仅限 CUDA)
+        with autocast(device_type=device.type, enabled=device.type == 'cuda'): # 评估阶段也使用 autocast (仅限 CUDA)
             # 使用 tqdm 包装 test_loader，显示测试进度条
             test_loop = tqdm(test_loader, leave=False, desc="Evaluating Test Set")
             for inputs, targets_scaled in test_loop:
@@ -1892,8 +1892,8 @@ def evaluate_transformer_model(
                 if target_scaler:
                     try:
                         # 在进行 numpy 转换和反向缩放之前，确保 tensor 在 CPU 上
-                        outputs_np_scaled = outputs_scaled.cpu().numpy() # 修改: 确保在 CPU 上
-                        targets_np_scaled = targets_scaled.cpu().numpy() # 修改: 确保在 CPU 上
+                        outputs_np_scaled = outputs_scaled.cpu().numpy() # 确保在 CPU 上
+                        targets_np_scaled = targets_scaled.cpu().numpy() # 确保在 CPU 上
                         outputs_original = target_scaler.inverse_transform(outputs_np_scaled)
                         targets_original = target_scaler.inverse_transform(targets_np_scaled)
                         # 计算这个批次的真实 MAE (逐元素绝对差后求和)
