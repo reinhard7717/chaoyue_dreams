@@ -449,17 +449,17 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V3.4.1 · 宙斯之雷协议版】终极得分构成解剖探针
-        - 核心升级: 调用 V1.1 版本的“阿瑞斯之矛探针”，确保其逻辑正确性。
-        - 收益: 恢复了探针系统刺穿“拉高出货”等市场顶层欺诈行为的能力。
+        【V3.4.2 · 笔误修正版】终极得分构成解剖探针
+        - 核心修正: 修正了风险项循环中的 NameError，将 item.get('score', o, 0) 改为 item.get('score', 0)。
+        - 收益: 解决了因笔误导致的探针崩溃问题，恢复探针系统正常运行。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.4.1】⚡️---") # 修改: 更新探针版本
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.4.2】⚡️---") # 修改: 更新探针版本
         self._deploy_themis_scales_probe(probe_date)
         self._deploy_archangel_diagnosis_probe(probe_date)
         self._deploy_athena_wisdom_probe(probe_date)
         self._deploy_hephaestus_forge_probe(probe_date)
         self._deploy_hermes_caduceus_probe(probe_date)
-        # self._deploy_hermes_verdict_probe(probe_date)
+        self._deploy_hermes_verdict_probe(probe_date)
         self._deploy_ares_spear_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -503,7 +503,9 @@ class IntelligenceLayer:
             if not isinstance(risk_items, list): risk_items = []
             for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
                 if not isinstance(item, dict): continue
-                contribution = item.get('score', o, 0)
+                # 修改开始: 修正 NameError 笔误
+                contribution = item.get('score', 0)
+                # 修改结束
                 raw_score = item.get('raw_score', 0)
                 base_score = item.get('base_score', 0)
                 item_name = item.get('name', 'N/A')
@@ -1307,6 +1309,63 @@ class IntelligenceLayer:
         print(f"    - [探针重算] 最终风险分 = {final_dynamic_risk_recalc:.4f} (动态锻造分) * {suppression_factor:.4f} (抑制因子) = {final_score_recalc:.4f}")
         print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {final_score_recalc:.4f}")
         print("--- “商神杖探针”解剖完毕 ---")
+
+    def _deploy_hermes_verdict_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“赫尔墨斯裁决探针” - 微观行为对质
+        - 核心职责: 并行解剖“伪装吸筹(看涨)”和“权力转移(看跌)”两个相互矛盾的微观信号。
+        - 收益: 揭示系统如何在两个相似但意图相反的行为模式之间进行博弈和裁决，展示其认知深度。
+        """
+        print("\n--- [探针] 正在启用: ⚖️【赫尔墨斯裁决探针 · 微观行为对质】⚖️ ---")
+        df = self.strategy.df_indicators
+        engine = self.cognitive_intel.micro_behavior_engine
+        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
+        norm_window = 120
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            return series.get(date, default)
+        def run_dissection(signal_type: str):
+            if signal_type == 'bullish':
+                print("\n  --- 解剖【看涨】伪装散户吸筹 (SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION) ---")
+                p = get_params_block(self.strategy, 'deceptive_flow_params', {})
+                retail_inflow_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BEARISH_RESONANCE')
+                chip_concentration_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
+                price_suppression_score = normalize_score(df.get('SLOPE_5_close_D').abs(), df.index, norm_window, ascending=False)
+                vpa_inefficiency_score = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
+                raw_score = (retail_inflow_score * chip_concentration_score * price_suppression_score * vpa_inefficiency_score)
+                ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
+                snapshot_score = raw_score * (1 - ma_health_score)
+                print(f"    - [原始分]: (散户流出 * 筹码集中 * 价格压制 * VPA低效) = {get_val(raw_score, probe_date):.4f}")
+                print(f"    - [上下文]: (1 - 均线健康度 {get_val(ma_health_score, probe_date):.4f}) = {1-get_val(ma_health_score, probe_date):.4f}")
+                print(f"    - [快照分]: {get_val(raw_score, probe_date):.4f} * {1-get_val(ma_health_score, probe_date):.4f} = {get_val(snapshot_score, probe_date):.4f}")
+            elif signal_type == 'bearish':
+                print("\n  --- 解剖【看跌】权力转移风险 (COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL) ---")
+                granularity_momentum_down = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=False)
+                dominance_momentum_down = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=False)
+                _, granularity_holo_down = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
+                _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
+                raw_score = (granularity_momentum_down * granularity_holo_down * dominance_momentum_down * dominance_holo_down)
+                ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
+                snapshot_score = raw_score * (1 - ma_health_score)
+                print(f"    - [原始分]: (订单散户化 * 交易分散化) = {get_val(raw_score, probe_date):.4f}")
+                print(f"    - [上下文]: (1 - 均线健康度 {get_val(ma_health_score, probe_date):.4f}) = {1-get_val(ma_health_score, probe_date):.4f}")
+                print(f"    - [快照分]: {get_val(raw_score, probe_date):.4f} * {1-get_val(ma_health_score, probe_date):.4f} = {get_val(snapshot_score, probe_date):.4f}")
+            else:
+                return
+            final_score = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
+            state_score = get_val(snapshot_score.clip(0, 1), probe_date)
+            relationship_trend = snapshot_score.diff(5).fillna(0)
+            velocity_score = get_val(normalize_to_bipolar(series=relationship_trend, target_index=df.index, window=55), probe_date)
+            relationship_accel = relationship_trend.diff(5).fillna(0)
+            acceleration_score = get_val(normalize_to_bipolar(series=relationship_accel, target_index=df.index, window=55), probe_date)
+            print(f"    - [动态锻造]:")
+            print(f"      - 状态分 (State)      : {state_score:.4f}")
+            print(f"      - 速度分 (Velocity)   : {velocity_score:.4f}")
+            print(f"      - 加速度分 (Acceleration): {acceleration_score:.4f}")
+            print(f"    - [最终动态分]: {get_val(final_score, probe_date):.4f}")
+        run_dissection('bullish')
+        run_dissection('bearish')
+        print("\n--- “赫尔墨斯裁决探针”运行完毕 ---")
 
     def _deploy_ares_spear_probe(self, probe_date: pd.Timestamp):
         """
