@@ -460,6 +460,8 @@ class IntelligenceLayer:
         # self._deploy_hephaestus_forge_probe(probe_date)
         # 新增开始: 召唤“商神杖探针”
         self._deploy_hermes_caduceus_probe(probe_date)
+        # 新增开始: 召唤“阿瑞斯之矛探针”
+        self._deploy_ares_spear_probe(probe_date)
         # 新增结束
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -1308,6 +1310,45 @@ class IntelligenceLayer:
         print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {final_score_recalc:.4f}")
         print("--- “商神杖探针”解剖完毕 ---")
 
+    def _deploy_ares_spear_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“阿瑞斯之矛探针” - 主力信念瓦解解剖
+        - 核心职责: 靶向解剖 COGNITIVE_SCORE_RISK_MAIN_FORCE_BELIEF_COLLAPSE 信号。
+        - 收益: 揭示系统是如何通过分析“看涨力量的衰竭”来识别最危险的“拉高出货”陷阱。
+        """
+        print("\n--- [探针] 正在启用: ⚔️【阿瑞斯之矛探针 · 主力信念瓦解解剖】⚔️ ---")
+        df = self.strategy.df_indicators
+        engine = self.cognitive_intel.micro_behavior_engine
+        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
+        norm_window = 120
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            return series.get(date, default)
+        print("\n  --- 解剖【看跌】主力信念瓦解风险 ---")
+        # 这里的逻辑是反向的：当“看涨”的力量（大单、控盘）的动量为负时，风险就产生了
+        granularity_momentum_up = normalize_score(df.get('SLOPE_5_avg_order_value_D'), df.index, norm_window, ascending=True)
+        dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
+        _, granularity_holo_up = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
+        _, dominance_holo_up = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
+        # 当看涨动量为负时，-granularity_momentum_up 会变成正数，代表风险
+        raw_score = ((-granularity_momentum_up).clip(0) * granularity_holo_up * (-dominance_momentum_up).clip(0) * dominance_holo_up)
+        ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
+        snapshot_score = raw_score * (1 - ma_health_score)
+        print(f"    - [原始分]: (大单动量衰竭 * 控盘动量衰竭) = {get_val(raw_score, probe_date):.4f}")
+        print(f"    - [上下文]: (1 - 均线健康度 {get_val(ma_health_score, probe_date):.4f}) = {1-get_val(ma_health_score, probe_date):.4f}")
+        print(f"    - [快照分]: {get_val(raw_score, probe_date):.4f} * {1-get_val(ma_health_score, probe_date):.4f} = {get_val(snapshot_score, probe_date):.4f}")
+        final_score = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
+        state_score = get_val(snapshot_score.clip(0, 1), probe_date)
+        relationship_trend = snapshot_score.diff(5).fillna(0)
+        velocity_score = get_val(normalize_to_bipolar(series=relationship_trend, target_index=df.index, window=55), probe_date)
+        relationship_accel = relationship_trend.diff(5).fillna(0)
+        acceleration_score = get_val(normalize_to_bipolar(series=relationship_accel, target_index=df.index, window=55), probe_date)
+        print(f"    - [动态锻造]:")
+        print(f"      - 状态分 (State)      : {state_score:.4f}")
+        print(f"      - 速度分 (Velocity)   : {velocity_score:.4f}")
+        print(f"      - 加速度分 (Acceleration): {acceleration_score:.4f}")
+        print(f"    - [最终动态分]: {get_val(final_score, probe_date):.4f}")
+        print("\n--- “阿瑞斯之矛探针”运行完毕 ---")
 
 
 
