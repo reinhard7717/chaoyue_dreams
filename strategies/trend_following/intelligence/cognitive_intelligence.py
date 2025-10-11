@@ -228,11 +228,10 @@ class CognitiveIntelligence:
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 神盾协议版】风险元融合模块
-        - 核心革命: 部署“神盾协议”(Aegis Protocol)，引入“趋势健康度”作为风险抑制力场。
-        - 新核心逻辑: 最终风险 = 原始风险 * (1 - 神盾强度)。
-        - 收益: 赋予引擎区分“顶部风险”和“上升中继加油”的智慧。在健康趋势中，风险信号被抑制；
-                  在趋势恶化时，风险信号被完全释放，从而解决了在牛市中途被轻易洗出的核心痛点。
+        【V5.1 · 赫尔墨斯信使协议版】风险元融合模块
+        - 核心升级: 签署“赫尔墨斯信使协议”，将内部计算的“风险快照分”发布到原子状态库，
+                      命名为 COGNITIVE_INTERNAL_RISK_SNAPSHOT，确保系统的完全透明和可验证性。
+        - 收益: 解决了风险探针因无法获取中间变量而导致重算结果恒为0的致命BUG。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -288,18 +287,15 @@ class CognitiveIntelligence:
             )
             total_fused_risk_score = pd.Series(total_fused_risk_score_values, index=df.index, dtype=np.float32)
             states['FUSED_RISK_RESONANCE_PENALTY_ACTIVE'] = pd.Series(is_resonance_triggered, index=df.index)
-        # 部署“神盾协议”，引入趋势健康度作为风险抑制力场
-        # 1. 获取“神盾”强度：由“趋势质量”和“健康回踩”共同定义，代表当前趋势的稳固程度。
         trend_quality_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         healthy_pullback_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_PULLBACK_HEALTHY', 0.0)
-        # “神盾”强度取两者中的最大值，只要趋势好或回踩健康，神盾就应该举起。
         aegis_shield_strength = pd.Series(np.maximum(trend_quality_score.values, healthy_pullback_score.values), index=df.index).clip(0, 1)
         states['COGNITIVE_CONTEXT_AEGIS_SHIELD_STRENGTH'] = aegis_shield_strength.astype(np.float32)
-        # 2. 计算抑制因子：神盾越强，抑制力越强。
         suppression_factor = 1.0 - aegis_shield_strength
-        # 3. 应用“神盾”：用抑制因子调节原始风险快照分。
         risk_snapshot_score = (total_fused_risk_score * suppression_factor).clip(0, 2.0).astype(np.float32)
-        # 将经过“神盾”调节后的风险快照分送入元分析引擎，而非原始分
+        # 新增开始: 部署“赫尔墨斯信使协议”，发布内部快照分
+        states['COGNITIVE_INTERNAL_RISK_SNAPSHOT'] = risk_snapshot_score
+        # 新增结束
         final_dynamic_risk_score = self._perform_cognitive_relational_meta_analysis(df, risk_snapshot_score)
         states['COGNITIVE_FUSED_RISK_SCORE'] = final_dynamic_risk_score
         return states

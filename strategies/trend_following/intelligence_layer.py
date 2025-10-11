@@ -343,11 +343,12 @@ class IntelligenceLayer:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 逻辑同步版】“赫淮斯托斯熔炉”探针 - 风险融合过程解剖
-        - 核心修复: 将维度内融合算法从过时的“主次风险”修正为与主引擎一致的 `max()` 算法。
-        - 收益: 确保探针的重算逻辑与主引擎完全同步，提供准确的诊断依据。
+        【V2.1 · 赫尔墨斯信使协议版】“赫淮斯托斯熔炉”探针
+        - 核心修复: 探针的数据源已修正为 COGNITIVE_INTERNAL_RISK_SNAPSHOT，确保能获取到
+                      主引擎发布的、经“神盾协议”调节后的风险快照分，从而进行正确的动态锻造重算。
+        - 收益: 彻底解决了探针与主引擎在风险计算上逻辑脱节的问题。
         """
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.0】🔥 ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.1】🔥 ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -365,7 +366,7 @@ class IntelligenceLayer:
                 print(f"    - 关键输入信号 [{sig_name}]: {val:.4f}  <-- 风险源头")
             else:
                 print(f"    - 输入信号 [{sig_name}]: {val:.4f}")
-        print("\n  --- [阶段2] 维度内融合解剖 (修正为 max() 算法) ---") # 修改: 更新算法说明
+        print("\n  --- [阶段2] 维度内融合解剖 (修正为 max() 算法) ---")
         fused_dimension_scores = {}
         for category_name, signals in risk_categories.items():
             if category_name == "说明": continue
@@ -380,12 +381,10 @@ class IntelligenceLayer:
                 print(f"      - 信号 '{signal_name}':")
                 print(f"        - 原始值: {atomic_score:.4f} -> 处理后: {processed_score:.4f} -> 加权后: {weighted_score:.4f} (权重: {signal_params.get('weight', 1.0)})")
             if category_signal_scores:
-                # 修改开始: 将错误的“主次风险”算法修正为与主引擎一致的 max()
                 dimension_risk = max(category_signal_scores)
                 fused_dimension_scores[category_name] = dimension_risk
                 print(f"      - 维度内融合计算 (max() 算法):")
                 print(f"        - 维度总风险 = max({[f'{s:.4f}' for s in category_signal_scores]}) = {dimension_risk:.4f}")
-                # 修改结束
             else:
                 fused_dimension_scores[category_name] = 0.0
                 print(f"      - 维度内无信号，总风险为 0.0")
@@ -417,26 +416,26 @@ class IntelligenceLayer:
         else:
             final_risk_score = total_fused_risk
             print(f"    - 共振惩罚模块未启用。")
-        # 阶段5: 神盾协议 和 关系元分析
         print("\n  --- [阶段5] 神盾协议 & 动态锻造解剖 ---")
         trend_quality_score = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         healthy_pullback_score = atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         aegis_shield_strength = max(trend_quality_score, healthy_pullback_score)
         suppression_factor = 1.0 - aegis_shield_strength
-        risk_snapshot_score = final_risk_score * suppression_factor
+        risk_snapshot_score_recalc = final_risk_score * suppression_factor
         print(f"    - 神盾强度 (Aegis Strength): max(趋势质量:{trend_quality_score:.2f}, 健康回踩:{healthy_pullback_score:.2f}) = {aegis_shield_strength:.4f}")
         print(f"    - 风险抑制因子 (Suppression): 1.0 - {aegis_shield_strength:.2f} = {suppression_factor:.4f}")
-        print(f"    - 风险快照分 (经神盾调节): {final_risk_score:.4f} * {suppression_factor:.2f} = {risk_snapshot_score:.4f}")
-        # 关系元分析重算
-        risk_snapshot_series = (atomic.get('COGNITIVE_FUSED_RISK_SCORE_SNAPSHOT_FOR_PROBE', pd.Series(0.0, index=df.index))) # 假设这个序列被预先计算并存储
+        print(f"    - 风险快照分 (经神盾调节): {final_risk_score:.4f} * {suppression_factor:.2f} = {risk_snapshot_score_recalc:.4f}")
+        # 修改开始: 从正确的信号源读取风险快照序列
+        risk_snapshot_series = atomic.get('COGNITIVE_INTERNAL_RISK_SNAPSHOT', pd.Series(0.0, index=df.index))
+        # 修改结束
         p_meta_cog = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('relational_meta_analysis_params', {})
         w_state = get_param_value(p_meta_cog.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta_cog.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta_cog.get('acceleration_weight'), 0.4)
-        state_val = risk_snapshot_series.clip(0, 1).get(probe_date, 0.0)
+        state_val = risk_snapshot_series.clip(0, 2.0).get(probe_date, 0.0) # 注意clip上限为2.0
         vel_series = normalize_to_bipolar(risk_snapshot_series.diff(5).fillna(0), df.index, 55)
         vel_val = vel_series.get(probe_date, 0.0)
-        accel_series = normalize_to_bipolar(vel_series.diff(5).fillna(0), df.index, 55)
+        accel_series = normalize_to_bipolar(vel_series.diff(5).fillna(0), df.index, 55) # 应该是 vel_series.diff()
         accel_val = accel_series.get(probe_date, 0.0)
         final_dynamic_risk_recalc = (state_val * w_state + vel_val * w_velocity + accel_val * w_acceleration).clip(0, 1)
         final_dynamic_risk_actual = atomic.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
