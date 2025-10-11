@@ -1110,17 +1110,43 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.3 · avg_order_value 修正版】计算共识指标和基础比率。"""
+    """【资金流辅助函数 V1.5 · 缺失源告警增强版】计算共识指标和基础比率。"""
     # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标...")
     df = merged_df.copy()
-    # --- 1. 计算共识资金流 ---
-    df['net_flow_consensus'] = df[['net_flow_tushare', 'net_flow_ths', 'net_flow_dc']].mean(axis=1)
-    df['main_force_net_flow_consensus'] = df[['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']].mean(axis=1)
-    df['retail_net_flow_consensus'] = df[['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc']].mean(axis=1)
-    df['net_xl_amount_consensus'] = df[['net_xl_amount_tushare', 'net_xl_amount_dc']].mean(axis=1)
-    df['net_lg_amount_consensus'] = df[['net_lg_amount_tushare']].mean(axis=1)
-    df['net_md_amount_consensus'] = df[['net_md_amount_tushare']].mean(axis=1)
-    df['net_sh_amount_consensus'] = df[['net_sh_amount_tushare']].mean(axis=1)
+    # --- 1. 计算共识资金流 (修正版，增加缺失数据源告警) ---
+    # 修改开始: 增加对缺失列的显式打印告警
+    print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标... 可用列: {df.columns.tolist()}")
+    # 定义各共识指标及其可能的源列
+    consensus_map = {
+        'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
+        'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
+        'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
+        'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
+        'net_lg_amount_consensus': ['net_lg_amount_tushare'],
+        'net_md_amount_consensus': ['net_md_amount_tushare'],
+        'net_sh_amount_consensus': ['net_sh_amount_tushare'],
+    }
+    # 动态地对存在的列求均值，并对缺失的列进行告警
+    for target_col, source_cols in consensus_map.items():
+        # 找出当前DataFrame中实际存在的源列
+        existing_cols = [col for col in source_cols if col in df.columns]
+        # 检查是否有源列缺失
+        if len(existing_cols) < len(source_cols):
+            missing_cols = list(set(source_cols) - set(existing_cols))
+            if not existing_cols:
+                # 严重告警：所有源列都缺失，该指标无法计算
+                print(f"[{stock_code}] [共识计算错误] 目标 '{target_col}': 所有源列 {source_cols} 均缺失，指标将为NaN。")
+            else:
+                # 普通告警：部分源列缺失，使用可用列进行计算
+                print(f"[{stock_code}] [共识计算警告] 目标 '{target_col}': 缺少数据源列: {missing_cols}。将使用可用列 {existing_cols} 计算。")
+        # 核心计算逻辑
+        if existing_cols:
+            # 如果至少存在一个源列，则计算均值
+            df[target_col] = df[existing_cols].mean(axis=1)
+        else:
+            # 如果所有源列都不存在，则将目标列填充为NaN
+            df[target_col] = np.nan
+    # 修改结束
     # --- 2. 计算基础衍生指标 ---
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
