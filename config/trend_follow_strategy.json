@@ -605,10 +605,16 @@
       },
       "behavioral_dynamics_params": {
         "enabled": true,
-        "description": "【V23.0 · 圣杯版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
+        "description": "【V23.1 · 阿瑞斯之怒版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
         "reversal_echo_window": 3,
         "pillar_weights": {
           "price": 0.4, "volume": 0.3, "kline": 0.3
+        },
+        "relational_meta_analysis_params": {
+          "description": "【V3.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
+          "acceleration_weight": 0.4
         },
         "supreme_fusion_params": {
           "description": "【宙斯之雷】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
@@ -623,7 +629,7 @@
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V21.0 · 圣杯版】此模块现在只定义特定于筹码领域的支柱权重。",
+        "description": "【V21.1 · 阿瑞斯之怒版】此模块现在只定义特定于筹码领域的支柱权重。",
         "pillar_weights": {
           "quantitative": 0.25,
           "advanced": 0.25,
@@ -632,14 +638,15 @@
           "fault": 0.10
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
       "dynamic_mechanics_params": {
         "enabled": true, 
-        "description": "【V12.0 · 圣杯版】此模块现在只定义特定于力学领域的支柱权重。",
+        "description": "【V12.1 · 阿瑞斯之怒版】此模块现在只定义特定于力学领域的支柱权重。",
         "pillar_weights": {
           "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
         },
@@ -651,14 +658,15 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
       "foundation_ultimate_params": {
         "enabled": true,
-        "description": "【V14.0 · 圣杯版】此模块现在只定义特定于基础领域的支柱权重。",
+        "description": "【V14.1 · 阿瑞斯之怒版】此模块现在只定义特定于基础领域的支柱权重。",
         "pillar_weights": {
           "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
         },
@@ -670,14 +678,15 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V2.6 · 商神杖激活版】此模块现在定义特定于资金流领域的意图和支柱权重，并新增均线健康度评估配置。",
+        "description": "【V2.7 · 阿瑞斯之怒版】此模块现在定义特定于资金流领域的意图和支柱权重，并新增均线健康度评估配置。",
         "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
         "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 },
         "ma_health_fusion_weights": {
@@ -688,15 +697,15 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
-
       "micro_behavior_params": {
         "enabled": true,
-        "description": "【V1.1 · 商神杖激活版】微观行为引擎的专属参数块，用于关系元分析。",
+        "description": "【V1.2 · 阿瑞斯之怒版】微观行为引擎的专属参数块，用于关系元分析。",
         "ma_health_fusion_weights": {
           "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
           "alignment": 0.15,
@@ -705,14 +714,15 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V17.0 · 关系元分析版】此模块现在定义特定于结构领域的支柱权重，并新增关系元分析参数。",
+        "description": "【V17.1 · 阿瑞斯之怒版】此模块现在定义特定于结构领域的支柱权重，并新增关系元分析参数。",
         "pillar_weights": {
           "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
         },
@@ -724,8 +734,9 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },
@@ -774,7 +785,7 @@
       },
       "tactic_engine_params": {
         "enabled": true,
-        "description": "【V1.1 · 商神杖激活版】战术引擎的专属参数块，用于关系元分析。",
+        "description": "【V1.2 · 阿瑞斯之怒版】战术引擎的专属参数块，用于关系元分析。",
         "ma_health_fusion_weights": {
           "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
           "alignment": 0.15,
@@ -783,8 +794,9 @@
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【赫拉的织布机 V2】关系元分析中，用于调制状态分的动态杠杆权重。",
-          "velocity_weight": 0.6,
+          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         }
       },

@@ -86,14 +86,14 @@ class ReportingLayer:
             risk_score_val = row.get('risk_score', 0.0)
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
             db_risk_score = int(risk_score_val * 1000) if pd.notna(risk_score_val) else 0
-            # 修改开始: 增加一个判断条件，决定是否创建 StrategyDailyScore 记录
+            # 增加一个判断条件，决定是否创建 StrategyDailyScore 记录
             # 条件1: save_all_days 为 True
             # 条件2: 当天有明确的信号 (非'无信号')
             # 条件3: entry_score 大于等于阈值
             should_save_record = save_all_days or (row['signal_type'] != '无信号') or (db_offensive_score >= min_entry_score_for_db)
             if not should_save_record:
                 continue # 如果不满足任何一个保存条件，则跳过当天的记录创建
-            # 修改结束
+            
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code, trade_date=trade_time.date(), strategy_name=daily_score_strategy_name,
                 offensive_score=db_offensive_score,
@@ -103,9 +103,9 @@ class ReportingLayer:
                 trade_action=row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value),
                 score_details_json=_convert_numpy_types_for_json(row.get('signal_details_cn', {}))
             )
-            # 修改开始: 移除原有的 if 判断，因为过滤逻辑已前置
+            # 移除原有的 if 判断，因为过滤逻辑已前置
             daily_scores_to_create.append(daily_score_obj)
-            # 修改结束
+            
             daily_score_map[trade_time] = daily_score_obj
             def create_component(signal_name, score_value):
                 playbook_obj = self.playbooks_cache.get(signal_name)

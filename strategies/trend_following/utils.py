@@ -308,12 +308,12 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic_states)
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
-    # 修改开始: 融合历史低点支撑分到“盖亚基石确认”信号中，实现“或”逻辑
+    # 融合历史低点支撑分到“盖亚基石确认”信号中，实现“或”逻辑
     # 这一步确保了无论哪种结构性支撑被触发，都会被视为一种“确认”
     gaia_confirmation_score = atomic_states.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
     fused_confirmation_score = np.maximum(gaia_confirmation_score, historical_low_support_score)
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = fused_confirmation_score.astype(np.float32)
-    # 修改结束
+    
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
     ma55 = df.get('MA_55_D', df[close_col])
@@ -627,7 +627,7 @@ def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_win
     )
     return dynamic_reversal_score.clip(0, 1).astype(np.float32)
 
-def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 修改开始: 增加 atomic_states 参数
+def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_states: Dict) -> pd.Series: # 增加 atomic_states 参数
     """
     【V23.2 · 影线逻辑修正版】“盖亚基石”支撑分计算引擎
     - 核心修复: 修正了上下影线的计算逻辑，使用 np.maximum/minimum(open, close) 作为实体边界，

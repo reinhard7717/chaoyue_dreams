@@ -244,42 +244,48 @@ class ChipIntelligence:
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V1.0 · 新增】筹码专用的关系元分析核心引擎 (赫拉织布机V2)
-        - 核心逻辑: 实现“状态 * (1 + 动态杠杆)”的动态价值调制范式。
+        【V2.0 · 阿瑞斯之怒协议版】筹码专用的关系元分析核心引擎
+        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
+                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
+        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
         """
-        # 从配置中获取动态杠杆权重
+        # 引入新的权重体系和加法融合模型
+        # 从配置中获取新的加法模型权重
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.6)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-
+        # 新的权重体系，直接作用于最终分数，而非杠杆
+        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
         # 核心参数
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-
-        # 第一维度：状态分 (State Score)
+        # 第一维度：状态分 (State Score) - 范围 [0, 1]
         state_score = snapshot_score.clip(0, 1)
-
-        # 第二维度：速度分 (Velocity Score)
+        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-
-        # 第三维度：加速度分 (Acceleration Score)
+        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-
-        # 终极融合：动态价值调制
-        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        final_score = (state_score * dynamic_leverage).clip(0, 1)
-        
+        # 终极融合：从乘法调制升级为加法赋权
+        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
+        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
+        # 新的加法模型:
+        final_score = (
+            state_score * w_state +
+            velocity_score * w_velocity +
+            acceleration_score * w_acceleration
+        ).clip(0, 1) # clip确保分数在[0, 1]范围内
         return final_score.astype(np.float32)
+        
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """

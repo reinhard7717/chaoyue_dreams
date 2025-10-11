@@ -4,9 +4,9 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional
 
-## 修改开始: 导入新的归一化工具 ##
+## 导入新的归一化工具 ##
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar
-## 修改结束 ##
+# ##
 
 class ProcessIntelligence:
     """

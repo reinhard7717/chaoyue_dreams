@@ -567,9 +567,9 @@ class IntelligenceLayer:
             bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
         conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
         print(f"    - [组件1] 常规底部得分 (经深度熊市过滤): {conventional_bottom_score.get(probe_date, 0.0):.4f}")
-        # 修改开始: 在探针调用时，传入 atomic_states
+        # 在探针调用时，传入 atomic_states
         gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic)
-        # 修改结束
+        
         print(f"    - [组件2] 盖亚基石支撑分: {gaia_bedrock_support_score.get(probe_date, 0.0):.4f}")
         print("      --- [盖亚显微镜] 深入解剖 ---")
         support_levels = get_param_value(gaia_params.get('support_levels'), [55, 89, 144, 233, 377])
@@ -1215,7 +1215,7 @@ class IntelligenceLayer:
             print(f"            - 长周期反转健康度 (55d): {bullish_long_inertia_rev:.4f}")
             overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
             print(f"            - [探针重算] 基础层反转触发分(未加成) = {overall_bullish_reversal_trigger:.4f}")
-        # 修改开始: 新增基础层支柱的深度解剖
+        # 新增基础层支柱的深度解剖
         print("\n            --- [基础层支柱解剖 (关系快照分)] ---")
         norm_window = 55
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -1266,7 +1266,7 @@ class IntelligenceLayer:
         fused_s_bull_values = np.prod(s_bull_stacked ** weights_array[:, np.newaxis], axis=0)
         fused_s_bull_series = pd.Series(fused_s_bull_values, index=df.index)
         print(f"            - [探针重算] {probe_date.strftime('%Y-%m-%d')} 的融合看涨健康分(s_bull): {fused_s_bull_series.get(probe_date, 0.0):.4f}")
-        # 修改结束
+        
         print(f"        - 结构层反转 (SCORE_STRUCTURE_BOTTOM_REVERSAL): {structure_bottom:.4f}")
         print(f"        - 行为层反转 (SCORE_BEHAVIOR_BOTTOM_REVERSAL): {behavior_bottom:.4f}")
         fusion_bottom_recalc = foundation_bottom * structure_bottom * behavior_bottom
