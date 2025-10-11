@@ -15,7 +15,7 @@ class JudgmentLayer:
         - 核心修正: 修正了对 _get_human_readable_summary 的调用，移除了多余的 signal_type 参数，解决 TypeError 崩溃问题。
         - 收益: 确保了审判层在生成最终信号细节报告时，调用链的正确性。
         """
-        print("    --- [最高作战指挥部 V534.2 · 指挥链校准版] 启动...") # 修改: 更新版本号
+        print("    --- [最高作战指挥部 V534.2 · 指挥链校准版] 启动...")
         df = self.strategy.df_indicators
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -45,70 +45,55 @@ class JudgmentLayer:
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
-        # 修改开始: 移除多余的 df['signal_type'] 参数，以匹配新的方法签名
-        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df, risk_details_df)
+        # 修改开始: 移除多余的 risk_details_df 参数，以匹配新的方法签名
+        df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         # 修改结束
         self._finalize_signals()
  
-    def _get_human_readable_summary(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame) -> pd.Series:
+    def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
-        【V4.0 · 真理之镜协议版】
-        - 核心革命: 签署“真理之镜协议”，彻底修复信号细节报告的生成逻辑。
+        【V5.0 · 雅努斯归位协议版】
+        - 核心革命: 部署“雅努斯归位协议”，彻底重构信号细节报告的生成逻辑。
         - 新核心逻辑:
-          1. 不再合并进攻项和风险项，而是分开处理，确保数据纯净。
-          2. 正确地从 score_map 中为每个信号查找其 'raw_score_source' 和 'base_score'。
-          3. 将真实的 raw_score 和 base_score 写入最终的 JSON 报告。
-        - 收益: 解决了“宙斯之雷”探针因读取错误的原始值和基础分而产生误判的根源问题。
+          1. 只接收一个包含所有得分的 details_df。
+          2. 对每一天，遍历所有激活的信号（得分非零）。
+          3. 在方法内部根据得分的正负，将信号正确地分类到 'offense' 或 'risk' 列表。
+          4. 确保每个信号的 'raw_score' 和 'base_score' 都被准确查找并记录。
+        - 收益: 根除了因信号错误分类和元数据丢失导致的探针重算失败的最终根源。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
-        def process_details(details_df, is_risk):
-            if details_df is None or details_df.empty:
-                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
-            
-            # 将所有列转换为数值类型，无法转换的填充为0
-            details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
-            
-            # 找出有非零值的日期和信号
-            active_rows = details_df_numeric[details_df_numeric.abs().sum(axis=1) > 0]
-            if active_rows.empty:
-                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
-            
-            summary_list = []
-            for idx, row in active_rows.iterrows():
-                daily_summary = []
-                active_signals = row[row != 0]
-                for signal_name, contribution in active_signals.items():
-                    meta = score_map.get(signal_name, {})
-                    raw_score_source = meta.get('raw_score_source', signal_name)
-                    raw_score = atomic.get(raw_score_source, pd.Series(0.0, index=df.index)).get(idx, 0.0)
-                    
-                    # 基础分逻辑
-                    base_score_key = 'penalty_weight' if is_risk else 'score'
-                    base_score = meta.get(base_score_key, 0)
-
-                    daily_summary.append({
-                        'name': meta.get('cn_name', signal_name),
-                        'score': int(round(contribution)),
-                        'raw_score': raw_score,
-                        'base_score': base_score
-                    })
-                summary_list.append(pd.Series([daily_summary], index=[idx]))
-            
-            if not summary_list:
-                return pd.Series([[] for _ in range(len(df.index))], index=df.index)
-            
-            return pd.concat(summary_list).reindex(df.index, fill_value=[])
-        offense_summaries = process_details(score_details_df, is_risk=False)
-        risk_summaries = process_details(risk_details_df, is_risk=True)
-        def generate_final_summary(idx):
-            return {
-                'offense': offense_summaries.get(idx, []),
-                'risk': risk_summaries.get(idx, [])
-            }
-        # 使用 apply 和 lambda 函数来逐行生成最终的 JSON 对象
-        return df.index.to_series().apply(generate_final_summary)
+        # 将所有列转换为数值类型，无法转换的填充为0
+        details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
+        def generate_summary_for_day(row):
+            offense_list = []
+            risk_list = []
+            active_signals = row[row != 0]
+            for signal_name, contribution in active_signals.items():
+                meta = score_map.get(signal_name, {})
+                is_risk = contribution < 0
+                # 确定原始分数的来源
+                raw_score_source = meta.get('raw_score_source', signal_name)
+                raw_score = atomic.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
+                # 确定基础分
+                base_score_key = 'penalty_weight' if is_risk else 'score'
+                base_score = meta.get(base_score_key, 0)
+                # 创建信号字典
+                signal_dict = {
+                    'name': meta.get('cn_name', signal_name),
+                    'score': int(round(contribution)),
+                    'raw_score': raw_score,
+                    'base_score': base_score
+                }
+                # 根据得分正负放入正确的列表
+                if is_risk:
+                    risk_list.append(signal_dict)
+                else:
+                    offense_list.append(signal_dict)
+            return {'offense': offense_list, 'risk': risk_list}
+        # 对每一行（每一天）应用这个总结函数
+        return details_df_numeric.apply(generate_summary_for_day, axis=1)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
         """
