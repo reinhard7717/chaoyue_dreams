@@ -343,12 +343,11 @@ class IntelligenceLayer:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.1 · 赫尔墨斯信使协议版】“赫淮斯托斯熔炉”探针
-        - 核心修复: 探针的数据源已修正为 COGNITIVE_INTERNAL_RISK_SNAPSHOT，确保能获取到
-                      主引擎发布的、经“神盾协议”调节后的风险快照分，从而进行正确的动态锻造重算。
-        - 收益: 彻底解决了探针与主引擎在风险计算上逻辑脱节的问题。
+        【V2.2 · 牛顿第二定律校准版】“赫淮斯托斯熔炉”探针
+        - 核心修复: 修正了加速度计算的致命错误，确保其是对“速度”求导，而非重复对“位移”求导。
+        - 收益: 彻底解决了探针重算结果与主引擎之间的微小偏差，实现了完美的逻辑统一。
         """
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.1】🔥 ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.2】🔥 ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -425,18 +424,20 @@ class IntelligenceLayer:
         print(f"    - 神盾强度 (Aegis Strength): max(趋势质量:{trend_quality_score:.2f}, 健康回踩:{healthy_pullback_score:.2f}) = {aegis_shield_strength:.4f}")
         print(f"    - 风险抑制因子 (Suppression): 1.0 - {aegis_shield_strength:.2f} = {suppression_factor:.4f}")
         print(f"    - 风险快照分 (经神盾调节): {final_risk_score:.4f} * {suppression_factor:.2f} = {risk_snapshot_score_recalc:.4f}")
-        # 修改开始: 从正确的信号源读取风险快照序列
         risk_snapshot_series = atomic.get('COGNITIVE_INTERNAL_RISK_SNAPSHOT', pd.Series(0.0, index=df.index))
-        # 修改结束
         p_meta_cog = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('relational_meta_analysis_params', {})
         w_state = get_param_value(p_meta_cog.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta_cog.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta_cog.get('acceleration_weight'), 0.4)
-        state_val = risk_snapshot_series.clip(0, 2.0).get(probe_date, 0.0) # 注意clip上限为2.0
-        vel_series = normalize_to_bipolar(risk_snapshot_series.diff(5).fillna(0), df.index, 55)
+        state_val = risk_snapshot_series.clip(0, 2.0).get(probe_date, 0.0)
+        # 修正开始: 确保加速度是对速度求导
+        relationship_trend = risk_snapshot_series.diff(5).fillna(0)
+        vel_series = normalize_to_bipolar(relationship_trend, df.index, 55)
         vel_val = vel_series.get(probe_date, 0.0)
-        accel_series = normalize_to_bipolar(vel_series.diff(5).fillna(0), df.index, 55) # 应该是 vel_series.diff()
+        relationship_accel = relationship_trend.diff(5).fillna(0) # 修正: 加速度是速度的变化率
+        accel_series = normalize_to_bipolar(relationship_accel, df.index, 55)
         accel_val = accel_series.get(probe_date, 0.0)
+        # 修正结束
         final_dynamic_risk_recalc = (state_val * w_state + vel_val * w_velocity + accel_val * w_acceleration).clip(0, 1)
         final_dynamic_risk_actual = atomic.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
         print(f"    - 动态锻造: State({state_val:.2f})*w + Velocity({vel_val:.2f})*w + Accel({accel_val:.2f})*w = {final_dynamic_risk_recalc:.4f}")
