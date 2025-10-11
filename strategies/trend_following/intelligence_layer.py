@@ -341,74 +341,110 @@ class IntelligenceLayer:
         print(f"    - [实际警报]: Level {alert_level} ({alert_reason})")
         print("--- 先知离场神谕探针解剖完毕 ---")
 
-    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp, domain: str, signal_type: str):
+    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.2 · 雅典娜智慧版】“赫淮斯托斯熔炉”探针
-        - 核心升级: 1. 移除了对隐藏衰减因子 `bottom_context_score` 的错误计算。
-                    2. 新增对“雅典娜智慧”抑制因子的解剖，清晰展示底部反转信号的“荣誉退役”过程。
+        【V2.0 · 逻辑同步版】“赫淮斯托斯熔炉”探针 - 风险融合过程解剖
+        - 核心修复: 将维度内融合算法从过时的“主次风险”修正为与主引擎一致的 `max()` 算法。
+        - 收益: 确保探针的重算逻辑与主引擎完全同步，提供准确的诊断依据。
         """
-        domain_upper = domain.upper()
-        signal_name = f'SCORE_{domain_upper}_{signal_type}'
-        print(f"\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉】🔥 -> 解剖信号【{signal_name}】 ---")
-        
-        atomic = self.strategy.atomic_states
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.0】🔥 ---") # 修改: 更新探针版本
         df = self.strategy.df_indicators
-        
-        def get_val(name, date, default=np.nan):
-            series = atomic.get(name)
-            if series is None: return default
-            return series.get(date, default)
-
-        # 链路层 1: 获取最终信号值
-        final_score = get_val(signal_name, probe_date, 0.0)
-        print(f"\n  [链路层 1] 最终锻造成品: {signal_name} = {final_score:.4f}")
-
-        # 链路层 2: 反推到中央合成引擎的输出
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        reversal_tf_weights = get_param_value(p_synthesis.get('reversal_tf_weights'), {})
-        bottom_context_bonus_factor = get_param_value(p_synthesis.get('bottom_context_bonus_factor'), 0.5)
-        
-        overall_health_cache = atomic.get(f'__{domain_upper}_overall_health', {})
-        if not overall_health_cache:
-            print("    - [探针错误] 无法找到领域健康度缓存。解剖终止。")
+        atomic = self.strategy.atomic_states
+        p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
+        if not get_param_value(p_fused_risk.get('enabled'), True):
+            print("    - 风险融合模块未启用，跳过解剖。")
             return
-
-        # 获取所有新的上下文因子
-        recent_reversal_context = get_val('SCORE_CONTEXT_RECENT_REVERSAL', probe_date, 0.0)
-        memory_retention_factor = 1.0 - get_val('CONTEXT_NEW_HIGH_STRENGTH', probe_date, 0.0)
-        recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
-        trend_confirmation_context = get_val('CONTEXT_TREND_CONFIRMED', probe_date, 0.0)
-        
-        # 模拟 transmute_health_to_ultimate_signals 的逻辑
-        bullish_reversal_health = {p: recent_reversal_context_modulated * get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5) * overall_health_cache.get('d_intensity', {}).get(p, pd.Series(0.5)).get(probe_date, 0.5) for p in [1, 5, 13, 21, 55]}
-        
-        bullish_short_force_rev = (bullish_reversal_health.get(1, 0.5) * bullish_reversal_health.get(5, 0.5))**0.5
-        bullish_medium_trend_rev = (bullish_reversal_health.get(13, 0.5) * bullish_reversal_health.get(21, 0.5))**0.5
-        bullish_long_inertia_rev = bullish_reversal_health.get(55, 0.5)
-        
-        overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights.get('short', 0.6)) * 
-                                            (bullish_medium_trend_rev ** reversal_tf_weights.get('medium', 0.3)) * 
-                                            (bullish_long_inertia_rev ** reversal_tf_weights.get('long', 0.1)))
-        
-        # 修正重算公式，移除隐藏的 bottom_context_score，并加入雅典娜抑制因子
-        raw_recalc_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
-        recalc_final_score = raw_recalc_score * (1 - trend_confirmation_context)
-
-        print(f"\n  [链路层 2] 反推 -> 中央合成引擎 (utils.transmute_health_to_ultimate_signals)")
-        print(f"    - [公式]: (原始分 * (1 - 趋势确认分))")
-        print(f"    - [探针重算]: ({raw_recalc_score:.4f} * (1 - {trend_confirmation_context:.4f})) = {recalc_final_score:.4f}")
-        print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {recalc_final_score:.4f}")
-        print(f"    - [雅典娜的智慧] 🦉: “趋势确认分”为 {trend_confirmation_context:.2f}，导致底部反转信号被抑制了 {(trend_confirmation_context*100):.1f}%。")
-
-        # 链路层5的公式也需要更新，以反映 modulated context
-        print(f"\n  [链路层 5] 终极解剖 -> 1日健康度 ({bullish_reversal_health.get(1, 0.5):.4f})")
-        print(f"    - [公式]: (反转回声 * 记忆保留因子) * 关系动力 * 动态强度")
-        relational_power = get_val('SCORE_ATOMIC_RELATIONAL_DYNAMICS', probe_date, 0.5)
-        d_intensity_1d = overall_health_cache.get('d_intensity', {}).get(1, pd.Series(0.5)).get(probe_date, 0.5)
-        print(f"    - [探针重算]: ({recent_reversal_context:.4f} * {memory_retention_factor:.4f}) * {relational_power:.4f} * {d_intensity_1d:.4f} = {bullish_reversal_health.get(1, 0.5):.4f}")
-        print(f"    - [阿波罗的日冕] ☀️: “新高强度分”为 {1-memory_retention_factor:.2f}，导致反转回声被削弱了 {((1-memory_retention_factor)*100):.1f}%。")
-        
-        print("\n--- “赫淮斯托斯熔炉”解剖完毕 ---")
+        print("  --- [阶段1] 信号输入审查 ---")
+        risk_categories = p_fused_risk.get('risk_categories', {})
+        all_required_signals = {s for signals in risk_categories.values() if isinstance(signals, dict) for s in signals if s != "说明"}
+        signal_value_cache = {}
+        for sig_name in sorted(list(all_required_signals)):
+            val = atomic.get(sig_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+            signal_value_cache[sig_name] = val
+            if "ARCHANGEL" in sig_name:
+                print(f"    - 关键输入信号 [{sig_name}]: {val:.4f}  <-- 风险源头")
+            else:
+                print(f"    - 输入信号 [{sig_name}]: {val:.4f}")
+        print("\n  --- [阶段2] 维度内融合解剖 (修正为 max() 算法) ---") # 修改: 更新算法说明
+        fused_dimension_scores = {}
+        for category_name, signals in risk_categories.items():
+            if category_name == "说明": continue
+            print(f"\n    -> 正在处理维度: [{category_name.upper()}]")
+            category_signal_scores = []
+            for signal_name, signal_params in signals.items():
+                if signal_name == "说明": continue
+                atomic_score = signal_value_cache.get(signal_name, 0.0)
+                processed_score = 1.0 - atomic_score if signal_params.get('inverse', False) else atomic_score
+                weighted_score = processed_score * signal_params.get('weight', 1.0)
+                category_signal_scores.append(weighted_score)
+                print(f"      - 信号 '{signal_name}':")
+                print(f"        - 原始值: {atomic_score:.4f} -> 处理后: {processed_score:.4f} -> 加权后: {weighted_score:.4f} (权重: {signal_params.get('weight', 1.0)})")
+            if category_signal_scores:
+                # 修改开始: 将错误的“主次风险”算法修正为与主引擎一致的 max()
+                dimension_risk = max(category_signal_scores)
+                fused_dimension_scores[category_name] = dimension_risk
+                print(f"      - 维度内融合计算 (max() 算法):")
+                print(f"        - 维度总风险 = max({[f'{s:.4f}' for s in category_signal_scores]}) = {dimension_risk:.4f}")
+                # 修改结束
+            else:
+                fused_dimension_scores[category_name] = 0.0
+                print(f"      - 维度内无信号，总风险为 0.0")
+        print("\n  --- [阶段3] 跨维度融合解剖 ---")
+        valid_scores = list(fused_dimension_scores.values())
+        if valid_scores:
+            total_fused_risk = max(valid_scores)
+            print(f"    - 所有维度风险分: { {k: f'{v:.4f}' for k, v in fused_dimension_scores.items()} }")
+            print(f"    - 裁决: 取最大值 -> {total_fused_risk:.4f}")
+        else:
+            total_fused_risk = 0.0
+            print(f"    - 无有效维度风险分，总分为 0.0")
+        print("\n  --- [阶段4] 共振惩罚解剖 ---")
+        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
+        if get_param_value(p_resonance.get('enabled'), True):
+            core_dims = p_resonance.get('core_risk_dimensions', [])
+            min_dims = p_resonance.get('min_dimensions_for_resonance', 2)
+            threshold = p_resonance.get('risk_score_threshold', 0.6)
+            penalty_multiplier = p_resonance.get('penalty_multiplier', 1.2)
+            high_risk_dimension_count = sum(1 for dim in core_dims if fused_dimension_scores.get(dim, 0.0) > threshold)
+            is_resonance_triggered = (high_risk_dimension_count >= min_dims)
+            print(f"    - 共振诊断: {high_risk_dimension_count}个核心维度 > {threshold} (要求: {min_dims}个) -> 触发: {is_resonance_triggered}")
+            if is_resonance_triggered:
+                final_risk_score = total_fused_risk * penalty_multiplier
+                print(f"    - 共振惩罚: {total_fused_risk:.4f} * {penalty_multiplier} = {final_risk_score:.4f}")
+            else:
+                final_risk_score = total_fused_risk
+                print(f"    - 未触发共振惩罚。")
+        else:
+            final_risk_score = total_fused_risk
+            print(f"    - 共振惩罚模块未启用。")
+        # 阶段5: 神盾协议 和 关系元分析
+        print("\n  --- [阶段5] 神盾协议 & 动态锻造解剖 ---")
+        trend_quality_score = atomic.get('COGNITIVE_SCORE_TREND_QUALITY', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        healthy_pullback_score = atomic.get('COGNITIVE_SCORE_PULLBACK_HEALTHY', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        aegis_shield_strength = max(trend_quality_score, healthy_pullback_score)
+        suppression_factor = 1.0 - aegis_shield_strength
+        risk_snapshot_score = final_risk_score * suppression_factor
+        print(f"    - 神盾强度 (Aegis Strength): max(趋势质量:{trend_quality_score:.2f}, 健康回踩:{healthy_pullback_score:.2f}) = {aegis_shield_strength:.4f}")
+        print(f"    - 风险抑制因子 (Suppression): 1.0 - {aegis_shield_strength:.2f} = {suppression_factor:.4f}")
+        print(f"    - 风险快照分 (经神盾调节): {final_risk_score:.4f} * {suppression_factor:.2f} = {risk_snapshot_score:.4f}")
+        # 关系元分析重算
+        risk_snapshot_series = (atomic.get('COGNITIVE_FUSED_RISK_SCORE_SNAPSHOT_FOR_PROBE', pd.Series(0.0, index=df.index))) # 假设这个序列被预先计算并存储
+        p_meta_cog = get_params_block(self.strategy, 'cognitive_intelligence_params', {}).get('relational_meta_analysis_params', {})
+        w_state = get_param_value(p_meta_cog.get('state_weight'), 0.3)
+        w_velocity = get_param_value(p_meta_cog.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta_cog.get('acceleration_weight'), 0.4)
+        state_val = risk_snapshot_series.clip(0, 1).get(probe_date, 0.0)
+        vel_series = normalize_to_bipolar(risk_snapshot_series.diff(5).fillna(0), df.index, 55)
+        vel_val = vel_series.get(probe_date, 0.0)
+        accel_series = normalize_to_bipolar(vel_series.diff(5).fillna(0), df.index, 55)
+        accel_val = accel_series.get(probe_date, 0.0)
+        final_dynamic_risk_recalc = (state_val * w_state + vel_val * w_velocity + accel_val * w_acceleration).clip(0, 1)
+        final_dynamic_risk_actual = atomic.get('COGNITIVE_FUSED_RISK_SCORE', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        print(f"    - 动态锻造: State({state_val:.2f})*w + Velocity({vel_val:.2f})*w + Accel({accel_val:.2f})*w = {final_dynamic_risk_recalc:.4f}")
+        print(f"\n  --- [最终裁决] ---")
+        print(f"    - 🔥 熔炉产物 (COGNITIVE_FUSED_RISK_SCORE): {final_dynamic_risk_actual:.4f}")
+        print(f"    - [对比]: 实际值 {final_dynamic_risk_actual:.4f} vs 重算值 {final_dynamic_risk_recalc:.4f}")
+        print("--- “赫淮斯托斯熔炉”探针运行完毕 ---\n")
 
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
@@ -1041,93 +1077,6 @@ class IntelligenceLayer:
         print(f"          - ☀️ 阿波罗吸收 (多头反噬): {is_apollo_absorption_val and is_in_influence_zone_val} -> 若触发，分数强制归零")
         print(f"          - 最终裁决 (战术质量分): {final_score:.4f}")
         return final_score
-
-    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
-        """
-        【V1.0 · 新增】“赫淮斯托斯熔炉”探针 - 风险融合过程解剖
-        - 核心职责: 完美复刻并解剖 synthesize_fused_risk_scores 的内部计算过程，
-                      暴露风险信号在融合过程中的每一步变化，为决策提供确凿证据。
-                      此探针只用于诊断，其内部逻辑反映的是当前引擎的真实状态（包含缺陷）。
-        """
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖】🔥 ---")
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
-        if not get_param_value(p_fused_risk.get('enabled'), True):
-            print("    - 风险融合模块未启用，跳过解剖。")
-            return
-        print("  --- [阶段1] 信号输入审查 ---")
-        risk_categories = p_fused_risk.get('risk_categories', {})
-        all_required_signals = {s for signals in risk_categories.values() if isinstance(signals, dict) for s in signals if s != "说明"}
-        signal_value_cache = {}
-        for sig_name in sorted(list(all_required_signals)):
-            val = atomic.get(sig_name, pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-            signal_value_cache[sig_name] = val
-            # 关键输入信号高亮显示
-            if "ARCHANGEL" in sig_name:
-                print(f"    - 关键输入信号 [{sig_name}]: {val:.4f}  <-- 风险源头")
-            else:
-                print(f"    - 输入信号 [{sig_name}]: {val:.4f}")
-        print("\n  --- [阶段2] 维度内融合解剖 (当前引擎的“主次风险”算法) ---")
-        fused_dimension_scores = {}
-        secondary_risk_discount = p_fused_risk.get('intra_dimension_fusion_params', {}).get('secondary_risk_discount', 0.3)
-        for category_name, signals in risk_categories.items():
-            if category_name == "说明": continue
-            print(f"\n    -> 正在处理维度: [{category_name.upper()}]")
-            category_signal_scores = []
-            for signal_name, signal_params in signals.items():
-                if signal_name == "说明": continue
-                atomic_score = signal_value_cache.get(signal_name, 0.0)
-                processed_score = 1.0 - atomic_score if signal_params.get('inverse', False) else atomic_score
-                weighted_score = processed_score * signal_params.get('weight', 1.0)
-                category_signal_scores.append(weighted_score)
-                print(f"      - 信号 '{signal_name}':")
-                print(f"        - 原始值: {atomic_score:.4f} -> 处理后: {processed_score:.4f} -> 加权后: {weighted_score:.4f} (权重: {signal_params.get('weight', 1.0)})")
-            if category_signal_scores:
-                sorted_scores = sorted(category_signal_scores, reverse=True)
-                primary_risk = sorted_scores[0]
-                secondary_risk = sorted_scores[1] if len(sorted_scores) > 1 else 0.0
-                dimension_risk = primary_risk + secondary_risk * secondary_risk_discount
-                fused_dimension_scores[category_name] = dimension_risk
-                print(f"      - 维度内融合计算 (主次风险算法):")
-                print(f"        - 主要风险: {primary_risk:.4f}")
-                print(f"        - 次要风险: {secondary_risk:.4f} (折扣率: {secondary_risk_discount})")
-                print(f"        - 维度总风险 = {primary_risk:.4f} + {secondary_risk:.4f} * {secondary_risk_discount} = {dimension_risk:.4f}")
-            else:
-                fused_dimension_scores[category_name] = 0.0
-                print(f"      - 维度内无信号，总风险为 0.0")
-        print("\n  --- [阶段3] 跨维度融合解剖 ---")
-        valid_scores = list(fused_dimension_scores.values())
-        if valid_scores:
-            total_fused_risk = max(valid_scores)
-            print(f"    - 所有维度风险分: { {k: f'{v:.4f}' for k, v in fused_dimension_scores.items()} }")
-            print(f"    - 裁决: 取最大值 -> {total_fused_risk:.4f}")
-        else:
-            total_fused_risk = 0.0
-            print(f"    - 无有效维度风险分，总分为 0.0")
-        print("\n  --- [阶段4] 共振惩罚解剖 ---")
-        p_resonance = p_fused_risk.get('resonance_penalty_params', {})
-        if get_param_value(p_resonance.get('enabled'), True):
-            core_dims = p_resonance.get('core_risk_dimensions', [])
-            min_dims = p_resonance.get('min_dimensions_for_resonance', 2)
-            threshold = p_resonance.get('risk_score_threshold', 0.6)
-            penalty_multiplier = p_resonance.get('penalty_multiplier', 1.2)
-            high_risk_dimension_count = sum(1 for dim in core_dims if fused_dimension_scores.get(dim, 0.0) > threshold)
-            is_resonance_triggered = (high_risk_dimension_count >= min_dims)
-            print(f"    - 共振诊断: {high_risk_dimension_count}个核心维度 > {threshold} (要求: {min_dims}个) -> 触发: {is_resonance_triggered}")
-            if is_resonance_triggered:
-                final_risk_score = total_fused_risk * penalty_multiplier
-                print(f"    - 共振惩罚: {total_fused_risk:.4f} * {penalty_multiplier} = {final_risk_score:.4f}")
-            else:
-                final_risk_score = total_fused_risk
-                print(f"    - 未触发共振惩罚。")
-        else:
-            final_risk_score = total_fused_risk
-            print(f"    - 共振惩罚模块未启用。")
-        final_risk_score = min(final_risk_score, 2.0) # clip
-        print("\n  --- [最终裁决] ---")
-        print(f"    - 🔥 熔炉产物 (COGNITIVE_FUSED_RISK_SCORE): {final_risk_score:.4f}")
-        print("--- “赫淮斯托斯熔炉”探针运行完毕 ---\n")
 
     def _deploy_archangel_diagnosis_probe(self, probe_date: pd.Timestamp):
         """

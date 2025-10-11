@@ -306,24 +306,22 @@ class CognitiveIntelligence:
 
     def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
         """
-        【V1.3 · 忒弥斯校准协议版】奇美拉冲突诊断引擎
+        【V2.0 · 忒弥斯校准协议版】奇美拉冲突诊断引擎
         - 核心革命: 签署“忒弥斯校准协议”，为风险分和看涨分建立统一的度量衡。
         - 新核心逻辑:
-          1. 从配置中读取新的 `chimera_risk_normalization_base` 参数。
-          2. 在计算冲突前，将原始的 `COGNITIVE_FUSED_RISK_SCORE` 除以此基准值，将其归一化到[0,1]区间。
-          3. 使用两个都已归一化的分数来计算 `np.minimum`，确保比较的公平性。
-        - 收益: 彻底解决了因度量衡不统一导致的奇美拉冲突分被严重低估的致命BUG。
+          1. 废除对 risk_norm_base 的依赖和错误的除法操作。
+          2. COGNITIVE_FUSED_RISK_SCORE 经过关系元分析后，其值域已在[0,1]区间，本身就是归一化的。
+          3. 直接使用这个已经归一化的风险分作为 bearish_score_normalized。
+        - 收益: 彻底解决了因度量衡不统一导致的奇美拉冲突分被严重低估的致命BUG，恢复了冲突仲裁机制。
         """
         states = {}
-        p_judge = get_params_block(self.strategy, 'judgment_params', {})
-        # 从配置中读取新的风险归一化基准值
-        risk_norm_base = get_param_value(p_judge.get('chimera_risk_normalization_base'), 1000.0)
+        # 修改开始: 移除对 p_judge 和 risk_norm_base 的依赖
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
-        # 获取原始风险分，并进行归一化处理
-        raw_risk_score = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0)
-        bearish_score_normalized = (raw_risk_score / risk_norm_base).clip(0, 1)
+        # COGNITIVE_FUSED_RISK_SCORE 已经是经过关系元分析和clip(0,1)处理的、归一化的分数，可以直接使用
+        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0).clip(0, 1)
         # 现在比较的是两个都在[0,1]区间的、度量衡统一的分数
-        conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized).clip(0, 1)
+        conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized)
+        # 修改结束
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
 
