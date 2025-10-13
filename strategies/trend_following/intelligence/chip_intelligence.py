@@ -98,10 +98,12 @@ class ChipIntelligence:
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.3 · 元分析贯穿版】核心公理一：诊断筹码“聚散”的动态
-        - 核心修正: 对同一个静态快照，使用不同的周期 p 作为 meta_window 进行动态分析，实现多时间级别洞察。
+        【V1.4 · 哲学正本清源版】核心公理一：诊断筹码“聚散”的动态
+        - 核心修正: 承认“聚散”是单极健康度概念。在元分析引擎返回双极性分数后，
+                      立即使用 .clip(0, 1) 将其裁剪为[0, 1]的单极健康度分数，再返回。
+                      这解决了其负分导致最终融合归零的致命问题。
         """
-        # 循环内调用元分析
+        # 修改开始: 正本清源，返回单极健康度分数
         scores = {}
         norm_window = 120
         # 1. 计算纯粹的静态“集中度快照分”
@@ -109,12 +111,15 @@ class ChipIntelligence:
         conc_70_score = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
         stability_score = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
         concentration_snapshot = (conc_90_score * conc_70_score * stability_score)**(1/3)
-        # 2. 对快照分进行关系元分析，捕捉其动态变化
+        # 2. 对快照分进行关系元分析，并立即将其输出修正为单极健康度
         for p in periods:
             # 对同一个快照，用不同的时间窗口(p)去分析其动态
-            dynamic_concentration_score = self._perform_chip_relational_meta_analysis(df, concentration_snapshot, p)
-            scores[p] = dynamic_concentration_score
+            bipolar_dynamic_score = self._perform_chip_relational_meta_analysis(df, concentration_snapshot, p)
+            # 关键修正：将双极性动态分裁剪为[0, 1]的单极健康度分
+            unipolar_health_score = bipolar_dynamic_score.clip(0, 1) # 修改行
+            scores[p] = unipolar_health_score
         return scores
+        # 修改结束
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
