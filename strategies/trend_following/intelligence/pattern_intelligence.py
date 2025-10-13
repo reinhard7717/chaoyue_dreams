@@ -7,19 +7,19 @@ from strategies.trend_following.utils import get_params_block, get_param_value, 
 
 class PatternIntelligence:
     """
-    【V2.1 · 预测能力版】形态智能引擎
+    【V3.1 · 语境修正版】形态智能引擎
     - 核心升级: 引入了“下跌动能衰竭”作为第四个识别维度，赋予引擎在明确反转信号出现前，
                   就能识别潜在底部形态的“预测”能力。
-    - 收益: 极大提升了在阴跌末期行情中的信号灵敏度。
+    - 本次修改: 为“上涨动能衰竭”信号引入语境判断，修复其在趋势起点被错误触发的致命BUG。
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 全功能版】形态分析总指挥
+        【V3.1 · 语境修正版】形态分析总指挥
         - 核心升级: 补完缺失的“四位一体”看跌形态识别逻辑，使引擎具备完整的风险诊断能力。
-        - 信号净化: 所有输出信号名称与信号字典完全对齐。
+        - 本次修改: 为“上涨动能衰竭”信号引入RSI高位语境，防止在底部反转初期误报风险。
         """
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -75,9 +75,12 @@ class PatternIntelligence:
         is_macd_bear_cross = ((macd_hist < 0) & (macd_hist.shift(1) >= 0)).astype(float)
         score_macd_bearish_cross = is_macd_bear_cross
 
-        # 模式四: 上涨动能衰竭 (预测性指标)
-        # 与下跌动能衰竭逻辑相同，因为都是衡量动能的“绝对值”在减弱
-        score_up_momentum_exhaustion = score_momentum_exhaustion
+        # 新增开始: 为“上涨动能衰竭”引入语境判断
+        # 只有在RSI已经处于高位（例如大于60）时，动能的衰竭才被视为一种风险
+        is_uptrend_context = (rsi > 60).astype(float)
+        # 修改行: 引入语境调节器，防止在底部误判
+        score_up_momentum_exhaustion = score_momentum_exhaustion * is_uptrend_context
+        # 新增结束
 
         # 融合四种看跌模式
         top_pattern_score = np.maximum.reduce([
@@ -94,26 +97,7 @@ class PatternIntelligence:
         states = {
             'SCORE_PATTERN_BOTTOM_REVERSAL': bottom_pattern_score.astype(np.float32),
             'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
-            # 使用计算出的看跌信号替换硬编码的0
             'SCORE_PATTERN_TOP_REVERSAL': top_pattern_score.astype(np.float32),
             'SCORE_PATTERN_BEARISH_RESONANCE': bearish_pattern_score.astype(np.float32),
         }
         return states
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
