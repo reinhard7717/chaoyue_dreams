@@ -2,20 +2,10 @@
 # 法医探针集合
 import pandas as pd
 import numpy as np
+import pandas_ta as ta
 import json
-from .intelligence.foundation_intelligence import FoundationIntelligence
-from .intelligence.structural_intelligence import StructuralIntelligence
-from .intelligence.chip_intelligence import ChipIntelligence
-from .intelligence.behavioral_intelligence import BehavioralIntelligence
-from .intelligence.cognitive_intelligence import CognitiveIntelligence
-from .intelligence.playbook_engine import PlaybookEngine
-from .intelligence.fund_flow_intelligence import FundFlowIntelligence
-from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
-from .intelligence.cyclical_intelligence import CyclicalIntelligence
-from strategies.kline_pattern_recognizer import KlinePatternRecognizer
-from .intelligence.pattern_intelligence import PatternIntelligence
-from .intelligence.process_intelligence import ProcessIntelligence
-from .intelligence.predictive_intelligence import PredictiveIntelligence
+from typing import Dict
+
 from strategies.trend_following.utils import get_params_block, calculate_holographic_dynamics, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
 
 class ForensicProbes:
@@ -219,7 +209,7 @@ class ForensicProbes:
         - 核心修复: 修正了加速度计算的致命错误，确保其是对“速度”求导，而非重复对“位移”求导。
         - 收益: 彻底解决了探针重算结果与主引擎之间的微小偏差，实现了完美的逻辑统一。
         """
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.2】🔥 ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯熔炉 · 风险融合解剖 V2.2】🔥 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -919,7 +909,7 @@ class ForensicProbes:
         - 新核心逻辑: 探针内部完美复刻“加权几何平均 + 关系元分析”的两阶段认知过程。
         - 收益: 彻底解决了探针与主引擎逻辑脱节导致的巨大验证偏差，恢复了探针的诊断能力。
         """
-        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V3.0】🦉 ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: 🦉【雅典娜智慧 · 终极底部确认解剖 V3.0】🦉 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         def get_val(name, date, default=0.0):
@@ -1026,7 +1016,7 @@ class ForensicProbes:
         - 核心升级: 在打印斜率的同时，增加打印当天的指标原始值，提供完整的诊断证据链。
         - 收益: 彻底阐明了风险信号的源头数据，使诊断报告的透明度和可信度达到极致。
         """
-        print("\n--- [探针] 正在启用: ☤【商神杖探针 V1.2 · 权力转移风险解剖】☤ ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: ☤【商神杖探针 V1.2 · 权力转移风险解剖】☤ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel.micro_behavior_engine
@@ -1165,7 +1155,7 @@ class ForensicProbes:
           - 正确逻辑: 1 - score
         - 收益: 确保探针能够正确复现“主力信念瓦解”风险的产生过程，使其恢复神力。
         """
-        print("\n--- [探针] 正在启用: ⚔️【阿瑞斯之矛探针 V1.1 · 宙斯之雷协议版】⚔️ ---") # 修改: 更新探针版本
+        print("\n--- [探针] 正在启用: ⚔️【阿瑞斯之矛探针 V1.1 · 宙斯之雷协议版】⚔️ ---")
         df = self.strategy.df_indicators
         engine = self.cognitive_intel.micro_behavior_engine
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})

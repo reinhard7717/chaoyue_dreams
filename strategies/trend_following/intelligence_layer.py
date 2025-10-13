@@ -167,7 +167,7 @@ class IntelligenceLayer:
         - 核心修正: 修正了风险项循环中的 NameError，将 item.get('score', o, 0) 改为 item.get('score', 0)。
         - 收益: 解决了因笔误导致的探针崩溃问题，恢复探针系统正常运行。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.4.2】⚡️---") # 修改: 更新探针版本
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.4.2】⚡️---")
         # self.probes._deploy_themis_scales_probe(probe_date)
         # self.probes._deploy_archangel_diagnosis_probe(probe_date)
         # self.probes._deploy_athena_wisdom_probe(probe_date)
