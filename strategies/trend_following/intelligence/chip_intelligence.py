@@ -148,7 +148,6 @@ class ChipIntelligence:
             scores[p] = dynamic_action_score
         return scores
 
-
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
         【V1.6 · 冥王之眼版】核心公理三：诊断筹码“转移方向”
@@ -178,7 +177,6 @@ class ChipIntelligence:
             scores[p] = dynamic_transfer_score
         return scores
 
-
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
         【V5.0 · 冥王之眼版】筹码专用的关系元分析核心引擎
@@ -207,7 +205,6 @@ class ChipIntelligence:
         # 冥王之眼：基础分被双重杠杆撬动
         final_score = (state_score * dynamic_leverage * holographic_leverage).clip(0, 1)
         return final_score.astype(np.float32)
-
 
     def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
         """
@@ -270,27 +267,29 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 指挥链修复版】主力吸筹模式与风险诊断引擎
-        - 核心修复: 在调用 _perform_chip_relational_meta_analysis 时，传入缺失的 meta_window 参数。
+        【V1.2 · 冥王之眼同步版】诊断“吸筹”相关的战术剧本
+        - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
         """
+        # 修改开始: 补上缺失的“全息背离分”参数
         states = {}
         norm_window = 120
-        ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # --- 拉升吸筹 (Rally Accumulation) ---
-        chip_concentration_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
-        winner_conviction_score = normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
-        rally_snapshot_score = (ma_context_score * chip_concentration_score * winner_conviction_score)
-        rally_accumulation_score = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score, 5) # 修改行: 传入 meta_window=5
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
-        # --- 打压吸筹 (Suppress Accumulation) ---
-        price_weakness_score = 1.0 - ma_context_score
-        suppress_snapshot_score = (price_weakness_score * chip_concentration_score)
-        suppress_accumulation_score = self._perform_chip_relational_meta_analysis(df, suppress_snapshot_score, 5) # 修改行: 传入 meta_window=5
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
-        # --- 真实吸筹 (True Accumulation) ---
-        true_accumulation_score = np.maximum(rally_accumulation_score.values, suppress_accumulation_score.values)
-        states['SCORE_CHIP_TRUE_ACCUMULATION'] = pd.Series(true_accumulation_score, index=df.index, dtype=np.float32)
+        # 剧本一：“拉升吸筹” (Rally Accumulation)
+        # 证据链：价格上涨，但换手率下降，且筹码集中度在提升
+        price_up_score = normalize_score(df.get('SLOPE_5_close'), df.index, norm_window, ascending=True)
+        turnover_down_score = normalize_score(df.get('SLOPE_5_turnover_rate_f'), df.index, norm_window, ascending=False)
+        concentration_up_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=True)
+        # 快照分
+        rally_snapshot_score = (price_up_score * turnover_down_score * concentration_up_score)**(1/3)
+        # 新增行: 为快照分计算其在(1, 5)周期上的结构性背离
+        holographic_divergence = self._calculate_holographic_divergence(rally_snapshot_score, 1, 5, norm_window)
+        # 动态分 (元分析)
+        rally_accumulation_score = self._perform_chip_relational_meta_analysis(
+            df, rally_snapshot_score, 5, holographic_divergence
+        ) # 修改行: 传入新增的背离分参数
+        states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
+        # 更多剧本可以在此添加...
         return states
+        # 修改结束
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
