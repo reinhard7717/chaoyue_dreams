@@ -1196,12 +1196,12 @@ class ForensicProbes:
 
     def _deploy_hephaestus_chip_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.1 · 指挥链修复版】“赫淮斯托斯-公理熔炉”探针
-        - 核心修复: 同步所有对 _perform_chip_relational_meta_analysis 的调用，传入必需的 meta_window 参数，
-                      解决因主引擎函数签名变更导致的探针崩溃问题。
+        【V2.2 · 认知同步版】“赫淮斯托斯-公理熔炉”探针
+        - 核心修复: 在重算“公理一：聚散动态”时，同步主引擎的 .clip(0, 1) 逻辑，解决“实际值”与“重算值”不匹配的问题。
+                      同时，额外展示裁剪前的原始双极性分，增强诊断透明度。
         """
-        # 修改开始: 全面修复对元分析引擎的调用
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 公理熔炉探针 V2.1】🔥 ---")
+        # 修改开始: 同步公理一的裁剪逻辑
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 公理熔炉探针 V2.2】🔥 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         chip_intel = self.chip_intel
@@ -1235,15 +1235,19 @@ class ForensicProbes:
         concentration_snapshot = (conc_90 * conc_70 * stability)**(1/3)
         print(f"      - [快照分] 当日静态集中度: {get_val(concentration_snapshot, probe_date):.4f}")
         for p in periods:
-            recalc_dyn_conc = chip_intel._perform_chip_relational_meta_analysis(df, concentration_snapshot, p) # 修改行: 传入 meta_window=p
-            print(f"      - [周期 {p}d] 动态分: {get_val(concentration_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_conc, probe_date):.4f})")
+            bipolar_recalc = chip_intel._perform_chip_relational_meta_analysis(df, concentration_snapshot, p)
+            unipolar_recalc = bipolar_recalc.clip(0, 1) # 新增行: 模拟主引擎的裁剪逻辑
+            actual_val = get_val(concentration_scores.get(p), probe_date)
+            recalc_val = get_val(unipolar_recalc, probe_date)
+            bipolar_val = get_val(bipolar_recalc, probe_date)
+            print(f"      - [周期 {p}d] 动态分: {actual_val:.4f} (重算: {recalc_val:.4f}) | 原始双极性分: {bipolar_val:.4f}") # 修改行: 增强探针信息
         # --- 公理二：主力吸派 ---
         print("\n    --- 公理二: 主力吸派 (Main Force Action) ---")
         for p in periods:
             acc_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=True))**(1/3)
             dist_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=False))**(1/3)
             action_snapshot = (acc_ev - dist_ev).astype(np.float32)
-            recalc_dyn_action = chip_intel._perform_chip_relational_meta_analysis(df, action_snapshot, p) # 修改行: 传入 meta_window=p
+            recalc_dyn_action = chip_intel._perform_chip_relational_meta_analysis(df, action_snapshot, p)
             print(f"      - [周期 {p}d] 快照分: {get_val(action_snapshot, probe_date):.4f} -> 动态分: {get_val(accumulation_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_action, probe_date):.4f})")
         # --- 公理三：权力转移 ---
         print("\n    --- 公理三: 权力转移 (Power Transfer) ---")
@@ -1251,7 +1255,7 @@ class ForensicProbes:
             to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
             to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
             transfer_snapshot = (to_main - to_retail).astype(np.float32)
-            recalc_dyn_transfer = chip_intel._perform_chip_relational_meta_analysis(df, transfer_snapshot, p) # 修改行: 传入 meta_window=p
+            recalc_dyn_transfer = chip_intel._perform_chip_relational_meta_analysis(df, transfer_snapshot, p)
             print(f"      - [周期 {p}d] 快照分: {get_val(transfer_snapshot, probe_date):.4f} -> 动态分: {get_val(power_transfer_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_transfer, probe_date):.4f})")
         # 链路层 3: 终极信号合成 (全息共振熔炉)
         print("\n  [链路层 3] 终极信号合成 (全息共振熔炉)")
@@ -1260,14 +1264,14 @@ class ForensicProbes:
         # --- 看涨共振 ---
         print("\n    --- 看涨共振 (Bullish Resonance) ---")
         bullish_scores_by_period = {}
-        print("      - [周期内融合] 公式: (聚散分.clip(0,1) * 吸派分.clip(0,1) * 转移分.clip(0,1))^(1/3)")
+        print("      - [周期内融合] 公式: (聚散分 * 吸派分.clip(0,1) * 转移分.clip(0,1))^(1/3)") # 修正公式描述
         for p in periods:
             conc_val = get_val(concentration_scores.get(p), probe_date, 0.0)
             acc_val = get_val(accumulation_scores.get(p), probe_date, 0.0)
             trans_val = get_val(power_transfer_scores.get(p), probe_date, 0.0)
-            period_score = (conc_val.clip(0, 1) * acc_val.clip(0, 1) * trans_val.clip(0, 1))**(1/3)
+            period_score = (conc_val * acc_val.clip(0, 1) * trans_val.clip(0, 1))**(1/3) # 聚散分已经是单极性，无需再clip
             bullish_scores_by_period[p] = period_score
-            print(f"        - 周期 {p}d: ({conc_val.clip(0,1):.2f} * {acc_val.clip(0,1):.2f} * {trans_val.clip(0,1):.2f})^(1/3) = {period_score:.4f}")
+            print(f"        - 周期 {p}d: ({conc_val:.2f} * {acc_val.clip(0,1):.2f} * {trans_val.clip(0,1):.2f})^(1/3) = {period_score:.4f}")
         print("      - [跨周期共振] 公式: 加权几何平均")
         recalc_bullish_resonance = 1.0
         for p in periods:
@@ -1276,14 +1280,14 @@ class ForensicProbes:
         # --- 看跌共振 ---
         print("\n    --- 看跌共振 (Bearish Resonance) ---")
         bearish_scores_by_period = {}
-        print("      - [周期内融合] 公式: ((1-聚散分.clip(0,1)) * |吸派分.clip(-1,0)| * |转移分.clip(-1,0)|)^(1/3)")
+        print("      - [周期内融合] 公式: ((1-聚散分) * |吸派分.clip(-1,0)| * |转移分.clip(-1,0)|)^(1/3)") # 修正公式描述
         for p in periods:
             conc_val = get_val(concentration_scores.get(p), probe_date, 0.0)
             acc_val = get_val(accumulation_scores.get(p), probe_date, 0.0)
             trans_val = get_val(power_transfer_scores.get(p), probe_date, 0.0)
-            period_score = ((1 - conc_val.clip(0, 1)) * abs(acc_val.clip(-1, 0)) * abs(trans_val.clip(-1, 0)))**(1/3)
+            period_score = ((1 - conc_val) * abs(acc_val.clip(-1, 0)) * abs(trans_val.clip(-1, 0)))**(1/3) # 聚散分已经是单极性
             bearish_scores_by_period[p] = period_score
-            print(f"        - 周期 {p}d: ((1-{conc_val.clip(0,1):.2f}) * {abs(acc_val.clip(-1,0)):.2f} * {abs(trans_val.clip(-1,0)):.2f})^(1/3) = {period_score:.4f}")
+            print(f"        - 周期 {p}d: ((1-{conc_val:.2f}) * {abs(acc_val.clip(-1,0)):.2f} * {abs(trans_val.clip(-1,0)):.2f})^(1/3) = {period_score:.4f}")
         print("      - [跨周期共振] 公式: 加权几何平均")
         recalc_bearish_resonance = 1.0
         for p in periods:
@@ -1293,12 +1297,14 @@ class ForensicProbes:
         print("\n  [链路层 4] 反转信号锻造 (元分析再应用)")
         # --- 底部反转 ---
         bull_res_series = atomic.get('SCORE_CHIP_BULLISH_RESONANCE')
-        recalc_bottom_reversal = chip_intel._perform_chip_relational_meta_analysis(df, bull_res_series, 5) # 修改行: 传入 meta_window=5
-        print(f"    - 底部反转 = Meta(看涨共振) -> 实际值: {bottom_reversal:.4f} vs 重算值: {get_val(recalc_bottom_reversal, probe_date):.4f}")
+        recalc_bottom_reversal_bipolar = chip_intel._perform_chip_relational_meta_analysis(df, bull_res_series, 5)
+        recalc_bottom_reversal = recalc_bottom_reversal_bipolar.clip(0, 1) # 新增行: 模拟主引擎的裁剪逻辑
+        print(f"    - 底部反转 = Meta(看涨共振).clip(0,1) -> 实际值: {bottom_reversal:.4f} vs 重算值: {get_val(recalc_bottom_reversal, probe_date):.4f}") # 修改行: 增强探针信息
         # --- 顶部反转 ---
         bear_res_series = atomic.get('SCORE_CHIP_BEARISH_RESONANCE')
-        recalc_top_reversal = chip_intel._perform_chip_relational_meta_analysis(df, bear_res_series, 5) # 修改行: 传入 meta_window=5
-        print(f"    - 顶部反转 = Meta(看跌共振) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}")
+        recalc_top_reversal_bipolar = chip_intel._perform_chip_relational_meta_analysis(df, bear_res_series, 5)
+        recalc_top_reversal = recalc_top_reversal_bipolar.clip(0, 1) # 新增行: 模拟主引擎的裁剪逻辑
+        print(f"    - 顶部反转 = Meta(看跌共振).clip(0,1) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}") # 修改行: 增强探针信息
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
         # 修改结束
 
