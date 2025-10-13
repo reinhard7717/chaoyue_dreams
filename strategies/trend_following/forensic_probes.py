@@ -20,7 +20,6 @@ class ForensicProbes:
         self.cognitive_intel = intelligence_layer_instance.cognitive_intel
         # 为新的筹码探针获取 chip_intel 引用
         self.chip_intel = intelligence_layer_instance.chip_intel
-        
 
     def _deploy_prophet_entry_probe(self, probe_date: pd.Timestamp):
         """
@@ -1338,6 +1337,52 @@ class ForensicProbes:
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
         # 修改结束
 
+    def _deploy_ares_tribunal_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“阿瑞斯审判庭”探针
+        - 核心职责: 复现“真伪识别：打压 vs 撤退”诊断引擎的完整逻辑，确保其计算过程的透明性。
+        """
+        print("\n--- [探针] 正在启用: ⚖️【阿瑞斯审判庭 · 真伪识别探针 V1.0】⚖️ ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        norm_window = 120
+        p = 5
+        def get_val(series, date, default=np.nan):
+            if series is None or not isinstance(series, (pd.Series, dict)): return default
+            if isinstance(series, dict): return series.get(date, default)
+            return series.get(date, default)
+        # --- 步骤1: 重现“短期派发”情景 ---
+        print("\n  [链路层 1] 重现“短期派发”情景")
+        to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
+                   normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
+        to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
+                     normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
+        short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
+        is_price_down = (df.get('pct_change_D', 0) < 0).astype(float)
+        short_term_distribution_evidence = (1 - short_term_transfer_snapshot.clip(-1, 1) * 0.5 - 0.5) * is_price_down
+        print(f"    - 当日短期派发证据分: {get_val(short_term_distribution_evidence, probe_date):.4f}")
+        # --- 步骤2: 交叉验证“战术性打压” (看涨信号) ---
+        print("\n  [链路层 2] 交叉验证“战术性打压”")
+        trend_quality_context = get_val(atomic.get('COGNITIVE_SCORE_TREND_QUALITY'), probe_date, 0.0)
+        panic_absorption_score = get_val(atomic.get('SCORE_MICRO_PANIC_ABSORPTION'), probe_date, 0.0)
+        winner_conviction_score = (get_val(atomic.get('PROCESS_META_WINNER_CONVICTION'), probe_date, 0.0) * 0.5 + 0.5)
+        structural_support_score = get_val(atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED'), probe_date, 0.0)
+        print(f"    - [看涨证据] 趋势质量: {trend_quality_context:.2f}, 恐慌吸收: {panic_absorption_score:.2f}, 赢家信念: {winner_conviction_score:.2f}, 结构支撑: {structural_support_score:.2f}")
+        recalc_absorption_evidence = (trend_quality_context * panic_absorption_score * winner_conviction_score * (1 + structural_support_score * 0.5))
+        recalc_tactical_suppression = (get_val(short_term_distribution_evidence, probe_date) * recalc_absorption_evidence).clip(0, 1)
+        actual_tactical_suppression = get_val(atomic.get('COGNITIVE_SCORE_TACTICAL_SUPPRESSION'), probe_date, 0.0)
+        print(f"    - [最终锻造] 战术性打压分 -> 实际值: {actual_tactical_suppression:.4f} vs 重算值: {recalc_tactical_suppression:.4f}")
+        # --- 步骤3: 交叉验证“真实撤退” (风险信号) ---
+        print("\n  [链路层 3] 交叉验证“真实撤退”")
+        trend_decay_context = 1.0 - trend_quality_context
+        no_absorption_score = 1.0 - panic_absorption_score
+        winner_capitulation_score = (get_val(atomic.get('PROCESS_META_WINNER_CONVICTION'), probe_date, 0.0) * -0.5 + 0.5)
+        print(f"    - [看跌证据] 趋势恶化: {trend_decay_context:.2f}, 无人吸收: {no_absorption_score:.2f}, 赢家动摇: {winner_capitulation_score:.2f}")
+        recalc_retreat_evidence = (trend_decay_context * no_absorption_score * winner_capitulation_score)
+        recalc_true_retreat = (get_val(short_term_distribution_evidence, probe_date) * recalc_retreat_evidence).clip(0, 1)
+        actual_true_retreat = get_val(atomic.get('COGNITIVE_SCORE_TRUE_RETREAT_RISK'), probe_date, 0.0)
+        print(f"    - [最终锻造] 真实撤退风险 -> 实际值: {actual_true_retreat:.4f} vs 重算值: {recalc_true_retreat:.4f}")
+        print("\n--- “阿瑞斯审判庭”探针运行完毕 ---")
 
 
 

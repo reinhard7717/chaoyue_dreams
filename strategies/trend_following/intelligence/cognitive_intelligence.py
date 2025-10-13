@@ -39,9 +39,12 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.7 · 全维感知版】顶层认知总分合成模块
-        - 核心升级: 将筹码层的“真实吸筹”信号纳入最终看涨分数的计算，增强对主力核心行为的感知。
+        【V3.8 · 真伪识别版】顶层认知总分合成模块
+        - 核心升级: 1. 新增“真伪识别”引擎，区分“战术性打压”与“真实撤退”。
+                      2. 将“战术性打压”分纳入最终看涨分数，化腐朽为神奇。
+                      3. 将“真实撤退”分纳入融合风险计算，增强风险识别能力。
         """
+        # 修改开始: 集成“真伪识别”引擎
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
@@ -59,6 +62,11 @@ class CognitiveIntelligence:
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
         self.synthesize_tactical_opportunity_fusion(df)
+        
+        # 新增行: 调用“真伪识别”引擎
+        suppression_vs_retreat_states = self._diagnose_suppression_vs_retreat(df)
+        self.strategy.atomic_states.update(suppression_vs_retreat_states)
+
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
@@ -76,15 +84,28 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION').values,
-            # 将筹码层的“真实吸筹”信号纳入最终看涨分数计算
             self._get_atomic_score(df, 'SCORE_CHIP_TRUE_ACCUMULATION').values,
+            # 新增行: 将“战术性打压”分作为一项强力看涨信号
+            self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_SUPPRESSION').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
+        
+        # 将“真实撤退”风险纳入总风险计算
+        # 注意: 这部分通常通过配置文件驱动，这里为了演示，我们假设直接在代码中添加
+        # 在实际项目中，应将 'COGNITIVE_SCORE_TRUE_RETREAT_RISK' 添加到 fused_risk_scoring 的配置中
         fused_risk_states = self.synthesize_fused_risk_scores(df)
+        true_retreat_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0)
+        if 'COGNITIVE_FUSED_RISK_SCORE' in fused_risk_states:
+             fused_risk_states['COGNITIVE_FUSED_RISK_SCORE'] = np.maximum(
+                 fused_risk_states['COGNITIVE_FUSED_RISK_SCORE'],
+                 true_retreat_risk
+             )
+        
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
         return df
+        # 修改结束
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -888,6 +909,69 @@ class CognitiveIntelligence:
         
         return pd.Series(aegis_shield_values, index=df.index, dtype=np.float32)
 
+    def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“真伪识别：打压 vs 撤退”诊断引擎
+        - 核心职责: 对筹码层发现的“短期派发”现象进行交叉验证，区分其是“战术性打压”还是“真实撤退”。
+        """
+        states = {}
+        norm_window = 55
+        
+        # --- 步骤1: 重现“短期派发”情景 ---
+        # 我们需要一个指标来量化“短期派发”的强度，这里我们局部重算5日周期的权力转移快照分
+        p = 5
+        to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) * 
+                   normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
+        to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * 
+                     normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
+        short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
+        
+        # “短期派发”的证据 = 快照分为负数 * 价格下跌
+        is_price_down = (df.get('pct_change_D', 0) < 0).astype(float)
+        short_term_distribution_evidence = (1 - short_term_transfer_snapshot.clip(-1, 1) * 0.5 - 0.5) * is_price_down
+        
+        # --- 步骤2: 构建“战术性打压”的证据链 (看涨信号) ---
+        # 证据1: 整体趋势健康，根基未动
+        trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
+        # 证据2: 恐慌盘被主力吸收
+        panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
+        # 证据3: 长期赢家信念坚定
+        winner_conviction_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
+        # 证据4: 股价在关键支撑位获得防守
+        structural_support_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_BOTTOM_CONFIRMED', 0.0)
+        
+        # 融合看涨证据
+        absorption_evidence_chain = (
+            trend_quality_context * 
+            panic_absorption_score * 
+            winner_conviction_score *
+            (1 + structural_support_score * 0.5) # 结构支撑作为加分项
+        )
+        
+        # 最终“战术打压”分 = 派发行为 * 吸收证据
+        tactical_suppression_score = (short_term_distribution_evidence * absorption_evidence_chain).clip(0, 1)
+        states['COGNITIVE_SCORE_TACTICAL_SUPPRESSION'] = tactical_suppression_score.astype(np.float32)
+
+        # --- 步骤3: 构建“真实撤退”的证据链 (风险信号) ---
+        # 证据1: 趋势质量恶化
+        trend_decay_context = 1.0 - trend_quality_context
+        # 证据2: 恐慌盘无人接盘 (吸收信号的缺失)
+        no_absorption_score = 1.0 - panic_absorption_score
+        # 证据3: 长期赢家信念动摇
+        winner_capitulation_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * -0.5 + 0.5)
+        
+        # 融合看跌证据
+        retreat_evidence_chain = (
+            trend_decay_context *
+            no_absorption_score *
+            winner_capitulation_score
+        )
+        
+        # 最终“真实撤退”分 = 派发行为 * 撤退证据
+        true_retreat_score = (short_term_distribution_evidence * retreat_evidence_chain).clip(0, 1)
+        states['COGNITIVE_SCORE_TRUE_RETREAT_RISK'] = true_retreat_score.astype(np.float32)
+        
+        return states
 
 
 

@@ -177,6 +177,8 @@ class IntelligenceLayer:
         # self.probes._deploy_hermes_verdict_probe(probe_date)
         # self.probes._deploy_ares_spear_probe(probe_date)
         self.probes._deploy_hephaestus_chip_forge_probe(probe_date)
+        self.probes._deploy_ares_tribunal_probe(probe_date)
+        
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         print("\n  [链路层 1] 最终裁决")

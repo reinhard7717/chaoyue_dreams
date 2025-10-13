@@ -187,6 +187,22 @@
             "description": "诊断'力学看跌'与'筹码看跌'的共振过程。基础分已为负，只在事件发生时（原始分>0）计入惩罚。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
+        "COGNITIVE_SCORE_TACTICAL_SUPPRESSION": {
+            "cn_name": "【认知】战术性打压",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 480,
+            "context_role": "bottom_opportunity",
+            "description": "【B级战术信号】在短期派发和价格下跌的表象下，通过交叉验证发现主力仍在吸收恐慌盘且长期信念坚定，是典型的“打压吸筹”战术动作。"
+        },
+        "COGNITIVE_SCORE_TRUE_RETREAT_RISK": {
+            "cn_name": "【认知风险】真实撤退",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2500,
+            "context_role": "top_risk",
+            "description": "【重大风险】在短期派发和价格下跌的表象下，通过交叉验证发现趋势质量恶化、无人接盘且长期信念动摇，是典型的主力“真实撤退”风险信号。"
+        },
         "COGNITIVE_BULLISH_SCORE": {
             "cn_name": "【认知】看涨总分",
             "category": "认知层-机会",

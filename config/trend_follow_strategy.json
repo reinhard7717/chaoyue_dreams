@@ -885,7 +885,8 @@
             "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
             "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
             "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
-            "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false }
+            "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false },
+            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
           }
         },
         "resonance_penalty_params": {
