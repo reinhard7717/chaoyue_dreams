@@ -1336,53 +1336,61 @@ class ForensicProbes:
         print(f"    - 顶部反转 = Divergence(看跌共振, 5, 21).clip(0,1) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}") # 修改行: 更新描述
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
 
-
     def _deploy_ares_tribunal_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“阿瑞斯审判庭”探针
-        - 核心职责: 复现“真伪识别：打压 vs 撤退”诊断引擎的完整逻辑，确保其计算过程的透明性。
+        【V1.1 · 记忆校准版】“阿瑞斯审判庭”探针
+        - 核心修复: 将内部的 norm_window 从错误的 120 修正为与主引擎一致的 55，确保使用相同的时间标尺进行历史回溯。
         """
-        print("\n--- [探针] 正在启用: ⚖️【阿瑞斯审判庭 · 真伪识别探针 V1.0】⚖️ ---")
+        print("\n--- [探针] 正在启用: ⚖️【阿瑞斯审判庭 · 真伪识别探针 V1.1】⚖️ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        norm_window = 120
+        norm_window = 55 # 修改行: 将 norm_window 从 120 校准为 55
         p = 5
         def get_val(series, date, default=np.nan):
             if series is None or not isinstance(series, (pd.Series, dict)): return default
             if isinstance(series, dict): return series.get(date, default)
             return series.get(date, default)
-        # --- 步骤1: 重现“短期派发”情景 ---
-        print("\n  [链路层 1] 重现“短期派发”情景")
+        # --- 步骤1: 量化“近期派发强度”证据 (Evidence A) ---
+        print("\n  [链路层 1] 量化“近期派发强度”证据")
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
                      normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
-        is_price_down = (df.get('pct_change_D', 0) < 0).astype(float)
-        short_term_distribution_evidence = (1 - short_term_transfer_snapshot.clip(-1, 1) * 0.5 - 0.5) * is_price_down
-        print(f"    - 当日短期派发证据分: {get_val(short_term_distribution_evidence, probe_date):.4f}")
-        # --- 步骤2: 交叉验证“战术性打压” (看涨信号) ---
-        print("\n  [链路层 2] 交叉验证“战术性打压”")
+        recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
+        print(f"    - 近期派发强度分: {get_val(recent_distribution_strength, probe_date):.4f}")
+        # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 (Evidence B & C) ---
+        print("\n  [链路层 2] 量化“反转强度”与“动态质量”证据")
+        reversal_strength = get_val(atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'), probe_date, 0.0)
+        dyn_bullish_resonance = get_val(atomic.get('SCORE_DYN_BULLISH_RESONANCE'), probe_date, 0.0)
+        behavior_bullish_resonance = get_val(atomic.get('SCORE_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
+        reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
+        print(f"    - 当日反转强度: {reversal_strength:.4f}")
+        print(f"    - 反转动态质量 (力学: {dyn_bullish_resonance:.2f} * 行为: {behavior_bullish_resonance:.2f}) -> {reversal_dynamic_quality:.4f}")
+        # --- 步骤3: 交叉验证“战术性打压” ---
+        print("\n  [链路层 3] 交叉验证“战术性打压”")
         trend_quality_context = get_val(atomic.get('COGNITIVE_SCORE_TREND_QUALITY'), probe_date, 0.0)
         panic_absorption_score = get_val(atomic.get('SCORE_MICRO_PANIC_ABSORPTION'), probe_date, 0.0)
         winner_conviction_score = (get_val(atomic.get('PROCESS_META_WINNER_CONVICTION'), probe_date, 0.0) * 0.5 + 0.5)
         structural_support_score = get_val(atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED'), probe_date, 0.0)
-        print(f"    - [看涨证据] 趋势质量: {trend_quality_context:.2f}, 恐慌吸收: {panic_absorption_score:.2f}, 赢家信念: {winner_conviction_score:.2f}, 结构支撑: {structural_support_score:.2f}")
-        recalc_absorption_evidence = (trend_quality_context * panic_absorption_score * winner_conviction_score * (1 + structural_support_score * 0.5))
-        recalc_tactical_suppression = (get_val(short_term_distribution_evidence, probe_date) * recalc_absorption_evidence).clip(0, 1)
+        print(f"    - [看涨证据链] 趋势质量: {trend_quality_context:.2f}, 恐慌吸收: {panic_absorption_score:.2f}, 赢家信念: {winner_conviction_score:.2f}, 结构支撑: {structural_support_score:.2f}")
+        absorption_evidence_chain = (trend_quality_context * panic_absorption_score * winner_conviction_score * (1 + structural_support_score * 0.5))
+        recalc_tactical_suppression = (get_val(recent_distribution_strength, probe_date) * reversal_strength * reversal_dynamic_quality * absorption_evidence_chain).clip(0, 1)
         actual_tactical_suppression = get_val(atomic.get('COGNITIVE_SCORE_TACTICAL_SUPPRESSION'), probe_date, 0.0)
         print(f"    - [最终锻造] 战术性打压分 -> 实际值: {actual_tactical_suppression:.4f} vs 重算值: {recalc_tactical_suppression:.4f}")
-        # --- 步骤3: 交叉验证“真实撤退” (风险信号) ---
-        print("\n  [链路层 3] 交叉验证“真实撤退”")
+        # --- 步骤4: 交叉验证“真实撤退” ---
+        print("\n  [链路层 4] 交叉验证“真实撤退”")
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
         winner_capitulation_score = (get_val(atomic.get('PROCESS_META_WINNER_CONVICTION'), probe_date, 0.0) * -0.5 + 0.5)
-        print(f"    - [看跌证据] 趋势恶化: {trend_decay_context:.2f}, 无人吸收: {no_absorption_score:.2f}, 赢家动摇: {winner_capitulation_score:.2f}")
-        recalc_retreat_evidence = (trend_decay_context * no_absorption_score * winner_capitulation_score)
-        recalc_true_retreat = (get_val(short_term_distribution_evidence, probe_date) * recalc_retreat_evidence).clip(0, 1)
+        bull_trap_evidence = 1.0 - reversal_dynamic_quality
+        print(f"    - [看跌证据链] 趋势恶化: {trend_decay_context:.2f}, 无人吸收: {no_absorption_score:.2f}, 赢家动摇: {winner_capitulation_score:.2f}, 牛市陷阱: {bull_trap_evidence:.2f}")
+        retreat_evidence_chain = (trend_decay_context * no_absorption_score * winner_capitulation_score * bull_trap_evidence)
+        recalc_true_retreat = (get_val(recent_distribution_strength, probe_date) * retreat_evidence_chain).clip(0, 1)
         actual_true_retreat = get_val(atomic.get('COGNITIVE_SCORE_TRUE_RETREAT_RISK'), probe_date, 0.0)
         print(f"    - [最终锻造] 真实撤退风险 -> 实际值: {actual_true_retreat:.4f} vs 重算值: {recalc_true_retreat:.4f}")
         print("\n--- “阿瑞斯审判庭”探针运行完毕 ---")
+
 
 
 
