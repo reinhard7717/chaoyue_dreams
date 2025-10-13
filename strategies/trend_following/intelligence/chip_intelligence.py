@@ -293,14 +293,17 @@ class ChipIntelligence:
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 指挥链修复版】诊断“恐慌投降反转”的潜力
-        - 核心修复: 在调用 _perform_chip_relational_meta_analysis 时，传入缺失的 meta_window 参数。
+        【V3.2 · 冥王之眼同步版】诊断“恐慌投降反转”的潜力
+        - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
         """
+        # 修改开始: 补上缺失的“全息背离分”参数
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
+        meta_window = 5 # 定义元分析窗口以保持一致性
         required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
         if any(col not in df.columns for col in required_cols):
+            states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = pd.Series(0.0, index=df.index)
             return states
         # 步骤一：构建“恐慌投降关系”的瞬时快照分
         deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
@@ -308,8 +311,13 @@ class ChipIntelligence:
         loser_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
-        # 步骤二：对“恐慌投降关系”进行元分析
-        final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score, 5) # 修改行: 传入 meta_window=5
+        # 步骤二 (新增): 为快照分计算其在(1, 5)周期上的结构性背离
+        holographic_divergence = self._calculate_holographic_divergence(snapshot_score, 1, meta_window, norm_window)
+        # 步骤三 (升级): 对“恐慌投降关系”进行元分析，传入背离分
+        final_score = self._perform_chip_relational_meta_analysis(
+            df, snapshot_score, meta_window, holographic_divergence
+        )
         states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_score
         return states
+        # 修改结束
 
