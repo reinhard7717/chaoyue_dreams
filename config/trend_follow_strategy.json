@@ -100,7 +100,8 @@
         "net_md_amount_consensus_sum_21d_D": [21],
         "net_md_amount_consensus_sum_55d_D": [55],
         "avg_order_value_D": [5],
-        "trade_concentration_index_D": [5]
+        "trade_concentration_index_D": [5, 13, 21, 55],
+        "turnover_from_losers_ratio_D": [5, 13, 21, 55]
       }
     },
     "accel_params": {
@@ -137,7 +138,8 @@
         "net_md_amount_consensus_sum_21d_D": [21],
         "net_md_amount_consensus_sum_55d_D": [55],
         "avg_order_value_D": [5],
-        "trade_concentration_index_D": [5]
+        "trade_concentration_index_D": [5, 13, 21, 55],
+        "turnover_from_losers_ratio_D": [5, 13, 21, 55]
       }
     }
   },
@@ -629,16 +631,16 @@
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V21.1 · 阿瑞斯之怒版】此模块现在只定义特定于筹码领域的支柱权重。",
-        "pillar_weights": {
-          "quantitative": 0.25,
-          "advanced": 0.25,
-          "internal": 0.20,
-          "holder": 0.20,
-          "fault": 0.10
+        "description": "【V601.0 · 筹码公理版】定义了基于“三大核心公理”的新筹码引擎参数。",
+        "tf_fusion_weights": {
+          "description": "【全息共振】在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
+          "5": 0.4,
+          "13": 0.3,
+          "21": 0.2,
+          "55": 0.1
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【元分析贯穿协议】关系元分析参数，贯穿于每个核心公理的诊断过程。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4

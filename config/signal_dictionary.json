@@ -569,6 +569,25 @@
             "type": "playbook",
             "description": "执行“周期底捞”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
         },
+        "说明_chip_intelligence": "--- 筹码层-内部信号 ---",
+        "SCORE_CHIP_MTF_CONCENTRATION": {
+            "cn_name": "【内部】MTF-聚散动态分",
+            "category": "内部计分-筹码",
+            "type": "context",
+            "description": "【筹码公理一】多时间级别(MTF)的筹码“聚散”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对纯静态的“集中度快照分”进行三维分析得出。"
+        },
+        "SCORE_CHIP_MTF_ACCUMULATION": {
+            "cn_name": "【内部】MTF-主力吸派分",
+            "category": "内部计分-筹码",
+            "type": "context",
+            "description": "【筹码公理二】多时间级别(MTF)的主力“吸筹/派发”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对双极性的“行动快照分”进行三维分析得出。"
+        },
+        "SCORE_CHIP_MTF_POWER_TRANSFER": {
+            "cn_name": "【内部】MTF-权力转移分",
+            "category": "内部计分-筹码",
+            "type": "context",
+            "description": "【筹码公理三】多时间级别(MTF)的筹码“转移方向”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对双极性的“转移快照分”进行三维分析得出。"
+        },
         "SCORE_CHIP_TRUE_ACCUMULATION": {
             "cn_name": "【筹码】真实吸筹",
             "category": "筹码层-机会",
@@ -600,7 +619,7 @@
             "category": "筹码层-机会",
             "type": "dynamic",
             "score": 180,
-            "description": "【C级基础信号】所有筹码支柱在所有周期上形成看涨共振。"
+            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看涨共振”信号。代表筹码结构健康，且主力正在积极收集。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
             "cn_name": "【筹码终极风险】看跌共振",
@@ -608,7 +627,7 @@
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】所有筹码支柱在所有周期上形成看跌共振。"
+            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看跌共振”信号。代表筹码结构恶化，且主力正在派发。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
             "cn_name": "【筹码终极】底部反转",
@@ -616,7 +635,7 @@
             "type": "positional",
             "score": 400,
             "context_role": "bottom_opportunity",
-            "description": "【阿瑞斯之矛协议】筹码动态健康度在【价格底部区域】形成强力反转信号。"
+            "description": "【筹码公理版】对“全息看涨共振”信号进行关系元分析，捕捉其从无到有、从弱到强的“加速度”，是识别筹码层面战略拐点的核心信号。"
         },
         "SCORE_CHIP_TACTICAL_REVERSAL": {
             "cn_name": "【筹码终极】战术反转",
@@ -624,7 +643,7 @@
             "type": "dynamic",
             "score": 350,
             "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由筹码稳定、短期回调创造的战术性买入点。"
+            "description": "【筹码公理版】“全息看涨共振”信号的弱化版，代表在整体看涨趋势中的短期、小级别回调机会。"
         },
         "SCORE_CHIP_TOP_REVERSAL": {
             "cn_name": "【筹码终极风险】顶部反转",
@@ -632,7 +651,7 @@
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】筹码动态健康度在顶部形成强力反转风险。"
+            "description": "【筹码公理版】对“全息看跌共振”信号进行关系元分析，捕捉其从无到有、从弱到强的“加速度”，是识别筹码层面风险拐点的核心信号。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
         "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
