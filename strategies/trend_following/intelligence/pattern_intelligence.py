@@ -75,12 +75,12 @@ class PatternIntelligence:
         is_macd_bear_cross = ((macd_hist < 0) & (macd_hist.shift(1) >= 0)).astype(float)
         score_macd_bearish_cross = is_macd_bear_cross
 
-        # 新增开始: 为“上涨动能衰竭”引入语境判断
+        # 为“上涨动能衰竭”引入语境判断
         # 只有在RSI已经处于高位（例如大于60）时，动能的衰竭才被视为一种风险
         is_uptrend_context = (rsi > 60).astype(float)
-        # 修改行: 引入语境调节器，防止在底部误判
+        # 引入语境调节器，防止在底部误判
         score_up_momentum_exhaustion = score_momentum_exhaustion * is_uptrend_context
-        # 新增结束
+
 
         # 融合四种看跌模式
         top_pattern_score = np.maximum.reduce([

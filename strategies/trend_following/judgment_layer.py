@@ -11,12 +11,15 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V534.2 · 指挥链校准版】
-        - 核心修正: 修正了对 _get_human_readable_summary 的调用，移除了多余的 signal_type 参数，解决 TypeError 崩溃问题。
-        - 收益: 确保了审判层在生成最终信号细节报告时，调用链的正确性。
+        【V535.0 · 神盾协议版】
+        - 核心革命: 植入“神盾协议”(Aegis Protocol)，解决“趋势破位离场”与“盖亚基石”支撑的战略冲突。
+        - 新核心逻辑: 当“趋势破位离场”信号触发时，系统会检查“盖亚基石”支撑信号(SCORE_FOUNDATION_BOTTOM_CONFIRMED)
+                      是否激活。如果激活，则否决该离场信号，给予股价在关键支撑位企稳反弹的机会。
+        - 收益: 根除了在健康回踩至关键支撑位时被错误震出局的致命缺陷。
         """
-        print("    --- [最高作战指挥部 V534.2 · 指挥链校准版] 启动...")
+        print("    --- [最高作战指挥部 V535.0 · 神盾协议版] 启动...")
         df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states # 获取原子状态
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
@@ -41,15 +44,19 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
+        # --- 神盾协议 (Aegis Protocol) 部署开始 ---
+        # 获取“盖亚基石”的确认信号，并定义神盾激活条件
+        gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
+        is_aegis_shield_active = (gaia_bedrock_score > 0.1)
+        # 在应用“趋势破位离场”之前，检查“神盾”是否激活。如果激活，则否决该离场信号。
+        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask & ~is_aegis_shield_active
+        # --- 神盾协议 (Aegis Protocol) 部署结束 ---
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
-        # 移除多余的 risk_details_df 参数，以匹配新的方法签名
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
-        
         self._finalize_signals()
- 
+
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
         【V5.0 · 雅努斯归位协议版】

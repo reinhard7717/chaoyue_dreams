@@ -927,7 +927,7 @@ class ForensicProbes:
         print(f"    - [核心公式]: 原始分 = 认知融合底部反转分 * 形态底部反转分")
         fusion_bottom_val = get_val('COGNITIVE_FUSION_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 A] 认知融合底部反转分 (COGNITIVE_FUSION_BOTTOM_REVERSAL): {fusion_bottom_val:.4f} ---")
-        # 新增开始: 部署与主引擎完全同步的“普罗米修斯之火”重算逻辑
+        # 部署与主引擎完全同步的“普罗米修斯之火”重算逻辑
         print(f"      - [核心公式]: MetaAnalysis(GeometricMean(基础, 结构, 行为))")
         print("\n        --- [组件A显微镜 · 普罗米修斯之火重算] ---")
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -1064,7 +1064,7 @@ class ForensicProbes:
         ghd_val = get_val(granularity_holo_down, probe_date)
         dmd_val = get_val(dominance_momentum_down, probe_date)
         dhd_val = get_val(dominance_holo_down, probe_date)
-        # 新增开始: 获取原始指标值
+        # 获取原始指标值
         raw_avg_order_val = get_val(df.get('avg_order_value_D'), probe_date)
         raw_trade_conc_val = get_val(df.get('trade_concentration_index_D'), probe_date)
         # 修改打印行以包含原始值
@@ -1263,8 +1263,8 @@ class ForensicProbes:
         concentration_snapshot = (conc_90 * conc_70 * stability)**(1/3)
         print(f"      - [快照分] 当日静态集中度: {get_val(concentration_snapshot, probe_date):.4f}")
         for p in periods:
-            recalc_divergence = _recalc_holographic_divergence(concentration_snapshot, 1, p, norm_window) # 新增行: 重算背离分
-            recalc_dyn_conc = _recalc_meta_analysis(concentration_snapshot, p, recalc_divergence) # 修改行: 传入背离分
+            recalc_divergence = _recalc_holographic_divergence(concentration_snapshot, 1, p, norm_window) # 重算背离分
+            recalc_dyn_conc = _recalc_meta_analysis(concentration_snapshot, p, recalc_divergence) # 传入背离分
             print(f"      - [周期 {p}d] 动态分: {get_val(concentration_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_conc, probe_date):.4f})")
         # --- 公理二：主力吸派 ---
         print("\n    --- 公理二: 主力吸派 (Main Force Action) ---")
@@ -1272,8 +1272,8 @@ class ForensicProbes:
             acc_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=True))**(1/3)
             dist_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=False))**(1/3)
             action_snapshot = (acc_ev - dist_ev).astype(np.float32)
-            recalc_divergence = _recalc_holographic_divergence(action_snapshot, 1, p, norm_window) # 新增行: 重算背离分
-            recalc_dyn_action = _recalc_meta_analysis(action_snapshot, p, recalc_divergence) # 修改行: 传入背离分
+            recalc_divergence = _recalc_holographic_divergence(action_snapshot, 1, p, norm_window) # 重算背离分
+            recalc_dyn_action = _recalc_meta_analysis(action_snapshot, p, recalc_divergence) # 传入背离分
             print(f"      - [周期 {p}d] 快照分: {get_val(action_snapshot, probe_date):.4f} -> 动态分: {get_val(accumulation_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_action, probe_date):.4f})")
         # --- 公理三：权力转移 ---
         print("\n    --- 公理三: 权力转移 (Power Transfer) ---")
@@ -1281,8 +1281,8 @@ class ForensicProbes:
             to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
             to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
             transfer_snapshot = (to_main - to_retail).astype(np.float32)
-            recalc_divergence = _recalc_holographic_divergence(transfer_snapshot, 1, p, norm_window) # 新增行: 重算背离分
-            recalc_dyn_transfer = _recalc_meta_analysis(transfer_snapshot, p, recalc_divergence) # 修改行: 传入背离分
+            recalc_divergence = _recalc_holographic_divergence(transfer_snapshot, 1, p, norm_window) # 重算背离分
+            recalc_dyn_transfer = _recalc_meta_analysis(transfer_snapshot, p, recalc_divergence) # 传入背离分
             print(f"      - [周期 {p}d] 快照分: {get_val(transfer_snapshot, probe_date):.4f} -> 动态分: {get_val(power_transfer_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_transfer, probe_date):.4f})")
         # 链路层 3: 终极信号合成 (全息共振熔炉)
         print("\n  [链路层 3] 终极信号合成 (全息共振熔炉)")
@@ -1299,11 +1299,11 @@ class ForensicProbes:
             period_score = (conc_val + acc_val + trans_val) / 3.0
             bullish_scores_by_period[p] = period_score
             print(f"        - 周期 {p}d: ({conc_val:.2f} + {acc_val:.2f} + {trans_val:.2f}) / 3 = {period_score:.4f}")
-        print("      - [跨周期共振] 公式: 加权算术平均") # 修改行: 更新公式描述
-        recalc_bullish_resonance = 0.0 # 修改行: 初始化为0
+        print("      - [跨周期共振] 公式: 加权算术平均") # 更新公式描述
+        recalc_bullish_resonance = 0.0 # 初始化为0
         if total_weight > 0:
             for p in periods:
-                recalc_bullish_resonance += bullish_scores_by_period[p] * (tf_weights[p] / total_weight) # 修改行: 使用加权算术平均
+                recalc_bullish_resonance += bullish_scores_by_period[p] * (tf_weights[p] / total_weight) # 使用加权算术平均
         print(f"      - [最终锻造] 实际值: {bull_resonance:.4f} vs 重算值: {recalc_bullish_resonance:.4f}")
         # --- 看跌共振 ---
         print("\n    --- 看跌共振 (Bearish Resonance) ---")
@@ -1316,24 +1316,24 @@ class ForensicProbes:
             period_score = ((1 - conc_val) + (1 - acc_val) + (1 - trans_val)) / 3.0
             bearish_scores_by_period[p] = period_score
             print(f"        - 周期 {p}d: ((1-{conc_val:.2f}) + (1-{acc_val:.2f}) + (1-{trans_val:.2f})) / 3 = {period_score:.4f}")
-        print("      - [跨周期共振] 公式: 加权算术平均") # 修改行: 更新公式描述
-        recalc_bearish_resonance = 0.0 # 修改行: 初始化为0
+        print("      - [跨周期共振] 公式: 加权算术平均") # 更新公式描述
+        recalc_bearish_resonance = 0.0 # 初始化为0
         if total_weight > 0:
             for p in periods:
-                recalc_bearish_resonance += bearish_scores_by_period[p] * (tf_weights[p] / total_weight) # 修改行: 使用加权算术平均
+                recalc_bearish_resonance += bearish_scores_by_period[p] * (tf_weights[p] / total_weight) # 使用加权算术平均
         print(f"      - [最终锻造] 实际值: {bear_resonance:.4f} vs 重算值: {recalc_bearish_resonance:.4f}")
         # 链路层 4: 反转信号锻造
         print("\n  [链路层 4] 反转信号锻造 (全息背离引擎应用)")
         # --- 底部反转 ---
         bull_res_series = atomic.get('SCORE_CHIP_BULLISH_RESONANCE')
-        recalc_bottom_reversal_divergence = _recalc_holographic_divergence(bull_res_series, 5, 21, 55) # 修改行: 使用背离引擎重算
-        recalc_bottom_reversal = recalc_bottom_reversal_divergence.clip(0, 1) # 修改行: 只取看涨背离部分
-        print(f"    - 底部反转 = Divergence(看涨共振, 5, 21).clip(0,1) -> 实际值: {bottom_reversal:.4f} vs 重算值: {get_val(recalc_bottom_reversal, probe_date):.4f}") # 修改行: 更新描述
+        recalc_bottom_reversal_divergence = _recalc_holographic_divergence(bull_res_series, 5, 21, 55) # 使用背离引擎重算
+        recalc_bottom_reversal = recalc_bottom_reversal_divergence.clip(0, 1) # 只取看涨背离部分
+        print(f"    - 底部反转 = Divergence(看涨共振, 5, 21).clip(0,1) -> 实际值: {bottom_reversal:.4f} vs 重算值: {get_val(recalc_bottom_reversal, probe_date):.4f}") # 更新描述
         # --- 顶部反转 ---
         bear_res_series = atomic.get('SCORE_CHIP_BEARISH_RESONANCE')
-        recalc_top_reversal_divergence = _recalc_holographic_divergence(bear_res_series, 5, 21, 55) # 修改行: 使用背离引擎重算
-        recalc_top_reversal = recalc_top_reversal_divergence.clip(0, 1) # 修改行: 只取看涨背离部分
-        print(f"    - 顶部反转 = Divergence(看跌共振, 5, 21).clip(0,1) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}") # 修改行: 更新描述
+        recalc_top_reversal_divergence = _recalc_holographic_divergence(bear_res_series, 5, 21, 55) # 使用背离引擎重算
+        recalc_top_reversal = recalc_top_reversal_divergence.clip(0, 1) # 只取看涨背离部分
+        print(f"    - 顶部反转 = Divergence(看跌共振, 5, 21).clip(0,1) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}") # 更新描述
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
 
     def _deploy_ares_tribunal_probe(self, probe_date: pd.Timestamp):

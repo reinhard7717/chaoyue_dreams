@@ -88,7 +88,7 @@ class ChipIntelligence:
         # --- 战术反转 ---
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
-        # 新增开始: 部署“哈迪斯陷阱”诊断模块
+        # 部署“哈迪斯陷阱”诊断模块
         # 步骤1: 即时计算5日周期的“权力转移”快照分，作为短期派发的直接证据
         df = self.strategy.df_indicators
         p = 5 # 使用最短周期5日来捕捉当日行为
@@ -105,7 +105,7 @@ class ChipIntelligence:
         # 陷阱分 = 底部反转信号强度 * 当日派发强度
         hades_trap_score = (states['SCORE_CHIP_BOTTOM_REVERSAL'] * distribution_strength).clip(0, 1)
         states['SCORE_CHIP_HADES_TRAP'] = hades_trap_score.astype(np.float32)
-        # 新增结束
+
         return states
 
 
@@ -296,12 +296,12 @@ class ChipIntelligence:
         concentration_up_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=True)
         # 快照分
         rally_snapshot_score = (price_up_score * turnover_down_score * concentration_up_score)**(1/3)
-        # 新增行: 为快照分计算其在(1, 5)周期上的结构性背离
+        # 为快照分计算其在(1, 5)周期上的结构性背离
         holographic_divergence = self._calculate_holographic_divergence(rally_snapshot_score, 1, 5, norm_window)
         # 动态分 (元分析)
         rally_accumulation_score = self._perform_chip_relational_meta_analysis(
             df, rally_snapshot_score, 5, holographic_divergence
-        ) # 修改行: 传入新增的背离分参数
+        ) # 传入新增的背离分参数
         states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
         # 更多剧本可以在此添加...
         return states

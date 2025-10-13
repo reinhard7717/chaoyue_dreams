@@ -298,7 +298,7 @@ class CognitiveIntelligence:
         states['COGNITIVE_CONTEXT_AEGIS_SHIELD_STRENGTH'] = aegis_shield_strength.astype(np.float32)
         suppression_factor = 1.0 - aegis_shield_strength
         risk_snapshot_score = (total_fused_risk_score * suppression_factor).clip(0, 2.0).astype(np.float32)
-        # 新增开始: 部署“赫尔墨斯信使协议”，发布内部快照分
+        # 部署“赫尔墨斯信使协议”，发布内部快照分
         states['COGNITIVE_INTERNAL_RISK_SNAPSHOT'] = risk_snapshot_score
 
         final_dynamic_risk_score = self._perform_cognitive_relational_meta_analysis(df, risk_snapshot_score)
