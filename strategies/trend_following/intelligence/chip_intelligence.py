@@ -166,7 +166,6 @@ class ChipIntelligence:
             scores[p] = dynamic_transfer_score
         return scores
 
-
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int) -> pd.Series:
         """
         【V2.1 · 议会制衡版】筹码专用的关系元分析核心引擎
@@ -244,63 +243,47 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 赫尔墨斯之翼优化版】主力吸筹模式与风险诊断引擎
-        - 性能优化: 确保所有中间和最终的Series都显式转换为float32。
-        - 核心逻辑: 保持基于“关系元分析”的拉升吸筹与打压吸筹的诊断范式不变。
+        【V5.2 · 指挥链修复版】主力吸筹模式与风险诊断引擎
+        - 核心修复: 在调用 _perform_chip_relational_meta_analysis 时，传入缺失的 meta_window 参数。
         """
         states = {}
         norm_window = 120
-        
-        # 获取均线趋势上下文，作为判断拉升或打压的背景
         ma_context_score = self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-
         # --- 拉升吸筹 (Rally Accumulation) ---
-        # 核心关系：在上升趋势中(ma_context高)，筹码依然在集中，且获利盘惜售。
         chip_concentration_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         winner_conviction_score = normalize_score(df.get('turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
         rally_snapshot_score = (ma_context_score * chip_concentration_score * winner_conviction_score)
-        rally_accumulation_score = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score)
-        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score # 元分析函数已确保是float32
-
+        rally_accumulation_score = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score, 5) # 修改行: 传入 meta_window=5
+        states['SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION'] = rally_accumulation_score
         # --- 打压吸筹 (Suppress Accumulation) ---
-        # 核心关系：在下跌或盘整趋势中(ma_context低)，筹码逆势集中。
         price_weakness_score = 1.0 - ma_context_score
         suppress_snapshot_score = (price_weakness_score * chip_concentration_score)
-        suppress_accumulation_score = self._perform_chip_relational_meta_analysis(df, suppress_snapshot_score)
-        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score # 元分析函数已确保是float32
-        
+        suppress_accumulation_score = self._perform_chip_relational_meta_analysis(df, suppress_snapshot_score, 5) # 修改行: 传入 meta_window=5
+        states['SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION'] = suppress_accumulation_score
         # --- 真实吸筹 (True Accumulation) ---
-        # 融合两种吸筹信号，取更强的一种作为最终的真实吸筹信号
-        # 使用Numpy.maximum进行高效融合
         true_accumulation_score = np.maximum(rally_accumulation_score.values, suppress_accumulation_score.values)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = pd.Series(true_accumulation_score, index=df.index, dtype=np.float32)
-        
         return states
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 权责净化版】诊断“恐慌投降反转”的潜力
-        - 核心革命: 不再生成剧本信号，而是生成一个更底层的“潜力/上下文”信号，供上层战术引擎消费。
+        【V3.1 · 指挥链修复版】诊断“恐慌投降反转”的潜力
+        - 核心修复: 在调用 _perform_chip_relational_meta_analysis 时，传入缺失的 meta_window 参数。
         """
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)
-        
         required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
         if any(col not in df.columns for col in required_cols):
             return states
-
-        # 步骤一：构建“恐慌投降关系”的瞬时快照分 (逻辑不变)
+        # 步骤一：构建“恐慌投降关系”的瞬时快照分
         deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
         price_at_lows_score = 1.0 - normalize_score(df['close_D'], df.index, window=250, ascending=True)
         loser_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
         snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
-
-        # 步骤二：对“恐慌投降关系”进行元分析 (逻辑不变)
-        final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score)
-        
-        # 输出信号的命名和语义发生根本性改变：从“剧本”降级为“潜力”
+        # 步骤二：对“恐慌投降关系”进行元分析
+        final_score = self._perform_chip_relational_meta_analysis(df, snapshot_score, 5) # 修改行: 传入 meta_window=5
         states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_score
         return states
 
