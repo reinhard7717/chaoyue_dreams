@@ -1202,7 +1202,7 @@ class ForensicProbes:
                       3. 同步了共振信号的融合方式(加权算术平均)。
                       4. 更新了“反转信号”的计算方式，直接使用背离引擎。
         """
-        # 修改开始: 全面同步“冥王之眼”协议
+        # 全面同步“冥王之眼”协议
         print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 公理熔炉探针 V2.5】🔥 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states

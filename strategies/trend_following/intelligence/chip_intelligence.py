@@ -270,7 +270,7 @@ class ChipIntelligence:
         【V1.2 · 冥王之眼同步版】诊断“吸筹”相关的战术剧本
         - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
         """
-        # 修改开始: 补上缺失的“全息背离分”参数
+        # 补上缺失的“全息背离分”参数
         states = {}
         norm_window = 120
         # 剧本一：“拉升吸筹” (Rally Accumulation)
@@ -295,7 +295,7 @@ class ChipIntelligence:
         【V3.2 · 冥王之眼同步版】诊断“恐慌投降反转”的潜力
         - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
         """
-        # 修改开始: 补上缺失的“全息背离分”参数
+        # 补上缺失的“全息背离分”参数
         states = {}
         p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
         norm_window = get_param_value(p.get('norm_window'), 120)

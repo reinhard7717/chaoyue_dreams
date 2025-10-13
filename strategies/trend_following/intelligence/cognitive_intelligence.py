@@ -39,12 +39,10 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.8 · 真伪识别版】顶层认知总分合成模块
-        - 核心升级: 1. 新增“真伪识别”引擎，区分“战术性打压”与“真实撤退”。
-                      2. 将“战术性打压”分纳入最终看涨分数，化腐朽为神奇。
-                      3. 将“真实撤退”分纳入融合风险计算，增强风险识别能力。
+        【V3.9 · 单一职责版】顶层认知总分合成模块
+        - 核心修复: 彻底移除在融合风险分计算后，使用 np.maximum 将“真实撤退风险”并入“融合风险总分”的冗余逻辑。
+                      此举解决了“风险被重复计算”和“奇美拉冲突分被错误放大”两大致命BUG，确保每个风险信号在最终裁决时只被审判一次。
         """
-        # 修改开始: 集成“真伪识别”引擎
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
         tactic_states = self.tactic_engine.run_tactic_synthesis(df, pullback_enhancements)
@@ -62,11 +60,8 @@ class CognitiveIntelligence:
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
         self.synthesize_tactical_opportunity_fusion(df)
-        
-        # 新增行: 调用“真伪识别”引擎
         suppression_vs_retreat_states = self._diagnose_suppression_vs_retreat(df)
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
-
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
@@ -85,23 +80,12 @@ class CognitiveIntelligence:
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION').values,
             self._get_atomic_score(df, 'SCORE_CHIP_TRUE_ACCUMULATION').values,
-            # 新增行: 将“战术性打压”分作为一项强力看涨信号
             self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_SUPPRESSION').values,
         ]
         cognitive_bullish_score = np.maximum.reduce(bullish_scores)
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-        
-        # 将“真实撤退”风险纳入总风险计算
-        # 注意: 这部分通常通过配置文件驱动，这里为了演示，我们假设直接在代码中添加
-        # 在实际项目中，应将 'COGNITIVE_SCORE_TRUE_RETREAT_RISK' 添加到 fused_risk_scoring 的配置中
+        # 移除画蛇添足的风险合并逻辑
         fused_risk_states = self.synthesize_fused_risk_scores(df)
-        true_retreat_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0)
-        if 'COGNITIVE_FUSED_RISK_SCORE' in fused_risk_states:
-             fused_risk_states['COGNITIVE_FUSED_RISK_SCORE'] = np.maximum(
-                 fused_risk_states['COGNITIVE_FUSED_RISK_SCORE'],
-                 true_retreat_risk
-             )
-        
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
         return df
@@ -916,7 +900,7 @@ class CognitiveIntelligence:
                       转而直接消费各领域最强的、最原始的底部反转信号作为“反转强度”的度量，
                       确保引擎能第一时间响应战场的原始炮火，而不是等待后方战报。
         """
-        # 修改开始: 全面拥抱“原始力量”
+        # 全面拥抱“原始力量”
         states = {}
         norm_window = 55
         p = 5
