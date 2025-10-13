@@ -421,11 +421,10 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.0 · 赫尔墨斯之靴协议版】终极信号中央合成引擎
+    【V5.1 · 阿瑞斯之怒协议激活版】终极信号中央合成引擎
     - 核心革命: 签署“赫尔墨斯之靴协议”，建立“战略反转”与“战术反转”的双轨制。
-    - 新核心逻辑:
-      1. 【战略反转】: 维持“雅典娜之盾”逻辑，并增加 (1-趋势确认) 因子，确保其只在趋势混沌或下跌时活跃。
-      2. 【战术反转】: 新增独立的计算路径，融合“宏观趋势许可”、“动态反转加速度”和“微观动能”，用于捕捉上升趋势中的回调买点。
+    - 本次修改: 激活“阿瑞斯之怒协议”，将 d_intensity (动态强度分) 纳入反转信号的计算，
+                    使其能真正捕捉“拐点动能”。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -461,7 +460,9 @@ def transmute_health_to_ultimate_signals(
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
     # --- 3. 信号计算 ---
     # 战略底部反转 (Strategic Bottom Reversal)
-    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) for p in periods}
+    # 修改开始: 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
+    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    # 修改结束
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
@@ -484,7 +485,9 @@ def transmute_health_to_ultimate_signals(
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
     # 顶部反转 (Top Reversal)
-    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
+    # 修改开始: 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
+    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
+    # 修改结束
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
     bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
     bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
@@ -494,7 +497,7 @@ def transmute_health_to_ultimate_signals(
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
-        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent), # [代码新增]
+        f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
         f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
