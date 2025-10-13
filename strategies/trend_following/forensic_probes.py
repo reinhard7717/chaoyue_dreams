@@ -1335,7 +1335,7 @@ class ForensicProbes:
         recalc_top_reversal = recalc_top_reversal_divergence.clip(0, 1) # 修改行: 只取看涨背离部分
         print(f"    - 顶部反转 = Divergence(看跌共振, 5, 21).clip(0,1) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}") # 修改行: 更新描述
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
-        # 修改结束
+
 
     def _deploy_ares_tribunal_probe(self, probe_date: pd.Timestamp):
         """

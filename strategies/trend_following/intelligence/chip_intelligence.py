@@ -289,7 +289,7 @@ class ChipIntelligence:
         states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
         # 更多剧本可以在此添加...
         return states
-        # 修改结束
+
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -319,5 +319,5 @@ class ChipIntelligence:
         )
         states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_score
         return states
-        # 修改结束
+
 
