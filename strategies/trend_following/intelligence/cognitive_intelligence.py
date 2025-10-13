@@ -295,7 +295,7 @@ class CognitiveIntelligence:
         risk_snapshot_score = (total_fused_risk_score * suppression_factor).clip(0, 2.0).astype(np.float32)
         # 新增开始: 部署“赫尔墨斯信使协议”，发布内部快照分
         states['COGNITIVE_INTERNAL_RISK_SNAPSHOT'] = risk_snapshot_score
-        # 新增结束
+
         final_dynamic_risk_score = self._perform_cognitive_relational_meta_analysis(df, risk_snapshot_score)
         states['COGNITIVE_FUSED_RISK_SCORE'] = final_dynamic_risk_score
         return states

@@ -974,7 +974,7 @@ class ForensicProbes:
         fusion_bottom_recalc = (state_score_val * w_state + velocity_score_val * w_velocity + acceleration_score_val * w_acceleration).clip(0, 1)
         print(f"          - [探针重算] 最终融合分 = ({state_score_val:.2f}*{w_state} + {velocity_score_val:.2f}*{w_velocity} + {acceleration_score_val:.2f}*{w_acceleration}) = {fusion_bottom_recalc:.4f}")
         print(f"          - [对比]: 实际值 {fusion_bottom_val:.4f} vs 重算值 {fusion_bottom_recalc:.4f}")
-        # 新增结束
+
         pattern_bottom_val = get_val('SCORE_PATTERN_BOTTOM_REVERSAL', probe_date)
         print(f"\n    --- [组件 B] 形态底部反转分 (SCORE_PATTERN_BOTTOM_REVERSAL): {pattern_bottom_val:.4f} ---")
         print(f"      - [核心公式]: max(RSI反转, 平台突破, MACD金叉, 动能衰竭)")
@@ -1194,110 +1194,30 @@ class ForensicProbes:
         print(f"    - [最终动态分]: {get_val(final_score, probe_date):.4f}")
         print("\n--- “阿瑞斯之矛探针”运行完毕 ---")
 
-    def _deploy_hephaestus_chip_forge_probe(self, probe_date: pd.Timestamp):
+    def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.1 · 逻辑重铸版】“赫淮斯托斯-筹码熔炉”探针
-        - 核心修正: 彻底修正 d_intensity 的计算逻辑。现在探针严格遵循“先在各支柱内计算独立d_intensity，再融合”的正确顺序。
-        - 收益: 解决了探针重算与主引擎实际值之间的偏差，实现了与主引擎逻辑的完美同步。
+        【V1.3 · 元分析贯穿版】核心公理三：诊断筹码“转移方向”
+        - 核心重构: 将“向主力转移”和“向散户转移”的证据融合为一个双极性的“转移快照分”，然后将此快照分
+                      送入关系元分析引擎，从而对“权力转移”本身进行三维动态分析。
         """
-        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 筹码熔炉探针 V1.1】🔥 ---")
-        # 修改开始: 整体结构重构
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        chip_intel = self.chip_intel
-        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        def get_val(series, date, default=np.nan):
-            if series is None: return default
-            return series.get(date, default)
-        # 链路层 1: 最终信号展示
-        print("\n  [链路层 1] 最终锻造成品 (终极信号)")
-        bull_resonance = get_val(atomic.get('SCORE_CHIP_BULLISH_RESONANCE'), probe_date, 0.0)
-        bear_resonance = get_val(atomic.get('SCORE_CHIP_BEARISH_RESONANCE'), probe_date, 0.0)
-        bottom_reversal = get_val(atomic.get('SCORE_CHIP_BOTTOM_REVERSAL'), probe_date, 0.0)
-        top_reversal = get_val(atomic.get('SCORE_CHIP_TOP_REVERSAL'), probe_date, 0.0)
-        print(f"    - 看涨共振 (BULLISH_RESONANCE): {bull_resonance:.4f}")
-        print(f"    - 看跌共振 (BEARISH_RESONANCE): {bear_resonance:.4f}")
-        print(f"    - 底部反转 (BOTTOM_REVERSAL)  : {bottom_reversal:.4f}")
-        print(f"    - 顶部反转 (TOP_REVERSAL)    : {top_reversal:.4f}")
-        # 链路层 2: 整体健康度展示
-        print("\n  [链路层 2] 整体健康度快照 (主引擎融合结果)")
-        overall_health_cache = atomic.get('__CHIP_overall_health', {})
-        if not overall_health_cache:
-            print("    - [错误] 未找到筹码整体健康度缓存，解剖终止。")
-            return
-        s_bull_overall = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bull', {}).items()}
-        s_bear_overall = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('s_bear', {}).items()}
-        d_intensity_overall = {p: v.get(probe_date, 0.5) for p, v in overall_health_cache.get('d_intensity', {}).items()}
-        print(f"    - 整体静态看涨 (s_bull)     : {s_bull_overall.get(periods[0], 0.0):.4f}")
-        print(f"    - 整体静态看跌 (s_bear)     : {s_bear_overall.get(periods[0], 0.0):.4f}")
-        print(f"    - 整体动态强度 (d_intensity): {d_intensity_overall.get(periods[0], 0.0):.4f}")
-        # 链路层 3: 各支柱健康度解剖 (核心)
-        print("\n  [链路层 3] 钻透 -> 各支柱健康度计算全流程")
-        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        pillar_calculators = {
-            'quantitative': {'func': chip_intel._calculate_quantitative_health, 'name': '基础量化 (聚散度分析)', 'inputs': ['concentration_90pct_D', 'chip_health_score_D']},
-            'advanced': {'func': chip_intel._calculate_advanced_dynamics_health, 'name': '高级动态 (单峰强度分析)', 'inputs': ['peak_control_ratio_D', 'peak_strength_ratio_D', 'peak_stability_D', 'is_multi_peak_D']},
-            'internal': {'func': chip_intel._calculate_internal_structure_health, 'name': '内部结构 (支撑与压力)', 'inputs': ['concentration_70pct_D', 'support_below_D', 'pressure_above_D']},
-            'holder': {'func': chip_intel._calculate_holder_behavior_health, 'name': '持仓行为 (赢家信念博弈)', 'inputs': ['cost_divergence_D', 'winner_profit_margin_D', 'total_winner_rate_D', 'turnover_from_winners_ratio_D']},
-            'fault': {'func': chip_intel._calculate_fault_health, 'name': '筹码断层 (结构风险)', 'inputs': ['chip_fault_strength_D', 'chip_fault_vacuum_percent_D']},
-        }
-        recalculated_pillar_d_intensities = {}
-        for pillar_key, config in pillar_calculators.items():
-            print(f"\n    --- 支柱: {config['name']} (权重: {pillar_weights.get(pillar_key, 0):.2f}) ---")
-            s_bull_series_dict, s_bear_series_dict, d_intensity_series_dict = config['func'](df, norm_window, {}, periods)
-            # 静态分展示 (所有周期相同，取其一)
-            s_bull_val = get_val(s_bull_series_dict.get(periods[0]), probe_date)
-            s_bear_val = get_val(s_bear_series_dict.get(periods[0]), probe_date)
-            print(f"      - [静态健康度 s_bull]: {s_bull_val:.4f}")
-            print(f"      - [静态健康度 s_bear]: {s_bear_val:.4f}")
-            print("      - [静态分溯源] 原始指标:")
-            for indicator in config['inputs']:
-                raw_val = get_val(df.get(indicator), probe_date)
-                print(f"        - {indicator}: {raw_val:.4f}")
-            # 动态强度解剖
-            snapshot_score_series = s_bull_series_dict[periods[0]]
-            pillar_d_intensity = chip_intel._perform_chip_relational_meta_analysis(df, snapshot_score_series)
-            recalculated_pillar_d_intensities[pillar_key] = get_val(pillar_d_intensity, probe_date)
-            state_score = get_val(snapshot_score_series.clip(0, 1), probe_date)
-            relationship_trend = snapshot_score_series.diff(5).fillna(0)
-            velocity_score = get_val(normalize_to_bipolar(series=relationship_trend, target_index=df.index, window=55), probe_date)
-            relationship_accel = relationship_trend.diff(5).fillna(0)
-            acceleration_score = get_val(normalize_to_bipolar(series=relationship_accel, target_index=df.index, window=55), probe_date)
-            print(f"      - [动态强度 d_intensity]: {get_val(d_intensity_series_dict.get(periods[0]), probe_date):.4f}")
-            print("      - [动态分锻造过程]:")
-            print(f"        - 状态分 (State)      : {state_score:.4f}")
-            print(f"        - 速度分 (Velocity)   : {velocity_score:.4f}")
-            print(f"        - 加速度分 (Acceleration): {acceleration_score:.4f}")
-        # 链路层 4: 整体动态强度重算
-        print("\n  [链路层 4] 最终验证 -> 整体动态强度融合重算")
-        print("    - [公式]: 整体 d_intensity = 几何加权平均(各支柱独立 d_intensity)")
-        valid_pillars, valid_weights = [], []
-        use_equal_weights = not pillar_weights or sum(pillar_weights.values()) == 0
-        for name, weight in pillar_weights.items():
-            if name in recalculated_pillar_d_intensities:
-                valid_pillars.append(recalculated_pillar_d_intensities[name])
-                valid_weights.append(weight)
-        if not valid_pillars:
-            recalc_overall_d_intensity = 0.5
-        else:
-            safe_values = np.maximum(np.array(valid_pillars), 1e-9)
-            if use_equal_weights:
-                recalc_overall_d_intensity = np.exp(np.mean(np.log(safe_values)))
-            else:
-                weights_array = np.array(valid_weights)
-                total_weight = weights_array.sum()
-                if total_weight > 0:
-                    normalized_weights = weights_array / total_weight
-                    recalc_overall_d_intensity = np.exp(np.sum(np.log(safe_values) * normalized_weights))
-                else:
-                    recalc_overall_d_intensity = np.exp(np.mean(np.log(safe_values)))
-        print(f"    - [输入]: { {k: f'{v:.4f}' for k, v in recalculated_pillar_d_intensities.items()} }")
-        print(f"    - [重算 d_intensity]: {recalc_overall_d_intensity:.4f}")
-        print(f"    - [对比]: 实际值 {d_intensity_overall.get(periods[0], 0.0):.4f} vs 重算值 {recalc_overall_d_intensity:.4f}")
-        print("\n--- “赫淮斯托斯-筹码熔炉”探针运行完毕 ---")
+        # 修改开始: 部署元分析贯穿协议
+        scores = {}
+        norm_window = 120
+        for p in periods:
+            # 步骤 1: 构建“筹码向主力转移”的证据
+            cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True)
+            loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
+            transfer_to_main_force_evidence = (cost_divergence_score * loser_turnover_up)**0.5
+            # 步骤 2: 构建“筹码向散户转移”的证据
+            cost_convergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
+            loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False)
+            transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
+            # 步骤 3: 生成双极性的“转移快照分”
+            transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
+            # 步骤 4: 对“转移快照分”进行关系元分析，得到最终的动态分数
+            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(df, transfer_snapshot)
+            scores[p] = dynamic_transfer_score
+        return scores
         # 修改结束
 
 
