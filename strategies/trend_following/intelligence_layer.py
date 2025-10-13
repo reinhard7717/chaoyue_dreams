@@ -53,7 +53,7 @@ class IntelligenceLayer:
         # 实例化先知引擎
         self.predictive_intel = PredictiveIntelligence(self.strategy)
         # 实例化法医探针集合
-        self.probes = ForensicProbes(self.strategy)
+        self.probes = ForensicProbes(self)
 
     def run_all_diagnostics(self) -> Dict:
         """
