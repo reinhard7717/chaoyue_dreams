@@ -911,31 +911,32 @@ class CognitiveIntelligence:
 
     def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 动态质量审查版】“真伪识别：打压 vs 撤退”诊断引擎
-        - 核心升级: 引入对反转当日“动态质量”的审查，以区分“真反转”与“拉高派发陷阱”。
-                      融合力学与行为层的看涨共振信号，作为反转质量的衡量标准。
-                      只有具备强劲内在动能的反转，才被认为是有效的战术性打压结束信号。
+        【V4.0 · 证据加权版】“真伪识别：打压 vs 撤退”诊断引擎
+        - 核心革命: 废除所有刚性触发条件，全面转向“证据加权”的柔性逻辑。
+                      1. 将“近期派发”和“当日反转”从布尔条件升级为连续的证据强度分。
+                      2. “当日反转强度”直接消费认知层的多域底部反转共振分，实现系统内协同。
+                      3. 最终分数由所有证据（派发、反转、吸收、动态质量）加权相乘得出，更鲁棒、更精确。
         """
-        # 修改开始: 引入“动态质量审查”
+        # 修改开始: 全面重构为“证据加权”逻辑
         states = {}
         norm_window = 55
         p = 5
-        # --- 步骤1: 量化“短期派发”强度 (逻辑不变) ---
+        # --- 步骤1: 量化“近期派发强度”证据 (Evidence A) ---
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
                      normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
-        # --- 步骤2: 定义触发条件 (逻辑不变) ---
-        is_recent_distribution = (short_term_transfer_snapshot.rolling(3).mean() < -0.1).astype(float)
-        is_reversal_day = (df.get('pct_change_D', 0) > 0.01).astype(float)
-        trigger_condition = is_recent_distribution * is_reversal_day
-        # --- 步骤3 (新增): 审查反转日的动态质量 ---
+        # 将派发行为(-1到0)映射到(0到1)的强度分。派发越强(-1)，分数越高(1)。
+        recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
+        # --- 步骤2: 量化“当日反转强度”证据 (Evidence B) ---
+        # 直接使用认知层的多域底部反转共振分，作为反转强度的权威度量
+        reversal_strength = self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE', 0.0)
+        # --- 步骤3: 量化“反转动态质量”证据 (Evidence C) ---
         dyn_bullish_resonance = self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE', 0.0)
         behavior_bullish_resonance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE', 0.0)
-        # 使用几何平均数，要求力学和行为都健康，才是高质量反转
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
-        # --- 步骤4: 构建“战术性打压”的证据链 (逻辑升级) ---
+        # --- 步骤4: 构建“战术性打压”的证据链 (Evidence Chain - Bullish) ---
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
         winner_conviction_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
@@ -946,24 +947,30 @@ class CognitiveIntelligence:
             winner_conviction_score *
             (1 + structural_support_score * 0.5)
         )
-        # 最终分数现在必须通过“动态质量”的审查
-        tactical_suppression_score = (trigger_condition * absorption_evidence_chain * reversal_dynamic_quality).clip(0, 1)
+        # 最终融合: 所有看涨证据相乘
+        tactical_suppression_score = (
+            recent_distribution_strength * # 证据A: 近期有派发
+            reversal_strength *            # 证据B: 当日有反转
+            reversal_dynamic_quality *     # 证据C: 且反转质量高
+            absorption_evidence_chain      # 证据链: 且满足吸收等条件
+        ).clip(0, 1)
         states['COGNITIVE_SCORE_TACTICAL_SUPPRESSION'] = tactical_suppression_score.astype(np.float32)
-        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (逻辑升级) ---
+        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (Evidence Chain - Bearish) ---
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
         winner_capitulation_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * -0.5 + 0.5)
-        # 如果反转质量低 (1.0 - reversal_dynamic_quality 就会高)，则放大风险
         bull_trap_evidence = 1.0 - reversal_dynamic_quality
         retreat_evidence_chain = (
             trend_decay_context *
             no_absorption_score *
             winner_capitulation_score *
-            bull_trap_evidence # 新增“牛市陷阱”证据
+            bull_trap_evidence
         )
-        true_retreat_score = (trigger_condition * retreat_evidence_chain).clip(0, 1)
+        # 最终融合: 派发强度 * 撤退证据链
+        true_retreat_score = (recent_distribution_strength * retreat_evidence_chain).clip(0, 1)
         states['COGNITIVE_SCORE_TRUE_RETREAT_RISK'] = true_retreat_score.astype(np.float32)
         return states
+        # 修改结束
 
 
 
