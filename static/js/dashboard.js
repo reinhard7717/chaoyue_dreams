@@ -71,7 +71,7 @@ function flashRow(rowElement, type = 'update') {
 // 确保这些代码在页面完全加载后才执行
 // =========================================================================
 document.addEventListener('DOMContentLoaded', function () {
-    // 新增: 封装一个用于初始化主控台搜索功能的函数
+    // 封装一个用于初始化主控台搜索功能的函数
     // 这样可以将页面特定的逻辑隔离开，提高代码的可读性和健壮性
     function initializeSearchFunctionality() {
         // 错误根源：尝试获取只在主控台页面存在的搜索输入框

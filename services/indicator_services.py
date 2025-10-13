@@ -841,7 +841,7 @@ class IndicatorService:
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
         【V110.11 · MA支持版】根据配置为指定时间周期计算所有技术指标。
-        - 核心新增: 增加对 'ma' (简单移动平均线) 的计算支持。
+        - 核心增加对 'ma' (简单移动平均线) 的计算支持。
         """
         if not config:
             return df

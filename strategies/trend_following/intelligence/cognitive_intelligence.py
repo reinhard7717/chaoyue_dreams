@@ -311,13 +311,13 @@ class CognitiveIntelligence:
         - 收益: 彻底解决了因度量衡不统一导致的奇美拉冲突分被严重低估的致命BUG，恢复了冲突仲裁机制。
         """
         states = {}
-        # 修改开始: 移除对 p_judge 和 risk_norm_base 的依赖
+        # 移除对 p_judge 和 risk_norm_base 的依赖
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
         # COGNITIVE_FUSED_RISK_SCORE 已经是经过关系元分析和clip(0,1)处理的、归一化的分数，可以直接使用
         bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0).clip(0, 1)
         # 现在比较的是两个都在[0,1]区间的、度量衡统一的分数
         conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized)
-        # 修改结束
+        
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = conflict_score.astype(np.float32)
         self.strategy.atomic_states.update(states)
 
@@ -328,7 +328,7 @@ class CognitiveIntelligence:
         - 新核心逻辑: final_score = MetaAnalysis(GeometricMean(foundation, structure, behavior))
         - 收益: 最终信号不仅反映共识强度，更反映共识形成的速度与加速度，实现真正的认知前瞻。
         """
-        # print("        -> [结构化元信号融合模块 V4.0 普罗米修斯之火协议版] 启动...") # 新增: 打印版本信息
+        # print("        -> [结构化元信号融合模块 V4.0 普罗米修斯之火协议版] 启动...") # 打印版本信息
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})

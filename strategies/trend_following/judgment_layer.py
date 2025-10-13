@@ -45,9 +45,9 @@ class JudgmentLayer:
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
-        # 修改开始: 移除多余的 risk_details_df 参数，以匹配新的方法签名
+        # 移除多余的 risk_details_df 参数，以匹配新的方法签名
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
-        # 修改结束
+        
         self._finalize_signals()
  
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:

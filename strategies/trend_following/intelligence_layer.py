@@ -219,9 +219,9 @@ class IntelligenceLayer:
             if not isinstance(risk_items, list): risk_items = []
             for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
                 if not isinstance(item, dict): continue
-                # 修改开始: 修正 NameError 笔误
+                # 修正 NameError 笔误
                 contribution = item.get('score', 0)
-                # 修改结束
+                
                 raw_score = item.get('raw_score', 0)
                 base_score = item.get('base_score', 0)
                 item_name = item.get('name', 'N/A')

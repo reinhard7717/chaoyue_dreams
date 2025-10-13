@@ -932,7 +932,7 @@ class IndustryDao(BaseDAO):
                         df_data=row
                     )
                 )
-                # --- 新增: 准备同步到 ConceptMember 的数据 ---
+                # --- 准备同步到 ConceptMember 的数据 ---
                 # 开盘啦是每日快照，in_date是当天，out_date是None
                 concept_member_sync_list.append({
                     'concept_code': concept_info.ts_code,
@@ -1377,7 +1377,7 @@ class IndustryDao(BaseDAO):
                     df_data=row_data
                 )
                 members_to_save.append(member_dict)
-                # --- 新增: 准备同步到 ConceptMember 的数据 ---
+                # --- 准备同步到 ConceptMember 的数据 ---
                 # 东方财富是每日快照，in_date是当天，out_date是None
                 concept_member_sync_list.append({
                     'concept_code': dc_index.ts_code,
@@ -1398,7 +1398,7 @@ class IndustryDao(BaseDAO):
             unique_fields=['trade_time', 'dc_index', 'stock']
         )
         print(f"    -- 完成 [东方财富板块成分] 数据获取，共保存 {len(members_to_save)} 条。")
-        # --- 新增: 步骤7: 同步到 ConceptMember ---
+        # --- 步骤7: 同步到 ConceptMember ---
         await self._sync_to_concept_member(concept_member_sync_list, 'dc')
         return result
 

@@ -10,14 +10,18 @@ from strategies.trend_following.utils import get_params_block, calculate_hologra
 
 class ForensicProbes:
     """
-    【V1.0 · 新增】法医探针集合
-    - 核心职责: 容纳所有用于事后分析和调试的“法医探针”方法。
-    - 架构意义: 将调试诊断逻辑与核心情报生成逻辑解耦，使 IntelligenceLayer 更纯粹。
+    【V1.1 · 依赖重铸版】法医探针集合
+    - 核心修正: 构造函数现在接收 IntelligenceLayer 实例，解决了因错误的对象引用导致的 AttributeError。
+    - 架构意义: 建立了清晰的依赖关系，探针集合现在是情报层的直接附属，可以访问其所有子模块。
     """
-    def __init__(self, strategy_instance):
-        self.strategy = strategy_instance
-        # 探针可能需要访问认知引擎等子模块，通过 strategy_instance 传递
-        self.cognitive_intel = strategy_instance.cognitive_intel
+    def __init__(self, intelligence_layer_instance):
+        # 接收 intelligence_layer_instance 而非 strategy_instance
+        self.strategy = intelligence_layer_instance.strategy
+        # 探针可能需要访问认知引擎等子模块，通过 intelligence_layer_instance 传递
+        self.cognitive_intel = intelligence_layer_instance.cognitive_intel
+        # 为新的筹码探针获取 chip_intel 引用
+        self.chip_intel = intelligence_layer_instance.chip_intel
+        
 
     def _deploy_prophet_entry_probe(self, probe_date: pd.Timestamp):
         """
@@ -1168,11 +1172,11 @@ class ForensicProbes:
         dominance_momentum_up = normalize_score(df.get('SLOPE_5_trade_concentration_index_D'), df.index, norm_window, ascending=True)
         _, granularity_holo_up = calculate_holographic_dynamics(df, 'avg_order_value', norm_window)
         _, dominance_holo_up = calculate_holographic_dynamics(df, 'trade_concentration_index', norm_window)
-        # 修改开始: 修正原始风险分的计算公式
+        # 修正原始风险分的计算公式
         risk_from_granularity = (1 - granularity_momentum_up).clip(0)
         risk_from_dominance = (1 - dominance_momentum_up).clip(0)
         raw_score = (risk_from_granularity * granularity_holo_up * risk_from_dominance * dominance_holo_up)
-        # 修改结束
+        
         ma_health_score = engine._calculate_ma_health(df, p_conf, 55)
         snapshot_score = raw_score * (1 - ma_health_score)
         print(f"    - [原始分]: (1 - 大单动量) * (1 - 控盘动量) = {get_val(raw_score, probe_date):.4f}")
@@ -1200,7 +1204,9 @@ class ForensicProbes:
         print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 筹码熔炉探针 V1.0】🔥 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        chip_intel = self.strategy.intelligence_layer.chip_intel
+        # 直接使用 self.chip_intel，不再通过 self.strategy.intelligence_layer 访问
+        chip_intel = self.chip_intel
+        
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
