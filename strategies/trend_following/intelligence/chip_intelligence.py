@@ -22,7 +22,7 @@ class ChipIntelligence:
         - 指挥流程: 1. 为每个核心公理，在所有时间级别上进行诊断，生成多维度的动态分。
                       2. 在终极信号合成器中，对多维度的分数进行“周期内融合”和“跨周期共振”两步锻造。
         """
-        # 修改开始: 引入多时间级别分析
+        # 引入多时间级别分析
         all_chip_states = {}
         periods = [5, 13, 21, 55] # 定义分析的时间级别
         # 步骤 1: 诊断三大核心公理，生成多维度的核心动态分
@@ -45,23 +45,24 @@ class ChipIntelligence:
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
         all_chip_states.update(capitulation_potential_states)
         return all_chip_states
-        # 修改结束
 
     def _synthesize_ultimate_signals(self, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 全息共振版】终极信号合成器 (共振熔炉)
-        - 核心升级: 接收多维度的核心公理字典，执行“周期内融合”与“跨周期共振”两步锻造。
+        【V1.2 · 议会制衡版】终极信号合成器 (共振熔炉)
+        - 核心升级: 接收双极性动态分，按需提取其看涨/看跌部分进行融合，实现更精细的信号合成。
         """
-        # 修改开始: 升级为两步融合逻辑
+        # 修改开始: 适应双极性动态分的输入
         states = {}
         periods = sorted(concentration.keys())
-        # 定义跨周期融合的权重
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1} # 短期动态更重要
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         # --- 看涨共振 (Bullish Resonance) ---
         bullish_scores_by_period = {}
         for p in periods:
-            # 步骤一：周期内融合
-            score = (concentration[p] * accumulation[p].clip(0, 1) * power_transfer[p].clip(0, 1))**(1/3)
+            # 步骤一：周期内融合 - 从双极性动态分中提取看涨部分
+            bullish_conc = concentration[p].clip(0, 1)
+            bullish_acc = accumulation[p].clip(0, 1)
+            bullish_trans = power_transfer[p].clip(0, 1)
+            score = (bullish_conc * bullish_acc * bullish_trans)**(1/3)
             bullish_scores_by_period[p] = score
         # 步骤二：跨周期共振 (加权几何平均)
         bullish_resonance = pd.Series(1.0, index=self.strategy.df_indicators.index)
@@ -73,8 +74,11 @@ class ChipIntelligence:
         # --- 看跌共振 (Bearish Resonance) ---
         bearish_scores_by_period = {}
         for p in periods:
-            # 步骤一：周期内融合
-            score = ((1 - concentration[p]) * abs(accumulation[p].clip(-1, 0)) * abs(power_transfer[p].clip(-1, 0)))**(1/3)
+            # 步骤一：周期内融合 - 从双极性动态分中提取看跌部分
+            bearish_conc = 1 - concentration[p].clip(0, 1)
+            bearish_acc = abs(accumulation[p].clip(-1, 0))
+            bearish_trans = abs(power_transfer[p].clip(-1, 0))
+            score = (bearish_conc * bearish_acc * bearish_trans)**(1/3)
             bearish_scores_by_period[p] = score
         # 步骤二：跨周期共振 (加权几何平均)
         bearish_resonance = pd.Series(1.0, index=self.strategy.df_indicators.index)
@@ -83,49 +87,41 @@ class ChipIntelligence:
             bearish_resonance *= (bearish_scores_by_period[p] ** weight)
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).astype(np.float32)
         # --- 底部/顶部反转信号 (基于共振信号的加速度) ---
-        bottom_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bullish_resonance)
-        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
-        top_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bearish_resonance)
-        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal.astype(np.float32)
+        bottom_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bullish_resonance, 5) # 反转信号默认使用短期动态
+        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal.clip(0, 1).astype(np.float32) # 反转信号需要是单极性的
+        top_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bearish_resonance, 5) # 反转信号默认使用短期动态
+        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal.clip(0, 1).astype(np.float32) # 反转信号需要是单极性的
         # --- 战术反转 (Tactical Reversal) ---
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
         return states
-        # 修改结束
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.2 · 元分析贯穿版】核心公理一：诊断筹码“聚散”的动态
-        - 核心修正: 确保输入给元分析引擎的“快照分”是纯粹的静态指标融合，移除了斜率指标，
-                      让动态分析完全由元分析引擎负责。
+        【V1.3 · 元分析贯穿版】核心公理一：诊断筹码“聚散”的动态
+        - 核心修正: 对同一个静态快照，使用不同的周期 p 作为 meta_window 进行动态分析，实现多时间级别洞察。
         """
-        # 修改开始: 净化快照分，使其成为纯粹的静态指标融合
+        # 循环内调用元分析
         scores = {}
         norm_window = 120
         # 1. 计算纯粹的静态“集中度快照分”
-        # 融合了“90%集中度”、“70%集中度”和“单峰稳定性”，全面评估筹码的聚集状态
         conc_90_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         conc_70_score = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
-        # 使用静态的稳定性指标，而非其斜率
         stability_score = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
-        # 使用几何平均融合，确保所有因子都有效
         concentration_snapshot = (conc_90_score * conc_70_score * stability_score)**(1/3)
         # 2. 对快照分进行关系元分析，捕捉其动态变化
-        # 注意：由于快照分不依赖于周期 p，所以所有周期的动态分析结果是相同的。
-        # 这是符合逻辑的，因为“集中度”本身是一个全局状态，其动态变化不应因观察窗口而异。
-        dynamic_concentration_score = self._perform_chip_relational_meta_analysis(df, concentration_snapshot)
         for p in periods:
+            # 对同一个快照，用不同的时间窗口(p)去分析其动态
+            dynamic_concentration_score = self._perform_chip_relational_meta_analysis(df, concentration_snapshot, p)
             scores[p] = dynamic_concentration_score
         return scores
-        # 修改结束
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.3 · 元分析贯穿版】核心公理二：诊断主力“吸筹与派发”
-        - 核心重构: 将“吸筹”和“派发”证据融合为一个双极性的“行动快照分”，然后将此快照分送入
-                      关系元分析引擎，从而对“主力行动”本身进行三维动态分析。
+        【V1.4 · 元分析贯穿版】核心公理二：诊断主力“吸筹与派发”
+        - 核心修正: 在调用元分析引擎时，传入周期 p 作为 meta_window。
         """
-        # 修改开始: 部署元分析贯穿协议
+        # 传入 meta_window
         scores = {}
         norm_window = 120
         for p in periods:
@@ -142,18 +138,16 @@ class ChipIntelligence:
             # 步骤 3: 生成双极性的“行动快照分”
             action_snapshot = (accumulation_evidence - distribution_evidence).astype(np.float32)
             # 步骤 4: 对“行动快照分”进行关系元分析，得到最终的动态分数
-            dynamic_action_score = self._perform_chip_relational_meta_analysis(df, action_snapshot)
+            dynamic_action_score = self._perform_chip_relational_meta_analysis(df, action_snapshot, p)
             scores[p] = dynamic_action_score
         return scores
-        # 修改结束
 
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.3 · 元分析贯穿版】核心公理三：诊断筹码“转移方向”
-        - 核心重构: 将“向主力转移”和“向散户转移”的证据融合为一个双极性的“转移快照分”，然后将此快照分
-                      送入关系元分析引擎，从而对“权力转移”本身进行三维动态分析。
+        【V1.4 · 元分析贯穿版】核心公理三：诊断筹码“转移方向”
+        - 核心修正: 在调用元分析引擎时，传入周期 p 作为 meta_window。
         """
-        # 修改开始: 部署元分析贯穿协议
+        # 传入 meta_window
         scores = {}
         norm_window = 120
         for p in periods:
@@ -168,32 +162,28 @@ class ChipIntelligence:
             # 步骤 3: 生成双极性的“转移快照分”
             transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
             # 步骤 4: 对“转移快照分”进行关系元分析，得到最终的动态分数
-            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(df, transfer_snapshot)
+            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(df, transfer_snapshot, p)
             scores[p] = dynamic_transfer_score
         return scores
-        # 修改结束
 
-    def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+
+    def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int) -> pd.Series:
         """
-        【V2.0 · 阿瑞斯之怒协议版】筹码专用的关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V2.1 · 议会制衡版】筹码专用的关系元分析核心引擎
+        - 核心革命: 1. 废除最终的 .clip(0, 1)，返回一个能反映完整动态的、范围在[-1, 1]的双极性分数。
+                      2. 直接使用原始的 snapshot_score 作为状态分，保留其完整的双极性信息。
+                      3. 将 meta_window 参数化，实现真正的多时间级别动态分析。
         """
-        # 引入新的权重体系和加法融合模型
-        # 从配置中获取新的加法模型权重
+        # 废除裁剪，返回双极性动态分
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
-        # 核心参数
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
-        meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
-        state_score = snapshot_score.clip(0, 1)
+        # 第一维度：状态分 (State Score) - 直接使用原始快照分，保留其双极性
+        state_score = snapshot_score
         # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
@@ -206,16 +196,14 @@ class ChipIntelligence:
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 终极融合：从乘法调制升级为加法赋权
-        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
-        # 新的加法模型:
+        # 终极融合：生成一个[-1, 1]范围内的双极性动态分
         final_score = (
             state_score * w_state +
             velocity_score * w_velocity +
             acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
+        ).clip(-1, 1) # 裁剪到[-1, 1]以确保范围安全
         return final_score.astype(np.float32)
+
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """

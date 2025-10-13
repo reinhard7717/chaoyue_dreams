@@ -1200,7 +1200,7 @@ class ForensicProbes:
         - 核心重构: 彻底重写探针逻辑，以匹配基于“三大核心公理”和“全息共振”的新版 ChipIntelligence。
         - 诊断链路: 1.展示最终信号 -> 2.解剖三大核心公理的三维动态分析过程 -> 3.重算终极信号的合成与共振 -> 4.验证反转信号的生成。
         """
-        # 修改开始: 探针逻辑完全重构
+        # 探针逻辑完全重构
         print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 公理熔炉探针 V2.0】🔥 ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -1299,7 +1299,7 @@ class ForensicProbes:
         recalc_top_reversal = chip_intel._perform_chip_relational_meta_analysis(df, bear_res_series)
         print(f"    - 顶部反转 = Meta(看跌共振) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}")
         print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
-        # 修改结束
+
 
 
 

@@ -228,7 +228,7 @@ class IntelligenceLayer:
         print("    ----------------------------------")
         print(f"    - 【风险项总分】: {risk_total:.0f}")
         print("\n  [链路层 4] 终极对质 (宙斯最终敕令)")
-        # 修改开始: 部署“宙斯敕令”协议
+        # 部署“宙斯敕令”协议
         # 1. 计算前置裁决分，直接将进攻总分与风险总分相加
         pre_damper_score = offense_total + risk_total
         print(f"    - [探针重算] 前置裁决分 = {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {pre_damper_score:.0f}")
@@ -237,7 +237,7 @@ class IntelligenceLayer:
         # 3. 应用阻尼器
         final_score_recalc = pre_damper_score * (1 - chimera_conflict_score)
         print(f"    - [探针重算] 最终得分 = {pre_damper_score:.0f} * (1 - 奇美拉冲突调节器:{chimera_conflict_score:.2f}) = {final_score_recalc:.0f}")
-        # 修改结束
+
         if isinstance(final_score, (float, np.floating)):
             print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
         else:
