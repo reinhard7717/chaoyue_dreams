@@ -48,85 +48,82 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 议会制衡版】终极信号合成器 (共振熔炉)
-        - 核心升级: 接收双极性动态分，按需提取其看涨/看跌部分进行融合，实现更精细的信号合成。
+        【V1.5 · 冥王之眼版】终极信号合成器
+        - 核心升级: 重新定义“反转”信号。
+                      - 底部反转 = “看涨共振”信号发生看涨背离 (短期走强)。
+                      - 顶部反转 = “看跌共振”信号发生看涨背离 (短期加速恶化)。
         """
-        # 修改开始: 适应双极性动态分的输入
+        # 使用全息背离引擎重新定义反转
         states = {}
         periods = sorted(concentration.keys())
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        # --- 看涨共振 (Bullish Resonance) ---
+        norm_window = 55
+        # --- 看涨/看跌共振 (逻辑不变) ---
         bullish_scores_by_period = {}
         for p in periods:
-            # 步骤一：周期内融合 - 从双极性动态分中提取看涨部分
-            bullish_conc = concentration[p].clip(0, 1)
-            bullish_acc = accumulation[p].clip(0, 1)
-            bullish_trans = power_transfer[p].clip(0, 1)
-            score = (bullish_conc * bullish_acc * bullish_trans)**(1/3)
+            score = (concentration[p] + accumulation[p] + power_transfer[p]) / 3.0
             bullish_scores_by_period[p] = score
-        # 步骤二：跨周期共振 (加权几何平均)
-        bullish_resonance = pd.Series(1.0, index=self.strategy.df_indicators.index)
+        bullish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        for p in periods:
-            weight = tf_weights.get(p, 0) / total_weight
-            bullish_resonance *= (bullish_scores_by_period[p] ** weight)
-        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).astype(np.float32)
-        # --- 看跌共振 (Bearish Resonance) ---
+        if total_weight > 0:
+            for p in periods:
+                weight = tf_weights.get(p, 0) / total_weight
+                bullish_resonance += bullish_scores_by_period[p] * weight
+        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0,1).astype(np.float32)
         bearish_scores_by_period = {}
         for p in periods:
-            # 步骤一：周期内融合 - 从双极性动态分中提取看跌部分
-            bearish_conc = 1 - concentration[p].clip(0, 1)
-            bearish_acc = abs(accumulation[p].clip(-1, 0))
-            bearish_trans = abs(power_transfer[p].clip(-1, 0))
-            score = (bearish_conc * bearish_acc * bearish_trans)**(1/3)
+            score = ((1 - concentration[p]) + (1 - accumulation[p]) + (1 - power_transfer[p])) / 3.0
             bearish_scores_by_period[p] = score
-        # 步骤二：跨周期共振 (加权几何平均)
-        bearish_resonance = pd.Series(1.0, index=self.strategy.df_indicators.index)
-        for p in periods:
-            weight = tf_weights.get(p, 0) / total_weight
-            bearish_resonance *= (bearish_scores_by_period[p] ** weight)
-        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).astype(np.float32)
-        # --- 底部/顶部反转信号 (基于共振信号的加速度) ---
-        bottom_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bullish_resonance, 5) # 反转信号默认使用短期动态
-        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal.clip(0, 1).astype(np.float32) # 反转信号需要是单极性的
-        top_reversal = self._perform_chip_relational_meta_analysis(self.strategy.df_indicators, bearish_resonance, 5) # 反转信号默认使用短期动态
-        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal.clip(0, 1).astype(np.float32) # 反转信号需要是单极性的
+        bearish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        if total_weight > 0:
+            for p in periods:
+                weight = tf_weights.get(p, 0) / total_weight
+                bearish_resonance += bearish_scores_by_period[p] * weight
+        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0,1).astype(np.float32)
+        # --- 底部/顶部反转信号 (基于共振信号的结构性背离) ---
+        # 底部反转 = 看涨共振信号的看涨背离 (短期5日 vs 长期21日)
+        bottom_reversal_divergence = self._calculate_holographic_divergence(bullish_resonance, 5, 21, norm_window)
+        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32) # 只取看涨背离部分
+        # 顶部反转 = 看跌共振信号的看涨背离 (即看跌趋势在加速恶化)
+        top_reversal_divergence = self._calculate_holographic_divergence(bearish_resonance, 5, 21, norm_window)
+        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32) # 只取看涨背离部分
         # --- 战术反转 (Tactical Reversal) ---
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
         return states
 
+
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.4 · 哲学正本清源版】核心公理一：诊断筹码“聚散”的动态
-        - 核心修正: 承认“聚散”是单极健康度概念。在元分析引擎返回双极性分数后，
-                      立即使用 .clip(0, 1) 将其裁剪为[0, 1]的单极健康度分数，再返回。
-                      这解决了其负分导致最终融合归零的致命问题。
+        【V1.7 · 冥王之眼版】核心公理一：诊断筹码“聚散”的动态
+        - 核心升级: 调用“冥王之眼”引擎，计算快照分在(1, p)周期上的结构性背离。
         """
-        # 修改开始: 正本清源，返回单极健康度分数
+        # 计算并传入结构性背离分
         scores = {}
         norm_window = 120
-        # 1. 计算纯粹的静态“集中度快照分”
+        # 1. 计算静态快照分
         conc_90_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         conc_70_score = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
         stability_score = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
         concentration_snapshot = (conc_90_score * conc_70_score * stability_score)**(1/3)
-        # 2. 对快照分进行关系元分析，并立即将其输出修正为单极健康度
+        # 2. 对快照分进行关系元分析
         for p in periods:
-            # 对同一个快照，用不同的时间窗口(p)去分析其动态
-            bipolar_dynamic_score = self._perform_chip_relational_meta_analysis(df, concentration_snapshot, p)
-            # 关键修正：将双极性动态分裁剪为[0, 1]的单极健康度分
-            unipolar_health_score = bipolar_dynamic_score.clip(0, 1) # 修改行
-            scores[p] = unipolar_health_score
+            # 计算当前周期p与最短周期1之间的结构性背离
+            holographic_divergence = self._calculate_holographic_divergence(concentration_snapshot, 1, p, norm_window)
+            dynamic_concentration_score = self._perform_chip_relational_meta_analysis(
+                df, concentration_snapshot, p, holographic_divergence
+            )
+            scores[p] = dynamic_concentration_score
         return scores
-        # 修改结束
+
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.4 · 元分析贯穿版】核心公理二：诊断主力“吸筹与派发”
-        - 核心修正: 在调用元分析引擎时，传入周期 p 作为 meta_window。
+        【V1.6 · 冥王之眼版】核心公理二：诊断主力“吸筹与派发”
+        - 核心升级: 调用“冥王之眼”引擎，为每个周期的行动快照分计算其在(1, p)周期上的结构性背离，
+                      并将这个关键的背离分送入元分析引擎。
         """
-        # 传入 meta_window
+        # 计算并传入结构性背离分
         scores = {}
         norm_window = 120
         for p in periods:
@@ -142,17 +139,23 @@ class ChipIntelligence:
             distribution_evidence = (conc_slope_down * winner_turnover_up * trade_conc_down)**(1/3)
             # 步骤 3: 生成双极性的“行动快照分”
             action_snapshot = (accumulation_evidence - distribution_evidence).astype(np.float32)
-            # 步骤 4: 对“行动快照分”进行关系元分析，得到最终的动态分数
-            dynamic_action_score = self._perform_chip_relational_meta_analysis(df, action_snapshot, p)
+            # 步骤 4 (新增): 计算当前周期p与最短周期1之间的结构性背离
+            holographic_divergence = self._calculate_holographic_divergence(action_snapshot, 1, p, norm_window)
+            # 步骤 5 (升级): 对“行动快照分”进行关系元分析，传入背离分
+            dynamic_action_score = self._perform_chip_relational_meta_analysis(
+                df, action_snapshot, p, holographic_divergence
+            )
             scores[p] = dynamic_action_score
         return scores
 
+
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.4 · 元分析贯穿版】核心公理三：诊断筹码“转移方向”
-        - 核心修正: 在调用元分析引擎时，传入周期 p 作为 meta_window。
+        【V1.6 · 冥王之眼版】核心公理三：诊断筹码“转移方向”
+        - 核心升级: 调用“冥王之眼”引擎，为每个周期的转移快照分计算其在(1, p)周期上的结构性背离，
+                      并将这个关键的背离分送入元分析引擎。
         """
-        # 传入 meta_window
+        # 计算并传入结构性背离分
         scores = {}
         norm_window = 120
         for p in periods:
@@ -166,48 +169,67 @@ class ChipIntelligence:
             transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
             # 步骤 3: 生成双极性的“转移快照分”
             transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
-            # 步骤 4: 对“转移快照分”进行关系元分析，得到最终的动态分数
-            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(df, transfer_snapshot, p)
+            # 步骤 4 (新增): 计算当前周期p与最短周期1之间的结构性背离
+            holographic_divergence = self._calculate_holographic_divergence(transfer_snapshot, 1, p, norm_window)
+            # 步骤 5 (升级): 对“转移快照分”进行关系元分析，传入背离分
+            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(
+                df, transfer_snapshot, p, holographic_divergence
+            )
             scores[p] = dynamic_transfer_score
         return scores
 
-    def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int) -> pd.Series:
+
+    def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
-        【V2.1 · 议会制衡版】筹码专用的关系元分析核心引擎
-        - 核心革命: 1. 废除最终的 .clip(0, 1)，返回一个能反映完整动态的、范围在[-1, 1]的双极性分数。
-                      2. 直接使用原始的 snapshot_score 作为状态分，保留其完整的双极性信息。
-                      3. 将 meta_window 参数化，实现真正的多时间级别动态分析。
+        【V5.0 · 冥王之眼版】筹码专用的关系元分析核心引擎
+        - 核心革命: 签署“冥王之眼”协议，引入双极性的“背离杠杆”。
+                      最终得分 = 基础分 * (1 + 一阶动态杠杆) * (1 + 背离杠杆)
         """
-        # 废除裁剪，返回双极性动态分
+        # 消化双极性背离分
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.5)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 直接使用原始快照分，保留其双极性
-        state_score = snapshot_score
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
+        # 维度一：状态分
+        state_score = snapshot_score.clip(0, 1)
+        # 维度二：一阶动态 (速度与加速度)
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
-        velocity_score = normalize_to_bipolar(
-            series=relationship_trend, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
+        velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-        acceleration_score = normalize_to_bipolar(
-            series=relationship_accel, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
-        # 终极融合：生成一个[-1, 1]范围内的双极性动态分
-        final_score = (
-            state_score * w_state +
-            velocity_score * w_velocity +
-            acceleration_score * w_acceleration
-        ).clip(-1, 1) # 裁剪到[-1, 1]以确保范围安全
+        acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
+        # 杠杆一：一阶动态杠杆
+        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
+        # 杠杆二：背离杠杆 (holographic_divergence_score 是 [-1, 1] 的双极性分数)
+        holographic_leverage = 1 + (holographic_divergence_score * w_holographic)
+        # 冥王之眼：基础分被双重杠杆撬动
+        final_score = (state_score * dynamic_leverage * holographic_leverage).clip(0, 1)
         return final_score.astype(np.float32)
 
+
+    def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增 · 冥王之眼】全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        - 正分: 看涨背离 (短期趋势强于长期趋势)。
+        - 负分: 看跌背离 (短期趋势弱于长期趋势)。
+        """
+        # 新增方法
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
