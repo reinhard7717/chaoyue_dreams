@@ -169,14 +169,14 @@ class IntelligenceLayer:
         - 收益: 彻底解决了探针重算与主引擎最终得分之间的偏差，完美复现最终裁决逻辑。
         """
         print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.7.0】⚡️---")
-        self._deploy_themis_scales_probe(probe_date)
-        self._deploy_archangel_diagnosis_probe(probe_date)
-        self._deploy_athena_wisdom_probe(probe_date)
-        self._deploy_hephaestus_forge_probe(probe_date)
-        self._deploy_hephaestus_chip_forge_probe(probe_date)
-        self._deploy_hermes_caduceus_probe(probe_date)
-        self._deploy_hermes_verdict_probe(probe_date)
-        self._deploy_ares_spear_probe(probe_date)
+        # self.probes._deploy_themis_scales_probe(probe_date)
+        # self.probes._deploy_archangel_diagnosis_probe(probe_date)
+        # self.probes._deploy_athena_wisdom_probe(probe_date)
+        # self.probes._deploy_hephaestus_forge_probe(probe_date)
+        # self.probes._deploy_hermes_caduceus_probe(probe_date)
+        # self.probes._deploy_hermes_verdict_probe(probe_date)
+        # self.probes._deploy_ares_spear_probe(probe_date)
+        self.probes._deploy_hephaestus_chip_forge_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         print("\n  [链路层 1] 最终裁决")

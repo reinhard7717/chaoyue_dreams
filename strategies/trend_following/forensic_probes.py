@@ -1194,30 +1194,111 @@ class ForensicProbes:
         print(f"    - [最终动态分]: {get_val(final_score, probe_date):.4f}")
         print("\n--- “阿瑞斯之矛探针”运行完毕 ---")
 
-    def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
+    def _deploy_hephaestus_chip_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.3 · 元分析贯穿版】核心公理三：诊断筹码“转移方向”
-        - 核心重构: 将“向主力转移”和“向散户转移”的证据融合为一个双极性的“转移快照分”，然后将此快照分
-                      送入关系元分析引擎，从而对“权力转移”本身进行三维动态分析。
+        【V2.0 · 筹码公理重铸版】“赫淮斯托斯-公理熔炉”探针
+        - 核心重构: 彻底重写探针逻辑，以匹配基于“三大核心公理”和“全息共振”的新版 ChipIntelligence。
+        - 诊断链路: 1.展示最终信号 -> 2.解剖三大核心公理的三维动态分析过程 -> 3.重算终极信号的合成与共振 -> 4.验证反转信号的生成。
         """
-        # 修改开始: 部署元分析贯穿协议
-        scores = {}
+        # 修改开始: 探针逻辑完全重构
+        print("\n--- [探针] 正在启用: 🔥【赫淮斯托斯 · 公理熔炉探针 V2.0】🔥 ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        chip_intel = self.chip_intel
+        periods = [5, 13, 21, 55]
         norm_window = 120
+        def get_val(series, date, default=np.nan):
+            if series is None or not isinstance(series, (pd.Series, dict)): return default
+            if isinstance(series, dict): return series.get(date, default)
+            return series.get(date, default)
+        # 链路层 1: 最终锻造成品 (终极信号)
+        print("\n  [链路层 1] 最终锻造成品 (终极信号)")
+        bull_resonance = get_val(atomic.get('SCORE_CHIP_BULLISH_RESONANCE'), probe_date, 0.0)
+        bear_resonance = get_val(atomic.get('SCORE_CHIP_BEARISH_RESONANCE'), probe_date, 0.0)
+        bottom_reversal = get_val(atomic.get('SCORE_CHIP_BOTTOM_REVERSAL'), probe_date, 0.0)
+        top_reversal = get_val(atomic.get('SCORE_CHIP_TOP_REVERSAL'), probe_date, 0.0)
+        print(f"    - 看涨共振 (BULLISH_RESONANCE): {bull_resonance:.4f}")
+        print(f"    - 看跌共振 (BEARISH_RESONANCE): {bear_resonance:.4f}")
+        print(f"    - 底部反转 (BOTTOM_REVERSAL)  : {bottom_reversal:.4f}")
+        print(f"    - 顶部反转 (TOP_REVERSAL)    : {top_reversal:.4f}")
+        # 缓存从 atomic 中获取的核心公理分数
+        concentration_scores = atomic.get('SCORE_CHIP_MTF_CONCENTRATION', {})
+        accumulation_scores = atomic.get('SCORE_CHIP_MTF_ACCUMULATION', {})
+        power_transfer_scores = atomic.get('SCORE_CHIP_MTF_POWER_TRANSFER', {})
+        # 链路层 2: 核心公理诊断 (三维动态分析)
+        print("\n  [链路层 2] 核心公理诊断 (三维动态分析)")
+        # --- 公理一：聚散动态 ---
+        print("\n    --- 公理一: 聚散动态 (Concentration) ---")
+        conc_90 = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
+        conc_70 = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
+        stability = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
+        concentration_snapshot = (conc_90 * conc_70 * stability)**(1/3)
+        recalc_dyn_conc = chip_intel._perform_chip_relational_meta_analysis(df, concentration_snapshot)
+        print(f"      - [快照分] 当日静态集中度: {get_val(concentration_snapshot, probe_date):.4f}")
+        print(f"      - [动态分] 实际值: {get_val(concentration_scores.get(5), probe_date):.4f} vs 重算值: {get_val(recalc_dyn_conc, probe_date):.4f}")
+        # --- 公理二：主力吸派 ---
+        print("\n    --- 公理二: 主力吸派 (Main Force Action) ---")
         for p in periods:
-            # 步骤 1: 构建“筹码向主力转移”的证据
-            cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True)
-            loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
-            transfer_to_main_force_evidence = (cost_divergence_score * loser_turnover_up)**0.5
-            # 步骤 2: 构建“筹码向散户转移”的证据
-            cost_convergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
-            loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False)
-            transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
-            # 步骤 3: 生成双极性的“转移快照分”
-            transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
-            # 步骤 4: 对“转移快照分”进行关系元分析，得到最终的动态分数
-            dynamic_transfer_score = self._perform_chip_relational_meta_analysis(df, transfer_snapshot)
-            scores[p] = dynamic_transfer_score
-        return scores
+            acc_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=True))**(1/3)
+            dist_ev = (normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=False))**(1/3)
+            action_snapshot = (acc_ev - dist_ev).astype(np.float32)
+            recalc_dyn_action = chip_intel._perform_chip_relational_meta_analysis(df, action_snapshot)
+            print(f"      - [周期 {p}d] 快照分: {get_val(action_snapshot, probe_date):.4f} -> 动态分: {get_val(accumulation_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_action, probe_date):.4f})")
+        # --- 公理三：权力转移 ---
+        print("\n    --- 公理三: 权力转移 (Power Transfer) ---")
+        for p in periods:
+            to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
+            to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) * normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
+            transfer_snapshot = (to_main - to_retail).astype(np.float32)
+            recalc_dyn_transfer = chip_intel._perform_chip_relational_meta_analysis(df, transfer_snapshot)
+            print(f"      - [周期 {p}d] 快照分: {get_val(transfer_snapshot, probe_date):.4f} -> 动态分: {get_val(power_transfer_scores.get(p), probe_date):.4f} (重算: {get_val(recalc_dyn_transfer, probe_date):.4f})")
+        # 链路层 3: 终极信号合成 (全息共振熔炉)
+        print("\n  [链路层 3] 终极信号合成 (全息共振熔炉)")
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        total_weight = sum(tf_weights.values())
+        # --- 看涨共振 ---
+        print("\n    --- 看涨共振 (Bullish Resonance) ---")
+        bullish_scores_by_period = {}
+        print("      - [周期内融合] 公式: (聚散分 * 吸筹分 * 转移分)^(1/3)")
+        for p in periods:
+            conc_val = get_val(concentration_scores.get(p), probe_date, 0.5)
+            acc_val = get_val(accumulation_scores.get(p), probe_date, 0.5)
+            trans_val = get_val(power_transfer_scores.get(p), probe_date, 0.5)
+            period_score = (conc_val * acc_val.clip(0, 1) * trans_val.clip(0, 1))**(1/3)
+            bullish_scores_by_period[p] = period_score
+            print(f"        - 周期 {p}d: ({conc_val:.2f} * {acc_val.clip(0,1):.2f} * {trans_val.clip(0,1):.2f})^(1/3) = {period_score:.4f}")
+        print("      - [跨周期共振] 公式: 加权几何平均")
+        recalc_bullish_resonance = 1.0
+        for p in periods:
+            recalc_bullish_resonance *= (bullish_scores_by_period[p] ** (tf_weights[p] / total_weight))
+        print(f"      - [最终锻造] 实际值: {bull_resonance:.4f} vs 重算值: {recalc_bullish_resonance:.4f}")
+        # --- 看跌共振 ---
+        print("\n    --- 看跌共振 (Bearish Resonance) ---")
+        bearish_scores_by_period = {}
+        print("      - [周期内融合] 公式: ((1-聚散分) * 派发分 * 转移分)^(1/3)")
+        for p in periods:
+            conc_val = get_val(concentration_scores.get(p), probe_date, 0.5)
+            acc_val = get_val(accumulation_scores.get(p), probe_date, 0.5)
+            trans_val = get_val(power_transfer_scores.get(p), probe_date, 0.5)
+            period_score = ((1 - conc_val) * abs(acc_val.clip(-1, 0)) * abs(trans_val.clip(-1, 0)))**(1/3)
+            bearish_scores_by_period[p] = period_score
+            print(f"        - 周期 {p}d: ((1-{conc_val:.2f}) * {abs(acc_val.clip(-1,0)):.2f} * {abs(trans_val.clip(-1,0)):.2f})^(1/3) = {period_score:.4f}")
+        print("      - [跨周期共振] 公式: 加权几何平均")
+        recalc_bearish_resonance = 1.0
+        for p in periods:
+            recalc_bearish_resonance *= (bearish_scores_by_period[p] ** (tf_weights[p] / total_weight))
+        print(f"      - [最终锻造] 实际值: {bear_resonance:.4f} vs 重算值: {recalc_bearish_resonance:.4f}")
+        # 链路层 4: 反转信号锻造
+        print("\n  [链路层 4] 反转信号锻造 (元分析再应用)")
+        # --- 底部反转 ---
+        bull_res_series = atomic.get('SCORE_CHIP_BULLISH_RESONANCE')
+        recalc_bottom_reversal = chip_intel._perform_chip_relational_meta_analysis(df, bull_res_series)
+        print(f"    - 底部反转 = Meta(看涨共振) -> 实际值: {bottom_reversal:.4f} vs 重算值: {get_val(recalc_bottom_reversal, probe_date):.4f}")
+        # --- 顶部反转 ---
+        bear_res_series = atomic.get('SCORE_CHIP_BEARISH_RESONANCE')
+        recalc_top_reversal = chip_intel._perform_chip_relational_meta_analysis(df, bear_res_series)
+        print(f"    - 顶部反转 = Meta(看跌共振) -> 实际值: {top_reversal:.4f} vs 重算值: {get_val(recalc_top_reversal, probe_date):.4f}")
+        print("\n--- “赫淮斯托斯-公理熔炉”探针运行完毕 ---")
         # 修改结束
 
 
