@@ -911,32 +911,39 @@ class CognitiveIntelligence:
 
     def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 证据加权版】“真伪识别：打压 vs 撤退”诊断引擎
-        - 核心革命: 废除所有刚性触发条件，全面转向“证据加权”的柔性逻辑。
-                      1. 将“近期派发”和“当日反转”从布尔条件升级为连续的证据强度分。
-                      2. “当日反转强度”直接消费认知层的多域底部反转共振分，实现系统内协同。
-                      3. 最终分数由所有证据（派发、反转、吸收、动态质量）加权相乘得出，更鲁棒、更精确。
+        【V5.0 · 原始力量版】“真伪识别：打压 vs 撤退”诊断引擎
+        - 核心革命: 根除“数据依赖时空悖论”。不再消费经过动态锻造的认知层信号。
+                      转而直接消费各领域最强的、最原始的底部反转信号作为“反转强度”的度量，
+                      确保引擎能第一时间响应战场的原始炮火，而不是等待后方战报。
         """
-        # 修改开始: 全面重构为“证据加权”逻辑
+        # 修改开始: 全面拥抱“原始力量”
         states = {}
         norm_window = 55
         p = 5
-        # --- 步骤1: 量化“近期派发强度”证据 (Evidence A) ---
+        # --- 步骤1: 量化“近期派发强度”证据 (逻辑不变) ---
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
                      normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
-        # 将派发行为(-1到0)映射到(0到1)的强度分。派发越强(-1)，分数越高(1)。
         recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
-        # --- 步骤2: 量化“当日反转强度”证据 (Evidence B) ---
-        # 直接使用认知层的多域底部反转共振分，作为反转强度的权威度量
-        reversal_strength = self._get_atomic_score(df, 'COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE', 0.0)
-        # --- 步骤3: 量化“反转动态质量”证据 (Evidence C) ---
+        # --- 步骤2: 量化“当日反转强度”证据 (全新逻辑) ---
+        # 直接消费各领域最强的、最原始的底部反转信号
+        chip_reversal_raw = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_REVERSAL', 0.0)
+        behavior_reversal_raw = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BOTTOM_REVERSAL', 0.0)
+        dyn_reversal_raw = self._get_atomic_score(df, 'SCORE_DYN_BOTTOM_REVERSAL', 0.0)
+        # 取其最大值，捕捉最强的反转证据，作为“原始力量”
+        reversal_strength = np.maximum.reduce([
+            chip_reversal_raw.values,
+            behavior_reversal_raw.values,
+            dyn_reversal_raw.values
+        ])
+        reversal_strength = pd.Series(reversal_strength, index=df.index, dtype=np.float32)
+        # --- 步骤3: 量化“反转动态质量”证据 (逻辑不变) ---
         dyn_bullish_resonance = self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE', 0.0)
         behavior_bullish_resonance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE', 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
-        # --- 步骤4: 构建“战术性打压”的证据链 (Evidence Chain - Bullish) ---
+        # --- 步骤4: 构建“战术性打压”的证据链 (逻辑不变) ---
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
         winner_conviction_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
@@ -947,15 +954,14 @@ class CognitiveIntelligence:
             winner_conviction_score *
             (1 + structural_support_score * 0.5)
         )
-        # 最终融合: 所有看涨证据相乘
         tactical_suppression_score = (
-            recent_distribution_strength * # 证据A: 近期有派发
-            reversal_strength *            # 证据B: 当日有反转
-            reversal_dynamic_quality *     # 证据C: 且反转质量高
-            absorption_evidence_chain      # 证据链: 且满足吸收等条件
+            recent_distribution_strength *
+            reversal_strength *
+            reversal_dynamic_quality *
+            absorption_evidence_chain
         ).clip(0, 1)
         states['COGNITIVE_SCORE_TACTICAL_SUPPRESSION'] = tactical_suppression_score.astype(np.float32)
-        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (Evidence Chain - Bearish) ---
+        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (逻辑不变) ---
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
         winner_capitulation_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * -0.5 + 0.5)
@@ -966,11 +972,9 @@ class CognitiveIntelligence:
             winner_capitulation_score *
             bull_trap_evidence
         )
-        # 最终融合: 派发强度 * 撤退证据链
         true_retreat_score = (recent_distribution_strength * retreat_evidence_chain).clip(0, 1)
         states['COGNITIVE_SCORE_TRUE_RETREAT_RISK'] = true_retreat_score.astype(np.float32)
         return states
-        # 修改结束
 
 
 

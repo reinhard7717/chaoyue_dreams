@@ -1338,19 +1338,19 @@ class ForensicProbes:
 
     def _deploy_ares_tribunal_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.1 · 记忆校准版】“阿瑞斯审判庭”探针
-        - 核心修复: 将内部的 norm_window 从错误的 120 修正为与主引擎一致的 55，确保使用相同的时间标尺进行历史回溯。
+        【V1.2 · 原始力量同步版】“阿瑞斯审判庭”探针
+        - 核心修复: 完全同步主引擎V5.0版的“原始力量”逻辑，确保探针与主引擎的计算口径绝对一致。
         """
-        print("\n--- [探针] 正在启用: ⚖️【阿瑞斯审判庭 · 真伪识别探针 V1.1】⚖️ ---")
+        print("\n--- [探针] 正在启用: ⚖️【阿瑞斯审判庭 · 真伪识别探针 V1.2】⚖️ ---")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        norm_window = 55 # 修改行: 将 norm_window 从 120 校准为 55
+        norm_window = 55
         p = 5
         def get_val(series, date, default=np.nan):
             if series is None or not isinstance(series, (pd.Series, dict)): return default
             if isinstance(series, dict): return series.get(date, default)
             return series.get(date, default)
-        # --- 步骤1: 量化“近期派发强度”证据 (Evidence A) ---
+        # --- 步骤1: 量化“近期派发强度”证据 (逻辑不变) ---
         print("\n  [链路层 1] 量化“近期派发强度”证据")
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
@@ -1359,15 +1359,18 @@ class ForensicProbes:
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
         recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
         print(f"    - 近期派发强度分: {get_val(recent_distribution_strength, probe_date):.4f}")
-        # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 (Evidence B & C) ---
-        print("\n  [链路层 2] 量化“反转强度”与“动态质量”证据")
-        reversal_strength = get_val(atomic.get('COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'), probe_date, 0.0)
+        # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 (全新逻辑) ---
+        print("\n  [链路层 2] 量化“反转强度(原始力量)”与“动态质量”证据")
+        chip_reversal_raw = get_val(atomic.get('SCORE_CHIP_BOTTOM_REVERSAL'), probe_date, 0.0)
+        behavior_reversal_raw = get_val(atomic.get('SCORE_BEHAVIOR_BOTTOM_REVERSAL'), probe_date, 0.0)
+        dyn_reversal_raw = get_val(atomic.get('SCORE_DYN_BOTTOM_REVERSAL'), probe_date, 0.0)
+        reversal_strength = np.maximum.reduce([chip_reversal_raw, behavior_reversal_raw, dyn_reversal_raw])
+        print(f"    - 当日反转强度 (原始力量) = max(筹码:{chip_reversal_raw:.2f}, 行为:{behavior_reversal_raw:.2f}, 力学:{dyn_reversal_raw:.2f}) -> {reversal_strength:.4f}")
         dyn_bullish_resonance = get_val(atomic.get('SCORE_DYN_BULLISH_RESONANCE'), probe_date, 0.0)
         behavior_bullish_resonance = get_val(atomic.get('SCORE_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
-        print(f"    - 当日反转强度: {reversal_strength:.4f}")
         print(f"    - 反转动态质量 (力学: {dyn_bullish_resonance:.2f} * 行为: {behavior_bullish_resonance:.2f}) -> {reversal_dynamic_quality:.4f}")
-        # --- 步骤3: 交叉验证“战术性打压” ---
+        # --- 步骤3: 交叉验证“战术性打压” (逻辑不变) ---
         print("\n  [链路层 3] 交叉验证“战术性打压”")
         trend_quality_context = get_val(atomic.get('COGNITIVE_SCORE_TREND_QUALITY'), probe_date, 0.0)
         panic_absorption_score = get_val(atomic.get('SCORE_MICRO_PANIC_ABSORPTION'), probe_date, 0.0)
@@ -1378,7 +1381,7 @@ class ForensicProbes:
         recalc_tactical_suppression = (get_val(recent_distribution_strength, probe_date) * reversal_strength * reversal_dynamic_quality * absorption_evidence_chain).clip(0, 1)
         actual_tactical_suppression = get_val(atomic.get('COGNITIVE_SCORE_TACTICAL_SUPPRESSION'), probe_date, 0.0)
         print(f"    - [最终锻造] 战术性打压分 -> 实际值: {actual_tactical_suppression:.4f} vs 重算值: {recalc_tactical_suppression:.4f}")
-        # --- 步骤4: 交叉验证“真实撤退” ---
+        # --- 步骤4: 交叉验证“真实撤退” (逻辑不变) ---
         print("\n  [链路层 4] 交叉验证“真实撤退”")
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
@@ -1390,6 +1393,10 @@ class ForensicProbes:
         actual_true_retreat = get_val(atomic.get('COGNITIVE_SCORE_TRUE_RETREAT_RISK'), probe_date, 0.0)
         print(f"    - [最终锻造] 真实撤退风险 -> 实际值: {actual_true_retreat:.4f} vs 重算值: {recalc_true_retreat:.4f}")
         print("\n--- “阿瑞斯审判庭”探针运行完毕 ---")
+
+
+
+
 
 
 

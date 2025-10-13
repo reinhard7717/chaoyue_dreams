@@ -290,7 +290,6 @@ class ChipIntelligence:
         # 更多剧本可以在此添加...
         return states
 
-
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.2 · 冥王之眼同步版】诊断“恐慌投降反转”的潜力
