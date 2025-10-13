@@ -1350,7 +1350,7 @@ class ForensicProbes:
             if series is None or not isinstance(series, (pd.Series, dict)): return default
             if isinstance(series, dict): return series.get(date, default)
             return series.get(date, default)
-        # --- 步骤1: 量化“近期派发强度”证据 (逻辑不变) ---
+        # --- 步骤1: 量化“近期派发强度”证据 ---
         print("\n  [链路层 1] 量化“近期派发强度”证据")
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
@@ -1370,7 +1370,7 @@ class ForensicProbes:
         behavior_bullish_resonance = get_val(atomic.get('SCORE_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
         print(f"    - 反转动态质量 (力学: {dyn_bullish_resonance:.2f} * 行为: {behavior_bullish_resonance:.2f}) -> {reversal_dynamic_quality:.4f}")
-        # --- 步骤3: 交叉验证“战术性打压” (逻辑不变) ---
+        # --- 步骤3: 交叉验证“战术性打压” ---
         print("\n  [链路层 3] 交叉验证“战术性打压”")
         trend_quality_context = get_val(atomic.get('COGNITIVE_SCORE_TREND_QUALITY'), probe_date, 0.0)
         panic_absorption_score = get_val(atomic.get('SCORE_MICRO_PANIC_ABSORPTION'), probe_date, 0.0)
@@ -1381,7 +1381,7 @@ class ForensicProbes:
         recalc_tactical_suppression = (get_val(recent_distribution_strength, probe_date) * reversal_strength * reversal_dynamic_quality * absorption_evidence_chain).clip(0, 1)
         actual_tactical_suppression = get_val(atomic.get('COGNITIVE_SCORE_TACTICAL_SUPPRESSION'), probe_date, 0.0)
         print(f"    - [最终锻造] 战术性打压分 -> 实际值: {actual_tactical_suppression:.4f} vs 重算值: {recalc_tactical_suppression:.4f}")
-        # --- 步骤4: 交叉验证“真实撤退” (逻辑不变) ---
+        # --- 步骤4: 交叉验证“真实撤退” ---
         print("\n  [链路层 4] 交叉验证“真实撤退”")
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score

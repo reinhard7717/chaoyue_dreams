@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     // if (currentTrackerId && currentStockName) {
                     //     openTransactionModal(currentTrackerId, currentStockName);
                     // }
-                    closeTransactionModal(); // 新增：直接调用关闭模态框函数
+                    closeTransactionModal(); // 直接调用关闭模态框函数
                     // --- 修改代码结束 ---
 
                 } catch (error) {

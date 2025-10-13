@@ -48,17 +48,17 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 冥王之眼版】终极信号合成器
-        - 核心升级: 重新定义“反转”信号。
-                      - 底部反转 = “看涨共振”信号发生看涨背离 (短期走强)。
-                      - 顶部反转 = “看跌共振”信号发生看涨背离 (短期加速恶化)。
+        【V1.6 · 哈迪斯陷阱版】终极信号合成器
+        - 核心升级: 新增“哈迪斯陷阱” (Hades' Trap) 诊断模块。
+                      专门用于识别“技术性底部反转”与“行为性主力派发”同时发生的致命陷阱。
+                      陷阱分 = 底部反转强度 * 短期派发强度
         """
         # 使用全息背离引擎重新定义反转
         states = {}
         periods = sorted(concentration.keys())
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         norm_window = 55
-        # --- 看涨/看跌共振 (逻辑不变) ---
+        # --- 看涨/看跌共振 ---
         bullish_scores_by_period = {}
         for p in periods:
             score = (concentration[p] + accumulation[p] + power_transfer[p]) / 3.0
@@ -80,16 +80,32 @@ class ChipIntelligence:
                 weight = tf_weights.get(p, 0) / total_weight
                 bearish_resonance += bearish_scores_by_period[p] * weight
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0,1).astype(np.float32)
-        # --- 底部/顶部反转信号 (基于共振信号的结构性背离) ---
-        # 底部反转 = 看涨共振信号的看涨背离 (短期5日 vs 长期21日)
+        # --- 底部/顶部反转信号 ---
         bottom_reversal_divergence = self._calculate_holographic_divergence(bullish_resonance, 5, 21, norm_window)
-        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32) # 只取看涨背离部分
-        # 顶部反转 = 看跌共振信号的看涨背离 (即看跌趋势在加速恶化)
+        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
         top_reversal_divergence = self._calculate_holographic_divergence(bearish_resonance, 5, 21, norm_window)
-        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32) # 只取看涨背离部分
-        # --- 战术反转 (Tactical Reversal) ---
+        states['SCORE_CHIP_TOP_REversal'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
+        # --- 战术反转 ---
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
+        # 新增开始: 部署“哈迪斯陷阱”诊断模块
+        # 步骤1: 即时计算5日周期的“权力转移”快照分，作为短期派发的直接证据
+        df = self.strategy.df_indicators
+        p = 5 # 使用最短周期5日来捕捉当日行为
+        cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True)
+        loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
+        transfer_to_main_force_evidence = (cost_divergence_score * loser_turnover_up)**0.5
+        cost_convergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
+        loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False)
+        transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
+        transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
+        # 步骤2: 将派发行为(-1到0)映射为派发强度(0到1)
+        distribution_strength = (transfer_snapshot.clip(-1, 0) * -1).astype(np.float32)
+        # 步骤3: 融合“反转幻象”与“派发事实”，铸造“哈迪斯陷阱分”
+        # 陷阱分 = 底部反转信号强度 * 当日派发强度
+        hades_trap_score = (states['SCORE_CHIP_BOTTOM_REVERSAL'] * distribution_strength).clip(0, 1)
+        states['SCORE_CHIP_HADES_TRAP'] = hades_trap_score.astype(np.float32)
+        # 新增结束
         return states
 
 

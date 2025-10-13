@@ -782,7 +782,7 @@ def _calculate_uranus_ceiling_resistance(df: pd.DataFrame, params: Dict) -> pd.S
     acting_ceiling = ma_df_above_price.min(axis=1).ffill()
     # 2. 调用通用函数计算拒绝质量分
     rejection_quality_score = _calculate_rejection_quality_score(df, params, acting_ceiling)
-    # 3. 计算确认压制分 (逻辑不变)
+    # 3. 计算确认压制分
     max_recent_rejection_quality = rejection_quality_score.rolling(window=rejection_lookback_window, min_periods=1).max()
     is_in_influence_zone = pd.Series(False, index=df.index)
     valid_indices = acting_ceiling.dropna().index

@@ -81,7 +81,7 @@ def trend_following_list(request):
     - 核心逻辑: 1. 移除所有为“先知”信号服务的特殊逻辑（如加冕排序）。
                   2. 增加 strategy_name='TrendFollow' 的过滤条件，确保只展示常规买入信号。
     """
-    # 1. 确定要查询的目标日期 (逻辑不变)
+    # 1. 确定要查询的目标日期
     selected_date_str = request.GET.get('date')
     target_date = None
 
@@ -99,7 +99,7 @@ def trend_following_list(request):
         if latest_trade_day_obj:
             target_date = latest_trade_day_obj.cal_date
 
-    # 2. 如果无法确定目标日期，则不进行查询 (逻辑不变)
+    # 2. 如果无法确定目标日期，则不进行查询
     if not target_date:
         latest_buy_signals = TradingSignal.objects.none()
         page_title = '策略状态监控中心 (无可用数据)'
@@ -157,7 +157,7 @@ def trend_following_list(request):
             if selected_pks_set.issubset({str(p.pk) for p in log['active_playbooks']})
         ]
 
-    # 6. 分页与上下文准备 (逻辑不变)
+    # 6. 分页与上下文准备
     paginator = Paginator(final_filtered_logs, 25)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)

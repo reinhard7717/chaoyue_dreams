@@ -858,7 +858,8 @@
           },
           "chip_risk": {
             "SCORE_CHIP_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_CHIP_TOP_REVERSAL": { "weight": 1.2 }
+            "SCORE_CHIP_TOP_REVERSAL": {"weight": 1.0},
+            "SCORE_CHIP_HADES_TRAP": {"weight": 1.0, "说明": "牛市陷阱风险"}
           },
           "fund_flow_risk": {
             "SCORE_FF_BEARISH_RESONANCE": { "weight": 1.0 },

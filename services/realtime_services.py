@@ -19,7 +19,7 @@ from utils.cash_key import StockCashKey
 
 logger = logging.getLogger("services")
 
-# ▼▼▼ 新增：特征工程引擎类 ▼▼▼
+# ▼▼▼ 特征工程引擎类 ▼▼▼
 class IntradayFeatureEngine:
     """
     【V11.0 - 真实逐笔驱动版】

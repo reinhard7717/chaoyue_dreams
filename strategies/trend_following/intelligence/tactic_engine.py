@@ -285,7 +285,7 @@ class TacticEngine:
           2. [哲学统一] 任何支撑都不仅仅是线或区域，更是一个动态的战场。被刺穿后的收复行为，普遍被视为多头反击的信号。
         - 收益: 系统的支撑体系实现了最终的逻辑自洽和哲学完备，能够捕捉到如“跌破MA5后收回”等关键的战术信号。
         """
-        # --- 步骤 1: 获取参数，定义支撑矩阵 (逻辑不变) ---
+        # --- 步骤 1: 获取参数，定义支撑矩阵 ---
         support_periods = get_param_value(params.get('support_lookback_periods'), [5, 13, 21, 55])
         period_weights = get_param_value(params.get('support_period_weights'), {5: 0.8, 13: 1.0, 21: 1.2, 55: 1.4, 'sbc': 2.0})
         support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.015)
@@ -306,7 +306,7 @@ class TacticEngine:
         
         supports_df = pd.concat(valid_supports, axis=1)
 
-        # --- 步骤 2: 计算“支撑区域”的共振强度 (逻辑不变) ---
+        # --- 步骤 2: 计算“支撑区域”的共振强度 ---
         confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
         for col_i in supports_df.columns:
             for col_j in supports_df.columns:
@@ -345,7 +345,7 @@ class TacticEngine:
             weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
             all_test_scores.append(weighted_reclaim_score)
 
-        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 (逻辑不变) ---
+        # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
         if not all_test_scores:
             return pd.Series(0.0, index=df.index)
             

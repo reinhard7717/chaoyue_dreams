@@ -153,7 +153,7 @@ class CognitiveIntelligence:
         【V3.0 · 赫淮斯托斯熔炉版】趋势质量融合评分模块
         - 核心升级: 引入关系元分析，对融合后的“趋势质量快照分”进行动态锻造。
         """
-        # --- 1. 获取各维度健康度分数 (逻辑不变) ---
+        # --- 1. 获取各维度健康度分数 ---
         behavior_health_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
         fund_flow_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         structural_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
@@ -162,10 +162,10 @@ class CognitiveIntelligence:
         regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
         regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5
         chip_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
-        # --- 2. 读取权重配置 (逻辑不变) ---
+        # --- 2. 读取权重配置 ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
-        # --- 3. 静态融合，计算“趋势质量快照分” (逻辑不变) ---
+        # --- 3. 静态融合，计算“趋势质量快照分” ---
         domain_scores = [
             behavior_health_score, chip_health_score, fund_flow_health_score,
             structural_health_score, mechanics_health_score, regime_health_score
@@ -369,7 +369,7 @@ class CognitiveIntelligence:
         }
         # 实现两阶段认知
         for f_type in fusion_types:
-            # --- 阶段一：计算“共识快照分” (逻辑不变) ---
+            # --- 阶段一：计算“共识快照分” ---
             scores_to_fuse = []
             weights_to_fuse = []
             for domain, signals in signal_sources.items():
@@ -904,7 +904,7 @@ class CognitiveIntelligence:
         states = {}
         norm_window = 55
         p = 5
-        # --- 步骤1: 量化“近期派发强度”证据 (逻辑不变) ---
+        # --- 步骤1: 量化“近期派发强度”证据 ---
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
@@ -923,11 +923,11 @@ class CognitiveIntelligence:
             dyn_reversal_raw.values
         ])
         reversal_strength = pd.Series(reversal_strength, index=df.index, dtype=np.float32)
-        # --- 步骤3: 量化“反转动态质量”证据 (逻辑不变) ---
+        # --- 步骤3: 量化“反转动态质量”证据 ---
         dyn_bullish_resonance = self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE', 0.0)
         behavior_bullish_resonance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE', 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
-        # --- 步骤4: 构建“战术性打压”的证据链 (逻辑不变) ---
+        # --- 步骤4: 构建“战术性打压”的证据链 ---
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
         winner_conviction_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
@@ -945,7 +945,7 @@ class CognitiveIntelligence:
             absorption_evidence_chain
         ).clip(0, 1)
         states['COGNITIVE_SCORE_TACTICAL_SUPPRESSION'] = tactical_suppression_score.astype(np.float32)
-        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (逻辑不变) ---
+        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 ---
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
         winner_capitulation_score = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * -0.5 + 0.5)
