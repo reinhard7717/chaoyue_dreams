@@ -16,14 +16,20 @@ function getKlineChartOption(data) {
                 // params[0] 对应K线系列, params[1] 对应成交量系列
                 const klineParams = params[0];
                 const volumeParams = params[1];
-                // K线数据是一个数组: [开, 收, 低, 高]
+
+                // 修改开始: ECharts传递的data数组第一个元素是索引，OHLC数据从第二个元素开始
+                // 正确的数据结构是 [index, open, close, low, high]
                 const ohlc = klineParams.data;
+                console.log("K线图Tooltip调试，检查数据包结构: ", ohlc); // 增加调试信息，确认数据结构
+
                 // 构建HTML字符串
                 let tooltipHtml = `${klineParams.axisValue}<br/>`; // 显示日期
-                tooltipHtml += `开盘: <span style="font-weight:bold;">${ohlc[0].toFixed(2)}</span><br/>`;
-                tooltipHtml += `收盘: <span style="font-weight:bold;">${ohlc[1].toFixed(2)}</span><br/>`;
-                tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[2].toFixed(2)}</span><br/>`;
-                tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[3].toFixed(2)}</span><br/>`;
+                tooltipHtml += `开盘: <span style="font-weight:bold;">${ohlc[1].toFixed(2)}</span><br/>`; // 开盘价在索引1
+                tooltipHtml += `收盘: <span style="font-weight:bold;">${ohlc[2].toFixed(2)}</span><br/>`; // 收盘价在索引2
+                tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[3].toFixed(2)}</span><br/>`; // 最低价在索引3
+                tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[4].toFixed(2)}</span><br/>`; // 最高价在索引4
+                // 修改结束
+
                 // 如果有成交量数据，也一并显示
                 if (volumeParams) {
                     // 使用 volumeParams.marker 可以显示系列对应的小圆点标记

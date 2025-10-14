@@ -523,6 +523,7 @@ def stock_detail_view(request, stock_code, cache_manager=None):
         stock=stock,
         strategy_name='ProphetSignal',
         signal_type='BUY',
+        timeframe='D',
         trade_time__date__range=(start_date, end_date)
     ).order_by('trade_time')
     print(f"调试信息: 在 {start_date} 到 {end_date} 期间找到 {prophet_signals.count()} 个先知信号。")
