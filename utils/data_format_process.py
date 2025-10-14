@@ -316,6 +316,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_stock_daily_basic_data(self, stock: StockInfo, df_data: Any) -> Dict:
+        # 负责将从Tushare获取的单行数据（通常是DataFrame的一行）转换为符合数据库模型要求的字典。
         data_dict = {
             "stock": stock,
             "trade_time": self._parse_datetime(getattr(df_data, "trade_date", getattr(df_data, "trade_time", None))),
@@ -328,6 +329,8 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "pb": self._parse_number(getattr(df_data, "pb", None)),
             "ps": self._parse_number(getattr(df_data, "ps", None)),
             "ps_ttm": self._parse_number(getattr(df_data, "ps_ttm", None)),
+            "dv_ratio": self._parse_number(getattr(df_data, "dv_ratio", None)),
+            "dv_ttm": self._parse_number(getattr(df_data, "dv_ttm", None)),
             "total_share": self._parse_number(getattr(df_data, "total_share", None)),
             "float_share": self._parse_number(getattr(df_data, "float_share", None)),
             "free_share": self._parse_number(getattr(df_data, "free_share", None)),
@@ -335,6 +338,7 @@ class StockTimeTradeFormatProcess(BaseDAO):
             "circ_mv": self._parse_number(getattr(df_data, "circ_mv", None)),
             "limit_status": getattr(df_data, "limit_status", None),
         }
+        # 使用 safe_value 函数对字典中的所有值进行最终处理，确保数据安全
         return {k: safe_value(v) for k, v in data_dict.items()}
 
     def set_cyq_perf_data(self, stock: StockInfo, df_data: Any) -> Dict:
