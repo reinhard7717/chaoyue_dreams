@@ -1394,7 +1394,78 @@ class ForensicProbes:
         print(f"    - [最终锻造] 真实撤退风险 -> 实际值: {actual_true_retreat:.4f} vs 重算值: {recalc_true_retreat:.4f}")
         print("\n--- “阿瑞斯审判庭”探针运行完毕 ---")
 
+    def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“塔纳托斯之镰”探针 - 真实撤退风险全要素解剖
+        - 核心职责: 钻透式解剖 COGNITIVE_SCORE_TRUE_RETREAT_RISK 信号，从最终结果到最原始数据。
+        """
+        print("\n--- [探针] 正在启用: 💀【塔纳托斯之镰 · 真实撤退风险解剖】💀 ---")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        norm_window = 55
+        p = 5
 
+        def get_val(series, date, default=np.nan):
+            if series is None or not isinstance(series, (pd.Series, dict)): return default
+            if isinstance(series, dict): return series.get(date, default)
+            return series.get(date, default)
+
+        # --- 链路层 1: 最终裁决 ---
+        print("\n  [链路层 1] 最终裁决 (Final Verdict)")
+        final_score = get_val(atomic.get('COGNITIVE_SCORE_TRUE_RETREAT_RISK'), probe_date, 0.0)
+        print(f"    - 【最终风险值】: {final_score:.4f}")
+        print(f"    - [核心公式]: 真实撤退风险 = 近期派发强度 * 真实撤退证据链")
+
+        # --- 链路层 2: 前提条件 - 近期派发强度 ---
+        print("\n  [链路层 2] 前提条件 (Premise): 近期派发强度")
+        to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
+                   normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
+        to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
+                     normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
+        short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
+        recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
+        
+        print(f"    - 【近期派发强度】: {get_val(recent_distribution_strength, probe_date):.4f}")
+        print(f"    - [解读]: 该值为正，说明近期存在资金从主力流向散户的迹象。")
+        print(f"    - [钻透]:")
+        print(f"      - 当日短期筹码转移快照: {get_val(short_term_transfer_snapshot, probe_date):.4f}")
+        print(f"        - 成本发散度斜率 (SLOPE_5_cost_divergence_D): {get_val(df.get('SLOPE_5_cost_divergence_D'), probe_date):.4f}")
+        print(f"        - 亏损盘换手率斜率 (SLOPE_5_turnover_from_losers_ratio_D): {get_val(df.get('SLOPE_5_turnover_from_losers_ratio_D'), probe_date):.4f}")
+
+        # --- 链路层 3: 证据链 - 真实撤退证据链 ---
+        print("\n  [链路层 3] 证据链 (Evidence Chain): 真实撤退的四大迹象")
+        trend_quality_context = get_val(atomic.get('COGNITIVE_SCORE_TREND_QUALITY'), probe_date, 0.0)
+        trend_decay_context = 1.0 - trend_quality_context
+        
+        panic_absorption_score = get_val(atomic.get('SCORE_MICRO_PANIC_ABSORPTION'), probe_date, 0.0)
+        no_absorption_score = 1.0 - panic_absorption_score
+        
+        winner_conviction_raw = get_val(atomic.get('PROCESS_META_WINNER_CONVICTION'), probe_date, 0.0)
+        winner_capitulation_score = (winner_conviction_raw * -0.5 + 0.5)
+        
+        dyn_bullish_resonance = get_val(atomic.get('SCORE_DYN_BULLISH_RESONANCE'), probe_date, 0.0)
+        behavior_bullish_resonance = get_val(atomic.get('SCORE_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
+        reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
+        bull_trap_evidence = 1.0 - reversal_dynamic_quality
+
+        retreat_evidence_chain = (trend_decay_context * no_absorption_score * winner_capitulation_score * bull_trap_evidence)
+        
+        print(f"    - 【证据链总强度】: {retreat_evidence_chain:.4f}")
+        print(f"    - [核心公式]: 趋势衰退 * 缺乏承接 * 赢家投降 * 牛市陷阱")
+        print(f"    - [计算]: {trend_decay_context:.2f} * {no_absorption_score:.2f} * {winner_capitulation_score:.2f} * {bull_trap_evidence:.2f} = {retreat_evidence_chain:.4f}")
+        print(f"    - [钻透]:")
+        print(f"      - 证据1 (趋势衰退): {trend_decay_context:.4f} (来自 1 - 趋势质量分 {trend_quality_context:.4f})")
+        print(f"      - 证据2 (缺乏承接): {no_absorption_score:.4f} (来自 1 - 恐慌吸收分 {panic_absorption_score:.4f})")
+        print(f"      - 证据3 (赢家投降): {winner_capitulation_score:.4f} (来自 盈利盘信念 {winner_conviction_raw:.4f})")
+        print(f"      - 证据4 (牛市陷阱): {bull_trap_evidence:.4f} (来自 1 - 反转动态质量 {reversal_dynamic_quality:.4f})")
+
+        # --- 链路层 4: 最终验证 ---
+        print("\n  [链路层 4] 最终验证 (Final Verification)")
+        recalc_score = (get_val(recent_distribution_strength, probe_date) * retreat_evidence_chain).clip(0, 1)
+        print(f"    - [探针重算]: {get_val(recent_distribution_strength, probe_date):.4f} (派发强度) * {retreat_evidence_chain:.4f} (证据链) = {recalc_score:.4f}")
+        print(f"    - [对比]: 实际值 {final_score:.4f} vs 重算值 {recalc_score:.4f}")
+        
+        print("--- “塔纳托斯之镰”探针解剖完毕 ---")
 
 
 
