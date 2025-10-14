@@ -77,10 +77,9 @@ def dashboard_view(request, cache_manager=None):
 @login_required
 def trend_following_list(request):
     """
-    【V5.3 · 纯净版】
-    - 核心升级: 恢复为纯粹的趋势跟踪策略监控中心。
-    - 核心逻辑: 1. 移除所有为“先知”信号服务的特殊逻辑（如加冕排序）。
-                  2. 增加 strategy_name='TrendFollow' 的过滤条件，确保只展示常规买入信号。
+    【V5.4 · 智能日期定位版】
+    - 核心升级: 优化了默认日期的选择逻辑。现在页面在首次加载时，会自动定位到【有信号的最新交易日】，而不是简单地显示最新的交易日。
+    - 解决问题: 避免了进入页面后，因默认显示当天（通常无信号）而看到空列表的问题。
     """
     # 1. 确定要查询的目标日期
     selected_date_str = request.GET.get('date')
@@ -92,13 +91,29 @@ def trend_following_list(request):
         except (ValueError, TypeError):
             target_date = None
     
+    # 优化默认日期的确定逻辑
     if not target_date:
-        latest_trade_day_obj = TradeCalendar.objects.filter(
-            is_open=True,
-            cal_date__lte=timezone.now().date()
-        ).order_by('-cal_date').first()
-        if latest_trade_day_obj:
-            target_date = latest_trade_day_obj.cal_date
+        # 优先从 TradingSignal 表中查找最新的BUY信号的日期
+        latest_buy_signal = TradingSignal.objects.filter(
+            signal_type='BUY',
+            timeframe='D',
+            strategy_name='TrendFollow'
+        ).order_by('-trade_time').first()
+
+        if latest_buy_signal:
+            # 如果找到了信号，则使用该信号的日期作为目标日期
+            # 使用 timezone.localtime 确保将UTC时间正确转换为服务器本地时间再取日期
+            print(f"调试信息: 找到最新信号，时间为 {latest_buy_signal.trade_time}，将使用其本地日期。")
+            target_date = timezone.localtime(latest_buy_signal.trade_time).date()
+        else:
+            # 如果数据库中没有任何BUY信号（例如系统刚启动），则回退到原来的逻辑：使用最新的交易日
+            print("调试信息: 未找到任何BUY信号，回退到使用最新交易日历。")
+            latest_trade_day_obj = TradeCalendar.objects.filter(
+                is_open=True,
+                cal_date__lte=timezone.now().date()
+            ).order_by('-cal_date').first()
+            if latest_trade_day_obj:
+                target_date = latest_trade_day_obj.cal_date
 
     # 2. 如果无法确定目标日期，则不进行查询
     if not target_date:
