@@ -55,7 +55,10 @@
           {% with tracker=item.tracker latest_snapshot=item.latest_snapshot latest_daily_score=item.latest_daily_score %}
           <tr data-id="{{ tracker.id }}">
             <td>
-              <strong>{{ tracker.stock.stock_code }}</strong><br />
+              <strong>
+                  <a href="{% url 'dashboard:stock_detail' tracker.stock.stock_code %}" class="stock-link">{{ tracker.stock.stock_code }}</a>
+              </strong>
+              <br />
               <small>{{ tracker.stock.stock_name|default:"-" }}</small>
             </td>
             <td>

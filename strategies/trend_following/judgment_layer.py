@@ -11,15 +11,13 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V535.0 · 神盾协议版】
-        - 核心革命: 植入“神盾协议”(Aegis Protocol)，解决“趋势破位离场”与“盖亚基石”支撑的战略冲突。
-        - 新核心逻辑: 当“趋势破位离场”信号触发时，系统会检查“盖亚基石”支撑信号(SCORE_FOUNDATION_BOTTOM_CONFIRMED)
-                      是否激活。如果激活，则否决该离场信号，给予股价在关键支撑位企稳反弹的机会。
-        - 收益: 根除了在健康回踩至关键支撑位时被错误震出局的致命缺陷。
+        【V536.0 · 神盾战报版】
+        - 核心升级: 为被“神盾协议”否决的离场信号，赋予专属的“神盾防御”信号类型。
+        - 收益: 将“被动不离场”的隐性行为，转化为“主动防御成功”的显性战报，为报告层提供关键情报。
         """
-        print("    --- [最高作战指挥部 V535.0 · 神盾协议版] 启动...")
+        print("    --- [最高作战指挥部 V536.0 · 神盾战报版] 启动...")
         df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states # 获取原子状态
+        atomic = self.strategy.atomic_states
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_dates = [pd.to_datetime(d).date() for d in probe_dates_str]
@@ -44,13 +42,18 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        # --- 神盾协议 (Aegis Protocol) 部署开始 ---
-        # 获取“盖亚基石”的确认信号，并定义神盾激活条件
+        # --- 神盾协议 (Aegis Protocol) 升级开始 ---
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
         is_aegis_shield_active = (gaia_bedrock_score > 0.1)
-        # 在应用“趋势破位离场”之前，检查“神盾”是否激活。如果激活，则否决该离场信号。
-        tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask & ~is_aegis_shield_active
-        # --- 神盾协议 (Aegis Protocol) 部署结束 ---
+        # 捕获原始的、未经神盾过滤的战术离场信号
+        raw_tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
+        # 定义被神盾否决的离场条件，并赋予新的信号类型
+        aegis_defense_condition = raw_tactical_exit_mask & is_aegis_shield_active
+        df.loc[aegis_defense_condition, 'signal_type'] = '神盾防御'
+
+        # 最终的战术离场信号，是原始信号中未被神盾防御的部分
+        tactical_exit_mask = raw_tactical_exit_mask & ~is_aegis_shield_active
+        # --- 神盾协议 (Aegis Protocol) 升级结束 ---
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)

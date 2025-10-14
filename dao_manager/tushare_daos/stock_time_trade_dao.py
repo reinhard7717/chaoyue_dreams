@@ -205,6 +205,36 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"[DAO] 获取 {stock_code} 最新日线行情时发生错误: {e}", exc_info=True)
             return None
 
+    async def get_kl_data_for_chart(self, stock_code: str, start_date: date, end_date: date) -> List[Dict]:
+        """
+        【V1.0 · 新增】为前端图表获取K线数据。
+        - 核心职责: 根据股票代码和日期范围，从正确的分表中查询OHLC和成交量数据。
+        - 数据格式: 返回一个适合直接JSON序列化的字典列表。
+        """
+        try:
+            model_class = get_daily_data_model_by_code(stock_code)
+            if not model_class:
+                logger.error(f"[DAO] get_kl_data_for_chart: 未能为股票 {stock_code} 找到日线数据模型。")
+                return []
+            
+            # 使用异步ORM进行查询
+            queryset = model_class.objects.filter(
+                stock__stock_code=stock_code,
+                trade_time__gte=start_date,
+                trade_time__lte=end_date
+            ).order_by('trade_time')
+            
+            # 使用.values()直接获取字典，并指定字段，性能更优
+            # 注意：我们使用前复权数据 'close_qfq' 等
+            kline_data = await sync_to_async(list)(queryset.values(
+                'trade_time', 'open_qfq', 'close_qfq', 'low_qfq', 'high_qfq', 'vol'
+            ))
+            
+            return kline_data
+        except Exception as e:
+            logger.error(f"[DAO] get_kl_data_for_chart: 查询 {stock_code} 的K线数据时发生错误: {e}", exc_info=True)
+            return []
+
     @with_rate_limit(name='api_daily')
     async def save_daily_time_trade_history_by_trade_dates(self, trade_date: date = None, start_date: date = None,
                                                            end_date: date = None, *, limiter) -> dict:
@@ -381,57 +411,6 @@ class StockTimeTradeDAO(BaseDAO):
             result[model_class.__name__] = res
         return result
 
-    # 未复权信息，慎用
-    async def save_daily_time_trade_realtime(self, stock_code: str) -> None:
-        """
-        保存指定股票的实时日线交易数据，自动分表
-        """
-        df = self.ts_pro.rt_k(
-            **{
-                "topic": "", "ts_code": stock_code, "limit": "", "offset": ""
-            },
-            fields=[
-                "ts_code", "name", "pre_close", "high", "open", "low", "close", "vol", "amount", "num"
-            ]
-        )
-        if not df.empty:
-            df = df.replace(['nan', 'NaN', ''], np.nan)
-            df = df.where(pd.notnull(df), None)
-            data_dicts = []
-            for row in df.itertuples():
-                stock = await self.stock_basic_dao.get_stock_by_code(row.ts_code)
-                if stock:
-                    data_dict = self.data_format_process_trade.set_time_trade_day_data(stock=stock, df_data=row)
-                    data_dicts.append(data_dict)
-            model_class = get_daily_data_model_by_code(stock_code)
-            result = await self._save_all_to_db_native_upsert(
-                model_class=model_class,
-                data_list=data_dicts,
-                unique_fields=['stock', 'trade_time']
-            )
-        else:
-            return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-        return result
-
-    async def get_daily_time_trade_history_by_stock_code(self, stock_code: str) -> None:
-        """
-        获取指定股票的历史日线交易数据，自动分表
-        """
-        # 先尝试从Redis缓存获取
-        cache_key = self.cache_key.history_time_trade(stock_code, "Day")
-        data_dicts = await self.cache_get.history_time_trade(cache_key)
-        # 路由到正确的分表Model
-        model_class = get_daily_data_model_by_code(stock_code)
-        stock_daily_data_list = []
-        if data_dicts:
-            # 如果缓存有数据，直接反序列化为Model实例
-            for data_dict in data_dicts:
-                stock_daily_data_list.append(model_class(**data_dict))
-            return stock_daily_data_list
-        # 缓存没有数据，则从数据库查找对应分表
-        stock_daily_data_list = model_class.objects.filter(stock_code=stock_code).order_by('-trade_time')[:self.cache_limit]
-        return stock_daily_data_list
-
     # =============== A股分钟行情 ===============
     async def get_intraday_kline_by_date(self, stock_code: str, trade_date: datetime.date, time_level: str = '1') -> Optional[pd.DataFrame]:
         """
@@ -534,58 +513,6 @@ class StockTimeTradeDAO(BaseDAO):
         except Exception as e:
             logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
-
-    async def get_5_min_kline_time_by_day(self, stock_code: str, date: datetime.date = None) -> List[str]:
-        """
-        获取指定日期当天的所有5分钟K线的交易时间
-        """
-        if not date:
-            date = datetime.today().date()
-        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-        if not stock:
-            print(f"未找到股票代码：{stock_code}")
-            return []
-        start_datetime = datetime.combine(date, datetime.min.time())
-        end_datetime = start_datetime + timedelta(days=1)
-        # 用sync_to_async包装ORM查询
-        @sync_to_async
-        def get_trade_times():
-            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 自动分表
-            qs = model.objects.filter(
-                stock=stock,
-                trade_time__gte=start_datetime,
-                trade_time__lt=end_datetime
-            ).values_list('trade_time', flat=True)
-            return list(qs)
-        records = await get_trade_times()
-        trade_times = [record.strftime('%Y-%m-%d %H:%M:%S') for record in records]
-        return trade_times
-
-    async def get_latest_5_min_kline(self, stock_code: str) -> Optional[Dict]:
-        """
-        获取指定股票最新一条5分钟K线数据
-        """
-        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-        if not stock:
-            print(f"未找到股票代码：{stock_code}")
-            return None
-        cache_data = await self.cache_get.latest_time_trade(stock_code=stock_code, time_level=5)
-        if cache_data is not None:
-            stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
-            cache_data['stock'] = stock
-            return get_minute_data_model_by_code_and_timelevel(stock_code, '5')(**cache_data)  # 自动分表
-        @sync_to_async
-        def get_latest_kline():
-            model = get_minute_data_model_by_code_and_timelevel(stock_code, '5')  # 自动分表
-            record = (model.objects
-                    .filter(stock=stock)
-                    .order_by('-trade_time')
-                    .first())
-            return record
-        latest_kline = await get_latest_kline()
-        if not latest_kline:
-            print(f"{stock_code} 未查询到5分钟K线数据")
-        return latest_kline
 
     async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
         """

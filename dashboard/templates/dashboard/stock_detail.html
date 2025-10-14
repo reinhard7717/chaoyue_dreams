@@ -1,0 +1,120 @@
+{# 新建文件: templates/dashboard/stock_detail.html #}
+{% extends 'base.html' %}
+{% load static %}
+{% load tz %}
+{% load dashboard_extras %}
+
+{% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
+
+{% block extra_head %}
+    {# 引入ECharts库和此页面专属的CSS #}
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="{% static 'css/stock_detail.css' %}">
+{% endblock %}
+
+{% block sidebar %}
+    {# 保持侧边栏导航结构一致 #}
+    <aside class="site-sidebar">
+        <nav class="sidebar-nav">
+             <h3>导航菜单</h3>
+            <ul>
+                <li><a href="{% url 'users:home' %}">主控台</a></li>
+                <li><a href="{% url 'dashboard:trend_following_list' %}" class="active">策略监控中心</a></li>
+                <li><a href="{% url 'dashboard:prophet_signal_list' %}">先知信号</a></li>
+                <li><a href="{% url 'dashboard:fav_trend_following_list' %}">自选股监控</a></li>
+                <li><a href="{% url 'dashboard:realtime_engine' %}">盘中引擎</a></li>
+            </ul>
+        </nav>
+    </aside>
+{% endblock sidebar %}
+
+{% block content %}
+<div class="dashboard-container stock-detail-container">
+    {# 页面主标题 #}
+    <section class="page-header-section">
+        <h2><span class="icon">📊</span> {{ page_title }}</h2>
+    </section>
+
+    {# 图表容器 #}
+    <section class="charts-section">
+        <div class="chart-card">
+            <h3>K线形态 (近30日)</h3>
+            <div id="kline-chart" class="chart-placeholder"></div>
+        </div>
+        <div class="chart-card">
+            <h3>策略得分曲线 (近30日)</h3>
+            <div id="score-chart" class="chart-placeholder"></div>
+        </div>
+    </section>
+
+    {# 每日详情列表 #}
+    <section class="details-list-section">
+        <h3>每日得分与激活项详情 (近30日)</h3>
+        <div class="table-wrapper">
+            <table class="data-table" id="details-table">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">日期</th>
+                        <th style="width: 15%;">最终得分</th>
+                        <th style="width: 15%;">信号类型</th>
+                        <th style="width: 55%;">激活项详情</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for score in daily_scores %}
+                    <tr>
+                        <td>{{ score.trade_date|date:"Y-m-d" }}</td>
+                        <td><strong class="score-display">{{ score.final_score|floatformat:0 }}</strong></td>
+                        <td><span class="signal-tag signal-{{ score.signal_type|lower }}">{{ score.signal_type }}</span></td>
+                        <td>
+                            {% with details=score.score_details_json %}
+                                <div class="details-container">
+                                    {% if details.offense %}
+                                        <div class="detail-group offense-group">
+                                            <strong>进攻项:</strong>
+                                            <ul>
+                                                {% for item in details.offense %}
+                                                    <li>{{ item.name }} <span class="score-value">(+{{ item.score }})</span></li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endif %}
+                                    {% if details.risk %}
+                                        <div class="detail-group risk-group">
+                                            <strong>风险项:</strong>
+                                            <ul>
+                                                {% for item in details.risk %}
+                                                    <li>{{ item.name }} <span class="score-value">({{ item.score }})</span></li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    {% endif %}
+                                    {% if not details.offense and not details.risk %}
+                                        <span class="no-details">- 无激活项 -</span>
+                                    {% endif %}
+                                </div>
+                            {% endwith %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; padding: 20px;">近30日无策略得分记录。</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+    {{ block.super }}
+    {# 将后端数据注入到JS #}
+    <script>
+        const klineChartData = JSON.parse('{{ kline_chart_data_json|safe }}');
+        const scoreChartData = JSON.parse('{{ score_chart_data_json|safe }}');
+    </script>
+    {# 引入此页面专属的JS文件 #}
+    <script src="{% static 'js/stock_detail.js' %}"></script>
+{% endblock %}

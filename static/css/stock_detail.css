@@ -1,0 +1,132 @@
+/* 新建文件: static/css/stock_detail.css */
+
+.stock-detail-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.page-header-section h2 {
+    border-bottom: none;
+    /* 移除详情页主标题的下划线 */
+    margin-bottom: 0;
+}
+
+.charts-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* 两列布局 */
+    gap: 24px;
+}
+
+.chart-card {
+    background-color: var(--semi-color-bg-1);
+    border: 1px solid var(--semi-color-border);
+    border-radius: var(--semi-border-radius);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chart-card h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 1rem;
+    color: var(--semi-color-text-0);
+    font-weight: 500;
+}
+
+.chart-placeholder {
+    width: 100%;
+    height: 400px;
+    /* 固定图表高度 */
+    flex-grow: 1;
+}
+
+.details-list-section h3 {
+    font-size: 1.1rem;
+    color: var(--semi-color-text-0);
+    margin-bottom: 16px;
+    font-weight: 500;
+}
+
+#details-table .score-display {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: var(--semi-color-primary);
+}
+
+#details-table .signal-tag {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.85em;
+    font-weight: 500;
+    color: #fff;
+}
+
+#details-table .signal-buy {
+    background-color: #c9302c;
+}
+
+#details-table .signal-sell {
+    background-color: #449d44;
+}
+
+#details-table .signal-warn,
+#details-table .signal-神盾防御 {
+    background-color: #ec971f;
+}
+
+#details-table .signal-风险否决 {
+    background-color: #8c8c8c;
+}
+
+#details-table .signal-无信号 {
+    background-color: var(--semi-color-bg-2);
+    color: var(--semi-color-text-2);
+}
+
+
+.details-container {
+    font-size: 0.9em;
+}
+
+.detail-group {
+    margin-bottom: 8px;
+}
+
+.detail-group:last-child {
+    margin-bottom: 0;
+}
+
+.detail-group ul {
+    list-style-type: none;
+    padding-left: 15px;
+    margin: 4px 0 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+}
+
+.detail-group li {
+    background-color: var(--semi-color-bg-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.offense-group .score-value {
+    color: var(--semi-color-success);
+    font-weight: bold;
+}
+
+.risk-group .score-value {
+    color: var(--semi-color-danger);
+    font-weight: bold;
+}
+
+.no-details {
+    color: var(--semi-color-text-2);
+    font-style: italic;
+}

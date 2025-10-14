@@ -31,11 +31,9 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V531.0 · 主权回归版】
-        - 核心革命: 遵守“主权独立法案”，本层不再处理任何“先知”策略的逻辑。
-        - 核心逻辑: 彻底移除所有与 ProphetSignal 相关的判断和特殊处理。
-                      本方法现在是纯粹的、单一的 TrendFollow 策略战报生成器。
-        - 收益: 实现了报告层的职责净化，完全符合联邦制架构。
+        【V532.0 · 神盾战报版】
+        - 核心适配: 在信号类型枚举中，增加对“神盾防御”信号的识别和处理。
+        - 收益: 确保“神盾防御”这一关键的战术防御行为，能够被正确记录到数据库中，供后续复盘分析。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -43,9 +41,8 @@ class ReportingLayer:
         save_all_days = get_param_value(trend_follow_strategy_info.get('save_all_days'), False)
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
-        # 获取 entry_score 的最低记录阈值
         min_entry_score_for_db = get_param_value(trend_follow_strategy_info.get('min_entry_score_for_db'), 50)
-        
+        # 在信号枚举中增加对“神盾防御”的识别
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -53,8 +50,10 @@ class ReportingLayer:
             '趋势破位离场': TradingSignal.SignalType.SELL,
             '战略失效离场': TradingSignal.SignalType.SELL,
             '风险否决': TradingSignal.SignalType.WARN,
+            '神盾防御': TradingSignal.SignalType.WARN, # 将“神盾防御”归类为一种值得关注的警告/观察信号
             '先知离场': TradingSignal.SignalType.SELL,
         }
+
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():
@@ -86,14 +85,9 @@ class ReportingLayer:
             risk_score_val = row.get('risk_score', 0.0)
             db_offensive_score = int(offensive_score_val) if pd.notna(offensive_score_val) else 0
             db_risk_score = int(risk_score_val * 1000) if pd.notna(risk_score_val) else 0
-            # 增加一个判断条件，决定是否创建 StrategyDailyScore 记录
-            # 条件1: save_all_days 为 True
-            # 条件2: 当天有明确的信号 (非'无信号')
-            # 条件3: entry_score 大于等于阈值
             should_save_record = save_all_days or (row['signal_type'] != '无信号') or (db_offensive_score >= min_entry_score_for_db)
             if not should_save_record:
-                continue # 如果不满足任何一个保存条件，则跳过当天的记录创建
-            
+                continue
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code, trade_date=trade_time.date(), strategy_name=daily_score_strategy_name,
                 offensive_score=db_offensive_score,
@@ -103,9 +97,7 @@ class ReportingLayer:
                 trade_action=row.get('trade_action', StrategyDailyScore.TradeActionType.NO_SIGNAL.value),
                 score_details_json=_convert_numpy_types_for_json(row.get('signal_details_cn', {}))
             )
-            # 移除原有的 if 判断，因为过滤逻辑已前置
             daily_scores_to_create.append(daily_score_obj)
-            
             daily_score_map[trade_time] = daily_score_obj
             def create_component(signal_name, score_value):
                 playbook_obj = self.playbooks_cache.get(signal_name)

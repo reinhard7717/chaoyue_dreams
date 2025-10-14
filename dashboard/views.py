@@ -173,7 +173,6 @@ def trend_following_list(request):
     }
     return render(request, 'dashboard/trend_following_list.html', context)
 
-
 # 为“先知”建立独立的圣殿
 @login_required
 def prophet_signal_list(request):
@@ -462,7 +461,56 @@ def realtime_engine_view(request, cache_manager=None):
     }
     return render(request, 'dashboard/realtime_engine.html', context)
 
+@login_required
+@with_cache_manager_for_views
+def stock_detail_view(request, stock_code, cache_manager=None):
+    """
+    【V1.0 · 新增】渲染股票详情分析页面。
+    - 职责: 获取K线、策略分数，并处理成图表所需格式，传递给前端。
+    """
+    stock = get_object_or_404(StockInfo, stock_code=stock_code)
+    
+    # 1. 定义时间范围 (最近30天)
+    end_date = timezone.now().date()
+    start_date = end_date - timedelta(days=30)
+    
+    # 2. 获取策略得分数据
+    daily_scores = StrategyDailyScore.objects.filter(
+        stock=stock,
+        trade_date__range=(start_date, end_date)
+    ).order_by('-trade_date')
+    
+    # 3. 获取K线数据
+    # 注意：这里我们直接在视图中调用DAO，这是推荐的做法
+    time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
+    get_kl_data_async = time_trade_dao.get_kl_data_for_chart
+    kline_data = async_to_sync(get_kl_data_async)(stock_code, start_date, end_date)
 
+    # 4. 为图表准备数据
+    # K线图数据
+    kline_chart_data = {
+        'dates': [d['trade_time'].strftime('%Y-%m-%d') for d in kline_data],
+        'values': [[d['open_qfq'], d['close_qfq'], d['low_qfq'], d['high_qfq']] for d in kline_data],
+        'volumes': [d['vol'] for d in kline_data]
+    }
+    
+    # 得分曲线图数据
+    # 注意：得分数据可能不连续，需要与K线日期对齐
+    score_map = {score.trade_date: score.final_score for score in daily_scores}
+    score_chart_data = {
+        'dates': kline_chart_data['dates'], # 使用K线图的日期轴，确保对齐
+        'scores': [score_map.get(datetime.strptime(d, '%Y-%m-%d').date(), None) for d in kline_chart_data['dates']]
+    }
+
+    context = {
+        'page_title': f'{stock.stock_name} ({stock.stock_code}) - 深度分析',
+        'stock': stock,
+        'daily_scores': daily_scores, # 用于渲染列表
+        'kline_chart_data_json': json.dumps(kline_chart_data, cls=DjangoJSONEncoder), # 用于JS渲染图表
+        'score_chart_data_json': json.dumps(score_chart_data, cls=DjangoJSONEncoder), # 用于JS渲染图表
+    }
+    
+    return render(request, 'dashboard/stock_detail.html', context)
 
 # --- DRF API 视图 ---
 

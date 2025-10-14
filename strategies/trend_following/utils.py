@@ -460,7 +460,7 @@ def transmute_health_to_ultimate_signals(
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
     # --- 3. 信号计算 ---
     # 战略底部反转 (Strategic Bottom Reversal)
-    # 修改开始: 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
+    # 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
     bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     # 修改结束
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
@@ -485,7 +485,7 @@ def transmute_health_to_ultimate_signals(
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
     # 顶部反转 (Top Reversal)
-    # 修改开始: 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
+    # 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
     bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     # 修改结束
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5

@@ -78,7 +78,9 @@
                     {% for item in items_for_display %}
                     <tr>
                         <td>
-                            <strong>{{ item.stock.stock_code }}</strong>
+                            <strong>
+                                <a href="{% url 'dashboard:stock_detail' item.stock.stock_code %}" class="stock-link">{{ item.stock.stock_code }}</a>
+                            </strong>
                             <br>
                             <small>{{ item.stock.stock_name|default:"-" }}</small>
                         </td>
