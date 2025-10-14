@@ -116,7 +116,7 @@
     
     {# 3. 最后，内联执行初始化脚本 #}
     <script>
-        // 修改开始: 将初始化逻辑直接放在这里，并仍然使用 DOMContentLoaded 确保DOM元素可用
+        // 将初始化逻辑直接放在这里，并仍然使用 DOMContentLoaded 确保DOM元素可用
         document.addEventListener('DOMContentLoaded', function () {
             // 从Django模板注入数据
             const klineChartData = JSON.parse('{{ kline_chart_data_json|safe }}');
@@ -139,6 +139,6 @@
                 scoreChart.setOption(scoreOption);
             }
         });
-        // 修改结束
+        
     </script>
 {% endblock %}

@@ -193,8 +193,9 @@ def trend_following_list(request):
 @login_required
 def prophet_signal_list(request):
     """
-    【V1.0 · 新增】渲染“先知信号监控中心”页面。
-    - 核心逻辑: 专门查询 strategy_name='ProphetSignal' 的买入信号，并按分数排序。
+    【V1.1 · 智能日期定位版】渲染“先知信号监控中心”页面。
+    - 核心升级: 优化了默认日期的选择逻辑。现在页面在首次加载时，会自动定位到【有“先知”信号的最新交易日】。
+    - 解决问题: 避免了进入页面后看到空列表的问题。
     """
     # 1. 确定要查询的目标日期
     selected_date_str = request.GET.get('date')
@@ -206,13 +207,29 @@ def prophet_signal_list(request):
         except (ValueError, TypeError):
             target_date = None
     
+    # 优化默认日期的确定逻辑
     if not target_date:
-        latest_trade_day_obj = TradeCalendar.objects.filter(
-            is_open=True,
-            cal_date__lte=timezone.now().date()
-        ).order_by('-cal_date').first()
-        if latest_trade_day_obj:
-            target_date = latest_trade_day_obj.cal_date
+        # 优先从 TradingSignal 表中查找最新的“先知”BUY信号的日期
+        prophet_strategy_name = 'ProphetSignal'
+        latest_prophet_signal = TradingSignal.objects.filter(
+            signal_type='BUY',
+            timeframe='D',
+            strategy_name=prophet_strategy_name # 核心过滤条件
+        ).order_by('-trade_time').first()
+
+        if latest_prophet_signal:
+            # 如果找到了信号，则使用该信号的日期作为目标日期
+            print(f"调试信息: 找到最新“先知”信号，时间为 {latest_prophet_signal.trade_time}，将使用其本地日期。")
+            target_date = timezone.localtime(latest_prophet_signal.trade_time).date()
+        else:
+            # 如果数据库中没有任何“先知”信号，则回退到原来的逻辑：使用最新的交易日
+            print("调试信息: 未找到任何“先知”信号，回退到使用最新交易日历。")
+            latest_trade_day_obj = TradeCalendar.objects.filter(
+                is_open=True,
+                cal_date__lte=timezone.now().date()
+            ).order_by('-cal_date').first()
+            if latest_trade_day_obj:
+                target_date = latest_trade_day_obj.cal_date
 
     # 2. 查询“先知”信号
     if not target_date:
@@ -481,8 +498,8 @@ def realtime_engine_view(request, cache_manager=None):
 @with_cache_manager_for_views
 def stock_detail_view(request, stock_code, cache_manager=None):
     """
-    【V1.0 · 新增】渲染股票详情分析页面。
-    - 职责: 获取K线、策略分数，并处理成图表所需格式，传递给前端。
+    【V1.1 · 叠加先知信号版】渲染股票详情分析页面。
+    - 职责: 获取K线、策略分数、先知信号，并处理成图表所需格式，传递给前端。
     """
     stock = get_object_or_404(StockInfo, stock_code=stock_code)
     
@@ -497,12 +514,20 @@ def stock_detail_view(request, stock_code, cache_manager=None):
     ).order_by('-trade_date')
     
     # 3. 获取K线数据
-    # 注意：这里我们直接在视图中调用DAO，这是推荐的做法
     time_trade_dao = StockTimeTradeDAO(cache_manager_instance=cache_manager)
     get_kl_data_async = time_trade_dao.get_kl_data_for_chart
     kline_data = async_to_sync(get_kl_data_async)(stock_code, start_date, end_date)
 
-    # 4. 为图表准备数据
+    # 4. 获取“先知信号”数据
+    prophet_signals = TradingSignal.objects.filter(
+        stock=stock,
+        strategy_name='ProphetSignal',
+        signal_type='BUY',
+        trade_time__date__range=(start_date, end_date)
+    ).order_by('trade_time')
+    print(f"调试信息: 在 {start_date} 到 {end_date} 期间找到 {prophet_signals.count()} 个先知信号。")
+
+    # 5. 为图表准备数据
     # K线图数据
     kline_chart_data = {
         'dates': [d['trade_time'].strftime('%Y-%m-%d') for d in kline_data],
@@ -511,22 +536,38 @@ def stock_detail_view(request, stock_code, cache_manager=None):
     }
     
     # 得分曲线图数据
-    # 注意：得分数据可能不连续，需要与K线日期对齐
     score_map = {score.trade_date: score.final_score for score in daily_scores}
     score_chart_data = {
-        'dates': kline_chart_data['dates'], # 使用K线图的日期轴，确保对齐
+        'dates': kline_chart_data['dates'],
         'scores': [score_map.get(datetime.strptime(d, '%Y-%m-%d').date(), None) for d in kline_chart_data['dates']]
     }
+
+    # 新增开始: 为“先知信号”准备标记点数据
+    prophet_signal_markers = []
+    for signal in prophet_signals:
+        signal_date = timezone.localtime(signal.trade_time).date()
+        # 找到信号当天对应的策略得分，作为标记点的Y轴坐标
+        score_on_signal_day = score_map.get(signal_date)
+        if score_on_signal_day is not None:
+            prophet_signal_markers.append({
+                'xAxis': signal_date.strftime('%Y-%m-%d'),
+                'yAxis': score_on_signal_day,
+                'value': f'先知信号\n得分: {signal.final_score:.0f}', # 标记点上显示的内容
+                'itemStyle': {'color': '#ffc107'} # 标记点颜色
+            })
+    score_chart_data['prophet_signals'] = prophet_signal_markers # 将标记点数据加入字典
+    # 新增结束
 
     context = {
         'page_title': f'{stock.stock_name} ({stock.stock_code}) - 深度分析',
         'stock': stock,
-        'daily_scores': daily_scores, # 用于渲染列表
-        'kline_chart_data_json': json.dumps(kline_chart_data, cls=DjangoJSONEncoder), # 用于JS渲染图表
-        'score_chart_data_json': json.dumps(score_chart_data, cls=DjangoJSONEncoder), # 用于JS渲染图表
+        'daily_scores': daily_scores,
+        'kline_chart_data_json': json.dumps(kline_chart_data, cls=DjangoJSONEncoder),
+        'score_chart_data_json': json.dumps(score_chart_data, cls=DjangoJSONEncoder),
     }
     
     return render(request, 'dashboard/stock_detail.html', context)
+
 
 # --- DRF API 视图 ---
 

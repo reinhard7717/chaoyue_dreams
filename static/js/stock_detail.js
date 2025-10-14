@@ -4,6 +4,7 @@
 function getKlineChartOption(data) {
     return {
         backgroundColor: 'transparent',
+        // 移除重复的 tooltip 配置，只保留功能更全的 formatter 版本
         tooltip: {
             trigger: 'axis',
             axisPointer: {
@@ -31,10 +32,7 @@ function getKlineChartOption(data) {
                 return tooltipHtml;
             }
         },
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'cross' }
-        },
+
         legend: {
             data: ['日K', '成交量'],
             textStyle: { color: '#ccc' }
@@ -109,12 +107,19 @@ function getKlineChartOption(data) {
 
 // 得分图配置函数
 function getScoreChartOption(data) {
+    console.log("调试信息: 用于得分图的数据", data); // 调试信息
     return {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross' }
         },
+        // 增加图例以区分先知信号
+        legend: {
+            data: ['策略得分', '先知信号'],
+            textStyle: { color: '#ccc' }
+        },
+
         xAxis: {
             type: 'category',
             data: data.dates,
@@ -130,19 +135,40 @@ function getScoreChartOption(data) {
             { type: 'inside', start: 0, end: 100 },
             { show: true, type: 'slider', top: '90%', start: 0, end: 100 }
         ],
-        series: [{
-            name: '策略得分',
-            type: 'line',
-            smooth: true,
-            data: data.scores,
-            connectNulls: true, // 连接空值点
-            itemStyle: { color: '#5470c6' },
-            lineStyle: { width: 2 },
-            markLine: {
-                silent: true,
-                data: [{ yAxis: 0, lineStyle: { color: '#999' } }]
+        // 增加系列和标记点
+        series: [
+            {
+                name: '策略得分',
+                type: 'line',
+                smooth: true,
+                data: data.scores,
+                connectNulls: true, // 连接空值点
+                itemStyle: { color: '#5470c6' },
+                lineStyle: { width: 2 },
+                markLine: {
+                    silent: true,
+                    data: [{ yAxis: 0, lineStyle: { color: '#999' } }]
+                },
+                // 在得分曲线上增加“先知信号”的标记点
+                markPoint: {
+                    symbol: 'pin', // 标记点样式
+                    symbolSize: 50, // 标记点大小
+                    label: {
+                        fontSize: 10
+                    },
+                    data: data.prophet_signals || [] // 使用从后端传来的标记点数据
+                }
+            },
+            // 一个空的“散点”系列，仅用于在图例中显示“先知信号”
+            {
+                name: '先知信号',
+                type: 'scatter',
+                itemStyle: {
+                    color: '#ffc107'
+                },
+                data: []
             }
-        }]
+        ]
+
     };
 }
-
