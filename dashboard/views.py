@@ -20,7 +20,7 @@ from rest_framework.permissions import IsAuthenticated
 from utils.cash_key import IntradayEngineCashKey
 from django.core.serializers.json import DjangoJSONEncoder
 from stock_models.index import TradeCalendar # 导入模型
-from utils.config_loader import load_strategy_config
+from dao_manager.tushare_daos.stock_time_trade_dao import StockTimeTradeDAO
 from stock_models.stock_analytics import PositionTracker, TradingSignal, DailyPositionSnapshot, Playbook, SignalPlaybookDetail, Transaction, StrategyDailyScore
 from stock_models.stock_basic import StockInfo
 from utils.model_helpers import get_advanced_chip_metrics_model_by_code
