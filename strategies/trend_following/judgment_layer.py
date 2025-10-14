@@ -62,19 +62,13 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
-        【V5.0 · 雅努斯归位协议版】
-        - 核心革命: 部署“雅努斯归位协议”，彻底重构信号细节报告的生成逻辑。
-        - 新核心逻辑:
-          1. 只接收一个包含所有得分的 details_df。
-          2. 对每一天，遍历所有激活的信号（得分非零）。
-          3. 在方法内部根据得分的正负，将信号正确地分类到 'offense' 或 'risk' 列表。
-          4. 确保每个信号的 'raw_score' 和 'base_score' 都被准确查找并记录。
-        - 收益: 根除了因信号错误分类和元数据丢失导致的探针重算失败的最终根源。
+        【V5.1 · 记忆烙印协议版】
+        - 核心升级: 在生成的信号字典中，增加 'internal_name' 字段，烙印下信号的内部名称。
+        - 收益: 为下游的法医探针提供了精确识别信号元数据的能力，是修复“宙斯之雷”探针偏差的关键一步。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         atomic = self.strategy.atomic_states
         df = self.strategy.df_indicators
-        # 将所有列转换为数值类型，无法转换的填充为0
         details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
         def generate_summary_for_day(row):
             offense_list = []
@@ -83,26 +77,22 @@ class JudgmentLayer:
             for signal_name, contribution in active_signals.items():
                 meta = score_map.get(signal_name, {})
                 is_risk = contribution < 0
-                # 确定原始分数的来源
                 raw_score_source = meta.get('raw_score_source', signal_name)
                 raw_score = atomic.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
-                # 确定基础分
                 base_score_key = 'penalty_weight' if is_risk else 'score'
                 base_score = meta.get(base_score_key, 0)
-                # 创建信号字典
                 signal_dict = {
                     'name': meta.get('cn_name', signal_name),
+                    'internal_name': signal_name, # 新增(V5.1): 烙印下信号的内部名称
                     'score': int(round(contribution)),
                     'raw_score': raw_score,
                     'base_score': base_score
                 }
-                # 根据得分正负放入正确的列表
                 if is_risk:
                     risk_list.append(signal_dict)
                 else:
                     offense_list.append(signal_dict)
             return {'offense': offense_list, 'risk': risk_list}
-        # 对每一行（每一天）应用这个总结函数
         return details_df_numeric.apply(generate_summary_for_day, axis=1)
 
     def _get_dynamic_combat_action(self) -> pd.Series:
