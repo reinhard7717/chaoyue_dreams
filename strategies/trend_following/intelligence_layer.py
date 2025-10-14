@@ -163,11 +163,11 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V3.9.0 · 裁决同步版】终极得分构成解剖探针
-        - 核心修正: 探针现在严格按照主裁决层的逻辑，先对进攻项和风险项进行过滤和排序，然后再进行计算。
-        - 收益: 彻底解决了因计算顺序不一致导致的探针重算与实际得分之间的最终偏差。
+        【V4.0.0 · 神盾协议同步版】终极得分构成解剖探针
+        - 核心修正: 探针现在能够读取并应用“神盾加值”(shield_bonus)，完美复现“神盾防御”信号的最终得分。
+        - 收益: 彻底解决了探针重算与实际得分之间的最后偏差，实现了与主裁决层的完全同步。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.9.0】⚡️---")
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V4.0.0】⚡️---")
         self.probes._deploy_thanatos_scythe_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -188,7 +188,6 @@ class IntelligenceLayer:
             score_details = {}
         offense_items = score_details.get('offense', [])
         offense_total = 0
-        # 修改开始(V3.9.0): 严格同步主引擎的过滤和排序逻辑
         valid_offense_items = []
         if offense_items and isinstance(offense_items, list):
             for item in offense_items:
@@ -206,7 +205,6 @@ class IntelligenceLayer:
             item_name = item.get('name', 'N/A')
             print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
             offense_total += contribution
-        # 修改结束(V3.9.0)
         print("    ----------------------------------")
         print(f"    - 【进攻项总分】: {offense_total:.0f}")
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
@@ -234,8 +232,14 @@ class IntelligenceLayer:
         confidence_damper = 1.0 - dynamic_chimera_score
         print(f"    - [探针诊断] 主导进攻类型: '{dominant_signal_type}' -> 是否为反转日: {is_reversal_day}")
         print(f"    - [探针诊断] 动态奇美拉冲突分: {dynamic_chimera_score:.4f} (原始分: {chimera_conflict_score:.4f})")
-        final_score_recalc = pre_damper_score * confidence_damper
-        print(f"    - [探针重算] 最终得分 = {pre_damper_score:.0f} * (1 - 动态奇美拉冲突调节器:{dynamic_chimera_score:.2f}) = {final_score_recalc:.0f}")
+        post_damper_score_recalc = pre_damper_score * confidence_damper
+        print(f"    - [探针重算] 奇美拉调节后得分 = {pre_damper_score:.0f} * (1 - {dynamic_chimera_score:.2f}) = {post_damper_score_recalc:.0f}")
+        # 修改开始(V4.0.0): 引入神盾协议
+        shield_bonus = df.get('shield_bonus', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
+        final_score_recalc = post_damper_score_recalc + shield_bonus
+        print(f"    - [探针诊断] 神盾加值 (Shield Bonus): {shield_bonus:.0f}")
+        print(f"    - [探针重算] 最终得分 = {post_damper_score_recalc:.0f} (调节后) + {shield_bonus:.0f} (神盾加值) = {final_score_recalc:.0f}")
+        # 修改结束(V4.0.0)
         if isinstance(final_score, (float, np.floating)):
             print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
         else:
