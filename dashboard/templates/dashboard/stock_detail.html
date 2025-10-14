@@ -7,8 +7,6 @@
 {% block title %}{{ page_title }} - {{ block.super }}{% endblock %}
 
 {% block extra_head %}
-    {# 引入ECharts库和此页面专属的CSS #}
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <link rel="stylesheet" href="{% static 'css/stock_detail.css' %}">
 {% endblock %}
 
@@ -110,6 +108,7 @@
 
 {% block extra_scripts %}
     {{ block.super }}
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     {# 将后端数据注入到JS #}
     <script>
         const klineChartData = JSON.parse('{{ kline_chart_data_json|safe }}');
