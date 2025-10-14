@@ -4,24 +4,19 @@
 function getKlineChartOption(data) {
     return {
         backgroundColor: 'transparent',
-        // 移除重复的 tooltip 配置，只保留功能更全的 formatter 版本
         tooltip: {
             trigger: 'axis',
             axisPointer: {
                 type: 'cross'
             },
-            // 修改开始: 部署“情报识别协议”，重构 formatter 函数
+            // 部署“情报识别协议”，重构 formatter 函数
             formatter: function (params) {
                 // 增加防御性编程，处理 params 可能为空的边缘情况
                 if (!Array.isArray(params) || params.length === 0) {
                     return '';
                 }
-
-                console.log("Tooltip 调试，检查传入的 params 结构: ", params); // 增加调试信息
-
                 let klineParams = null;
                 let volumeParams = null;
-
                 // 步骤一：情报识别。遍历所有数据包，根据 seriesName 确认其身份。
                 params.forEach(param => {
                     if (param.seriesName === '日K') {
@@ -30,11 +25,9 @@ function getKlineChartOption(data) {
                         volumeParams = param;
                     }
                 });
-
                 // 步骤二：构建情报简报。
                 // 从任意一个数据包中获取统一的日期信息。
                 let tooltipHtml = `${params[0].axisValue}<br/>`;
-
                 // 如果识别到了K线情报，则添加 OHLC 数据。
                 if (klineParams && klineParams.data && Array.isArray(klineParams.data) && klineParams.data.length > 4) {
                     const ohlc = klineParams.data;
@@ -43,18 +36,14 @@ function getKlineChartOption(data) {
                     tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[3].toFixed(2)}</span><br/>`;
                     tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[4].toFixed(2)}</span><br/>`;
                 }
-
                 // 如果识别到了成交量情报，则添加成交量数据。
                 if (volumeParams && volumeParams.value !== undefined) {
                     // volumeParams.marker 是ECharts提供的小圆点标记
                     tooltipHtml += `${volumeParams.marker} ${volumeParams.seriesName}: <span style="font-weight:bold;">${volumeParams.value}</span>`;
                 }
-
                 return tooltipHtml;
             }
-            // 修改结束
         },
-
         legend: {
             data: ['日K', '成交量'],
             textStyle: { color: '#ccc' }
@@ -129,7 +118,6 @@ function getKlineChartOption(data) {
 
 // 得分图配置函数
 function getScoreChartOption(data) {
-    console.log("调试信息: 用于得分图的数据", data); // 调试信息
     return {
         backgroundColor: 'transparent',
         tooltip: {
@@ -141,7 +129,6 @@ function getScoreChartOption(data) {
             data: ['策略得分', '先知信号'],
             textStyle: { color: '#ccc' }
         },
-
         xAxis: {
             type: 'category',
             data: data.dates,
@@ -191,6 +178,5 @@ function getScoreChartOption(data) {
                 data: []
             }
         ]
-
     };
 }
