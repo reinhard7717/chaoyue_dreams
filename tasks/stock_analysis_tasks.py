@@ -803,48 +803,41 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
     return new_metrics_df
 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
-    """【辅助函数 V1.3 - 健壮性与调试增强】自动化计算所有斜率、加速度和健康分等衍生指标。"""
+    """【辅助函数 V1.4 - 顺序重构与健壮性终版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
     stock_code = stock_info.stock_code
-    # 在函数入口处增加整体存在性检查，如果DataFrame为空则直接跳过所有计算
     if final_metrics_df.empty:
         print(f"[{stock_code}] [衍生指标计算] 传入的DataFrame为空，跳过衍生指标计算。")
         return final_metrics_df
+    # print(f"[{stock_code}] [衍生指标计算] 开始执行严格有序的五阶段衍生计算...")
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
-    # 解决 'float' 和 'decimal.Decimal' TypeError 的关键步骤
-    # 从数据库加载的数据(Decimal)与新计算的数据(float)合并后，列会变成object类型。
-    # pandas_ta等数值计算库无法处理Decimal类型，因此在计算前必须将所有数值列统一转换为float64。
     for col in final_metrics_df.columns:
         if final_metrics_df[col].dtype == 'object':
             final_metrics_df[col] = pd.to_numeric(final_metrics_df[col], errors='coerce')
-    # 阶段一：计算所有非健康分的基础及衍生指标
     if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
         final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
-    # 自动化计算斜率
+    # 【代码重构】将斜率和加速度计算分离，确保计算顺序的绝对正确
+    # 阶段一：计算所有基础指标的斜率（不包括健康分）
+    # print(f"[{stock_code}] [阶段一] 正在计算所有基础指标的斜率...")
     for field_name in model_fields:
         if '_slope_' in field_name and 'chip_health_score' not in field_name:
             base_col, period_str = field_name.split('_slope_')
             period = int(period_str.replace('d', ''))
             calc_window = 2 if period == 1 else period
-            # 【代码修改】移除 'and field_name not in final_metrics_df.columns' 条件。
-            # 原始代码的这个条件导致了bug：当从数据库加载历史数据时，DataFrame已经包含了所有斜率/加速度列（值为NaN），
-            # 这使得该条件永远为False，从而跳过了所有衍生指标的计算。
-            # 移除此条件后，将强制对整个时间序列（历史+新增）重新计算所有斜率和加速度，确保数据的正确性和完整性。
             if base_col in final_metrics_df.columns:
-                # print(f"[{stock_code}] DEBUG: 正在触发斜率计算: {field_name}") # 新增-调试信息
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], calc_window)
-    # 自动化计算加速度
+    # 阶段二：计算所有基础指标的加速度（不包括健康分）
+    # print(f"[{stock_code}] [阶段二] 正在计算所有基础指标的加速度...")
     for field_name in model_fields:
         if '_accel_' in field_name and 'chip_health_score' not in field_name:
             base_col_with_slope, period_str = field_name.split('_accel_')
             period = int(period_str.replace('d', ''))
             source_slope_col = f"{base_col_with_slope}_slope_{period}d"
             calc_window = 2 if period == 1 else period
-            # 【代码修改】同上，移除 'and field_name not in final_metrics_df.columns' 条件以修复bug。
             if source_slope_col in final_metrics_df.columns:
-                # print(f"[{stock_code}] DEBUG: 正在触发加速度计算: {field_name}") # 新增-调试信息
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
-    # 阶段二：计算最终版的筹码健康分
+    # 阶段三：计算筹码健康分
+    # print(f"[{stock_code}] [阶段三] 正在计算筹码健康分...")
     health_score_dependencies = [
         'concentration_90pct', 'concentration_90pct_slope_5d',
         'winner_profit_margin', 'price_to_peak_ratio'
@@ -856,20 +849,23 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
         else:
             final_metrics_df[dep_col] = final_metrics_df[dep_col].fillna(0)
     final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
-    # 阶段三：基于最终版的健康分，计算其衍生指标
-    if 'chip_health_score' in final_metrics_df.columns:
-        for field_name in model_fields:
-            if 'chip_health_score_' in field_name:
-                if '_slope_' in field_name:
-                    period = int(field_name.split('_slope_')[1].replace('d', ''))
-                    calc_window = 2 if period == 1 else period
-                    final_metrics_df[field_name] = _calculate_slope(final_metrics_df['chip_health_score'], calc_window)
-                elif '_accel_' in field_name:
-                    period = int(field_name.split('_accel_')[1].replace('d', ''))
-                    source_slope_col = f"chip_health_score_slope_{period}d"
-                    calc_window = 2 if period == 1 else period
-                    if source_slope_col in final_metrics_df.columns:
-                        final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
+    # 阶段四：计算健康分的斜率
+    # print(f"[{stock_code}] [阶段四] 正在计算健康分的斜率...")
+    for field_name in model_fields:
+        if 'chip_health_score_slope_' in field_name:
+            period = int(field_name.split('_slope_')[1].replace('d', ''))
+            calc_window = 2 if period == 1 else period
+            final_metrics_df[field_name] = _calculate_slope(final_metrics_df['chip_health_score'], calc_window)
+    # 阶段五：计算健康分的加速度
+    # print(f"[{stock_code}] [阶段五] 正在计算健康分的加速度...")
+    for field_name in model_fields:
+        if 'chip_health_score_accel_' in field_name:
+            period = int(field_name.split('_accel_')[1].replace('d', ''))
+            source_slope_col = f"chip_health_score_slope_{period}d"
+            calc_window = 2 if period == 1 else period
+            if source_slope_col in final_metrics_df.columns:
+                final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
+    # print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
     return final_metrics_df
 
 async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):

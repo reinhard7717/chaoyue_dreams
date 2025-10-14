@@ -213,40 +213,45 @@ class ChipFeatureCalculator:
 
     def _calculate_winner_structure(self) -> dict:
         """
-        【V13.0 简化版】
-        - 核心简化: 不再计算 total_winner_rate，因为它已在 _get_summary_metrics_from_context 中从上下文获取。
+        【V13.1 逻辑修正版】
+        - 核心修正: 修复了原分区逻辑的缺陷，该缺陷导致在股价下跌时 'winner_rate_short_term' 必然为0。
+                    新逻辑采用更健壮的“四象限”划分法，将“时间”和“盈亏”两个维度独立判断后再组合，
+                    确保在任何市场情况下（上涨、下跌、盘整）都能对四类投资者（短期获利/套牢，长期获利/套牢）
+                    进行合理且有意义的计算，从而解决了衍生指标大量为0的问题。
         """
         close_price = self.ctx.get('close_price')
         prev_20d_close = self.ctx.get('prev_20d_close')
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
-        
         total_loser_rate = 100.0 - total_winner_rate
-
         if not close_price or pd.isna(prev_20d_close):
             return {
                 'winner_rate_short_term': None, 'winner_rate_long_term': None,
                 'loser_rate_short_term': None, 'loser_rate_long_term': None,
                 'total_loser_rate': total_loser_rate if total_winner_rate is not None else None
             }
-
-        long_term_winners_df = self.df[self.df['price'] < prev_20d_close]
-        long_term_winner_rate = long_term_winners_df['percent'].sum()
-        short_term_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= prev_20d_close)]
-        short_term_winner_rate = short_term_winners_df['percent'].sum()
-        
-        # 短期套牢盘：成本高于当前收盘价，且是在近20日内形成的筹码
-        short_term_losers_df = self.df[(self.df['price'] > close_price) & (self.df['price'] >= prev_20d_close)]
-        short_term_loser_rate = short_term_losers_df['percent'].sum()
-        # 长期套牢盘：成本高于当前收盘价，且是在20日前形成的筹码
-        long_term_losers_df = self.df[(self.df['price'] > close_price) & (self.df['price'] < prev_20d_close)]
-        long_term_loser_rate = long_term_losers_df['percent'].sum()
-        
+        # 【代码修改】采用更健壮的四象限划分法
+        # 1. 按时间代理划分：定义哪些是短期筹码，哪些是长期筹码
+        is_short_term_chip = self.df['price'] >= prev_20d_close
+        is_long_term_chip = self.df['price'] < prev_20d_close
+        # 2. 按盈亏状况划分：定义哪些是获利盘，哪些是套牢盘
+        is_winner_chip = self.df['price'] < close_price
+        is_loser_chip = self.df['price'] > close_price
+        # 3. 交叉组合，计算四个象限的筹码占比
+        # 短期获利盘：近期形成且目前盈利的筹码
+        short_term_winner_rate = self.df[is_short_term_chip & is_winner_chip]['percent'].sum()
+        # 长期获利盘（锁定盘）：早期形成且目前盈利的筹码
+        long_term_winner_rate = self.df[is_long_term_chip & is_winner_chip]['percent'].sum()
+        # 短期套牢盘：近期形成但目前亏损的筹码
+        short_term_loser_rate = self.df[is_short_term_chip & is_loser_chip]['percent'].sum()
+        # 长期套牢盘：早期形成且目前仍亏损的筹码
+        long_term_loser_rate = self.df[is_long_term_chip & is_loser_chip]['percent'].sum()
+        # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, prev_20d_close={prev_20d_close}, winner_rate_short_term={short_term_winner_rate:.2f}") # 新增-调试信息
         return {
             'winner_rate_short_term': short_term_winner_rate,
             'winner_rate_long_term': long_term_winner_rate,
-            'loser_rate_short_term': short_term_loser_rate, 
-            'loser_rate_long_term': long_term_loser_rate,   
-            'total_loser_rate': total_loser_rate,           
+            'loser_rate_short_term': short_term_loser_rate,
+            'loser_rate_long_term': long_term_loser_rate,
+            'total_loser_rate': total_loser_rate,
         }
 
     def _calculate_holder_costs(self) -> dict:
@@ -459,51 +464,41 @@ class ChipFeatureCalculator:
 
     def _calculate_chip_fault(self, context: dict) -> dict:
         """
-        【V11.0 新增】计算筹码断层指标。
-        识别股价脱离核心成本区后形成的“真空地带”。
+        【V11.1 健壮性修复版】计算筹码断层指标。
+        - 核心修复: 解决了 chip_fault_vacuum_percent 字段在不满足“断层”条件时被设为 None 的问题。
+                    当价格未显著脱离成本区，即“真空区”不存在时，其筹码占比现在被合理地设为 0.0，
+                    而不是 None，从而避免了数据库中出现空值，并方便后续的衍生指标计算。
         """
         results = {
             'chip_fault_strength': None,
-            'chip_fault_vacuum_percent': None,
-            'is_chip_fault_formed': False  # 关键：布尔字段的默认值必须是 False 或 True，而不是 None
+            'chip_fault_vacuum_percent': 0.0, # 新增-将默认值从None改为0.0
+            'is_chip_fault_formed': False
         }
         peak_cost = context.get('peak_cost')
         close_price = self.ctx.get('close_price')
-
         if not all([peak_cost, close_price]):
             return results
-
         # 1. 计算断层强度 (Fault Strength)
-        # 定义：当前价格脱离主筹码峰的程度
         fault_strength = (close_price - peak_cost) / peak_cost if peak_cost > 0 else 0
         results['chip_fault_strength'] = fault_strength
-
         # 2. 识别断层真空区 (Fault Vacuum)
-        # 定义：主筹码峰与当前价格之间，筹码的稀疏程度
-        # 选取主峰上方1%到收盘价下方1%的区间作为“断层带”
         fault_zone_low = peak_cost * 1.01
         fault_zone_high = close_price * 0.99
-        
         if fault_zone_high > fault_zone_low:
             fault_zone_df = self.df[(self.df['price'] >= fault_zone_low) & (self.df['price'] <= fault_zone_high)]
-            # 真空区的筹码占比，越低越好
             vacuum_chip_percent = fault_zone_df['percent'].sum()
             results['chip_fault_vacuum_percent'] = vacuum_chip_percent
         else:
-            results['chip_fault_vacuum_percent'] = None
-
+            # 【代码修改】当真空区不存在时，其筹码占比应为0，而不是None。
+            results['chip_fault_vacuum_percent'] = 0.0
         # 3. 最终断层信号 (Fault Signal)
-        # 定义：断层强度足够大（如脱离成本区20%以上），且真空区足够“空”（如筹码占比低于5%）
         is_strong_fault = fault_strength > 0.20
-        vacuum_percent = results.get('chip_fault_vacuum_percent') # 直接获取值，可能是 None
-        # 只有在真空度被成功计算出来（不是None）的情况下，才进行比较
+        vacuum_percent = results.get('chip_fault_vacuum_percent')
         if vacuum_percent is not None:
             is_vacuum_clear = vacuum_percent < 5.0
         else:
-            # 如果真空度无法计算，则默认真空区不满足“清澈”的条件
             is_vacuum_clear = False
         results['is_chip_fault_formed'] = is_strong_fault and is_vacuum_clear
-
         return results
 
 
