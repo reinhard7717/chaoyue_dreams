@@ -180,6 +180,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const searchInput = document.getElementById('stock-search-input');
         if (searchInput) {
             const searchResultsContainer = document.getElementById('search-results');
+            const viewDetailBtn = document.getElementById('view-detail-btn'); // 新增行: 获取“查看详情”按钮
             let debounceTimer;
             let selectedStockCode = null;
 
@@ -191,6 +192,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     searchResultsContainer.innerHTML = '';
                     searchResultsContainer.style.display = 'none';
                     selectedStockCode = null;
+                    // 新增开始: 当输入框清空时，禁用“查看详情”按钮
+                    if (viewDetailBtn) {
+                        viewDetailBtn.classList.add('disabled');
+                        viewDetailBtn.href = '#';
+                    }
+                    // 新增结束
                     return;
                 }
 
@@ -236,6 +243,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     selectedStockCode = targetItem.dataset.stockCode;
                     searchResultsContainer.innerHTML = '';
                     searchResultsContainer.style.display = 'none';
+                    // 新增开始: 当选中股票时，激活“查看详情”按钮并设置链接
+                    if (viewDetailBtn) {
+                        viewDetailBtn.href = `/dashboard/stock/${selectedStockCode}/`;
+                        viewDetailBtn.classList.remove('disabled');
+                    }
+                    // 新增结束
                 }
             });
 
