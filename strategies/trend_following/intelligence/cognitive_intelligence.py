@@ -895,10 +895,9 @@ class CognitiveIntelligence:
 
     def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 灵敏度校准版】“真伪识别：打压 vs 撤退”诊断引擎
-        - 核心升级: 调整“赢家投降分”的计算公式，使用幂函数 (exponent=0.7) 替代线性转换。
-        - 收益: 提高了信号的灵敏度。现在，即使“盈利盘信念”只是从高位略有回落（未到负值），
-                  “赢家投降分”也会被显著放大，从而让“真实撤退风险”能更早地发出预警。
+        【V5.2 · 呼号校准版】“真伪识别：打压 vs 撤退”诊断引擎
+        - 核心修复: 修正了在计算 absorption_evidence_chain 时因变量名写错导致的 NameError。
+                      确保在评估“战术性打压”时，正确消费“盈利盘信念强度”信号 (winner_conviction_0_1)。
         """
         states = {}
         norm_window = 55
@@ -923,15 +922,15 @@ class CognitiveIntelligence:
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
-        # 修改开始(V5.1): 采用幂函数提升信号灵敏度
         winner_conviction_0_1 = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
         winner_capitulation_score = (1.0 - winner_conviction_0_1) ** 0.7
-        # 修改结束(V5.1)
         structural_support_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_BOTTOM_CONFIRMED', 0.0)
         absorption_evidence_chain = (
             trend_quality_context *
             panic_absorption_score *
-            winner_conviction_score * # 注意：这里变量名没改，但其计算逻辑已更新
+            # 修改开始(V5.2): 修正变量名错误，使用正确的 'winner_conviction_0_1'
+            winner_conviction_0_1 *
+            # 修改结束(V5.2)
             (1 + structural_support_score * 0.5)
         )
         tactical_suppression_score = (
@@ -947,7 +946,7 @@ class CognitiveIntelligence:
         retreat_evidence_chain = (
             trend_decay_context *
             no_absorption_score *
-            winner_capitulation_score * # 注意：这里变量名没改，但其计算逻辑已更新
+            winner_capitulation_score *
             bull_trap_evidence
         )
         true_retreat_score = (recent_distribution_strength * retreat_evidence_chain).clip(0, 1)
