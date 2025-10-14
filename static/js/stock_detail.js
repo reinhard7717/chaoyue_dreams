@@ -10,33 +10,49 @@ function getKlineChartOption(data) {
             axisPointer: {
                 type: 'cross'
             },
-            // 使用 formatter 回调函数来自定义提示框的显示内容
+            // 修改开始: 部署“情报识别协议”，重构 formatter 函数
             formatter: function (params) {
-                // params 是一个数组，包含鼠标悬停位置上所有系列的数据
-                // params[0] 对应K线系列, params[1] 对应成交量系列
-                const klineParams = params[0];
-                const volumeParams = params[1];
+                // 增加防御性编程，处理 params 可能为空的边缘情况
+                if (!Array.isArray(params) || params.length === 0) {
+                    return '';
+                }
 
-                // 修改开始: ECharts传递的data数组第一个元素是索引，OHLC数据从第二个元素开始
-                // 正确的数据结构是 [index, open, close, low, high]
-                const ohlc = klineParams.data;
-                console.log("K线图Tooltip调试，检查数据包结构: ", ohlc); // 增加调试信息，确认数据结构
+                console.log("Tooltip 调试，检查传入的 params 结构: ", params); // 增加调试信息
 
-                // 构建HTML字符串
-                let tooltipHtml = `${klineParams.axisValue}<br/>`; // 显示日期
-                tooltipHtml += `开盘: <span style="font-weight:bold;">${ohlc[1].toFixed(2)}</span><br/>`; // 开盘价在索引1
-                tooltipHtml += `收盘: <span style="font-weight:bold;">${ohlc[2].toFixed(2)}</span><br/>`; // 收盘价在索引2
-                tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[3].toFixed(2)}</span><br/>`; // 最低价在索引3
-                tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[4].toFixed(2)}</span><br/>`; // 最高价在索引4
-                // 修改结束
+                let klineParams = null;
+                let volumeParams = null;
 
-                // 如果有成交量数据，也一并显示
-                if (volumeParams) {
-                    // 使用 volumeParams.marker 可以显示系列对应的小圆点标记
+                // 步骤一：情报识别。遍历所有数据包，根据 seriesName 确认其身份。
+                params.forEach(param => {
+                    if (param.seriesName === '日K') {
+                        klineParams = param;
+                    } else if (param.seriesName === '成交量') {
+                        volumeParams = param;
+                    }
+                });
+
+                // 步骤二：构建情报简报。
+                // 从任意一个数据包中获取统一的日期信息。
+                let tooltipHtml = `${params[0].axisValue}<br/>`;
+
+                // 如果识别到了K线情报，则添加 OHLC 数据。
+                if (klineParams && klineParams.data && Array.isArray(klineParams.data) && klineParams.data.length > 4) {
+                    const ohlc = klineParams.data;
+                    tooltipHtml += `开盘: <span style="font-weight:bold;">${ohlc[1].toFixed(2)}</span><br/>`;
+                    tooltipHtml += `收盘: <span style="font-weight:bold;">${ohlc[2].toFixed(2)}</span><br/>`;
+                    tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[3].toFixed(2)}</span><br/>`;
+                    tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[4].toFixed(2)}</span><br/>`;
+                }
+
+                // 如果识别到了成交量情报，则添加成交量数据。
+                if (volumeParams && volumeParams.value !== undefined) {
+                    // volumeParams.marker 是ECharts提供的小圆点标记
                     tooltipHtml += `${volumeParams.marker} ${volumeParams.seriesName}: <span style="font-weight:bold;">${volumeParams.value}</span>`;
                 }
+
                 return tooltipHtml;
             }
+            // 修改结束
         },
 
         legend: {
