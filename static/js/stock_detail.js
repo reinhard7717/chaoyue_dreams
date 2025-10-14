@@ -6,6 +6,33 @@ function getKlineChartOption(data) {
         backgroundColor: 'transparent',
         tooltip: {
             trigger: 'axis',
+            axisPointer: {
+                type: 'cross'
+            },
+            // 使用 formatter 回调函数来自定义提示框的显示内容
+            formatter: function (params) {
+                // params 是一个数组，包含鼠标悬停位置上所有系列的数据
+                // params[0] 对应K线系列, params[1] 对应成交量系列
+                const klineParams = params[0];
+                const volumeParams = params[1];
+                // K线数据是一个数组: [开, 收, 低, 高]
+                const ohlc = klineParams.data;
+                // 构建HTML字符串
+                let tooltipHtml = `${klineParams.axisValue}<br/>`; // 显示日期
+                tooltipHtml += `开盘: <span style="font-weight:bold;">${ohlc[0].toFixed(2)}</span><br/>`;
+                tooltipHtml += `收盘: <span style="font-weight:bold;">${ohlc[1].toFixed(2)}</span><br/>`;
+                tooltipHtml += `最低: <span style="font-weight:bold; color: #14b143;">${ohlc[2].toFixed(2)}</span><br/>`;
+                tooltipHtml += `最高: <span style="font-weight:bold; color: #ef232a;">${ohlc[3].toFixed(2)}</span><br/>`;
+                // 如果有成交量数据，也一并显示
+                if (volumeParams) {
+                    // 使用 volumeParams.marker 可以显示系列对应的小圆点标记
+                    tooltipHtml += `${volumeParams.marker} ${volumeParams.seriesName}: <span style="font-weight:bold;">${volumeParams.value}</span>`;
+                }
+                return tooltipHtml;
+            }
+        },
+        tooltip: {
+            trigger: 'axis',
             axisPointer: { type: 'cross' }
         },
         legend: {
