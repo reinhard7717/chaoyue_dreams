@@ -842,7 +842,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             calc_window = 2 if period == 1 else period
             # 【代码修改】同上，移除 'and field_name not in final_metrics_df.columns' 条件以修复bug。
             if source_slope_col in final_metrics_df.columns:
-                print(f"[{stock_code}] DEBUG: 正在触发加速度计算: {field_name}") # 新增-调试信息
+                # print(f"[{stock_code}] DEBUG: 正在触发加速度计算: {field_name}") # 新增-调试信息
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # 阶段二：计算最终版的筹码健康分
     health_score_dependencies = [
