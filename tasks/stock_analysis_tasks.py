@@ -831,7 +831,7 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             # 这使得该条件永远为False，从而跳过了所有衍生指标的计算。
             # 移除此条件后，将强制对整个时间序列（历史+新增）重新计算所有斜率和加速度，确保数据的正确性和完整性。
             if base_col in final_metrics_df.columns:
-                print(f"[{stock_code}] DEBUG: 正在触发斜率计算: {field_name}") # 新增-调试信息
+                # print(f"[{stock_code}] DEBUG: 正在触发斜率计算: {field_name}") # 新增-调试信息
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[base_col], calc_window)
     # 自动化计算加速度
     for field_name in model_fields:
@@ -1112,7 +1112,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df = merged_df.copy()
     # --- 1. 计算共识资金流 (修正版，增加缺失数据源告警) ---
     # 增加对缺失列的显式打印告警
-    print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标... 可用列: {df.columns.tolist()}")
+    # print(f"[{stock_code}] [资金流-共识计算] 开始计算共识指标... 可用列: {df.columns.tolist()}")
     # 定义各共识指标及其可能的源列
     consensus_map = {
         'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
