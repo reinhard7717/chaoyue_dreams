@@ -163,11 +163,11 @@ class IntelligenceLayer:
     # 注入全新的“宙斯之雷”终极探针
     def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
         """
-        【V3.8.0 · 动态奇美拉同步版】终极得分构成解剖探针
-        - 核心修正: 完全同步主裁决层的“动态奇美拉”逻辑。探针现在能正确判断“反转日”，并对奇美拉冲突分进行动态衰减。
-        - 收益: 进一步缩小了探针重算与实际得分之间的偏差。
+        【V3.9.0 · 裁决同步版】终极得分构成解剖探针
+        - 核心修正: 探针现在严格按照主裁决层的逻辑，先对进攻项和风险项进行过滤和排序，然后再进行计算。
+        - 收益: 彻底解决了因计算顺序不一致导致的探针重算与实际得分之间的最终偏差。
         """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.8.0】⚡️---")
+        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V3.9.0】⚡️---")
         self.probes._deploy_thanatos_scythe_probe(probe_date)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -188,22 +188,25 @@ class IntelligenceLayer:
             score_details = {}
         offense_items = score_details.get('offense', [])
         offense_total = 0
-        if offense_items:
-            if not isinstance(offense_items, list): offense_items = []
-            # 修改开始(V3.8.0): 确保排序在过滤后进行
-            sorted_offense_items = sorted(offense_items, key=lambda x: x.get('score', 0), reverse=True)
-            for item in sorted_offense_items:
-            # 修改结束(V3.8.0)
+        # 修改开始(V3.9.0): 严格同步主引擎的过滤和排序逻辑
+        valid_offense_items = []
+        if offense_items and isinstance(offense_items, list):
+            for item in offense_items:
                 if not isinstance(item, dict): continue
-                contribution = item.get('score', 0)
-                raw_score = item.get('raw_score', 0)
-                base_score = item.get('base_score', 0)
                 item_name = item.get('name', 'N/A')
                 if '筹码行为同步' in item_name or '风险' in item_name:
-                    print(f"    - 【幻影/错误信号已忽略】: {item_name} (贡献: {contribution})")
+                    print(f"    - 【幻影/错误信号已忽略】: {item_name} (贡献: {item.get('score', 0)})")
                     continue
-                print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
-                offense_total += contribution
+                valid_offense_items.append(item)
+        sorted_offense_items = sorted(valid_offense_items, key=lambda x: x.get('score', 0), reverse=True)
+        for item in sorted_offense_items:
+            contribution = item.get('score', 0)
+            raw_score = item.get('raw_score', 0)
+            base_score = item.get('base_score', 0)
+            item_name = item.get('name', 'N/A')
+            print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
+            offense_total += contribution
+        # 修改结束(V3.9.0)
         print("    ----------------------------------")
         print(f"    - 【进攻项总分】: {offense_total:.0f}")
         print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
@@ -225,8 +228,7 @@ class IntelligenceLayer:
         pre_damper_score = offense_total + risk_total
         print(f"    - [探针重算] 前置裁决分 = {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {pre_damper_score:.0f}")
         chimera_conflict_score = atomic.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-        # 修改开始(V3.8.0): 引入动态奇美拉调节器逻辑
-        dominant_signal_type = self.probes._get_dominant_offense_type_for_probe(offense_total, sorted_offense_items if offense_items else [])
+        dominant_signal_type = self.probes._get_dominant_offense_type_for_probe(offense_total, sorted_offense_items)
         is_reversal_day = (dominant_signal_type == 'positional')
         dynamic_chimera_score = chimera_conflict_score * 0.5 if is_reversal_day else chimera_conflict_score
         confidence_damper = 1.0 - dynamic_chimera_score
@@ -234,7 +236,6 @@ class IntelligenceLayer:
         print(f"    - [探针诊断] 动态奇美拉冲突分: {dynamic_chimera_score:.4f} (原始分: {chimera_conflict_score:.4f})")
         final_score_recalc = pre_damper_score * confidence_damper
         print(f"    - [探针重算] 最终得分 = {pre_damper_score:.0f} * (1 - 动态奇美拉冲突调节器:{dynamic_chimera_score:.2f}) = {final_score_recalc:.0f}")
-        # 修改结束(V3.8.0)
         if isinstance(final_score, (float, np.floating)):
             print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
         else:
