@@ -1,22 +1,4 @@
-// 新建文件: static/js/stock_detail.js
-
-document.addEventListener('DOMContentLoaded', function () {
-    // 初始化K线图
-    const klineChartDom = document.getElementById('kline-chart');
-    if (klineChartDom) {
-        const klineChart = echarts.init(klineChartDom, 'dark'); // 使用暗色主题
-        const klineOption = getKlineChartOption(klineChartData);
-        klineChart.setOption(klineOption);
-    }
-
-    // 初始化得分图
-    const scoreChartDom = document.getElementById('score-chart');
-    if (scoreChartDom) {
-        const scoreChart = echarts.init(scoreChartDom, 'dark');
-        const scoreOption = getScoreChartOption(scoreChartData);
-        scoreChart.setOption(scoreOption);
-    }
-});
+// 文件: static/js/stock_detail.js
 
 // K线图配置函数
 function getKlineChartOption(data) {
@@ -136,3 +118,4 @@ function getScoreChartOption(data) {
         }]
     };
 }
+

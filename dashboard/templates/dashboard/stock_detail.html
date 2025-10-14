@@ -108,12 +108,37 @@
 
 {% block extra_scripts %}
     {{ block.super }}
+    {# 1. 首先加载 ECharts 库 #}
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-    {# 将后端数据注入到JS #}
-    <script>
-        const klineChartData = JSON.parse('{{ kline_chart_data_json|safe }}');
-        const scoreChartData = JSON.parse('{{ score_chart_data_json|safe }}');
-    </script>
-    {# 引入此页面专属的JS文件 #}
+    
+    {# 2. 其次加载我们自己的辅助函数库 #}
     <script src="{% static 'js/stock_detail.js' %}"></script>
+    
+    {# 3. 最后，内联执行初始化脚本 #}
+    <script>
+        // 修改开始: 将初始化逻辑直接放在这里，并仍然使用 DOMContentLoaded 确保DOM元素可用
+        document.addEventListener('DOMContentLoaded', function () {
+            // 从Django模板注入数据
+            const klineChartData = JSON.parse('{{ kline_chart_data_json|safe }}');
+            const scoreChartData = JSON.parse('{{ score_chart_data_json|safe }}');
+
+            // 初始化K线图
+            const klineChartDom = document.getElementById('kline-chart');
+            if (klineChartDom) {
+                // 此时，echarts 对象和 getKlineChartOption 函数都已保证可用
+                const klineChart = echarts.init(klineChartDom, 'dark');
+                const klineOption = getKlineChartOption(klineChartData);
+                klineChart.setOption(klineOption);
+            }
+
+            // 初始化得分图
+            const scoreChartDom = document.getElementById('score-chart');
+            if (scoreChartDom) {
+                const scoreChart = echarts.init(scoreChartDom, 'dark');
+                const scoreOption = getScoreChartOption(scoreChartData);
+                scoreChart.setOption(scoreOption);
+            }
+        });
+        // 修改结束
+    </script>
 {% endblock %}
