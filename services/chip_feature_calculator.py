@@ -213,39 +213,44 @@ class ChipFeatureCalculator:
 
     def _calculate_winner_structure(self) -> dict:
         """
-        【V13.1 逻辑修正版】
-        - 核心修正: 修复了原分区逻辑的缺陷，该缺陷导致在股价下跌时 'winner_rate_short_term' 必然为0。
-                    新逻辑采用更健壮的“四象限”划分法，将“时间”和“盈亏”两个维度独立判断后再组合，
-                    确保在任何市场情况下（上涨、下跌、盘整）都能对四类投资者（短期获利/套牢，长期获利/套牢）
-                    进行合理且有意义的计算，从而解决了衍生指标大量为0的问题。
+        【V13.2 · 阿波罗之矢协议】
+        - 核心重构: 废除了以 `prev_20d_close` 为长短期筹码划分界的旧逻辑。该逻辑在特定
+                    市场条件下（如 `prev_20d_close` 约等于 `close_price`）会导致指标计算
+                    出现系统性偏差（例如 `winner_rate_short_term` 恒为0），从而污染下游衍生指标。
+        - 新逻辑: 采用当日的加权平均成本 `weight_avg_cost` 作为新的划分基准。
+                  成本高于平均成本的视为“短期/高成本”筹码，低于的视为“长期/低成本”筹码。
+                  此方法更具动态适应性，能真实反映市场高低成本区的博弈结构，彻底解决了
+                  “四象限”划分法的逻辑盲区，确保了所有衍生指标的计算健壮性和分析价值。
         """
         close_price = self.ctx.get('close_price')
-        prev_20d_close = self.ctx.get('prev_20d_close')
+        weight_avg_cost = self.ctx.get('weight_avg_cost') # [代码修改] 引入加权平均成本
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
         total_loser_rate = 100.0 - total_winner_rate
-        if not close_price or pd.isna(prev_20d_close):
+        # [代码修改] 检查 close_price 和 weight_avg_cost
+        if not all(pd.notna(v) for v in [close_price, weight_avg_cost]):
             return {
                 'winner_rate_short_term': None, 'winner_rate_long_term': None,
                 'loser_rate_short_term': None, 'loser_rate_long_term': None,
                 'total_loser_rate': total_loser_rate if total_winner_rate is not None else None
             }
-        # 【代码修改】采用更健壮的四象限划分法
-        # 1. 按时间代理划分：定义哪些是短期筹码，哪些是长期筹码
-        is_short_term_chip = self.df['price'] >= prev_20d_close
-        is_long_term_chip = self.df['price'] < prev_20d_close
-        # 2. 按盈亏状况划分：定义哪些是获利盘，哪些是套牢盘
+        # [代码修改开始] 采用全新的、基于平均成本的划分法
+        # 1. 按成本区域划分：定义哪些是短期/高成本筹码，哪些是长期/低成本筹码
+        is_short_term_chip = self.df['price'] >= weight_avg_cost
+        is_long_term_chip = self.df['price'] < weight_avg_cost
+        # 2. 按盈亏状况划分（逻辑不变）
         is_winner_chip = self.df['price'] < close_price
         is_loser_chip = self.df['price'] > close_price
         # 3. 交叉组合，计算四个象限的筹码占比
-        # 短期获利盘：近期形成且目前盈利的筹码
+        # 短期获利盘：高成本区中目前盈利的筹码 (通常在股价突破后出现)
         short_term_winner_rate = self.df[is_short_term_chip & is_winner_chip]['percent'].sum()
-        # 长期获利盘（锁定盘）：早期形成且目前盈利的筹码
+        # 长期获利盘（锁定盘）：低成本区中目前盈利的筹码
         long_term_winner_rate = self.df[is_long_term_chip & is_winner_chip]['percent'].sum()
-        # 短期套牢盘：近期形成但目前亏损的筹码
+        # 短期套牢盘：高成本区中目前亏损的筹码
         short_term_loser_rate = self.df[is_short_term_chip & is_loser_chip]['percent'].sum()
-        # 长期套牢盘：早期形成且目前仍亏损的筹码
+        # 长期套牢盘：低成本区中目前仍亏损的筹码
         long_term_loser_rate = self.df[is_long_term_chip & is_loser_chip]['percent'].sum()
-        # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, prev_20d_close={prev_20d_close}, winner_rate_short_term={short_term_winner_rate:.2f}") # 新增-调试信息
+        # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, avg_cost={weight_avg_cost:.2f}, winner_rate_short_term={short_term_winner_rate:.2f}")
+        # [代码修改结束]
         return {
             'winner_rate_short_term': short_term_winner_rate,
             'winner_rate_long_term': long_term_winner_rate,
