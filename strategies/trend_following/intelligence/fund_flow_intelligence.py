@@ -184,39 +184,84 @@ class FundFlowIntelligence:
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:
         """
-        【V6.0 · 德尔斐神谕协议版】计算单个资金流支柱的三维健康度
+        【V6.1 · 净值累积版】计算单个资金流支柱的三维健康度
         - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
+        - 核心升级(V6.1): 当支柱类型为 'sum' 时，调用全新的 `_calculate_net_accumulation_score` 方法，
+                          实现对资金净值在多时间级别上的累积分析，以识别主力的长期布局。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
+        # [代码修改] 增加对 'sum' 类型的分支处理
         if col_type == 'sum':
-            static_col = f"{base_col_name}_sum_55d_D"
-        else:
+            # 对于需要累积分析的指标（如主力净流入），调用新的多时间级别累积分析引擎
+            # 看涨快照分 = 多周期净流入累积的加权得分
+            bullish_snapshot_score = self._calculate_net_accumulation_score(df, base_col_name, norm_window, periods, ascending=(polarity == 1))
+            # 看跌快照分 = 多周期净流出累积的加权得分
+            bearish_snapshot_score = self._calculate_net_accumulation_score(df, base_col_name, norm_window, periods, ascending=(polarity == -1))
+        else: # col_type == 'daily'
+            # 对于日度指标，保持原有逻辑不变
             static_col = f"{base_col_name}_D"
-        market_cap_col = 'circ_mv_D'
-        if static_col not in df.columns or market_cap_col not in df.columns:
-            print(f"      -> [宙斯天平] 警告: 缺少核心列 '{static_col}' 或 '{market_cap_col}'，无法计算市值归一化资金流。")
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-        market_cap_in_yuan = df[market_cap_col] * 10000
-        market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
-        normalized_flow_series = (df[static_col] / market_cap_in_yuan).fillna(0)
-        static_series = normalized_flow_series
-        indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
-        indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
-        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
-        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
-        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
+            market_cap_col = 'circ_mv_D'
+            if static_col not in df.columns or market_cap_col not in df.columns:
+                print(f"      -> [宙斯天平] 警告: 缺少核心列 '{static_col}' 或 '{market_cap_col}'，无法计算市值归一化资金流。")
+                default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+                for p in periods:
+                    s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+                return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
+            market_cap_in_yuan = df[market_cap_col] * 10000
+            market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
+            normalized_flow_series = (df[static_col] / market_cap_in_yuan).fillna(0)
+            static_series = normalized_flow_series
+            indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
+            indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
+            bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+            bearish_snapshot_score = indicator_static_bear.astype(np.float32)
+        
+        # 动态强度分现在基于更可靠的“累积快照分”进行计算
         unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
+
+    def _calculate_net_accumulation_score(self, df: pd.DataFrame, base_col_name: str, norm_window: int, periods: list, ascending: bool) -> pd.Series:
+        """
+        【V1.0 · 新增】计算多时间级别加权资金净累积得分
+        - 核心逻辑:
+          1. 对日度资金流数据，在多个时间窗口(如5,13,21,55日)上进行滚动求和。
+          2. 对每个窗口的累积净值进行归一化，得到该窗口的累积强度分。
+          3. 根据配置的权重，对所有窗口的强度分进行加权平均，得到最终的“净累积得分”。
+        - 战略意义: 解决了单日资金流向的短视问题，能够识别主力跨越多日的真实资金布局。
+        """
+        # 步骤1: 获取日度资金流数据
+        daily_series = df.get(f"{base_col_name}_D")
+        if daily_series is None or daily_series.empty:
+            print(f"      -> [资金净累积] 警告: 缺少日度资金流数据列 '{base_col_name}_D'，无法计算。")
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        # 步骤2: 从配置中获取各时间窗口的权重
+        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        acc_weights = get_param_value(p_conf.get('accumulation_analysis_weights'), {})
+        # 步骤3: 计算加权累积得分
+        accumulation_periods = [p for p in periods if p > 1]
+        weighted_scores = []
+        total_weight = 0
+        for p in accumulation_periods:
+            weight = acc_weights.get(str(p), 0)
+            if weight > 0:
+                # 计算滚动窗口内的资金净累积值
+                rolling_sum = daily_series.rolling(window=p, min_periods=max(1, p // 2)).sum()
+                # 对累积值进行归一化，得到该窗口的强度分
+                normalized_sum = normalize_score(rolling_sum, df.index, norm_window, ascending=ascending)
+                weighted_scores.append(normalized_sum * weight)
+                total_weight += weight
+        if not weighted_scores or total_weight == 0:
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        # 对所有时间窗口的得分进行加权平均
+        final_accumulation_score = sum(weighted_scores) / total_weight
+        return final_accumulation_score.astype(np.float32)
 
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法

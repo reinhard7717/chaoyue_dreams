@@ -691,6 +691,13 @@
         "description": "【V2.7 · 阿瑞斯之怒版】此模块现在定义特定于资金流领域的意图和支柱权重，并新增均线健康度评估配置。",
         "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
         "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 },
+        "accumulation_analysis_weights": {
+          "description": "多时间级别资金净值累积分析的权重，用于识别主力长期建仓行为。",
+          "5": 0.4,
+          "13": 0.3,
+          "21": 0.2,
+          "55": 0.1
+        },
         "ma_health_fusion_weights": {
           "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
           "alignment": 0.15,

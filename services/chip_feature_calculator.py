@@ -377,42 +377,42 @@ class ChipFeatureCalculator:
 
     def _calculate_turnover_structure(self) -> dict:
         """
-        【V2.0 宏观统计版】计算成交量微观结构。
-        - 核心算法: 基于一个更稳健的宏观假设——当日成交量的构成，
-                    由全市场获利盘和套牢盘的存量比例决定。
-        - 公式: 获利盘成交占比 ≈ 总获利盘比例 / (总获利盘比例 + 总套牢盘比例)
+        【V3.0 · 赫尔墨斯的交易之尺】计算成交量微观结构
+        - 核心算法: 废除旧的、基于宏观存量比例的错误假设。新算法基于更真实的微观交易假设：
+                    当日的成交主要发生在当日的价格波动区间（low ~ high）内。
+                    通过计算获利盘和套牢盘与这个交易区间的“交集”大小，来估算各自对成交量的贡献。
+        - 公式: 获利盘成交量 ≈ 总成交量 * (获利盘在当日价格区间的筹码占比)
         """
         close_price = self.ctx.get('close_price')
-        if not close_price:
+        low_price = self.ctx.get('low_price')
+        high_price = self.ctx.get('high_price')
+        if not all([close_price, low_price, high_price]):
             return {}
-
-        # 1. 严格按照收盘价，划分全市场的获利盘和套牢盘
-        #    这里不考虑当日价格波动，只看收盘后的最终状态。
-        winners_df = self.df[self.df['price'] < close_price]
-        losers_df = self.df[self.df['price'] > close_price]
-
-        # 2. 计算各自的总量（百分比）
-        total_winner_percent = winners_df['percent'].sum()
-        total_loser_percent = losers_df['percent'].sum()
-        
-        # 3. 计算总的“已表态”筹码（排除掉那些成本价和收盘价完全一样的）
-        total_active_percent = total_winner_percent + total_loser_percent
-
-        # 4. 如果市场所有筹码成本都一样（total_active_percent为0），则无法计算，返回空
-        if total_active_percent == 0:
+        # [代码修改开始]
+        # 1. 找出当日价格波动区间内所有的筹码
+        turnover_zone_df = self.df[(self.df['price'] >= low_price) & (self.df['price'] <= high_price)]
+        if turnover_zone_df.empty:
+            # 如果当天是“一字板”，则无法按此逻辑计算，返回一个中性值或保持原逻辑
             return {
-                'turnover_from_winners_ratio': None,
-                'turnover_from_losers_ratio': None,
+                'turnover_from_winners_ratio': 50.0,
+                'turnover_from_losers_ratio': 50.0,
             }
-
-        # 5. 计算各自在“已表态”筹码中的占比，这个比例就代表了它们贡献成交量的能力
-        winner_contribution_ratio = total_winner_percent / total_active_percent
-        loser_contribution_ratio = total_loser_percent / total_active_percent
-
-        # 6. 转换为最终的百分比指标
+        # 2. 在这个“成交活跃区”内，进一步划分获利盘和套牢盘
+        winners_in_zone_df = turnover_zone_df[turnover_zone_df['price'] < close_price]
+        losers_in_zone_df = turnover_zone_df[turnover_zone_df['price'] > close_price]
+        # 3. 计算各自在“成交活跃区”内的筹码占比
+        total_percent_in_zone = turnover_zone_df['percent'].sum()
+        if total_percent_in_zone == 0:
+            return {
+                'turnover_from_winners_ratio': 50.0,
+                'turnover_from_losers_ratio': 50.0,
+            }
+        winner_contribution_ratio = winners_in_zone_df['percent'].sum() / total_percent_in_zone
+        loser_contribution_ratio = losers_in_zone_df['percent'].sum() / total_percent_in_zone
+        # 4. 将这个贡献比例作为最终的成交结构比例
         turnover_from_winners_ratio = winner_contribution_ratio * 100
         turnover_from_losers_ratio = loser_contribution_ratio * 100
-
+        
         return {
             'turnover_from_winners_ratio': turnover_from_winners_ratio,
             'turnover_from_losers_ratio': turnover_from_losers_ratio,

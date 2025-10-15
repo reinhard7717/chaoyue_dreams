@@ -111,27 +111,39 @@ class ChipIntelligence:
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.7 · 冥王之眼版】核心公理一：诊断筹码“聚散”的动态
-        - 核心升级: 调用“冥王之眼”引擎，计算快照分在(1, p)周期上的结构性背离。
+        【V1.8 · 五维一体版】核心公理一：诊断筹码“聚散”的动态
+        - 核心升级: 引入“主力控盘度”和“顶部换手风险”两个新维度，构建“五维一体”的筹码集中度质量快照分。
+                      这使得我们不仅看集中度，更看集中度的“质量”和“健康度”。
+        - 核心公式: 集中度质量 = (70集中度 * 90集中度 * 筹码稳定性 * 主力控盘度 * (1-顶部换手风险)) ^ (1/5)
         """
-        # 计算并传入结构性背离分
+        # [代码修改开始]
         scores = {}
         norm_window = 120
-        # 1. 计算静态快照分
+        # 1. 计算五维一体的“筹码集中度质量”快照分
+        # 维度1 & 2: 基础集中度
         conc_90_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
         conc_70_score = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
+        # 维度3: 筹码稳定性
         stability_score = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
-        concentration_snapshot = (conc_90_score * conc_70_score * stability_score)**(1/3)
-        # 2. 对快照分进行关系元分析
+        # 维度4 (新增): 主力控盘度，越高越好
+        control_score = normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=True)
+        # 维度5 (新增): 顶部换手风险，越低越好，因此用 (1 - score)
+        turnover_risk_score = normalize_score(df.get('turnover_at_peak_ratio_D'), df.index, norm_window, ascending=True)
+        non_risk_score = 1.0 - turnover_risk_score
+        # 融合五大维度，得到更高质量的快照分
+        concentration_quality_snapshot = (
+            conc_90_score * conc_70_score * stability_score * control_score * non_risk_score
+        )**(1/5)
+        
+        # 2. 对快照分进行关系元分析 (后续逻辑保持不变)
         for p in periods:
             # 计算当前周期p与最短周期1之间的结构性背离
-            holographic_divergence = self._calculate_holographic_divergence(concentration_snapshot, 1, p, norm_window)
+            holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, norm_window)
             dynamic_concentration_score = self._perform_chip_relational_meta_analysis(
-                df, concentration_snapshot, p, holographic_divergence
+                df, concentration_quality_snapshot, p, holographic_divergence
             )
             scores[p] = dynamic_concentration_score
         return scores
-
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """

@@ -803,7 +803,7 @@ def _calculate_base_chip_metrics(merged_df: pd.DataFrame, is_incremental: bool, 
     return new_metrics_df
 
 async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFrame) -> pd.DataFrame:
-    """【辅助函数 V1.4 - 顺序重构与健壮性终版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
+    """【辅助函数 V1.5 - 雅典娜协议版】自动化计算所有斜率、加速度和健康分等衍生指标。"""
     stock_code = stock_info.stock_code
     if final_metrics_df.empty:
         print(f"[{stock_code}] [衍生指标计算] 传入的DataFrame为空，跳过衍生指标计算。")
@@ -816,7 +816,6 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
     if 'avg_cost_short_term' in final_metrics_df.columns and 'avg_cost_long_term' in final_metrics_df.columns:
         final_metrics_df['cost_divergence'] = final_metrics_df['avg_cost_short_term'] - final_metrics_df['avg_cost_long_term']
     model_fields = {f.name for f in MetricsModel._meta.get_fields()}
-    # 【代码重构】将斜率和加速度计算分离，确保计算顺序的绝对正确
     # 阶段一：计算所有基础指标的斜率（不包括健康分）
     # print(f"[{stock_code}] [阶段一] 正在计算所有基础指标的斜率...")
     for field_name in model_fields:
@@ -836,19 +835,22 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
             calc_window = 2 if period == 1 else period
             if source_slope_col in final_metrics_df.columns:
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
-    # 阶段三：计算筹码健康分
-    # print(f"[{stock_code}] [阶段三] 正在计算筹码健康分...")
+    # [代码修改开始]
+    # 阶段三：调用全新的“雅典娜的均衡天平”计算筹码健康分
+    print(f"[{stock_code}] [阶段三] 正在调用“雅典娜的均衡天平”计算筹码健康分...")
+    # 确保依赖列存在，即使为空也填充0，以保证计算能进行
     health_score_dependencies = [
-        'concentration_90pct', 'concentration_90pct_slope_5d',
-        'winner_profit_margin', 'price_to_peak_ratio'
+        'concentration_90pct_slope_5d', 'cost_divergence', 'winner_profit_margin',
+        'price_to_peak_ratio', 'turnover_from_winners_ratio'
     ]
     for dep_col in health_score_dependencies:
         if dep_col not in final_metrics_df.columns:
             print(f"    - [警告] 健康分依赖列 '{dep_col}' 不存在，将创建并填充为0。")
-            final_metrics_df[dep_col] = 0
-        else:
-            final_metrics_df[dep_col] = final_metrics_df[dep_col].fillna(0)
-    final_metrics_df['chip_health_score'] = final_metrics_df.apply(calculate_chip_health_score, axis=1)
+            final_metrics_df[dep_col] = 0.0
+    # 填充可能存在的NaN值
+    final_metrics_df[health_score_dependencies] = final_metrics_df[health_score_dependencies].fillna(0.0)
+    final_metrics_df['chip_health_score'] = _calculate_chip_health_score(final_metrics_df)
+    
     # 阶段四：计算健康分的斜率
     # print(f"[{stock_code}] [阶段四] 正在计算健康分的斜率...")
     for field_name in model_fields:
@@ -867,6 +869,48 @@ async def _calculate_derivative_metrics(stock_info, final_metrics_df: pd.DataFra
                 final_metrics_df[field_name] = _calculate_slope(final_metrics_df[source_slope_col], calc_window)
     # print(f"[{stock_code}] [衍生指标计算] 所有衍生指标计算完成。")
     return final_metrics_df
+
+def _calculate_chip_health_score(df: pd.DataFrame) -> pd.Series:
+    """
+    【V1.0 · 新增 · 雅典娜的均衡天平】计算多维度融合的筹码健康分
+    - 核心逻辑: 融合五大维度，通过加权几何平均得到最终健康分。
+      1. 集中度趋势 (Concentration Trend): 筹码是否在加速集中。
+      2. 成本发散度 (Cost Divergence): 短期成本是否高于长期成本，代表主力控盘。
+      3. 获利盘安全垫 (Profit Margin): 获利盘的利润厚度，代表持仓稳定性。
+      4. 价格位置 (Price Position): 股价是否脱离主成本区。
+      5. 抛压结构 (Selling Pressure): 获利盘抛压是否减轻。
+    """
+    norm_window = 60
+    # 维度一: 集中度趋势分 (越高越好)
+    conc_slope_score = normalize_score(df.get('concentration_90pct_slope_5d', pd.Series(0, index=df.index)), df.index, norm_window, ascending=False)
+    # 维度二: 成本发散度分 (越高越好)
+    cost_divergence_score = normalize_score(df.get('cost_divergence', pd.Series(0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+    # 维度三: 获利盘安全垫分 (越高越好)
+    profit_margin_score = normalize_score(df.get('winner_profit_margin', pd.Series(0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+    # 维度四: 价格位置分 (越高越好)
+    price_position_score = normalize_score(df.get('price_to_peak_ratio', pd.Series(1, index=df.index)).clip(lower=1), df.index, norm_window, ascending=True)
+    # 维度五: 抛压结构分 (越高越好)
+    selling_pressure_score = normalize_score(df.get('turnover_from_winners_ratio', pd.Series(0, index=df.index)), df.index, norm_window, ascending=False)
+    # 加权几何平均融合
+    # 定义各维度权重
+    weights = {'conc': 0.25, 'cost': 0.25, 'profit': 0.2, 'price': 0.15, 'pressure': 0.15}
+    # 为避免log(0)错误，给所有分数增加一个极小值
+    safe_conc = np.maximum(conc_slope_score, 1e-9)
+    safe_cost = np.maximum(cost_divergence_score, 1e-9)
+    safe_profit = np.maximum(profit_margin_score, 1e-9)
+    safe_price = np.maximum(price_position_score, 1e-9)
+    safe_pressure = np.maximum(selling_pressure_score, 1e-9)
+    # 计算加权对数和
+    log_sum = (
+        np.log(safe_conc) * weights['conc'] +
+        np.log(safe_cost) * weights['cost'] +
+        np.log(safe_profit) * weights['profit'] +
+        np.log(safe_price) * weights['price'] +
+        np.log(safe_pressure) * weights['pressure']
+    )
+    # 取指数得到最终分数，并乘以100转换为百分制
+    final_score = np.exp(log_sum) * 100
+    return final_score.clip(0, 100).astype(np.float32)
 
 async def _prepare_and_save_data(stock_info, MetricsModel, final_df: pd.DataFrame, new_df_index, is_full_refresh: bool):
     """

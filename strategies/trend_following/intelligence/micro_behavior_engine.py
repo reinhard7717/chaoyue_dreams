@@ -25,8 +25,9 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.5 · 指挥链审查版】微观行为诊断引擎总指挥
+        【V2.6 · 赫尔墨斯诡计版】微观行为诊断引擎总指挥
         - 核心升级: 部署“指挥链审查”探针，确认本模块是否被成功调用。
+        - 新增功能(V2.6): 新增调用“赫尔墨斯诡计”诊断引擎，专门识别主力“压单吸筹”的欺骗性行为。
         """
         all_states = {}
         def update_states(new_states: Dict[str, pd.Series]):
@@ -37,6 +38,8 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
+        # [代码新增] 调用新增的“赫尔墨斯诡计”诊断引擎
+        update_states(self.diagnose_hermes_gambit(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
@@ -94,6 +97,51 @@ class MicroBehaviorEngine:
         # 步骤四：对快照分进行关系元分析，得到最终的动态调制分数
         final_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
         states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION'] = final_score.astype(np.float32)
+        return states
+
+    def diagnose_hermes_gambit(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
+        - 核心职责: 识别主力“大单卖出压价，再拆单接回”的欺骗性行为。
+        - 证据链:
+          1. 表象矛盾: 主力资金净流出 vs 散户资金净流入。
+          2. 价量矛盾: 成交量放大 vs 价格滞涨或下跌。
+          3. 结果矛盾: 主力看似卖出 vs 筹码集中度反而上升。
+          4. 环境矛盾: 短期价格走弱 vs 长期趋势依然健康。
+        """
+        states = {}
+        norm_window = 60 # 使用一个中等长度的窗口来评估近期动态
+        # --- 证据1: 表象矛盾 (大单卖 vs 散单买) ---
+        # 主力资金净流出得分 (分数越高，流出越明显)
+        main_force_outflow_score = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=False)
+        # 散户资金净流入得分 (分数越高，流入越明显)
+        retail_inflow_score = normalize_score(df.get('retail_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=True)
+        # 矛盾分 = 两者共振
+        contradiction_flow_score = (main_force_outflow_score * retail_inflow_score)**0.5
+        # --- 证据2: 价量矛盾 (放量滞涨/下跌) ---
+        # 成交量放大得分
+        volume_spike_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
+        # 价格滞涨/微跌得分 (价格变化绝对值越小，得分越高)
+        price_stagnation_score = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
+        # 价量矛盾分 = 两者共振
+        contradiction_pv_score = (volume_spike_score * price_stagnation_score)**0.5
+        # --- 证据3: 结果矛盾 (卖出 vs 集中) ---
+        # 筹码集中度短期内逆势上升得分
+        chip_concentration_rising_score = normalize_score(df.get('SLOPE_3_concentration_90pct_D', pd.Series(0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+        # --- 证据4: 环境矛盾 (短期弱 vs 长期强) ---
+        # 长期趋势健康上下文得分
+        trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.5)
+        # --- 最终融合：四维证据链必须同时成立 ---
+        # 使用几何平均数，确保任何一个维度的缺失都会显著拉低总分
+        hermes_gambit_score = (
+            contradiction_flow_score *
+            contradiction_pv_score *
+            chip_concentration_rising_score *
+            trend_quality_context
+        )**(1/4)
+        # 对最终分数进行关系元分析，捕捉这种行为的“加速度”
+        final_score = self._perform_micro_behavior_relational_meta_analysis(df, hermes_gambit_score)
+        states['SCORE_MICRO_HERMES_GAMBIT'] = final_score.astype(np.float32)
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
@@ -337,7 +385,6 @@ class MicroBehaviorEngine:
             acceleration_score * w_acceleration
         ).clip(0, 1) # clip确保分数在[0, 1]范围内
         return final_score.astype(np.float32)
-        
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """

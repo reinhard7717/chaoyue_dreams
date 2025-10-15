@@ -15,8 +15,9 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.1 · VPA风险感知版】基础情报分析总指挥
+        【V5.2 · 筹码断层感知版】基础情报分析总指挥
         - 核心升级: 新增调用 `diagnose_vpa_risks`，补完对VPA相关风险的独立诊断能力。
+        - 新增功能(V5.2): 新增调用 `diagnose_chip_fault_dynamics`，利用筹码断层数据识别潜在突破机会。
         """
         df = self.strategy.df_indicators
         all_states = {}
@@ -27,9 +28,11 @@ class FoundationIntelligence:
         all_states.update(self.diagnose_classic_indicators_atomics(df, ma_context_score))
         tactical_ultimate_states = self.diagnose_tactical_foundation_signals(df)
         all_states.update(tactical_ultimate_states)
-        # 调用新的VPA风险诊断引擎
         vpa_risk_states = self.diagnose_vpa_risks(df)
         all_states.update(vpa_risk_states)
+        # [代码新增] 调用新增的筹码断层诊断引擎
+        chip_fault_states = self.diagnose_chip_fault_dynamics(df)
+        all_states.update(chip_fault_states)
         return all_states
 
     def diagnose_vpa_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -143,6 +146,24 @@ class FoundationIntelligence:
         panic_risk_dynamic = self.strategy.atomic_states.get('SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_PANIC_SELLING_RISK'] = (panic_risk_state * panic_risk_dynamic).astype(np.float32)
 
+        return states
+
+    def diagnose_chip_fault_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】筹码断层动态诊断引擎
+        - 核心职责: 利用筹码断层数据，识别股价向上突破真空区的潜力。
+        - 核心逻辑: 一个强壮的筹码断层(strength高)叠加一个广阔的上方真空区(vacuum高)，
+                      意味着一旦价格突破，上方几乎没有套牢盘压力，股价可能加速上涨。
+        """
+        states = {}
+        norm_window = 60
+        # 获取断层强度分，强度越高越好
+        fault_strength_score = normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True)
+        # 获取上方真空区百分比，真空区越大越好
+        vacuum_percent_score = normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True)
+        # 融合：突破潜力 = 断层强度 * 真空范围
+        breakout_potential_score = (fault_strength_score * vacuum_percent_score)**0.5
+        states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = breakout_potential_score.astype(np.float32)
         return states
 
     # ==============================================================================
@@ -321,7 +342,6 @@ class FoundationIntelligence:
             acceleration_score * w_acceleration
         ).clip(0, 1) # clip确保分数在[0, 1]范围内
         return final_score.astype(np.float32)
-        
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """

@@ -39,9 +39,11 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V3.9 · 单一职责版】顶层认知总分合成模块
+        【V4.1 · 健壮性升级版】顶层认知总分合成模块
         - 核心修复: 彻底移除在融合风险分计算后，使用 np.maximum 将“真实撤退风险”并入“融合风险总分”的冗余逻辑。
                       此举解决了“风险被重复计算”和“奇美拉冲突分被错误放大”两大致命BUG，确保每个风险信号在最终裁决时只被审判一次。
+        - 健壮性升级(V4.1): 重构了看涨总分的计算逻辑。不再静态地假设所有信号都存在，而是动态地构建一个有效的信号列表，
+                           只将实际存在且非空的信号纳入最终的 `maximum.reduce` 计算，增强了系统的容错能力。
         """
         micro_behavior_states = self.micro_behavior_engine.run_micro_behavior_synthesis(df)
         self.strategy.atomic_states.update(micro_behavior_states)
@@ -69,27 +71,39 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        bullish_scores = [
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_REVERSAL_RELIABILITY').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION').values,
-            self._get_atomic_score(df, 'SCORE_CHIP_TRUE_ACCUMULATION').values,
-            self._get_atomic_score(df, 'COGNITIVE_SCORE_TACTICAL_SUPPRESSION').values,
+        # 动态构建有效的看涨信号列表
+        bullish_signal_names = [
+            'COGNITIVE_SCORE_IGNITION_RESONANCE',
+            'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE',
+            'COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE',
+            'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING',
+            'COGNITIVE_SCORE_REVERSAL_RELIABILITY',
+            'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY',
+            'COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE',
+            'COGNITIVE_SCORE_TACTICAL_REVERSAL_RESONANCE',
+            'COGNITIVE_SCORE_TACTICAL_OPPORTUNITY_FUSION',
+            'SCORE_CHIP_TRUE_ACCUMULATION',
+            'COGNITIVE_SCORE_TACTICAL_SUPPRESSION',
+            'SMART_MONEY_SYNERGY_BUY_D',
         ]
-        cognitive_bullish_score = np.maximum.reduce(bullish_scores)
+        valid_bullish_scores = []
+        for signal_name in bullish_signal_names:
+            # 安全地获取信号，如果信号不存在或为空，则不会被加入列表
+            signal_series = self._get_atomic_score(df, signal_name)
+            if signal_series is not None and not signal_series.empty:
+                valid_bullish_scores.append(signal_series.values)
+        if valid_bullish_scores:
+            # 只有在找到有效信号时才进行计算
+            cognitive_bullish_score = np.maximum.reduce(valid_bullish_scores)
+        else:
+            # 如果没有任何有效的看涨信号，则总分为0
+            cognitive_bullish_score = np.zeros(len(df.index), dtype=np.float32)
+        
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
-        # 移除画蛇添足的风险合并逻辑
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
         self.synthesize_chimera_conflict_score(df)
         return df
-
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -531,35 +545,49 @@ class CognitiveIntelligence:
 
     def synthesize_industry_synergy_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.3 · 依赖净化版】行业-个股协同元融合引擎
+        【V1.4 · 健壮性升级版】行业-个股协同元融合引擎
         - 核心重构: 更新消费的风险信号为最新的、正确的融合风险信号。
+        - 健壮性升级(V1.4): 对行业和个股的看涨/看跌分数的计算增加了健壮性检查。
+                           现在会动态检查每个构成信号是否存在，只对有效的信号进行融合，
+                           避免了因上游信号缺失可能导致的计算偏差。
         """
         states = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        score_markup = atomic.get('SCORE_INDUSTRY_MARKUP', default_score)
-        score_preheat = atomic.get('SCORE_INDUSTRY_PREHEAT', default_score)
-        industry_bullish_score = np.maximum(score_markup, score_preheat)
-        score_stagnation = atomic.get('SCORE_INDUSTRY_STAGNATION', default_score)
-        score_downtrend = atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
-        industry_bearish_score = np.maximum(score_stagnation, score_downtrend)
-        
-        stock_ignition_score = atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE', default_score)
-        stock_breakout_score = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
-        
-        stock_bullish_score = np.maximum(stock_ignition_score, stock_breakout_score)
-        
-        # 将消费的信号更新为最新的、正确的融合风险信号
-        stock_breakdown_score = atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE', default_score)
-        stock_distribution_score = atomic.get('COGNITIVE_FUSION_TOP_REVERSAL', default_score)
-        stock_bearish_score = np.maximum(stock_breakdown_score, stock_distribution_score)
+        # 动态构建有效的信号列表并进行融合
+        # --- 行业看涨分 ---
+        industry_bullish_signals = [
+            atomic.get('SCORE_INDUSTRY_MARKUP', default_score),
+            atomic.get('SCORE_INDUSTRY_PREHEAT', default_score)
+        ]
+        valid_industry_bullish = [s.values for s in industry_bullish_signals if s is not None and not s.empty]
+        industry_bullish_score = np.maximum.reduce(valid_industry_bullish) if valid_industry_bullish else default_score.values
+        # --- 行业看跌分 ---
+        industry_bearish_signals = [
+            atomic.get('SCORE_INDUSTRY_STAGNATION', default_score),
+            atomic.get('SCORE_INDUSTRY_DOWNTREND', default_score)
+        ]
+        valid_industry_bearish = [s.values for s in industry_bearish_signals if s is not None and not s.empty]
+        industry_bearish_score = np.maximum.reduce(valid_industry_bearish) if valid_industry_bearish else default_score.values
+        # --- 个股看涨分 ---
+        stock_bullish_signals = [
+            atomic.get('COGNITIVE_SCORE_IGNITION_RESONANCE', default_score),
+            self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
+        ]
+        valid_stock_bullish = [s.values for s in stock_bullish_signals if s is not None and not s.empty]
+        stock_bullish_score = np.maximum.reduce(valid_stock_bullish) if valid_stock_bullish else default_score.values
+        # --- 个股看跌分 ---
+        stock_bearish_signals = [
+            atomic.get('COGNITIVE_FUSION_BEARISH_RESONANCE', default_score),
+            atomic.get('COGNITIVE_FUSION_TOP_REVERSAL', default_score)
+        ]
+        valid_stock_bearish = [s.values for s in stock_bearish_signals if s is not None and not s.empty]
+        stock_bearish_score = np.maximum.reduce(valid_stock_bearish) if valid_stock_bearish else default_score.values
         
         synergy_offense_score = pd.Series(industry_bullish_score, index=df.index) * pd.Series(stock_bullish_score, index=df.index)
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE'] = synergy_offense_score.astype(np.float32)
-        
         synergy_risk_score = pd.Series(industry_bearish_score, index=df.index) * pd.Series(stock_bearish_score, index=df.index)
         states['COGNITIVE_SCORE_INDUSTRY_SYNERGY_RISK'] = synergy_risk_score.astype(np.float32)
-        
         self.strategy.atomic_states.update(states)
         return df
 
