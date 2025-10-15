@@ -275,14 +275,14 @@ class ChipFeatureCalculator:
             avg_cost_long = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
         else:
             # 如果不存在长期筹码，则其成本逻辑上锚定在划分边界
-            print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无长期筹码，avg_cost_long_term 锚定为 prev_20d_close: {prev_20d_close}")
+            # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无长期筹码，avg_cost_long_term 锚定为 prev_20d_close: {prev_20d_close}")
             avg_cost_long = prev_20d_close
         # 如果短期筹码存在，则计算其加权平均成本
         if not short_term_chips_df.empty and short_term_chips_df['percent'].sum() > 0:
             avg_cost_short = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
         else:
             # 如果不存在短期筹码，则其成本逻辑上锚定在划分边界
-            print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无短期筹码，avg_cost_short_term 锚定为 prev_20d_close: {prev_20d_close}")
+            # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无短期筹码，avg_cost_short_term 锚定为 prev_20d_close: {prev_20d_close}")
             avg_cost_short = prev_20d_close
         # [代码修改结束]
         return {
@@ -393,42 +393,42 @@ class ChipFeatureCalculator:
 
     def _calculate_turnover_structure(self) -> dict:
         """
-        【V3.0 · 赫尔墨斯的交易之尺】计算成交量微观结构
-        - 核心算法: 废除旧的、基于宏观存量比例的错误假设。新算法基于更真实的微观交易假设：
-                    当日的成交主要发生在当日的价格波动区间（low ~ high）内。
-                    通过计算获利盘和套牢盘与这个交易区间的“交集”大小，来估算各自对成交量的贡献。
-        - 公式: 获利盘成交量 ≈ 总成交量 * (获利盘在当日价格区间的筹码占比)
+        【V3.1 · 赫尔墨斯的交易之尺 · 健壮性终极版】计算成交量微观结构
+        - 核心修复: 彻底解决了因上游行情数据缺失导致方法返回空字典，从而引发
+                    下游衍生指标“空值雪崩”的根本性BUG。
+        - 新逻辑: 无论输入如何，此方法都保证返回一个包含
+                  'turnover_from_winners_ratio' 和 'turnover_from_losers_ratio'
+                  键的字典。在无法计算时，赋予中性值 50.0，确保数据链的完整性。
         """
         close_price = self.ctx.get('close_price')
         low_price = self.ctx.get('low_price')
         high_price = self.ctx.get('high_price')
-        if not all([close_price, low_price, high_price]):
-            return {}
-        # [代码修改开始]
+        # [代码修改开始] 修正入口保护逻辑，不再返回空字典
+        default_return = {
+            'turnover_from_winners_ratio': 50.0,
+            'turnover_from_losers_ratio': 50.0,
+        }
+        if not all(pd.notna(v) for v in [close_price, low_price, high_price]):
+            # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 因行情数据不完整，成交结构返回默认值。")
+            return default_return
+        # [代码修改结束]
         # 1. 找出当日价格波动区间内所有的筹码
         turnover_zone_df = self.df[(self.df['price'] >= low_price) & (self.df['price'] <= high_price)]
         if turnover_zone_df.empty:
-            # 如果当天是“一字板”，则无法按此逻辑计算，返回一个中性值或保持原逻辑
-            return {
-                'turnover_from_winners_ratio': 50.0,
-                'turnover_from_losers_ratio': 50.0,
-            }
+            # 如果当天是“一字板”，则无法按此逻辑计算，返回中性值
+            return default_return
         # 2. 在这个“成交活跃区”内，进一步划分获利盘和套牢盘
         winners_in_zone_df = turnover_zone_df[turnover_zone_df['price'] < close_price]
         losers_in_zone_df = turnover_zone_df[turnover_zone_df['price'] > close_price]
         # 3. 计算各自在“成交活跃区”内的筹码占比
         total_percent_in_zone = turnover_zone_df['percent'].sum()
         if total_percent_in_zone == 0:
-            return {
-                'turnover_from_winners_ratio': 50.0,
-                'turnover_from_losers_ratio': 50.0,
-            }
+            return default_return
         winner_contribution_ratio = winners_in_zone_df['percent'].sum() / total_percent_in_zone
         loser_contribution_ratio = losers_in_zone_df['percent'].sum() / total_percent_in_zone
         # 4. 将这个贡献比例作为最终的成交结构比例
         turnover_from_winners_ratio = winner_contribution_ratio * 100
         turnover_from_losers_ratio = loser_contribution_ratio * 100
-        
         return {
             'turnover_from_winners_ratio': turnover_from_winners_ratio,
             'turnover_from_losers_ratio': turnover_from_losers_ratio,
