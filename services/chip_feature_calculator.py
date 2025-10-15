@@ -213,36 +213,39 @@ class ChipFeatureCalculator:
 
     def _calculate_winner_structure(self) -> dict:
         """
-        【V13.3 · 宙斯之盾协议 · 终极版】
-        - 核心重构: 废除旧的独立“四象限”划分法，该方法与上游 `total_winner_rate` 数据源存在潜在的逻辑不自洽问题。
-        - 新逻辑: 回归定义，统一计算口径。首先基于收盘价将所有筹码精确划分为“获利盘”和“套牢盘”两大阵营。
-                  然后，在这两大阵营内部，再使用 `weight_avg_cost` 作为标准，进一步细分出长/短期部分。
-        - 收益: 此方法确保了 `winner_rate_short_term + winner_rate_long_term` 严格等于 `total_winner_rate`，
-                实现了指标体系的绝对内在和谐与逻辑闭环，为下游所有衍生指标提供了最纯净、最可靠的数据源。
+        【V13.4 · 赫淮斯托斯之锤 · 最终锻造版】
+        - 核心重构: 废除所有历史版本中对“长/短期”筹码划分的摇摆定义。本版为最终正确实现。
+        - 新逻辑: 统一系统度量衡，规定 `prev_20d_close` 为划分长/短期筹码的唯一、神圣标准。
+                  首先基于 `close_price` 划分“获利/套牢”两大阵营，然后在这两大阵营内部，
+                  再统一使用 `prev_20d_close` 进行长/短期细分。
+        - 收益: 此举彻底解决了因定义不统一和代理变量选择不当（如 weight_avg_cost）导致的
+                指标剧烈跳变和下游衍生指标“空值雪崩”的最终根源。系统内部逻辑完全自洽，
+                所有指标的计算都建立在稳定、可靠且符合技术分析直觉的基础之上。
         """
         close_price = self.ctx.get('close_price')
-        weight_avg_cost = self.ctx.get('weight_avg_cost')
+        prev_20d_close = self.ctx.get('prev_20d_close') # [代码修改] 引入 20日前收盘价作为唯一时间代理
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
-        # [代码修改开始] 采用全新的、基于二次精细切分的划分法
-        if not all(pd.notna(v) for v in [close_price, weight_avg_cost]):
+        # [代码修改] 检查 close_price 和 prev_20d_close
+        if not all(pd.notna(v) for v in [close_price, prev_20d_close]):
             return {
                 'winner_rate_short_term': None, 'winner_rate_long_term': None,
                 'loser_rate_short_term': None, 'loser_rate_long_term': None,
                 'total_loser_rate': 100.0 - total_winner_rate if total_winner_rate is not None else None
             }
+        # [代码修改开始] 采用全新的、基于“先盈亏，后周期”的统一划分法
         # 1. 精确划分获利盘(winners_df)与套牢盘(losers_df)两大阵营
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
-        # 2. 在各自阵营内部，再进行长/短期细分
+        # 2. 在各自阵营内部，再使用唯一的“时间代理”(`prev_20d_close`)进行长/短期细分
         # 在获利盘内部划分
-        long_term_winner_rate = winners_df[winners_df['price'] < weight_avg_cost]['percent'].sum()
-        short_term_winner_rate = winners_df[winners_df['price'] >= weight_avg_cost]['percent'].sum()
+        long_term_winner_rate = winners_df[winners_df['price'] < prev_20d_close]['percent'].sum()
+        short_term_winner_rate = winners_df[winners_df['price'] >= prev_20d_close]['percent'].sum()
         # 在套牢盘内部划分
-        long_term_loser_rate = losers_df[losers_df['price'] < weight_avg_cost]['percent'].sum()
-        short_term_loser_rate = losers_df[losers_df['price'] >= weight_avg_cost]['percent'].sum()
+        long_term_loser_rate = losers_df[losers_df['price'] < prev_20d_close]['percent'].sum()
+        short_term_loser_rate = losers_df[losers_df['price'] >= prev_20d_close]['percent'].sum()
         # 3. 计算总套牢盘比例
         total_loser_rate = long_term_loser_rate + short_term_loser_rate
-        # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, avg_cost={weight_avg_cost:.2f}, total_winner_rate={total_winner_rate:.2f}, calculated_winners_sum={(long_term_winner_rate + short_term_winner_rate):.2f}")
+        # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, prev_20d_close={prev_20d_close}, winner_rate_short_term={short_term_winner_rate:.2f}")
         # [代码修改结束]
         return {
             'winner_rate_short_term': short_term_winner_rate,
