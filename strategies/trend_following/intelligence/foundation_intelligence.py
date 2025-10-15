@@ -30,7 +30,7 @@ class FoundationIntelligence:
         all_states.update(tactical_ultimate_states)
         vpa_risk_states = self.diagnose_vpa_risks(df)
         all_states.update(vpa_risk_states)
-        # [代码新增] 调用新增的筹码断层诊断引擎
+        # 调用新增的筹码断层诊断引擎
         chip_fault_states = self.diagnose_chip_fault_dynamics(df)
         all_states.update(chip_fault_states)
         return all_states

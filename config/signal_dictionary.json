@@ -364,6 +364,14 @@
             "description": "【B级冲突信号】量化“牛熊冲突”的激烈程度，当看涨和看跌力量同时处于高位时，此分值会很高。它将作为“信心阻尼器”压制进攻分，并作为一个独立的、强烈的风险信号。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
+        "SCORE_MICRO_HERMES_GAMBIT": {
+            "cn_name": "【微观】赫尔墨斯诡计",
+            "category": "微观行为-机会",
+            "type": "positional",
+            "score": 550,
+            "context_role": "bottom_opportunity",
+            "description": "【B级战术信号】识别主力“大单卖出压价，再拆单接回”的洗盘吸筹行为。融合了资金流结构矛盾、价量矛盾、筹码结果矛盾和宏观环境矛盾四大证据链，是高置信度的底部或中继吸筹信号。"
+        },
         "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION": {
             "cn_name": "【微观】早期动能点火",
             "category": "微观行为-机会",

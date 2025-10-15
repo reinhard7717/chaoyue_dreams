@@ -38,7 +38,7 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        # [代码新增] 调用新增的“赫尔墨斯诡计”诊断引擎
+        # 调用新增的“赫尔墨斯诡计”诊断引擎
         update_states(self.diagnose_hermes_gambit(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
