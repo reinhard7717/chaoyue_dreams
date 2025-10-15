@@ -256,28 +256,35 @@ class ChipFeatureCalculator:
 
     def _calculate_holder_costs(self) -> dict:
         """
-        【V1.0 新增】计算长/短期持仓者平均成本
-        - 核心逻辑: 以20日前收盘价为界，划分长期与短期持仓者，并分别计算其加权平均成本。
-                   这是一种常用的、基于价格行为的持仓周期划分代理方法。
+        【V1.1 · 阿瑞斯之盾协议】计算长/短期持仓者平均成本
+        - 核心修复: 解决了当某一类（长期/短期）筹码不存在时，对应成本指标返回None，
+                    从而引发下游 `cost_divergence` 指标“空值雪崩”的根本性问题。
+        - 新逻辑: 当某一类筹码为空时，其平均成本被逻辑锚定在划分边界 `prev_20d_close` 上，
+                  确保指标始终返回一个有业务意义的有效值，保证了数据计算链的完整性。
         """
         prev_20d_close = self.ctx.get('prev_20d_close')
-
         if pd.isna(prev_20d_close):
             return {'avg_cost_short_term': None, 'avg_cost_long_term': None}
-
         # 长期持仓者：成本低于20日前收盘价的筹码
         long_term_chips_df = self.df[self.df['price'] < prev_20d_close]
         # 短期持仓者：成本高于等于20日前收盘价的筹码
         short_term_chips_df = self.df[self.df['price'] >= prev_20d_close]
-
-        avg_cost_long = None
+        # [代码修改开始]
+        # 如果长期筹码存在，则计算其加权平均成本
         if not long_term_chips_df.empty and long_term_chips_df['percent'].sum() > 0:
             avg_cost_long = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
-
-        avg_cost_short = None
+        else:
+            # 如果不存在长期筹码，则其成本逻辑上锚定在划分边界
+            print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无长期筹码，avg_cost_long_term 锚定为 prev_20d_close: {prev_20d_close}")
+            avg_cost_long = prev_20d_close
+        # 如果短期筹码存在，则计算其加权平均成本
         if not short_term_chips_df.empty and short_term_chips_df['percent'].sum() > 0:
             avg_cost_short = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
-
+        else:
+            # 如果不存在短期筹码，则其成本逻辑上锚定在划分边界
+            print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无短期筹码，avg_cost_short_term 锚定为 prev_20d_close: {prev_20d_close}")
+            avg_cost_short = prev_20d_close
+        # [代码修改结束]
         return {
             'avg_cost_short_term': avg_cost_short,
             'avg_cost_long_term': avg_cost_long,
