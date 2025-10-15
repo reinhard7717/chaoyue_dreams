@@ -1077,7 +1077,7 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     """【资金流辅助函数 V1.5 · 数据源修正版】加载、标准化并合并多源资金流及日线核心数据。"""
-    print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
+    # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model: return pd.DataFrame()
@@ -1154,12 +1154,10 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V2.0 · 阿波罗的真理天平】计算共识指标和基于共识的科学化高级比率。"""
-    print(f"[{stock_code}] [资金流-共识计算] 正在执行“阿波罗的真理天平”协议...")
+    """【资金流辅助函数 V2.1 · 类型统一协议】计算共识指标和基于共识的科学化高级比率。"""
+    # print(f"[{stock_code}] [资金流-共识计算] 正在执行“阿波罗的真理天平”协议...")
     df = merged_df.copy()
-    # [代码修改开始]
     # --- 阶段一: 构建所有基础指标的共识值 ---
-    # 扩展共识图谱，包含所有用于计算高级指标的基础原子
     consensus_map = {
         'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
         'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -1177,49 +1175,45 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     for target_col, source_cols in consensus_map.items():
         existing_cols = [col for col in source_cols if col in df.columns]
         if existing_cols:
-            df[target_col] = df[existing_cols].mean(axis=1)
+            # [代码修正] 在求均值前，确保所有源列都转换为float类型
+            df[target_col] = df[existing_cols].apply(lambda x: pd.to_numeric(x, errors='coerce')).mean(axis=1)
         else:
             df[target_col] = np.nan
             print(f"[{stock_code}] [共识计算警告] 目标 '{target_col}': 所有源列 {source_cols} 均缺失。")
     # --- 阶段二: 基于可靠的共识值，计算科学化的高级比率指标 ---
-    # 安全除法辅助函数
     safe_denom = lambda v: v.replace(0, np.nan)
+    # [代码修正] 将所有从数据库读取的Decimal列在使用前统一转换为float
     # 1. 主力资金流强度比率 (标准化)
-    # 定义：主力净流入占当天总成交额的比例，反映主力对价格的影响力。
-    total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0) * 1000 # amount单位是千元
-    main_force_net_flow_yuan = df['main_force_net_flow_consensus'].fillna(0) * 10000 # 资金流单位是万元
+    total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
+    main_force_net_flow_yuan = df['main_force_net_flow_consensus'].fillna(0).astype(float) * 10000
     df['main_force_flow_intensity_ratio'] = (main_force_net_flow_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
     # 2. 主动买盘压力 (基于共识值)
-    # 定义：主力主动买入与散户主动卖出的比值，衡量主力接盘意愿。
-    main_force_buy = df['main_force_active_buy_consensus'].fillna(0)
-    retail_sell = df['retail_active_sell_consensus'].fillna(0)
+    main_force_buy = df['main_force_active_buy_consensus'].fillna(0).astype(float)
+    retail_sell = df['retail_active_sell_consensus'].fillna(0).astype(float)
     df['active_buy_pressure'] = (main_force_buy / safe_denom(retail_sell)).fillna(0.5)
     # 3. 散户恐慌指数 (基于共识值)
-    # 定义：散户主动卖出与散户主动买入的比值，衡量散户恐慌程度。
-    retail_buy = df['retail_active_buy_consensus'].fillna(0)
+    retail_buy = df['retail_active_buy_consensus'].fillna(0).astype(float)
     df['retail_panic_index'] = (retail_sell / safe_denom(retail_buy)).fillna(1.0)
     # 4. 主力信念比率 (超大单/大单)
-    # 定义：超大单净流入占大单净流入的比例，衡量核心主力的决心。
-    net_xl = df['net_xl_amount_consensus'].fillna(0)
-    net_lg = df['net_lg_amount_consensus'].fillna(0)
+    net_xl = df['net_xl_amount_consensus'].fillna(0).astype(float)
+    net_lg = df['net_lg_amount_consensus'].fillna(0).astype(float)
     df['main_force_conviction_ratio'] = (net_xl / safe_denom(net_lg)).fillna(0)
     # 5. 交易集中度指数 (标准化)
-    # 定义：超大单交易额占总成交额的比例，反映大资金的活跃度。
-    total_xl_trade_yuan = (df.get('net_xl_amount_tushare', pd.Series(dtype=float)).abs()) * 10000 # 估算
+    total_xl_trade_yuan = (df.get('net_xl_amount_tushare', pd.Series(dtype=float)).abs().fillna(0).astype(float)) * 10000
     df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
     # 6. 平均每笔成交金额 (基于共识值)
-    # 定义：总成交额 / 总笔数，反映市场参与者的平均资金实力。
-    trade_count = df['trade_count_consensus'].fillna(0)
+    trade_count = df['trade_count_consensus'].fillna(0).astype(float)
     df['avg_order_value'] = (total_turnover_yuan / safe_denom(trade_count)).fillna(0)
     # 7. 主力锁仓买入比 (逻辑不变，但基于共识值)
-    main_force_active_sell = df['main_force_active_sell_consensus'].fillna(0)
+    main_force_active_sell = df['main_force_active_sell_consensus'].fillna(0).astype(float)
     df['main_force_conviction_buy_ratio'] = (main_force_buy / safe_denom(main_force_buy + main_force_active_sell)).fillna(0.5)
     # 8. 资金分歧度 (逻辑不变，但基于共识值)
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
     # 9. 主力买入率 (标准化)
-    df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / (df['circ_mv'].fillna(0) * 10000)).fillna(0.0) * 100
-    # [代码修改结束]
+    # [代码修正] 确保circ_mv也转换为float类型
+    circ_mv_yuan = df.get('circ_mv', pd.Series(dtype=float)).fillna(0).astype(float) * 10000
+    df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)).fillna(0.0) * 100
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
