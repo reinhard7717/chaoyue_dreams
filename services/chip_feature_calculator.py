@@ -330,49 +330,58 @@ class ChipFeatureCalculator:
 
     def _calculate_advanced_structures(self, context: dict) -> dict:
         """
-        【V6.1 逻辑修正版】
-        - 修正: 移除了 chip_health_score 的计算，因为它依赖于后计算的斜率指标。
-        - 修正: 彻底移除了对已废弃的资金流指标的依赖。
+        【V6.2 · 赫尔墨斯信使协议】
+        - 核心修复: 修正了 `winner_profit_margin` 的计算逻辑。当不存在获利盘时，
+                    明确将其值赋为 0.0，而不是 None。此举解决了因其为空值而导致的
+                    下游所有斜率、加速度指标“雪崩式”变为空值的根本性问题。
+        - 健壮性增强: 为 `peak_absorption_intensity` 的计算增加了分母为零的保护，
+                      避免了在成交量为零的罕见情况下出现除零错误。
         """
         results = {}
-        
         # --- 1. 控盘度指标 (Control Metrics) ---
         peak_volume = context.get('peak_volume')
         total_float_share = self.ctx.get('total_chip_volume')
         if peak_volume is not None and total_float_share and total_float_share > 0:
             results['peak_control_ratio'] = (peak_volume / total_float_share) * 100
-
         peak_cost = context.get('peak_cost')
         daily_turnover = self.ctx.get('daily_turnover_volume')
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
-
+        # [代码修改开始] 增加分母 daily_turnover 的健壮性检查
         if daily_turnover and daily_turnover > 0 and peak_range_low is not None and peak_range_high is not None:
             turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
-            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover
+            # 增加除零保护
+            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover if daily_turnover > 0 else 0.0
         else:
-            results['peak_absorption_intensity'] = None
-
+            results['peak_absorption_intensity'] = 0.0 # 如果基础数据不全，吸筹强度为0
+        # [代码修改结束]
         # --- 2. 利润质量指标 (Profit Quality Metrics) ---
         close_price = self.ctx.get('close_price')
         if close_price:
             winners_df = self.df[self.df['price'] < close_price]
-            if not winners_df.empty:
+            # [代码修改开始] 修正获利盘为空时的处理逻辑
+            if not winners_df.empty and winners_df['percent'].sum() > 0:
                 winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
                 results['winner_avg_cost'] = winner_avg_cost
                 if winner_avg_cost > 0:
                     results['winner_profit_margin'] = ((close_price - winner_avg_cost) / winner_avg_cost) * 100
-
+                else:
+                    # 获利盘平均成本为0的罕见情况
+                    results['winner_profit_margin'] = 0.0
+            else:
+                # 当不存在获利盘时，平均成本无意义，但利润安全垫的业务含义是0
+                results['winner_avg_cost'] = None
+                results['winner_profit_margin'] = 0.0
+            # [代码修改结束]
         # --- 3. 价码关系指标 (Price-Chip Relation Metrics) ---
         if close_price and peak_cost and peak_cost > 0:
             results['price_to_peak_ratio'] = close_price / peak_cost
-        
         if close_price:
             weighted_mean = self.ctx.get('weight_avg_cost')
-            weighted_std = np.sqrt(np.average((self.df['price'] - weighted_mean)**2, weights=self.df['percent']))
-            if weighted_std and weighted_std > 0:
-                results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
-
+            if weighted_mean is not None: # 增加对 weight_avg_cost 的检查
+                weighted_std = np.sqrt(np.average((self.df['price'] - weighted_mean)**2, weights=self.df['percent']))
+                if weighted_std and weighted_std > 0:
+                    results['chip_zscore'] = (close_price - weighted_mean) / weighted_std
         return results
 
     def _calculate_turnover_structure(self) -> dict:
