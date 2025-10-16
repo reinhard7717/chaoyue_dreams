@@ -1075,8 +1075,8 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
-    """【资金流辅助函数 V1.6 · 得墨忒耳协议】加载、标准化并以内连接合并多源数据。"""
-    # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
+    """【资金流辅助函数 V1.7 · 三体协议】加载、标准化并以内连接合并多源数据，为三体分析备料。"""
+    print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model: return pd.DataFrame()
@@ -1093,54 +1093,59 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
+    # [代码修改开始] 优化标准化函数，为每个源的指标添加明确的后缀
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
         if df.empty: return df
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
         for col in df.columns:
-            if 'amount' in col or 'net' in col or 'trade_count' in col or 'vol' in col:
+            if col != 'trade_time' and 'code' not in col and 'name' not in col:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         if source == 'tushare':
+            # Tushare提供最原始的买卖数据，是成本计算的唯一基础
+            # 我们在这里直接保留所有vol和amount列，并计算其净值
+            df['net_flow_tushare'] = df['net_mf_amount']
             df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
             df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
             df['net_xl_amount_tushare'] = df['buy_elg_amount'] - df['sell_elg_amount']
             df['net_lg_amount_tushare'] = df['buy_lg_amount'] - df['sell_lg_amount']
             df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
             df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
-            df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
-            df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
-            df['retail_active_buy_tushare'] = df['buy_sm_amount'] + df['buy_md_amount']
-            df['retail_active_sell_tushare'] = df['sell_sm_amount'] + df['sell_md_amount']
-            # 恢复 trade_count 的处理
-            required_cols = [
-                'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare',
-                'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare',
-                'net_md_amount_tushare', 'net_sh_amount_tushare', 'main_force_active_buy_tushare',
-                'main_force_active_sell_tushare', 'retail_active_buy_tushare', 'retail_active_sell_tushare',
-                'trade_count'
-            ]
-            
-            return df[[col for col in required_cols if col in df.columns]].rename(columns={'net_mf_amount': 'net_flow_tushare'})
+            # 保留所有原始列用于后续的成本计算
+            return df
         elif source == 'ths':
-            df['main_force_net_flow_ths'] = df['buy_lg_amount']
-            df['retail_net_flow_ths'] = df['buy_sm_amount'] + df['buy_md_amount']
-            return df[['trade_time', 'net_amount', 'main_force_net_flow_ths', 'retail_net_flow_ths']].rename(columns={'net_amount': 'net_flow_ths'})
+            # 同花顺提供的是处理后的净额数据
+            df = df.rename(columns={
+                'net_amount': 'net_flow_ths',
+                'buy_lg_amount': 'main_force_net_flow_ths',
+                'buy_md_amount': 'net_md_amount_ths',
+                'buy_sm_amount': 'net_sh_amount_ths',
+            })
+            df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0) + df.get('net_sh_amount_ths', 0)
+            return df[['trade_time', 'net_flow_ths', 'main_force_net_flow_ths', 'retail_net_flow_ths']]
         elif source == 'dc':
-            df['main_force_net_flow_dc'] = df['buy_elg_amount'] + df['buy_lg_amount']
-            df['retail_net_flow_dc'] = df['buy_sm_amount'] + df['buy_md_amount']
-            df['net_xl_amount_dc'] = df['buy_elg_amount']
-            return df[['trade_time', 'net_amount', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'net_xl_amount_dc']].rename(columns={'net_amount': 'net_flow_dc'})
+            # 东方财富同样提供处理后的净额数据
+            df = df.rename(columns={
+                'net_amount': 'main_force_net_flow_dc', # DC的net_amount特指主力净流入
+                'buy_elg_amount': 'net_xl_amount_dc',
+                'buy_lg_amount': 'net_lg_amount_dc',
+                'buy_md_amount': 'net_md_amount_dc',
+                'buy_sm_amount': 'net_sh_amount_dc',
+            })
+            df['net_flow_dc'] = df['main_force_net_flow_dc'] + df['net_md_amount_dc'] + df['net_sh_amount_dc']
+            df['retail_net_flow_dc'] = df.get('net_md_amount_dc', 0) + df.get('net_sh_amount_dc', 0)
+            return df[['trade_time', 'net_flow_dc', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'net_xl_amount_dc']]
         return df
+    # [代码修改结束]
     df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
     df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
     df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
     dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
     if not dfs_to_merge:
         raise ValueError("所有资金流数据源均为空")
+    # 使用外连接(outer)合并，保留所有数据源的信息，即使某一天某个源缺失数据
     merged_df = dfs_to_merge[0]
     for df_to_merge in dfs_to_merge[1:]:
-        # 将合并策略从 'outer' 更改为 'inner'
-        merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='inner')
-        
-    merged_df['trade_time'] = pd.to_datetime(merged_df['trade_time'])
+        merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='outer')
     merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
     daily_dfs_to_join = []
     if not data_dfs['daily'].empty:
@@ -1150,62 +1155,116 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
         daily_dfs_to_join.append(daily_basic_df)
     if daily_dfs_to_join:
-        merged_df = merged_df.join(daily_dfs_to_join, how='left')
+        # 使用内连接(inner)确保资金流数据与行情数据对齐
+        merged_df = merged_df.join(daily_dfs_to_join, how='inner')
     return merged_df
 
-def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V2.4 · 最终锻造】在所有基础计算后，调用高级因子锻造方法。"""
-    # print(f"[{stock_code}] [资金流-共识计算] 正在执行“阿波罗的真理天平”协议...")
+def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    【V3.1 · 终极升维版】整合、交叉验证并锻造所有高级资金流指标。
+    - 核心思想: 将Tushare作为“物理宇宙”进行成本和主动性计算，将THS/DC作为“情绪宇宙”进行交叉验证，并从“分歧”中提取信号。
+    - 终极升维: 激活数据库模型中定义的所有不依赖vol的比率指标，并完善Tushare专属指标的计算，实现火力全覆盖。
+    """
+    print(f"[{stock_code}] [资金流-三体模型] 启动多源数据交叉验证与终极锻造...")
     df = merged_df.copy()
-    # --- 阶段一: 构建所有基础指标的共识值 ---
+    # --- 阶段一: “物理宇宙”解析 (Tushare专属计算) ---
+    # 只有Tushare提供vol和主动买卖数据，因此所有依赖这些数据的计算都在此闭包内完成。
+    tushare_cols_exist = 'buy_sm_vol' in df.columns
+    if tushare_cols_exist:
+        print(f"    -> 检测到Tushare 'vol' 数据，启动“物理宇宙”深度计算...")
+        # 1.1 计算各类订单的买卖平均成本
+        cost_pairs = {
+            'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
+            'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'), 'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
+            'avg_cost_lg_buy': ('buy_lg_amount', 'buy_lg_vol'), 'avg_cost_lg_sell': ('sell_lg_amount', 'sell_lg_vol'),
+            'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'), 'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
+        }
+        for new_col, (amount_col, vol_col) in cost_pairs.items():
+            safe_vol = df[vol_col].replace(0, np.nan)
+            df[new_col] = (df[amount_col] * 100) / safe_vol
+        # 1.2 计算聚合参与者的买卖平均成本
+        main_buy_amount = df['buy_lg_amount'] + df['buy_elg_amount']
+        main_buy_vol = df['buy_lg_vol'] + df['buy_elg_vol']
+        df['avg_cost_main_buy'] = (main_buy_amount * 100) / main_buy_vol.replace(0, np.nan)
+        main_sell_amount = df['sell_lg_amount'] + df['sell_elg_amount']
+        main_sell_vol = df['sell_lg_vol'] + df['sell_elg_vol']
+        df['avg_cost_main_sell'] = (main_sell_amount * 100) / main_sell_vol.replace(0, np.nan)
+        retail_buy_amount = df['buy_sm_amount'] + df['buy_md_amount']
+        retail_buy_vol = df['buy_sm_vol'] + df['buy_md_vol']
+        df['avg_cost_retail_buy'] = (retail_buy_amount * 100) / retail_buy_vol.replace(0, np.nan)
+        retail_sell_amount = df['sell_sm_amount'] + df['sell_md_amount']
+        retail_sell_vol = df['sell_sm_vol'] + df['sell_md_vol']
+        df['avg_cost_retail_sell'] = (retail_sell_amount * 100) / retail_sell_vol.replace(0, np.nan)
+        # 1.3 锻造基于成本矩阵的高阶因子
+        df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
+        df['cost_weighted_main_flow'] = df.get('main_force_net_flow_tushare', np.nan) * df['avg_cost_main_buy']
+        df['main_buy_cost_advantage'] = (df['avg_cost_main_buy'] / df['close'].replace(0, np.nan)) - 1
+        df['main_force_intraday_profit'] = df['avg_cost_main_sell'] - df['avg_cost_main_buy']
+        df['market_cost_battle'] = df['avg_cost_main_buy'] - df['avg_cost_retail_buy']
+        # [代码修改开始] 激活Tushare专属的主动性比率指标
+        # 1.4 计算主动买卖金额
+        df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
+        df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
+        df['retail_active_buy_tushare'] = df['buy_sm_amount'] + df['buy_md_amount']
+        df['retail_active_sell_tushare'] = df['sell_sm_amount'] + df['sell_md_amount']
+        # 1.5 计算主动性比率
+        safe_denom = lambda v: v.replace(0, np.nan)
+        df['active_buy_pressure'] = df['main_force_active_buy_tushare'] / safe_denom(df['retail_active_sell_tushare'])
+        df['retail_panic_index'] = df['retail_active_sell_tushare'] / safe_denom(df['retail_active_buy_tushare'])
+        df['main_force_conviction_buy_ratio'] = df['main_force_active_buy_tushare'] / safe_denom(df['main_force_active_buy_tushare'] + df['main_force_active_sell_tushare'])
+        # 1.6 计算平均每笔成交金额
+        if 'trade_count' in df.columns:
+            total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
+            df['avg_order_value'] = total_turnover_yuan / safe_denom(df['trade_count'])
+        # [代码修改结束]
+    else:
+        print(f"    -> [警告] 未检测到Tushare 'vol' 数据，成本宇宙和主动性指标将为空。")
+    # --- 阶段二: “情绪宇宙”交叉验证与共识建立 ---
+    print(f"    -> 启动情绪宇宙交叉验证...")
+    # [代码修改开始] 扩展共识地图，纳入所有净额分项
     consensus_map = {
         'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
         'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
         'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
         'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
-        'net_lg_amount_consensus': ['net_lg_amount_tushare'],
-        'net_md_amount_consensus': ['net_md_amount_tushare'],
-        'net_sh_amount_consensus': ['net_sh_amount_tushare'],
-        'main_force_active_buy_consensus': ['main_force_active_buy_tushare'],
-        'main_force_active_sell_consensus': ['main_force_active_sell_tushare'],
-        'retail_active_buy_consensus': ['retail_active_buy_tushare'],
-        'retail_active_sell_consensus': ['retail_active_sell_tushare'],
-        'trade_count_consensus': ['trade_count'],
+        'net_lg_amount_consensus': ['net_lg_amount_tushare'], # 大单净额主要依赖Tushare
+        'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
+        'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
     }
+    # [代码修改结束]
     for target_col, source_cols in consensus_map.items():
         existing_cols = [col for col in source_cols if col in df.columns]
         if existing_cols:
-            df[target_col] = df[existing_cols].apply(lambda x: pd.to_numeric(x, errors='coerce')).mean(axis=1)
+            df[target_col] = df[existing_cols].mean(axis=1)
         else:
             df[target_col] = np.nan
-            print(f"[{stock_code}] [共识计算警告] 目标 '{target_col}': 所有源列 {source_cols} 均缺失。")
-    # --- 阶段二: 基于可靠的共识值，计算科学化的高级比率指标 ---
+    # --- 阶段三: “分歧度”锻造与普适性比率计算 ---
+    print(f"    -> 锻造分歧度指标与普适性比率...")
+    # 3.1 锻造分歧度指标
+    if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
+        df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
+    if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_dc' in df.columns:
+        df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
+    if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
+        df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
+    # [代码修改开始] 激活所有不依赖vol的普适性比率指标
+    # 3.2 计算普适性比率指标
     safe_denom = lambda v: v.replace(0, np.nan)
     total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
     main_force_net_flow_yuan = df['main_force_net_flow_consensus'].fillna(0).astype(float) * 10000
     df['main_force_flow_intensity_ratio'] = (main_force_net_flow_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    main_force_buy = df['main_force_active_buy_consensus'].fillna(0).astype(float)
-    retail_sell = df['retail_active_sell_consensus'].fillna(0).astype(float)
-    df['active_buy_pressure'] = (main_force_buy / safe_denom(retail_sell)).fillna(0.5)
-    retail_buy = df['retail_active_buy_consensus'].fillna(0).astype(float)
-    df['retail_panic_index'] = (retail_sell / safe_denom(retail_buy)).fillna(1.0)
-    net_xl = df['net_xl_amount_consensus'].fillna(0).astype(float)
-    net_lg = df['net_lg_amount_consensus'].fillna(0).astype(float)
-    df['main_force_conviction_ratio'] = (net_xl / safe_denom(net_lg)).fillna(0)
-    total_xl_trade_yuan = (df.get('net_xl_amount_tushare', pd.Series(dtype=float)).abs().fillna(0).astype(float)) * 10000
-    df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    trade_count = df['trade_count_consensus'].fillna(0).astype(float)
-    df['avg_order_value'] = (total_turnover_yuan / safe_denom(trade_count)).fillna(0)
-    main_force_active_sell = df['main_force_active_sell_consensus'].fillna(0).astype(float)
-    df['main_force_conviction_buy_ratio'] = (main_force_buy / safe_denom(main_force_buy + main_force_active_sell)).fillna(0.5)
-    df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
-    df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
     circ_mv_yuan = df.get('circ_mv', pd.Series(dtype=float)).fillna(0).astype(float) * 10000
     df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)).fillna(0.0) * 100
-    # [代码新增开始] 调用新增的高级因子锻造方法
-    # 此方法依赖于原始Tushare数据列和共识数据列，是本阶段的最后一步
-    df = _calculate_costs_and_advanced_factors(df)
-    # [代码新增结束]
+    # 激活数据库中定义的其他比率
+    df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
+    df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
+    # 主力信念比率 = 超大单净额 / 大单净额。衡量头部资金的引领作用。
+    df['main_force_conviction_ratio'] = df['net_xl_amount_consensus'] / safe_denom(df.get('net_lg_amount_consensus'))
+    # 交易集中度 = 超大单成交绝对值 / 总成交额。衡量大资金影响力。
+    # 使用consensus作为分子，更具代表性
+    total_xl_trade_yuan = df['net_xl_amount_consensus'].abs().fillna(0).astype(float) * 10000
+    df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
+    # [代码修改结束]
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
@@ -1302,15 +1361,14 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V18.0 - 最终版流程】
-    - 核心流程: 确立了最终的、逻辑严谨的数据处理管道，将所有计算模块化并按正确顺序调用。
+    【执行器 V19.0 - “三体”模型版】
+    - 核心流程: 确立了基于多源数据交叉验证的“三体”分析模型。
     - 新流程:
         1. 初始化上下文。
-        2. 加载并以内连接合并多源数据。
-        3. 调用 `_calculate_consensus_and_base_metrics` 计算共识指标和基础比率。
-        4. [新增] 调用 `_calculate_costs_and_advanced_factors` 一站式计算所有成本和高阶复合因子。
-        5. 调用 `_calculate_standardized_derivatives` 为所有指标计算衍生值。
-        6. 准备并保存最终数据。
+        2. 加载并以外连接(outer)合并多源数据，保留所有信息。
+        3. 调用 `_synthesize_and_forge_advanced_metrics` 一站式完成“物理宇宙”成本计算、“情绪宇宙”交叉验证和“分歧度”锻造。
+        4. 调用 `_calculate_standardized_derivatives` 为所有新生成的高级指标（包括分歧度）计算衍生值。
+        5. 准备并保存最终数据。
     """
     async def main(incremental_flag: bool):
         try:
@@ -1320,15 +1378,13 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             )
             # 2. 加载和合并数据
             merged_df = await _load_and_merge_fund_flow_sources(stock_info, fetch_start_date)
-            # 优化和确立最终的计算管道
-            # 3. 计算共识指标和基础比率
-            df_with_consensus = _calculate_consensus_and_base_metrics(stock_code, merged_df)
-            # 4. 一站式计算所有成本指标和基于成本的高阶复合因子
-            df_with_costs_and_factors = _calculate_costs_and_advanced_factors(df_with_consensus)
-            # 5. 计算所有指标的衍生值（斜率、加速度等）
-            final_metrics_df = _calculate_standardized_derivatives(stock_code, df_with_costs_and_factors)
-            
-            # 6. 准备并保存数据
+            # [代码修改开始] 使用全新的“三体”模型替换旧的计算流程
+            # 3. 一站式合成、交叉验证并锻造高级指标
+            df_with_advanced_metrics = _synthesize_and_forge_advanced_metrics(stock_code, merged_df)
+            # 4. 计算所有指标的衍生值（斜率、加速度等）
+            final_metrics_df = _calculate_standardized_derivatives(stock_code, df_with_advanced_metrics)
+            # [代码修改结束]
+            # 5. 准备并保存数据
             processed_days = await _prepare_and_save_ff_data(
                 stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
             )
@@ -1465,56 +1521,6 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
         logger.error(f"数据迁移调度过程中发生严重错误: {e}", exc_info=True)
         self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
         raise
-
-def _calculate_costs_and_advanced_factors(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    【V2.1 · 墨菲防御版】
-    - 核心修复: 解决了因源数据列缺失导致中间变量变为整数，进而引发AttributeError的问题。
-    - 修复方案: 在使用df.get获取可能缺失的列时，将默认值从标量0改为与df索引对齐的`pd.Series(0, index=df.index)`，
-                  确保所有中间变量（如main_buy_vol）始终为Pandas Series类型，从而保证后续方法调用（如.replace）的健壮性。
-    """
-    print("    -> 正在执行“赫淮斯托斯熔炉”协议，锻造全维度成本与高阶因子...")
-    # --- 1. 计算所有原始订单的买卖平均成本 ---
-    def _calc_avg_cost(amount_col, vol_col):
-        safe_vol = pd.to_numeric(df[vol_col], errors='coerce').replace(0, np.nan)
-        amount_numeric = pd.to_numeric(df[amount_col], errors='coerce')
-        return (amount_numeric * 100) / safe_vol
-    cost_pairs = {
-        'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
-        'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'), 'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
-        'avg_cost_lg_buy': ('buy_lg_amount', 'buy_lg_vol'), 'avg_cost_lg_sell': ('sell_lg_amount', 'sell_lg_vol'),
-        'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'), 'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
-    }
-    for new_col, (amount_col, vol_col) in cost_pairs.items():
-        if amount_col in df.columns and vol_col in df.columns:
-            df[new_col] = _calc_avg_cost(amount_col, vol_col)
-    # --- 2. 计算聚合参与者的买卖平均成本 ---
-    # [代码修改开始] 将默认值从标量0改为与df索引对齐的Series，确保即使列缺失，变量类型也为Series
-    default_series = pd.Series(0, index=df.index, dtype=float)
-    # 主力买入
-    main_buy_amount = pd.to_numeric(df.get('buy_lg_amount', default_series), errors='coerce') + pd.to_numeric(df.get('buy_elg_amount', default_series), errors='coerce')
-    main_buy_vol = pd.to_numeric(df.get('buy_lg_vol', default_series), errors='coerce') + pd.to_numeric(df.get('buy_elg_vol', default_series), errors='coerce')
-    df['avg_cost_main_buy'] = (main_buy_amount * 100) / main_buy_vol.replace(0, np.nan)
-    # 主力卖出
-    main_sell_amount = pd.to_numeric(df.get('sell_lg_amount', default_series), errors='coerce') + pd.to_numeric(df.get('sell_elg_amount', default_series), errors='coerce')
-    main_sell_vol = pd.to_numeric(df.get('sell_lg_vol', default_series), errors='coerce') + pd.to_numeric(df.get('sell_elg_vol', default_series), errors='coerce')
-    df['avg_cost_main_sell'] = (main_sell_amount * 100) / main_sell_vol.replace(0, np.nan)
-    # 散户买入
-    retail_buy_amount = pd.to_numeric(df.get('buy_sm_amount', default_series), errors='coerce') + pd.to_numeric(df.get('buy_md_amount', default_series), errors='coerce')
-    retail_buy_vol = pd.to_numeric(df.get('buy_sm_vol', default_series), errors='coerce') + pd.to_numeric(df.get('buy_md_vol', default_series), errors='coerce')
-    df['avg_cost_retail_buy'] = (retail_buy_amount * 100) / retail_buy_vol.replace(0, np.nan)
-    # 散户卖出
-    retail_sell_amount = pd.to_numeric(df.get('sell_sm_amount', default_series), errors='coerce') + pd.to_numeric(df.get('sell_md_amount', default_series), errors='coerce')
-    retail_sell_vol = pd.to_numeric(df.get('sell_sm_vol', default_series), errors='coerce') + pd.to_numeric(df.get('sell_md_vol', default_series), errors='coerce')
-    df['avg_cost_retail_sell'] = (retail_sell_amount * 100) / retail_sell_vol.replace(0, np.nan)
-    # [代码修改结束]
-    # --- 3. 锻造基于完整成本矩阵的高阶复合因子 ---
-    df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
-    df['cost_weighted_main_flow'] = df['main_force_net_flow_consensus'] * df['avg_cost_main_buy']
-    df['main_buy_cost_advantage'] = (df['avg_cost_main_buy'] / df['close'].replace(0, np.nan)) - 1
-    df['main_force_intraday_profit'] = df['avg_cost_main_sell'] - df['avg_cost_main_buy']
-    df['market_cost_battle'] = df['avg_cost_main_buy'] - df['avg_cost_retail_buy']
-    return df
 
 # =================================================================
 # =================== 行业轮动预计算 ==================
