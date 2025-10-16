@@ -1051,7 +1051,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 
 async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     """【资金流辅助函数 V1.0】初始化任务上下文。"""
-    # print(f"[{stock_code}] [资金流-初始化] 正在准备任务上下文...")
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
     max_lookback_days = 200  # 需要比最长周期144天更长
@@ -1071,12 +1070,10 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     fetch_start_date = None
     if is_incremental and last_metric_date:
         fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
-    # print(f"[{stock_code}] [资金流-初始化] 上下文准备完毕。模式: {'增量' if is_incremental else '全量'}, 数据追溯起点: {fetch_start_date}")
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     """【资金流辅助函数 V1.7 · 三体协议】加载、标准化并以内连接合并多源数据，为三体分析备料。"""
-    print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model: return pd.DataFrame()
@@ -1093,7 +1090,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    # [代码修改开始] 优化标准化函数，为每个源的指标添加明确的后缀
+    # 优化标准化函数，为每个源的指标添加明确的后缀
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
         if df.empty: return df
         df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -1135,7 +1132,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['retail_net_flow_dc'] = df.get('net_md_amount_dc', 0) + df.get('net_sh_amount_dc', 0)
             return df[['trade_time', 'net_flow_dc', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'net_xl_amount_dc']]
         return df
-    # [代码修改结束]
+    
     df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
     df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
     df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
@@ -1165,13 +1162,11 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     - 核心思想: 将Tushare作为“物理宇宙”进行成本和主动性计算，将THS/DC作为“情绪宇宙”进行交叉验证，并从“分歧”中提取信号。
     - 终极升维: 激活数据库模型中定义的所有不依赖vol的比率指标，并完善Tushare专属指标的计算，实现火力全覆盖。
     """
-    print(f"[{stock_code}] [资金流-三体模型] 启动多源数据交叉验证与终极锻造...")
     df = merged_df.copy()
     # --- 阶段一: “物理宇宙”解析 (Tushare专属计算) ---
     # 只有Tushare提供vol和主动买卖数据，因此所有依赖这些数据的计算都在此闭包内完成。
     tushare_cols_exist = 'buy_sm_vol' in df.columns
     if tushare_cols_exist:
-        print(f"    -> 检测到Tushare 'vol' 数据，启动“物理宇宙”深度计算...")
         # 1.1 计算各类订单的买卖平均成本
         cost_pairs = {
             'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
@@ -1201,7 +1196,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         df['main_buy_cost_advantage'] = (df['avg_cost_main_buy'] / df['close'].replace(0, np.nan)) - 1
         df['main_force_intraday_profit'] = df['avg_cost_main_sell'] - df['avg_cost_main_buy']
         df['market_cost_battle'] = df['avg_cost_main_buy'] - df['avg_cost_retail_buy']
-        # [代码修改开始] 激活Tushare专属的主动性比率指标
+        # 激活Tushare专属的主动性比率指标
         # 1.4 计算主动买卖金额
         df['main_force_active_buy_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount']
         df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
@@ -1216,12 +1211,11 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         if 'trade_count' in df.columns:
             total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
             df['avg_order_value'] = total_turnover_yuan / safe_denom(df['trade_count'])
-        # [代码修改结束]
+        
     else:
         print(f"    -> [警告] 未检测到Tushare 'vol' 数据，成本宇宙和主动性指标将为空。")
     # --- 阶段二: “情绪宇宙”交叉验证与共识建立 ---
-    print(f"    -> 启动情绪宇宙交叉验证...")
-    # [代码修改开始] 扩展共识地图，纳入所有净额分项
+    # 扩展共识地图，纳入所有净额分项
     consensus_map = {
         'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
         'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -1231,7 +1225,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
         'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
     }
-    # [代码修改结束]
+    
     for target_col, source_cols in consensus_map.items():
         existing_cols = [col for col in source_cols if col in df.columns]
         if existing_cols:
@@ -1239,7 +1233,6 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         else:
             df[target_col] = np.nan
     # --- 阶段三: “分歧度”锻造与普适性比率计算 ---
-    print(f"    -> 锻造分歧度指标与普适性比率...")
     # 3.1 锻造分歧度指标
     if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
         df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
@@ -1247,7 +1240,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
     if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
         df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
-    # [代码修改开始] 激活所有不依赖vol的普适性比率指标
+    # 激活所有不依赖vol的普适性比率指标
     # 3.2 计算普适性比率指标
     safe_denom = lambda v: v.replace(0, np.nan)
     total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
@@ -1264,12 +1257,11 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     # 使用consensus作为分子，更具代表性
     total_xl_trade_yuan = df['net_xl_amount_consensus'].abs().fillna(0).astype(float) * 10000
     df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    # [代码修改结束]
+    
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
     """【资金流辅助函数 V1.6 · 最终升维版】为所有指标（包括全维度成本和高阶因子）计算衍生指标。"""
-    # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
     # 将所有新增的成本和复合因子加入衍生计算列表
     CORE_METRICS_TO_DERIVE = [
@@ -1323,7 +1315,6 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
 async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
     """【资金流辅助函数 V1.0】准备并保存最终计算结果到数据库。"""
     stock_code = stock_info.stock_code
-    # print(f"[{stock_code}] [资金流-数据保存] 开始准备并保存数据...")
     if is_incremental and last_metric_date:
         records_to_save_df = final_df[final_df.index.date > last_metric_date]
     else:
@@ -1355,7 +1346,6 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
                 model.objects.filter(stock=stock_info_obj).delete()
             model.objects.bulk_create(records_to_create_list, batch_size=2000)
     await save_metrics_async(MetricsModel, stock_info, records_to_create, not is_incremental)
-    # print(f"[{stock_code}] [资金流-数据保存] 成功为 {len(records_to_create)} 个交易日存储了高级资金流指标。")
     return len(records_to_create)
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
@@ -1378,12 +1368,12 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             )
             # 2. 加载和合并数据
             merged_df = await _load_and_merge_fund_flow_sources(stock_info, fetch_start_date)
-            # [代码修改开始] 使用全新的“三体”模型替换旧的计算流程
+            # 使用全新的“三体”模型替换旧的计算流程
             # 3. 一站式合成、交叉验证并锻造高级指标
             df_with_advanced_metrics = _synthesize_and_forge_advanced_metrics(stock_code, merged_df)
             # 4. 计算所有指标的衍生值（斜率、加速度等）
             final_metrics_df = _calculate_standardized_derivatives(stock_code, df_with_advanced_metrics)
-            # [代码修改结束]
+            
             # 5. 准备并保存数据
             processed_days = await _prepare_and_save_ff_data(
                 stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
