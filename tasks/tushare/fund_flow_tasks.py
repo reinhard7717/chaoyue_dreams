@@ -298,7 +298,7 @@ def save_fund_flow_daily_data_history_task():
     """
     logger.info(f"任务启动: save_fund_flow_daily_data_history_task (调度器-任务分片模式)")
     try:
-        NUM_DAYS_TO_FETCH = 1500
+        NUM_DAYS_TO_FETCH = 1800
         CHUNK_SIZE_DAYS = 5
         trade_days_list = TradeCalendar.get_latest_n_trade_dates(n=NUM_DAYS_TO_FETCH)
         if not trade_days_list:

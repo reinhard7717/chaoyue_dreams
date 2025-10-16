@@ -1295,7 +1295,6 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
     """【资金流辅助函数 V1.8 · 高效循环版】为所有指标（包括分歧度）计算衍生指标。"""
-    print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
     
     CORE_METRICS_TO_DERIVE = [
