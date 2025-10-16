@@ -1182,18 +1182,17 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
 
 def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
     """
-    【V3.2 · Numpy加速版】整合、交叉验证并锻造所有高级资金流指标。
+    【V3.3 · 类型安全版】整合、交叉验证并锻造所有高级资金流指标。
     - 核心优化: 对计算密集型部分（如成本计算）采用Numpy向量化操作，避免创建不必要的中间Pandas Series，
                 使用 np.divide 实现安全的向量化除法，显著提升性能和内存效率。
-    - 健壮性修复: 修复了多处 .get() 方法使用不当可能引发的TypeError。
+    - 健壮性修复: 在Numpy计算前，对输入数据强制进行数值类型转换(pd.to_numeric)，彻底解决因数据源存在None或非数值
+                  导致的 object dtype 问题，修复 'UFuncOutputCastingError'。
     """
     df = merged_df.copy()
     
     # --- 阶段一: “物理宇宙”解析 (Tushare专属计算) ---
     tushare_cols_exist = 'buy_sm_vol' in df.columns
     if tushare_cols_exist:
-        print(f"    -> 检测到Tushare 'vol' 数据，启动“物理宇宙”深度计算...")
-        
         # 使用Numpy进行向量化成本计算
         # 1.1 计算各类订单的买卖平均成本
         cost_pairs = {
@@ -1241,15 +1240,16 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
 
         # 1.6 计算平均每笔成交金额
         if 'trade_count' in df.columns and 'amount' in df.columns:
-            total_turnover_yuan = df['amount'].values * 1000
-            trade_count_np = df['trade_count'].values
+            # [代码修改开始] 在进行Numpy计算前，强制将输入数据转换为数值类型，并用0填充NaN，防止Dtype为Object
+            total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce').fillna(0).values * 1000
+            trade_count_np = pd.to_numeric(df['trade_count'], errors='coerce').fillna(0).values
+            # [代码修改结束]
+            # 使用np.divide进行安全的向量化除法，避免除零错误
             df['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
-        
     else:
         print(f"    -> [警告] 未检测到Tushare 'vol' 数据，成本宇宙和主动性指标将为空。")
         
     # --- 阶段二: “情绪宇宙”交叉验证与共识建立 ---
-    print(f"    -> 启动情绪宇宙交叉验证...")
     consensus_map = {
         'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
         'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -1268,7 +1268,6 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
             df[target_col] = np.nan
             
     # --- 阶段三: “分歧度”锻造与普适性比率计算 ---
-    print(f"    -> 锻造分歧度指标与普适性比率...")
     # 3.1 锻造分歧度指标
     if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
         df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
@@ -1277,7 +1276,6 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
         df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
 
-    # 优化普适性比率计算的健壮性和效率
     # 3.2 计算普适性比率指标
     safe_denom = lambda v: v.replace(0, np.nan)
     
@@ -1303,7 +1301,6 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     # 交易集中度 = 超大单成交绝对值 / 总成交额
     total_xl_trade_yuan = pd.to_numeric(df.get('net_xl_amount_consensus', 0), errors='coerce').abs().fillna(0) * 10000
     df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    
     
     return df
 
