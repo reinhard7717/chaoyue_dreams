@@ -30,9 +30,9 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.7 · 成本矩阵激活版】终极资金流信号诊断模块
-        - 核心升级: 在支柱配置中，注入了基于“成本博弈矩阵”的全新分析支柱，
-                      包括主力日内盈亏、主力与散户的成本博弈差等，极大增强了对资金真实意图的洞察力。
+        【V2.8 · 战神阿瑞斯版】终极资金流信号诊断模块
+        - 核心升级: 签署“战神阿瑞斯之审判”协议，将新生成的多源“分歧度”指标作为“冲突”支柱，
+                      正式纳入资金流健康度评估体系。分歧度越大，代表市场矛盾越深，健康度越低。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -53,19 +53,19 @@ class FundFlowIntelligence:
             'retail_panic': {'base': 'retail_panic_index', 'type': 'daily', 'intent': 'sentiment', 'polarity': 1},
             'sh_flow': {'base': 'net_sh_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
             'md_flow': {'base': 'net_md_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
-            # [代码新增开始] 注入基于成本博弈矩阵的全新分析支柱
             'main_force_profit': {'base': 'main_force_intraday_profit', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'description': '主力日内盈亏，越高代表控盘能力越强'},
             'cost_battle': {'base': 'market_cost_battle', 'type': 'daily', 'intent': 'conflict', 'polarity': 1, 'description': '主力买入成本与散户买入成本的差值，越高代表主力越主动'},
             'cost_divergence': {'base': 'cost_divergence_mf_vs_retail', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'description': '主力买入成本与散户卖出成本的差值，越高代表吸筹意愿越强'},
-            # [代码新增结束]
+            # 注入“分歧度”作为新的冲突支柱
+            # 注意：分歧度指标的绝对值越大，代表冲突越剧烈，因此其 polarity 为 -1，分数越高健康度越低。
+            'source_divergence_ts_ths': {'base': 'divergence_ts_ths', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'description': 'Tushare与同花顺主力流向分歧度'},
+            'source_divergence_ts_dc': {'base': 'divergence_ts_dc', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'description': 'Tushare与东方财富主力流向分歧度'},
+            'source_divergence_ths_dc': {'base': 'divergence_ths_dc', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'description': '同花顺与东方财富主力流向分歧度'},
+            
         }
-
-        # 调用全新的、功能更强大的均线健康度计算引擎
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
-
-        # 将 ma_health_score 传递给子函数，作为统一的上下文
         pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods, ma_health_score)
         fused_health = self._fuse_health_with_intent_weights(df, pillar_health, pillar_configs, p_conf, periods)
         final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)

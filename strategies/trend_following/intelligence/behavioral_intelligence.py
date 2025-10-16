@@ -161,9 +161,7 @@ class BehavioralIntelligence:
         - 核心逻辑: 保持原有的全息动态计算模式不变。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-        
         # --- 将所有与周期p无关的计算提前至循环外 ---
-        
         # 1. 计算静态看涨分 (s_bull)
         bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
@@ -209,14 +207,12 @@ class BehavioralIntelligence:
         - 核心逻辑: 保持原有的全息动态计算模式不变。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
-
         if 'pct_change_D' not in df.columns or 'volume_D' not in df.columns:
             # 如果缺少关键列，快速返回默认值
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p] = s_bear[p] = d_intensity[p] = default_series
             return s_bull, s_bear, d_intensity
-
         # --- 将所有与周期p无关的计算提前至循环外 ---
 
         # 1. 计算静态看跌分 (s_bear)

@@ -103,44 +103,51 @@ class MicroBehaviorEngine:
 
     def diagnose_hermes_gambit(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
-        - 核心职责: 识别主力“大单卖出压价，再拆单接回”的欺骗性行为。
-        - 证据链:
-          1. 表象矛盾: 主力资金净流出 vs 散户资金净流入。
+        【V2.0 · 战神阿瑞斯版】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
+        - 核心升级: 引入“分歧度”指标，对“表象矛盾”的诊断从单一维度升级为多维交叉验证。
+        - 新证据链:
+          1. 表象矛盾: 主力资金共识为净流出，但Tushare(物理)与THS/DC(情绪)之间存在巨大正向分歧。
           2. 价量矛盾: 成交量放大 vs 价格滞涨或下跌。
           3. 结果矛盾: 主力看似卖出 vs 筹码集中度反而上升。
           4. 环境矛盾: 短期价格走弱 vs 长期趋势依然健康。
         """
         states = {}
         norm_window = 55 # 使用一个中等长度的窗口来评估近期动态
-        # --- 证据1: 表象矛盾 (大单卖 vs 散单买) ---
-        # 主力资金净流出得分 (分数越高，流出越明显)
+        
+        # --- 证据1: 表象矛盾 (升级版) ---
+        # 主力资金共识为净流出 (分数越高，流出越明显)
         main_force_outflow_score = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=False)
-        # 散户资金净流入得分 (分数越高，流入越明显)
-        retail_inflow_score = normalize_score(df.get('retail_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=True)
-        # 矛盾分 = 两者共振
-        contradiction_flow_score = (main_force_outflow_score * retail_inflow_score)**0.5
+        
+        # 引入分歧度作为核心证据
+        # 物理层面(Tushare)比情绪层面(THS/DC)更乐观 (分数越高，正向分歧越大)
+        divergence_ts_ths_score = normalize_score(df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=True)
+        divergence_ts_dc_score = normalize_score(df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=True)
+        # 取两者中最强的分歧信号
+        source_divergence_score = np.maximum(divergence_ts_ths_score, divergence_ts_dc_score)
+        
+        # 矛盾分 = 主力共识流出 * 内部巨大分歧 (物理vs情绪)
+        contradiction_flow_score = (main_force_outflow_score * source_divergence_score)**0.5
+        
+
         # --- 证据2: 价量矛盾 (放量滞涨/下跌) ---
-        # 成交量放大得分
         volume_spike_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
-        # 价格滞涨/微跌得分 (价格变化绝对值越小，得分越高)
         price_stagnation_score = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
-        # 价量矛盾分 = 两者共振
         contradiction_pv_score = (volume_spike_score * price_stagnation_score)**0.5
+
         # --- 证据3: 结果矛盾 (卖出 vs 集中) ---
-        # 筹码集中度短期内逆势上升得分
         chip_concentration_rising_score = normalize_score(df.get('SLOPE_3_concentration_90pct_D', pd.Series(0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+
         # --- 证据4: 环境矛盾 (短期弱 vs 长期强) ---
-        # 长期趋势健康上下文得分
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.5)
+
         # --- 最终融合：四维证据链必须同时成立 ---
-        # 使用几何平均数，确保任何一个维度的缺失都会显著拉低总分
         hermes_gambit_score = (
             contradiction_flow_score *
             contradiction_pv_score *
             chip_concentration_rising_score *
             trend_quality_context
         )**(1/4)
+        
         # 对最终分数进行关系元分析，捕捉这种行为的“加速度”
         final_score = self._perform_micro_behavior_relational_meta_analysis(df, hermes_gambit_score)
         states['SCORE_MICRO_HERMES_GAMBIT'] = final_score.astype(np.float32)
