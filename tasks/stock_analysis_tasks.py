@@ -1204,7 +1204,7 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)).fillna(0.0) * 100
     # [代码新增开始] 调用新增的高级因子锻造方法
     # 此方法依赖于原始Tushare数据列和共识数据列，是本阶段的最后一步
-    df = _calculate_advanced_flow_factors(df)
+    df = _calculate_costs_and_advanced_factors(df)
     # [代码新增结束]
     return df
 
