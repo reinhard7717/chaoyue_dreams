@@ -17,29 +17,27 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V601.0 · 全息共振版】筹码情报最高司令部
-        - 核心升级: 引入多时间级别(5,13,21,55)分析，构建“全息共振引擎”。
-        - 指挥流程: 1. 为每个核心公理，在所有时间级别上进行诊断，生成多维度的动态分。
+        【V602.0 · 分层印证版】筹码情报最高司令部
+        - 核心升级: 引入1日周期，并建立“分层动态印证”框架，废除固定的55日宏观背景。
+        - 指挥流程: 1. 为每个核心公理，在所有时间级别上进行诊断，每个级别都由其更长一级趋势进行印证。
                       2. 在终极信号合成器中，对多维度的分数进行“周期内融合”和“跨周期共振”两步锻造。
         """
-        # 引入多时间级别分析
         all_chip_states = {}
-        periods = [5, 13, 21, 55] # 定义分析的时间级别
-        # 步骤 1: 诊断三大核心公理，生成多维度的核心动态分
+        # 增加1日周期，实现最灵敏的战术变化捕捉
+        periods = [1, 5, 13, 21, 55]
+        
         concentration_scores = self._diagnose_concentration_dynamics(df, periods)
         all_chip_states['SCORE_CHIP_MTF_CONCENTRATION'] = concentration_scores
         accumulation_scores = self._diagnose_main_force_action(df, periods)
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
         all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
-        # 步骤 2: 基于多维核心公理，合成具备共振效应的终极信号
         ultimate_signals = self._synthesize_ultimate_signals(
             concentration_scores,
             accumulation_scores,
             power_transfer_scores
         )
         all_chip_states.update(ultimate_signals)
-        # 步骤 3: 保留独立的、具有特殊战术意义的剧本诊断 (不受影响)
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
@@ -108,105 +106,130 @@ class ChipIntelligence:
 
         return states
 
-
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.8 · 五维一体版】核心公理一：诊断筹码“聚散”的动态
-        - 核心升级: 引入“主力控盘度”和“顶部换手风险”两个新维度，构建“五维一体”的筹码集中度质量快照分。
-                      这使得我们不仅看集中度，更看集中度的“质量”和“健康度”。
-        - 核心公式: 集中度质量 = (70集中度 * 90集中度 * 筹码稳定性 * 主力控盘度 * (1-顶部换手风险)) ^ (1/5)
+        【V2.1 · 分层印证版】核心公理一：诊断筹码“聚散”的动态
+        - 核心升级: 引入“分层动态印证框架”。每个战术周期的集中度变化，都由其紧邻的更长一级周期趋势进行印证。
+        - 印证链: 1日由5日印证，5日由13日印证，以此类推，形成动态共振。
         """
-        # [代码修改开始]
         scores = {}
-        norm_window = 120
-        # 1. 计算五维一体的“筹码集中度质量”快照分
-        # 维度1 & 2: 基础集中度
-        conc_90_score = normalize_score(df.get('concentration_90pct_D'), df.index, norm_window, ascending=False)
-        conc_70_score = normalize_score(df.get('concentration_70pct_D'), df.index, norm_window, ascending=False)
-        # 维度3: 筹码稳定性
-        stability_score = normalize_score(df.get('peak_stability_D'), df.index, norm_window, ascending=True)
-        # 维度4 (新增): 主力控盘度，越高越好
-        control_score = normalize_score(df.get('peak_control_ratio_D'), df.index, norm_window, ascending=True)
-        # 维度5 (新增): 顶部换手风险，越低越好，因此用 (1 - score)
-        turnover_risk_score = normalize_score(df.get('turnover_at_peak_ratio_D'), df.index, norm_window, ascending=True)
-        non_risk_score = 1.0 - turnover_risk_score
-        # 融合五大维度，得到更高质量的快照分
-        concentration_quality_snapshot = (
-            conc_90_score * conc_70_score * stability_score * control_score * non_risk_score
-        )**(1/5)
-        
-        # 2. 对快照分进行关系元分析 (后续逻辑保持不变)
-        for p in periods:
-            # 计算当前周期p与最短周期1之间的结构性背离
-            holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, norm_window)
+        # 引入动态的、分层的上下文印证框架
+        sorted_periods = sorted(periods)
+        for i, p in enumerate(sorted_periods):
+            # 确定当前战术周期p的上下文周期context_p，形成 1->5, 5->13, ... 的分层对比关系
+            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
+            # 步骤1: 计算上下文层(context_p)的“集中度质量”基准分
+            context_conc_90 = normalize_score(df.get('concentration_90pct_D'), df.index, window=context_p, ascending=False)
+            context_conc_70 = normalize_score(df.get('concentration_70pct_D'), df.index, window=context_p, ascending=False)
+            context_stability = normalize_score(df.get('peak_stability_D'), df.index, window=context_p, ascending=True)
+            context_control = normalize_score(df.get('peak_control_ratio_D'), df.index, window=context_p, ascending=True)
+            context_turnover_risk = normalize_score(df.get('turnover_at_peak_ratio_D'), df.index, window=context_p, ascending=True)
+            context_non_risk = 1.0 - context_turnover_risk
+            context_concentration_quality = (context_conc_90 * context_conc_70 * context_stability * context_control * context_non_risk)**(1/5)
+            # 步骤2: 计算战术层(p)的“集中度质量”分
+            tactical_conc_90 = normalize_score(df.get('concentration_90pct_D'), df.index, window=p, ascending=False)
+            tactical_conc_70 = normalize_score(df.get('concentration_70pct_D'), df.index, window=p, ascending=False)
+            tactical_stability = normalize_score(df.get('peak_stability_D'), df.index, window=p, ascending=True)
+            tactical_control = normalize_score(df.get('peak_control_ratio_D'), df.index, window=p, ascending=True)
+            tactical_turnover_risk = normalize_score(df.get('turnover_at_peak_ratio_D'), df.index, window=p, ascending=True)
+            tactical_non_risk = 1.0 - tactical_turnover_risk
+            tactical_concentration_quality = (tactical_conc_90 * tactical_conc_70 * tactical_stability * tactical_control * tactical_non_risk)**(1/5)
+            # 步骤3: 融合上下文与战术层，形成共振快照分
+            concentration_quality_snapshot = (tactical_concentration_quality * context_concentration_quality)**0.5
+            # 步骤4: 对共振快照分进行关系元分析
+            holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, p * 2)
             dynamic_concentration_score = self._perform_chip_relational_meta_analysis(
                 df, concentration_quality_snapshot, p, holographic_divergence
             )
             scores[p] = dynamic_concentration_score
+        
         return scores
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.7 · 成本透视版】核心公理二：诊断主力“吸筹与派发”
-        - 核心升级: 引入“主力日内盈亏”的斜率作为第四个核心证据，用于识别主力是否在“亏钱甩卖”，
-                      极大增强了对真实派发行为的识别能力。
+        【V2.1 · 分层印证版】核心公理二：诊断主力“吸筹与派发”
+        - 核心升级: 引入“分层动态印证框架”。短期的吸筹/派发行为，由其紧邻的更长一级趋势进行印证。
+        - 印证链: 1日行为由5日趋势印证，5日行为由13日趋势印证，以此类推。
         """
         scores = {}
-        norm_window = 120
-        for p in periods:
-            # 步骤 1: 构建“吸筹”证据链 (保持不变)
-            conc_slope_up = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
-            winner_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
-            trade_conc_up = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=True)
-            accumulation_evidence = (conc_slope_up * winner_turnover_down * trade_conc_up)**(1/3)
-            # 步骤 2: 构建“派发”证据链 (升级)
-            conc_slope_down = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
-            winner_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True)
-            trade_conc_down = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=False)
-            # [代码新增开始] 引入“主力亏钱甩卖”作为第四维度证据
-            main_force_losing_money_score = normalize_score(df.get(f'SLOPE_{p}_main_force_intraday_profit_D'), df.index, norm_window, ascending=False)
-            # [代码新增结束]
-            # [代码修改开始] 将派发证据链从三维升级为四维
-            distribution_evidence = (conc_slope_down * winner_turnover_up * trade_conc_down * main_force_losing_money_score)**(1/4)
-            # [代码修改结束]
-            # 步骤 3: 生成双极性的“行动快照分”
+        main_force_urgency_score = self.strategy.atomic_states.get('PROCESS_META_MAIN_FORCE_URGENCY', pd.Series(0.5, index=df.index))
+        # 引入动态的、分层的上下文印证框架
+        sorted_periods = sorted(periods)
+        for i, p in enumerate(sorted_periods):
+            # 确定当前战术周期p的上下文周期context_p
+            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
+            # 步骤1: 计算上下文层(context_p)的“主力行动”基准分
+            context_conc_slope_up = normalize_score(df.get(f'SLOPE_{context_p}_concentration_90pct_D'), df.index, window=context_p, ascending=True)
+            context_winner_turnover_down = normalize_score(df.get(f'SLOPE_{context_p}_turnover_from_winners_ratio_D'), df.index, window=context_p, ascending=False)
+            context_trade_conc_up = normalize_score(df.get(f'SLOPE_{context_p}_trade_concentration_index_D'), df.index, window=context_p, ascending=True)
+            context_accumulation_evidence = (context_conc_slope_up * context_winner_turnover_down * context_trade_conc_up * main_force_urgency_score)**(1/4)
+            context_conc_slope_down = normalize_score(df.get(f'SLOPE_{context_p}_concentration_90pct_D'), df.index, window=context_p, ascending=False)
+            context_winner_turnover_up = normalize_score(df.get(f'SLOPE_{context_p}_turnover_from_winners_ratio_D'), df.index, window=context_p, ascending=True)
+            context_trade_conc_down = normalize_score(df.get(f'SLOPE_{context_p}_trade_concentration_index_D'), df.index, window=context_p, ascending=False)
+            context_losing_money = normalize_score(df.get(f'SLOPE_{context_p}_main_force_intraday_profit_D'), df.index, window=context_p, ascending=False)
+            context_distribution_evidence = (context_conc_slope_down * context_winner_turnover_up * context_trade_conc_down * context_losing_money)**(1/4)
+            # 步骤2: 计算战术层(p)的“吸筹/派发”证据分
+            tactical_conc_slope_up = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, window=p, ascending=True)
+            tactical_winner_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, window=p, ascending=False)
+            tactical_trade_conc_up = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, window=p, ascending=True)
+            tactical_accumulation_evidence = (tactical_conc_slope_up * tactical_winner_turnover_down * tactical_trade_conc_up * main_force_urgency_score)**(1/4)
+            tactical_conc_slope_down = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, window=p, ascending=False)
+            tactical_winner_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, window=p, ascending=True)
+            tactical_trade_conc_down = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, window=p, ascending=False)
+            tactical_losing_money = normalize_score(df.get(f'SLOPE_{p}_main_force_intraday_profit_D'), df.index, window=p, ascending=False)
+            tactical_distribution_evidence = (tactical_conc_slope_down * tactical_winner_turnover_up * tactical_trade_conc_down * tactical_losing_money)**(1/4)
+            # 步骤3: 融合上下文与战术层，形成共振
+            accumulation_evidence = (tactical_accumulation_evidence * context_accumulation_evidence)**0.5
+            distribution_evidence = (tactical_distribution_evidence * context_distribution_evidence)**0.5
+            # 步骤4: 生成双极性的“行动快照分”
             action_snapshot = (accumulation_evidence - distribution_evidence).astype(np.float32)
-            # 步骤 4: 计算当前周期p与最短周期1之间的结构性背离
-            holographic_divergence = self._calculate_holographic_divergence(action_snapshot, 1, p, norm_window)
-            # 步骤 5: 对“行动快照分”进行关系元分析，传入背离分
+            # 步骤5: 对共振快照分进行关系元分析
+            holographic_divergence = self._calculate_holographic_divergence(action_snapshot, 1, p, p * 2)
             dynamic_action_score = self._perform_chip_relational_meta_analysis(
                 df, action_snapshot, p, holographic_divergence
             )
             scores[p] = dynamic_action_score
+        
         return scores
 
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.6 · 冥王之眼版】核心公理三：诊断筹码“转移方向”
-        - 核心升级: 调用“冥王之眼”引擎，为每个周期的转移快照分计算其在(1, p)周期上的结构性背离，
-                      并将这个关键的背离分送入元分析引擎。
+        【V1.9 · 分层印证版】核心公理三：诊断筹码“转移方向”
+        - 核心升级: 引入“分层动态印证框架”。短期的筹码转移方向，由其紧邻的更长一级趋势进行印证，形成共振。
+        - 印证链: 1日转移由5日趋势印证，5日转移由13日趋势印证，以此类推。
         """
-        # 计算并传入结构性背离分
         scores = {}
-        norm_window = 120
-        for p in periods:
-            # 步骤 1: 构建“筹码向主力转移”的证据
-            cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True)
-            loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
-            transfer_to_main_force_evidence = (cost_divergence_score * loser_turnover_up)**0.5
-            # 步骤 2: 构建“筹码向散户转移”的证据
-            cost_convergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False)
-            loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False)
-            transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
-            # 步骤 3: 生成双极性的“转移快照分”
+        # 引入动态的、分层的上下文印证框架
+        sorted_periods = sorted(periods)
+        for i, p in enumerate(sorted_periods):
+            # 确定当前战术周期p的上下文周期context_p
+            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
+            # 步骤1: 计算上下文层(context_p)的“权力转移”基准分
+            context_cost_divergence = normalize_score(df.get(f'SLOPE_{context_p}_cost_divergence_D'), df.index, window=context_p, ascending=True)
+            context_loser_turnover_up = normalize_score(df.get(f'SLOPE_{context_p}_turnover_from_losers_ratio_D'), df.index, window=context_p, ascending=True)
+            context_transfer_to_main_force = (context_cost_divergence * context_loser_turnover_up)**0.5
+            context_cost_convergence = normalize_score(df.get(f'SLOPE_{context_p}_cost_divergence_D'), df.index, window=context_p, ascending=False)
+            context_loser_turnover_down = normalize_score(df.get(f'SLOPE_{context_p}_turnover_from_losers_ratio_D'), df.index, window=context_p, ascending=False)
+            context_transfer_to_retail = (context_cost_convergence * context_loser_turnover_down)**0.5
+            # 步骤2: 计算战术层(p)的“权力转移”证据分
+            tactical_cost_divergence = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, window=p, ascending=True)
+            tactical_loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, window=p, ascending=True)
+            tactical_transfer_to_main_force = (tactical_cost_divergence * tactical_loser_turnover_up)**0.5
+            tactical_cost_convergence = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, window=p, ascending=False)
+            tactical_loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, window=p, ascending=False)
+            tactical_transfer_to_retail = (tactical_cost_convergence * tactical_loser_turnover_down)**0.5
+            # 步骤3: 融合上下文与战术层，形成共振
+            transfer_to_main_force_evidence = (tactical_transfer_to_main_force * context_transfer_to_main_force)**0.5
+            transfer_to_retail_evidence = (tactical_transfer_to_retail * context_transfer_to_retail)**0.5
+            # 步骤4: 生成双极性的“转移快照分”
             transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
-            # 步骤 4 (新增): 计算当前周期p与最短周期1之间的结构性背离
-            holographic_divergence = self._calculate_holographic_divergence(transfer_snapshot, 1, p, norm_window)
-            # 步骤 5 (升级): 对“转移快照分”进行关系元分析，传入背离分
+            # 步骤5: 对共振快照分进行关系元分析
+            holographic_divergence = self._calculate_holographic_divergence(transfer_snapshot, 1, p, p * 2)
             dynamic_transfer_score = self._perform_chip_relational_meta_analysis(
                 df, transfer_snapshot, p, holographic_divergence
             )
             scores[p] = dynamic_transfer_score
+        
         return scores
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:

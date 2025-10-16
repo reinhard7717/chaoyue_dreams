@@ -784,7 +784,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     for p in UNIFIED_PERIODS:
         # --- 4.1 累计指标 ---
         if p > 1:
-            # [代码修改开始] 修正求和逻辑：仅对非价格、非比率的“流量型”指标求和
+            # 修正求和逻辑：仅对非价格、非比率的“流量型”指标求和
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -793,7 +793,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             for name in sum_cols:
                 verbose_name = CORE_METRICS.get(name, name)
                 vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
-            # [代码修改结束]
+            
         # --- 4.2 斜率指标 ---
         for name, verbose in CORE_METRICS.items():
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)

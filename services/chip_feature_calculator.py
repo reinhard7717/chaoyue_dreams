@@ -235,7 +235,7 @@ class ChipFeatureCalculator:
                 'total_loser_rate': 100.0 - total_winner_rate if total_winner_rate is not None else None
             }
         
-        # [代码修改开始] 采用“先盈亏，后成本分区”的二次切分法
+        # 采用“先盈亏，后成本分区”的二次切分法
         # 1. 精确划分获利盘(winners_df)与套牢盘(losers_df)两大阵营
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
@@ -254,7 +254,7 @@ class ChipFeatureCalculator:
         total_loser_rate = long_term_loser_rate + short_term_loser_rate
         
         # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, close={close_price}, avg_cost={weight_avg_cost:.2f}, total_winner_rate={total_winner_rate:.2f}, calculated_winners_sum={(long_term_winner_rate + short_term_winner_rate):.2f}")
-        # [代码修改结束]
+        
 
         return {
             'winner_rate_short_term': short_term_winner_rate,
@@ -294,7 +294,7 @@ class ChipFeatureCalculator:
             # 如果不存在短期筹码，则其成本逻辑上锚定在划分边界
             # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 无短期筹码，avg_cost_short_term 锚定为 prev_20d_close: {prev_20d_close}")
             avg_cost_short = prev_20d_close
-        # [代码修改结束]
+        
         return {
             'avg_cost_short_term': avg_cost_short,
             'avg_cost_long_term': avg_cost_long,
@@ -364,19 +364,19 @@ class ChipFeatureCalculator:
         daily_turnover = self.ctx.get('daily_turnover_volume')
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
-        # [代码修改开始] 增加分母 daily_turnover 的健壮性检查
+        # 增加分母 daily_turnover 的健壮性检查
         if daily_turnover and daily_turnover > 0 and peak_range_low is not None and peak_range_high is not None:
             turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
             # 增加除零保护
             results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover if daily_turnover > 0 else 0.0
         else:
             results['peak_absorption_intensity'] = 0.0 # 如果基础数据不全，吸筹强度为0
-        # [代码修改结束]
+        
         # --- 2. 利润质量指标 (Profit Quality Metrics) ---
         close_price = self.ctx.get('close_price')
         if close_price:
             winners_df = self.df[self.df['price'] < close_price]
-            # [代码修改开始] 修正获利盘为空时的处理逻辑
+            # 修正获利盘为空时的处理逻辑
             if not winners_df.empty and winners_df['percent'].sum() > 0:
                 winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
                 results['winner_avg_cost'] = winner_avg_cost
@@ -389,7 +389,7 @@ class ChipFeatureCalculator:
                 # 当不存在获利盘时，平均成本无意义，但利润安全垫的业务含义是0
                 results['winner_avg_cost'] = None
                 results['winner_profit_margin'] = 0.0
-            # [代码修改结束]
+            
         # --- 3. 价码关系指标 (Price-Chip Relation Metrics) ---
         if close_price and peak_cost and peak_cost > 0:
             results['price_to_peak_ratio'] = close_price / peak_cost
@@ -413,7 +413,7 @@ class ChipFeatureCalculator:
         close_price = self.ctx.get('close_price')
         low_price = self.ctx.get('low_price')
         high_price = self.ctx.get('high_price')
-        # [代码修改开始] 修正入口保护逻辑，不再返回空字典
+        # 修正入口保护逻辑，不再返回空字典
         default_return = {
             'turnover_from_winners_ratio': 50.0,
             'turnover_from_losers_ratio': 50.0,
@@ -421,7 +421,7 @@ class ChipFeatureCalculator:
         if not all(pd.notna(v) for v in [close_price, low_price, high_price]):
             # print(f"DEBUG: trade_time={self.ctx.get('trade_time')}, 因行情数据不完整，成交结构返回默认值。")
             return default_return
-        # [代码修改结束]
+        
         # 1. 找出当日价格波动区间内所有的筹码
         turnover_zone_df = self.df[(self.df['price'] >= low_price) & (self.df['price'] <= high_price)]
         if turnover_zone_df.empty:

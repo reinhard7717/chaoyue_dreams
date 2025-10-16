@@ -25,9 +25,9 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.6 · 赫尔墨斯诡计版】微观行为诊断引擎总指挥
-        - 核心升级: 部署“指挥链审查”探针，确认本模块是否被成功调用。
-        - 新增功能(V2.6): 新增调用“赫尔墨斯诡计”诊断引擎，专门识别主力“压单吸筹”的欺骗性行为。
+        【V2.8 · 伊卡洛斯之坠版】微观行为诊断引擎总指挥
+        - 核心升级: 引入“伊卡洛斯之坠”诊断引擎，取代旧的“拉升派发”模型，
+                      以更强大的多维证据链，专门识别主力在高位通过诱多完成派发的风险。
         """
         all_states = {}
         def update_states(new_states: Dict[str, pd.Series]):
@@ -38,8 +38,10 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df))
         update_states(self.synthesize_euphoric_acceleration_risk(df))
         update_states(self.synthesize_post_peak_downturn_risk(df))
-        # 调用新增的“赫尔墨斯诡计”诊断引擎
         update_states(self.diagnose_hermes_gambit(df))
+        # 调用全新的“伊卡洛斯之坠”诊断引擎
+        update_states(self.diagnose_icarus_fall_risk(df))
+        
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
@@ -142,6 +144,113 @@ class MicroBehaviorEngine:
         # 对最终分数进行关系元分析，捕捉这种行为的“加速度”
         final_score = self._perform_micro_behavior_relational_meta_analysis(df, hermes_gambit_score)
         states['SCORE_MICRO_HERMES_GAMBIT'] = final_score.astype(np.float32)
+        return states
+
+    def diagnose_rally_and_distribute_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“拉升派发”风险诊断引擎
+        - 核心职责: 识别主力在日内通过拉升股价，吸引散户追高，从而在高位完成派发的经典欺骗行为。
+        - 核心逻辑: 融合“高位派发”、“散户追高”、“环境风险”三大证据链，对该风险进行量化。
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'rally_distribute_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+        
+        norm_window = get_param_value(p.get('norm_window'), 55)
+        
+        # --- 证据链 1: 高位派发 (High-Level Distribution) ---
+        # 价格接近涨停板的程度
+        price_near_limit_up_score = (1 - (df.get('up_limit_D', df['close_D']) - df['close_D']) / (df.get('up_limit_D', df['close_D']) * 0.01).replace(0, np.nan)).clip(0, 1).fillna(0)
+        # 主力日内盈利程度
+        main_force_profit_score = normalize_score(df.get('main_force_intraday_profit_D'), df.index, norm_window, ascending=True)
+        # 主力资金净流出程度 (注意：ascending=False)
+        main_force_net_outflow_score = normalize_score(df.get('main_force_net_flow_consensus_D'), df.index, norm_window, ascending=False)
+        
+        distribution_evidence = (price_near_limit_up_score * main_force_profit_score * main_force_net_outflow_score)**(1/3)
+
+        # --- 证据链 2: 散户追高 (Retail FOMO) ---
+        # 散户资金净流入程度
+        retail_net_inflow_score = normalize_score(df.get('retail_net_flow_consensus_D'), df.index, norm_window, ascending=True)
+        # 成交量异常放大程度
+        volume_spike_score = normalize_score(df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']), df.index, norm_window, ascending=True)
+        
+        fomo_evidence = (retail_net_inflow_score * volume_spike_score)**0.5
+
+        # --- 证据链 3: 环境风险 (Contextual Risk) ---
+        # 市场处于高位风险区的程度
+        top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
+
+        # --- 最终融合，生成“瞬时风险快照分” ---
+        snapshot_score = (distribution_evidence * fomo_evidence * top_context_score).astype(np.float32)
+
+        # --- 对“风险关系”进行元分析，捕捉其动态变化 ---
+        final_risk_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
+        
+        states['SCORE_RISK_RALLY_AND_DISTRIBUTE'] = final_risk_score.astype(np.float32)
+        return states
+
+    def diagnose_icarus_fall_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 双引擎版】“伊卡洛斯之坠”风险诊断引擎
+        - 核心升级: 将“虚假繁荣”证据链升级为双引擎驱动，能够同时识别“高位横盘出货”和“涨停板派发”两种高级派发模式。
+        - 引擎A (高位横盘出货): 融合“显著涨幅”、“收盘疲弱”和“VPA低效”三大特征。
+        - 引擎B (涨停板派发): 融合“触及涨停”和“成交量异常放大”两大特征。
+        - 诊断逻辑: 最终风险 = max(引擎A, 引擎B) * 矛盾博弈 * 背叛上下文 * 结构恶化
+        """
+        states = {}
+        p = get_params_block(self.strategy, 'icarus_fall_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            return states
+        
+        norm_window = get_param_value(p.get('norm_window'), 55)
+        
+        # --- 证据链 1: 虚假的繁荣 (The Alluring Rally) ---
+        # 升级为双引擎驱动
+        # 引擎通用组件
+        significant_rally_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, norm_window, ascending=True)
+        inefficient_volume_score = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
+        volume_spike_score = normalize_score(df['volume_D'] / df.get('VOL_MA_21_D', df['volume_D']), df.index, norm_window, ascending=True)
+
+        # 引擎A: 高位横盘出货 (冲高回落但回落不多)
+        close_position_in_range = ((df['close_D'] - df['low_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(0.5)
+        closing_weakness_score = 1.0 - close_position_in_range # [代码新增] 收盘价越不强势，分数越高
+        high_level_distribution_score = (significant_rally_score * closing_weakness_score * inefficient_volume_score)**(1/3)
+
+        # 引擎B: 涨停板派发
+        is_at_limit_up = (df['close_D'] >= df.get('up_limit_D', np.inf) * 0.995).astype(float) # [代码新增] 判断是否触及涨停
+        limit_up_deception_score = is_at_limit_up * volume_spike_score # [代码新增] 涨停+天量=派发
+
+        # 融合双引擎，取最强的风险信号
+        alluring_rally_evidence = np.maximum(high_level_distribution_score, limit_up_deception_score)
+        
+
+        # --- 证据链 2: 矛盾的博弈 (The Core Contradiction) ---
+        main_force_profit_score = normalize_score(df.get('main_force_intraday_profit_D'), df.index, norm_window, ascending=True)
+        main_force_net_outflow_score = normalize_score(df.get('main_force_net_flow_consensus_D'), df.index, norm_window, ascending=False)
+        retail_fomo_score = normalize_score(df.get('retail_net_flow_consensus_D'), df.index, norm_window, ascending=True)
+        contradiction_evidence = (main_force_profit_score * main_force_net_outflow_score * retail_fomo_score)**(1/3)
+
+        # --- 证据链 3: 背叛的上下文 (The Context of Betrayal) ---
+        previous_trend_quality = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0).shift(1).fillna(0.5)
+        top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
+        betrayal_evidence = (previous_trend_quality * top_context_score)**0.5
+
+        # --- 证据链 4: 恶化的结构 (The Deteriorating Structure) ---
+        chip_concentration_decay_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=False)
+        
+        # --- 最终融合，生成“瞬时风险快照分” ---
+        snapshot_score = (
+            alluring_rally_evidence *
+            contradiction_evidence *
+            betrayal_evidence *
+            chip_concentration_decay_score
+        )**(1/4)
+
+        # --- 对“风险关系”进行元分析，捕捉其动态变化 ---
+        final_risk_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
+        
+        states['SCORE_RISK_ICARUS_FALL'] = final_risk_score.astype(np.float32)
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:

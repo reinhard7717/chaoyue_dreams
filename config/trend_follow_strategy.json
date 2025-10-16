@@ -152,7 +152,20 @@
         "net_md_amount_consensus_sum_55d_D": [55],
         "avg_order_value_D": [5],
         "trade_concentration_index_D": [5, 13, 21, 55],
-        "turnover_from_losers_ratio_D": [5, 13, 21, 55]
+        "turnover_from_losers_ratio_D": [5, 13, 21, 55],
+        "cost_weighted_main_flow_D": [1, 5, 13, 21, 55],
+        "cost_weighted_main_flow_sum_5d_D": [5], 
+        "cost_weighted_main_flow_sum_13d_D": [13], 
+        "cost_weighted_main_flow_sum_21d_D": [21], 
+        "cost_weighted_main_flow_sum_55d_D": [55],
+        "main_buy_cost_advantage_D": [1, 5, 13, 21, 55],
+        "main_force_intraday_profit_D": [1, 5, 13, 21, 55],
+        "market_cost_battle_D": [1, 5, 13, 21, 55],
+        "cost_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
+        "avg_cost_main_buy_D": [1, 5, 13, 21, 55],
+        "avg_cost_main_sell_D": [1, 5, 13, 21, 55],
+        "avg_cost_retail_buy_D": [1, 5, 13, 21, 55],
+        "avg_cost_retail_sell_D": [1, 5, 13, 21, 55]
       }
     }
   },
@@ -512,6 +525,22 @@
             "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": -1.0,
             "description": "【过程】主力盈亏vs流量: 诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
+          },
+          {
+            "name": "PROCESS_META_MAIN_FORCE_URGENCY",
+            "type": "meta_analysis", "task_type": "base",
+            "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "close_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": -1.0,
+            "description": "【过程】主力紧迫度: 诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
+          },
+          {
+            "name": "PROCESS_META_SMART_MONEY_COST_ADVANTAGE",
+            "type": "meta_analysis", "task_type": "base",
+            "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "avg_cost_retail_sell_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": -1.0,
+            "description": "【过程】聪明钱成本优势: 诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
           }
         ]
       },
@@ -743,7 +772,17 @@
       },
       "micro_behavior_params": {
         "enabled": true,
-        "description": "【V1.2 · 阿瑞斯之怒版】微观行为引擎的专属参数块，用于关系元分析。",
+        "description": "【V1.3 · 拉升派发识别版】微观行为引擎的专属参数块。",
+        "icarus_fall_params": {
+          "enabled": true,
+          "description": "【V2.0】'伊卡洛斯之坠'风险诊断引擎参数，识别主力在高位通过诱多完成派发的风险。",
+          "norm_window": 55
+        },
+        "rally_distribute_params": {
+          "enabled": true,
+          "description": "【V1.0】拉升派发风险诊断引擎参数。",
+          "norm_window": 55
+        },
         "ma_health_fusion_weights": {
           "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
           "alignment": 0.15,
@@ -923,8 +962,9 @@
             "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
             "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
             "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false },
-            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
-          }
+            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 },
+            "SCORE_RISK_ICARUS_FALL": { "weight": 2.2, "description": "【新增】伊卡洛斯之坠风险，识别主力背叛趋势、高位诱多派发的行为，权重极高。" }
+         }
         },
         "resonance_penalty_params": {
           "enabled": true,

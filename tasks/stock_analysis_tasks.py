@@ -1109,7 +1109,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
             df['retail_active_buy_tushare'] = df['buy_sm_amount'] + df['buy_md_amount']
             df['retail_active_sell_tushare'] = df['sell_sm_amount'] + df['sell_md_amount']
-            # [代码修改开始] 恢复 trade_count 的处理
+            # 恢复 trade_count 的处理
             required_cols = [
                 'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare',
                 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare',
@@ -1117,7 +1117,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
                 'main_force_active_sell_tushare', 'retail_active_buy_tushare', 'retail_active_sell_tushare',
                 'trade_count'
             ]
-            # [代码修改结束]
+            
             return df[[col for col in required_cols if col in df.columns]].rename(columns={'net_mf_amount': 'net_flow_tushare'})
         elif source == 'ths':
             df['main_force_net_flow_ths'] = df['buy_lg_amount']
@@ -1137,9 +1137,9 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         raise ValueError("所有资金流数据源均为空")
     merged_df = dfs_to_merge[0]
     for df_to_merge in dfs_to_merge[1:]:
-        # [代码修改开始] 将合并策略从 'outer' 更改为 'inner'
+        # 将合并策略从 'outer' 更改为 'inner'
         merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='inner')
-        # [代码修改结束]
+        
     merged_df['trade_time'] = pd.to_datetime(merged_df['trade_time'])
     merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
     daily_dfs_to_join = []
@@ -1212,7 +1212,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
     """【资金流辅助函数 V1.6 · 最终升维版】为所有指标（包括全维度成本和高阶因子）计算衍生指标。"""
     # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
-    # [代码修改开始] 将所有新增的成本和复合因子加入衍生计算列表
+    # 将所有新增的成本和复合因子加入衍生计算列表
     CORE_METRICS_TO_DERIVE = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
         'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus',
@@ -1225,19 +1225,19 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
         'cost_divergence_mf_vs_retail', 'cost_weighted_main_flow', 'main_buy_cost_advantage',
         'main_force_intraday_profit', 'market_cost_battle',
     ]
-    # [代码修改结束]
+    
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     for p in UNIFIED_PERIODS:
         calc_window = 2 if p == 1 else p
         if p > 1:
-            # [代码修改开始] 修正求和逻辑：仅对非价格、非比率的“流量型”指标求和
+            # 修正求和逻辑：仅对非价格、非比率的“流量型”指标求和
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
                 'net_sh_amount_consensus',
                 'cost_weighted_main_flow' # 成本加权净流是流量型指标，适合求和
             ]
-            # [代码修改结束]
+            
             for col in sum_cols:
                 if col in final_df.columns:
                     final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p // 2)).sum()
@@ -1320,14 +1320,14 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             )
             # 2. 加载和合并数据
             merged_df = await _load_and_merge_fund_flow_sources(stock_info, fetch_start_date)
-            # [代码修改开始] 优化和确立最终的计算管道
+            # 优化和确立最终的计算管道
             # 3. 计算共识指标和基础比率
             df_with_consensus = _calculate_consensus_and_base_metrics(stock_code, merged_df)
             # 4. 一站式计算所有成本指标和基于成本的高阶复合因子
             df_with_costs_and_factors = _calculate_costs_and_advanced_factors(df_with_consensus)
             # 5. 计算所有指标的衍生值（斜率、加速度等）
             final_metrics_df = _calculate_standardized_derivatives(stock_code, df_with_costs_and_factors)
-            # [代码修改结束]
+            
             # 6. 准备并保存数据
             processed_days = await _prepare_and_save_ff_data(
                 stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date

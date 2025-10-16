@@ -202,6 +202,22 @@
             "scoring_mode": "bipolar",
             "description": "诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
         },
+        "PROCESS_META_MAIN_FORCE_URGENCY": {
+            "cn_name": "【过程】主力紧迫度",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 250,
+            "scoring_mode": "bipolar",
+            "description": "诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
+        },
+        "PROCESS_META_SMART_MONEY_COST_ADVANTAGE": {
+            "cn_name": "【过程】聪明钱成本优势",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 220,
+            "scoring_mode": "bipolar",
+            "description": "诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
+        },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_SCORE_TACTICAL_SUPPRESSION": {
             "cn_name": "【认知】战术性打压",
@@ -380,6 +396,13 @@
             "description": "【B级冲突信号】量化“牛熊冲突”的激烈程度，当看涨和看跌力量同时处于高位时，此分值会很高。它将作为“信心阻尼器”压制进攻分，并作为一个独立的、强烈的风险信号。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
+        "SCORE_RISK_ICARUS_FALL": {
+            "cn_name": "【微观风险】伊卡洛斯之坠",
+            "category": "微观行为-风险",
+            "type": "risk",
+            "penalty_weight": -2800,
+            "description": "【重大风险】识别主力背叛前期趋势，通过制造虚假的冲高回落来吸引散户接盘，从而在高位完成派发的“伊卡洛斯之坠”式风险。融合了虚假繁荣、矛盾博弈、背叛上下文和结构恶化四重证据链。"
+        },
         "SCORE_MICRO_HERMES_GAMBIT": {
             "cn_name": "【微观】压单吸筹",
             "category": "微观行为-机会",
