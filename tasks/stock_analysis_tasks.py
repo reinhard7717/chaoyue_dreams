@@ -1073,10 +1073,8 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
-    """【资金流辅助函数 V1.8 · 性能优化版】加载、标准化并以内连接合并多源数据，为三体分析备料。"""
-    # [代码新增开始] 导入functools.reduce用于高效合并
+    """【资金流辅助函数 V2.0 · 情报源最终版】加载、标准化并以内连接合并多源数据，为三体分析备料。"""
     from functools import reduce
-    # [代码新增结束]
     
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
@@ -1089,11 +1087,15 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
 
     # 并发执行所有数据加载任务
     data_tasks = {
+        # [代码修改开始] 确认 tushare 任务加载 FundFlowDaily 的所有字段，其中已包含 trade_count
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
+        # [代码修改结束]
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
+        # [代码修改开始] 从 'daily' 任务中移除对 'trade_count' 的加载请求，因为它不属于日线行情模型
         "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=fetch_start_date),
-        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate', 'trade_count'), start_date=fetch_start_date),
+        # [代码修改结束]
+        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=fetch_start_date),
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
@@ -1158,7 +1160,6 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     # 使用functools.reduce进行更高效的合并，替代原有的for循环
     # 使用外连接(outer)合并，保留所有数据源的信息，即使某一天某个源缺失数据
     merged_df = reduce(lambda left, right: pd.merge(left, right, on='trade_time', how='outer'), dfs_to_merge)
-    
 
     # 排序并设置时间索引
     merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
