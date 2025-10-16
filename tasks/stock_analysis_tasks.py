@@ -1468,10 +1468,10 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
 
 def _calculate_costs_and_advanced_factors(df: pd.DataFrame) -> pd.DataFrame:
     """
-    【V2.0 最终版 - 赫淮斯托斯熔炉】
-    - 核心功能: 一站式计算所有成本指标和基于成本的高阶复合因子。
-    - 优化: 合并了原有的成本计算和高级因子计算，流程更清晰，避免重复计算。
-    - 升维: 全面计算了买卖双方、所有规模订单的平均成本，并构建了完整的成本博弈矩阵。
+    【V2.1 · 墨菲防御版】
+    - 核心修复: 解决了因源数据列缺失导致中间变量变为整数，进而引发AttributeError的问题。
+    - 修复方案: 在使用df.get获取可能缺失的列时，将默认值从标量0改为与df索引对齐的`pd.Series(0, index=df.index)`，
+                  确保所有中间变量（如main_buy_vol）始终为Pandas Series类型，从而保证后续方法调用（如.replace）的健壮性。
     """
     print("    -> 正在执行“赫淮斯托斯熔炉”协议，锻造全维度成本与高阶因子...")
     # --- 1. 计算所有原始订单的买卖平均成本 ---
@@ -1489,22 +1489,25 @@ def _calculate_costs_and_advanced_factors(df: pd.DataFrame) -> pd.DataFrame:
         if amount_col in df.columns and vol_col in df.columns:
             df[new_col] = _calc_avg_cost(amount_col, vol_col)
     # --- 2. 计算聚合参与者的买卖平均成本 ---
+    # [代码修改开始] 将默认值从标量0改为与df索引对齐的Series，确保即使列缺失，变量类型也为Series
+    default_series = pd.Series(0, index=df.index, dtype=float)
     # 主力买入
-    main_buy_amount = pd.to_numeric(df.get('buy_lg_amount', 0), errors='coerce') + pd.to_numeric(df.get('buy_elg_amount', 0), errors='coerce')
-    main_buy_vol = pd.to_numeric(df.get('buy_lg_vol', 0), errors='coerce') + pd.to_numeric(df.get('buy_elg_vol', 0), errors='coerce')
+    main_buy_amount = pd.to_numeric(df.get('buy_lg_amount', default_series), errors='coerce') + pd.to_numeric(df.get('buy_elg_amount', default_series), errors='coerce')
+    main_buy_vol = pd.to_numeric(df.get('buy_lg_vol', default_series), errors='coerce') + pd.to_numeric(df.get('buy_elg_vol', default_series), errors='coerce')
     df['avg_cost_main_buy'] = (main_buy_amount * 100) / main_buy_vol.replace(0, np.nan)
     # 主力卖出
-    main_sell_amount = pd.to_numeric(df.get('sell_lg_amount', 0), errors='coerce') + pd.to_numeric(df.get('sell_elg_amount', 0), errors='coerce')
-    main_sell_vol = pd.to_numeric(df.get('sell_lg_vol', 0), errors='coerce') + pd.to_numeric(df.get('sell_elg_vol', 0), errors='coerce')
+    main_sell_amount = pd.to_numeric(df.get('sell_lg_amount', default_series), errors='coerce') + pd.to_numeric(df.get('sell_elg_amount', default_series), errors='coerce')
+    main_sell_vol = pd.to_numeric(df.get('sell_lg_vol', default_series), errors='coerce') + pd.to_numeric(df.get('sell_elg_vol', default_series), errors='coerce')
     df['avg_cost_main_sell'] = (main_sell_amount * 100) / main_sell_vol.replace(0, np.nan)
     # 散户买入
-    retail_buy_amount = pd.to_numeric(df.get('buy_sm_amount', 0), errors='coerce') + pd.to_numeric(df.get('buy_md_amount', 0), errors='coerce')
-    retail_buy_vol = pd.to_numeric(df.get('buy_sm_vol', 0), errors='coerce') + pd.to_numeric(df.get('buy_md_vol', 0), errors='coerce')
+    retail_buy_amount = pd.to_numeric(df.get('buy_sm_amount', default_series), errors='coerce') + pd.to_numeric(df.get('buy_md_amount', default_series), errors='coerce')
+    retail_buy_vol = pd.to_numeric(df.get('buy_sm_vol', default_series), errors='coerce') + pd.to_numeric(df.get('buy_md_vol', default_series), errors='coerce')
     df['avg_cost_retail_buy'] = (retail_buy_amount * 100) / retail_buy_vol.replace(0, np.nan)
     # 散户卖出
-    retail_sell_amount = pd.to_numeric(df.get('sell_sm_amount', 0), errors='coerce') + pd.to_numeric(df.get('sell_md_amount', 0), errors='coerce')
-    retail_sell_vol = pd.to_numeric(df.get('sell_sm_vol', 0), errors='coerce') + pd.to_numeric(df.get('sell_md_vol', 0), errors='coerce')
+    retail_sell_amount = pd.to_numeric(df.get('sell_sm_amount', default_series), errors='coerce') + pd.to_numeric(df.get('sell_md_amount', default_series), errors='coerce')
+    retail_sell_vol = pd.to_numeric(df.get('sell_sm_vol', default_series), errors='coerce') + pd.to_numeric(df.get('sell_md_vol', default_series), errors='coerce')
     df['avg_cost_retail_sell'] = (retail_sell_amount * 100) / retail_sell_vol.replace(0, np.nan)
+    # [代码修改结束]
     # --- 3. 锻造基于完整成本矩阵的高阶复合因子 ---
     df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
     df['cost_weighted_main_flow'] = df['main_force_net_flow_consensus'] * df['avg_cost_main_buy']
