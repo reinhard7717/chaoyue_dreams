@@ -1369,7 +1369,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
     return final_df
 
 async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
-    """【资金流辅助函数 V1.1 · 性能优化版】准备并保存最终计算结果到数据库。"""
+    """【资金流辅助函数 V1.2 · ORM兼容版】准备并保存最终计算结果到数据库。"""
     stock_code = stock_info.stock_code
     
     # 根据增量或全量模式，筛选需要保存的数据
@@ -1382,7 +1382,6 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
         print(f"[{stock_code}] 数据已是最新，无需更新。")
         return 0
 
-    # 使用 to_dict 和列表推导式替代 iterrows()，大幅提升性能
     # 1. 数据清洗：将无穷大值替换为NaN，以便后续统一处理
     records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
     
@@ -1392,19 +1391,28 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
     # 3. 过滤DataFrame，只保留模型中存在的列，避免不必要的字段
     df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
     
-    # 4. 高效转换：使用 .where 将所有 NaN 值替换为 None，然后用 to_dict('records') 快速转换为字典列表
-    records_list = df_filtered.where(pd.notna(df_filtered), None).to_dict('records')
+    # 4. 高效转换：使用 to_dict('records') 快速转换为字典列表
+    # 注意：此时字典中的值可能仍然是 np.nan
+    records_list = df_filtered.to_dict('records')
     
-    # 5. 使用列表推导式快速构建模型实例列表
-    records_to_create = [
-        MetricsModel(
-            stock=stock_info,
-            trade_time=record_date.date(),
-            **record_data
+    # [代码修改开始] 在构建模型实例时，对每个值进行最终检查，将 np.nan 转换为 None
+    # 5. 使用列表推导式快速构建模型实例列表，并进行最终的类型安全转换
+    records_to_create = []
+    for record_date, record_data in zip(df_filtered.index, records_list):
+        # 对字典中的每个值进行检查，如果是浮点数且不是有限数(inf, -inf, nan)，则转换为None
+        # 这是最关键的一步，确保传递给模型构造函数的值是ORM兼容的
+        safe_record_data = {
+            key: None if isinstance(value, float) and not np.isfinite(value) else value
+            for key, value in record_data.items()
+        }
+        records_to_create.append(
+            MetricsModel(
+                stock=stock_info,
+                trade_time=record_date.date(),
+                **safe_record_data
+            )
         )
-        for record_date, record_data in zip(df_filtered.index, records_list)
-    ]
-    
+    # [代码修改结束]
 
     @sync_to_async(thread_sensitive=True)
     def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
