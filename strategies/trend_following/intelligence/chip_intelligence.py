@@ -46,50 +46,55 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 哈迪斯陷阱版】终极信号合成器
-        - 核心升级: 新增“哈迪斯陷阱” (Hades' Trap) 诊断模块。
-                      专门用于识别“技术性底部反转”与“行为性主力派发”同时发生的致命陷阱。
-                      陷阱分 = 底部反转强度 * 短期派发强度
+        【V2.0 · 分层印证版】终极信号合成器
+        - 核心升级: 全面采纳“分层动态印证”框架。反转信号的计算不再依赖于单一融合后的共振分，
+                      而是对每个周期的健康度独立计算“全息背离”，再对多周期的背离分进行加权融合。
+        - 保持不变: “哈迪斯陷阱”的诊断逻辑，作为一种独立的、高优先级的战术风险信号，保持不变。
         """
-        # 使用全息背离引擎重新定义反转
         states = {}
         periods = sorted(concentration.keys())
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # 调整权重，将1日周期纳入考量
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
         norm_window = 55
-        # --- 看涨/看跌共振 ---
+        # --- 看涨/看跌共振 (逻辑不变) ---
         bullish_scores_by_period = {}
+        bearish_scores_by_period = {}
         for p in periods:
-            score = (concentration[p] + accumulation[p] + power_transfer[p]) / 3.0
-            bullish_scores_by_period[p] = score
+            bullish_scores_by_period[p] = (concentration[p] + accumulation[p] + power_transfer[p]) / 3.0
+            bearish_scores_by_period[p] = ((1 - concentration[p]) + (1 - accumulation[p]) + (1 - power_transfer[p])) / 3.0
         bullish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        bearish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
                 bullish_resonance += bullish_scores_by_period[p] * weight
-        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0,1).astype(np.float32)
-        bearish_scores_by_period = {}
+                bearish_resonance += bearish_scores_by_period[p] * weight
+        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
+        # --- 底部/顶部反转信号 (应用分层印证框架) ---
+        bottom_reversal_scores = {}
+        top_reversal_scores = {}
         for p in periods:
-            score = ((1 - concentration[p]) + (1 - accumulation[p]) + (1 - power_transfer[p])) / 3.0
-            bearish_scores_by_period[p] = score
-        bearish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
+            context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period[p], p, context_p, norm_window)
+            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period[p], p, context_p, norm_window)
+        bottom_reversal_divergence = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        top_reversal_divergence = pd.Series(0.0, index=self.strategy.df_indicators.index)
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
-                bearish_resonance += bearish_scores_by_period[p] * weight
-        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0,1).astype(np.float32)
-        # --- 底部/顶部反转信号 ---
-        bottom_reversal_divergence = self._calculate_holographic_divergence(bullish_resonance, 5, 21, norm_window)
+                bottom_reversal_divergence += bottom_reversal_scores[p] * weight
+                top_reversal_divergence += top_reversal_scores[p] * weight
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
-        top_reversal_divergence = self._calculate_holographic_divergence(bearish_resonance, 5, 21, norm_window)
-        states['SCORE_CHIP_TOP_REversal'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
-        # --- 战术反转 ---
+        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
+        
+        # --- 战术反转 (逻辑不变) ---
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
-        # 部署“哈迪斯陷阱”诊断模块
-        # 步骤1: 即时计算5日周期的“权力转移”快照分，作为短期派发的直接证据
+        # --- 哈迪斯陷阱 (逻辑不变) ---
         df = self.strategy.df_indicators
-        p = 5 # 使用最短周期5日来捕捉当日行为
+        p = 5
         cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True)
         loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True)
         transfer_to_main_force_evidence = (cost_divergence_score * loser_turnover_up)**0.5
@@ -97,13 +102,9 @@ class ChipIntelligence:
         loser_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False)
         transfer_to_retail_evidence = (cost_convergence_score * loser_turnover_down)**0.5
         transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
-        # 步骤2: 将派发行为(-1到0)映射为派发强度(0到1)
         distribution_strength = (transfer_snapshot.clip(-1, 0) * -1).astype(np.float32)
-        # 步骤3: 融合“反转幻象”与“派发事实”，铸造“哈迪斯陷阱分”
-        # 陷阱分 = 底部反转信号强度 * 当日派发强度
         hades_trap_score = (states['SCORE_CHIP_BOTTOM_REVERSAL'] * distribution_strength).clip(0, 1)
         states['SCORE_CHIP_HADES_TRAP'] = hades_trap_score.astype(np.float32)
-
         return states
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
@@ -234,31 +235,41 @@ class ChipIntelligence:
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
-        【V5.0 · 冥王之眼版】筹码专用的关系元分析核心引擎
-        - 核心革命: 签署“冥王之眼”协议，引入双极性的“背离杠杆”。
-                      最终得分 = 基础分 * (1 + 一阶动态杠杆) * (1 + 背离杠杆)
+        【V6.0 · 阿瑞斯之怒协议版】筹码专用的关系元分析核心引擎
+        - 核心革命: 废除“冥王之眼”乘法模型，全面升级为与微观行为引擎一致的“阿瑞斯之怒”加法模型。
+                      最终得分 = (状态*权重) + (速度*权重) + (加速度*权重) + (背离*权重)
+        - 升级意义: 新模型更侧重于动态变化，即使状态分较低，只要速度、加速度或背离足够强，也能产生高分，
+                      从而更敏锐地捕捉到趋势的“拐点”。
         """
-        # 消化双极性背离分
+        # 全面升级为“阿瑞斯之怒”加法模型
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
+        # 新的加法模型权重
+        w_state = get_param_value(p_meta.get('state_weight'), 0.2) # 降低状态权重
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-        w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.5)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.3)
+        w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.2) # 将背离分作为第四维度
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # 维度一：状态分
+        # 维度一：状态分 (State Score) - 范围 [0, 1]
         state_score = snapshot_score.clip(0, 1)
-        # 维度二：一阶动态 (速度与加速度)
+        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
+        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
-        # 杠杆一：一阶动态杠杆
-        dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 杠杆二：背离杠杆 (holographic_divergence_score 是 [-1, 1] 的双极性分数)
-        holographic_leverage = 1 + (holographic_divergence_score * w_holographic)
-        # 冥王之眼：基础分被双重杠杆撬动
-        final_score = (state_score * dynamic_leverage * holographic_leverage).clip(0, 1)
+        # 维度四：全息背离分 (Holographic Divergence Score) - 范围 [-1, 1]
+        # 确保背离分也是双极性的
+        holographic_score = holographic_divergence_score.clip(-1, 1)
+        # 终极融合：从乘法调制升级为四维加法赋权
+        final_score = (
+            state_score * w_state +
+            velocity_score.clip(0, 1) * w_velocity + # 看涨信号只取正向速度
+            acceleration_score.clip(0, 1) * w_acceleration + # 看涨信号只取正向加速度
+            holographic_score.clip(0, 1) * w_holographic # 看涨信号只取正向背离
+        ).clip(0, 1)
+        
         return final_score.astype(np.float32)
 
     def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
@@ -322,56 +333,92 @@ class ChipIntelligence:
 
     def diagnose_accumulation_playbooks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 冥王之眼同步版】诊断“吸筹”相关的战术剧本
-        - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
+        【V2.0 · 分层印证版】诊断“吸筹”相关的战术剧本
+        - 核心升级: 引入“分层动态印证”框架。对“拉升吸筹”的证据链（价涨、换手降、集中升）进行多时间维度的分层验证。
         """
-        # 补上缺失的“全息背离分”参数
         states = {}
-        norm_window = 120
+        # 引入分层印证框架
+        periods = [1, 5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        rally_scores_by_period = {}
         # 剧本一：“拉升吸筹” (Rally Accumulation)
-        # 证据链：价格上涨，但换手率下降，且筹码集中度在提升
-        price_up_score = normalize_score(df.get('SLOPE_5_close'), df.index, norm_window, ascending=True)
-        turnover_down_score = normalize_score(df.get('SLOPE_5_turnover_rate_f'), df.index, norm_window, ascending=False)
-        concentration_up_score = normalize_score(df.get('SLOPE_5_concentration_90pct_D'), df.index, norm_window, ascending=True)
-        # 快照分
-        rally_snapshot_score = (price_up_score * turnover_down_score * concentration_up_score)**(1/3)
-        # 为快照分计算其在(1, 5)周期上的结构性背离
-        holographic_divergence = self._calculate_holographic_divergence(rally_snapshot_score, 1, 5, norm_window)
-        # 动态分 (元分析)
-        rally_accumulation_score = self._perform_chip_relational_meta_analysis(
-            df, rally_snapshot_score, 5, holographic_divergence
-        ) # 传入新增的背离分参数
-        states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = rally_accumulation_score.astype(np.float32)
-        # 更多剧本可以在此添加...
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 战术层
+            tactical_price_up = normalize_score(df.get(f'SLOPE_{p_tactical}_close_D'), df.index, p_tactical, ascending=True)
+            tactical_turnover_down = normalize_score(df.get(f'SLOPE_{p_tactical}_turnover_rate_f'), df.index, p_tactical, ascending=False)
+            tactical_conc_up = normalize_score(df.get(f'SLOPE_{p_tactical}_concentration_90pct_D'), df.index, p_tactical, ascending=True)
+            # 上下文层
+            context_price_up = normalize_score(df.get(f'SLOPE_{p_context}_close_D'), df.index, p_context, ascending=True)
+            context_turnover_down = normalize_score(df.get(f'SLOPE_{p_context}_turnover_rate_f'), df.index, p_context, ascending=False)
+            context_conc_up = normalize_score(df.get(f'SLOPE_{p_context}_concentration_90pct_D'), df.index, p_context, ascending=True)
+            # 融合
+            fused_price_up = (tactical_price_up * context_price_up)**0.5
+            fused_turnover_down = (tactical_turnover_down * context_turnover_down)**0.5
+            fused_conc_up = (tactical_conc_up * context_conc_up)**0.5
+            # 生成快照分
+            rally_snapshot_score = (fused_price_up * fused_turnover_down * fused_conc_up)**(1/3)
+            # 为快照分计算其结构性背离
+            holographic_divergence = self._calculate_holographic_divergence(rally_snapshot_score, p_tactical, p_context, p_context * 2)
+            # 对每个周期的快照分进行元分析
+            rally_scores_by_period[p_tactical] = self._perform_chip_relational_meta_analysis(df, rally_snapshot_score, p_tactical, holographic_divergence)
+        # 跨周期融合
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        final_fused_score = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                weight = tf_weights.get(p_tactical, 0) / total_weight
+                final_fused_score += rally_scores_by_period.get(p_tactical, 0.0) * weight
+        states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = final_fused_score.clip(0, 1).astype(np.float32)
+        
         return states
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 冥王之眼同步版】诊断“恐慌投降反转”的潜力
-        - 核心修复: 在调用元分析引擎时，补上缺失的“全息背离分”参数，与“冥王之眼”协议保持一致。
+        【V4.0 · 分层印证版】诊断“恐慌投降反转”的潜力
+        - 核心升级: 引入“分层动态印证”框架。对“深度套牢”、“低位价格”、“输家换手”三大核心证据进行多时间维度的分层验证。
         """
-        # 补上缺失的“全息背离分”参数
         states = {}
-        p = get_params_block(self.strategy, 'capitulation_reversal_params', {})
-        norm_window = get_param_value(p.get('norm_window'), 120)
-        meta_window = 5 # 定义元分析窗口以保持一致性
         required_cols = ['total_loser_rate_D', 'close_D', 'turnover_from_losers_ratio_D']
         if any(col not in df.columns for col in required_cols):
             states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = pd.Series(0.0, index=df.index)
             return states
-        # 步骤一：构建“恐慌投降关系”的瞬时快照分
-        deep_capitulation_score = normalize_score(df['total_loser_rate_D'], df.index, norm_window, ascending=True)
-        price_at_lows_score = 1.0 - normalize_score(df['close_D'], df.index, window=250, ascending=True)
-        loser_turnover_score = normalize_score(df['turnover_from_losers_ratio_D'], df.index, norm_window, ascending=True)
+        # 引入分层印证框架
+        periods = [5, 13, 21, 55] # 恐慌信号不宜使用过短周期
+        sorted_periods = sorted(periods)
+        capitulation_scores_by_period = {}
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        snapshot_score = (deep_capitulation_score * price_at_lows_score * loser_turnover_score * bearish_ma_context).astype(np.float32)
-        # 步骤二 (新增): 为快照分计算其在(1, 5)周期上的结构性背离
-        holographic_divergence = self._calculate_holographic_divergence(snapshot_score, 1, meta_window, norm_window)
-        # 步骤三 (升级): 对“恐慌投降关系”进行元分析，传入背离分
-        final_score = self._perform_chip_relational_meta_analysis(
-            df, snapshot_score, meta_window, holographic_divergence
-        )
-        states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_score
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 战术层
+            tactical_deep_cap = normalize_score(df['total_loser_rate_D'], df.index, p_tactical, ascending=True)
+            tactical_price_lows = 1.0 - normalize_score(df['close_D'], df.index, window=p_tactical, ascending=True)
+            tactical_loser_turnover = normalize_score(df['turnover_from_losers_ratio_D'], df.index, p_tactical, ascending=True)
+            # 上下文层
+            context_deep_cap = normalize_score(df['total_loser_rate_D'], df.index, p_context, ascending=True)
+            context_price_lows = 1.0 - normalize_score(df['close_D'], df.index, window=p_context, ascending=True)
+            context_loser_turnover = normalize_score(df['turnover_from_losers_ratio_D'], df.index, p_context, ascending=True)
+            # 融合
+            fused_deep_cap = (tactical_deep_cap * context_deep_cap)**0.5
+            fused_price_lows = (tactical_price_lows * context_price_lows)**0.5
+            fused_loser_turnover = (tactical_loser_turnover * context_loser_turnover)**0.5
+            # 生成快照分
+            snapshot_score = (fused_deep_cap * fused_price_lows * fused_loser_turnover * bearish_ma_context).astype(np.float32)
+            # 为快照分计算其结构性背离
+            holographic_divergence = self._calculate_holographic_divergence(snapshot_score, p_tactical, p_context, p_context * 2)
+            # 对每个周期的快照分进行元分析
+            capitulation_scores_by_period[p_tactical] = self._perform_chip_relational_meta_analysis(df, snapshot_score, p_tactical, holographic_divergence)
+        # 跨周期融合
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        final_fused_score = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                weight = tf_weights.get(p_tactical, 0) / total_weight
+                final_fused_score += capitulation_scores_by_period.get(p_tactical, 0.0) * weight
+        states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = final_fused_score.clip(0, 1).astype(np.float32)
+        
         return states
 
 

@@ -36,86 +36,92 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V26.1 · 赫尔墨斯之翼优化版】行为终极信号诊断引擎
-        - 性能优化: 采用Numpy向量化操作进行多维健康度融合，替换了原有的Pandas Series操作，
-                      显著提升了计算效率并降低了内存开销。
-        - 核心逻辑: 保持对“宙斯之雷”引擎的调用和三维健康度的几何平均融合逻辑不变。
-        - Bug修复: 修复了因变量名拼写错误 (`stacked_scores` 应为 `stacked_values`) 导致的 `NameError`。
-        - 优化说明: 增加了权重的自动归一化处理，使融合算法对配置变化更具鲁棒性。
+        【V27.0 · 分层印证版】行为终极信号诊断引擎
+        - 核心升级: 全面采纳“分层动态印证”框架。价格、成交量、K线三大支柱的健康度计算，均升级为战术周期与上下文周期的动态共振模式。
+        - 架构重构: 废除旧的 _calculate_*_health 辅助方法，将分层逻辑直接整合到本方法中，使诊断流程更内聚、更清晰。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
+        # 全面重构为分层印证框架
+        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        sorted_periods = sorted(periods)
+        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         # 步骤一：调用“宙斯之雷”引擎获取权威的底部形态信号
         p_fusion = get_param_value(p_conf.get('supreme_fusion_params'), {})
-        bottom_formation_score = self._supreme_fusion_engine(
-            df=df,
-            signals_to_fuse=atomic_signals,
-            params=p_fusion
-        )
+        bottom_formation_score = self._supreme_fusion_engine(df=df, signals_to_fuse=atomic_signals, params=p_fusion)
         self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score
-        
         # 步骤二：计算并存储近期反转上下文
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
         recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
-        
-        # 步骤三：计算价格、成交量、K线形态三个维度的健康度
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        min_periods = max(1, norm_window // 5)
-        price_s_bull, price_s_bear, price_d_intensity = self._calculate_price_health(df, norm_window, min_periods, periods)
-        vol_s_bull, vol_s_bear, vol_d_intensity = self._calculate_volume_health(df, norm_window, min_periods, periods)
-        kline_s_bull, kline_s_bear, kline_d_intensity = self._calculate_kline_pattern_health(df, atomic_signals, norm_window, min_periods, periods)
-        
-        # 步骤四：使用Numpy进行高效的多维健康度融合
-        overall_health = {}
-        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
-        
-        # 新增(健壮性): 将权重数组的计算提前，并进行归一化，确保总权重为1
-        dim_weights_array = np.array([pillar_weights['price'], pillar_weights['volume'], pillar_weights['kline']])
-        total_weight = dim_weights_array.sum()
-        if total_weight > 0:
-            dim_weights_array /= total_weight
-        else: # 如果权重总和为0或配置错误，则使用等权重
-            dim_weights_array.fill(1.0 / len(dim_weights_array))
-        
-        for health_type, health_sources in [
-            ('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]),
-            ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]),
-            ('d_intensity', [price_d_intensity, vol_d_intensity, kline_d_intensity])
-        ]:
-            overall_health[health_type] = {}
-            for p in periods:
-                # 新增(注释): 使用Numpy进行向量化融合，避免Pandas Series操作
-                # 将三个维度的健康度Series的底层Numpy数组堆叠起来
-                stacked_values = np.stack([
-                    health_sources[0][p].values, 
-                    health_sources[1][p].values, 
-                    health_sources[2][p].values
-                ], axis=0)
-                
-                # 新增(注释): 使用Numpy的广播和乘方运算，一次性完成加权几何平均
-                # 公式: G = (s1^w1 * s2^w2 * ... * sn^wn)
-                # 修改(Bug修复): 将变量名 `stacked_scores` 修正为 `stacked_values`
-                fused_values = np.prod(stacked_values ** dim_weights_array[:, np.newaxis], axis=0)
-                overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-        
+        # 步骤三：为每个周期，通过分层印证计算三大支柱的健康度
+        overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
+        price_holo_bull, price_holo_bear = calculate_holographic_dynamics(df, 'close_D', norm_window)
+        vol_holo_bull, vol_holo_bear = calculate_holographic_dynamics(df, 'volume_D', norm_window)
+        for i, p in enumerate(sorted_periods):
+            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
+            # --- 1. 价格健康度 (分层计算) ---
+            bbp = df.get('BBP_21_2.0_D', pd.Series(0.5, index=df.index)).fillna(0.5).clip(0, 1)
+            day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            close_pos = ((df['close_D'] - df['low_D']) / day_range).clip(0, 1).fillna(0.5)
+            is_pos_day = df['pct_change_D'] > 0
+            bull_score_up = (bbp * close_pos)**0.5
+            reversal_potential = close_pos.where(df['pct_change_D'] < 0, 0)
+            price_s_bull = pd.Series(np.where(is_pos_day, bull_score_up, reversal_potential), index=df.index, dtype=np.float32)
+            price_s_bear = ((1.0 - bbp) * (1.0 - close_pos))**0.5
+            price_d_intensity = ((price_holo_bull + price_holo_bear) / 2.0)
+            # --- 2. 成交量健康度 (分层计算) ---
+            tactical_vol_inc = normalize_score(df['volume_D'], df.index, p, ascending=True)
+            context_vol_inc = normalize_score(df['volume_D'], df.index, context_p, ascending=True)
+            vol_inc = (tactical_vol_inc * context_vol_inc)**0.5
+            tactical_price_stag = 1 - normalize_score(df['pct_change_D'].abs(), df.index, p, ascending=True)
+            context_price_stag = 1 - normalize_score(df['pct_change_D'].abs(), df.index, context_p, ascending=True)
+            price_stag = (tactical_price_stag * context_price_stag)**0.5
+            tactical_price_drop = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, p, ascending=True)
+            context_price_drop = normalize_score(df['pct_change_D'].clip(upper=0).abs(), df.index, context_p, ascending=True)
+            price_drop = (tactical_price_drop * context_price_drop)**0.5
+            stagnation_path = vol_inc * price_stag
+            breakdown_path = (price_drop * vol_inc).where(df['pct_change_D'] < 0, 0)
+            vol_s_bear = np.maximum(stagnation_path, breakdown_path)
+            price_inc = normalize_score(df['pct_change_D'].clip(lower=0), df.index, p, ascending=True)
+            yang_score = (price_inc * vol_inc)
+            yin_score = (1.0 - vol_s_bear) * (1.0 - atomic_signals.get('SCORE_RISK_LIQUIDITY_DRAIN', 0.0))
+            selling_exhaustion = (1.0 - vol_inc) * price_drop
+            exhaustion_reversal = atomic_signals.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', 0.0)
+            bull_down_day = np.maximum.reduce([yin_score.values, selling_exhaustion.values, exhaustion_reversal.values])
+            vol_s_bull = pd.Series(np.where(is_pos_day, yang_score, bull_down_day), index=df.index)
+            vol_d_intensity = ((vol_holo_bull + vol_holo_bear) / 2.0)
+            # --- 3. K线形态健康度 (分层计算) ---
+            strong_close = normalize_score(atomic_signals.get('SCORE_PRICE_POSITION_IN_RANGE', 0.5), df.index, p, True)
+            gap_support = normalize_score(atomic_signals.get('SCORE_GAP_SUPPORT_ACTIVE', 0.0), df.index, p, True)
+            earth_heaven = normalize_score(atomic_signals.get('SCORE_BOARD_EARTH_HEAVEN', 0.0), df.index, p, True)
+            gentle_rise = normalize_score((df['pct_change_D'].clip(0, 0.03) / 0.03), df.index, p, True)
+            kline_s_bull = pd.Series(np.maximum.reduce([strong_close.values, gap_support.values, earth_heaven.values, gentle_rise.values]), index=df.index)
+            weak_close = 1.0 - strong_close
+            upthrust = normalize_score(atomic_signals.get('SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0), df.index, p, True)
+            heaven_earth = normalize_score(atomic_signals.get('SCORE_BOARD_HEAVEN_EARTH', 0.0), df.index, p, True)
+            sharp_drop = normalize_score(atomic_signals.get('SCORE_KLINE_SHARP_DROP', 0.0), df.index, p, True)
+            kline_s_bear = pd.Series(np.maximum.reduce([weak_close.values, upthrust.values, heaven_earth.values, sharp_drop.values]), index=df.index)
+            bull_slope = kline_s_bull.diff(p).fillna(0).abs()
+            bear_slope = kline_s_bear.diff(p).fillna(0).abs()
+            kline_d_intensity = normalize_score(np.maximum(bull_slope, bear_slope), df.index, norm_window, ascending=True)
+            # --- 4. 融合三大支柱健康度 ---
+            pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'price': 0.4, 'volume': 0.3, 'kline': 0.3})
+            weights_array = np.array(list(pillar_weights.values()))
+            weights_array /= weights_array.sum()
+            for ht, hs in [('s_bull', [price_s_bull, vol_s_bull, kline_s_bull]), ('s_bear', [price_s_bear, vol_s_bear, kline_s_bear]), ('d_intensity', [price_d_intensity, vol_d_intensity, kline_d_intensity])]:
+                stacked_values = np.stack([s.values for s in hs], axis=0)
+                fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
+                overall_health[ht][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
         self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
-        
-        # 步骤五：调用终极信号合成引擎
-        ultimate_signals = transmute_health_to_ultimate_signals(
-            df=df,
-            atomic_states=self.strategy.atomic_states,
-            overall_health=overall_health,
-            params=p_synthesis,
-            domain_prefix="BEHAVIOR"
-        )
+        # 步骤四：调用终极信号合成引擎
+        ultimate_signals = transmute_health_to_ultimate_signals(df=df, atomic_states=self.strategy.atomic_states, overall_health=overall_health, params=p_synthesis, domain_prefix="BEHAVIOR")
         states.update(ultimate_signals)
+        
         return states
 
     # ==============================================================================
@@ -308,55 +314,48 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 赫尔墨斯之翼优化版】诊断K线原子形态
-        - 性能优化: 预先计算布尔掩码，避免在where和计算中重复执行条件判断。
-        - 核心逻辑: 保持缺口支撑和急跌评分的计算逻辑不变。
+        【V2.0 · 分层印证版】诊断K线原子形态
+        - 核心升级: 对“急跌”信号的计算引入“分层动态印证”框架，使其对不同时间尺度的下跌趋势更敏感。
+        - 保持不变: 缺口支撑的逻辑是事件驱动型，不适用分层框架，保持原逻辑。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
-        
-        # --- 缺口支撑信号计算 ---
+        # --- 缺口支撑信号计算 (逻辑不变) ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
-            
-            # 预先计算布尔掩码，提高代码可读性和效率
             gap_up_mask = df['low_D'] > df['high_D'].shift(1)
-            
-            # 找到发生向上缺口时，缺口的上沿（前一日的最高价）
             gap_high = df['high_D'].shift(1).where(gap_up_mask).ffill()
-            # 定义缺口被回补的条件
             price_fills_gap_mask = df['close_D'] < gap_high
-            
-            # 使用持久化状态生成器，判断缺口支撑是否持续有效
-            gap_support_state = create_persistent_state(
-                df=df, 
-                entry_event_series=gap_up_mask, 
-                persistence_days=persistence_days, 
-                break_condition_series=price_fills_gap_mask, 
-                state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE'
-            )
-            
-            # 计算支撑强度：当前最低价离缺口上沿越远，支撑越强
+            gap_support_state = create_persistent_state(df=df, entry_event_series=gap_up_mask, persistence_days=persistence_days, break_condition_series=price_fills_gap_mask, state_name='KLINE_STATE_GAP_SUPPORT_ACTIVE')
             support_distance = (df['low_D'] - gap_high).clip(lower=0)
-            # 使用当日收盘价的10%作为归一化基准，使评分具有相对意义
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
-            
-            # 最终得分 = 支撑强度 * 支撑状态
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-            
-        # --- 急跌信号计算 ---
+        # --- 急跌信号计算 (应用分层印证) ---
+        # [代码修改开始]
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
-            norm_window = get_param_value(p_atomic.get('norm_window'), 120)
-            # 计算下跌幅度
+            periods = [1, 5, 13, 21, 55]
+            sorted_periods = sorted(periods)
+            sharp_drop_scores = {}
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-            # 使用更高效的内部归一化函数
-            sharp_drop_score = normalize_score(drop_magnitude, df.index, norm_window, ascending=True)
-            states['SCORE_KLINE_SHARP_DROP'] = sharp_drop_score.astype(np.float32)
-            
+            for i, p_tactical in enumerate(sorted_periods):
+                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+                tactical_score = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
+                context_score = normalize_score(drop_magnitude, df.index, p_context, ascending=True)
+                sharp_drop_scores[p_tactical] = (tactical_score * context_score)**0.5
+            # 跨周期融合
+            tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
+            final_fused_score = pd.Series(0.0, index=df.index)
+            total_weight = sum(tf_weights.get(p, 0) for p in periods)
+            if total_weight > 0:
+                for p_tactical in periods:
+                    weight = tf_weights.get(p_tactical, 0) / total_weight
+                    final_fused_score += sharp_drop_scores.get(p_tactical, 0.0) * weight
+            states['SCORE_KLINE_SHARP_DROP'] = final_fused_score.clip(0, 1).astype(np.float32)
+        
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -435,132 +434,171 @@ class BehavioralIntelligence:
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.1 · 赫尔墨斯之翼优化版】上冲派发风险诊断引擎
-        - 性能优化: 使用`normalize_score`替换`.rolling().rank(pct=True)`，提升归一化效率。
-                      将多个评分因子的计算向量化，减少中间步骤。
-        - 核心逻辑: 保持“关系元分析”范式和三因子融合逻辑不变。
+        【V4.0 · 分层印证版】上冲派发风险诊断引擎
+        - 核心升级: 引入“分层动态印证”框架。对构成“上冲派发”的乖离率、成交量、弱势收盘三大支柱进行多时间维度的分层验证。
         """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         signal_name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
         default_series = pd.Series(0.0, index=df.index, name=signal_name, dtype=np.float32)
-        
         if not get_param_value(p.get('enabled'), False):
             return default_series
-        
         overextension_ma_period = get_param_value(p.get('overextension_ma_period'), 55)
         ma_col = f'EMA_{overextension_ma_period}_D'
         if not all(col in df.columns for col in ['high_D', 'low_D', 'close_D', 'volume_D', ma_col]):
             return default_series
-            
-        norm_window = get_param_value(p.get('norm_window'), 55)
-        
-        # --- 向量化计算瞬时风险关系快照分 ---
-        # 1. 乖离率分：收盘价偏离MA55的程度
-        overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
-        overextension_score = normalize_score(overextension_ratio, df.index, norm_window, ascending=True)
-        
-        # 2. 成交量分：当日成交量在近期所处的位置
-        volume_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=True)
-        
-        # 3. 弱势收盘分：收盘价在当日振幅中位置越低，得分越高
+        # 引入分层印证框架
+        periods = [5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        upthrust_scores_by_period = {}
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         close_position_in_range = ((df['close_D'] - df['low_D']) / total_range).fillna(0.5)
         weak_close_score = 1 - close_position_in_range
+        overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 战术层
+            tactical_overextension = normalize_score(overextension_ratio, df.index, p_tactical, ascending=True)
+            tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
+            # 上下文层
+            context_overextension = normalize_score(overextension_ratio, df.index, p_context, ascending=True)
+            context_volume = normalize_score(df['volume_D'], df.index, p_context, ascending=True)
+            # 融合
+            fused_overextension = (tactical_overextension * context_overextension)**0.5
+            fused_volume = (tactical_volume * context_volume)**0.5
+            # 生成快照分
+            snapshot_score = (fused_overextension * fused_volume * weak_close_score).astype(np.float32)
+            # 对每个周期的快照分进行元分析
+            period_signal = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=f"{signal_name}_{p_tactical}")
+            upthrust_scores_by_period[p_tactical] = period_signal.get(f"{signal_name}_{p_tactical}", pd.Series(0.0, index=df.index))
+        # 跨周期融合
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        final_fused_score = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                weight = tf_weights.get(p_tactical, 0) / total_weight
+                final_fused_score += upthrust_scores_by_period.get(p_tactical, 0.0) * weight
+        final_fused_score.name = signal_name
         
-        # 融合三大支柱，得到单一的“瞬时风险关系分”
-        snapshot_score = (overextension_score * volume_score * weak_close_score).astype(np.float32)
-        
-        # 调用核心引擎，分析“风险关系”的拐点
-        final_signal_dict = self._perform_relational_meta_analysis(
-            df=df,
-            snapshot_score=snapshot_score,
-            signal_name=signal_name
-        )
-        
-        return final_signal_dict.get(signal_name, default_series)
+        return final_fused_score.clip(0, 1).astype(np.float32)
 
     def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 关系元分析版】
-        - 核心升级: 对“VPA滞涨风险”信号采用“关系元分析”范式重构。
+        【V3.0 · 分层印证版】VPA动态诊断引擎
+        - 核心升级: 对“VPA滞涨风险”信号引入“分层动态印证”框架，对放量和滞涨两个维度进行分层验证。
         """
         states = {}
-        required_cols = ['volume_D', 'VOL_MA_21_D', 'pct_change_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D', 'VPA_EFFICIENCY_D', 'SLOPE_5_VPA_EFFICIENCY_D']
+        required_cols = ['volume_D', 'VOL_MA_21_D', 'pct_change_D']
         if any(col not in df.columns for col in required_cols): return states
-        
-        p_vpa = params.get('vpa_dynamics_params', {})
-        norm_window = get_param_value(p_vpa.get('norm_window'), 120)
-        min_periods = max(1, norm_window // 5)
-        
-        # 对 VPA 滞涨风险进行关系元分析
-        # 第一维度：计算“瞬时滞涨关系快照分”
-        volume_ratio = (df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)).fillna(1.0)
-        huge_volume_score = normalize_score(volume_ratio, df.index, norm_window, ascending=True)
-        price_stagnant_score = 1 - normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=True)
-        stagnation_snapshot_score = (huge_volume_score * price_stagnant_score).astype(np.float32)
-        
-        # 第二维度：调用核心引擎
-        stagnation_risk_states = self._perform_relational_meta_analysis(
-            df=df,
-            snapshot_score=stagnation_snapshot_score,
-            signal_name='SCORE_RISK_VPA_STAGNATION'
-        )
-        states.update(stagnation_risk_states)
+        # 引入分层印证框架
+        periods = [5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        stagnation_scores_by_period = {}
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 战术层
+            tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
+            tactical_huge_volume = normalize_score(tactical_volume_ratio, df.index, p_tactical, ascending=True)
+            tactical_price_stagnant = 1 - normalize_score(df['pct_change_D'].abs(), df.index, p_tactical, ascending=True)
+            # 上下文层
+            context_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_context}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_context}_D' in df else pd.Series(1.0, index=df.index)
+            context_huge_volume = normalize_score(context_volume_ratio, df.index, p_context, ascending=True)
+            context_price_stagnant = 1 - normalize_score(df['pct_change_D'].abs(), df.index, p_context, ascending=True)
+            # 融合
+            fused_huge_volume = (tactical_huge_volume * context_huge_volume)**0.5
+            fused_price_stagnant = (tactical_price_stagnant * context_price_stagnant)**0.5
+            # 生成快照分
+            stagnation_snapshot_score = (fused_huge_volume * fused_price_stagnant).astype(np.float32)
+            # 对每个周期的快照分进行元分析
+            signal_name = f"SCORE_RISK_VPA_STAGNATION_{p_tactical}"
+            period_signal = self._perform_relational_meta_analysis(df=df, snapshot_score=stagnation_snapshot_score, signal_name=signal_name)
+            stagnation_scores_by_period[p_tactical] = period_signal.get(signal_name, pd.Series(0.0, index=df.index))
+        # 跨周期融合
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        final_fused_score = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                weight = tf_weights.get(p_tactical, 0) / total_weight
+                final_fused_score += stagnation_scores_by_period.get(p_tactical, 0.0) * weight
+        states['SCORE_RISK_VPA_STAGNATION'] = final_fused_score.clip(0, 1).astype(np.float32)
         
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.1 · 幽灵信号净化版】
-        - 移除了对 SCORE_PRICE_POSITION_IN_RECENT_RANGE 这个幽灵信号的计算。
+        【V9.0 · 分层印证版】量价原子信号诊断引擎
+        - 核心升级: 对“缩量下跌”、“流动性枯竭风险”、“卖盘衰竭反转”三大信号全面引入“分层动态印证”框架。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
         if not get_param_value(p.get('enabled'), True): return states
-        norm_window = get_param_value(p.get('norm_window'), 120)
-        min_periods = max(1, norm_window // 5)
-        vol_ma_col = 'VOL_MA_21_D'
-        if vol_ma_col in df.columns and 'pct_change_D' in df.columns:
+        # 引入分层印证框架
+        periods = [5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        # --- 信号一: 缩量下跌 (SCORE_VOL_WEAKENING_DROP) ---
+        if 'pct_change_D' in df.columns:
+            weakening_drop_scores = {}
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-            price_drop_score = drop_magnitude.rolling(window=norm_window, min_periods=min_periods).rank(pct=True).fillna(0.0)
-            volume_ratio = (df['volume_D'] / df[vol_ma_col].replace(0, np.nan)).fillna(1.0)
-            volume_shrink_score = (1 - volume_ratio.rolling(window=norm_window, min_periods=min_periods).rank(pct=True)).fillna(0.5)
-            states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_score * volume_shrink_score).astype(np.float32)
-
-        p_drain = p.get('liquidity_drain_params', {})
-        drain_window = get_param_value(p_drain.get('window'), 20)
-        
+            for i, p_tactical in enumerate(sorted_periods):
+                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+                tactical_price_drop = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
+                tactical_vol_shrink = normalize_score(df['volume_D'], df.index, p_tactical, ascending=False)
+                context_price_drop = normalize_score(drop_magnitude, df.index, p_context, ascending=True)
+                context_vol_shrink = normalize_score(df['volume_D'], df.index, p_context, ascending=False)
+                fused_price_drop = (tactical_price_drop * context_price_drop)**0.5
+                fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
+                weakening_drop_scores[p_tactical] = (fused_price_drop * fused_vol_shrink)
+            final_weakening_drop = pd.Series(0.0, index=df.index)
+            total_weight = sum(tf_weights.get(p, 0) for p in periods)
+            if total_weight > 0:
+                for p_tactical in periods:
+                    final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight)
+            states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
+        # --- 信号二: 流动性枯竭风险 (SCORE_RISK_LIQUIDITY_DRAIN) ---
+        drain_scores = {}
         price_drop_magnitude = df['pct_change_D'].clip(upper=0).abs()
-        price_drop_score = normalize_score(price_drop_magnitude, df.index, drain_window, ascending=True)
-        volume_shrink_score = normalize_score(df['volume_D'], df.index, drain_window, ascending=False)
-        drain_snapshot_score = (price_drop_score * volume_shrink_score).astype(np.float32)
-
-        liquidity_drain_states = self._perform_relational_meta_analysis(
-            df=df,
-            snapshot_score=drain_snapshot_score,
-            signal_name='SCORE_RISK_LIQUIDITY_DRAIN'
-        )
-        states.update(liquidity_drain_states)
-
-        p_rev = p.get('exhaustion_reversal_params', {})
-        rev_window = get_param_value(p_rev.get('window'), 5)
-        
-        is_stabilizing = (df['low_D'] >= df['low_D'].rolling(rev_window).min()).astype(int)
-        price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index))
-        stabilization_score = is_stabilizing * normalize_score(price_volatility, df.index, norm_window, ascending=False)
-        volume_dry_up_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        
-        # 此处需要 close_position_in_range，从 _diagnose_advanced_atomic_signals 获取
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            tactical_price_drop = normalize_score(price_drop_magnitude, df.index, p_tactical, ascending=True)
+            tactical_vol_shrink = normalize_score(df['volume_D'], df.index, p_tactical, ascending=False)
+            context_price_drop = normalize_score(price_drop_magnitude, df.index, p_context, ascending=True)
+            context_vol_shrink = normalize_score(df['volume_D'], df.index, p_context, ascending=False)
+            fused_price_drop = (tactical_price_drop * context_price_drop)**0.5
+            fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
+            snapshot_score = (fused_price_drop * fused_vol_shrink).astype(np.float32)
+            period_signal = self._perform_relational_meta_analysis(df, snapshot_score, f"drain_{p_tactical}")
+            drain_scores[p_tactical] = period_signal.get(f"drain_{p_tactical}", pd.Series(0.0, index=df.index))
+        final_drain_risk = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                final_drain_risk += drain_scores.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight)
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = final_drain_risk.clip(0, 1).astype(np.float32)
+        # --- 信号三: 卖盘衰竭反转 (SCORE_BULLISH_EXHAUSTION_REVERSAL) ---
+        exhaustion_scores = {}
         close_position_in_range = self.strategy.atomic_states.get('SCORE_PRICE_POSITION_IN_RANGE', pd.Series(0.5, index=df.index))
         context_score = 1 - close_position_in_range
-        snapshot_score = (stabilization_score * volume_dry_up_score * context_score)
-        
-        exhaustion_reversal_states = self._perform_relational_meta_analysis(
-            df=df,
-            snapshot_score=snapshot_score,
-            signal_name='SCORE_BULLISH_EXHAUSTION_REVERSAL'
-        )
-        states.update(exhaustion_reversal_states)
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            is_stabilizing = (df['low_D'] >= df['low_D'].rolling(p_tactical).min()).astype(int)
+            price_volatility = df.get('ATR_14_D', pd.Series(df['high_D'] - df['low_D'], index=df.index))
+            tactical_stabilization = is_stabilizing * normalize_score(price_volatility, df.index, p_tactical, ascending=False)
+            tactical_vol_dry_up = normalize_score(df['volume_D'], df.index, p_tactical, ascending=False)
+            context_stabilization = is_stabilizing * normalize_score(price_volatility, df.index, p_context, ascending=False)
+            context_vol_dry_up = normalize_score(df['volume_D'], df.index, p_context, ascending=False)
+            fused_stabilization = (tactical_stabilization * context_stabilization)**0.5
+            fused_vol_dry_up = (tactical_vol_dry_up * context_vol_dry_up)**0.5
+            snapshot_score = (fused_stabilization * fused_vol_dry_up * context_score)
+            period_signal = self._perform_relational_meta_analysis(df, snapshot_score, f"exhaust_{p_tactical}")
+            exhaustion_scores[p_tactical] = period_signal.get(f"exhaust_{p_tactical}", pd.Series(0.0, index=df.index))
+        final_exhaustion_rev = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        if total_weight > 0:
+            for p_tactical in periods:
+                final_exhaustion_rev += exhaustion_scores.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight)
+        states['SCORE_BULLISH_EXHAUSTION_REVERSAL'] = final_exhaustion_rev.clip(0, 1).astype(np.float32)
         
         return states
 

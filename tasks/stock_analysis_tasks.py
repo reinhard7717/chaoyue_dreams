@@ -1087,14 +1087,14 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
 
     # 并发执行所有数据加载任务
     data_tasks = {
-        # [代码修改开始] 确认 tushare 任务加载 FundFlowDaily 的所有字段，其中已包含 trade_count
+        # 确认 tushare 任务加载 FundFlowDaily 的所有字段，其中已包含 trade_count
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-        # [代码修改结束]
+        
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-        # [代码修改开始] 从 'daily' 任务中移除对 'trade_count' 的加载请求，因为它不属于日线行情模型
+        # 从 'daily' 任务中移除对 'trade_count' 的加载请求，因为它不属于日线行情模型
         "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=fetch_start_date),
-        # [代码修改结束]
+        
         "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=fetch_start_date),
     }
     results = await asyncio.gather(*data_tasks.values())
@@ -1202,10 +1202,10 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
             'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'), 'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
         }
         for new_col, (amount_col, vol_col) in cost_pairs.items():
-            # [代码修改开始] 移除 .fillna(0)，让 pd.to_numeric 处理类型转换
+            # 移除 .fillna(0)，让 pd.to_numeric 处理类型转换
             amount_np = pd.to_numeric(df[amount_col], errors='coerce').values
             vol_np = pd.to_numeric(df[vol_col], errors='coerce').values
-            # [代码修改结束]
+            
             df[new_col] = np.divide(amount_np * 100, vol_np, out=np.full_like(amount_np, np.nan, dtype=float), where=vol_np!=0)
 
         def calculate_aggregate_cost(amount_cols, vol_cols):
@@ -1235,10 +1235,10 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
         df['main_force_conviction_buy_ratio'] = df['main_force_active_buy_tushare'].values / safe_denom_np((df['main_force_active_buy_tushare'] + df['main_force_active_sell_tushare']).values)
 
         if 'trade_count' in df.columns and 'amount' in df.columns:
-            # [代码修改开始] 移除 .fillna(0)，保留原始逻辑
+            # 移除 .fillna(0)，保留原始逻辑
             total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce').values * 1000
             trade_count_np = pd.to_numeric(df['trade_count'], errors='coerce').values
-            # [代码修改结束]
+            
             df['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
     else:
         print(f"    -> [警告] 未检测到Tushare 'vol' 数据，成本宇宙和主动性指标将为空。")
@@ -1268,7 +1268,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
         df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
 
-    # [代码修改开始] 撤销所有不必要的 .fillna(0)
+    # 撤销所有不必要的 .fillna(0)
     safe_denom = lambda v: v.replace(0, np.nan)
     
     total_turnover_yuan = pd.to_numeric(df.get('amount'), errors='coerce') * 1000
@@ -1289,7 +1289,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
 
     total_xl_trade_yuan = pd.to_numeric(df.get('net_xl_amount_consensus'), errors='coerce').abs() * 10000
     df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
-    # [代码修改结束]
+    
     
     return df
 
@@ -1383,7 +1383,7 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
     # 注意：此时字典中的值可能仍然是 np.nan
     records_list = df_filtered.to_dict('records')
     
-    # [代码修改开始] 在构建模型实例时，对每个值进行最终检查，将 np.nan 转换为 None
+    # 在构建模型实例时，对每个值进行最终检查，将 np.nan 转换为 None
     # 5. 使用列表推导式快速构建模型实例列表，并进行最终的类型安全转换
     records_to_create = []
     for record_date, record_data in zip(df_filtered.index, records_list):
@@ -1400,7 +1400,7 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
                 **safe_record_data
             )
         )
-    # [代码修改结束]
+    
 
     @sync_to_async(thread_sensitive=True)
     def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
