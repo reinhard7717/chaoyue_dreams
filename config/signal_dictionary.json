@@ -186,6 +186,22 @@
             "scoring_mode": "unipolar",
             "description": "诊断'力学看跌'与'筹码看跌'的共振过程。基础分已为负，只在事件发生时（原始分>0）计入惩罚。"
         },
+        "PROCESS_META_COST_VS_PRICE": {
+            "cn_name": "【过程】主力成本vs价格",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 150,
+            "scoring_mode": "bipolar",
+            "description": "诊断主力买入成本的变化率是否超越价格本身的变化率。正分代表主力在加速、追高买入。"
+        },
+        "PROCESS_META_PROFIT_VS_FLOW": {
+            "cn_name": "【过程】主力盈亏vs流量",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 180,
+            "scoring_mode": "bipolar",
+            "description": "诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
+        },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_SCORE_TACTICAL_SUPPRESSION": {
             "cn_name": "【认知】战术性打压",

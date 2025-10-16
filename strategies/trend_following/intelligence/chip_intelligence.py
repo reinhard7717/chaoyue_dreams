@@ -147,29 +147,33 @@ class ChipIntelligence:
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V1.6 · 冥王之眼版】核心公理二：诊断主力“吸筹与派发”
-        - 核心升级: 调用“冥王之眼”引擎，为每个周期的行动快照分计算其在(1, p)周期上的结构性背离，
-                      并将这个关键的背离分送入元分析引擎。
+        【V1.7 · 成本透视版】核心公理二：诊断主力“吸筹与派发”
+        - 核心升级: 引入“主力日内盈亏”的斜率作为第四个核心证据，用于识别主力是否在“亏钱甩卖”，
+                      极大增强了对真实派发行为的识别能力。
         """
-        # 计算并传入结构性背离分
         scores = {}
         norm_window = 120
         for p in periods:
-            # 步骤 1: 构建“吸筹”证据链
+            # 步骤 1: 构建“吸筹”证据链 (保持不变)
             conc_slope_up = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=True)
             winner_turnover_down = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=False)
             trade_conc_up = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=True)
             accumulation_evidence = (conc_slope_up * winner_turnover_down * trade_conc_up)**(1/3)
-            # 步骤 2: 构建“派发”证据链
+            # 步骤 2: 构建“派发”证据链 (升级)
             conc_slope_down = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D'), df.index, norm_window, ascending=False)
             winner_turnover_up = normalize_score(df.get(f'SLOPE_{p}_turnover_from_winners_ratio_D'), df.index, norm_window, ascending=True)
             trade_conc_down = normalize_score(df.get(f'SLOPE_{p}_trade_concentration_index_D'), df.index, norm_window, ascending=False)
-            distribution_evidence = (conc_slope_down * winner_turnover_up * trade_conc_down)**(1/3)
+            # [代码新增开始] 引入“主力亏钱甩卖”作为第四维度证据
+            main_force_losing_money_score = normalize_score(df.get(f'SLOPE_{p}_main_force_intraday_profit_D'), df.index, norm_window, ascending=False)
+            # [代码新增结束]
+            # [代码修改开始] 将派发证据链从三维升级为四维
+            distribution_evidence = (conc_slope_down * winner_turnover_up * trade_conc_down * main_force_losing_money_score)**(1/4)
+            # [代码修改结束]
             # 步骤 3: 生成双极性的“行动快照分”
             action_snapshot = (accumulation_evidence - distribution_evidence).astype(np.float32)
-            # 步骤 4 (新增): 计算当前周期p与最短周期1之间的结构性背离
+            # 步骤 4: 计算当前周期p与最短周期1之间的结构性背离
             holographic_divergence = self._calculate_holographic_divergence(action_snapshot, 1, p, norm_window)
-            # 步骤 5 (升级): 对“行动快照分”进行关系元分析，传入背离分
+            # 步骤 5: 对“行动快照分”进行关系元分析，传入背离分
             dynamic_action_score = self._perform_chip_relational_meta_analysis(
                 df, action_snapshot, p, holographic_divergence
             )

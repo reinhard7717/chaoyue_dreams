@@ -30,8 +30,9 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.6 · 商神杖激活版】终极资金流信号诊断模块
-        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
+        【V2.7 · 成本矩阵激活版】终极资金流信号诊断模块
+        - 核心升级: 在支柱配置中，注入了基于“成本博弈矩阵”的全新分析支柱，
+                      包括主力日内盈亏、主力与散户的成本博弈差等，极大增强了对资金真实意图的洞察力。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -52,6 +53,11 @@ class FundFlowIntelligence:
             'retail_panic': {'base': 'retail_panic_index', 'type': 'daily', 'intent': 'sentiment', 'polarity': 1},
             'sh_flow': {'base': 'net_sh_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
             'md_flow': {'base': 'net_md_amount_consensus', 'type': 'sum', 'intent': 'sentiment', 'polarity': -1},
+            # [代码新增开始] 注入基于成本博弈矩阵的全新分析支柱
+            'main_force_profit': {'base': 'main_force_intraday_profit', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'description': '主力日内盈亏，越高代表控盘能力越强'},
+            'cost_battle': {'base': 'market_cost_battle', 'type': 'daily', 'intent': 'conflict', 'polarity': 1, 'description': '主力买入成本与散户买入成本的差值，越高代表主力越主动'},
+            'cost_divergence': {'base': 'cost_divergence_mf_vs_retail', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'description': '主力买入成本与散户卖出成本的差值，越高代表吸筹意愿越强'},
+            # [代码新增结束]
         }
 
         # 调用全新的、功能更强大的均线健康度计算引擎
