@@ -17,7 +17,7 @@ class FundFlowDailyCY(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     buy_sm_vol = models.IntegerField(verbose_name=_("小单买入量(手)"), null=True, blank=True)
-    buy_sm_amount = models.FloatField(verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
+    buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
     sell_sm_vol = models.IntegerField(verbose_name=_("小单卖出量(手)"), null=True, blank=True)
     sell_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单卖出金额(万元)"), null=True, blank=True)
     buy_md_vol = models.IntegerField(verbose_name=_("中单买入量(手)"), null=True, blank=True)
@@ -34,7 +34,7 @@ class FundFlowDailyCY(models.Model):
     sell_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("特大单卖出金额(万元)"), null=True, blank=True)
     net_mf_vol = models.IntegerField(verbose_name=_("净流入量(手)"), null=True, blank=True)
     net_mf_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入额(万元)"), null=True, blank=True)
-    trade_count= models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
+    trade_count = models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
     class Meta:
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
@@ -64,7 +64,7 @@ class FundFlowDailySZ(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     buy_sm_vol = models.IntegerField(verbose_name=_("小单买入量(手)"), null=True, blank=True)
-    buy_sm_amount = models.FloatField(verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
+    buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
     sell_sm_vol = models.IntegerField(verbose_name=_("小单卖出量(手)"), null=True, blank=True)
     sell_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单卖出金额(万元)"), null=True, blank=True)
     buy_md_vol = models.IntegerField(verbose_name=_("中单买入量(手)"), null=True, blank=True)
@@ -81,7 +81,7 @@ class FundFlowDailySZ(models.Model):
     sell_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("特大单卖出金额(万元)"), null=True, blank=True)
     net_mf_vol = models.IntegerField(verbose_name=_("净流入量(手)"), null=True, blank=True)
     net_mf_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入额(万元)"), null=True, blank=True)
-    trade_count= models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
+    trade_count = models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
     class Meta:
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
@@ -111,7 +111,7 @@ class FundFlowDailyKC(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     buy_sm_vol = models.IntegerField(verbose_name=_("小单买入量(手)"), null=True, blank=True)
-    buy_sm_amount = models.FloatField(verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
+    buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
     sell_sm_vol = models.IntegerField(verbose_name=_("小单卖出量(手)"), null=True, blank=True)
     sell_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单卖出金额(万元)"), null=True, blank=True)
     buy_md_vol = models.IntegerField(verbose_name=_("中单买入量(手)"), null=True, blank=True)
@@ -128,7 +128,7 @@ class FundFlowDailyKC(models.Model):
     sell_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("特大单卖出金额(万元)"), null=True, blank=True)
     net_mf_vol = models.IntegerField(verbose_name=_("净流入量(手)"), null=True, blank=True)
     net_mf_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入额(万元)"), null=True, blank=True)
-    trade_count= models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
+    trade_count = models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
     class Meta:
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
@@ -158,7 +158,7 @@ class FundFlowDailySH(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     buy_sm_vol = models.IntegerField(verbose_name=_("小单买入量(手)"), null=True, blank=True)
-    buy_sm_amount = models.FloatField(verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
+    buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
     sell_sm_vol = models.IntegerField(verbose_name=_("小单卖出量(手)"), null=True, blank=True)
     sell_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单卖出金额(万元)"), null=True, blank=True)
     buy_md_vol = models.IntegerField(verbose_name=_("中单买入量(手)"), null=True, blank=True)
@@ -175,7 +175,7 @@ class FundFlowDailySH(models.Model):
     sell_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("特大单卖出金额(万元)"), null=True, blank=True)
     net_mf_vol = models.IntegerField(verbose_name=_("净流入量(手)"), null=True, blank=True)
     net_mf_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入额(万元)"), null=True, blank=True)
-    trade_count= models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
+    trade_count = models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
     class Meta:
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
@@ -205,7 +205,7 @@ class FundFlowDailyBJ(models.Model):
     )
     trade_time = models.DateField(verbose_name=_("交易日期"), null=True, blank=True)
     buy_sm_vol = models.IntegerField(verbose_name=_("小单买入量(手)"), null=True, blank=True)
-    buy_sm_amount = models.FloatField(verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
+    buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单买入金额(万元)"), null=True, blank=True)
     sell_sm_vol = models.IntegerField(verbose_name=_("小单卖出量(手)"), null=True, blank=True)
     sell_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("小单卖出金额(万元)"), null=True, blank=True)
     buy_md_vol = models.IntegerField(verbose_name=_("中单买入量(手)"), null=True, blank=True)
@@ -222,7 +222,7 @@ class FundFlowDailyBJ(models.Model):
     sell_elg_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("特大单卖出金额(万元)"), null=True, blank=True)
     net_mf_vol = models.IntegerField(verbose_name=_("净流入量(手)"), null=True, blank=True)
     net_mf_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("净流入额(万元)"), null=True, blank=True)
-    trade_count= models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
+    trade_count = models.IntegerField(verbose_name='交易笔数', blank=True, null=True)
     class Meta:
         verbose_name = _("日级资金流向")
         verbose_name_plural = _("日级资金流向")
@@ -735,15 +735,12 @@ class FundFlowDailyDC_BJ(models.Model):
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V2.0 标准化重构版】
-    - 核心重构: 统一了所有衍生指标的计算周期为 [1, 5, 13, 21, 55]，
-                并确保每个核心指标都拥有完整的斜率和加速度衍生字段。
-    - 收益: 模型定义极度简化，逻辑高度统一，为上层策略提供了规整、
-            可预测的数据结构。
+    【V2.3 - 成本透视维度升维版】
+    - 核心升维: 新增了基于资金流原始量、额计算出的各类订单（小、中、大、特大）的
+                买卖平均成本指标，以及这些成本指标的全周期衍生指标（斜率、加速度）。
     """
     # --- 1. 核心关联键 ---
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-
     # --- 2. 每日资金流共识指标 (核心基础指标) ---
     CORE_METRICS = {
         'net_flow_consensus': '共识-资金净流入(万元)',
@@ -762,46 +759,49 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'trade_concentration_index': '交易集中度指数',
         'avg_order_value': '平均每笔成交金额(元)',
         'main_force_conviction_ratio': '主力信念比率',
+        'avg_cost_sm_buy': '小单买入均价',
+        'avg_cost_sm_sell': '小单卖出均价',
+        'avg_cost_md_buy': '中单买入均价',
+        'avg_cost_md_sell': '中单卖出均价',
+        'avg_cost_lg_buy': '大单买入均价',
+        'avg_cost_lg_sell': '大单卖出均价',
+        'avg_cost_elg_buy': '特大单买入均价',
+        'avg_cost_elg_sell': '特大单卖出均价',
+        'avg_cost_main_buy': '主力买入均价',
+        'avg_cost_retail_sell': '散户卖出均价',
+        'cost_divergence_mf_vs_retail': '成本分歧度(主力买-散户卖)',
+        'cost_weighted_main_flow': '主力成本加权净流入',
+        'main_buy_cost_advantage': '主力成本领先度',
     }
-    
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
-        if 'ratio' in name or 'pressure' in name or 'index' in name:
+        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name:
+            vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
+        elif name == 'avg_order_value':
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
-    
-    # 单独定义一个特殊指标
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
-
     # --- 3. 统一衍生周期 ---
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-
     # --- 4. 动态生成所有衍生指标 (累计、斜率、加速度) ---
     for p in UNIFIED_PERIODS:
         # --- 4.1 累计指标 (仅对金额类指标，且周期>1) ---
         if p > 1:
             for name, verbose in CORE_METRICS.items():
-                if name == 'avg_order_value':
-                     vars()[f'{name}_sum_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
-                elif 'ratio' not in name and 'divergence' not in name: # 强度比率和分歧度通常不计算累计值
+                # [代码修改开始] 成本指标不适合计算累计值，跳过
+                if name == 'avg_order_value' or 'cost' in name:
+                        vars()[f'{name}_sum_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
+                        continue
+                # [代码修改结束]
+                elif 'ratio' not in name and 'divergence' not in name:
                     vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose}{p}日累计', null=True, blank=True)
-
         # --- 4.2 斜率指标 ---
-        # 4.2.1 每日核心指标的斜率
         for name, verbose in CORE_METRICS.items():
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
-        
-        # 4.2.2 累计指标的斜率 (仅对周期>1)
-        if p > 1:
-            for name, verbose in CORE_METRICS.items():
-                if 'ratio' not in name and 'divergence' not in name:
-                    vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日累计之{p}日斜率', null=True, blank=True)
-
         # --- 4.3 加速度指标 ---
         for name, verbose in CORE_METRICS.items():
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
-
     class Meta:
         abstract = True
         ordering = ['-trade_time']

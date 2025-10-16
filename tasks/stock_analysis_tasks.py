@@ -1075,7 +1075,7 @@ async def _initialize_ff_task_context(stock_code: str, is_incremental: bool):
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
-    """【资金流辅助函数 V1.5 · 数据源修正版】加载、标准化并合并多源资金流及日线核心数据。"""
+    """【资金流辅助函数 V1.6 · 得墨忒耳协议】加载、标准化并以内连接合并多源数据。"""
     # print(f"[{stock_info.stock_code}] [资金流-数据加载] 开始加载多源数据...")
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
@@ -1084,16 +1084,13 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         if start_date:
             qs = qs.filter(**{f'{date_field}__gte': start_date})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    # [代码修正开始] 修正 daily_basic 的数据源模型
     data_tasks = {
         "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
         "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=fetch_start_date),
-        # 修正：直接使用 StockDailyBasic 模型，而不是不存在的分表辅助函数
         "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=fetch_start_date),
     }
-    # [代码修正结束]
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
@@ -1112,6 +1109,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
             df['main_force_active_sell_tushare'] = df['sell_lg_amount'] + df['sell_elg_amount']
             df['retail_active_buy_tushare'] = df['buy_sm_amount'] + df['buy_md_amount']
             df['retail_active_sell_tushare'] = df['sell_sm_amount'] + df['sell_md_amount']
+            # [代码修改开始] 恢复 trade_count 的处理
             required_cols = [
                 'trade_time', 'net_mf_amount', 'main_force_net_flow_tushare',
                 'retail_net_flow_tushare', 'net_xl_amount_tushare', 'net_lg_amount_tushare',
@@ -1119,6 +1117,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
                 'main_force_active_sell_tushare', 'retail_active_buy_tushare', 'retail_active_sell_tushare',
                 'trade_count'
             ]
+            # [代码修改结束]
             return df[[col for col in required_cols if col in df.columns]].rename(columns={'net_mf_amount': 'net_flow_tushare'})
         elif source == 'ths':
             df['main_force_net_flow_ths'] = df['buy_lg_amount']
@@ -1138,7 +1137,9 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
         raise ValueError("所有资金流数据源均为空")
     merged_df = dfs_to_merge[0]
     for df_to_merge in dfs_to_merge[1:]:
-        merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='outer')
+        # [代码修改开始] 将合并策略从 'outer' 更改为 'inner'
+        merged_df = pd.merge(merged_df, df_to_merge, on='trade_time', how='inner')
+        # [代码修改结束]
     merged_df['trade_time'] = pd.to_datetime(merged_df['trade_time'])
     merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
     daily_dfs_to_join = []
@@ -1153,7 +1154,7 @@ async def _load_and_merge_fund_flow_sources(stock_info, fetch_start_date):
     return merged_df
 
 def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V2.1 · 类型统一协议】计算共识指标和基于共识的科学化高级比率。"""
+    """【资金流辅助函数 V2.4 · 最终锻造】在所有基础计算后，调用高级因子锻造方法。"""
     # print(f"[{stock_code}] [资金流-共识计算] 正在执行“阿波罗的真理天平”协议...")
     df = merged_df.copy()
     # --- 阶段一: 构建所有基础指标的共识值 ---
@@ -1174,52 +1175,44 @@ def _calculate_consensus_and_base_metrics(stock_code: str, merged_df: pd.DataFra
     for target_col, source_cols in consensus_map.items():
         existing_cols = [col for col in source_cols if col in df.columns]
         if existing_cols:
-            # [代码修正] 在求均值前，确保所有源列都转换为float类型
             df[target_col] = df[existing_cols].apply(lambda x: pd.to_numeric(x, errors='coerce')).mean(axis=1)
         else:
             df[target_col] = np.nan
             print(f"[{stock_code}] [共识计算警告] 目标 '{target_col}': 所有源列 {source_cols} 均缺失。")
     # --- 阶段二: 基于可靠的共识值，计算科学化的高级比率指标 ---
     safe_denom = lambda v: v.replace(0, np.nan)
-    # [代码修正] 将所有从数据库读取的Decimal列在使用前统一转换为float
-    # 1. 主力资金流强度比率 (标准化)
     total_turnover_yuan = df.get('amount', pd.Series(dtype=float)).fillna(0).astype(float) * 1000
     main_force_net_flow_yuan = df['main_force_net_flow_consensus'].fillna(0).astype(float) * 10000
     df['main_force_flow_intensity_ratio'] = (main_force_net_flow_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    # 2. 主动买盘压力 (基于共识值)
     main_force_buy = df['main_force_active_buy_consensus'].fillna(0).astype(float)
     retail_sell = df['retail_active_sell_consensus'].fillna(0).astype(float)
     df['active_buy_pressure'] = (main_force_buy / safe_denom(retail_sell)).fillna(0.5)
-    # 3. 散户恐慌指数 (基于共识值)
     retail_buy = df['retail_active_buy_consensus'].fillna(0).astype(float)
     df['retail_panic_index'] = (retail_sell / safe_denom(retail_buy)).fillna(1.0)
-    # 4. 主力信念比率 (超大单/大单)
     net_xl = df['net_xl_amount_consensus'].fillna(0).astype(float)
     net_lg = df['net_lg_amount_consensus'].fillna(0).astype(float)
     df['main_force_conviction_ratio'] = (net_xl / safe_denom(net_lg)).fillna(0)
-    # 5. 交易集中度指数 (标准化)
     total_xl_trade_yuan = (df.get('net_xl_amount_tushare', pd.Series(dtype=float)).abs().fillna(0).astype(float)) * 10000
     df['trade_concentration_index'] = (total_xl_trade_yuan / safe_denom(total_turnover_yuan)).fillna(0.0)
-    # 6. 平均每笔成交金额 (基于共识值)
     trade_count = df['trade_count_consensus'].fillna(0).astype(float)
     df['avg_order_value'] = (total_turnover_yuan / safe_denom(trade_count)).fillna(0)
-    # 7. 主力锁仓买入比 (逻辑不变，但基于共识值)
     main_force_active_sell = df['main_force_active_sell_consensus'].fillna(0).astype(float)
     df['main_force_conviction_buy_ratio'] = (main_force_buy / safe_denom(main_force_buy + main_force_active_sell)).fillna(0.5)
-    # 8. 资金分歧度 (逻辑不变，但基于共识值)
     df['flow_divergence_mf_vs_retail'] = df['main_force_net_flow_consensus'] - df['retail_net_flow_consensus']
     df['main_force_vs_xl_divergence'] = df['main_force_net_flow_consensus'] - df['net_xl_amount_consensus']
-    # 9. 主力买入率 (标准化)
-    # [代码修正] 确保circ_mv也转换为float类型
     circ_mv_yuan = df.get('circ_mv', pd.Series(dtype=float)).fillna(0).astype(float) * 10000
     df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)).fillna(0.0) * 100
+    # [代码新增开始] 调用新增的高级因子锻造方法
+    # 此方法依赖于原始Tushare数据列和共识数据列，是本阶段的最后一步
+    df = _calculate_advanced_flow_factors(df)
+    # [代码新增结束]
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.3 · pandas_ta 语法修正版】使用标准化周期计算所有衍生指标。"""
+    """【资金流辅助函数 V1.4 · 得墨忒耳协议】恢复 avg_order_value 的衍生计算。"""
     # print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
-    
+    # [代码修改开始] 恢复 avg_order_value 到核心指标列表
     CORE_METRICS_TO_DERIVE = [
         'net_flow_consensus',
         'main_force_net_flow_consensus',
@@ -1238,45 +1231,40 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
         'avg_order_value',
         'main_force_conviction_ratio',
     ]
-    
+    # [代码修改结束]
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    
     for p in UNIFIED_PERIODS:
         calc_window = 2 if p == 1 else p
-        
         if p > 1:
+            # [代码修改开始] 恢复 avg_order_value 的累计计算
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
                 'net_sh_amount_consensus', 'active_buy_pressure', 'retail_panic_index', 'avg_order_value'
             ]
+            # [代码修改结束]
             for col in sum_cols:
                 if col in final_df.columns:
                     final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p // 2)).sum()
-
         for col in CORE_METRICS_TO_DERIVE:
             if col in final_df.columns:
-                # 修正 pandas_ta 调用语法，在 DataFrame 上调用 .ta，并通过 close 参数传递 Series
                 final_df[f'{col}_slope_{p}d'] = final_df.ta.slope(close=final_df[col], length=calc_window)
-        
         if p > 1:
+            # [代码修改开始] 恢复 avg_order_value 的累计斜率计算
             sum_slope_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
                 'net_sh_amount_consensus', 'active_buy_pressure', 'retail_panic_index', 'avg_order_value'
             ]
+            # [代码修改结束]
             for col in sum_slope_cols:
                 sum_col_name = f'{col}_sum_{p}d'
                 if sum_col_name in final_df.columns:
-                    # 修正 pandas_ta 调用语法
                     final_df[f'{sum_col_name}_slope_{p}d'] = final_df.ta.slope(close=final_df[sum_col_name], length=p)
-
         for col in CORE_METRICS_TO_DERIVE:
             source_slope_col = f'{col}_slope_{p}d'
             if source_slope_col in final_df.columns:
-                # 修正 pandas_ta 调用语法
                 final_df[f'{col}_accel_{p}d'] = final_df.ta.slope(close=final_df[source_slope_col], length=calc_window)
-                
     return final_df
 
 async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
@@ -1320,14 +1308,16 @@ async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataF
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
 def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
     """
-    【执行器 V16.0 - 职责拆分重构版】
-    - 核心重构 (V16.0): 将原先臃肿的函数拆分为多个职责单一的辅助函数，主任务函数负责流程编排。
-    - 流程:
-        1. _initialize_ff_task_context: 初始化上下文。
-        2. _load_and_merge_fund_flow_sources: 加载并合并多源数据。
-        3. _calculate_consensus_and_base_metrics: 计算共识指标。
-        4. _calculate_standardized_derivatives: 标准化计算所有衍生指标。
-        5. _prepare_and_save_ff_data: 准备并保存数据。
+    【执行器 V17.0 - 成本透视升维版】
+    - 核心重构: 调整并优化了辅助函数的调用顺序，形成了一个逻辑清晰、层层递进的数据处理管道。
+    - 新流程:
+        1. 初始化上下文。
+        2. 加载并合并多源数据。
+        3. [新增] 调用 `_calculate_flow_costs` 计算所有原始成本。
+        4. 调用 `_calculate_consensus_and_base_metrics` 计算共识指标和基础比率。
+        5. [新增] 调用 `_calculate_advanced_flow_factors` 锻造高阶复合因子。
+        6. 调用 `_calculate_standardized_derivatives` 为所有指标计算衍生值。
+        7. 准备并保存最终数据。
     """
     async def main(incremental_flag: bool):
         try:
@@ -1337,11 +1327,17 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
             )
             # 2. 加载和合并数据
             merged_df = await _load_and_merge_fund_flow_sources(stock_info, fetch_start_date)
-            # 3. 计算共识指标
-            consensus_df = _calculate_consensus_and_base_metrics(stock_code, merged_df)
-            # 4. 计算衍生指标
-            final_metrics_df = _calculate_standardized_derivatives(stock_code, consensus_df)
-            # 5. 准备并保存数据
+            # [代码修改开始] 调整和新增调用，形成清晰的管道
+            # 3. 计算各类订单的原始成本
+            df_with_costs = _calculate_flow_costs(merged_df)
+            # 4. 计算共识指标和基础比率
+            df_with_consensus = _calculate_consensus_and_base_metrics(stock_code, df_with_costs)
+            # 5. 锻造高阶复合因子
+            df_with_adv_factors = _calculate_advanced_flow_factors(df_with_consensus)
+            # 6. 计算所有指标的衍生值（斜率、加速度等）
+            final_metrics_df = _calculate_standardized_derivatives(stock_code, df_with_adv_factors)
+            # [代码修改结束]
+            # 7. 准备并保存数据
             processed_days = await _prepare_and_save_ff_data(
                 stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
             )
@@ -1479,6 +1475,59 @@ def dispatch_advanced_chip_metrics_migration(self, chunk_size: int = 10000, dry_
         self.update_state(state='FAILURE', meta={'exc_type': type(e).__name__, 'exc_message': str(e)})
         raise
 
+def _calculate_flow_costs(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    【新增方法 V1.0】根据资金流的量和额，计算不同规模订单的日内平均成本。
+    - 数学原理: 平均成本 = (金额 * 10000) / (成交量 * 100) = (金额 / 成交量) * 100
+    - 健壮性: 增加了除零保护，当成交量为0时，成本为NaN。
+    """
+    print("    -> 正在执行“成本透视”协议，计算各类资金的日内平均成本...")
+    def _calc_avg_cost(amount_col, vol_col):
+        # 辅助函数，用于计算平均成本并处理除零情况
+        # 金额单位：万元，成交量单位：手
+        safe_vol = df[vol_col].replace(0, np.nan)
+        return (df[amount_col] * 100) / safe_vol
+    # 定义需要计算成本的量/额对
+    cost_pairs = {
+        'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'),
+        'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
+        'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'),
+        'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
+        'avg_cost_lg_buy': ('buy_lg_amount', 'buy_lg_vol'),
+        'avg_cost_lg_sell': ('sell_lg_amount', 'sell_lg_vol'),
+        'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'),
+        'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
+    }
+    for new_col, (amount_col, vol_col) in cost_pairs.items():
+        if amount_col in df.columns and vol_col in df.columns:
+            df[new_col] = _calc_avg_cost(amount_col, vol_col)
+    return df
+
+def _calculate_advanced_flow_factors(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    【修改方法 V1.1 - 赫淮斯托斯之锤】锻造高阶复合资金流因子。
+    - 核心思想: 结合资金的“净流共识”与预先计算好的“成本数据”，创造出包含多维度信息的新因子。
+    """
+    print("    -> 正在执行“赫淮斯托斯之锤”协议，锻造高阶复合资金流因子...")
+    # [代码修改开始]
+    # --- 1. 计算主力与散户的买卖平均成本 ---
+    # 主力买入均价 = (大单买入额 + 特大单买入额) / (大单买入量 + 特大单买入量)
+    main_buy_amount = pd.to_numeric(df.get('buy_lg_amount', 0), errors='coerce') + pd.to_numeric(df.get('buy_elg_amount', 0), errors='coerce')
+    main_buy_vol = pd.to_numeric(df.get('buy_lg_vol', 0), errors='coerce') + pd.to_numeric(df.get('buy_elg_vol', 0), errors='coerce')
+    df['avg_cost_main_buy'] = (main_buy_amount * 100) / main_buy_vol.replace(0, np.nan)
+    # 散户卖出均价 = (小单卖出额 + 中单卖出额) / (小单卖出量 + 中单卖出量)
+    retail_sell_amount = pd.to_numeric(df.get('sell_sm_amount', 0), errors='coerce') + pd.to_numeric(df.get('sell_md_amount', 0), errors='coerce')
+    retail_sell_vol = pd.to_numeric(df.get('sell_sm_vol', 0), errors='coerce') + pd.to_numeric(df.get('sell_md_vol', 0), errors='coerce')
+    df['avg_cost_retail_sell'] = (retail_sell_amount * 100) / retail_sell_vol.replace(0, np.nan)
+    # --- 2. 创造核心升维指标 ---
+    # 2.1 成本分歧度 (主力买 vs 散户卖)
+    df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
+    # 2.2 主力成本加权净流入
+    df['cost_weighted_main_flow'] = df['main_force_net_flow_consensus'] * df['avg_cost_main_buy']
+    # 2.3 主力成本领先度 (相比当日收盘价)
+    df['main_buy_cost_advantage'] = (df['avg_cost_main_buy'] / df['close'].replace(0, np.nan)) - 1
+    # [代码修改结束]
+    return df
 
 # =================================================================
 # =================== 行业轮动预计算 ==================

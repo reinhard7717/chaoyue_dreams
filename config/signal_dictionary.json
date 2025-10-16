@@ -365,7 +365,7 @@
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
         "SCORE_MICRO_HERMES_GAMBIT": {
-            "cn_name": "【微观】赫尔墨斯诡计",
+            "cn_name": "【微观】压单吸筹",
             "category": "微观行为-机会",
             "type": "positional",
             "score": 550,

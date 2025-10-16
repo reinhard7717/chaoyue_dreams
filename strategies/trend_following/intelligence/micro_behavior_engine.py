@@ -110,7 +110,7 @@ class MicroBehaviorEngine:
           4. 环境矛盾: 短期价格走弱 vs 长期趋势依然健康。
         """
         states = {}
-        norm_window = 60 # 使用一个中等长度的窗口来评估近期动态
+        norm_window = 55 # 使用一个中等长度的窗口来评估近期动态
         # --- 证据1: 表象矛盾 (大单卖 vs 散单买) ---
         # 主力资金净流出得分 (分数越高，流出越明显)
         main_force_outflow_score = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, norm_window, ascending=False)
