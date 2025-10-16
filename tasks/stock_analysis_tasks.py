@@ -1261,9 +1261,10 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     return df
 
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-    """【资金流辅助函数 V1.6 · 最终升维版】为所有指标（包括全维度成本和高阶因子）计算衍生指标。"""
+    """【资金流辅助函数 V1.7 · 分歧度衍生版】为所有指标（包括分歧度）计算衍生指标。"""
+    print(f"[{stock_code}] [资金流-衍生计算] 开始标准化衍生计算...")
     final_df = consensus_df.copy()
-    # 将所有新增的成本和复合因子加入衍生计算列表
+    # [代码修改开始] 将新的分歧度指标加入衍生计算的核心指标列表
     CORE_METRICS_TO_DERIVE = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
         'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus',
@@ -1275,8 +1276,9 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
         'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
         'cost_divergence_mf_vs_retail', 'cost_weighted_main_flow', 'main_buy_cost_advantage',
         'main_force_intraday_profit', 'market_cost_battle',
+        'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc', # 新增分歧度指标
     ]
-    
+    # [代码修改结束]
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     for p in UNIFIED_PERIODS:
         calc_window = 2 if p == 1 else p
@@ -1286,30 +1288,33 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
                 'net_sh_amount_consensus',
-                'cost_weighted_main_flow' # 成本加权净流是流量型指标，适合求和
+                'cost_weighted_main_flow',
+                # 分歧度也是流量型指标，适合求和观察累计分歧
+                'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
             ]
-            
             for col in sum_cols:
                 if col in final_df.columns:
                     final_df[f'{col}_sum_{p}d'] = final_df[col].rolling(window=p, min_periods=max(2, p // 2)).sum()
         for col in CORE_METRICS_TO_DERIVE:
             if col in final_df.columns:
-                final_df[f'{col}_slope_{p}d'] = final_df.ta.slope(close=final_df[col], length=calc_window)
+                # 确保在计算斜率前，数据是浮点数类型
+                final_df[f'{col}_slope_{p}d'] = final_df.ta.slope(close=final_df[col].astype(float), length=calc_window)
         if p > 1:
             sum_slope_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
                 'net_sh_amount_consensus',
-                'cost_weighted_main_flow'
+                'cost_weighted_main_flow',
+                'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
             ]
             for col in sum_slope_cols:
                 sum_col_name = f'{col}_sum_{p}d'
                 if sum_col_name in final_df.columns:
-                    final_df[f'{sum_col_name}_slope_{p}d'] = final_df.ta.slope(close=final_df[sum_col_name], length=p)
+                    final_df[f'{sum_col_name}_slope_{p}d'] = final_df.ta.slope(close=final_df[sum_col_name].astype(float), length=p)
         for col in CORE_METRICS_TO_DERIVE:
             source_slope_col = f'{col}_slope_{p}d'
             if source_slope_col in final_df.columns:
-                final_df[f'{col}_accel_{p}d'] = final_df.ta.slope(close=final_df[source_slope_col], length=calc_window)
+                final_df[f'{col}_accel_{p}d'] = final_df.ta.slope(close=final_df[source_slope_col].astype(float), length=calc_window)
     return final_df
 
 async def _prepare_and_save_ff_data(stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):

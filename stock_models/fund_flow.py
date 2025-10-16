@@ -770,6 +770,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_buy_cost_advantage': '主力成本领先度',
         'main_force_intraday_profit': '主力日内盈亏',
         'market_cost_battle': '市场成本博弈差(主力买-散户买)',
+        'divergence_ts_ths': '分歧度(Tushare-同花顺)',
+        'divergence_ts_dc': '分歧度(Tushare-东方财富)',
+        'divergence_ths_dc': '分歧度(同花顺-东方财富)',
     }
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
