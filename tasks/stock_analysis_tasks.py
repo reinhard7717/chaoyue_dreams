@@ -1259,11 +1259,11 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
     total_turnover_yuan = pd.to_numeric(df.get('amount'), errors='coerce') * 1000
     main_force_net_flow_yuan = pd.to_numeric(df.get('main_force_net_flow_consensus'), errors='coerce') * 10000
     circ_mv_yuan = pd.to_numeric(df.get('circ_mv'), errors='coerce') * 10000
-    # [代码修改开始] 使用流通市值进行归一化，生成“影响力”指标
+    # 使用流通市值进行归一化，生成“影响力”指标
     df['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
     if 'avg_order_value' in df.columns:
         df['trade_granularity_impact'] = df['avg_order_value'] / safe_denom(circ_mv_yuan)
-    # [代码修改结束]
+    
     df['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
     df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)) * 100
     df['flow_divergence_mf_vs_retail'] = df.get('main_force_net_flow_consensus', np.nan) - df.get('retail_net_flow_consensus', np.nan)
@@ -1280,7 +1280,7 @@ def _synthesize_and_forge_advanced_metrics(stock_code: str, merged_df: pd.DataFr
 def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
     """【资金流辅助函数 V1.9 · 影响力归一化版】为所有指标计算衍生指标。"""
     final_df = consensus_df.copy()
-    # [代码修改开始] 将新的“影响力”指标加入衍生计算列表
+    # 将新的“影响力”指标加入衍生计算列表
     CORE_METRICS_TO_DERIVE = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
         'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus',
@@ -1295,7 +1295,7 @@ def _calculate_standardized_derivatives(stock_code: str, consensus_df: pd.DataFr
         'main_force_intraday_profit', 'market_cost_battle',
         'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
     ]
-    # [代码修改结束]
+    
     sum_cols = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
         'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',

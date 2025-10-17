@@ -779,9 +779,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     }
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
-        # [代码修改开始] 确保所有比率和影响力指标都为FloatField
+        # 确保所有比率和影响力指标都为FloatField
         if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value':
-        # [代码修改结束]
+        
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)

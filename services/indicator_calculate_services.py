@@ -1054,7 +1054,7 @@ class IndicatorCalculator:
             return None
 
     async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
-        """[新增] 计算唐奇安通道 (Donchian Channels)"""
+        """计算唐奇安通道 (Donchian Channels)"""
         required_cols = [high_col, low_col]
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None
@@ -1072,7 +1072,7 @@ class IndicatorCalculator:
             return None
 
     async def calculate_squeeze(self, df: pd.DataFrame, bb_period: int = 21, kc_period: int = 21, atr_period: int = 13, bb_std: float = 2.0, kc_mult: float = 1.5) -> Optional[pd.DataFrame]:
-        """[新增] 计算布林带与肯特纳通道的压缩 (Squeeze) 状态"""
+        """计算布林带与肯特纳通道的压缩 (Squeeze) 状态"""
         required_cols = ['high', 'low', 'close']
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None
@@ -1101,7 +1101,7 @@ class IndicatorCalculator:
             return None
 
     async def calculate_eom(self, df: pd.DataFrame, period: int = 13, high_col='high', low_col='low', volume_col='volume') -> Optional[pd.DataFrame]:
-        """[新增] 计算简易波动指标 (Ease of Movement)"""
+        """计算简易波动指标 (Ease of Movement)"""
         required_cols = [high_col, low_col, volume_col]
         if df is None or df.empty or not all(c in df.columns for c in required_cols):
             return None

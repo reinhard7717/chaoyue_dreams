@@ -74,40 +74,46 @@ class MicroBehaviorEngine:
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 分层印证版】伪装散户吸筹诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。每个周期的欺骗性行为，都由其更长一级周期的趋势进行印证，形成动态共振。
+        【V5.0 · 物理事实重构版】隐秘吸筹诊断引擎 (原名：伪装散户吸筹)
+        - 核心重构: 彻底废除旧的、基于模糊表象的逻辑。基于“物理事实”构建全新的四维证据链，以识别主力在压制价格的同时，
+                      通过行为伪装（拆单）实现筹码归集的高级战术。
+        - 新证据链:
+          1. 行为伪装: “交易颗粒度影响力”极低，呈现散户化特征。
+          2. 筹码归集: 筹码集中度斜率为正，发生事实上的集中。
+          3. 价格压制: VPA效率低下，成交量无法推升价格。
+          4. 成本优势: 主力以低于市场均价的成本吸筹。
         """
         states = {}
         p = get_params_block(self.strategy, 'deceptive_flow_params', {})
         if not get_param_value(p.get('enabled'), True): return states
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        # 引入分层印证框架
-        periods = [1, 5, 13, 21, 55]
+        # 引入分层印证框架和新的四维证据链
+        periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         deception_scores_by_period = {}
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # 步骤一：计算战术层(p_tactical)的微观行为分数
-            tactical_retail_inflow = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BEARISH_RESONANCE') # 此信号本身是融合的，作为静态输入
-            tactical_chip_conc = normalize_score(df.get(f'SLOPE_{p_tactical}_concentration_90pct_D'), df.index, window=p_tactical, ascending=False)
-            tactical_price_suppress = normalize_score(df.get(f'SLOPE_{p_tactical}_close_D').abs(), df.index, window=p_tactical, ascending=False)
-            tactical_vpa_inefficiency = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_tactical, ascending=False)
-            tactical_deception_score = (tactical_retail_inflow * tactical_chip_conc * tactical_price_suppress * tactical_vpa_inefficiency)
-            # 步骤二：计算上下文层(p_context)的微观行为分数
-            context_chip_conc = normalize_score(df.get(f'SLOPE_{p_context}_concentration_90pct_D'), df.index, window=p_context, ascending=False)
-            context_price_suppress = normalize_score(df.get(f'SLOPE_{p_context}_close_D').abs(), df.index, window=p_context, ascending=False)
-            context_vpa_inefficiency = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_context, ascending=False)
-            context_deception_score = (tactical_retail_inflow * context_chip_conc * context_price_suppress * context_vpa_inefficiency)
-            # 步骤三：融合战术层与上下文层
-            fused_deception_score = (tactical_deception_score * context_deception_score)**0.5
-            # 步骤四：构建融合了趋势上下文的“瞬时关系快照分”
-            snapshot_score = fused_deception_score * (1 - ma_health_score)
-            # 步骤五：对快照分进行关系元分析，得到该周期的动态分数
+            # --- 分层计算四大支柱证据 ---
+            def get_fused_pillar_score(metric_name: str, ascending: bool, period_t: int, period_c: int) -> pd.Series:
+                tactical_score = normalize_score(df.get(metric_name), df.index, window=period_t, ascending=ascending)
+                context_score = normalize_score(df.get(metric_name), df.index, window=period_c, ascending=ascending)
+                return (tactical_score * context_score)**0.5
+            # 支柱一: 行为伪装 (交易颗粒度影响力低)
+            disguise_score = get_fused_pillar_score(f'trade_granularity_impact_D', ascending=False, period_t=p_tactical, period_c=p_context)
+            # 支柱二: 筹码归集 (集中度斜率高)
+            accumulation_score = get_fused_pillar_score(f'SLOPE_{p_tactical}_concentration_90pct_D', ascending=True, period_t=p_tactical, period_c=p_context)
+            # 支柱三: 价格压制 (VPA效率低 + 价格平稳)
+            vpa_inefficiency = get_fused_pillar_score('VPA_EFFICIENCY_D', ascending=False, period_t=p_tactical, period_c=p_context)
+            price_stagnation = 1.0 - get_fused_pillar_score(df.get(f'SLOPE_{p_tactical}_close_D', pd.Series(0, index=df.index)).abs(), ascending=True, period_t=p_tactical, period_c=p_context)
+            suppression_score = (vpa_inefficiency * price_stagnation)**0.5
+            # 支柱四: 成本优势 (主力买入成本低于收盘价)
+            cost_advantage_score = get_fused_pillar_score('main_buy_cost_advantage_D', ascending=False, period_t=p_tactical, period_c=p_context)
+            # --- 融合四大支柱，生成“瞬时关系快照分” ---
+            snapshot_score = (disguise_score * accumulation_score * suppression_score * cost_advantage_score)**(1/4)
+            # --- 对快照分进行关系元分析，得到该周期的动态分数 ---
             period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
             deception_scores_by_period[p_tactical] = period_score
-        # 步骤六：跨周期融合，生成最终信号
-        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
+        # --- 跨周期融合，生成最终信号 ---
         final_fused_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
@@ -346,13 +352,13 @@ class MicroBehaviorEngine:
         conviction_up_scores = {}
         power_shift_down_scores = {}
         conviction_down_scores = {}
-        # [代码修改开始] 定义新的、基于“影响力”的颗粒度指标名称
+        # 定义新的、基于“影响力”的颗粒度指标名称
         granularity_impact_metric = 'trade_granularity_impact_D'
-        # [代码修改结束]
+        
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             # --- 看涨信号计算 (分层) ---
-            # [代码修改开始] 使用新的“影响力”指标
+            # 使用新的“影响力”指标
             # 权力转移(主力)
             tactical_granularity_up = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=True)
             tactical_dominance_up = normalize_score(df.get(f'SLOPE_{p_tactical}_trade_concentration_index_D'), df.index, window=p_tactical, ascending=True)
@@ -360,7 +366,7 @@ class MicroBehaviorEngine:
             context_dominance_up = normalize_score(df.get(f'SLOPE_{p_context}_trade_concentration_index_D'), df.index, window=p_context, ascending=True)
             granularity_holo_up, _ = calculate_holographic_dynamics(df, granularity_impact_metric, p_context)
             dominance_holo_up, _ = calculate_holographic_dynamics(df, 'trade_concentration_index_D', p_context)
-            # [代码修改结束]
+            
             fused_power_shift_raw = (tactical_granularity_up * context_granularity_up * tactical_dominance_up * context_dominance_up)**0.25 * granularity_holo_up * dominance_holo_up
             snapshot_power_shift = fused_power_shift_raw * ma_health_score
             power_shift_up_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_power_shift)
@@ -372,7 +378,7 @@ class MicroBehaviorEngine:
             snapshot_conviction = fused_conviction_raw * ma_health_score
             conviction_up_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_conviction)
             # --- 看跌风险信号计算 (分层) ---
-            # [代码修改开始] 使用新的“影响力”指标
+            # 使用新的“影响力”指标
             # 证据维度一：权力转移(散户) - 过程证据
             tactical_granularity_down = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=False)
             tactical_dominance_down = normalize_score(df.get(f'SLOPE_{p_tactical}_trade_concentration_index_D'), df.index, window=p_tactical, ascending=False)
@@ -380,7 +386,7 @@ class MicroBehaviorEngine:
             context_dominance_down = normalize_score(df.get(f'SLOPE_{p_context}_trade_concentration_index_D'), df.index, window=p_context, ascending=False)
             _, granularity_holo_down = calculate_holographic_dynamics(df, granularity_impact_metric, p_context)
             _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index_D', p_context)
-            # [代码修改结束]
+            
             fused_power_shift_process_evidence = (tactical_granularity_down * context_granularity_down * tactical_dominance_down * context_dominance_down)**0.25 * granularity_holo_down * dominance_holo_down
             # 证据维度二：主力日内T+0派发获利 - 战术结果证据
             tactical_profit_distribute = normalize_score(df.get(f'SLOPE_{p_tactical}_main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)

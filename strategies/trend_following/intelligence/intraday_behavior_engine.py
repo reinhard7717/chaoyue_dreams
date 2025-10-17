@@ -22,7 +22,7 @@ class IntradayBehaviorEngine:
         self.fib_periods = [5, 8, 13, 21, 34, 55]
 
     async def _prepare_intraday_indicators(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
-        """[新增] 统一为分钟数据计算所有必需的战术指标"""
+        """统一为分钟数据计算所有必需的战术指标"""
         if df_minute is None or df_minute.empty:
             return None
         
