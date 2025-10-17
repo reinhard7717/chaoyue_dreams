@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, Optional
-# [代码修改] 导入 get_params_block 工具
+# 导入 get_params_block 工具
 from strategies.trend_following.utils import get_params_block, normalize_to_bipolar, normalize_score
 
 class IntradayBehaviorEngine:
@@ -13,11 +13,11 @@ class IntradayBehaviorEngine:
                 并基于这些指标重构了战术诊断模型，使其分析能力大幅提升。
     """
     def __init__(self, strategy_instance):
-        """[修改] 初始化时加载专属配置，并获取指标计算器的引用"""
+        """初始化时加载专属配置，并获取指标计算器的引用"""
         self.strategy = strategy_instance
-        # [代码修改] 修正访问路径：通过 orchestrator 访问顶层的 indicator_service
+        # 修正访问路径：通过 orchestrator 访问顶层的 indicator_service
         self.calculator = strategy_instance.orchestrator.indicator_service.calculator
-        # [代码修改] 从策略配置中加载本引擎的专属参数块
+        # 从策略配置中加载本引擎的专属参数块
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
         self.fib_periods = [5, 8, 13, 21, 34, 55]
 
@@ -62,8 +62,8 @@ class IntradayBehaviorEngine:
         return df_enriched
 
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 日内诊断总指挥，现在先计算指标再进行诊断"""
-        # [代码修改] 首先调用准备方法，为原始分钟数据添加所有战术指标
+        """日内诊断总指挥，现在先计算指标再进行诊断"""
+        # 首先调用准备方法，为原始分钟数据添加所有战术指标
         df_enriched = await self._prepare_intraday_indicators(df_minute)
 
         if df_enriched is None or df_enriched.empty or len(df_enriched) < max(self.fib_periods):
@@ -76,7 +76,7 @@ class IntradayBehaviorEngine:
             }
 
         tasks = [
-            # [代码修改] 所有诊断任务现在都使用包含丰富指标的 df_enriched
+            # 所有诊断任务现在都使用包含丰富指标的 df_enriched
             self.diagnose_attack_efficiency_dynamics(df_enriched),
             self.diagnose_trend_consistency_dynamics(df_enriched),
             self.diagnose_breakout_potential(df_enriched),
@@ -92,7 +92,7 @@ class IntradayBehaviorEngine:
         return final_scores
 
     async def diagnose_attack_efficiency_dynamics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 诊断“攻击效率”的动态变化，改用EOM指标"""
+        """诊断“攻击效率”的动态变化，改用EOM指标"""
         eom_params = self.params.get('eom_params', {})
         eom_col = f"EOM_{eom_params.get('period', 13)}"
         eom_signal_col = f"EOMs_{eom_params.get('period', 13)}" # pandas-ta 可能会返回信号线
@@ -109,7 +109,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_EFFICIENCY_DYNAMICS": final_score}
 
     async def diagnose_trend_consistency_dynamics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 诊断“趋势一致性”的动态变化，改用TRIX指标"""
+        """诊断“趋势一致性”的动态变化，改用TRIX指标"""
         trix_params = self.params.get('trix_params', {})
         trix_col = f"TRIX_{trix_params.get('period', 13)}_{trix_params.get('signal_period', 8)}"
         if trix_col not in df_minute.columns:
@@ -122,8 +122,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_CONSISTENCY_DYNAMICS": final_score}
 
     async def diagnose_breakout_potential(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 诊断“突破潜力”，改用Squeeze指标"""
-        sqz_params = self.params.get('squeeze_params', {})
+        """诊断“突破潜力”，改用Squeeze指标"""
         sqz_on_col = 'SQZ_ON'
         sqz_off_col = 'SQZ_OFF'
         
@@ -144,7 +143,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_BREAKOUT_POTENTIAL": final_score}
 
     async def diagnose_bottom_reversal_dynamics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 诊断底部反转，使用KDJ指标增强"""
+        """诊断底部反转，使用KDJ指标增强"""
         kdj_params = self.params.get('kdj_params', {})
         j_col = f"J_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         if j_col not in df_minute.columns:
@@ -168,7 +167,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_BOTTOM_REVERSAL_DYNAMICS": final_score}
 
     async def diagnose_top_reversal_dynamics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """[修改] 诊断顶部反转，使用KDJ指标增强"""
+        """诊断顶部反转，使用KDJ指标增强"""
         kdj_params = self.params.get('kdj_params', {})
         j_col = f"J_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         if j_col not in df_minute.columns:
@@ -192,11 +191,11 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_TOP_REVERSAL_DYNAMICS": final_score}
 
     def _perform_relational_meta_analysis(self, relationship_score: pd.Series) -> float:
-        """[修改] 对关系分时间序列进行元分析，从配置中读取参数"""
+        """对关系分时间序列进行元分析，从配置中读取参数"""
         if relationship_score.empty or len(relationship_score) < self.fib_periods[3]:
             return 0.0
         
-        # [代码修改] 从 self.params 中读取元分析参数
+        # 从 self.params 中读取元分析参数
         meta_params = self.params.get('meta_analysis_params', {})
         meta_window = meta_params.get('meta_window', 13)
         norm_window = meta_params.get('norm_window', 55)

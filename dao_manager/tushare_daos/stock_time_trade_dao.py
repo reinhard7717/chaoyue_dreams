@@ -426,13 +426,13 @@ class StockTimeTradeDAO(BaseDAO):
             Optional[pd.DataFrame]: 包含当日分钟K线数据的DataFrame，如果获取失败则为None。
         """
         try:
-            # [代码修改] 使用 time_level 参数动态获取模型
+            # 使用 time_level 参数动态获取模型
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
                 return None
 
-            # [代码修改] 简化时间范围构建，使用Django ORM的 __date 功能
+            # 简化时间范围构建，使用Django ORM的 __date 功能
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__date=trade_date
@@ -449,7 +449,7 @@ class StockTimeTradeDAO(BaseDAO):
 
             df = pd.DataFrame.from_records(kline_values)
             
-            # [代码修改] 统一时区处理逻辑
+            # 统一时区处理逻辑
             # 从数据库取出的时间已经是UTC，直接设置为索引
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)

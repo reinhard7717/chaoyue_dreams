@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, calculate_holographic_dynamics, normalize_to_bipolar
+from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar
 
 class DynamicMechanicsEngine:
     def __init__(self, strategy_instance):
@@ -29,54 +29,59 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.0 · 商神杖激活版】
-        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
+        【V14.0 · 分层印证版】动态力学终极信号诊断引擎
+        - 核心升级: 全面采纳“分层动态印证”框架。在主循环中为每个周期 p，对四大力学支柱进行“战术周期 p vs 上下文周期 context_p”的动态共振计算。
+        - 架构重构: 废除旧的 _calculate_*_health 辅助方法，将所有逻辑内聚到本方法中，使诊断流程更清晰、更强大。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
+        # 全面重构为分层印证框架
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-
-        # 调用全新的、功能更强大的均线健康度计算引擎
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
-
-        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
-        calculators = {
-            'volatility': self._calculate_volatility_health,
-            'efficiency': self._calculate_efficiency_health,
-            'momentum': self._calculate_kinetic_energy_health,
-            'inertia': self._calculate_inertia_health,
-        }
-        
-        for name, calculator in calculators.items():
-            # 将 ma_health_score 传递给子函数，作为统一的上下文
-            s_bull, s_bear, d_intensity = calculator(df, norm_window, periods, ma_health_score)
-            health_data['s_bull'].append(s_bull) 
-            health_data['s_bear'].append(s_bear) 
-            health_data['d_intensity'].append(d_intensity)
-
-        overall_health = {}
-        weight_keys = list(calculators.keys())
-        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
-        weights_array /= weights_array.sum()
-
-        for health_type, health_sources in health_data.items():
-            overall_health[health_type] = {}
-            for p in periods:
-                if not health_sources: continue
-                valid_pillars = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
-                if not valid_pillars: continue
-                
-                stacked_values = np.stack(valid_pillars, axis=0)
-                fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
-                overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-        
+        overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
+        # 主循环：为每个周期 p 计算其最终的、经过分层印证的健康度
+        for i, p in enumerate(sorted_periods):
+            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
+            # --- 为当前周期 p，计算四大力学支柱的原始快照分 ---
+            # 1. 波动率快照 (看涨=收缩, 看跌=扩张)
+            vol_bull_snapshot = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
+            vol_bear_snapshot = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)
+            # 2. 效率快照 (看涨=高效, 看跌=低效)
+            eff_bull_snapshot = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
+            eff_bear_snapshot = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
+            # 3. 动能快照 (看涨=动能强, 看跌=动能弱)
+            mom_bull_snapshot = normalize_score(df.get('ATR_14_D'), df.index, norm_window)
+            mom_bear_snapshot = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False)
+            # 4. 惯性快照 (看涨=ADX强且PDI>NDI, 看跌=ADX弱)
+            adx_strength = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
+            adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
+            ine_bull_snapshot = (adx_strength * adx_direction)
+            ine_bear_snapshot = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False)
+            # --- 融合四大支柱的快照分 ---
+            weight_keys = list(pillar_weights.keys())
+            weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
+            weights_array /= weights_array.sum()
+            bull_snapshots = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot]
+            bear_snapshots = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot]
+            stacked_bull = np.stack([s.values for s in bull_snapshots], axis=0)
+            stacked_bear = np.stack([s.values for s in bear_snapshots], axis=0)
+            fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
+            fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
+            # --- 对融合后的快照分进行双层动态印证 ---
+            # 看涨健康度 s_bull
+            final_bull_health = self._perform_dynamic_relational_meta_analysis(df, fused_bull_snapshot, p, context_p)
+            overall_health['s_bull'][p] = (final_bull_health * ma_health_score).astype(np.float32)
+            # 看跌健康度 s_bear
+            final_bear_health = self._perform_dynamic_relational_meta_analysis(df, fused_bear_snapshot, p, context_p)
+            overall_health['s_bear'][p] = (final_bear_health * (1 - ma_health_score)).astype(np.float32)
+            # 动态强度 d_intensity (使用看涨健康度的最终结果作为强度的代理)
+            overall_health['d_intensity'][p] = final_bull_health.astype(np.float32)
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
-
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -85,6 +90,7 @@ class DynamicMechanicsEngine:
             domain_prefix="DYN"
         )
         states.update(ultimate_signals)
+        
         return states
 
     # ==============================================================================
@@ -255,48 +261,41 @@ class DynamicMechanicsEngine:
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
 
-    def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+    def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
         """
-        【V2.0 · 阿瑞斯之怒协议版】动态力学专用的关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V3.0 · 双层印证版】动态力学专用的关系元分析核心引擎
+        - 核心升级: 接收 tactical_p 和 context_p，在两个时间层级上独立计算速度和加速度，然后融合，实现双层动态印证。
+        - 保持不变: 核心的“阿瑞斯之怒”加法模型逻辑保持不变。
         """
-        # 引入新的权重体系和加法融合模型
-        # --- 1. 获取参数 ---
+        # 引入双层动态印证
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         p_meta = p_conf.get('relational_meta_analysis_params', {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
-        meta_window = 5
         bipolar_sensitivity = 1.0
-        # --- 2. 计算三维动态要素 ---
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
+        # 维度一：状态分 (State Score) - 直接使用快照分
         state_score = snapshot_score.clip(0, 1)
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
-        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
-        velocity_score = normalize_to_bipolar(
-            series=relationship_trend, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-        acceleration_score = normalize_to_bipolar(
-            series=relationship_accel, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
-        # --- 3. 终极融合：从乘法调制升级为加法赋权 ---
-        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
-        # 新的加法模型:
+        # 维度二：速度分 (Velocity Score) - 双层印证
+        tactical_trend = snapshot_score.diff(tactical_p).fillna(0)
+        tactical_velocity = normalize_to_bipolar(tactical_trend, df.index, norm_window, bipolar_sensitivity)
+        context_trend = snapshot_score.diff(context_p).fillna(0)
+        context_velocity = normalize_to_bipolar(context_trend, df.index, norm_window, bipolar_sensitivity)
+        velocity_score = (tactical_velocity * context_velocity)**0.5 * np.sign(tactical_velocity) # 融合后保留方向
+        # 维度三：加速度分 (Acceleration Score) - 双层印证
+        tactical_accel = tactical_trend.diff(tactical_p).fillna(0)
+        tactical_acceleration = normalize_to_bipolar(tactical_accel, df.index, norm_window, bipolar_sensitivity)
+        context_accel = context_trend.diff(context_p).fillna(0)
+        context_acceleration = normalize_to_bipolar(context_accel, df.index, norm_window, bipolar_sensitivity)
+        acceleration_score = (tactical_acceleration * context_acceleration)**0.5 * np.sign(tactical_acceleration) # 融合后保留方向
+        # 终极融合：阿瑞斯之怒加法模型
         final_score = (
             state_score * w_state +
             velocity_score * w_velocity +
             acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
+        ).clip(0, 1)
+        
         return final_score.astype(np.float32)
         
 

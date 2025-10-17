@@ -199,7 +199,7 @@ class FundFlowIntelligence:
         base_col_name = config['base']
         polarity = config['polarity']
         col_type = config['type']
-        # [代码修改] 增加对 'sum' 类型的分支处理
+        # 增加对 'sum' 类型的分支处理
         if col_type == 'sum':
             # 对于需要累积分析的指标（如主力净流入），调用新的多时间级别累积分析引擎
             # 看涨快照分 = 多周期净流入累积的加权得分

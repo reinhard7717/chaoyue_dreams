@@ -831,7 +831,7 @@ class CognitiveIntelligence:
         print(f"    -> [日内引擎触发] 发现 {len(dates_to_check)} 个潜在机会日，启动微观分析...")
         
         for trade_date in dates_to_check:
-            # [代码修改] 修正访问路径：通过 self.strategy.orchestrator 访问顶层的 indicator_service
+            # 修正访问路径：通过 self.strategy.orchestrator 访问顶层的 indicator_service
             df_minute = await self.strategy.orchestrator.indicator_service.stock_trade_dao.get_intraday_kline_by_date(
                 self.strategy.stock_code, 
                 trade_date.date()

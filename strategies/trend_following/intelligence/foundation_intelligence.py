@@ -35,26 +35,6 @@ class FoundationIntelligence:
         all_states.update(chip_fault_states)
         return all_states
 
-    def diagnose_vpa_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 新增】VPA风险诊断引擎
-        - 核心职责: 补完对VPA相关风险的独立诊断能力，生成可直接消费的风险信号。
-        """
-        states = {}
-        norm_window = 120
-        
-        # 1. VPA效率下降风险
-        # 效率指标本身越低风险越高，因此使用 ascending=False
-        vpa_efficiency_decline_risk = normalize_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, norm_window, ascending=False)
-        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = vpa_efficiency_decline_risk.astype(np.float32)
-        
-        # 2. VPA成交量加速风险
-        # 成交量加速度越大，风险越高
-        vpa_volume_accelerating_risk = normalize_score(df.get('ACCEL_5_volume_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = vpa_volume_accelerating_risk.astype(np.float32)
-        
-        return states
-
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
         【V14.1 · 权重激活版】
@@ -148,22 +128,84 @@ class FoundationIntelligence:
 
         return states
 
-    def diagnose_chip_fault_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_vpa_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】筹码断层动态诊断引擎
-        - 核心职责: 利用筹码断层数据，识别股价向上突破真空区的潜力。
-        - 核心逻辑: 一个强壮的筹码断层(strength高)叠加一个广阔的上方真空区(vacuum高)，
-                      意味着一旦价格突破，上方几乎没有套牢盘压力，股价可能加速上涨。
+        【V2.0 · 分层印证版】VPA风险诊断引擎
+        - 核心升级: 引入“分层动态印证”框架。对“效率下降”和“成交量加速”风险的计算进行多时间维度的分层验证。
         """
         states = {}
-        norm_window = 60
-        # 获取断层强度分，强度越高越好
-        fault_strength_score = normalize_score(df.get('chip_fault_strength_D'), df.index, norm_window, ascending=True)
-        # 获取上方真空区百分比，真空区越大越好
-        vacuum_percent_score = normalize_score(df.get('chip_fault_vacuum_percent_D'), df.index, norm_window, ascending=True)
-        # 融合：突破潜力 = 断层强度 * 真空范围
-        breakout_potential_score = (fault_strength_score * vacuum_percent_score)**0.5
-        states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = breakout_potential_score.astype(np.float32)
+        # 引入分层印证框架
+        periods = [1, 5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        # --- 1. VPA效率下降风险 (分层计算) ---
+        efficiency_decline_scores = {}
+        vpa_efficiency_series = df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index))
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            tactical_score = normalize_score(vpa_efficiency_series, df.index, p_tactical, ascending=False)
+            context_score = normalize_score(vpa_efficiency_series, df.index, p_context, ascending=False)
+            efficiency_decline_scores[p_tactical] = (tactical_score * context_score)**0.5
+        # 跨周期融合
+        final_efficiency_risk = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.values())
+        if total_weight > 0:
+            for p in periods:
+                final_efficiency_risk += efficiency_decline_scores.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
+        states['SCORE_RISK_VPA_EFFICIENCY_DECLINING'] = final_efficiency_risk.clip(0, 1).astype(np.float32)
+        # --- 2. VPA成交量加速风险 (分层计算) ---
+        volume_accel_scores = {}
+        volume_accel_series = df.get('ACCEL_5_volume_D', pd.Series(0.0, index=df.index))
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            tactical_score = normalize_score(volume_accel_series, df.index, p_tactical, ascending=True)
+            context_score = normalize_score(volume_accel_series, df.index, p_context, ascending=True)
+            volume_accel_scores[p_tactical] = (tactical_score * context_score)**0.5
+        # 跨周期融合
+        final_volume_accel_risk = pd.Series(0.0, index=df.index)
+        if total_weight > 0:
+            for p in periods:
+                final_volume_accel_risk += volume_accel_scores.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
+        states['SCORE_RISK_VPA_VOLUME_ACCELERATING'] = final_volume_accel_risk.clip(0, 1).astype(np.float32)
+        
+        return states
+
+    def diagnose_chip_fault_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 分层印证版】筹码断层动态诊断引擎
+        - 核心升级: 引入“分层动态印证”框架。对“断层强度”和“真空范围”的评估进行多时间维度的分层验证。
+        """
+        states = {}
+        # 引入分层印证框架
+        periods = [5, 13, 21, 55] # 筹码断层使用稍长周期更稳定
+        sorted_periods = sorted(periods)
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        breakout_potential_scores = {}
+        fault_strength_series = df.get('chip_fault_strength_D')
+        vacuum_percent_series = df.get('chip_fault_vacuum_percent_D')
+        if fault_strength_series is None or vacuum_percent_series is None:
+            states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            return states
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 断层强度分层验证
+            tactical_strength = normalize_score(fault_strength_series, df.index, p_tactical, ascending=True)
+            context_strength = normalize_score(fault_strength_series, df.index, p_context, ascending=True)
+            fused_strength = (tactical_strength * context_strength)**0.5
+            # 真空范围分层验证
+            tactical_vacuum = normalize_score(vacuum_percent_series, df.index, p_tactical, ascending=True)
+            context_vacuum = normalize_score(vacuum_percent_series, df.index, p_context, ascending=True)
+            fused_vacuum = (tactical_vacuum * context_vacuum)**0.5
+            # 融合生成当期快照分
+            breakout_potential_scores[p_tactical] = (fused_strength * fused_vacuum)**0.5
+        # 跨周期融合
+        final_breakout_potential = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.values())
+        if total_weight > 0:
+            for p in periods:
+                final_breakout_potential += breakout_potential_scores.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
+        states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = final_breakout_potential.clip(0, 1).astype(np.float32)
+        
         return states
 
     # ==============================================================================
@@ -376,91 +418,120 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 关系元分析版】波动率统一情报中心
-        - 核心革命: 废除旧的、基于孤立导数的信号，重构为“状态分”和“动态分”的新范式。
-        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        【V8.0 · 分层印证版】波动率统一情报中心
+        - 核心升级: 引入“分层动态印证”框架。对“波动率压缩/扩张”的瞬时关系快照分的构建进行多时间维度的分层验证。
         """
         states = {}
-        norm_window = 120
-        
-        # 检查所需指标列是否存在
         if 'BBW_21_2.0_D' not in df.columns or 'hurst_120d_D' not in df.columns:
-            return {} # 如果关键指标缺失，则不生成任何信号
-
-        # 步骤一：构建“波动率压缩”的瞬时关系快照分 (状态分)
-        # 核心关系：在强势趋势背景下(ma_context高)，波动率受到压缩(BBW低)。
-        compression_score_raw = normalize_score(df['BBW_21_2.0_D'], df.index, norm_window, ascending=False)
-        # 直接使用传入的 ma_context_score
-        compression_state_score = (compression_score_raw * ma_context_score).astype(np.float32)
-        states['SCORE_VOL_COMPRESSION_STATE'] = compression_state_score
-
-        # 步骤二：对“波动率压缩关系”进行元分析，得到动态分
-        compression_dynamic_score = self._perform_foundation_relational_meta_analysis(df, compression_state_score)
-        states['SCORE_VOL_COMPRESSION_DYNAMIC'] = compression_dynamic_score
-
-        # 步骤三：构建“波动率扩张风险”的瞬时关系快照分 (状态分)
-        # 核心关系：在弱势趋势背景下(ma_context低)，波动率正在扩张(BBW高)。
-        expansion_score_raw = normalize_score(df['BBW_21_2.0_D'], df.index, norm_window, ascending=True)
-        # 直接使用传入的 ma_context_score
-        expansion_risk_state_score = (expansion_score_raw * (1 - ma_context_score)).astype(np.float32)
-        states['SCORE_VOL_EXPANSION_RISK_STATE'] = expansion_risk_state_score
-
-        # 步骤四：对“波动率扩张风险关系”进行元分析，得到动态分
-        expansion_risk_dynamic_score = self._perform_foundation_relational_meta_analysis(df, expansion_risk_state_score)
-        states['SCORE_VOL_EXPANSION_RISK_DYNAMIC'] = expansion_risk_dynamic_score
-        
-        # Hurst指数保持不变，作为独立的宏观状态判断
-        hurst_score = normalize_score(df['hurst_120d_D'], df.index, norm_window)
+            return {}
+        # 引入分层印证框架
+        periods = [1, 5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        # --- 容器初始化 ---
+        compression_state_scores = {}
+        compression_dynamic_scores = {}
+        expansion_risk_state_scores = {}
+        expansion_risk_dynamic_scores = {}
+        bbw_series = df['BBW_21_2.0_D']
+        # --- 分层计算每个周期的状态分和动态分 ---
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 波动率压缩
+            tactical_comp = normalize_score(bbw_series, df.index, p_tactical, ascending=False)
+            context_comp = normalize_score(bbw_series, df.index, p_context, ascending=False)
+            fused_compression = (tactical_comp * context_comp)**0.5
+            state_score_p = (fused_compression * ma_context_score).astype(np.float32)
+            compression_state_scores[p_tactical] = state_score_p
+            compression_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, state_score_p)
+            # 波动率扩张风险
+            tactical_exp = normalize_score(bbw_series, df.index, p_tactical, ascending=True)
+            context_exp = normalize_score(bbw_series, df.index, p_context, ascending=True)
+            fused_expansion = (tactical_exp * context_exp)**0.5
+            risk_state_score_p = (fused_expansion * (1 - ma_context_score)).astype(np.float32)
+            expansion_risk_state_scores[p_tactical] = risk_state_score_p
+            expansion_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, risk_state_score_p)
+        # --- 跨周期融合，生成最终的原子信号 ---
+        def fuse_across_periods(scores_dict):
+            final_score = pd.Series(0.0, index=df.index)
+            total_weight = sum(tf_weights.values())
+            if total_weight > 0:
+                for p in periods:
+                    final_score += scores_dict.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
+            return final_score.clip(0, 1)
+        states['SCORE_VOL_COMPRESSION_STATE'] = fuse_across_periods(compression_state_scores)
+        states['SCORE_VOL_COMPRESSION_DYNAMIC'] = fuse_across_periods(compression_dynamic_scores)
+        states['SCORE_VOL_EXPANSION_RISK_STATE'] = fuse_across_periods(expansion_risk_state_scores)
+        states['SCORE_VOL_EXPANSION_RISK_DYNAMIC'] = fuse_across_periods(expansion_risk_dynamic_scores)
+        # Hurst指数保持不变
+        hurst_score = normalize_score(df['hurst_120d_D'], df.index, 120)
         states['SCORE_TRENDING_REGIME'] = hurst_score
-
+        
         return states
 
     def diagnose_classic_indicators_atomics(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 关系元分析版】经典指标原子信号诊断
-        - 核心革命: 将“量价点火”信号升维，引入均线趋势上下文，并用关系元分析捕捉其动态。
-        - 优化说明: 接收预计算的`ma_context_score`，避免重复计算。增加健壮性检查。
+        【V3.0 · 分层印证版】经典指标原子信号诊断
+        - 核心升级: 引入“分层动态印证”框架。对“量价点火”和“恐慌抛售”的证据链进行多时间维度的分层验证。
         """
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
-        
-        norm_window = 120
-        
-        # 检查所需指标列是否存在
-        required_cols = ['close_D', 'open_D', 'SLOPE_5_volume_D', 'ACCEL_5_volume_D']
+        required_cols = ['close_D', 'open_D']
         if not all(col in df.columns for col in required_cols):
-            return {} # 如果关键指标缺失，则不生成任何信号
-
-        # --- 量价齐升点火信号 ---
-        # 步骤一：构建“量价齐升点火”的瞬时关系快照分 (状态分)
-        # 核心关系：在强势趋势背景下(ma_context高)，出现阳线实体，且成交量加速放大。
+            return {}
+        # 引入分层印证框架
+        periods = [1, 5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        # --- 容器初始化 ---
+        ignition_state_scores = {}
+        ignition_dynamic_scores = {}
+        panic_risk_state_scores = {}
+        panic_risk_dynamic_scores = {}
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
-        score_price_up_strength = normalize_score(candle_body_up, df.index, norm_window)
-        score_vol_slope_up = normalize_score(df['SLOPE_5_volume_D'].clip(lower=0), df.index, norm_window)
-        score_vol_accel_up = normalize_score(df['ACCEL_5_volume_D'].clip(lower=0), df.index, norm_window)
-        score_volume_igniting = score_vol_slope_up * score_vol_accel_up
-        # 直接使用传入的 ma_context_score
-        ignition_state_score = (score_price_up_strength * score_volume_igniting * ma_context_score).astype(np.float32)
-        states['SCORE_VOL_PRICE_IGNITION_STATE'] = ignition_state_score
-
-        # 步骤二：对“量价点火关系”进行元分析，得到动态分
-        ignition_dynamic_score = self._perform_foundation_relational_meta_analysis(df, ignition_state_score)
-        states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = ignition_dynamic_score
-
-        # --- 放量恐慌下跌信号 ---
-        # 步骤三：构建“放量恐慌下跌”的瞬时关系快照分 (状态分)
-        # 核心关系：在弱势趋势背景下(ma_context低)，出现阴线实体，且成交量加速放大。
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
-        score_price_down_strength = normalize_score(candle_body_down, df.index, norm_window)
-        # 直接使用传入的 ma_context_score
-        panic_state_score = (score_price_down_strength * score_volume_igniting * (1 - ma_context_score)).astype(np.float32)
-        states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = panic_state_score
-
-        # 步骤四：对“放量恐慌关系”进行元分析，得到动态分
-        panic_dynamic_score = self._perform_foundation_relational_meta_analysis(df, panic_state_score)
-        states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = panic_dynamic_score
-
+        # --- 分层计算每个周期的状态分和动态分 ---
+        for i, p_tactical in enumerate(sorted_periods):
+            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+            # 证据1: 价格强度 (分层)
+            tactical_price_up = normalize_score(candle_body_up, df.index, p_tactical)
+            context_price_up = normalize_score(candle_body_up, df.index, p_context)
+            fused_price_up = (tactical_price_up * context_price_up)**0.5
+            tactical_price_down = normalize_score(candle_body_down, df.index, p_tactical)
+            context_price_down = normalize_score(candle_body_down, df.index, p_context)
+            fused_price_down = (tactical_price_down * context_price_down)**0.5
+            # 证据2: 成交量点火 (分层)
+            vol_slope_series = df.get(f'SLOPE_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
+            vol_accel_series = df.get(f'ACCEL_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
+            tactical_vol_slope = normalize_score(vol_slope_series, df.index, p_tactical)
+            tactical_vol_accel = normalize_score(vol_accel_series, df.index, p_tactical)
+            context_vol_slope = normalize_score(vol_slope_series, df.index, p_context)
+            context_vol_accel = normalize_score(vol_accel_series, df.index, p_context)
+            fused_vol_slope = (tactical_vol_slope * context_vol_slope)**0.5
+            fused_vol_accel = (tactical_vol_accel * context_vol_accel)**0.5
+            fused_volume_igniting = fused_vol_slope * fused_vol_accel
+            # --- 量价点火信号 ---
+            ignition_snapshot = (fused_price_up * fused_volume_igniting * ma_context_score).astype(np.float32)
+            ignition_state_scores[p_tactical] = ignition_snapshot
+            ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot)
+            # --- 恐慌抛售风险 ---
+            panic_snapshot = (fused_price_down * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
+            panic_risk_state_scores[p_tactical] = panic_snapshot
+            panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot)
+        # --- 跨周期融合，生成最终的原子信号 ---
+        def fuse_across_periods(scores_dict):
+            final_score = pd.Series(0.0, index=df.index)
+            total_weight = sum(tf_weights.values())
+            if total_weight > 0:
+                for p in periods:
+                    final_score += scores_dict.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
+            return final_score.clip(0, 1)
+        states['SCORE_VOL_PRICE_IGNITION_STATE'] = fuse_across_periods(ignition_state_scores)
+        states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = fuse_across_periods(ignition_dynamic_scores)
+        states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = fuse_across_periods(panic_risk_state_scores)
+        states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = fuse_across_periods(panic_risk_dynamic_scores)
+        
         return states
 
 

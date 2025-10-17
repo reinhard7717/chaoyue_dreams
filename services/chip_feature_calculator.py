@@ -225,7 +225,7 @@ class ChipFeatureCalculator:
                 业务直觉的实现，能够为下游衍生指标提供最纯净、最可靠的数据源。
         """
         close_price = self.ctx.get('close_price')
-        weight_avg_cost = self.ctx.get('weight_avg_cost') # [代码修改] 重新确立 weight_avg_cost 为动态划分基准
+        weight_avg_cost = self.ctx.get('weight_avg_cost') # 重新确立 weight_avg_cost 为动态划分基准
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
         
         if not all(pd.notna(v) for v in [close_price, weight_avg_cost]):
