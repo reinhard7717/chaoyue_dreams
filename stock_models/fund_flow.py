@@ -752,12 +752,15 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_sh_amount_consensus': '共识-小单净流入(万元)',
         'flow_divergence_mf_vs_retail': '资金分歧度(主力-散户)',
         'main_force_flow_intensity_ratio': '主力资金流强度比率',
+        'main_force_flow_impact_ratio': '主力资金流影响力',
+        'trade_granularity_impact': '交易颗粒度影响力',
         'main_force_vs_xl_divergence': '主力与超大单分歧度(万元)',
         'active_buy_pressure': '主动买盘压力比率',
         'retail_panic_index': '散户恐慌指数',
         'main_force_conviction_buy_ratio': '主力锁仓买入比',
         'trade_concentration_index': '交易集中度指数',
         'avg_order_value': '平均每笔成交金额(元)',
+        'avg_order_value_norm_price': '价格归一化平均订单价值',
         'main_force_conviction_ratio': '主力信念比率',
         'avg_cost_sm_buy': '小单买入均价', 'avg_cost_sm_sell': '小单卖出均价',
         'avg_cost_md_buy': '中单买入均价', 'avg_cost_md_sell': '中单卖出均价',
@@ -776,18 +779,16 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     }
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
-        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or name == 'avg_order_value':
+        # [代码修改开始] 确保所有比率和影响力指标都为FloatField
+        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value':
+        # [代码修改结束]
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
-    # --- 3. 统一衍生周期 ---
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # --- 4. 动态生成所有衍生指标 (累计、斜率、加速度) ---
     for p in UNIFIED_PERIODS:
-        # --- 4.1 累计指标 ---
         if p > 1:
-            # 修正求和逻辑：仅对非价格、非比率的“流量型”指标求和
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -796,11 +797,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             for name in sum_cols:
                 verbose_name = CORE_METRICS.get(name, name)
                 vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
-            
-        # --- 4.2 斜率指标 ---
         for name, verbose in CORE_METRICS.items():
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
-        # --- 4.3 累计指标的斜率 ---
         if p > 1:
             sum_slope_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
@@ -810,7 +808,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             for name in sum_slope_cols:
                 verbose_name = CORE_METRICS.get(name, name)
                 vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日累计之{p}日斜率', null=True, blank=True)
-        # --- 4.4 加速度指标 ---
         for name, verbose in CORE_METRICS.items():
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
     class Meta:

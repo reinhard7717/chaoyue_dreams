@@ -331,57 +331,82 @@ class MicroBehaviorEngine:
 
     def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 分层印证版】市场微观结构动态诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。对交易颗粒度、集中度、主力信念等核心微观指标进行多时间维度的分层验证。
+        【V13.0 · 影响力归一化版】市场微观结构动态诊断引擎
+        - 核心升维: 权力转移的“过程证据”现在基于“交易颗粒度影响力”(trade_granularity_impact)的动态变化。
+                      该指标通过流通市值归一化，彻底消除了股价和市值的尺度干扰，使信号具备了跨市场的普适性。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         ma_health_score = self._calculate_ma_health(df, p_conf, 55)
         recent_reversal_context = self._get_atomic_score(df, 'SCORE_CONTEXT_RECENT_REVERSAL', 0.0)
         risk_suppression_factor = (1.0 - recent_reversal_context).clip(0, 1)
-        # 引入分层印证框架
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
-        # 初始化存储容器
         power_shift_up_scores = {}
         conviction_up_scores = {}
         power_shift_down_scores = {}
         conviction_down_scores = {}
+        # [代码修改开始] 定义新的、基于“影响力”的颗粒度指标名称
+        granularity_impact_metric = 'trade_granularity_impact_D'
+        # [代码修改结束]
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             # --- 看涨信号计算 (分层) ---
+            # [代码修改开始] 使用新的“影响力”指标
             # 权力转移(主力)
-            tactical_granularity_up = normalize_score(df.get(f'SLOPE_{p_tactical}_avg_order_value_D'), df.index, window=p_tactical, ascending=True)
+            tactical_granularity_up = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=True)
             tactical_dominance_up = normalize_score(df.get(f'SLOPE_{p_tactical}_trade_concentration_index_D'), df.index, window=p_tactical, ascending=True)
-            context_granularity_up = normalize_score(df.get(f'SLOPE_{p_context}_avg_order_value_D'), df.index, window=p_context, ascending=True)
+            context_granularity_up = normalize_score(df.get(f'SLOPE_{p_context}_{granularity_impact_metric}'), df.index, window=p_context, ascending=True)
             context_dominance_up = normalize_score(df.get(f'SLOPE_{p_context}_trade_concentration_index_D'), df.index, window=p_context, ascending=True)
-            granularity_holo_up, _ = calculate_holographic_dynamics(df, 'avg_order_value', p_context)
-            dominance_holo_up, _ = calculate_holographic_dynamics(df, 'trade_concentration_index', p_context)
+            granularity_holo_up, _ = calculate_holographic_dynamics(df, granularity_impact_metric, p_context)
+            dominance_holo_up, _ = calculate_holographic_dynamics(df, 'trade_concentration_index_D', p_context)
+            # [代码修改结束]
             fused_power_shift_raw = (tactical_granularity_up * context_granularity_up * tactical_dominance_up * context_dominance_up)**0.25 * granularity_holo_up * dominance_holo_up
             snapshot_power_shift = fused_power_shift_raw * ma_health_score
             power_shift_up_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_power_shift)
             # 主力信念加强
             tactical_conviction_up = normalize_score(df.get(f'SLOPE_{p_tactical}_main_force_conviction_ratio_D'), df.index, window=p_tactical, ascending=True)
             context_conviction_up = normalize_score(df.get(f'SLOPE_{p_context}_main_force_conviction_ratio_D'), df.index, window=p_context, ascending=True)
-            conviction_holo_up, _ = calculate_holographic_dynamics(df, 'main_force_conviction_ratio', p_context)
+            conviction_holo_up, _ = calculate_holographic_dynamics(df, 'main_force_conviction_ratio_D', p_context)
             fused_conviction_raw = (tactical_conviction_up * context_conviction_up)**0.5 * conviction_holo_up
             snapshot_conviction = fused_conviction_raw * ma_health_score
             conviction_up_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_conviction)
             # --- 看跌风险信号计算 (分层) ---
-            # 权力转移(散户)
-            tactical_granularity_down = normalize_score(df.get(f'SLOPE_{p_tactical}_avg_order_value_D'), df.index, window=p_tactical, ascending=False)
+            # [代码修改开始] 使用新的“影响力”指标
+            # 证据维度一：权力转移(散户) - 过程证据
+            tactical_granularity_down = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=False)
             tactical_dominance_down = normalize_score(df.get(f'SLOPE_{p_tactical}_trade_concentration_index_D'), df.index, window=p_tactical, ascending=False)
-            context_granularity_down = normalize_score(df.get(f'SLOPE_{p_context}_avg_order_value_D'), df.index, window=p_context, ascending=False)
+            context_granularity_down = normalize_score(df.get(f'SLOPE_{p_context}_{granularity_impact_metric}'), df.index, window=p_context, ascending=False)
             context_dominance_down = normalize_score(df.get(f'SLOPE_{p_context}_trade_concentration_index_D'), df.index, window=p_context, ascending=False)
-            _, granularity_holo_down = calculate_holographic_dynamics(df, 'avg_order_value', p_context)
-            _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index', p_context)
-            fused_power_shift_risk_raw = (tactical_granularity_down * context_granularity_down * tactical_dominance_down * context_dominance_down)**0.25 * granularity_holo_down * dominance_holo_down
+            _, granularity_holo_down = calculate_holographic_dynamics(df, granularity_impact_metric, p_context)
+            _, dominance_holo_down = calculate_holographic_dynamics(df, 'trade_concentration_index_D', p_context)
+            # [代码修改结束]
+            fused_power_shift_process_evidence = (tactical_granularity_down * context_granularity_down * tactical_dominance_down * context_dominance_down)**0.25 * granularity_holo_down * dominance_holo_down
+            # 证据维度二：主力日内T+0派发获利 - 战术结果证据
+            tactical_profit_distribute = normalize_score(df.get(f'SLOPE_{p_tactical}_main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)
+            tactical_cost_battle_loss = normalize_score(df.get(f'SLOPE_{p_tactical}_market_cost_battle_D'), df.index, window=p_tactical, ascending=False)
+            context_profit_distribute = normalize_score(df.get(f'SLOPE_{p_context}_main_force_intraday_profit_D'), df.index, window=p_context, ascending=True)
+            context_cost_battle_loss = normalize_score(df.get(f'SLOPE_{p_context}_market_cost_battle_D'), df.index, window=p_context, ascending=False)
+            fused_tactical_profit_taking_evidence = ((tactical_profit_distribute * context_profit_distribute)**0.5 * (tactical_cost_battle_loss * context_cost_battle_loss)**0.5)
+            # 证据维度三：主力多日持仓派发获利 - 战略结果证据
+            past_buy_cost = df.get('avg_cost_main_buy_D').shift(p_tactical)
+            profit_margin = (df['close_D'] - past_buy_cost) / past_buy_cost.replace(0, np.nan)
+            selling_action = -df.get('main_force_net_flow_consensus_D').clip(upper=0)
+            tactical_strategic_margin = normalize_score(profit_margin, df.index, window=p_tactical, ascending=True)
+            tactical_strategic_sell = normalize_score(selling_action, df.index, window=p_tactical, ascending=True)
+            past_buy_cost_context = df.get('avg_cost_main_buy_D').shift(p_context)
+            profit_margin_context = (df['close_D'] - past_buy_cost_context) / past_buy_cost_context.replace(0, np.nan)
+            context_strategic_margin = normalize_score(profit_margin_context, df.index, window=p_context, ascending=True)
+            context_strategic_sell = normalize_score(selling_action, df.index, window=p_context, ascending=True)
+            fused_strategic_profit_taking_evidence = ((tactical_strategic_margin * context_strategic_margin)**0.5 * (tactical_strategic_sell * context_strategic_sell)**0.5)
+            # 三位一体融合
+            fused_power_shift_risk_raw = (fused_power_shift_process_evidence * fused_tactical_profit_taking_evidence * fused_strategic_profit_taking_evidence)**(1/3)
             snapshot_power_shift_risk = fused_power_shift_risk_raw * (1 - ma_health_score)
             power_shift_down_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_power_shift_risk)
-            # 主力信念瓦解
+            # 主力信念瓦解 (逻辑不变)
             tactical_conviction_down = normalize_score(df.get(f'SLOPE_{p_tactical}_main_force_conviction_ratio_D'), df.index, window=p_tactical, ascending=False)
             context_conviction_down = normalize_score(df.get(f'SLOPE_{p_context}_main_force_conviction_ratio_D'), df.index, window=p_context, ascending=False)
-            _, conviction_holo_down = calculate_holographic_dynamics(df, 'main_force_conviction_ratio', p_context)
+            _, conviction_holo_down = calculate_holographic_dynamics(df, 'main_force_conviction_ratio_D', p_context)
             fused_conviction_risk_raw = (tactical_conviction_down * context_conviction_down)**0.5 * conviction_holo_down
             snapshot_conviction_risk = fused_conviction_risk_raw * (1 - ma_health_score)
             conviction_down_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_conviction_risk)
@@ -403,7 +428,6 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = (final_power_shift_risk * risk_suppression_factor).astype(np.float32)
         final_conviction_risk = fuse_scores(conviction_down_scores)
         states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = (final_conviction_risk * risk_suppression_factor).astype(np.float32)
-        
         return states
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
