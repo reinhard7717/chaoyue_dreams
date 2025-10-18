@@ -735,9 +735,9 @@ class FundFlowDailyDC_BJ(models.Model):
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V2.5 - 最终升维版】
-    - 核心升维: 新增了完整的成本博弈矩阵指标和基于此的高阶复合因子。
-    - 逻辑修正: 明确了衍生指标的计算范围，对价格类指标（如成本）不再错误地计算累计值。
+    【V2.8 · 算法指纹版】
+    - 核心升维: 新增算法交易指纹识别指标，包括VWAP跟踪误差、成交量分布均匀度(JS散度)和开盘进攻性，
+                  使我们能从“做什么”的层面，深入到“怎么做”的战术层面。
     """
     # --- 1. 核心关联键 ---
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
@@ -755,33 +755,46 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'main_force_flow_impact_ratio': '主力资金流影响力',
         'trade_granularity_impact': '交易颗粒度影响力',
         'main_force_vs_xl_divergence': '主力与超大单分歧度(万元)',
-        'active_buy_pressure': '主动买盘压力比率',
-        'retail_panic_index': '散户恐慌指数',
-        'main_force_conviction_buy_ratio': '主力锁仓买入比',
+        'main_force_support_strength': '主力支撑强度',
+        'main_force_distribution_pressure': '主力派发压力',
+        'retail_capitulation_score': '散户投降分',
+        'intraday_execution_alpha': '日内执行Alpha',
+        'intraday_volatility': '日内波动率',
+        'closing_strength_index': '收盘强度指数',
+        'close_vs_vwap_ratio': '收盘价与VWAP偏离度',
+        'final_hour_momentum': '尾盘动能',
         'trade_concentration_index': '交易集中度指数',
         'avg_order_value': '平均每笔成交金额(元)',
         'avg_order_value_norm_price': '价格归一化平均订单价值',
         'main_force_conviction_ratio': '主力信念比率',
-        'avg_cost_sm_buy': '小单买入均价', 'avg_cost_sm_sell': '小单卖出均价',
-        'avg_cost_md_buy': '中单买入均价', 'avg_cost_md_sell': '中单卖出均价',
-        'avg_cost_lg_buy': '大单买入均价', 'avg_cost_lg_sell': '大单卖出均价',
-        'avg_cost_elg_buy': '特大单买入均价', 'avg_cost_elg_sell': '特大单卖出均价',
-        'avg_cost_main_buy': '主力买入均价', 'avg_cost_main_sell': '主力卖出均价',
-        'avg_cost_retail_buy': '散户买入均价', 'avg_cost_retail_sell': '散户卖出均价',
+        'avg_cost_sm_buy': '小单买入均价(PVWAP)', 'avg_cost_sm_sell': '小单卖出均价(PVWAP)',
+        'avg_cost_md_buy': '中单买入均价(PVWAP)', 'avg_cost_md_sell': '中单卖出均价(PVWAP)',
+        'avg_cost_lg_buy': '大单买入均价(PVWAP)', 'avg_cost_lg_sell': '大单卖出均价(PVWAP)',
+        'avg_cost_elg_buy': '特大单买入均价(PVWAP)', 'avg_cost_elg_sell': '特大单卖出均价(PVWAP)',
+        'avg_cost_main_buy': '主力买入均价(PVWAP)', 'avg_cost_main_sell': '主力卖出均价(PVWAP)',
+        'avg_cost_retail_buy': '散户买入均价(PVWAP)', 'avg_cost_retail_sell': '散户卖出均价(PVWAP)',
         'cost_divergence_mf_vs_retail': '成本分歧度(主力买-散户卖)',
         'cost_weighted_main_flow': '主力成本加权净流入',
-        'main_buy_cost_advantage': '主力成本领先度',
+        'main_buy_cost_advantage': '主力成本领先度(vs Close)',
+        'realized_profit_on_exchange': '已实现利润(T+0置换)',
+        'net_position_change_value': '净头寸变动市值',
+        'unrealized_pnl_on_net_change': '新增头寸浮动盈亏',
+        'pnl_matrix_confidence_score': 'P&L矩阵可信度评分',
         'main_force_intraday_profit': '主力日内盈亏',
         'market_cost_battle': '市场成本博弈差(主力买-散户买)',
+        'daily_vwap': '当日成交加权平均价',
+        'main_buy_cost_vs_vwap': '主力买入成本 vs VWAP',
+        'main_sell_cost_vs_vwap': '主力卖出成本 vs VWAP',
+        'vwap_tracking_error': 'VWAP算法跟踪误差',
+        'volume_profile_jsd_vs_uniform': '成交量分布均匀度(JS散度)',
+        'aggression_index_opening': '开盘进攻性指数',
         'divergence_ts_ths': '分歧度(Tushare-同花顺)',
         'divergence_ts_dc': '分歧度(Tushare-东方财富)',
         'divergence_ths_dc': '分歧度(同花顺-东方财富)',
     }
     # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
-        # 确保所有比率和影响力指标都为FloatField
-        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value':
-        
+        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value' or 'vwap' in name or 'error' in name or 'jsd' in name or 'strength' in name or 'score' in name or 'alpha' in name or 'volatility' in name or 'momentum' in name:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
