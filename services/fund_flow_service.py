@@ -171,15 +171,15 @@ class AdvancedFundFlowMetricsService:
         return daily_vwap.reindex(date_index)
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-        """【V1.3 · 战术行为升维版】锻造高级指标，并升维战术行为分析"""
+        """【V1.5 · 逻辑修复版】修复因分钟数据缺失导致下游计算流程中断的BUG"""
         df = merged_df.copy()
         tushare_cols_exist = 'buy_sm_vol' in df.columns
         if tushare_cols_exist:
             minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
-            if minute_df_daily_grouped is None:
-                # 这是一个同步方法内的简化处理，实际异步调用在run_precomputation中
-                print("调试信息: _synthesize_and_forge_metrics中分钟数据未预加载，跳过PVWAP和行为指标计算。")
-                # 使用旧的成本计算作为后备
+            # [代码修改开始] 重构逻辑，确保所有高级指标计算都在分钟数据有效时执行
+            if minute_df_daily_grouped is None or minute_df_daily_grouped.empty:
+                print(f"调试信息: {stock_code} 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据未预加载或为空，跳过PVWAP及所有基于分钟线的高级指标计算。")
+                # 使用旧的、不依赖分钟数据的成本计算作为后备方案
                 cost_pairs = {
                     'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
                     'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'), 'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
@@ -187,26 +187,26 @@ class AdvancedFundFlowMetricsService:
                     'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'), 'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
                 }
                 for new_col, (amount_col, vol_col) in cost_pairs.items():
-                    amount_np = pd.to_numeric(df[amount_col], errors='coerce').values
-                    vol_np = pd.to_numeric(df[vol_col], errors='coerce').values
-                    df[new_col] = np.divide(amount_np * 100, vol_np, out=np.full_like(amount_np, np.nan, dtype=float), where=vol_np!=0)
-                def calculate_aggregate_cost(amount_cols, vol_cols):
-                    total_amount_np = pd.to_numeric(df[amount_cols].sum(axis=1), errors='coerce').values
-                    total_vol_np = pd.to_numeric(df[vol_cols].sum(axis=1), errors='coerce').values
-                    return np.divide(total_amount_np * 100, total_vol_np, out=np.full_like(total_amount_np, np.nan, dtype=float), where=total_vol_np!=0)
-                df['avg_cost_main_buy'] = calculate_aggregate_cost(['buy_lg_amount', 'buy_elg_amount'], ['buy_lg_vol', 'buy_elg_vol'])
-                df['avg_cost_main_sell'] = calculate_aggregate_cost(['sell_lg_amount', 'sell_elg_amount'], ['sell_lg_vol', 'sell_elg_vol'])
-                df['avg_cost_retail_buy'] = calculate_aggregate_cost(['buy_sm_amount', 'buy_md_amount'], ['buy_sm_vol', 'buy_md_vol'])
-                df['avg_cost_retail_sell'] = calculate_aggregate_cost(['sell_sm_amount', 'sell_md_amount'], ['sell_sm_vol', 'sell_md_vol'])
+                    amount = pd.to_numeric(df[amount_col], errors='coerce') * 10000
+                    vol = pd.to_numeric(df[vol_col], errors='coerce') * 100
+                    df[new_col] = amount / vol.replace(0, np.nan)
+                # 计算聚合成本的后备方法
+                df['avg_cost_main_buy'] = (df['buy_lg_amount'] * 10000 + df['buy_elg_amount'] * 10000) / (df['buy_lg_vol'] * 100 + df['buy_elg_vol'] * 100).replace(0, np.nan)
+                df['avg_cost_main_sell'] = (df['sell_lg_amount'] * 10000 + df['sell_elg_amount'] * 10000) / (df['sell_lg_vol'] * 100 + df['sell_elg_vol'] * 100).replace(0, np.nan)
+                df['avg_cost_retail_buy'] = (df['buy_sm_amount'] * 10000 + df['buy_md_amount'] * 10000) / (df['buy_sm_vol'] * 100 + df['buy_md_vol'] * 100).replace(0, np.nan)
+                df['avg_cost_retail_sell'] = (df['sell_sm_amount'] * 10000 + df['sell_md_amount'] * 10000) / (df['sell_sm_vol'] * 100 + df['sell_md_vol'] * 100).replace(0, np.nan)
             else:
+                # 只有在分钟数据有效时，才执行所有依赖它的高级计算
+                print(f"调试信息: {stock_code} 分钟数据加载成功，开始计算所有高级指标。")
                 pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
                 df = df.join(pvwap_costs_df)
-            pnl_matrix_df = self._upgrade_intraday_profit_metric(df)
-            df = df.join(pnl_matrix_df)
-            behavioral_metrics_df = self._upgrade_behavioral_metrics(df, minute_df_daily_grouped)
-            df = df.join(behavioral_metrics_df)
-            structure_metrics_df = self._calculate_intraday_structure_metrics(df, minute_df_daily_grouped)
-            df = df.join(structure_metrics_df)
+                pnl_matrix_df = self._upgrade_intraday_profit_metric(df)
+                df = df.join(pnl_matrix_df)
+                behavioral_metrics_df = self._upgrade_behavioral_metrics(df, minute_df_daily_grouped)
+                df = df.join(behavioral_metrics_df)
+                structure_metrics_df = self._calculate_intraday_structure_metrics(df, minute_df_daily_grouped)
+                df = df.join(structure_metrics_df)
+            # 无论成本如何计算，这些衍生指标都依赖于成本字段，因此放在if/else之后
             df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
             df['cost_weighted_main_flow'] = df.get('main_force_net_flow_tushare', np.nan) * df['avg_cost_main_buy']
             df['main_buy_cost_advantage'] = np.divide(df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
@@ -221,7 +221,7 @@ class AdvancedFundFlowMetricsService:
                 close_price_np = pd.to_numeric(df['close'], errors='coerce').values
                 avg_order_value_np = df['avg_order_value'].values
                 df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
-        # [代码修改结束]
+            # [代码修改结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
