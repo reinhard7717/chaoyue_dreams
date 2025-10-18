@@ -27,7 +27,7 @@ class AdvancedFundFlowMetricsService:
         self.max_lookback_days = 200
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool):
-        """【V1.1 · 行为升维版】服务层主执行器"""
+        """【V1.2 · 数据链路修复版】服务层主执行器"""
         # 1. 初始化上下文
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental
@@ -39,9 +39,9 @@ class AdvancedFundFlowMetricsService:
         # 3. 【升维】加载分钟数据并计算日度VWAP
         daily_vwap_series = await self._calculate_daily_vwap(stock_info, merged_df.index)
         merged_df['daily_vwap'] = daily_vwap_series
-        # [代码新增开始] 预加载分钟数据以供下游同步方法使用
-        self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_code, merged_df.index)
-        # [代码新增结束]
+        # [代码修改开始] 将 stock_code 参数改为 stock_info 对象，确保查询的准确性
+        self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, merged_df.index)
+        # [代码修改结束]
         # 4. 一站式合成、交叉验证并锻造高级指标（已注入VWAP）
         df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, merged_df)
         # 5. 计算所有指标的衍生值（斜率、加速度等）
@@ -50,10 +50,8 @@ class AdvancedFundFlowMetricsService:
         processed_count = await self._prepare_and_save_data(
             stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
         )
-        # [代码新增开始] 清理临时属性
         if hasattr(self, '_minute_df_daily_grouped'):
             del self._minute_df_daily_grouped
-        # [代码新增结束]
         return processed_count
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool):
@@ -350,20 +348,31 @@ class AdvancedFundFlowMetricsService:
         return len(records_to_create)
 
     @sync_to_async(thread_sensitive=True)
-    def _get_daily_grouped_minute_data(self, stock_code: str, date_index: pd.DatetimeIndex):
-        """【新增】获取并按日聚合分钟数据，为PVWAP计算提供材料"""
-        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
-        if not MinuteModel or date_index.empty:
+    # [代码修改开始] 修改方法签名，接收 stock_info 对象而非 stock_code 字符串
+    def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex):
+        """【V1.1 · 修复与增强版】获取并按日聚合分钟数据，为PVWAP计算提供材料"""
+        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+        # [代码修改开始] 增加更精细的调试信息
+        if not MinuteModel:
+            print(f"调试信息: {stock_info.stock_code} 未能找到对应的1分钟线数据模型。")
+            return None
+        if date_index.empty:
+            print(f"调试信息: {stock_info.stock_code} 的日期索引为空，无法查询分钟数据。")
             return None
         min_date, max_date = date_index.min().date(), date_index.max().date()
+        # [代码修改开始] 使用 stock_info 对象进行外键查询，更准确高效
         qs = MinuteModel.objects.filter(
-            stock__stock_code=stock_code,
+            stock=stock_info,
             trade_time__date__gte=min_date,
             trade_time__date__lte=max_date
         ).values('trade_time', 'amount', 'vol')
+        # [代码修改结束]
         minute_df = pd.DataFrame.from_records(qs)
+        # [代码修改开始] 增加更精细的调试信息
         if minute_df.empty:
+            print(f"调试信息: {stock_info.stock_code} 在 {min_date} 到 {max_date} 期间的数据库查询结果为空。")
             return None
+        # [代码修改结束]
         minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
         minute_df['date'] = minute_df['trade_time'].dt.date
         minute_df[['amount', 'vol']] = minute_df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
