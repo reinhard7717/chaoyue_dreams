@@ -1034,6 +1034,55 @@ def save_stocks_minute_data_history_task(cache_manager=None):
         return {"status": "success", "dispatched_stocks": total_dispatched_stocks}
     async_to_sync(main)()
 
+#  ================ 1分钟数据任务（历史全量） - 新增任务 ================
+@celery_app.task(queue='SaveHistoryData_TimeTrade') # 新增：执行器任务
+@with_cache_manager
+def save_1min_data_history_batch(stock_code: str, cache_manager=None):
+    """
+    【V1.0 · 新增执行器】
+    从Tushare获取单只股票的全量历史1分钟K线数据并保存。
+    Args:
+        stock_code (str): 股票代码。
+        cache_manager: 由装饰器注入的缓存管理器实例。
+    """
+    print(f"开始执行任务: 为股票 {stock_code} 获取全量历史1分钟数据...")
+    # logger.info(f"开始处理股票 {stock_code} 的历史(1分钟)数据任务...")
+    stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
+    async def main():
+        return await stock_time_trade_dao.save_1min_time_trade_history_by_stock_code(stock_code)
+    try:
+        result = async_to_sync(main)()
+        # logger.info(f"保存股票 {stock_code} 的1分钟级交易数据完成. 结果: {result}")
+        print(f"股票 {stock_code} 的历史1分钟数据保存任务完成，共处理 {result} 条记录。")
+    except Exception as e:
+        logger.error(f"为股票 {stock_code} 保存历史1分钟数据时发生错误: {e}", exc_info=True)
+        # 可以在这里决定是否重试任务
+        raise
+
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_1min_data_history_task', queue='celery') # 新增：调度器任务
+@with_cache_manager
+def save_stocks_1min_data_history_task(cache_manager=None):
+    """
+    【V1.0 · 新增调度器】
+    为所有股票分派获取全量历史1分钟K线数据的任务。
+    """
+    logger.info(f"任务启动: save_stocks_1min_data_history_task (调度器模式)")
+    stock_basic_dao = StockBasicInfoDao(cache_manager)
+    async def main():
+        all_stocks = await stock_basic_dao.get_stock_list()
+        if not all_stocks:
+            logger.warning("未找到任何股票代码，跳过1分钟历史数据获取任务。")
+            return {"status": "skipped", "message": "未找到任何股票代码"}
+        all_stock_codes = [stock.stock_code for stock in all_stocks]
+        total_codes_count = len(all_stock_codes)
+        logger.info(f"准备为 {total_codes_count} 个股票分派历史1分钟数据获取任务...")
+        for stock_code in all_stock_codes:
+            # 为每只股票分派一个独立的执行器任务
+            save_1min_data_history_batch.s(stock_code=stock_code).apply_async()
+        logger.info(f"任务结束: save_stocks_1min_data_history_task - 共为 {total_codes_count} 个股票分派了任务。")
+        return {"status": "success", "dispatched_stocks": total_codes_count}
+    return async_to_sync(main)()
+
 #  ================ 日线数据任务（历史） ================
 @celery_app.task(queue='SaveHistoryData_TimeTrade', rate_limit='180/m')
 @with_cache_manager

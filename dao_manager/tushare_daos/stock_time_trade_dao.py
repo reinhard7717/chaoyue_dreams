@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, date, timedelta
 from dao_manager.base_dao import BaseDAO
+from stock_models.index import TradeCalendar
 from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_minute_data_model_by_code_and_timelevel, get_stk_limit_model_by_code
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
 from stock_models.stock_basic import StockInfo
@@ -592,6 +593,89 @@ class StockTimeTradeDAO(BaseDAO):
                 offset += limit
                 page_num += 1
         logger.info(f"保存 {len(stock_codes)}个股票 的分钟级交易数据全部完成.")
+
+    @with_rate_limit(name='api_stk_mins') # 新增：添加速率限制装饰器
+    async def save_1min_time_trade_history_by_stock_code(self, stock_code: str, *, limiter) -> int:
+        """
+        【V1.0 · 新增】按30个交易日分块，从后向前获取并保存单只股票的全部历史1分钟K线数据。
+        - 核心逻辑:
+          1. 从最新的交易日开始，使用交易日历分块（每块30天）向前追溯。
+          2. 对每个时间块调用 Tushare 的 stk_mins 接口。
+          3. 使用 @with_rate_limit 装饰器进行分布式速率限制。
+          4. 当API返回空数据时，任务自动终止。
+        Args:
+            stock_code (str): 股票代码。
+            limiter: 由 @with_rate_limit 装饰器注入的 DistributedRateLimiter 实例。
+        Returns:
+            int: 总共保存的记录条数。
+        """
+        # print(f"开始为股票 {stock_code} 获取全量历史1分钟K线数据...")
+        stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
+        if not stock:
+            logger.error(f"未能找到股票代码为 {stock_code} 的股票信息，任务终止。")
+            return 0
+        model_class = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
+        if not model_class:
+            logger.error(f"未能为 {stock_code} 和时间级别 1min 找到对应的数据库模型，任务终止。")
+            return 0
+        total_saved_count = 0
+        reference_date = datetime.now().date() # 从今天开始向前追溯
+        while True:
+            # 1. 获取一个30个交易日的批次
+            trade_dates = TradeCalendar.get_latest_n_trade_dates(n=30, reference_date=reference_date)
+            if not trade_dates:
+                print(f"[{stock_code}] 交易日历中在 {reference_date} 之前已无更多交易日，任务结束。")
+                break
+            # 2. 确定该批次的开始和结束日期
+            end_date_obj = trade_dates[0]      # 批次中最近的日期
+            start_date_obj = trade_dates[-1]   # 批次中最远的日期
+            start_date_str = f"{start_date_obj.strftime('%Y-%m-%d')} 00:00:00"
+            end_date_str = f"{end_date_obj.strftime('%Y-%m-%d')} 23:59:59"
+            print(f"[{stock_code}] 准备获取时间段 {start_date_str} 到 {end_date_str} 的1分钟数据...")
+            # 3. 在API调用前获取速率许可
+            while not await limiter.acquire():
+                print(f"PID[{os.getpid()}] API[api_stk_mins] 速率超限，等待10秒后重试... (股票: {stock_code})")
+                await asyncio.sleep(10)
+            try:
+                # 4. 调用Tushare API
+                # 注意：stk_mins接口不支持分页(offset/limit)，但单次可返回8000条，足以覆盖30天*240分钟=7200条数据
+                df = self.ts_pro.stk_mins(
+                    ts_code=stock_code,
+                    freq='1min',
+                    start_date=start_date_str,
+                    end_date=end_date_str
+                )
+            except Exception as e:
+                logger.error(f"为 {stock_code} 获取1分钟数据时Tushare API调用失败: {e}", exc_info=True)
+                await asyncio.sleep(60) # API异常时等待更长时间
+                continue # 继续下一次循环尝试
+            if df.empty:
+                print(f"[{stock_code}] 在时间段 {start_date_str} 到 {end_date_str} 未获取到数据，可能已达历史数据尽头，任务结束。")
+                break
+            # 5. 数据处理与保存 (与现有分钟线保存方法逻辑一致)
+            df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
+            df.dropna(subset=['trade_time'], inplace=True)
+            if df.empty:
+                print(f"[{stock_code}] 数据清洗后为空，跳过此批次。")
+                reference_date = start_date_obj - timedelta(days=1)
+                continue
+            df['stock'] = stock
+            df['trade_time'] = pd.to_datetime(df['trade_time']).dt.tz_localize('Asia/Shanghai').dt.tz_convert('UTC').dt.tz_localize(None)
+            data_list = df[["stock", "trade_time", "close", "open", "high", "low", "vol", "amount"]].to_dict('records')
+            result_dict = await self._save_all_to_db_native_upsert(
+                model_class=model_class,
+                data_list=data_list,
+                unique_fields=['stock', 'trade_time']
+            )
+            saved_count = result_dict.get("创建/更新成功", 0)
+            total_saved_count += saved_count
+            print(f"[{stock_code}] 成功保存 {saved_count} 条1分钟数据。")
+            # 6. 更新下一次追溯的参考日期
+            reference_date = start_date_obj - timedelta(days=1)
+            # 7. 礼貌性等待
+            await asyncio.sleep(0.2)
+        # print(f"股票 {stock_code} 的全量历史1分钟K线数据获取完成，总共保存了 {total_saved_count} 条记录。")
+        return total_saved_count
 
     async def save_minute_time_trade_history_by_stock_code_and_time_level(self, stock_code: str, time_level: str, trade_date: date=None, start_date: date=None, end_date: date=None) -> int:
         """

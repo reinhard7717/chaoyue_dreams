@@ -258,6 +258,10 @@ API_RATE_LIMITS = {
         'MAX_CALLS': 280,
         'PERIOD': 60,
     },
+    'api_stk_mins': {
+        'MAX_CALLS': 490,  # 每分钟400次 (Tushare限制500，留出余量)
+        'PERIOD': 60,
+    },
     'api_cyq_perf': {
         'MAX_CALLS': 200,
         'PERIOD': 60,
