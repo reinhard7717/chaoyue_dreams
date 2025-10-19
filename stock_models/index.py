@@ -170,7 +170,7 @@ class TradeCalendar(models.Model):
         if reference_date is None:
             reference_date = timezone.now().date()
         
-        print(f"调试: get_latest_n_trade_dates - 获取数量: {n}, 参考日期: {reference_date}, 交易所: {exchange}")
+        # print(f"调试: get_latest_n_trade_dates - 获取数量: {n}, 参考日期: {reference_date}, 交易所: {exchange}")
 
         # 1. 使用Django ORM进行查询，这是最高效的方式
         trade_dates_queryset = cls.objects.filter(
