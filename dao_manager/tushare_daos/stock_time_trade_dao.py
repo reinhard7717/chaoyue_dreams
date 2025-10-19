@@ -620,7 +620,7 @@ class StockTimeTradeDAO(BaseDAO):
         total_saved_count = 0
         reference_date = datetime.now().date() # 从今天开始向前追溯
         # --- 新增的代码行开始 ---
-        stop_date = datetime.date(2019, 3, 1) # 定义回溯停止日期
+        stop_date = date(2019, 3, 1) # 定义回溯停止日期
         # --- 新增的代码行结束 ---
         while True:
             # 1. 异步安全地获取一个30个交易日的批次
