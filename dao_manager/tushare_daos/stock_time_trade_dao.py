@@ -621,8 +621,12 @@ class StockTimeTradeDAO(BaseDAO):
         total_saved_count = 0
         reference_date = datetime.now().date() # 从今天开始向前追溯
         while True:
-            # 1. 获取一个30个交易日的批次
-            trade_dates = TradeCalendar.get_latest_n_trade_dates(n=30, reference_date=reference_date)
+            # --- 修改的代码行开始 ---
+            # 1. 异步安全地获取一个30个交易日的批次
+            # 将同步的ORM调用包装在sync_to_async中，以在异步上下文中安全执行
+            get_trade_dates_async = sync_to_async(TradeCalendar.get_latest_n_trade_dates, thread_sensitive=True)
+            trade_dates = await get_trade_dates_async(n=30, reference_date=reference_date)
+            # --- 修改的代码行结束 ---
             if not trade_dates:
                 print(f"[{stock_code}] 交易日历中在 {reference_date} 之前已无更多交易日，任务结束。")
                 break
@@ -634,8 +638,8 @@ class StockTimeTradeDAO(BaseDAO):
             print(f"[{stock_code}] 准备获取时间段 {start_date_str} 到 {end_date_str} 的1分钟数据...")
             # 3. 在API调用前获取速率许可
             while not await limiter.acquire():
-                print(f"PID[{os.getpid()}] API[api_stk_mins] 速率超限，等待10秒后重试... (股票: {stock_code})")
-                await asyncio.sleep(10)
+                print(f"PID[{os.getpid()}] API[api_stk_mins] 速率超限，等待30秒后重试... (股票: {stock_code})")
+                await asyncio.sleep(30)
             try:
                 # 4. 调用Tushare API
                 # 注意：stk_mins接口不支持分页(offset/limit)，但单次可返回8000条，足以覆盖30天*240分钟=7200条数据
