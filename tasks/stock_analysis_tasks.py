@@ -1058,10 +1058,10 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
     """
     async def main(incremental_flag: bool):
         try:
-            # [代码修改开始] 实例化并调用服务
+            # 实例化并调用服务
             service = AdvancedFundFlowMetricsService()
             processed_days = await service.run_precomputation(stock_code, incremental_flag)
-            # [代码修改结束]
+            
             mode = "增量更新" if incremental_flag else "全量刷新"
             if processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级资金流指标。")
