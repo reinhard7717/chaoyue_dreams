@@ -454,9 +454,9 @@ class AdvancedFundFlowMetricsService:
             return self._calculate_aggregate_pvwap_costs(results_df, daily_df)
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        # [代码新增开始] 导入 scipy 用于计算JS散度
+        # 导入 scipy 用于计算JS散度
         from scipy.spatial.distance import jensenshannon
-        # [代码新增结束]
+        
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
@@ -474,7 +474,7 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol else np.nan
-            # [代码新增开始] 2. 计算算法交易指纹 ---
+            # 2. 计算算法交易指纹 ---
             # 指纹A: VWAP跟踪误差 (需要先在下游计算出聚合成本avg_cost_main_buy)
             # 我们将在下游 _calculate_aggregate_pvwap_costs 之后计算
             # 指纹B: 成交量分布均匀度 (JS散度)
@@ -487,19 +487,19 @@ class AdvancedFundFlowMetricsService:
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
-            # [代码新增结束]
+            
             results[date] = day_results
         if not results:
             return pd.DataFrame()
         final_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         # --- 3. 计算聚合成本 ---
         final_df = self._calculate_aggregate_pvwap_costs(final_df, daily_df)
-        # [代码新增开始] 4. 计算依赖于聚合成本的VWAP跟踪误差 ---
+        # 4. 计算依赖于聚合成本的VWAP跟踪误差 ---
         if 'avg_cost_main_buy' in final_df.columns and 'daily_vwap' in daily_df.columns:
             # 合并日度VWAP以便计算
             final_df = final_df.join(daily_df['daily_vwap'])
             final_df['vwap_tracking_error'] = final_df['avg_cost_main_buy'] - final_df['daily_vwap']
-        # [代码新增结束]
+        
         return final_df
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
@@ -626,7 +626,7 @@ class AdvancedFundFlowMetricsService:
                 day_results['main_force_support_strength'] = support_net_flow / total_main_buy if total_main_buy else np.nan
             else:
                 day_results['main_force_support_strength'] = 0
-            # [代码新增开始] 2. `main_force_distribution_pressure` (主力派发压力) ---
+            # 2. `main_force_distribution_pressure` (主力派发压力) ---
             high_threshold = minute_data_for_day['minute_vwap'].quantile(0.9)
             top_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] >= high_threshold]
             if not top_zone_minutes.empty:
@@ -636,7 +636,7 @@ class AdvancedFundFlowMetricsService:
                 day_results['main_force_distribution_pressure'] = -distribution_net_flow / total_main_sell if total_main_sell else np.nan
             else:
                 day_results['main_force_distribution_pressure'] = 0
-            # [代码新增结束]
+            
             # --- 3. `retail_capitulation_score` (散户投降分) ---
             minute_data_for_day['price_return_5min'] = minute_data_for_day['minute_vwap'].pct_change(5)
             panic_minutes = minute_data_for_day[minute_data_for_day['price_return_5min'] < -0.015]
