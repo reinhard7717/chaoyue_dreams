@@ -766,7 +766,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         raise
 
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True):
     """
     【总调度器 V1.0】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
