@@ -1507,10 +1507,10 @@ class BaseAdvancedChipMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
-        # [代码修改开始] 增加判断，跳过对T+0指标的斜率和加速度计算
+        # 增加判断，跳过对T+0指标的斜率和加速度计算
         if name in BOOLEAN_FIELDS or name in SLOPE_ACCEL_EXCLUSIONS:
             continue
-        # [代码修改结束]
+        
         for p in UNIFIED_PERIODS:
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)

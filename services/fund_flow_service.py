@@ -330,11 +330,11 @@ class AdvancedFundFlowMetricsService:
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V3.0 · SSOT原则重构版】计算衍生指标，并动态读取模型的排除列表。"""
         final_df = consensus_df.copy()
-        # [代码修改开始] 直接从模型类读取“生产管制清单”，不再硬编码
+        # 直接从模型类读取“生产管制清单”，不再硬编码
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         # 同时，动态读取所有核心指标，使衍生计算更具扩展性
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        # [代码修改结束]
+        
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',

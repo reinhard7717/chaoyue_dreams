@@ -597,36 +597,49 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         logger.warning(full_warning_message)
     return data_dfs
 
-async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lookback_days: int):
+async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lookback_days: int, start_date_str: str = None):
     """
-    【新增】初始化Celery任务上下文，为计算准备所有必要参数。
+    【V2.0 · 支持起始日期覆盖版】初始化Celery任务上下文，为计算准备所有必要参数。
     - 获取StockInfo和动态MetricsModel。
     - 根据是否存在历史数据，决定最终的计算模式（增量或全量）。
     - 计算数据拉取的起始日期。
+    - 新增: 如果提供了 start_date_str，它将作为最高优先级，覆盖默认的增量逻辑。
     """
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     last_metric_date = None
-    # 决定最终的计算模式和起始日期
+    #
+    # 优先处理起始日期覆盖逻辑
+    if start_date_str:
+        print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}")
+        try:
+            start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            # 将计算的“最后日期”设置为指定日期的前一天，强制从指定日期开始计算
+            last_metric_date = start_date_obj - timedelta(days=1)
+            # 数据拉取日期也相应调整，以确保有足够的回溯数据用于衍生指标计算
+            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
+            # 这种模式本质上是一种特殊的“增量”更新，因此将 is_incremental 设为 True
+            is_incremental = True
+            return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+        except (ValueError, TypeError):
+            logger.error(f"[{stock_code}] 提供的起始日期 '{start_date_str}' 格式错误，将忽略并执行默认逻辑。")
+    
+    # 如果没有提供起始日期覆盖，则执行原始逻辑
     if is_incremental:
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
             try:
-                # 使用 .only('trade_time') 优化查询，只获取我们需要的字段
                 return model.objects.filter(stock=stock_info_obj).only('trade_time').latest('trade_time')
             except model.DoesNotExist:
                 return None
         latest_metric = await get_latest_metric_async(MetricsModel, stock_info)
         if latest_metric:
             last_metric_date = latest_metric.trade_time
-            # 增量更新时，计算的起始日期为最后记录日期减去衍生指标最大回溯期
             fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
         else:
-            # 如果是增量模式但没有任何历史数据，则自动切换到全量模式
             is_incremental = False
-            fetch_start_date = None  # 全量计算从头开始
+            fetch_start_date = None
     else:
-        # 全量计算模式，起始日期设为None，由主循环处理
         fetch_start_date = None
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
@@ -692,15 +705,15 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
     """【辅助函数 V2.1 - 时区安全修复版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
-    # [代码新增开始] 导入datetime和timezone以进行精确的时间范围查询
+    # 导入datetime和timezone以进行精确的时间范围查询
     from datetime import datetime
     from django.utils import timezone
-    # [代码新增结束]
+    
     # 定义单日分钟数据异步获取函数
     @sync_to_async(thread_sensitive=True)
     def get_minute_data_for_day_async(model, stock_pk, target_date):
         if not model: return pd.DataFrame()
-        # [代码修改开始] 使用时区安全的、精确到秒的范围查询，替代不安全的__date查询
+        # 使用时区安全的、精确到秒的范围查询，替代不安全的__date查询
         # 1. 构建目标日期的开始时间（UTC）
         start_of_day_utc = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
         # 2. 构建目标日期第二天的开始时间（UTC）
@@ -711,7 +724,7 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
             trade_time__gte=start_of_day_utc,
             trade_time__lt=end_of_day_utc
         )
-        # [代码修改结束]
+        
         return pd.DataFrame.from_records(qs.values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low'))
     minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
     prev_metrics = {}
@@ -769,14 +782,16 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, *, cache_manager: CacheManager):
-    """【执行器 V17.0 - SSOT原则重构版】"""
-    async def main(incremental_flag: bool):
+def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
+    """【执行器 V17.2 - 支持起始日期版】"""
+    async def main(incremental_flag: bool, start_date_override: str):
         try:
             max_lookback_days = 160
+            # 将 start_date_override 传递给上下文初始化函数
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
-                stock_code, incremental_flag, max_lookback_days
+                stock_code, incremental_flag, max_lookback_days, start_date_override
             )
+            
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
             new_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date)
@@ -799,9 +814,36 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         past_metrics_df.index = pd.to_datetime(past_metrics_df.index)
                     final_metrics_df = pd.concat([past_metrics_df, new_metrics_df]).sort_index()
                     final_metrics_df = final_metrics_df[~final_metrics_df.index.duplicated(keep='last')]
-            # [代码修改开始] 将MetricsModel传入，以供衍生计算函数读取模型定义
             final_metrics_df = await _calculate_derivative_metrics(MetricsModel, final_metrics_df)
-            # [代码修改结束]
+            @sync_to_async(thread_sensitive=True)
+            def _prepare_and_save_data(stock_info_obj, MetricsModelClass, df_to_save, index_to_check, delete_all_first):
+                if delete_all_first:
+                    MetricsModelClass.objects.filter(stock=stock_info_obj).delete()
+                    records_to_save_df = df_to_save
+                else:
+                    records_to_save_df = df_to_save[df_to_save.index.isin(index_to_check)]
+                if records_to_save_df.empty:
+                    return 0
+                records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+                model_fields = {f.name for f in MetricsModelClass._meta.get_fields() if not f.is_relation and f.name != 'id'}
+                df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+                records_list = df_filtered.to_dict('records')
+                records_to_create = []
+                for record_date, record_data in zip(df_filtered.index, records_list):
+                    safe_record_data = {
+                        key: None if isinstance(value, float) and not np.isfinite(value) else value
+                        for key, value in record_data.items()
+                    }
+                    records_to_create.append(
+                        MetricsModelClass(
+                            stock=stock_info_obj,
+                            trade_time=record_date.date(),
+                            **safe_record_data
+                        )
+                    )
+                with transaction.atomic():
+                    MetricsModelClass.objects.bulk_create(records_to_create, batch_size=2000, ignore_conflicts=True)
+                return len(records_to_create)
             processed_days = await _prepare_and_save_data(
                 stock_info, MetricsModel, final_metrics_df, new_metrics_df.index, not is_incremental_final
             )
@@ -818,7 +860,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.error(f"[{stock_code}] 高级筹码指标预计算失败 (未知异常): {e}", exc_info=True)
             return {"status": "failed", "reason": str(e)}
     try:
-        result = async_to_sync(main)(is_incremental)
+        # 将 start_date_str 传递给 main 协程
+        result = async_to_sync(main)(is_incremental, start_date_str)
+        
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
@@ -828,68 +872,62 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 # =================== 3. 高级资金特征任务 ==================
 # =================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
-def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True):
+def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None):
     """
-    【执行器 V20.0 - 服务化重构版】
+    【执行器 V20.1 - 支持起始日期版】
     - 核心重构: 剥离所有计算逻辑到 AdvancedFundFlowMetricsService。
     - 职责: 仅负责任务调度、调用服务、日志记录和异常处理。
+    - 新增: 支持 start_date_str 参数，用于指定计算的起始日期。
     """
-    async def main(incremental_flag: bool):
+    async def main(incremental_flag: bool, start_date_override: str):
         try:
-            # 实例化并调用服务
             service = AdvancedFundFlowMetricsService()
-            processed_days = await service.run_precomputation(stock_code, incremental_flag)
+            # 将 start_date_str 传递给服务层
+            processed_days = await service.run_precomputation(stock_code, incremental_flag, start_date_str=start_date_override)
             
             mode = "增量更新" if incremental_flag else "全量刷新"
             if processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级资金流指标。")
             else:
-                logger.info(f"[{stock_code}] 数据已是最新，无需更新。")
+                logger.info(f"[{stock_code}] 数据已是最新或无新数据计算，无需更新。")
             return {"status": "success", "processed_days": processed_days}
         except ValueError as ve:
             logger.warning(f"[{stock_code}] 高级资金流指标预计算跳过 (数据问题): {ve}", exc_info=False)
             return {"status": "skipped", "reason": str(ve)}
         except Exception as e:
             logger.error(f"[{stock_code}] 高级资金流指标预计算失败 (未知异常): {e}", exc_info=True)
-            # 可以在这里决定是否重试
-            # raise self.retry(exc=e, countdown=60, max_retries=3)
             return {"status": "failed", "reason": str(e)}
     try:
-        # 使用 async_to_sync 在同步的Celery任务中运行异步的main函数
-        result = async_to_sync(main)(is_incremental)
+        # 将 start_date_str 传递给 main 协程
+        result = async_to_sync(main)(is_incremental, start_date_str)
+        
         return result
     except Exception as e:
-        # 捕获在 async_to_sync 转换或main函数中未捕获的异常
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_fund_flow_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
-
-from celery import group
-from stock_models.stock_basic import StockInfo
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
-def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True):
+def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True, start_date_str: str = "2025-09-01"):
     """
-    【总调度器 V1.1 · 指令修正版】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
+    【总调度器 V1.2 · 支持起始日期版】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
     这是发起全市场计算的入口。
     """
     try:
-        # 1. 从数据库中获取所有状态为“上市(L)”的A股股票代码列表
-        # [代码修改开始] 使用正确的字段名 'list_status' 替代 'status'
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
-        # [代码修改结束]
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
         mode = "增量更新" if is_incremental else "全量刷新"
+        # 如果指定了起始日期，则在日志中明确记录
+        if start_date_str:
+            logger.info(f"【总调度】检测到指定起始日期: {start_date_str}。将从该日期开始强制计算。")
+        
         logger.info(f"【总调度】检测到 {len(stock_codes)} 只上市股票，准备以[{mode}]模式分发计算任务...")
-        # 2. 为每只股票创建筹码计算和资金流计算两个子任务签名
-        # .s() 方法创建了一个任务签名（signature），它包含了任务的名称和所有参数，但不会立即执行
-        chip_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental) for code in stock_codes]
-        fund_flow_tasks = [precompute_advanced_fund_flow_for_stock.s(stock_code=code, is_incremental=is_incremental) for code in stock_codes]
-        # 3. 将所有子任务合并到一个任务组中
+        # 将 start_date_str 参数传递给所有子任务
+        chip_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        fund_flow_tasks = [precompute_advanced_fund_flow_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        
         all_tasks = chip_tasks + fund_flow_tasks
-        # 4. 使用 group 将所有任务签名打包，并使用 apply_async() 异步分发
-        # 这会将所有任务一次性发送到消息队列中，由Celery workers并行处理
         job_group = group(all_tasks)
         job_group.apply_async()
         total_tasks_dispatched = len(all_tasks)
@@ -901,7 +939,6 @@ def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True):
         }
     except Exception as e:
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
-        # 如果在分发阶段就失败，可以考虑重试整个调度任务
         raise self.retry(exc=e, countdown=300, max_retries=3)
 
 # =================================================================
