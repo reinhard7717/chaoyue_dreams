@@ -157,7 +157,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
     async def _load_and_merge_sources(self, stock_info, fetch_start_date):
-        """【V1.1 · 连接器修正版】加载、标准化并合并多源数据"""
+        """【V1.2 · 数据门槛修正版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             if not model: return pd.DataFrame()
@@ -214,9 +214,9 @@ class AdvancedFundFlowMetricsService:
             daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
-            # [代码修改开始] 将致命的 inner join 修改为 left join
-            merged_df = merged_df.join(daily_dfs_to_join, how='left')
-            # [代码修改结束]
+            # 将宽松的 'left' 连接改回严格的 'inner' 连接，与成功的筹码计算管道保持一致，确保数据质量。
+            merged_df = merged_df.join(daily_dfs_to_join, how='inner')
+            
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
@@ -392,15 +392,15 @@ class AdvancedFundFlowMetricsService:
                 for p in UNIFIED_PERIODS:
                     calc_window = 2 if p == 1 else p
                     slope_col_name = f'{col}_slope_{p}d'
-                    # [代码修改开始] 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
+                    # 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
                     slope_series = ta.slope(close=source_series, length=calc_window)
-                    # [代码修改结束]
+                    
                     final_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        # [代码修改开始] 同样修正加速度的计算调用
+                        # 同样修正加速度的计算调用
                         final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
-                        # [代码修改结束]
+                        
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
@@ -427,13 +427,13 @@ class AdvancedFundFlowMetricsService:
             )
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(model, records_to_create_list):
-            # [代码修改开始] 简化保存逻辑，只负责批量创建
+            # 简化保存逻辑，只负责批量创建
             with transaction.atomic():
                 model.objects.bulk_create(records_to_create_list, batch_size=2000)
-            # [代码修改结束]
-        # [代码修改开始] 简化调用
+            
+        # 简化调用
         await save_metrics_async(MetricsModel, records_to_create)
-        # [代码修改结束]
+        
         return len(records_to_create)
 
     # 重构为标准的 async 方法，并将ORM操作封装在内联函数中

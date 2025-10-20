@@ -589,7 +589,7 @@ class ChipFeatureCalculator:
         prev_close = context.get('prev_close_price')
         prev_prev_20d_close = context.get('prev_prev_20d_close')
         daily_turnover_vol = context.get('daily_turnover_volume')
-        # [代码修改开始] 增加精确的缺失数据项检查
+        # 增加精确的缺失数据项检查
         missing_keys = []
         if prev_chips_df is None or prev_chips_df.empty:
             missing_keys.append('prev_chip_distribution')
@@ -606,7 +606,7 @@ class ChipFeatureCalculator:
                 trade_date = context.get('trade_date', 'UNKNOWN_DATE')
                 print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。缺失项: {missing_keys}")
             return results
-        # [代码修改结束]
+        
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
