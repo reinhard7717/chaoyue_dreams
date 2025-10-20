@@ -919,15 +919,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
 
 def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, daily_context: dict) -> pd.DataFrame:
     """
-    【V1.1 - 健壮性修正版】分钟数据增强器：使用日线资金流数据对分钟K线进行资金流归因。
+    【V1.2 - 回退加权修正版】分钟数据增强器，增加对零分场景的回退处理。
     """
-    # [代码修改开始] 使用更健壮的循环来检查上下文的有效性，避免歧义错误
     required_daily_keys = ['circ_mv', 'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']
     is_context_valid = True
     missing_keys = []
     for key in required_daily_keys:
         value = daily_context.get(key)
-        # pd.isnull() 对于标量总是返回一个明确的布尔值，更安全
         if pd.isnull(value):
             is_context_valid = False
             missing_keys.append(key)
@@ -935,7 +933,6 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
         if not is_context_valid:
             print(f"调试信息: 分钟数据增强跳过，因日线上下文不完整。缺失或无效的键: {missing_keys}")
         return minute_df
-    # [代码修改结束]
     df = minute_df.copy()
     df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce') * 1000
     df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce') * 100
@@ -948,13 +945,26 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
     df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
     df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
     df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
+    # [代码修改开始] 增加回退加权逻辑
+    total_day_vol = df['vol_shares'].sum()
     for size in ['sm', 'md', 'lg', 'elg']:
         total_score = df[f'{size}_score'].sum()
-        df[f'{size}_weight'] = df[f'{size}_score'] / total_score if total_score > 0 else 0
+        if total_score > 0:
+            # A计划：按似然分数加权
+            df[f'{size}_weight'] = df[f'{size}_score'] / total_score
+        else:
+            # B计划：当A计划失效（通常是交易不活跃），回退到按分钟成交量加权
+            if total_day_vol > 0:
+                df[f'{size}_weight'] = df['vol_shares'] / total_day_vol
+                print(f"调试信息: 日期[{daily_context.get('trade_time').date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
+            else:
+                df[f'{size}_weight'] = 0
+    # [代码修改结束]
     cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
     for cost_type in cost_types:
         size = cost_type.split('_')[0]
         daily_vol_shares = pd.to_numeric(daily_context.get(f'{cost_type}_vol'), errors='coerce') * 100
+        if pd.isna(daily_vol_shares): daily_vol_shares = 0 # 确保 daily_vol_shares 是数字
         weight_col = f'{size}_weight'
         attributed_vol = df[weight_col] * daily_vol_shares
         df[f'{cost_type}_vol_attr'] = attributed_vol
