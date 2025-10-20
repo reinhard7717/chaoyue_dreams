@@ -705,7 +705,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
-    """【辅助函数 V2.8 - 上下文感知版】"""
+    """【辅助函数 V2.9 - 通信协议修复版】"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
@@ -730,9 +730,7 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
     minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
     prev_metrics = {}
     grouped_data = merged_df.groupby('trade_time')
-    # [代码新增开始] 增加一个标志位来识别是否是批次的第一天
     is_first_day_in_batch = True
-    # [代码新增结束]
     for trade_date, daily_full_df in grouped_data:
         if is_incremental and last_metric_date and trade_date.date() <= last_metric_date:
             continue
@@ -742,12 +740,17 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
-        context_for_calc = {
-            key: context_data.get(key) for key in [
-                'weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct',
-                'prev_20d_close'
-            ]
-        }
+        # [代码修改开始] 确保所有需要的原始资金流字段都被包含在上下文中
+        cyq_perf_keys = [
+            'weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct',
+            'prev_20d_close'
+        ]
+        fund_flow_keys = [
+            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol',
+            'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount'
+        ]
+        context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys + fund_flow_keys}
+        # [代码修改结束]
         context_for_calc['close_price'] = context_data.get('close_qfq')
         context_for_calc['high_price'] = context_data.get('high_qfq')
         context_for_calc['low_price'] = context_data.get('low_qfq')
@@ -756,11 +759,12 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
         context_for_calc['stock_code'] = stock_code
         context_for_calc['trade_date'] = trade_date.date()
-        # [代码新增开始] 将“是否第一天”的标志位注入上下文
         context_for_calc['is_first_day_in_batch'] = is_first_day_in_batch
+        # [代码新增开始] 注入 circ_mv，这是奥丁之眼算法的关键输入
+        context_for_calc['circ_mv'] = context_data.get('circ_mv')
         # [代码新增结束]
         raw_minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
-        enhanced_minute_data = _enhance_minute_data_with_fund_flow_attribution(raw_minute_data_for_day, context_data)
+        enhanced_minute_data = _enhance_minute_data_with_fund_flow_attribution(raw_minute_data_for_day, context_for_calc)
         if raw_minute_data_for_day.empty:
             print(f"调试信息: [{stock_code}] 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
         context_for_calc['minute_data'] = enhanced_minute_data
@@ -779,10 +783,8 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close')
             }
-        # [代码新增开始] 在第一次循环结束后，将标志位置为False
         if is_first_day_in_batch:
             is_first_day_in_batch = False
-        # [代码新增结束]
     if not all_metrics_list:
         message = f"[{stock_code}] [基础指标计算] 无新的交易日数据需要计算，任务提前结束。"
         logger.info(message)

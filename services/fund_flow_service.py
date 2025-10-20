@@ -157,7 +157,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
     async def _load_and_merge_sources(self, stock_info, fetch_start_date):
-        """【V1.2 · 数据门槛修正版】加载、标准化并合并多源数据"""
+        """【V1.3 · 数据源补全版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             if not model: return pd.DataFrame()
@@ -165,6 +165,7 @@ class AdvancedFundFlowMetricsService:
             if start_date:
                 qs = qs.filter(**{f'{date_field}__gte': start_date})
             return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
+        # [代码修改开始] 增加对 get_fund_flow_model_by_code (Tushare moneyflow) 的调用
         data_tasks = {
             "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
             "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
@@ -172,6 +173,7 @@ class AdvancedFundFlowMetricsService:
             "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=fetch_start_date),
             "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=fetch_start_date),
         }
+        # [代码修改结束]
         results = await asyncio.gather(*data_tasks.values())
         data_dfs = dict(zip(data_tasks.keys(), results))
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
@@ -180,6 +182,7 @@ class AdvancedFundFlowMetricsService:
             cols_to_numeric = [col for col in df.columns if col != 'trade_time' and 'code' not in col and 'name' not in col]
             df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric, errors='coerce')
             if source == 'tushare':
+                # [代码修改开始] 确保返回所有原始列，而不仅仅是计算后的列
                 df['net_flow_tushare'] = df['net_mf_amount']
                 df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
                 df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
@@ -188,6 +191,7 @@ class AdvancedFundFlowMetricsService:
                 df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
                 df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
                 return df
+                # [代码修改结束]
             elif source == 'ths':
                 df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
                 df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
@@ -214,9 +218,7 @@ class AdvancedFundFlowMetricsService:
             daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
-            # 将宽松的 'left' 连接改回严格的 'inner' 连接，与成功的筹码计算管道保持一致，确保数据质量。
             merged_df = merged_df.join(daily_dfs_to_join, how='inner')
-            
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
