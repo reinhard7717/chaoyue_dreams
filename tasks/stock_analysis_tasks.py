@@ -698,19 +698,17 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
-    """【辅助函数 V2.2 - 支持计算起点版】逐日计算，并在循环内按需加载单日分钟数据。"""
+    """【辅助函数 V2.3 - 数据契约适配版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
     from django.utils import timezone
-    # [代码新增开始] 如果提供了计算起始日期，则进行预处理
     start_date_obj = None
     if start_date_str:
         try:
             start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
             logger.warning(f"[{stock_code}] 提供的计算起始日期 '{start_date_str}' 格式错误，将被忽略。")
-    # [代码新增结束]
     @sync_to_async(thread_sensitive=True)
     def get_minute_data_for_day_async(model, stock_pk, target_date):
         if not model: return pd.DataFrame()
@@ -726,24 +724,36 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
     prev_metrics = {}
     grouped_data = merged_df.groupby('trade_time')
     for trade_date, daily_full_df in grouped_data:
-        # [代码修改开始] 增加新的哨兵逻辑，处理增量和部分全量两种场景
-        # 场景1: 增量更新，跳过已计算的日期
         if is_incremental and last_metric_date and trade_date.date() <= last_metric_date:
             continue
-        # 场景2: 部分全量更新，跳过早于指定起始日期的日期
         if start_date_obj and trade_date.date() < start_date_obj:
             continue
-        # [代码修改结束]
         context_data = daily_full_df.iloc[0].to_dict()
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
+        # [代码修改开始] 建立数据适配层，以满足ChipFeatureCalculator的数据契约
+        # 1. 复制一份上下文，避免污染原始数据
+        context_for_calc = context_data.copy()
+        # 2. 重命名字段以匹配计算器接口
+        context_for_calc['close_price'] = context_data.get('close_qfq')
+        context_for_calc['high_price'] = context_data.get('high_qfq')
+        context_for_calc['low_price'] = context_data.get('low_qfq')
+        # 3. 计算并转换单位
+        # 'vol' 单位是 "手", 转换为 "股"
+        context_for_calc['daily_turnover_volume'] = context_data.get('vol', 0) * 100
+        # 'float_share' 单位是 "万股", 转换为 "股"
+        context_for_calc['total_chip_volume'] = context_data.get('float_share', 0) * 10000
+        print(f"调试信息: [{stock_code}] 日期[{trade_date.date()}] 适配后上下文: close_price={context_for_calc['close_price']}, total_chip_volume={context_for_calc['total_chip_volume']}")
+        # [代码修改结束]
         minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
         if minute_data_for_day.empty:
             print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
-        context_data['minute_data'] = minute_data_for_day
-        context_data['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
-        calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
+        # [代码修改开始] 将适配后的上下文传递给计算器
+        context_for_calc['minute_data'] = minute_data_for_day
+        context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
+        calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_for_calc)
+        # [代码修改结束]
         daily_metrics = calculator.calculate_all_metrics()
         if daily_metrics:
             daily_metrics['trade_time'] = trade_date
