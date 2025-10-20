@@ -919,14 +919,23 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
 
 def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, daily_context: dict) -> pd.DataFrame:
     """
-    【新增】分钟数据增强器：使用日线资金流数据对分钟K线进行资金流归因。
-    - 核心逻辑复刻自 AdvancedFundFlowMetricsService，以解决任务间依赖问题。
+    【V1.1 - 健壮性修正版】分钟数据增强器：使用日线资金流数据对分钟K线进行资金流归因。
     """
-    # [代码新增开始]
+    # [代码修改开始] 使用更健壮的循环来检查上下文的有效性，避免歧义错误
     required_daily_keys = ['circ_mv', 'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']
-    if minute_df.empty or not all(pd.notna(daily_context.get(key)) for key in required_daily_keys):
-        print(f"调试信息: 分钟数据增强跳过，因日线上下文不完整。缺失键: {[k for k in required_daily_keys if not pd.notna(daily_context.get(k))]}")
+    is_context_valid = True
+    missing_keys = []
+    for key in required_daily_keys:
+        value = daily_context.get(key)
+        # pd.isnull() 对于标量总是返回一个明确的布尔值，更安全
+        if pd.isnull(value):
+            is_context_valid = False
+            missing_keys.append(key)
+    if minute_df.empty or not is_context_valid:
+        if not is_context_valid:
+            print(f"调试信息: 分钟数据增强跳过，因日线上下文不完整。缺失或无效的键: {missing_keys}")
         return minute_df
+    # [代码修改结束]
     df = minute_df.copy()
     df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce') * 1000
     df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce') * 100
@@ -955,7 +964,6 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
     df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
     print(f"调试信息: 分钟数据增强成功，main_force_buy_vol 总量: {df['main_force_buy_vol'].sum()}")
     return df
-    # [代码新增结束]
 
 # =================================================================
 # =================== 3. 高级资金特征任务 ==================
