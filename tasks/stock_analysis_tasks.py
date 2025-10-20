@@ -556,7 +556,7 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
         # [代码修改开始]
         "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share', 'circ_mv'), start_date=fetch_start_date),
-        # [代码修改结束]
+        
         "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_date=fetch_start_date),
         # [代码新增开始]
         "fund_flow": get_data_async(fund_flow_model, stock_info, start_date=fetch_start_date),
@@ -586,7 +586,7 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
             # [代码修改开始]
             if name == 'fund_flow':
                 continue
-            # [代码修改结束]
+            
             raise ValueError(f"[审计失败] 关键数据源 '{name}' 为空！")
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         source_dates = set(df['trade_time'].dt.date.unique())
@@ -616,7 +616,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     last_metric_date = None
     fetch_start_date = None
-    # [代码修改开始] 修正了当 start_date_str 提供时的逻辑
+    # 修正了当 start_date_str 提供时的逻辑
     if start_date_str:
         print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}，将执行部分全量计算。")
         try:
@@ -631,7 +631,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
             logger.error(f"[{stock_code}] 提供的起始日期 '{start_date_str}' 格式错误，将忽略并执行默认逻辑。")
             # 如果日期格式错误，则退回原始的增量/全量判断逻辑
             is_incremental = True # 假设默认是增量
-    # [代码修改结束]
+    
     if is_incremental:
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
@@ -675,7 +675,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
             daily_dfs_to_join,
             how='inner'
         )
-        # [代码修改结束]
+        
         merged_df = pd.merge(
             cyq_chips_df,
             daily_combined_df.reset_index(),
@@ -695,7 +695,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         # [代码修改开始]
         merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
-        # [代码修改结束]
+        
         return merged_df
     except KeyError as e:
         logger.error(f"[{stock_code}] 数据合并失败，缺少关键数据源: {e}")
@@ -799,15 +799,15 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
             for p in UNIFIED_PERIODS:
                 calc_window = 2 if p == 1 else p
                 slope_col_name = f'{col}_slope_{p}d'
-                # [代码修改开始] 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
+                # 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
                 slope_series = ta.slope(close=source_series, length=calc_window)
-                # [代码修改结束]
+                
                 final_df[slope_col_name] = slope_series
                 if slope_series is not None and not slope_series.empty:
                     accel_col_name = f'{col}_accel_{p}d'
-                    # [代码修改开始] 同样修正加速度的计算调用
+                    # 同样修正加速度的计算调用
                     final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
-                    # [代码修改结束]
+                    
     return final_df
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
@@ -819,7 +819,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
             periods = BaseAdvancedChipMetrics.UNIFIED_PERIODS
             max_period = max(periods) if periods else 60
             max_lookback_days = max_period * 2 + 10
-            print(f"调试信息: [{stock_code}] 动态计算最大回溯期为 {max_lookback_days} 天 (基于最长周期 {max_period}d)。")
+            # print(f"调试信息: [{stock_code}] 动态计算最大回溯期为 {max_lookback_days} 天 (基于最长周期 {max_period}d)。")
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
                 stock_code, incremental_flag, max_lookback_days, start_date_override
             )
@@ -828,9 +828,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
                 print(f"调试信息: [{stock_code}] 全量计算模式，数据拉取起始日设置为上市日期: {fetch_start_date}")
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
-            # [代码修改开始] 将 start_date_override 传递给计算引擎
+            # 将 start_date_override 传递给计算引擎
             new_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
-            # [代码修改结束]
+            
             if new_metrics_df.empty:
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date or no new data"}
             if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
@@ -853,7 +853,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
             final_metrics_df = await _calculate_derivative_metrics(MetricsModel, final_metrics_df)
             @sync_to_async(thread_sensitive=True)
             def _prepare_and_save_data(stock_info_obj, MetricsModelClass, df_to_save, index_to_check, delete_all_first):
-                # [代码修改开始] 增加对部分全量模式的数据删除逻辑
+                # 增加对部分全量模式的数据删除逻辑
                 if delete_all_first:
                     # 如果是全量模式，则删除所有数据
                     MetricsModelClass.objects.filter(stock=stock_info_obj).delete()
@@ -863,7 +863,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
                     start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
                     deleted_count, _ = MetricsModelClass.objects.filter(stock=stock_info_obj, trade_time__gte=start_date_obj).delete()
                     print(f"调试信息: [{stock_info_obj.stock_code}] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧指标数据。")
-                # [代码修改结束]
+                
                 # 保存逻辑保持不变，但现在它会在正确的数据被删除后执行
                 records_to_save_df = df_to_save[df_to_save.index.isin(index_to_check)]
                 if records_to_save_df.empty:
@@ -886,7 +886,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
                         )
                     )
                 with transaction.atomic():
-                    # [代码修改开始] 在部分全量模式下，使用 update_or_create 保证数据一致性
+                    # 在部分全量模式下，使用 update_or_create 保证数据一致性
                     if not delete_all_first and start_date_override:
                         # 对于部分重算，使用 bulk_create + ignore_conflicts 可能不安全，改为更稳健的逐条更新或创建
                         # 但为了性能，我们仍然使用 bulk_create，因为我们已经删除了冲突区间的数据
@@ -894,15 +894,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
                     else:
                         # 对于增量或全量，使用原逻辑
                         MetricsModelClass.objects.bulk_create(records_to_create, batch_size=2000, ignore_conflicts=True)
-                    # [代码修改结束]
+                    
                 return len(records_to_create)
-            # [代码修改开始] 修正 _prepare_and_save_data 的调用参数
+            # 修正 _prepare_and_save_data 的调用参数
             # 在部分全量模式下，delete_all_first 应为 False，因为我们只删除部分数据
             delete_all = not is_incremental_final and not start_date_override
             processed_days = await _prepare_and_save_data(
                 stock_info, MetricsModel, final_metrics_df, new_metrics_df.index, delete_all
             )
-            # [代码修改结束]
+            
             mode = "增量更新" if is_incremental_final else ("部分全量" if start_date_override else "全量刷新")
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": processed_days}
@@ -958,9 +958,9 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
         else:
             if total_day_vol > 0:
                 df[f'{size}_weight'] = df['vol_shares'] / total_day_vol
-                # [代码修改开始] 移除已验证的调试信息
+                # 移除已验证的调试信息
                 # print(f"调试信息: 日期[{daily_context.get('trade_time').date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
-                # [代码修改结束]
+                
             else:
                 df[f'{size}_weight'] = 0
     cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
@@ -976,9 +976,9 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
     df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
     df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
     df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
-    # [代码修改开始] 移除已验证的调试信息
+    # 移除已验证的调试信息
     # print(f"调试信息: 分钟数据增强成功，main_force_buy_vol 总量: {df['main_force_buy_vol'].sum()}")
-    # [代码修改结束]
+    
     return df
 
 # =================================================================

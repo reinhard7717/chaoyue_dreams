@@ -29,17 +29,17 @@ class AdvancedFundFlowMetricsService:
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """【V1.4 · 部分全量支持版】服务层主执行器"""
-        # [代码修改开始] 将 start_date_str 传递给上下文初始化函数
+        # 将 start_date_str 传递给上下文初始化函数
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
-        # [代码修改结束]
+        
         total_processed_count = 0
         if is_incremental_final:
-            # [代码修改开始] 统一日志输出格式
+            # 统一日志输出格式
             mode = "部分全量" if start_date_str else "增量"
             print(f"调试信息: {stock_code} 启动{mode}计算，起始日期: {fetch_start_date}")
-            # [代码修改结束]
+            
             merged_df = await self._load_and_merge_sources(stock_info, fetch_start_date)
             if not merged_df.empty:
                 daily_vwap_series = await self._calculate_daily_vwap(stock_info, merged_df.index)
@@ -47,11 +47,11 @@ class AdvancedFundFlowMetricsService:
                 self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, merged_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, merged_df)
                 final_metrics_df = self._calculate_derivatives(stock_code, df_with_advanced_metrics)
-                # [代码修改开始] 将 start_date_str 传递给保存函数
+                # 将 start_date_str 传递给保存函数
                 total_processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date, start_date_str
                 )
-                # [代码修改结束]
+                
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
         else:
@@ -410,7 +410,7 @@ class AdvancedFundFlowMetricsService:
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(model, stock_info_obj, records_to_create_list, is_incremental_flag, start_date_override):
             with transaction.atomic():
-                # [代码修改开始] 增加对部分全量模式的数据删除逻辑
+                # 增加对部分全量模式的数据删除逻辑
                 # 全量模式: 删除所有
                 if not is_incremental_flag and not start_date_override:
                     model.objects.filter(stock=stock_info_obj).delete()
@@ -426,10 +426,10 @@ class AdvancedFundFlowMetricsService:
                 # 增量模式: 不删除
                 # 最终执行批量创建
                 model.objects.bulk_create(records_to_create_list, batch_size=2000)
-                # [代码修改结束]
-        # [代码修改开始] 将 is_incremental 和 start_date_str 传递给保存函数
+                
+        # 将 is_incremental 和 start_date_str 传递给保存函数
         await save_metrics_async(MetricsModel, stock_info, records_to_create, is_incremental, start_date_str)
-        # [代码修改结束]
+        
         return len(records_to_create)
 
     # 重构为标准的 async 方法，并将ORM操作封装在内联函数中
