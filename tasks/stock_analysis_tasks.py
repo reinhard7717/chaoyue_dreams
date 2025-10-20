@@ -650,12 +650,16 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _save_metrics(stock_info, MetricsModel, final_df: pd.DataFrame):
-    """【新增辅助函数】准备并保存高级筹码指标到数据库。"""
+    """【辅助函数 V2.0 · 原子化改造版】准备并保存高级筹码指标到数据库。"""
     if final_df.empty:
         return 0
     final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
     model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
     df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
+    # [代码修改开始] 为原子化的UPSERT操作定义唯一键和待更新字段
+    unique_fields = ['stock', 'trade_time']
+    update_fields = [field for field in model_fields if field not in unique_fields]
+    # [代码修改结束]
     records_list = df_filtered.to_dict('records')
     records_to_create = []
     for record_date, record_data in zip(df_filtered.index, records_list):
@@ -673,7 +677,15 @@ async def _save_metrics(stock_info, MetricsModel, final_df: pd.DataFrame):
     @sync_to_async(thread_sensitive=True)
     def save_async(model, records):
         with transaction.atomic():
-            model.objects.bulk_create(records, batch_size=1000)
+            # [代码修改开始] 使用Django 5的“原子聚变打击”功能，实现UPSERT
+            model.objects.bulk_create(
+                records,
+                update_conflicts=True,
+                unique_fields=unique_fields,
+                update_fields=update_fields,
+                batch_size=500 # 对UPSERT使用稍小的批次大小更稳妥
+            )
+            # [代码修改结束]
     await save_async(MetricsModel, records_to_create)
     return len(records_to_create)
 
@@ -852,9 +864,9 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【执行器 V21.2 · 重名冲突修复版】
-    - 核心修复: 在合并基础指标(base_metrics_df)和原始数据(merged_df)时，由于两者都包含 'prev_20d_close' 列，
-                 导致了列名冲突。通过在合并前从 base_metrics_df 中移除该列来解决此问题。
+    【执行器 V21.3 · 原子化架构版】
+    - 核心架构升级: 移除了手动的 delete 操作，完全依赖 _save_metrics 中的原子化 UPSERT (`update_conflicts`)
+                     来保证数据的幂等性，使代码更简洁、更健壮。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         chip_processed_days = 0
@@ -865,22 +877,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
                 stock_code, incremental_flag, max_lookback_days, start_date_override
             )
-            if start_date_override and not is_incremental_final:
-                try:
-                    start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
-                    deleted_count, _ = await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_obj).delete)()
-                    print(f"调试信息: [{stock_code}] [筹码部分] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧筹码指标数据。")
-                except (ValueError, TypeError):
-                    pass
+            # [代码修改开始] 移除手动的delete逻辑，完全信赖下游的原子化UPSERT
+            # if start_date_override and not is_incremental_final:
+            #     ... (删除相关代码)
+            # [代码修改结束]
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
             if not merged_df.empty:
                 base_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
                 if not base_metrics_df.empty:
-                    # [代码修改开始] 在合并前，从右侧的DataFrame中删除重复的列以避免冲突
                     if 'prev_20d_close' in base_metrics_df.columns:
                         base_metrics_df = base_metrics_df.drop(columns=['prev_20d_close'])
-                    # [代码修改结束]
                     full_df_for_derivatives = merged_df.set_index('trade_time').join(base_metrics_df, how='inner')
                     final_metrics_df = await _calculate_derivative_metrics(MetricsModel, full_df_for_derivatives)
                     chunk_to_save = final_metrics_df[final_metrics_df.index.isin(base_metrics_df.index)]
