@@ -852,42 +852,39 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【执行器 V21.1 · 逻辑链修复版】
-    - 核心修复: 修正了筹码计算部分的函数调用链，使其与文件内定义的辅助函数完全匹配，解决了 NameError。
-    - 新增: 增加了 _save_metrics 辅助函数以完成数据持久化闭环。
-    - 统一行为: 为筹码计算增加了“部分全量”模式下的数据删除逻辑，与资金流计算保持一致。
+    【执行器 V21.2 · 重名冲突修复版】
+    - 核心修复: 在合并基础指标(base_metrics_df)和原始数据(merged_df)时，由于两者都包含 'prev_20d_close' 列，
+                 导致了列名冲突。通过在合并前从 base_metrics_df 中移除该列来解决此问题。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         chip_processed_days = 0
         # --- 第一部分：执行原有的筹码计算 ---
         print(f"✅✅✅ [合并任务启动-筹码部分] 股票: {stock_code}, 模式: {'增量' if incremental_flag else '全量'}, 起始日期: {start_date_override}")
         try:
-            # [代码修改开始] 修复整个筹码计算的逻辑调用链
-            max_lookback_days = 200 # 假设与资金流服务一致
+            max_lookback_days = 200
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
                 stock_code, incremental_flag, max_lookback_days, start_date_override
             )
-            # 如果是部分全量模式，先删除指定日期之后的数据
             if start_date_override and not is_incremental_final:
                 try:
                     start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
                     deleted_count, _ = await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_obj).delete)()
                     print(f"调试信息: [{stock_code}] [筹码部分] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧筹码指标数据。")
                 except (ValueError, TypeError):
-                    pass # _initialize_task_context 已经处理过错误日志
+                    pass
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
             if not merged_df.empty:
                 base_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
                 if not base_metrics_df.empty:
-                    # 组合基础数据和新计算的指标，为衍生计算做准备
+                    # [代码修改开始] 在合并前，从右侧的DataFrame中删除重复的列以避免冲突
+                    if 'prev_20d_close' in base_metrics_df.columns:
+                        base_metrics_df = base_metrics_df.drop(columns=['prev_20d_close'])
+                    # [代码修改结束]
                     full_df_for_derivatives = merged_df.set_index('trade_time').join(base_metrics_df, how='inner')
-                    # 计算衍生指标
                     final_metrics_df = await _calculate_derivative_metrics(MetricsModel, full_df_for_derivatives)
-                    # 筛选出本次需要保存的数据
                     chunk_to_save = final_metrics_df[final_metrics_df.index.isin(base_metrics_df.index)]
                     chip_processed_days = await _save_metrics(stock_info, MetricsModel, chunk_to_save)
-            # [代码修改结束]
             mode = "部分全量" if start_date_override else "增量"
             if chip_processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！[筹码部分] 模式[{mode}]下，为 {chip_processed_days} 个交易日计算并存储了高级筹码指标。")
