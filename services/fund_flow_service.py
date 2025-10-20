@@ -9,6 +9,7 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 from stock_models.stock_basic import StockInfo
 from stock_models.time_trade import StockDailyBasic
+from stock_models.fund_flow import BaseAdvancedFundFlowMetrics
 from utils.model_helpers import (
     get_advanced_fund_flow_metrics_model_by_code,
     get_fund_flow_model_by_code,
@@ -327,38 +328,21 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """计算所有指标的衍生指标（斜率、加速度等）"""
+        """【V3.0 · SSOT原则重构版】计算衍生指标，并动态读取模型的排除列表。"""
         final_df = consensus_df.copy()
-        # 将新的“赫利俄斯引擎”指标加入衍生计算列表
-        CORE_METRICS_TO_DERIVE = [
-            'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-            'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus', 'net_sh_amount_consensus',
-            'source_consistency_score', 'flow_internal_friction_ratio', 'consensus_calibrated_main_flow',
-            'flow_divergence_mf_vs_retail', 'main_force_flow_intensity_ratio', 'main_force_vs_xl_divergence',
-            'main_force_flow_impact_ratio', 'trade_granularity_impact', 'avg_order_value_norm_price',
-            'trade_concentration_index', 'avg_order_value', 'main_force_conviction_ratio',
-            'avg_cost_sm_buy', 'avg_cost_sm_sell', 'avg_cost_md_buy', 'avg_cost_md_sell',
-            'avg_cost_lg_buy', 'avg_cost_lg_sell', 'avg_cost_elg_buy', 'avg_cost_elg_sell',
-            'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
-            'cost_divergence_mf_vs_retail', 'cost_weighted_main_flow', 'main_buy_cost_advantage',
-            'market_cost_battle',
-            'daily_vwap', 'main_buy_cost_vs_vwap', 'main_sell_cost_vs_vwap',
-            'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
-            'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
-            'pnl_matrix_confidence_score', 'vwap_tracking_error', 'volume_profile_jsd_vs_uniform',
-            'aggression_index_opening', 'main_force_support_strength', 'main_force_distribution_pressure',
-            'retail_capitulation_score', 'intraday_execution_alpha',
-            'intraday_volatility', 'closing_strength_index', 'close_vs_vwap_ratio', 'final_hour_momentum',
-        ]
+        # [代码修改开始] 直接从模型类读取“生产管制清单”，不再硬编码
+        SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
+        # 同时，动态读取所有核心指标，使衍生计算更具扩展性
+        CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
+        # [代码修改结束]
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
             'net_sh_amount_consensus', 'cost_weighted_main_flow',
-            'consensus_calibrated_main_flow',
+            'consensus_calibrated_main_flow', 'consensus_flow_weighted',
             'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
             'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
         ]
-        
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for p in UNIFIED_PERIODS:
             if p <= 1: continue
@@ -369,6 +353,9 @@ class AdvancedFundFlowMetricsService:
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + [f'{c}_sum_{p}d' for c in sum_cols for p in UNIFIED_PERIODS if p > 1]
         for col in all_cols_to_derive:
             if col in final_df.columns:
+                base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
+                if base_col_name in SLOPE_ACCEL_EXCLUSIONS:
+                    continue
                 source_series = final_df[col].astype(float)
                 for p in UNIFIED_PERIODS:
                     calc_window = 2 if p == 1 else p
@@ -475,9 +462,9 @@ class AdvancedFundFlowMetricsService:
                 daily_vol_shares = pd.to_numeric(daily_data.get(f'{cost_type}_vol'), errors='coerce') * 100
                 if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
-                    # [代码新增开始] 同时记录归因后的分钟成交量，供下游使用
+                    # 同时记录归因后的分钟成交量，供下游使用
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    # [代码新增结束]
+                    
                     continue
                 # 使用新的、分规模的权重进行归因
                 weight_col = f'{size}_weight'
@@ -497,9 +484,9 @@ class AdvancedFundFlowMetricsService:
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
-            # [代码新增开始] 将带有归因成交量的分钟数据存入day_results，供下游使用
+            # 将带有归因成交量的分钟数据存入day_results，供下游使用
             day_results['minute_data_attributed'] = minute_data_for_day
-            # [代码新增结束]
+            
             results[date] = day_results
         if not results:
             return pd.DataFrame()

@@ -1405,11 +1405,10 @@ class StockCyqPerf(models.Model):
 # 高级筹码指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V15.0 · 装备现代化裁汰版】
-    - 核心优化: 裁汰了4个基于估算的、已被分钟级精确计算所替代的老旧指标。
+    【V18.0 · 指标精炼版】
+    - 核心优化: 移除T+0套利指标的斜率和加速度计算，避免引入噪音。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # 裁汰老旧指标，精简指标库
     CORE_METRICS = {
         'peak_cost': '主筹码峰成本',
         'peak_percent': '主筹码峰占比(%)',
@@ -1432,10 +1431,20 @@ class BaseAdvancedChipMetrics(models.Model):
         'concentration_increase_by_chasing': '追涨增集度',
         'concentration_decrease_by_distribution': '派发减集度',
         'concentration_decrease_by_capitulation': '割肉减集度',
-        'chip_suppressive_accumulation': '筹码打压吸筹',
-        'chip_rally_distribution': '筹码拉高出货',
-        'chip_t0_arbitrage': '筹码高抛低吸',
-        'chip_capitulation_distribution': '筹码恐慌派发',
+        'main_force_suppressive_accumulation': '主力打压吸筹占比(%)',
+        'retail_suppressive_accumulation': '散户打压吸筹占比(%)',
+        'main_force_rally_distribution': '主力拉高出货占比(%)',
+        'retail_rally_distribution': '散户拉高出货占比(%)',
+        'main_force_capitulation_distribution': '主力恐慌派发占比(%)',
+        'retail_capitulation_distribution': '散户恐慌割肉占比(%)',
+        'main_force_chasing_accumulation': '主力追涨吸筹占比(%)',
+        'retail_chasing_accumulation': '散户追涨抬轿占比(%)',
+        'main_force_t0_arbitrage': '主力高抛低吸占比(%)',
+        'retail_t0_arbitrage': '散户高抛低吸占比(%)',
+        'short_term_profit_taking_ratio': '短期获利盘兑现占比(%)',
+        'long_term_chips_unlocked_ratio': '长期锁定盘解锁占比(%)',
+        'short_term_capitulation_ratio': '短期套牢盘割肉占比(%)',
+        'long_term_despair_selling_ratio': '长期套牢盘绝望占比(%)',
         'total_winner_rate': '总获利盘(%)',
         'total_loser_rate': '总套牢盘(%)',
         'winner_rate_short_term': '短期获利盘(%)',
@@ -1466,12 +1475,29 @@ class BaseAdvancedChipMetrics(models.Model):
         'cost_divergence': '成本发散度',
         'turnover_at_peak_ratio': '主峰成交占比(%)',
     }
-    
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # 从INTEGER_FIELDS中移除已裁汰的字段
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
-    
     BOOLEAN_FIELDS = ['is_multi_peak', 'is_chip_fault_formed']
+    # 不应计算斜率和加速度的指标完整列表
+    SLOPE_ACCEL_EXCLUSIONS = [
+        # T+0套利类
+        'main_force_t0_arbitrage', 'retail_t0_arbitrage',
+        # 集中度动态归因类
+        'concentration_increase_by_support', 'concentration_increase_by_chasing',
+        'concentration_decrease_by_distribution', 'concentration_decrease_by_capitulation',
+        # 主力/散户筹码交互类
+        'main_force_suppressive_accumulation', 'retail_suppressive_accumulation',
+        'main_force_rally_distribution', 'retail_rally_distribution',
+        'main_force_capitulation_distribution', 'retail_capitulation_distribution',
+        'main_force_chasing_accumulation', 'retail_chasing_accumulation',
+        # 跨日筹码迁徙类
+        'short_term_profit_taking_ratio', 'long_term_chips_unlocked_ratio',
+        'short_term_capitulation_ratio', 'long_term_despair_selling_ratio',
+        # 事件驱动及高波动类
+        'fault_breakthrough_intensity', 'intraday_trend_efficiency', 'am_pm_vwap_ratio',
+        # 静态参考值
+        'prev_20d_close',
+    ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
             vars()[name] = models.BigIntegerField(verbose_name=verbose, null=True, blank=True)
@@ -1481,8 +1507,10 @@ class BaseAdvancedChipMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=12, decimal_places=4, verbose_name=verbose, null=True, blank=True)
         else:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
-        if name in BOOLEAN_FIELDS:
+        # [代码修改开始] 增加判断，跳过对T+0指标的斜率和加速度计算
+        if name in BOOLEAN_FIELDS or name in SLOPE_ACCEL_EXCLUSIONS:
             continue
+        # [代码修改结束]
         for p in UNIFIED_PERIODS:
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
