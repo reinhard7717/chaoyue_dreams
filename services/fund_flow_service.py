@@ -358,13 +358,13 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.0 · SSOT原则重构版】计算衍生指标，并动态读取模型的排除列表。"""
+        """【V3.1 · 生产工艺升级版】修正pandas_ta调用方式，确保计算稳定性。"""
         final_df = consensus_df.copy()
-        # 直接从模型类读取“生产管制清单”，不再硬编码
+        # [代码新增开始] 导入pandas_ta库以使用其直接函数调用
+        import pandas_ta as ta
+        # [代码新增结束]
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
-        # 同时，动态读取所有核心指标，使衍生计算更具扩展性
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -390,11 +390,15 @@ class AdvancedFundFlowMetricsService:
                 for p in UNIFIED_PERIODS:
                     calc_window = 2 if p == 1 else p
                     slope_col_name = f'{col}_slope_{p}d'
-                    slope_series = final_df.ta.slope(close=source_series, length=calc_window)
+                    # [代码修改开始] 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
+                    slope_series = ta.slope(close=source_series, length=calc_window)
+                    # [代码修改结束]
                     final_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        final_df[accel_col_name] = final_df.ta.slope(close=slope_series.astype(float), length=calc_window)
+                        # [代码修改开始] 同样修正加速度的计算调用
+                        final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                        # [代码修改结束]
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):

@@ -578,7 +578,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.6 - 上下文感知版】计算跨日筹码迁徙"""
+        """【V1.7 - 精确诊断版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -589,22 +589,24 @@ class ChipFeatureCalculator:
         prev_close = context.get('prev_close_price')
         prev_prev_20d_close = context.get('prev_prev_20d_close')
         daily_turnover_vol = context.get('daily_turnover_volume')
-        is_data_invalid = False
+        # [代码修改开始] 增加精确的缺失数据项检查
+        missing_keys = []
         if prev_chips_df is None or prev_chips_df.empty:
-            is_data_invalid = True
-        for v in [prev_close, prev_prev_20d_close, daily_turnover_vol]:
-            if v is None or pd.isnull(v):
-                is_data_invalid = True
-                break
-        if is_data_invalid or daily_turnover_vol <= 0:
-            # [代码修改开始] 增加对“是否第一天”的判断，避免不必要的警告
+            missing_keys.append('prev_chip_distribution')
+        if prev_close is None or pd.isnull(prev_close):
+            missing_keys.append('prev_close_price')
+        if prev_prev_20d_close is None or pd.isnull(prev_prev_20d_close):
+            missing_keys.append('prev_prev_20d_close')
+        if daily_turnover_vol is None or pd.isnull(daily_turnover_vol) or daily_turnover_vol <= 0:
+            missing_keys.append('daily_turnover_volume')
+        if missing_keys:
             is_first_day = context.get('is_first_day_in_batch', False)
             if not is_first_day:
                 stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
                 trade_date = context.get('trade_date', 'UNKNOWN_DATE')
-                print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。")
-            # [代码修改结束]
+                print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。缺失项: {missing_keys}")
             return results
+        # [代码修改结束]
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
