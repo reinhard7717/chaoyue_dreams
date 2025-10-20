@@ -28,17 +28,14 @@ class AdvancedFundFlowMetricsService:
         self.max_lookback_days = 200
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
-        """【V1.5 · 保存逻辑重构版】服务层主执行器"""
-        # [代码修改开始] 将 start_date_str 传递给上下文初始化函数
+        """【V1.6 · 黑匣子植入版】服务层主执行器"""
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
-        # [代码修改结束]
         total_processed_count = 0
         if is_incremental_final:
             mode = "部分全量" if start_date_str else "增量"
-            print(f"调试信息: {stock_code} 启动{mode}计算，数据拉取起始日期: {fetch_start_date}")
-            # [代码新增开始] 将删除逻辑前置到计算之前
+            print(f"调试信息: [{stock_code}] 启动{mode}计算。数据拉取起始: {fetch_start_date}, 计算基准日期: {last_metric_date}")
             if start_date_str:
                 from datetime import datetime
                 try:
@@ -46,31 +43,36 @@ class AdvancedFundFlowMetricsService:
                     deleted_count, _ = await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_obj).delete)()
                     print(f"调试信息: [{stock_code}] {mode}模式，已删除从 {start_date_str} 开始的 {deleted_count} 条旧资金流指标数据。")
                 except (ValueError, TypeError):
-                    pass # 在_initialize_context中已处理，此处仅为防御
-            # [代码新增结束]
+                    pass
             merged_df = await self._load_and_merge_sources(stock_info, fetch_start_date)
+            # [代码新增开始] 增加黑匣子诊断信息
+            if merged_df.empty:
+                print(f"调试信息: [{stock_code}] 数据合并后 merged_df 为空，任务终止。")
+                return 0
+            print(f"调试信息: [{stock_code}] merged_df 数据范围: {merged_df.index.min().date()} to {merged_df.index.max().date()}")
+            # [代码新增结束]
             if not merged_df.empty:
-                # [代码修改开始] 仅筛选需要计算的日期范围
                 target_df = merged_df[merged_df.index.date > last_metric_date] if last_metric_date else merged_df
+                # [代码新增开始] 增加黑匣子诊断信息
                 if target_df.empty:
-                    print(f"调试信息: {stock_code} 没有需要计算的新数据。")
+                    print(f"调试信息: [{stock_code}] 筛选需计算的日期后 target_df 为空，任务终止。最新合并日期: {merged_df.index.max().date()}, 基准日期: {last_metric_date}")
                     return 0
+                print(f"调试信息: [{stock_code}] target_df 待计算范围: {target_df.index.min().date()} to {target_df.index.max().date()} (共 {len(target_df)} 天)")
+                # [代码新增结束]
                 daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
                 target_df['daily_vwap'] = daily_vwap_series
                 self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
-                # 衍生指标计算需要用到缓冲期的数据
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
-                # 只保存属于当前区块的计算结果
                 chunk_to_save = final_metrics_df[final_metrics_df.index.isin(target_df.index)]
                 total_processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, chunk_to_save
                 )
-                # [代码修改结束]
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
         else:
+            # ... 全量计算逻辑保持不变 ...
             print(f"调试信息: {stock_code} 启动全量分块计算...")
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
@@ -102,11 +104,9 @@ class AdvancedFundFlowMetricsService:
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
                 chunk_to_save = final_metrics_df[final_metrics_df.index.date >= chunk_start_date]
-                # [代码修改开始] 简化保存函数的调用
                 processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, chunk_to_save
                 )
-                # [代码修改结束]
                 total_processed_count += processed_count
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
@@ -157,7 +157,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
     async def _load_and_merge_sources(self, stock_info, fetch_start_date):
-        """加载、标准化并合并多源数据"""
+        """【V1.1 · 连接器修正版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             if not model: return pd.DataFrame()
@@ -214,7 +214,9 @@ class AdvancedFundFlowMetricsService:
             daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
-            merged_df = merged_df.join(daily_dfs_to_join, how='inner')
+            # [代码修改开始] 将致命的 inner join 修改为 left join
+            merged_df = merged_df.join(daily_dfs_to_join, how='left')
+            # [代码修改结束]
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:

@@ -618,7 +618,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
     fetch_start_date = None
     # 修正了当 start_date_str 提供时的逻辑
     if start_date_str:
-        print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}，将执行部分全量计算。")
+        # print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}，将执行部分全量计算。")
         try:
             start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             # 模式设为“全量”，这将触发后续的删除逻辑
@@ -870,7 +870,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
                     # 如果是部分全量模式，则只删除指定日期之后的数据
                     start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
                     deleted_count, _ = MetricsModelClass.objects.filter(stock=stock_info_obj, trade_time__gte=start_date_obj).delete()
-                    print(f"调试信息: [{stock_info_obj.stock_code}] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧指标数据。")
+                    # print(f"调试信息: [{stock_info_obj.stock_code}] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧指标数据。")
                 
                 # 保存逻辑保持不变，但现在它会在正确的数据被删除后执行
                 records_to_save_df = df_to_save[df_to_save.index.isin(index_to_check)]
