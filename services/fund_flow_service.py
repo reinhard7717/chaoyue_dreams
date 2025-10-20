@@ -27,8 +27,9 @@ class AdvancedFundFlowMetricsService:
     def __init__(self):
         self.max_lookback_days = 200
 
-    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
-        """【V1.7 · 全链路黑匣子版】服务层主执行器"""
+    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
+        """【V1.8 · 依赖注入版】服务层主执行器，可接收预加载的分钟数据。"""
+        # [代码修改开始] 修改函数签名以接收 preloaded_minute_data
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
@@ -40,6 +41,7 @@ class AdvancedFundFlowMetricsService:
                 from datetime import datetime
                 try:
                     start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                    # 使用原子化保存后，删除逻辑可以保留，也可以移除以完全依赖UPSERT，此处保留以明确重算范围
                     deleted_count, _ = await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_obj).delete)()
                     print(f"调试信息: [{stock_code}] {mode}模式，已删除从 {start_date_str} 开始的 {deleted_count} 条旧资金流指标数据。")
                 except (ValueError, TypeError):
@@ -48,33 +50,34 @@ class AdvancedFundFlowMetricsService:
             if merged_df.empty:
                 print(f"调试信息: [{stock_code}] 数据合并后 merged_df 为空，任务终止。")
                 return 0
-            # [代码修改开始] 增加黑匣子诊断信息
             print(f"调试信息: [{stock_code}] [节点1] merged_df 数据范围: {merged_df.index.min().date()} to {merged_df.index.max().date()}, 形状: {merged_df.shape}")
-            # [代码修改结束]
             if not merged_df.empty:
                 target_df = merged_df[merged_df.index.date > last_metric_date] if last_metric_date else merged_df
                 if target_df.empty:
                     print(f"调试信息: [{stock_code}] [节点2] 筛选需计算的日期后 target_df 为空，任务终止。最新合并日期: {merged_df.index.max().date()}, 基准日期: {last_metric_date}")
                     return 0
-                # [代码修改开始] 增加黑匣子诊断信息
                 print(f"调试信息: [{stock_code}] [节点2] target_df 待计算范围: {target_df.index.min().date()} to {target_df.index.max().date()} (共 {len(target_df)} 天)")
+                # 如果有预加载数据，则跳过内部查询
+                if preloaded_minute_data is not None and not preloaded_minute_data.empty:
+                    print(f"调试信息: [{stock_code}] 检测到预加载的分钟数据，跳过内部查询。")
+                    # 直接使用预加载数据计算VWAP和构建分组数据
+                    minute_df_filtered = preloaded_minute_data[preloaded_minute_data['trade_time'].dt.date.isin(target_df.index.date)]
+                    daily_vwap_series = self._calculate_daily_vwap_from_df(minute_df_filtered, target_df.index)
+                    self._minute_df_daily_grouped = self._group_minute_data_from_df(minute_df_filtered)
+                else:
+                    # 保持原有逻辑作为后备
+                    print(f"调试信息: [{stock_code}] 未提供预加载分钟数据，执行内部查询。")
+                    daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
+                    self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
                 # [代码修改结束]
-                daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
                 target_df['daily_vwap'] = daily_vwap_series
-                self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
-                # [代码修改开始] 增加黑匣子诊断信息
                 print(f"调试信息: [{stock_code}] [节点3] 基础指标合成完毕，df_with_advanced_metrics 形状: {df_with_advanced_metrics.shape}")
-                # [代码修改结束]
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
-                # [代码修改开始] 增加黑匣子诊断信息
                 print(f"调试信息: [{stock_code}] [节点4] 衍生指标计算完毕，final_metrics_df 形状: {final_metrics_df.shape}")
-                # [代码修改结束]
                 chunk_to_save = final_metrics_df[final_metrics_df.index.isin(target_df.index)]
-                # [代码修改开始] 增加黑匣子诊断信息
                 print(f"调试信息: [{stock_code}] [节点5] 筛选待保存数据，chunk_to_save 形状: {chunk_to_save.shape}")
-                # [代码修改结束]
                 total_processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, chunk_to_save
                 )
@@ -239,37 +242,46 @@ class AdvancedFundFlowMetricsService:
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
-        """【V1.2 · 通信协议升级版】从分钟数据计算日度VWAP"""
-        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-        if not MinuteModel or date_index.empty:
-            print(f"调试信息: 未能为 {stock_info.stock_code} 找到1分钟线模型，VWAP计算将跳过。")
+        """【V1.3 · 时区修正版】从分钟数据计算日度VWAP"""
+        # [代码修改开始] 修正时区查询BUG
+        minute_df = await self._get_daily_grouped_minute_data(stock_info, date_index, fetch_full_cols=False)
+        if minute_df is None or minute_df.empty:
             return pd.Series(np.nan, index=date_index)
+        # 使用新的、更可靠的辅助函数进行计算
+        return self._calculate_daily_vwap_from_df(minute_df, date_index)
+        # [代码修改结束]
+
+    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):
+        """【V1.3 · 时区修正与重构版】获取并按日聚合分钟数据"""
+        # [代码修改开始] 修正时区查询BUG
+        from django.utils import timezone
+        from datetime import datetime, time
+        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+        if not MinuteModel:
+            print(f"调试信息: {stock_info.stock_code} 未能找到对应的1分钟线数据模型。")
+            return None
+        if date_index.empty:
+            print(f"调试信息: {stock_info.stock_code} 的日期索引为空，无法查询分钟数据。")
+            return None
         @sync_to_async(thread_sensitive=True)
-        def get_minute_data(model, stock_code_pk, start_date, end_date):
-            # 使用主键(stock_id)进行查询，避免跨线程传递复杂对象
+        def get_data(model, stock_pk, start_dt, end_dt):
+            cols_to_fetch = ('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low') if fetch_full_cols else ('trade_time', 'amount', 'vol')
             qs = model.objects.filter(
-                stock_id=stock_code_pk,
-                trade_time__date__gte=start_date,
-                trade_time__date__lte=end_date
-            ).values('trade_time', 'amount', 'vol')
-            
+                stock_id=stock_pk,
+                trade_time__gte=start_dt,
+                trade_time__lt=end_dt
+            ).values(*cols_to_fetch)
             return pd.DataFrame.from_records(qs)
         min_date, max_date = date_index.min().date(), date_index.max().date()
-        # 传递主键 stock_info.stock_code 而非整个 stock_info 对象
-        minute_df = await get_minute_data(MinuteModel, stock_info.stock_code, min_date, max_date)
-        
+        start_datetime = timezone.make_aware(datetime.combine(min_date, time.min))
+        end_datetime = timezone.make_aware(datetime.combine(max_date, time.max))
+        minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
         if minute_df.empty:
-            return pd.Series(np.nan, index=date_index)
-        minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        minute_df[['amount', 'vol']] = minute_df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        minute_df['total_value'] = minute_df['amount'] * 1000 # 成交额单位是千元，转换为元
-        minute_df['total_volume'] = minute_df['vol'] * 100 # 成交量单位是手，转换为股
-        daily_agg = minute_df.groupby(minute_df['trade_time'].dt.date)
-        daily_total_value = daily_agg['total_value'].sum()
-        daily_total_volume = daily_agg['total_volume'].sum()
-        daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
-        daily_vwap.index = pd.to_datetime(daily_vwap.index)
-        return daily_vwap.reindex(date_index)
+            print(f"调试信息: {stock_info.stock_code} 在 {min_date} 到 {max_date} 期间的数据库查询结果为空。")
+            return None
+        # 使用新的、更可靠的辅助函数进行分组
+        return self._group_minute_data_from_df(minute_df)
+        # [代码修改结束]
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
         """【V2.2 · 德尔菲神谕引擎 + 黑匣子】"""
@@ -466,41 +478,6 @@ class AdvancedFundFlowMetricsService:
         print(f"调试信息: [{stock_code}] [节点9] 批量保存执行完毕。")
         # [代码新增结束]
         return len(records_to_create)
-
-    # 重构为标准的 async 方法，并将ORM操作封装在内联函数中
-    async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex):
-        """【V1.2 · 通信协议升级与重构版】获取并按日聚合分钟数据"""
-        MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-        if not MinuteModel:
-            print(f"调试信息: {stock_info.stock_code} 未能找到对应的1分钟线数据模型。")
-            return None
-        if date_index.empty:
-            print(f"调试信息: {stock_info.stock_code} 的日期索引为空，无法查询分钟数据。")
-            return None
-        @sync_to_async(thread_sensitive=True)
-        def get_data(model, stock_code_pk, start_date, end_date):
-            # 使用主键(stock_id)进行查询，这是跨线程通信的最佳实践
-            qs = model.objects.filter(
-                stock_id=stock_code_pk,
-                trade_time__date__gte=start_date,
-                trade_time__date__lte=end_date
-            ).values('trade_time', 'amount', 'vol')
-            return pd.DataFrame.from_records(qs)
-        min_date, max_date = date_index.min().date(), date_index.max().date()
-        # 传递主键 stock_info.stock_code 而非整个 stock_info 对象
-        minute_df = await get_data(MinuteModel, stock_info.stock_code, min_date, max_date)
-        if minute_df.empty:
-            print(f"调试信息: {stock_info.stock_code} 在 {min_date} 到 {max_date} 期间的数据库查询结果为空。")
-            return None
-        minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        minute_df['date'] = minute_df['trade_time'].dt.date
-        minute_df[['amount', 'vol']] = minute_df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        minute_df['amount_yuan'] = minute_df['amount'] * 1000
-        minute_df['vol_shares'] = minute_df['vol'] * 100
-        minute_df['minute_vwap'] = minute_df['amount_yuan'] / minute_df['vol_shares'].replace(0, np.nan)
-        daily_total_vol = minute_df.groupby('date')['vol_shares'].transform('sum')
-        minute_df['vol_weight'] = minute_df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        return minute_df.set_index('date')
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
@@ -796,6 +773,36 @@ class AdvancedFundFlowMetricsService:
             df[f'{size}_weight'] = df[f'{size}_score'] / total_score if total_score > 0 else 0
         return df
 
+    def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
+        """【新增 V1.0】从预加载的DataFrame计算日度VWAP"""
+        if minute_df.empty:
+            return pd.Series(np.nan, index=date_index)
+        df = minute_df.copy()
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
+        df['total_value'] = df['amount'] * 1000
+        df['total_volume'] = df['vol'] * 100
+        daily_agg = df.groupby(df['trade_time'].dt.date)
+        daily_total_value = daily_agg['total_value'].sum()
+        daily_total_volume = daily_agg['total_volume'].sum()
+        daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
+        daily_vwap.index = pd.to_datetime(daily_vwap.index)
+        return daily_vwap.reindex(date_index)
+
+    def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
+        """【新增 V1.0】从预加载的DataFrame构建按日分组的数据"""
+        if minute_df is None or minute_df.empty:
+            return None
+        df = minute_df.copy()
+        df['trade_time'] = pd.to_datetime(df['trade_time'])
+        df['date'] = df['trade_time'].dt.date
+        df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
+        df['amount_yuan'] = df['amount'] * 1000
+        df['vol_shares'] = df['vol'] * 100
+        df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
+        daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
+        df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
+        return df.set_index('date')
 
 
 
