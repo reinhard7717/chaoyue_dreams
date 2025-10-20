@@ -31,7 +31,7 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V18.0 · 筹码交互归因版】"""
+        """【V19.0 · 装备裁汰版】"""
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
@@ -41,7 +41,9 @@ class ChipFeatureCalculator:
         winner_structure_info = self._calculate_winner_structure()
         holder_costs_info = self._calculate_holder_costs()
         pressure_support_info = self._calculate_pressure_support()
-        turnover_info = self._calculate_effective_turnover()
+        # 移除对已裁汰方法 _calculate_effective_turnover 的调用
+        # turnover_info = self._calculate_effective_turnover()
+        
         context_for_derived_metrics = {
             **self.ctx,
             **peaks_info,
@@ -53,9 +55,7 @@ class ChipFeatureCalculator:
         concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
         minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
-        # 调用全新的、基于筹码交互的动态归因方法
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
-        
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
         fault_info = self._calculate_chip_fault(context_for_derived_metrics)
         all_metrics = {
@@ -64,14 +64,14 @@ class ChipFeatureCalculator:
             **winner_structure_info,
             **holder_costs_info,
             **pressure_support_info,
-            **turnover_info,
+            # 移除已裁汰的 turnover_info
+            # **turnover_info,
+            
             **turnover_microstructure_info,
             **concentration_dynamics_info,
             **peak_dynamics_info,
             **minute_derived_dynamics_info,
-            # 合并新的筹码交互动态归因指标
             **chip_interaction_info,
-            
             **advanced_structure_info,
             **fault_info
         }
@@ -274,21 +274,12 @@ class ChipFeatureCalculator:
         return {'turnover_volume_in_cost_range_70pct': turnover_volume}
 
     def _calculate_advanced_structures(self, context: dict) -> dict:
-        """【V6.3 · 逻辑增强版】计算高级结构指标，新增loser_avg_cost"""
+        """【V7.0 · 裁汰版】移除基于估算的 peak_absorption_intensity"""
         results = {}
         peak_volume = context.get('peak_volume')
         total_float_share = self.ctx.get('total_chip_volume')
         if peak_volume is not None and total_float_share and total_float_share > 0:
             results['peak_control_ratio'] = (peak_volume / total_float_share) * 100
-        peak_cost = context.get('peak_cost')
-        daily_turnover = self.ctx.get('daily_turnover_volume')
-        peak_range_low = context.get('peak_range_low')
-        peak_range_high = context.get('peak_range_high')
-        if daily_turnover and daily_turnover > 0 and peak_range_low is not None and peak_range_high is not None:
-            turnover_in_peak_range = self._get_turnover_in_range(peak_range_low, peak_range_high)
-            results['peak_absorption_intensity'] = turnover_in_peak_range / daily_turnover if daily_turnover > 0 else 0.0
-        else:
-            results['peak_absorption_intensity'] = 0.0
         close_price = self.ctx.get('close_price')
         if close_price:
             winners_df = self.df[self.df['price'] < close_price]
@@ -302,14 +293,13 @@ class ChipFeatureCalculator:
             else:
                 results['winner_avg_cost'] = None
                 results['winner_profit_margin'] = 0.0
-            # 计算套牢盘平均成本
             losers_df = self.df[self.df['price'] > close_price]
             if not losers_df.empty and losers_df['percent'].sum() > 0:
                 loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
                 results['loser_avg_cost'] = loser_avg_cost
             else:
                 results['loser_avg_cost'] = None
-            
+        peak_cost = context.get('peak_cost') # 此行保留给 price_to_peak_ratio 使用
         if close_price and peak_cost and peak_cost > 0:
             results['price_to_peak_ratio'] = close_price / peak_cost
         if close_price:
@@ -321,41 +311,21 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_turnover_microstructure(self, context: dict) -> dict:
-        """【新增】计算成交量微观结构指标"""
+        """【V2.0 · 裁汰版】精简指标，仅保留基于精确计算的 turnover_at_peak_ratio"""
         minute_df = self.ctx.get('minute_data')
         daily_turnover_vol = self.ctx.get('daily_turnover_volume')
         if minute_df is None or minute_df.empty or not daily_turnover_vol or daily_turnover_vol <= 0:
-            return {
-                'turnover_at_peak_ratio': None,
-                'turnover_from_winners_ratio': None,
-                'turnover_from_losers_ratio': None,
-            }
+            return {'turnover_at_peak_ratio': None}
         total_vol_shares = minute_df['vol'].sum() * 100
         if total_vol_shares <= 0:
-            return {'turnover_at_peak_ratio': 0.0, 'turnover_from_winners_ratio': 0.0, 'turnover_from_losers_ratio': 0.0}
-        # 1. 主峰成交占比
+            return {'turnover_at_peak_ratio': 0.0}
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
         turnover_at_peak_ratio = None
         if peak_range_low is not None and peak_range_high is not None:
             vol_at_peak = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)]['vol'].sum() * 100
             turnover_at_peak_ratio = (vol_at_peak / total_vol_shares) * 100
-        # 2. 获利盘/套牢盘抛压占比
-        winner_avg_cost = context.get('winner_avg_cost')
-        loser_avg_cost = context.get('loser_avg_cost')
-        turnover_from_winners_ratio = None
-        turnover_from_losers_ratio = None
-        if winner_avg_cost is not None:
-            vol_from_winners = minute_df[minute_df['minute_vwap'] > winner_avg_cost]['vol'].sum() * 100
-            turnover_from_winners_ratio = (vol_from_winners / total_vol_shares) * 100
-        if loser_avg_cost is not None:
-            vol_from_losers = minute_df[minute_df['minute_vwap'] < loser_avg_cost]['vol'].sum() * 100
-            turnover_from_losers_ratio = (vol_from_losers / total_vol_shares) * 100
-        return {
-            'turnover_at_peak_ratio': turnover_at_peak_ratio,
-            'turnover_from_winners_ratio': turnover_from_winners_ratio,
-            'turnover_from_losers_ratio': turnover_from_losers_ratio,
-        }
+        return {'turnover_at_peak_ratio': turnover_at_peak_ratio}
 
     def _calculate_concentration_dynamics(self, context: dict) -> dict:
         """【新增】计算筹码集中度四象限动态归因指标"""

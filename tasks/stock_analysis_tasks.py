@@ -33,7 +33,7 @@ from stock_models.index import TradeCalendar
 from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import AdvancedChipMetrics, StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
+from stock_models.time_trade import StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 

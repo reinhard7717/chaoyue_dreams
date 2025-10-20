@@ -735,13 +735,10 @@ class FundFlowDailyDC_BJ(models.Model):
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V2.8 · 算法指纹版】
-    - 核心升维: 新增算法交易指纹识别指标，包括VWAP跟踪误差、成交量分布均匀度(JS散度)和开盘进攻性，
-                  使我们能从“做什么”的层面，深入到“怎么做”的战术层面。
+    【V3.0 · 赫利俄斯融合引擎版】
+    - 核心升维: 新增多源一致性评分、资金内部摩擦系数等指标，从“求同”深化为“辨异”。
     """
-    # --- 1. 核心关联键 ---
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # --- 2. 每日资金流共识指标 (核心基础指标) ---
     CORE_METRICS = {
         'net_flow_consensus': '共识-资金净流入(万元)',
         'main_force_net_flow_consensus': '共识-主力净流入(万元)',
@@ -750,6 +747,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_lg_amount_consensus': '共识-大单净流入(万元)',
         'net_md_amount_consensus': '共识-中单净流入(万元)',
         'net_sh_amount_consensus': '共识-小单净流入(万元)',
+        'source_consistency_score': '多源一致性评分',
+        'flow_internal_friction_ratio': '资金内部摩擦系数',
+        'consensus_calibrated_main_flow': '共识校准主力净流入(万元)',
+        'consensus_flow_weighted': '加权共识主力净流入(万元)',
+        'cross_source_divergence_std': '多源分歧标准差',
         'flow_divergence_mf_vs_retail': '资金分歧度(主力-散户)',
         'main_force_flow_intensity_ratio': '主力资金流强度比率',
         'main_force_flow_impact_ratio': '主力资金流影响力',
@@ -792,7 +794,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'divergence_ts_dc': '分歧度(Tushare-东方财富)',
         'divergence_ths_dc': '分歧度(同花顺-东方财富)',
     }
-    # 动态生成核心基础指标字段
     for name, verbose in CORE_METRICS.items():
         if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value' or 'vwap' in name or 'error' in name or 'jsd' in name or 'strength' in name or 'score' in name or 'alpha' in name or 'volatility' in name or 'momentum' in name:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
@@ -805,7 +806,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             sum_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-                'net_sh_amount_consensus', 'cost_weighted_main_flow'
+                'net_sh_amount_consensus', 'cost_weighted_main_flow',
+                'consensus_calibrated_main_flow', # [代码新增]
             ]
             for name in sum_cols:
                 verbose_name = CORE_METRICS.get(name, name)
@@ -816,7 +818,8 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             sum_slope_cols = [
                 'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
                 'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-                'net_sh_amount_consensus', 'cost_weighted_main_flow'
+                'net_sh_amount_consensus', 'cost_weighted_main_flow',
+                'consensus_calibrated_main_flow', # [代码新增]
             ]
             for name in sum_slope_cols:
                 verbose_name = CORE_METRICS.get(name, name)
