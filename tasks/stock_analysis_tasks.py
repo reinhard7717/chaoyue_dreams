@@ -650,44 +650,48 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _save_metrics(stock_info, MetricsModel, final_df: pd.DataFrame):
-    """【辅助函数 V2.0 · 原子化改造版】准备并保存高级筹码指标到数据库。"""
+    """【辅助函数 V3.0 · 战术撤退版】准备并保存高级筹码指标到数据库。"""
     if final_df.empty:
         return 0
     final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
     model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
     df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
-    # [代码修改开始] 为原子化的UPSERT操作定义唯一键和待更新字段
-    unique_fields = ['stock', 'trade_time']
-    update_fields = [field for field in model_fields if field not in unique_fields]
-    # [代码修改结束]
     records_list = df_filtered.to_dict('records')
-    records_to_create = []
-    for record_date, record_data in zip(df_filtered.index, records_list):
-        safe_record_data = {
-            key: None if isinstance(value, float) and not np.isfinite(value) else value
-            for key, value in record_data.items()
-        }
-        records_to_create.append(
-            MetricsModel(
-                stock=stock_info,
-                trade_time=record_date.date(),
-                **safe_record_data
-            )
-        )
+    # [代码修改开始] 放弃批量操作，改为逐条精确打击
     @sync_to_async(thread_sensitive=True)
-    def save_async(model, records):
-        with transaction.atomic():
-            # [代码修改开始] 使用Django 5的“原子聚变打击”功能，实现UPSERT
-            model.objects.bulk_create(
-                records,
-                update_conflicts=True,
-                unique_fields=unique_fields,
-                update_fields=update_fields,
-                batch_size=500 # 对UPSERT使用稍小的批次大小更稳妥
-            )
-            # [代码修改结束]
-    await save_async(MetricsModel, records_to_create)
-    return len(records_to_create)
+    def save_atomically(model, stock_obj, records_to_process):
+        """
+        使用 update_or_create 逐条进行原子化“插入或更新”。
+        虽然性能低于 bulk 操作，但能完美解决唯一键冲突问题，且兼容所有数据库后端。
+        """
+        processed_count = 0
+        for record_data in records_to_process:
+            trade_time = record_data.pop('trade_time').date() # 从字典中弹出trade_time作为查询条件
+            # 清理无效的浮点数值
+            defaults_data = {
+                key: None if isinstance(value, float) and not np.isfinite(value) else value
+                for key, value in record_data.items()
+            }
+            try:
+                obj, created = model.objects.update_or_create(
+                    stock=stock_obj,
+                    trade_time=trade_time,
+                    defaults=defaults_data
+                )
+                processed_count += 1
+            except Exception as e:
+                # 增加单条记录失败的日志，避免整个任务中断
+                print(f"🔥🔥🔥 [保存单条记录失败] 股票: {stock_obj.stock_code}, 日期: {trade_time}, 错误: {e} 🔥🔥🔥")
+        return processed_count
+    # 将 DataFrame 转换为适合逐条处理的格式
+    records_for_atomic_save = []
+    for record_date, record_data in zip(df_filtered.index, records_list):
+        record_data['trade_time'] = record_date
+        records_for_atomic_save.append(record_data)
+    # 执行新的原子化保存函数
+    processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
+    return processed_count
+    # [代码修改结束]
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     """
