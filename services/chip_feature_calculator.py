@@ -578,7 +578,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.3 - 笔误修正版】计算跨日筹码迁徙"""
+        """【V1.4 - 笔误彻底修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -603,7 +603,7 @@ class ChipFeatureCalculator:
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
         lt_winners_pct = prev_winners[prev_winners['price'] < prev_prev_20d_close]['percent'].sum()
-        # [代码修改开始] 修正笔误，将 losers_df 改为 prev_losers
+        # [代码修改开始] 彻底修正笔误，将所有 losers_df 改为 prev_losers
         st_losers_pct = prev_losers[prev_losers['price'] >= prev_prev_20d_close]['percent'].sum()
         lt_losers_pct = prev_losers[prev_losers['price'] < prev_prev_20d_close]['percent'].sum()
         # [代码修改结束]
