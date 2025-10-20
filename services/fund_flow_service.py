@@ -28,8 +28,7 @@ class AdvancedFundFlowMetricsService:
         self.max_lookback_days = 200
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
-        """【V1.8 · 依赖注入版】服务层主执行器，可接收预加载的分钟数据。"""
-        # [代码修改开始] 修改函数签名以接收 preloaded_minute_data
+        """【V1.9 · 数据流净化版】服务层主执行器"""
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
@@ -41,7 +40,6 @@ class AdvancedFundFlowMetricsService:
                 from datetime import datetime
                 try:
                     start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-                    # 使用原子化保存后，删除逻辑可以保留，也可以移除以完全依赖UPSERT，此处保留以明确重算范围
                     deleted_count, _ = await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_obj).delete)()
                     print(f"调试信息: [{stock_code}] {mode}模式，已删除从 {start_date_str} 开始的 {deleted_count} 条旧资金流指标数据。")
                 except (ValueError, TypeError):
@@ -57,21 +55,20 @@ class AdvancedFundFlowMetricsService:
                     print(f"调试信息: [{stock_code}] [节点2] 筛选需计算的日期后 target_df 为空，任务终止。最新合并日期: {merged_df.index.max().date()}, 基准日期: {last_metric_date}")
                     return 0
                 print(f"调试信息: [{stock_code}] [节点2] target_df 待计算范围: {target_df.index.min().date()} to {target_df.index.max().date()} (共 {len(target_df)} 天)")
-                # 如果有预加载数据，则跳过内部查询
                 if preloaded_minute_data is not None and not preloaded_minute_data.empty:
                     print(f"调试信息: [{stock_code}] 检测到预加载的分钟数据，跳过内部查询。")
-                    # 直接使用预加载数据计算VWAP和构建分组数据
                     minute_df_filtered = preloaded_minute_data[preloaded_minute_data['trade_time'].dt.date.isin(target_df.index.date)]
                     daily_vwap_series = self._calculate_daily_vwap_from_df(minute_df_filtered, target_df.index)
                     self._minute_df_daily_grouped = self._group_minute_data_from_df(minute_df_filtered)
                 else:
-                    # 保持原有逻辑作为后备
                     print(f"调试信息: [{stock_code}] 未提供预加载分钟数据，执行内部查询。")
                     daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
                     self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
+                # [代码修改开始] 切断上游污染源：不再将 daily_vwap 添加到 target_df
+                # target_df['daily_vwap'] = daily_vwap_series
+                # 将 daily_vwap_series 作为独立参数传递给下游
+                df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df, daily_vwap_series)
                 # [代码修改结束]
-                target_df['daily_vwap'] = daily_vwap_series
-                df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
                 print(f"调试信息: [{stock_code}] [节点3] 基础指标合成完毕，df_with_advanced_metrics 形状: {df_with_advanced_metrics.shape}")
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
@@ -283,12 +280,14 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         # [代码修改结束]
 
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-        """【V2.2 · 德尔菲神谕引擎 + 黑匣子】"""
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
+        """【V2.3 · 数据流净化版】"""
+        # [代码修改开始] 接收独立的 daily_vwap_series 参数
         df = merged_df.copy()
-        # [代码新增开始] 增加黑匣子诊断信息
+        # 在此处，唯一地、正确地将 daily_vwap 添加到 df 中
+        df['daily_vwap'] = daily_vwap_series
+        # [代码修改结束]
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
-        # [代码新增结束]
         tushare_cols_exist = 'buy_sm_vol' in df.columns
         if tushare_cols_exist:
             minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
@@ -333,9 +332,7 @@ class AdvancedFundFlowMetricsService:
                 avg_order_value_np = df['avg_order_value'].values
                 df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
         else:
-            # [代码新增开始] 增加黑匣子诊断信息
             print(f"警告: [{stock_code}] 关键列 'buy_sm_vol' 不存在，跳过大部分高级资金指标计算。")
-            # [代码新增结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -544,8 +541,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 · 逻辑闭环版】基于PVWAP基础成本，计算按量加权的聚合成本，并完成依赖VWAP的最终计算。
-        - 核心修正: 将 vwap_tracking_error 的计算逻辑唯一地放在这里，形成逻辑闭环。
+        【V1.3 · 数据流净化版】
+        - 核心修正: 彻底移除此处的 join 操作，直接使用 daily_df 中已存在的 daily_vwap 列。
         """
         df = pvwap_df.copy()
         vol_cols = [
@@ -578,11 +575,12 @@ class AdvancedFundFlowMetricsService:
             ['avg_cost_sm_sell', 'avg_cost_md_sell'],
             ['sell_sm_vol', 'sell_md_vol']
         )
-        # [代码修改开始] 将 vwap_tracking_error 的计算唯一地保留在此处
+        # [代码修改开始] 移除冗余的join，直接使用daily_df中的列
         if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
-            # 此处 join 不会报错，因为 df (来自pvwap_df) 此时不包含 daily_vwap 列
-            df = df.join(daily_df['daily_vwap'])
-            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - df['daily_vwap']
+            # 此处不再需要join，因为 daily_df 已经包含了 daily_vwap
+            # df = df.join(daily_df['daily_vwap']) # <--- 移除此行
+            # 直接使用 daily_df 的 'daily_vwap' 列进行计算，Pandas会根据索引自动对齐
+            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - daily_df['daily_vwap']
         # [代码修改结束]
         return df.drop(columns=vol_cols, errors='ignore')
 
