@@ -599,32 +599,29 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
 
 async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lookback_days: int, start_date_str: str = None):
     """
-    【V2.0 · 支持起始日期覆盖版】初始化Celery任务上下文，为计算准备所有必要参数。
-    - 获取StockInfo和动态MetricsModel。
-    - 根据是否存在历史数据，决定最终的计算模式（增量或全量）。
-    - 计算数据拉取的起始日期。
-    - 新增: 如果提供了 start_date_str，它将作为最高优先级，覆盖默认的增量逻辑。
+    【V2.1 · 模式修正版】初始化Celery任务上下文。
+    - 新增: 当 start_date_str 被提供时，强制任务进入“部分全量”模式。
     """
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     last_metric_date = None
-    #
-    # 优先处理起始日期覆盖逻辑
+    fetch_start_date = None
+    # [代码修改开始] 修正了当 start_date_str 提供时的逻辑
     if start_date_str:
-        print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}")
+        print(f"调试信息: [{stock_code}] 检测到起始日期覆盖: {start_date_str}，将执行部分全量计算。")
         try:
             start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-            # 将计算的“最后日期”设置为指定日期的前一天，强制从指定日期开始计算
-            last_metric_date = start_date_obj - timedelta(days=1)
-            # 数据拉取日期也相应调整，以确保有足够的回溯数据用于衍生指标计算
-            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
-            # 这种模式本质上是一种特殊的“增量”更新，因此将 is_incremental 设为 True
-            is_incremental = True
-            return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+            # 模式设为“全量”，这将触发后续的删除逻辑
+            is_incremental = False
+            # last_metric_date 设为 None，因为我们不依赖它来跳过日期
+            last_metric_date = None
+            # 数据拉取起点，依然需要回溯足够天数以计算衍生指标
+            fetch_start_date = start_date_obj - timedelta(days=max_lookback_days)
         except (ValueError, TypeError):
             logger.error(f"[{stock_code}] 提供的起始日期 '{start_date_str}' 格式错误，将忽略并执行默认逻辑。")
-    
-    # 如果没有提供起始日期覆盖，则执行原始逻辑
+            # 如果日期格式错误，则退回原始的增量/全量判断逻辑
+            is_incremental = True # 假设默认是增量
+    # [代码修改结束]
     if is_incremental:
         @sync_to_async(thread_sensitive=True)
         def get_latest_metric_async(model, stock_info_obj):
@@ -639,8 +636,7 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
         else:
             is_incremental = False
             fetch_start_date = None
-    else:
-        fetch_start_date = None
+    # 如果是全量模式且未指定起始日，fetch_start_date 保持为 None，由下游处理
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
@@ -701,42 +697,47 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         logger.error(f"[{stock_code}] 在 _preprocess_and_merge_data 中发生未知错误: {e}", exc_info=True)
         raise
 
-async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
-    """【辅助函数 V2.1 - 时区安全修复版】逐日计算，并在循环内按需加载单日分钟数据。"""
+async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
+    """【辅助函数 V2.2 - 支持计算起点版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
-    # 导入datetime和timezone以进行精确的时间范围查询
     from datetime import datetime
     from django.utils import timezone
-    
-    # 定义单日分钟数据异步获取函数
+    # [代码新增开始] 如果提供了计算起始日期，则进行预处理
+    start_date_obj = None
+    if start_date_str:
+        try:
+            start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            logger.warning(f"[{stock_code}] 提供的计算起始日期 '{start_date_str}' 格式错误，将被忽略。")
+    # [代码新增结束]
     @sync_to_async(thread_sensitive=True)
     def get_minute_data_for_day_async(model, stock_pk, target_date):
         if not model: return pd.DataFrame()
-        # 使用时区安全的、精确到秒的范围查询，替代不安全的__date查询
-        # 1. 构建目标日期的开始时间（UTC）
         start_of_day_utc = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
-        # 2. 构建目标日期第二天的开始时间（UTC）
         end_of_day_utc = start_of_day_utc + timedelta(days=1)
-        # 3. 使用 >= start 和 < end 的范围进行查询，这是最高效且最安全的方式
         qs = model.objects.filter(
             stock_id=stock_pk,
             trade_time__gte=start_of_day_utc,
             trade_time__lt=end_of_day_utc
         )
-        
         return pd.DataFrame.from_records(qs.values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low'))
     minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
     prev_metrics = {}
     grouped_data = merged_df.groupby('trade_time')
     for trade_date, daily_full_df in grouped_data:
+        # [代码修改开始] 增加新的哨兵逻辑，处理增量和部分全量两种场景
+        # 场景1: 增量更新，跳过已计算的日期
         if is_incremental and last_metric_date and trade_date.date() <= last_metric_date:
             continue
+        # 场景2: 部分全量更新，跳过早于指定起始日期的日期
+        if start_date_obj and trade_date.date() < start_date_obj:
+            continue
+        # [代码修改结束]
         context_data = daily_full_df.iloc[0].to_dict()
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
-        # JIT加载单日分钟数据并注入上下文
         minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
         if minute_data_for_day.empty:
             print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
@@ -782,19 +783,25 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
-    """【执行器 V17.2 - 支持起始日期版】"""
+def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: str = None, is_incremental: bool = True, *, cache_manager: CacheManager):
+    """【执行器 V17.4 - 部分全量模式修正版】"""
     async def main(incremental_flag: bool, start_date_override: str):
         try:
-            max_lookback_days = 160
-            # 将 start_date_override 传递给上下文初始化函数
+            periods = BaseAdvancedChipMetrics.UNIFIED_PERIODS
+            max_period = max(periods) if periods else 60
+            max_lookback_days = max_period * 2 + 10
+            print(f"调试信息: [{stock_code}] 动态计算最大回溯期为 {max_lookback_days} 天 (基于最长周期 {max_period}d)。")
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
                 stock_code, incremental_flag, max_lookback_days, start_date_override
             )
-            
+            if not is_incremental_final and not start_date_override:
+                fetch_start_date = stock_info.list_date
+                print(f"调试信息: [{stock_code}] 全量计算模式，数据拉取起始日设置为上市日期: {fetch_start_date}")
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
-            new_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date)
+            # [代码修改开始] 将 start_date_override 传递给计算引擎
+            new_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
+            # [代码修改结束]
             if new_metrics_df.empty:
                 return {"status": "success", "processed_days": 0, "reason": "already up-to-date or no new data"}
             if not isinstance(new_metrics_df.index, pd.DatetimeIndex):
@@ -817,11 +824,19 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             final_metrics_df = await _calculate_derivative_metrics(MetricsModel, final_metrics_df)
             @sync_to_async(thread_sensitive=True)
             def _prepare_and_save_data(stock_info_obj, MetricsModelClass, df_to_save, index_to_check, delete_all_first):
+                # [代码修改开始] 增加对部分全量模式的数据删除逻辑
                 if delete_all_first:
+                    # 如果是全量模式，则删除所有数据
                     MetricsModelClass.objects.filter(stock=stock_info_obj).delete()
-                    records_to_save_df = df_to_save
-                else:
-                    records_to_save_df = df_to_save[df_to_save.index.isin(index_to_check)]
+                    print(f"调试信息: [{stock_info_obj.stock_code}] 全量模式，已删除该股票所有旧指标数据。")
+                elif start_date_override:
+                    # 如果是部分全量模式，则只删除指定日期之后的数据
+                    start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
+                    deleted_count, _ = MetricsModelClass.objects.filter(stock=stock_info_obj, trade_time__gte=start_date_obj).delete()
+                    print(f"调试信息: [{stock_info_obj.stock_code}] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧指标数据。")
+                # [代码修改结束]
+                # 保存逻辑保持不变，但现在它会在正确的数据被删除后执行
+                records_to_save_df = df_to_save[df_to_save.index.isin(index_to_check)]
                 if records_to_save_df.empty:
                     return 0
                 records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
@@ -842,12 +857,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                         )
                     )
                 with transaction.atomic():
-                    MetricsModelClass.objects.bulk_create(records_to_create, batch_size=2000, ignore_conflicts=True)
+                    # [代码修改开始] 在部分全量模式下，使用 update_or_create 保证数据一致性
+                    if not delete_all_first and start_date_override:
+                        # 对于部分重算，使用 bulk_create + ignore_conflicts 可能不安全，改为更稳健的逐条更新或创建
+                        # 但为了性能，我们仍然使用 bulk_create，因为我们已经删除了冲突区间的数据
+                        MetricsModelClass.objects.bulk_create(records_to_create, batch_size=2000)
+                    else:
+                        # 对于增量或全量，使用原逻辑
+                        MetricsModelClass.objects.bulk_create(records_to_create, batch_size=2000, ignore_conflicts=True)
+                    # [代码修改结束]
                 return len(records_to_create)
+            # [代码修改开始] 修正 _prepare_and_save_data 的调用参数
+            # 在部分全量模式下，delete_all_first 应为 False，因为我们只删除部分数据
+            delete_all = not is_incremental_final and not start_date_override
             processed_days = await _prepare_and_save_data(
-                stock_info, MetricsModel, final_metrics_df, new_metrics_df.index, not is_incremental_final
+                stock_info, MetricsModel, final_metrics_df, new_metrics_df.index, delete_all
             )
-            mode = "增量更新" if is_incremental_final else "全量刷新"
+            # [代码修改结束]
+            mode = "增量更新" if is_incremental_final else ("部分全量" if start_date_override else "全量刷新")
             logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级筹码指标。")
             return {"status": "success", "processed_days": processed_days}
         except StockInfo.DoesNotExist:
@@ -860,9 +887,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.error(f"[{stock_code}] 高级筹码指标预计算失败 (未知异常): {e}", exc_info=True)
             return {"status": "failed", "reason": str(e)}
     try:
-        # 将 start_date_str 传递给 main 协程
         result = async_to_sync(main)(is_incremental, start_date_str)
-        
         return result
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
