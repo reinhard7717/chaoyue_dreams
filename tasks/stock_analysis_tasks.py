@@ -826,14 +826,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     """
     【执行器 V21.0 · 焦土合并版】
     - 核心变更: 将资金流指标的计算逻辑强制合并到此任务中，以绕过资金流任务无法被执行的玄学问题。
+    - 逻辑修正: 使用项目中实际的筹码计算流程，而非假设的AdvancedChipMetricsService。
     """
     async def main(incremental_flag: bool, start_date_override: str):
+        chip_processed_days = 0
         # --- 第一部分：执行原有的筹码计算 ---
         print(f"✅✅✅ [合并任务启动-筹码部分] 股票: {stock_code}, 模式: {'增量' if incremental_flag else '全量'}, 起始日期: {start_date_override}")
         try:
-            chip_service = AdvancedChipMetricsService()
-            chip_processed_days = await chip_service.run_precomputation(stock_code, incremental_flag, start_date_str=start_date_override)
-            mode = "增量更新" if incremental_flag else "全量刷新"
+            # [代码修改开始] 使用实际的筹码计算逻辑
+            stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+            MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+            last_metric_date, is_incremental_final = await _get_last_metric_date(MetricsModel, stock_info, incremental_flag, start_date_override)
+            merged_df = await _preprocess_and_merge_data(stock_info, is_incremental_final, last_metric_date)
+            if not merged_df.empty:
+                new_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
+                if not new_metrics_df.empty:
+                    chip_processed_days = await _save_metrics(stock_info, MetricsModel, new_metrics_df)
+            # [代码修改结束]
+            mode = "部分全量" if start_date_override else "增量"
             if chip_processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！[筹码部分] 模式[{mode}]下，为 {chip_processed_days} 个交易日计算并存储了高级筹码指标。")
             else:
@@ -843,30 +853,28 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             print(f"🔥🔥🔥 [合并任务-筹码部分严重错误] 股票: {stock_code} - 捕获到 Exception: {e} 🔥🔥🔥")
             print(traceback.format_exc())
             logger.error(f"[{stock_code}] [筹码部分] 预计算失败: {e}", exc_info=True)
-            # 即使筹码失败，也继续尝试资金流
-        
         # --- 第二部分：执行新增的资金流计算 ---
         print(f"💥💥💥 [合并任务启动-资金流部分] 股票: {stock_code}, 模式: {'增量' if incremental_flag else '全量'}, 起始日期: {start_date_override}")
+        fund_flow_processed_days = 0
         try:
+            # [代码新增开始] 植入完整的资金流计算逻辑
             fund_flow_service = AdvancedFundFlowMetricsService()
             fund_flow_processed_days = await fund_flow_service.run_precomputation(stock_code, incremental_flag, start_date_str=start_date_override)
-            mode = "增量更新" if incremental_flag else "全量刷新"
+            mode = "部分全量" if start_date_override else "增量"
             if fund_flow_processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！[资金流部分] 模式[{mode}]下，为 {fund_flow_processed_days} 个交易日计算并存储了高级资金流指标。")
             else:
                 logger.info(f"[{stock_code}] [资金流部分] 数据已是最新或无新数据计算，无需更新。")
-            return {"status": "partial_success", "chip_days": chip_processed_days, "fund_flow_days": fund_flow_processed_days}
+            # [代码新增结束]
         except ValueError as ve:
             print(f"🚨🚨🚨 [合并任务-资金流部分数据警告] 股票: {stock_code} - 捕获到 ValueError: {ve} 🚨🚨🚨")
             logger.warning(f"[{stock_code}] [资金流部分] 预计算跳过 (数据问题): {ve}", exc_info=False)
-            return {"status": "failed", "reason": str(ve)}
         except Exception as e:
             import traceback
             print(f"🔥🔥🔥 [合并任务-资金流部分严重错误] 股票: {stock_code} - 捕获到 Exception: {e} 🔥🔥🔥")
             print(traceback.format_exc())
             logger.error(f"[{stock_code}] [资金流部分] 预计算失败: {e}", exc_info=True)
-            return {"status": "failed", "reason": str(e)}
-
+        return {"status": "merged_run_complete", "chip_days": chip_processed_days, "fund_flow_days": fund_flow_processed_days}
     try:
         result = async_to_sync(main)(is_incremental, start_date_str)
         return result
@@ -951,21 +959,16 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        
         print(f"✅✅✅ [总调度器启动] 模式: {'增量' if is_incremental else '全量'}, 起始日期: {start_date_str}")
         print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。")
-        
-        # [代码修改开始] 只创建和派遣合并后的筹码任务
+        # [代码修改开始] 只创建和派遣合并后的“超级任务”
         tasks_to_dispatch = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
         print(f"✅✅✅ [总调度器] 已创建 {len(tasks_to_dispatch)} 个【合并计算】任务签名。")
-        
         job_group = group(tasks_to_dispatch)
         job_group.apply_async()
-        
         total_tasks_dispatched = len(tasks_to_dispatch)
         print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
         # [代码修改结束]
-        
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个合并计算子任务。")
         return {
             "status": "success",
@@ -978,6 +981,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-
         print(traceback.format_exc())
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
+
 # =================================================================
 # =================== 行业轮动预计算 ==================
 # =================================================================
