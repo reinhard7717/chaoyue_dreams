@@ -578,22 +578,22 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.1 - 健壮性检查修正版】计算跨日筹码迁徙"""
+        """【V1.2 - 上下文引用修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
             'short_term_capitulation_ratio': None,
             'long_term_despair_selling_ratio': None,
         }
-        prev_chips_df = self.ctx.get('prev_chip_distribution')
-        prev_close = self.ctx.get('prev_close_price')
-        prev_prev_20d_close = self.ctx.get('prev_prev_20d_close')
-        daily_turnover_vol = self.ctx.get('daily_turnover_volume')
-        # [代码修改开始] 使用更安全的检查方式，避免对 Series/DataFrame 进行布尔求值
+        # [代码修改开始] 修正上下文引用，从 self.ctx 改为 context
+        prev_chips_df = context.get('prev_chip_distribution')
+        prev_close = context.get('prev_close_price')
+        prev_prev_20d_close = context.get('prev_prev_20d_close')
+        daily_turnover_vol = context.get('daily_turnover_volume')
+        # [代码修改结束]
         is_data_invalid = False
         if prev_chips_df is None or prev_chips_df.empty:
             is_data_invalid = True
-        # 检查每个值是否为 None 或 NaN，这种方式对标量安全
         for v in [prev_close, prev_prev_20d_close, daily_turnover_vol]:
             if v is None or pd.isnull(v):
                 is_data_invalid = True
@@ -601,13 +601,12 @@ class ChipFeatureCalculator:
         if is_data_invalid or daily_turnover_vol <= 0:
             print(f"调试信息: 跨日筹码流计算跳过，因T-1日数据不完整。")
             return results
-        # [代码修改结束]
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
         lt_winners_pct = prev_winners[prev_winners['price'] < prev_prev_20d_close]['percent'].sum()
-        st_losers_pct = prev_losers[prev_losers['price'] >= prev_prev_20d_close]['percent'].sum()
-        lt_losers_pct = prev_losers[prev_losers['price'] < prev_prev_20d_close]['percent'].sum()
+        st_losers_pct = prev_losers[losers_df['price'] >= prev_prev_20d_close]['percent'].sum()
+        lt_losers_pct = prev_losers[losers_df['price'] < prev_prev_20d_close]['percent'].sum()
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
         results['short_term_capitulation_ratio'] = st_losers_pct
