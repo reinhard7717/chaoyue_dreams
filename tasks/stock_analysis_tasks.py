@@ -597,6 +597,39 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         logger.warning(full_warning_message)
     return data_dfs
 
+async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lookback_days: int):
+    """
+    【新增】初始化Celery任务上下文，为计算准备所有必要参数。
+    - 获取StockInfo和动态MetricsModel。
+    - 根据是否存在历史数据，决定最终的计算模式（增量或全量）。
+    - 计算数据拉取的起始日期。
+    """
+    stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
+    MetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
+    last_metric_date = None
+    # 决定最终的计算模式和起始日期
+    if is_incremental:
+        @sync_to_async(thread_sensitive=True)
+        def get_latest_metric_async(model, stock_info_obj):
+            try:
+                # 使用 .only('trade_time') 优化查询，只获取我们需要的字段
+                return model.objects.filter(stock=stock_info_obj).only('trade_time').latest('trade_time')
+            except model.DoesNotExist:
+                return None
+        latest_metric = await get_latest_metric_async(MetricsModel, stock_info)
+        if latest_metric:
+            last_metric_date = latest_metric.trade_time
+            # 增量更新时，计算的起始日期为最后记录日期减去衍生指标最大回溯期
+            fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
+        else:
+            # 如果是增量模式但没有任何历史数据，则自动切换到全量模式
+            is_incremental = False
+            fetch_start_date = None  # 全量计算从头开始
+    else:
+        # 全量计算模式，起始日期设为None，由主循环处理
+        fetch_start_date = None
+    return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
     """【辅助函数 V2.0 - JIT核心实现版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
