@@ -995,18 +995,19 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
 # =================== 3. 高级资金特征任务 ==================
 # =================================================================
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_fund_flow_for_stock', queue='SaveHistoryData_TimeTrade')
-def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None):
+@with_cache_manager # [代码修改开始] 恢复任务的“合法身份”，添加此关键装饰器
+def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【执行器 V20.2 - 隔音室爆破版】
-    - 核心修正: 在任务的最高层 try-except 块中植入 print 语句，确保任何被捕获的异常都能被直接打印，绕过日志配置问题。
+    【执行器 V20.3 - 身份恢复版】
+    - 核心修正: 添加 @with_cache_manager 装饰器，并更新函数签名以接收 cache_manager。
+                 这确保了任务在执行前拥有一个完整且正确的Django异步运行环境。
     """
     async def main(incremental_flag: bool, start_date_override: str):
-        # [代码新增开始] 在任务最开始增加一个明确的入口打印
         print(f"💥💥💥 [资金流任务启动] 股票: {stock_code}, 模式: {'增量' if incremental_flag else '全量'}, 起始日期: {start_date_override} 💥💥💥")
-        # [代码新增结束]
         try:
             service = AdvancedFundFlowMetricsService()
             processed_days = await service.run_precomputation(stock_code, incremental_flag, start_date_str=start_date_override)
+            
             mode = "增量更新" if incremental_flag else "全量刷新"
             if processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！模式[{mode}]下，为 {processed_days} 个交易日计算并存储了高级资金流指标。")
@@ -1014,28 +1015,23 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
                 logger.info(f"[{stock_code}] 数据已是最新或无新数据计算，无需更新。")
             return {"status": "success", "processed_days": processed_days}
         except ValueError as ve:
-            # [代码修改开始] 在捕获 ValueError 的地方增加强制打印
             print(f"🚨🚨🚨 [资金流任务-数据警告] 股票: {stock_code} - 捕获到 ValueError: {ve} 🚨🚨🚨")
-            # [代码修改结束]
             logger.warning(f"[{stock_code}] 高级资金流指标预计算跳过 (数据问题): {ve}", exc_info=False)
             return {"status": "skipped", "reason": str(ve)}
         except Exception as e:
-            # [代码修改开始] 在捕获通用 Exception 的地方增加强制打印
             import traceback
             print(f"🔥🔥🔥 [资金流任务-严重错误] 股票: {stock_code} - 捕获到 Exception: {e} 🔥🔥🔥")
             print(traceback.format_exc())
-            # [代码修改结束]
             logger.error(f"[{stock_code}] 高级资金流指标预计算失败 (未知异常): {e}", exc_info=True)
             return {"status": "failed", "reason": str(e)}
     try:
+        # 注意：这里不再需要传递 cache_manager，因为它已经被装饰器处理
         result = async_to_sync(main)(is_incremental, start_date_str)
         return result
     except Exception as e:
-        # [代码修改开始] 在最外层也增加强制打印，以防万一
         import traceback
         print(f"🆘🆘🆘 [资金流任务-致命崩溃] 股票: {stock_code} - 在 async_to_sync 外部捕获到致命异常: {e} 🆘🆘🆘")
         print(traceback.format_exc())
-        # [代码修改结束]
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_fund_flow_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
