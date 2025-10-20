@@ -630,6 +630,64 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
         fetch_start_date = None
     return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
+def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
+    """
+    【新增】预处理并合并多源数据，为筹码计算准备统一的DataFrame。
+    - 核心逻辑: 将日线级数据 (daily_data, daily_basic, cyq_perf) 合并，
+                然后将其信息“广播”到每一行筹码分布数据 (cyq_chips) 上。
+    """
+    try:
+        # 1. 提取各个数据源
+        cyq_chips_df = data_dfs['cyq_chips']
+        daily_data_df = data_dfs['daily_data']
+        daily_basic_df = data_dfs['daily_basic']
+        cyq_perf_df = data_dfs['cyq_perf']
+        # 2. 预处理日线级数据：统一使用 trade_time 作为索引
+        # 使用 .copy() 避免 SettingWithCopyWarning
+        daily_data_df = daily_data_df.set_index('trade_time').copy()
+        daily_basic_df = daily_basic_df.set_index('trade_time').copy()
+        # 从 cyq_perf 中移除可能冲突或无用的列
+        cyq_perf_df = cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore').set_index('trade_time').copy()
+        # 3. 合并所有日线级数据
+        # 使用 inner join 确保只处理所有日线数据都存在的日期
+        daily_combined_df = daily_data_df.join(
+            [daily_basic_df, cyq_perf_df],
+            how='inner'
+        )
+        # 4. 将合并后的日线数据与筹码分布数据进行最终合并
+        # 使用 left merge，以筹码分布数据为基准，确保所有筹码行都被保留
+        merged_df = pd.merge(
+            cyq_chips_df,
+            daily_combined_df.reset_index(), # 将索引 trade_time 变回列以便合并
+            on='trade_time',
+            how='left'
+        )
+        # 5. 增加20日前的收盘价，用于计算长短期成本
+        merged_df = merged_df.sort_values(by='trade_time').reset_index(drop=True)
+        # 创建一个每日收盘价的映射
+        close_map = daily_combined_df['close_qfq'].to_dict()
+        # 获取所有需要的日期
+        unique_dates = merged_df['trade_time'].unique()
+        trade_dates_series = pd.Series(pd.to_datetime(unique_dates)).sort_values()
+        # 为每个日期找到20个交易日前的日期
+        date_20d_ago_map = {
+            date: trade_dates_series.iloc[i-20] if i >= 20 else pd.NaT
+            for i, date in enumerate(trade_dates_series)
+        }
+        # 映射20日前日期，再映射20日前收盘价
+        merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
+        merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
+        merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
+        # 填充NaN值，以防数据不连续
+        merged_df.dropna(subset=['close_qfq', 'float_share'], inplace=True)
+        return merged_df
+    except KeyError as e:
+        logger.error(f"[{stock_code}] 数据合并失败，缺少关键数据源: {e}")
+        raise ValueError(f"数据合并失败，缺少关键数据源: {e}")
+    except Exception as e:
+        logger.error(f"[{stock_code}] 在 _preprocess_and_merge_data 中发生未知错误: {e}", exc_info=True)
+        raise
+
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
     """【辅助函数 V2.0 - JIT核心实现版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
