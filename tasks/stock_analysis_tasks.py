@@ -531,7 +531,10 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================== 2. 高级筹码特征任务 ==================
 # =================================================================
 async def _load_and_audit_data_sources(stock_info, fetch_start_date):
-    """【辅助函数 V2.0 - JIT优化版】移除分钟数据预加载，只加载日线级数据。"""
+    """【辅助函数 V2.1 - 资金流归因数据注入版】加载数据并注入资金流数据源。"""
+    # [代码新增开始]
+    from utils.model_helpers import get_fund_flow_model_by_code
+    # [代码新增结束]
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model:
@@ -545,21 +548,29 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
-    # 移除分钟数据模型的获取和加载任务
-    # minute_model = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
+    # [代码新增开始]
+    fund_flow_model = get_fund_flow_model_by_code(stock_info.stock_code)
+    # [代码新增结束]
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
-        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share'), start_date=fetch_start_date),
+        # [代码修改开始]
+        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share', 'circ_mv'), start_date=fetch_start_date),
+        # [代码修改结束]
         "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_date=fetch_start_date),
-        # "minute_data": get_data_async(minute_model, stock_info, fields=('trade_time', 'amount', 'vol'), date_field='trade_time__date', start_date=fetch_start_date),
+        # [代码新增开始]
+        "fund_flow": get_data_async(fund_flow_model, stock_info, start_date=fetch_start_date),
+        # [代码新增结束]
     }
-    
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     cyq_chips_df = data_dfs.get("cyq_chips")
     if cyq_chips_df is None or cyq_chips_df.empty:
         raise ValueError("[审计失败] 核心数据源 'cyq_chips' 为空或加载失败！任务无法继续。")
+    # [代码新增开始]
+    if data_dfs.get("fund_flow") is None or data_dfs.get("fund_flow").empty:
+        logger.warning(f"[{stock_info.stock_code}] [审计警告] 'fund_flow'数据源为空，筹码交互指标将无法计算。")
+    # [代码新增结束]
     if data_dfs.get("cyq_perf") is None or data_dfs.get("cyq_perf").empty:
         raise ValueError("[审计失败] 关键数据源 'cyq_perf' 为空或加载失败！任务无法继续。")
     if data_dfs.get("daily_data") is None or data_dfs.get("daily_data").empty:
@@ -572,11 +583,10 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     for name, df in data_dfs.items():
         if name == "cyq_chips": continue
         if df is None or df.empty:
-            # 移除对分钟数据的特殊处理
-            # if name == 'minute_data':
-            #     audit_warnings.append(f"数据源 '{name}' 为空，所有依赖分钟线的升维指标将无法计算。")
-            #     continue
-            
+            # [代码修改开始]
+            if name == 'fund_flow':
+                continue
+            # [代码修改结束]
             raise ValueError(f"[审计失败] 关键数据源 '{name}' 为空！")
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         source_dates = set(df['trade_time'].dt.date.unique())
@@ -641,54 +651,51 @@ async def _initialize_task_context(stock_code: str, is_incremental: bool, max_lo
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     """
-    【新增】预处理并合并多源数据，为筹码计算准备统一的DataFrame。
-    - 核心逻辑: 将日线级数据 (daily_data, daily_basic, cyq_perf) 合并，
-                然后将其信息“广播”到每一行筹码分布数据 (cyq_chips) 上。
+    【V1.1 - 资金流归因数据注入版】预处理并合并多源数据。
     """
     try:
-        # 1. 提取各个数据源
         cyq_chips_df = data_dfs['cyq_chips']
         daily_data_df = data_dfs['daily_data']
         daily_basic_df = data_dfs['daily_basic']
         cyq_perf_df = data_dfs['cyq_perf']
-        # 2. 预处理日线级数据：统一使用 trade_time 作为索引
-        # 使用 .copy() 避免 SettingWithCopyWarning
+        # [代码新增开始]
+        fund_flow_df = data_dfs.get('fund_flow')
+        # [代码新增结束]
         daily_data_df = daily_data_df.set_index('trade_time').copy()
         daily_basic_df = daily_basic_df.set_index('trade_time').copy()
-        # 从 cyq_perf 中移除可能冲突或无用的列
         cyq_perf_df = cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore').set_index('trade_time').copy()
-        # 3. 合并所有日线级数据
-        # 使用 inner join 确保只处理所有日线数据都存在的日期
+        # [代码新增开始]
+        daily_dfs_to_join = [daily_basic_df, cyq_perf_df]
+        if fund_flow_df is not None and not fund_flow_df.empty:
+            fund_flow_df = fund_flow_df.drop(columns=['id', 'stock_id'], errors='ignore').set_index('trade_time').copy()
+            daily_dfs_to_join.append(fund_flow_df)
+        # [代码新增结束]
+        # [代码修改开始]
         daily_combined_df = daily_data_df.join(
-            [daily_basic_df, cyq_perf_df],
+            daily_dfs_to_join,
             how='inner'
         )
-        # 4. 将合并后的日线数据与筹码分布数据进行最终合并
-        # 使用 left merge，以筹码分布数据为基准，确保所有筹码行都被保留
+        # [代码修改结束]
         merged_df = pd.merge(
             cyq_chips_df,
-            daily_combined_df.reset_index(), # 将索引 trade_time 变回列以便合并
+            daily_combined_df.reset_index(),
             on='trade_time',
             how='left'
         )
-        # 5. 增加20日前的收盘价，用于计算长短期成本
         merged_df = merged_df.sort_values(by='trade_time').reset_index(drop=True)
-        # 创建一个每日收盘价的映射
         close_map = daily_combined_df['close_qfq'].to_dict()
-        # 获取所有需要的日期
         unique_dates = merged_df['trade_time'].unique()
         trade_dates_series = pd.Series(pd.to_datetime(unique_dates)).sort_values()
-        # 为每个日期找到20个交易日前的日期
         date_20d_ago_map = {
             date: trade_dates_series.iloc[i-20] if i >= 20 else pd.NaT
             for i, date in enumerate(trade_dates_series)
         }
-        # 映射20日前日期，再映射20日前收盘价
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
-        # 填充NaN值，以防数据不连续
-        merged_df.dropna(subset=['close_qfq', 'float_share'], inplace=True)
+        # [代码修改开始]
+        merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
+        # [代码修改结束]
         return merged_df
     except KeyError as e:
         logger.error(f"[{stock_code}] 数据合并失败，缺少关键数据源: {e}")
@@ -698,7 +705,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
-    """【辅助函数 V2.4 - 完整数据契约履行版】"""
+    """【辅助函数 V2.5 - 内置分钟数据增强版】"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
@@ -732,44 +739,37 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
-        # [代码修改开始] 系统性地构建符合ChipFeatureCalculator契约的上下文
-        # 1. 直接从源数据复制所有可能存在的、计算器需要的字段
         context_for_calc = {
             key: context_data.get(key) for key in [
                 'weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct',
                 'prev_20d_close'
             ]
         }
-        # 2. 进行字段重命名和单位转换
         context_for_calc['close_price'] = context_data.get('close_qfq')
         context_for_calc['high_price'] = context_data.get('high_qfq')
         context_for_calc['low_price'] = context_data.get('low_qfq')
         context_for_calc['daily_turnover_volume'] = context_data.get('vol', 0) * 100
         context_for_calc['total_chip_volume'] = context_data.get('float_share', 0) * 10000
-        # 3. 注入跨日计算所需的历史指标
         context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
-        # 4. 注入分钟数据
-        minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
-        if minute_data_for_day.empty:
+        # [代码修改开始]
+        raw_minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
+        enhanced_minute_data = _enhance_minute_data_with_fund_flow_attribution(raw_minute_data_for_day, context_data)
+        if raw_minute_data_for_day.empty:
             print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
-        context_for_calc['minute_data'] = minute_data_for_day
-        # 5. 注入T-1日的筹码分布，用于计算筹码迁徙
-        #    这需要从 prev_metrics 中获取，并在循环最后更新
+        context_for_calc['minute_data'] = enhanced_minute_data
+        # [代码修改结束]
         context_for_calc['prev_chip_distribution'] = prev_metrics.get('chip_distribution')
         context_for_calc['prev_close_price'] = prev_metrics.get('close_price')
         context_for_calc['prev_prev_20d_close'] = prev_metrics.get('prev_20d_close')
-        # [代码修改结束]
         calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_for_calc)
         daily_metrics = calculator.calculate_all_metrics()
         if daily_metrics:
             daily_metrics['trade_time'] = trade_date
             daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
             all_metrics_list.append(daily_metrics)
-            # [代码修改开始] 更新 prev_metrics 以包含T-1日筹码分布
             prev_metrics = daily_metrics
-            prev_metrics['chip_distribution'] = chip_data_for_calc # 保存当天的筹码分布，供下一天使用
-            prev_metrics['close_price'] = context_data.get('close_qfq') # 保存当天的收盘价
-            # [代码修改结束]
+            prev_metrics['chip_distribution'] = chip_data_for_calc
+            prev_metrics['close_price'] = context_data.get('close_qfq')
     if not all_metrics_list:
         message = f"[{stock_code}] [基础指标计算] 无新的交易日数据需要计算，任务提前结束。"
         logger.info(message)
@@ -916,6 +916,46 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock for {stock_code}: {e}", exc_info=True)
         raise
+
+def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, daily_context: dict) -> pd.DataFrame:
+    """
+    【新增】分钟数据增强器：使用日线资金流数据对分钟K线进行资金流归因。
+    - 核心逻辑复刻自 AdvancedFundFlowMetricsService，以解决任务间依赖问题。
+    """
+    # [代码新增开始]
+    required_daily_keys = ['circ_mv', 'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']
+    if minute_df.empty or not all(pd.notna(daily_context.get(key)) for key in required_daily_keys):
+        print(f"调试信息: 分钟数据增强跳过，因日线上下文不完整。缺失键: {[k for k in required_daily_keys if not pd.notna(daily_context.get(k))]}")
+        return minute_df
+    df = minute_df.copy()
+    df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce') * 1000
+    df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce') * 100
+    df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
+    circ_mv_yuan = pd.to_numeric(daily_context.get('circ_mv'), errors='coerce') * 10000
+    elg_threshold = circ_mv_yuan * 0.001
+    lg_threshold = circ_mv_yuan * 0.0002
+    md_threshold = circ_mv_yuan * 0.00005
+    df['elg_score'] = df['amount_yuan'].where(df['amount_yuan'] >= elg_threshold, 0)
+    df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
+    df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
+    df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
+    for size in ['sm', 'md', 'lg', 'elg']:
+        total_score = df[f'{size}_score'].sum()
+        df[f'{size}_weight'] = df[f'{size}_score'] / total_score if total_score > 0 else 0
+    cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
+    for cost_type in cost_types:
+        size = cost_type.split('_')[0]
+        daily_vol_shares = pd.to_numeric(daily_context.get(f'{cost_type}_vol'), errors='coerce') * 100
+        weight_col = f'{size}_weight'
+        attributed_vol = df[weight_col] * daily_vol_shares
+        df[f'{cost_type}_vol_attr'] = attributed_vol
+    df['main_force_buy_vol'] = df.get('lg_buy_vol_attr', 0) + df.get('elg_buy_vol_attr', 0)
+    df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
+    df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
+    df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
+    print(f"调试信息: 分钟数据增强成功，main_force_buy_vol 总量: {df['main_force_buy_vol'].sum()}")
+    return df
+    # [代码新增结束]
 
 # =================================================================
 # =================== 3. 高级资金特征任务 ==================
