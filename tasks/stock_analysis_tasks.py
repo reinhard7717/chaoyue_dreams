@@ -705,7 +705,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
-    """【辅助函数 V2.6 - 上下文净化版】"""
+    """【辅助函数 V2.7 - 诊断信息增强版】"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
@@ -751,10 +751,14 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         context_for_calc['daily_turnover_volume'] = context_data.get('vol', 0) * 100
         context_for_calc['total_chip_volume'] = context_data.get('float_share', 0) * 10000
         context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
+        # [代码新增开始] 注入股票代码和交易日期用于增强调试信息
+        context_for_calc['stock_code'] = stock_code
+        context_for_calc['trade_date'] = trade_date.date()
+        # [代码新增结束]
         raw_minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
         enhanced_minute_data = _enhance_minute_data_with_fund_flow_attribution(raw_minute_data_for_day, context_data)
         if raw_minute_data_for_day.empty:
-            print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
+            print(f"调试信息: [{stock_code}] 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
         context_for_calc['minute_data'] = enhanced_minute_data
         context_for_calc['prev_chip_distribution'] = prev_metrics.get('chip_distribution')
         context_for_calc['prev_close_price'] = prev_metrics.get('close_price')
@@ -765,14 +769,12 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
             daily_metrics['trade_time'] = trade_date
             daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
             all_metrics_list.append(daily_metrics)
-            # [代码修改开始] 净化 prev_metrics，只存储下一轮循环需要的数据
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct'),
                 'chip_distribution': chip_data_for_calc,
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close')
             }
-            # [代码修改结束]
     if not all_metrics_list:
         message = f"[{stock_code}] [基础指标计算] 无新的交易日数据需要计算，任务提前结束。"
         logger.info(message)
