@@ -766,16 +766,19 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         raise
 
 
+from celery import group
+from stock_models.stock_basic import StockInfo
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True):
     """
-    【总调度器 V1.0】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
+    【总调度器 V1.1 · 指令修正版】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
     这是发起全市场计算的入口。
     """
     try:
         # 1. 从数据库中获取所有状态为“上市(L)”的A股股票代码列表
-        # 使用 .values_list('stock_code', flat=True) 提高查询效率，只获取需要的字段
-        stock_codes = list(StockInfo.objects.filter(status='L').values_list('stock_code', flat=True))
+        # [代码修改开始] 使用正确的字段名 'list_status' 替代 'status'
+        stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
+        # [代码修改结束]
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
