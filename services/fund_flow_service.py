@@ -28,7 +28,7 @@ class AdvancedFundFlowMetricsService:
         self.max_lookback_days = 200
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
-        """【V1.6 · 黑匣子植入版】服务层主执行器"""
+        """【V1.7 · 全链路黑匣子版】服务层主执行器"""
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
@@ -45,34 +45,43 @@ class AdvancedFundFlowMetricsService:
                 except (ValueError, TypeError):
                     pass
             merged_df = await self._load_and_merge_sources(stock_info, fetch_start_date)
-            # [代码新增开始] 增加黑匣子诊断信息
             if merged_df.empty:
                 print(f"调试信息: [{stock_code}] 数据合并后 merged_df 为空，任务终止。")
                 return 0
-            print(f"调试信息: [{stock_code}] merged_df 数据范围: {merged_df.index.min().date()} to {merged_df.index.max().date()}")
-            # [代码新增结束]
+            # [代码修改开始] 增加黑匣子诊断信息
+            print(f"调试信息: [{stock_code}] [节点1] merged_df 数据范围: {merged_df.index.min().date()} to {merged_df.index.max().date()}, 形状: {merged_df.shape}")
+            # [代码修改结束]
             if not merged_df.empty:
                 target_df = merged_df[merged_df.index.date > last_metric_date] if last_metric_date else merged_df
-                # [代码新增开始] 增加黑匣子诊断信息
                 if target_df.empty:
-                    print(f"调试信息: [{stock_code}] 筛选需计算的日期后 target_df 为空，任务终止。最新合并日期: {merged_df.index.max().date()}, 基准日期: {last_metric_date}")
+                    print(f"调试信息: [{stock_code}] [节点2] 筛选需计算的日期后 target_df 为空，任务终止。最新合并日期: {merged_df.index.max().date()}, 基准日期: {last_metric_date}")
                     return 0
-                print(f"调试信息: [{stock_code}] target_df 待计算范围: {target_df.index.min().date()} to {target_df.index.max().date()} (共 {len(target_df)} 天)")
-                # [代码新增结束]
+                # [代码修改开始] 增加黑匣子诊断信息
+                print(f"调试信息: [{stock_code}] [节点2] target_df 待计算范围: {target_df.index.min().date()} to {target_df.index.max().date()} (共 {len(target_df)} 天)")
+                # [代码修改结束]
                 daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
                 target_df['daily_vwap'] = daily_vwap_series
                 self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
+                # [代码修改开始] 增加黑匣子诊断信息
+                print(f"调试信息: [{stock_code}] [节点3] 基础指标合成完毕，df_with_advanced_metrics 形状: {df_with_advanced_metrics.shape}")
+                # [代码修改结束]
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
+                # [代码修改开始] 增加黑匣子诊断信息
+                print(f"调试信息: [{stock_code}] [节点4] 衍生指标计算完毕，final_metrics_df 形状: {final_metrics_df.shape}")
+                # [代码修改结束]
                 chunk_to_save = final_metrics_df[final_metrics_df.index.isin(target_df.index)]
+                # [代码修改开始] 增加黑匣子诊断信息
+                print(f"调试信息: [{stock_code}] [节点5] 筛选待保存数据，chunk_to_save 形状: {chunk_to_save.shape}")
+                # [代码修改结束]
                 total_processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, chunk_to_save
                 )
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
         else:
-            # ... 全量计算逻辑保持不变 ...
+            # 全量计算逻辑保持不变
             print(f"调试信息: {stock_code} 启动全量分块计算...")
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
@@ -157,7 +166,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
     async def _load_and_merge_sources(self, stock_info, fetch_start_date):
-        """【V1.3 · 数据源补全版】加载、标准化并合并多源数据"""
+        """【V1.3 · 数据源补全+质检版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
             if not model: return pd.DataFrame()
@@ -165,7 +174,7 @@ class AdvancedFundFlowMetricsService:
             if start_date:
                 qs = qs.filter(**{f'{date_field}__gte': start_date})
             return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-        # [代码修改开始] 增加对 get_fund_flow_model_by_code (Tushare moneyflow) 的调用
+        # [代码修改开始] 补全物料清单，增加对 get_fund_flow_model_by_code (Tushare moneyflow) 的调用
         data_tasks = {
             "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
             "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
@@ -176,13 +185,18 @@ class AdvancedFundFlowMetricsService:
         # [代码修改结束]
         results = await asyncio.gather(*data_tasks.values())
         data_dfs = dict(zip(data_tasks.keys(), results))
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_info.stock_code}] [节点0] 原始数据加载情况:")
+        for name, df in data_dfs.items():
+            print(f"    - {name}: {'非空' if not df.empty else '空'}, 形状: {df.shape}")
+        # [代码新增结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             cols_to_numeric = [col for col in df.columns if col != 'trade_time' and 'code' not in col and 'name' not in col]
             df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric, errors='coerce')
             if source == 'tushare':
-                # [代码修改开始] 确保返回所有原始列，而不仅仅是计算后的列
+                # [代码修改开始] 确保返回所有原始列，PVWAP计算需要它们
                 df['net_flow_tushare'] = df['net_mf_amount']
                 df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
                 df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
@@ -219,6 +233,9 @@ class AdvancedFundFlowMetricsService:
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
             merged_df = merged_df.join(daily_dfs_to_join, how='inner')
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_info.stock_code}] [节点0.5] 最终合并后 merged_df 列名: {merged_df.columns.tolist()}")
+        # [代码新增结束]
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
@@ -255,13 +272,16 @@ class AdvancedFundFlowMetricsService:
         return daily_vwap.reindex(date_index)
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> pd.DataFrame:
-        """【V2.1 · 德尔菲神谕引擎植入版】"""
+        """【V2.2 · 德尔菲神谕引擎 + 黑匣子】"""
         df = merged_df.copy()
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
+        # [代码新增结束]
         tushare_cols_exist = 'buy_sm_vol' in df.columns
         if tushare_cols_exist:
             minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
             if minute_df_daily_grouped is None or minute_df_daily_grouped.empty:
-                print(f"调试信息: {stock_code} 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据未预加载或为空，跳过PVWAP及所有基于分钟线的高级指标计算。")
+                print(f"调试信息: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据未预加载或为空，跳过PVWAP及所有基于分钟线的高级指标计算。")
                 cost_pairs = {
                     'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
                     'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'), 'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
@@ -277,7 +297,7 @@ class AdvancedFundFlowMetricsService:
                 df['avg_cost_retail_buy'] = (df['buy_sm_amount'] * 10000 + df['buy_md_amount'] * 10000) / (df['buy_sm_vol'] * 100 + df['buy_md_vol'] * 100).replace(0, np.nan)
                 df['avg_cost_retail_sell'] = (df['sell_sm_amount'] * 10000 + df['sell_md_amount'] * 10000) / (df['sell_sm_vol'] * 100 + df['sell_md_vol'] * 100).replace(0, np.nan)
             else:
-                print(f"调试信息: {stock_code} 分钟数据加载成功，开始计算所有高级指标。")
+                print(f"调试信息: [{stock_code}] 分钟数据加载成功，开始计算所有高级指标。")
                 pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
                 df = df.join(pvwap_costs_df)
                 pnl_matrix_df = self._upgrade_intraday_profit_metric(df)
@@ -300,6 +320,10 @@ class AdvancedFundFlowMetricsService:
                 close_price_np = pd.to_numeric(df['close'], errors='coerce').values
                 avg_order_value_np = df['avg_order_value'].values
                 df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
+        else:
+            # [代码新增开始] 增加黑匣子诊断信息
+            print(f"警告: [{stock_code}] 关键列 'buy_sm_vol' 不存在，跳过大部分高级资金指标计算。")
+            # [代码新增结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -315,26 +339,19 @@ class AdvancedFundFlowMetricsService:
                 df[target_col] = df[existing_cols].mean(axis=1)
             else:
                 df[target_col] = np.nan
-        # 植入“德尔菲神谕”加权与分歧分析引擎
         source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
         existing_sources = [col for col in source_cols if col in df.columns]
         if len(existing_sources) > 1:
-            # 1. 计算多源分歧标准差
             df['cross_source_divergence_std'] = df[existing_sources].std(axis=1)
-            # 2. 计算加权共识主力净流入
             flows = df[existing_sources]
             median_flow = flows.median(axis=1)
-            # 计算每个源与中位数的绝对偏差
             deviations = flows.sub(median_flow, axis=0).abs()
-            # 计算权重：偏差越小，权重越高。使用 1 / (1 + deviation) 的形式避免除以零
             weights = 1 / (1 + deviations)
-            # 计算加权平均值
             weighted_flows = flows.multiply(weights.values)
             df['consensus_flow_weighted'] = weighted_flows.sum(axis=1) / weights.sum(axis=1).replace(0, np.nan)
         else:
             df['cross_source_divergence_std'] = np.nan
-            df['consensus_flow_weighted'] = df.get('main_force_net_flow_consensus', np.nan) # 若只有一个源，则加权共识等于其自身
-        
+            df['consensus_flow_weighted'] = df.get('main_force_net_flow_consensus', np.nan)
         if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
             df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
         if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_dc' in df.columns:
@@ -359,6 +376,9 @@ class AdvancedFundFlowMetricsService:
             df['main_force_conviction_ratio'] = np.nan
         total_xl_trade_yuan = pd.to_numeric(df.get('net_xl_amount_consensus'), errors='coerce').abs() * 10000
         df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {df.shape}")
+        # [代码新增结束]
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
@@ -406,13 +426,20 @@ class AdvancedFundFlowMetricsService:
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """【V1.2 · 纯净保存版】准备并保存最终计算结果到数据库，不再负责删除和过滤。"""
+        """【V1.3 · 纯净保存版 + 黑匣子】准备并保存最终计算结果到数据库。"""
         records_to_save_df = final_df
+        # [代码新增开始] 增加黑匣子诊断信息
+        stock_code = stock_info.stock_code
+        print(f"调试信息: [{stock_code}] [节点6] 进入保存函数，待保存记录数: {len(records_to_save_df)}")
+        # [代码新增结束]
         if records_to_save_df.empty:
             return 0
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_code}] [节点7] 按模型字段过滤后，待保存列: {df_filtered.columns.tolist()}")
+        # [代码新增结束]
         records_list = df_filtered.to_dict('records')
         records_to_create = []
         for record_date, record_data in zip(df_filtered.index, records_list):
@@ -427,15 +454,17 @@ class AdvancedFundFlowMetricsService:
                     **safe_record_data
                 )
             )
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_code}] [节点8] 已创建 {len(records_to_create)} 个待保存的ORM对象。")
+        # [代码新增结束]
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(model, records_to_create_list):
-            # 简化保存逻辑，只负责批量创建
             with transaction.atomic():
                 model.objects.bulk_create(records_to_create_list, batch_size=2000)
-            
-        # 简化调用
         await save_metrics_async(MetricsModel, records_to_create)
-        
+        # [代码新增开始] 增加黑匣子诊断信息
+        print(f"调试信息: [{stock_code}] [节点9] 批量保存执行完毕。")
+        # [代码新增结束]
         return len(records_to_create)
 
     # 重构为标准的 async 方法，并将ORM操作封装在内联函数中
