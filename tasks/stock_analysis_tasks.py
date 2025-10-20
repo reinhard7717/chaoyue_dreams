@@ -689,23 +689,31 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date) -> pd.DataFrame:
-    """【辅助函数 V2.0 - JIT核心实现版】逐日计算，并在循环内按需加载单日分钟数据。"""
+    """【辅助函数 V2.1 - 时区安全修复版】逐日计算，并在循环内按需加载单日分钟数据。"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
-    # 移除分钟数据预分组，改为在循环内JIT加载
-    # minute_data_grouped = {}
-    # if minute_data_df is not None and not minute_data_df.empty:
-    #     minute_data_df['trade_time'] = pd.to_datetime(minute_data_df['trade_time'])
-    #     minute_data_grouped = {date: group for date, group in minute_data_df.groupby(minute_data_df['trade_time'].dt.date)}
-    
+    # [代码新增开始] 导入datetime和timezone以进行精确的时间范围查询
+    from datetime import datetime
+    from django.utils import timezone
+    # [代码新增结束]
     # 定义单日分钟数据异步获取函数
     @sync_to_async(thread_sensitive=True)
     def get_minute_data_for_day_async(model, stock_pk, target_date):
         if not model: return pd.DataFrame()
-        qs = model.objects.filter(stock_id=stock_pk, trade_time__date=target_date)
+        # [代码修改开始] 使用时区安全的、精确到秒的范围查询，替代不安全的__date查询
+        # 1. 构建目标日期的开始时间（UTC）
+        start_of_day_utc = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
+        # 2. 构建目标日期第二天的开始时间（UTC）
+        end_of_day_utc = start_of_day_utc + timedelta(days=1)
+        # 3. 使用 >= start 和 < end 的范围进行查询，这是最高效且最安全的方式
+        qs = model.objects.filter(
+            stock_id=stock_pk,
+            trade_time__gte=start_of_day_utc,
+            trade_time__lt=end_of_day_utc
+        )
+        # [代码修改结束]
         return pd.DataFrame.from_records(qs.values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low'))
     minute_model = get_minute_data_model_by_code_and_timelevel(stock_code, '1')
-    
     prev_metrics = {}
     grouped_data = merged_df.groupby('trade_time')
     for trade_date, daily_full_df in grouped_data:
@@ -720,7 +728,6 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         if minute_data_for_day.empty:
             print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
         context_data['minute_data'] = minute_data_for_day
-        
         context_data['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
         calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_data)
         daily_metrics = calculator.calculate_all_metrics()
