@@ -907,7 +907,7 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         raise
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
-def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True, start_date_str: str = "2025-09-01"):
+def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-01", is_incremental: bool = True):
     """
     【总调度器 V1.2 · 支持起始日期版】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
     这是发起全市场计算的入口。
