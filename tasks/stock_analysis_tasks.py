@@ -868,9 +868,14 @@ async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【执行器 V21.3 · 原子化架构版】
-    - 核心架构升级: 移除了手动的 delete 操作，完全依赖 _save_metrics 中的原子化 UPSERT (`update_conflicts`)
-                     来保证数据的幂等性，使代码更简洁、更健壮。
+    【执行器 V21.4 · 数据流重构版】
+    - 核心重构: 彻底修正了数据处理流程，解决了因错误join导致“数据繁殖”和计数错误的问题。
+    - 新流程:
+        1. 计算基础指标 (每日一行)。
+        2. 从数据库加载历史指标作为衍生计算的上下文。
+        3. 将新旧指标拼接(concat)成一个干净的、每日一行的完整序列。
+        4. 在此干净序列上计算衍生指标。
+        5. 精确切分出新产生的数据进行原子化保存。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         chip_processed_days = 0
@@ -881,21 +886,40 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context(
                 stock_code, incremental_flag, max_lookback_days, start_date_override
             )
-            # [代码修改开始] 移除手动的delete逻辑，完全信赖下游的原子化UPSERT
-            # if start_date_override and not is_incremental_final:
-            #     ... (删除相关代码)
-            # [代码修改结束]
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
             if not merged_df.empty:
+                # 步骤1: 计算基础指标 (每日一行)
                 base_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override)
                 if not base_metrics_df.empty:
-                    if 'prev_20d_close' in base_metrics_df.columns:
-                        base_metrics_df = base_metrics_df.drop(columns=['prev_20d_close'])
-                    full_df_for_derivatives = merged_df.set_index('trade_time').join(base_metrics_df, how='inner')
-                    final_metrics_df = await _calculate_derivative_metrics(MetricsModel, full_df_for_derivatives)
+                    # [代码修改开始] 重构数据流，确保衍生指标的计算基于每日一行的数据
+                    # 步骤2: 从数据库加载历史指标，为衍生计算提供上下文
+                    @sync_to_async
+                    def get_historical_metrics(model, stock, end_date):
+                        # 只加载计算衍生指标所必需的列，减少内存占用
+                        core_metric_cols = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
+                        required_cols = ['trade_time', 'stock_id'] + [col for col in core_metric_cols if hasattr(model, col)]
+                        qs = model.objects.filter(stock=stock, trade_time__lt=end_date).order_by('trade_time')
+                        return pd.DataFrame.from_records(qs.values(*required_cols))
+                    
+                    history_end_date = base_metrics_df.index.min()
+                    historical_metrics_df = await get_historical_metrics(MetricsModel, stock_info, history_end_date)
+                    if not historical_metrics_df.empty:
+                        historical_metrics_df = historical_metrics_df.set_index(pd.to_datetime(historical_metrics_df['trade_time']))
+                    
+                    # 步骤3: 将新旧指标拼接成一个干净的、每日一行的完整序列
+                    full_sequence_df = pd.concat([historical_metrics_df, base_metrics_df])
+                    full_sequence_df = full_sequence_df.sort_index()
+                    
+                    # 步骤4: 在此干净序列上计算衍生指标
+                    final_metrics_df = await _calculate_derivative_metrics(MetricsModel, full_sequence_df)
+                    
+                    # 步骤5: 精确切分出本次新计算的数据进行保存
                     chunk_to_save = final_metrics_df[final_metrics_df.index.isin(base_metrics_df.index)]
+                    
+                    # 步骤6: 原子化保存
                     chip_processed_days = await _save_metrics(stock_info, MetricsModel, chunk_to_save)
+                    # [代码修改结束]
             mode = "部分全量" if start_date_override else "增量"
             if chip_processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！[筹码部分] 模式[{mode}]下，为 {chip_processed_days} 个交易日计算并存储了高级筹码指标。")
