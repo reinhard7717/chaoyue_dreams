@@ -765,6 +765,44 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_fund_flow_for_stock for {stock_code}: {e}", exc_info=True)
         raise
 
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='SaveHistoryData_TimeTrade')
+def precompute_all_stocks_advanced_metrics(self, is_incremental: bool = True):
+    """
+    【总调度器 V1.0】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
+    这是发起全市场计算的入口。
+    """
+    try:
+        # 1. 从数据库中获取所有状态为“上市(L)”的A股股票代码列表
+        # 使用 .values_list('stock_code', flat=True) 提高查询效率，只获取需要的字段
+        stock_codes = list(StockInfo.objects.filter(status='L').values_list('stock_code', flat=True))
+        if not stock_codes:
+            logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
+            return {"status": "skipped", "reason": "No listed stocks found."}
+        mode = "增量更新" if is_incremental else "全量刷新"
+        logger.info(f"【总调度】检测到 {len(stock_codes)} 只上市股票，准备以[{mode}]模式分发计算任务...")
+        # 2. 为每只股票创建筹码计算和资金流计算两个子任务签名
+        # .s() 方法创建了一个任务签名（signature），它包含了任务的名称和所有参数，但不会立即执行
+        chip_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental) for code in stock_codes]
+        fund_flow_tasks = [precompute_advanced_fund_flow_for_stock.s(stock_code=code, is_incremental=is_incremental) for code in stock_codes]
+        # 3. 将所有子任务合并到一个任务组中
+        all_tasks = chip_tasks + fund_flow_tasks
+        # 4. 使用 group 将所有任务签名打包，并使用 apply_async() 异步分发
+        # 这会将所有任务一次性发送到消息队列中，由Celery workers并行处理
+        job_group = group(all_tasks)
+        job_group.apply_async()
+        total_tasks_dispatched = len(all_tasks)
+        logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务（{len(stock_codes)}只股票 x 2种指标）。")
+        return {
+            "status": "success",
+            "dispatched_stocks": len(stock_codes),
+            "total_tasks_dispatched": total_tasks_dispatched
+        }
+    except Exception as e:
+        logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
+        # 如果在分发阶段就失败，可以考虑重试整个调度任务
+        raise self.retry(exc=e, countdown=300, max_retries=3)
+
 # =================================================================
 # =================== 行业轮动预计算 ==================
 # =================================================================

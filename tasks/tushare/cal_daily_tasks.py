@@ -3,7 +3,7 @@ import logging
 from typing import List
 from celery import group, chord
 from chaoyue_dreams.celery import app as celery_app
-from tasks.stock_analysis_tasks import schedule_precompute_advanced_chips
+from tasks.stock_analysis_tasks import precompute_all_stocks_advanced_metrics
 from tasks.tushare.fund_flow_tasks import save_fund_flow_daily_data_today, save_fund_flow_daily_data_ths_today, save_fund_flow_daily_data_ths_yesterday, save_fund_flow_daily_data_yesterday, save_fund_flow_data_this_week_task, save_hm_detail_data_today
 from tasks.tushare.index_tasks import save_index_daily_basic_history, save_index_daily_today_task, save_index_daily_this_week_task, save_index_daily_yesterday_task, save_trade_cal
 from tasks.tushare.stock_time_trade_tasks import save_cyq_data_this_week_task, save_cyq_data_today_task, save_day_data_this_week_batch, save_day_data_today_task, save_month_data_today_task, save_stocks_daily_basic_data_this_week_task, save_stocks_daily_basic_data_today_task, save_stocks_minute_data_this_week_task, save_stocks_minute_data_today_task, save_week_data_today_task  # 从 celery.py 导入 app 实例并重命名为 celery_app
@@ -30,7 +30,7 @@ def dispatch_derived_data_tasks(self, primary_results, trade_time_str=None):
     ]
     
     # 再次使用 chord，确保所有衍生数据任务完成后，才执行最终的高级筹码计算
-    final_callback = schedule_precompute_advanced_chips.s()
+    final_callback = precompute_all_stocks_advanced_metrics.s()
     logger.info("开始执行: 所有衍生数据采集任务并行调度，全部完成后执行高级筹码指标预计算。")
     
     # 使用 countdown 参数，给数据提供商留出充足的处理时间（例如10分钟）

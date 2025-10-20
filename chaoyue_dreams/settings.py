@@ -599,7 +599,7 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'queue': 'SaveHistoryData_TimeTrade'}
     },
     '每天运行一次筹码高级指标任务': {
-        'task': 'tasks.tushare.stock_analysis_tasks.schedule_precompute_advanced_chips',
+        'task': 'tasks.tushare.stock_analysis_tasks.precompute_all_stocks_advanced_metrics',
         'schedule': crontab(minute=45, hour=20, day_of_week='mon,tue,wed,thu,fri'),
         'options': {'queue': 'celery'}, # 指定队列为 celery
     },
