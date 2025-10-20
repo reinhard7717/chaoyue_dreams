@@ -922,7 +922,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
 
 def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, daily_context: dict) -> pd.DataFrame:
     """
-    【V1.2 - 回退加权修正版】分钟数据增强器，增加对零分场景的回退处理。
+    【V1.3 - 数据契约修正版】修正了用于获取日线成交量的键名构建逻辑。
     """
     required_daily_keys = ['circ_mv', 'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']
     is_context_valid = True
@@ -948,26 +948,25 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
     df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
     df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
     df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
-    # [代码修改开始] 增加回退加权逻辑
     total_day_vol = df['vol_shares'].sum()
     for size in ['sm', 'md', 'lg', 'elg']:
         total_score = df[f'{size}_score'].sum()
         if total_score > 0:
-            # A计划：按似然分数加权
             df[f'{size}_weight'] = df[f'{size}_score'] / total_score
         else:
-            # B计划：当A计划失效（通常是交易不活跃），回退到按分钟成交量加权
             if total_day_vol > 0:
                 df[f'{size}_weight'] = df['vol_shares'] / total_day_vol
                 print(f"调试信息: 日期[{daily_context.get('trade_time').date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
             else:
                 df[f'{size}_weight'] = 0
-    # [代码修改结束]
     cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
     for cost_type in cost_types:
-        size = cost_type.split('_')[0]
-        daily_vol_shares = pd.to_numeric(daily_context.get(f'{cost_type}_vol'), errors='coerce') * 100
-        if pd.isna(daily_vol_shares): daily_vol_shares = 0 # 确保 daily_vol_shares 是数字
+        # [代码修改开始] 修正键名构建逻辑以匹配数据库字段
+        size, direction = cost_type.split('_')  # 例如: 'lg', 'buy'
+        db_vol_key = f'{direction}_{size}_vol'  # 构建正确的键名, 例如: 'buy_lg_vol'
+        daily_vol_shares = pd.to_numeric(daily_context.get(db_vol_key), errors='coerce') * 100
+        # [代码修改结束]
+        if pd.isna(daily_vol_shares): daily_vol_shares = 0
         weight_col = f'{size}_weight'
         attributed_vol = df[weight_col] * daily_vol_shares
         df[f'{cost_type}_vol_attr'] = attributed_vol
