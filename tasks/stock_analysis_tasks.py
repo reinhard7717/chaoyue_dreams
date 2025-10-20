@@ -1038,28 +1038,35 @@ def precompute_advanced_fund_flow_for_stock(self, stock_code: str, is_incrementa
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-01", is_incremental: bool = True):
     """
-    【总调度器 V1.2 · 支持起始日期版】遍历所有A股上市公司，为每只股票分发高级筹码和资金流计算子任务。
-    这是发起全市场计算的入口。
+    【总调度器 V1.3 · 派遣验证版】
+    - 核心修正: 在任务创建和派遣的每一步都植入强制打印信息，以验证任务签名是否被成功创建并发送。
     """
     try:
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        mode = "增量更新" if is_incremental else "全量刷新"
-        # 如果指定了起始日期，则在日志中明确记录
-        if start_date_str:
-            logger.info(f"【总调度】检测到指定起始日期: {start_date_str}。将从该日期开始强制计算。")
         
-        logger.info(f"【总调度】检测到 {len(stock_codes)} 只上市股票，准备以[{mode}]模式分发计算任务...")
-        # 将 start_date_str 参数传递给所有子任务
+        # [代码新增开始] 增加强制打印，验证任务派遣前的状态
+        print(f"✅✅✅ [总调度器启动] 模式: {'增量' if is_incremental else '全量'}, 起始日期: {start_date_str}")
+        print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。")
+        
         chip_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        print(f"✅✅✅ [总调度器] 已创建 {len(chip_tasks)} 个【筹码】计算任务签名。")
+        
         fund_flow_tasks = [precompute_advanced_fund_flow_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        print(f"✅✅✅ [总调度器] 已创建 {len(fund_flow_tasks)} 个【资金流】计算任务签名。")
         
         all_tasks = chip_tasks + fund_flow_tasks
+        print(f"✅✅✅ [总调度器] 任务列表合并完成，总任务数: {len(all_tasks)}。")
+        
         job_group = group(all_tasks)
         job_group.apply_async()
+        
         total_tasks_dispatched = len(all_tasks)
+        print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
+        # [代码新增结束]
+        
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务（{len(stock_codes)}只股票 x 2种指标）。")
         return {
             "status": "success",
@@ -1067,6 +1074,11 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-
             "total_tasks_dispatched": total_tasks_dispatched
         }
     except Exception as e:
+        # [代码新增开始] 增加强制打印
+        import traceback
+        print(f"🔥🔥🔥 [总调度器-严重错误] 捕获到 Exception: {e} 🔥🔥🔥")
+        print(traceback.format_exc())
+        # [代码新增结束]
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
 
