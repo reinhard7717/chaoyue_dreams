@@ -698,7 +698,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         raise
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None) -> pd.DataFrame:
-    """【辅助函数 V2.3 - 数据契约适配版】逐日计算，并在循环内按需加载单日分钟数据。"""
+    """【辅助函数 V2.4 - 完整数据契约履行版】"""
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
@@ -732,34 +732,44 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         chip_data_for_calc = daily_full_df[['price', 'percent']]
         if chip_data_for_calc.empty:
             continue
-        # [代码修改开始] 建立数据适配层，以满足ChipFeatureCalculator的数据契约
-        # 1. 复制一份上下文，避免污染原始数据
-        context_for_calc = context_data.copy()
-        # 2. 重命名字段以匹配计算器接口
+        # [代码修改开始] 系统性地构建符合ChipFeatureCalculator契约的上下文
+        # 1. 直接从源数据复制所有可能存在的、计算器需要的字段
+        context_for_calc = {
+            key: context_data.get(key) for key in [
+                'weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct',
+                'prev_20d_close'
+            ]
+        }
+        # 2. 进行字段重命名和单位转换
         context_for_calc['close_price'] = context_data.get('close_qfq')
         context_for_calc['high_price'] = context_data.get('high_qfq')
         context_for_calc['low_price'] = context_data.get('low_qfq')
-        # 3. 计算并转换单位
-        # 'vol' 单位是 "手", 转换为 "股"
         context_for_calc['daily_turnover_volume'] = context_data.get('vol', 0) * 100
-        # 'float_share' 单位是 "万股", 转换为 "股"
         context_for_calc['total_chip_volume'] = context_data.get('float_share', 0) * 10000
-        print(f"调试信息: [{stock_code}] 日期[{trade_date.date()}] 适配后上下文: close_price={context_for_calc['close_price']}, total_chip_volume={context_for_calc['total_chip_volume']}")
-        # [代码修改结束]
+        # 3. 注入跨日计算所需的历史指标
+        context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
+        # 4. 注入分钟数据
         minute_data_for_day = await get_minute_data_for_day_async(minute_model, stock_info.pk, trade_date.date())
         if minute_data_for_day.empty:
             print(f"调试信息: {stock_code} 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
-        # [代码修改开始] 将适配后的上下文传递给计算器
         context_for_calc['minute_data'] = minute_data_for_day
-        context_for_calc['prev_concentration_90pct'] = prev_metrics.get('concentration_90pct')
-        calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_for_calc)
+        # 5. 注入T-1日的筹码分布，用于计算筹码迁徙
+        #    这需要从 prev_metrics 中获取，并在循环最后更新
+        context_for_calc['prev_chip_distribution'] = prev_metrics.get('chip_distribution')
+        context_for_calc['prev_close_price'] = prev_metrics.get('close_price')
+        context_for_calc['prev_prev_20d_close'] = prev_metrics.get('prev_20d_close')
         # [代码修改结束]
+        calculator = ChipFeatureCalculator(chip_data_for_calc.sort_values(by='price'), context_for_calc)
         daily_metrics = calculator.calculate_all_metrics()
         if daily_metrics:
             daily_metrics['trade_time'] = trade_date
             daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
             all_metrics_list.append(daily_metrics)
+            # [代码修改开始] 更新 prev_metrics 以包含T-1日筹码分布
             prev_metrics = daily_metrics
+            prev_metrics['chip_distribution'] = chip_data_for_calc # 保存当天的筹码分布，供下一天使用
+            prev_metrics['close_price'] = context_data.get('close_qfq') # 保存当天的收盘价
+            # [代码修改结束]
     if not all_metrics_list:
         message = f"[{stock_code}] [基础指标计算] 无新的交易日数据需要计算，任务提前结束。"
         logger.info(message)
