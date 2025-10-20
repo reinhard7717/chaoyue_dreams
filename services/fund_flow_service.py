@@ -540,26 +540,19 @@ class AdvancedFundFlowMetricsService:
         final_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         
         final_df = self._calculate_aggregate_pvwap_costs(final_df, daily_df)
-        if 'avg_cost_main_buy' in final_df.columns and 'daily_vwap' in daily_df.columns:
-            final_df = final_df.join(daily_df['daily_vwap'])
-            final_df['vwap_tracking_error'] = final_df['avg_cost_main_buy'] - final_df['daily_vwap']
         return final_df
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 精确加权版】基于PVWAP基础成本，计算按量加权的聚合成本
-        - 核心修正: 引入日线资金流数据(daily_df)，使用各分力（大单、特大单等）的真实成交量作为权重，
-                      替代了原有的简单算术平均，极大提升了聚合成本的准确性。
+        【V1.2 · 逻辑闭环版】基于PVWAP基础成本，计算按量加权的聚合成本，并完成依赖VWAP的最终计算。
+        - 核心修正: 将 vwap_tracking_error 的计算逻辑唯一地放在这里，形成逻辑闭环。
         """
         df = pvwap_df.copy()
-        # 为了加权，我们需要从 daily_df 中获取成交量（单位：手）
         vol_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
-        # 将成交量数据合并到 pvwap_df 中，以便计算
         df = df.join(daily_df[vol_cols])
-        # 定义计算函数
         def weighted_avg_cost(cost_cols, vol_cols):
             total_value = pd.Series(0.0, index=df.index)
             total_volume = pd.Series(0.0, index=df.index)
@@ -569,29 +562,28 @@ class AdvancedFundFlowMetricsService:
                 total_value += cost * volume
                 total_volume += volume
             return total_value / total_volume.replace(0, np.nan)
-        # 使用新的加权函数计算聚合成本
-        # 主力买入成本
         df['avg_cost_main_buy'] = weighted_avg_cost(
             ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
             ['buy_lg_vol', 'buy_elg_vol']
         )
-        # 主力卖出成本
         df['avg_cost_main_sell'] = weighted_avg_cost(
             ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
             ['sell_lg_vol', 'sell_elg_vol']
         )
-        # 散户买入成本
         df['avg_cost_retail_buy'] = weighted_avg_cost(
             ['avg_cost_sm_buy', 'avg_cost_md_buy'],
             ['buy_sm_vol', 'buy_md_vol']
         )
-        # 散户卖出成本
         df['avg_cost_retail_sell'] = weighted_avg_cost(
             ['avg_cost_sm_sell', 'avg_cost_md_sell'],
             ['sell_sm_vol', 'sell_md_vol']
         )
-        
-        # 返回时不包含临时的成交量列
+        # [代码修改开始] 将 vwap_tracking_error 的计算唯一地保留在此处
+        if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
+            # 此处 join 不会报错，因为 df (来自pvwap_df) 此时不包含 daily_vwap 列
+            df = df.join(daily_df['daily_vwap'])
+            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - df['daily_vwap']
+        # [代码修改结束]
         return df.drop(columns=vol_cols, errors='ignore')
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
