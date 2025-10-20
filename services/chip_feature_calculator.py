@@ -578,7 +578,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.5 - 诊断信息增强版】计算跨日筹码迁徙"""
+        """【V1.6 - 上下文感知版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -597,11 +597,13 @@ class ChipFeatureCalculator:
                 is_data_invalid = True
                 break
         if is_data_invalid or daily_turnover_vol <= 0:
-            # 增强调试信息，明确指出问题发生的股票和日期
-            stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
-            trade_date = context.get('trade_date', 'UNKNOWN_DATE')
-            print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。")
-            
+            # [代码修改开始] 增加对“是否第一天”的判断，避免不必要的警告
+            is_first_day = context.get('is_first_day_in_batch', False)
+            if not is_first_day:
+                stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
+                trade_date = context.get('trade_date', 'UNKNOWN_DATE')
+                print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。")
+            # [代码修改结束]
             return results
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
