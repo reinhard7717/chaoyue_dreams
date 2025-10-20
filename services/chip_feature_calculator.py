@@ -578,37 +578,36 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【新增】计算跨日筹码迁徙，追踪不同持仓周期资金的离场行为"""
+        """【V1.1 - 健壮性检查修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
             'short_term_capitulation_ratio': None,
             'long_term_despair_selling_ratio': None,
         }
-        # 1. 检查所需的前一日数据是否存在
         prev_chips_df = self.ctx.get('prev_chip_distribution')
         prev_close = self.ctx.get('prev_close_price')
         prev_prev_20d_close = self.ctx.get('prev_prev_20d_close')
         daily_turnover_vol = self.ctx.get('daily_turnover_volume')
-        if prev_chips_df is None or prev_chips_df.empty or not all(pd.notna(v) for v in [prev_close, prev_prev_20d_close, daily_turnover_vol]) or daily_turnover_vol <= 0:
+        # [代码修改开始] 使用更安全的检查方式，避免对 Series/DataFrame 进行布尔求值
+        is_data_invalid = False
+        if prev_chips_df is None or prev_chips_df.empty:
+            is_data_invalid = True
+        # 检查每个值是否为 None 或 NaN，这种方式对标量安全
+        for v in [prev_close, prev_prev_20d_close, daily_turnover_vol]:
+            if v is None or pd.isnull(v):
+                is_data_invalid = True
+                break
+        if is_data_invalid or daily_turnover_vol <= 0:
             print(f"调试信息: 跨日筹码流计算跳过，因T-1日数据不完整。")
             return results
-        # 2. 定义T-1日的四个持仓阵营
-        # 获利盘
+        # [代码修改结束]
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
-        # 套牢盘
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
-        # 3. 计算每个阵营在T-1日的筹码占比
-        # 短期获利盘占比
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
-        # 长期锁定盘占比
         lt_winners_pct = prev_winners[prev_winners['price'] < prev_prev_20d_close]['percent'].sum()
-        # 短期套牢盘占比
         st_losers_pct = prev_losers[prev_losers['price'] >= prev_prev_20d_close]['percent'].sum()
-        # 长期套牢盘占比
         lt_losers_pct = prev_losers[prev_losers['price'] < prev_prev_20d_close]['percent'].sum()
-        # 4. 将T日换手量按T-1日筹码占比进行归因
-        # 核心假设：当日卖方是前一日持仓者的等比例抽样
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
         results['short_term_capitulation_ratio'] = st_losers_pct
