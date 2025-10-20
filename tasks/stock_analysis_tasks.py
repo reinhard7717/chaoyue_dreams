@@ -922,7 +922,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, start_date_str: s
 
 def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, daily_context: dict) -> pd.DataFrame:
     """
-    【V1.3 - 数据契约修正版】修正了用于获取日线成交量的键名构建逻辑。
+    【V1.4 - 战场静默版】移除已完成调试的打印信息，保持控制台清洁。
     """
     required_daily_keys = ['circ_mv', 'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol', 'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol']
     is_context_valid = True
@@ -956,16 +956,16 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
         else:
             if total_day_vol > 0:
                 df[f'{size}_weight'] = df['vol_shares'] / total_day_vol
-                print(f"调试信息: 日期[{daily_context.get('trade_time').date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
+                # [代码修改开始] 移除已验证的调试信息
+                # print(f"调试信息: 日期[{daily_context.get('trade_time').date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
+                # [代码修改结束]
             else:
                 df[f'{size}_weight'] = 0
     cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
     for cost_type in cost_types:
-        # [代码修改开始] 修正键名构建逻辑以匹配数据库字段
-        size, direction = cost_type.split('_')  # 例如: 'lg', 'buy'
-        db_vol_key = f'{direction}_{size}_vol'  # 构建正确的键名, 例如: 'buy_lg_vol'
+        size, direction = cost_type.split('_')
+        db_vol_key = f'{direction}_{size}_vol'
         daily_vol_shares = pd.to_numeric(daily_context.get(db_vol_key), errors='coerce') * 100
-        # [代码修改结束]
         if pd.isna(daily_vol_shares): daily_vol_shares = 0
         weight_col = f'{size}_weight'
         attributed_vol = df[weight_col] * daily_vol_shares
@@ -974,7 +974,9 @@ def _enhance_minute_data_with_fund_flow_attribution(minute_df: pd.DataFrame, dai
     df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
     df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
     df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
-    print(f"调试信息: 分钟数据增强成功，main_force_buy_vol 总量: {df['main_force_buy_vol'].sum()}")
+    # [代码修改开始] 移除已验证的调试信息
+    # print(f"调试信息: 分钟数据增强成功，main_force_buy_vol 总量: {df['main_force_buy_vol'].sum()}")
+    # [代码修改结束]
     return df
 
 # =================================================================
