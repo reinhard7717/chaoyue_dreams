@@ -27,16 +27,19 @@ class AdvancedFundFlowMetricsService:
     def __init__(self):
         self.max_lookback_days = 200
 
-    async def run_precomputation(self, stock_code: str, is_incremental: bool):
-        """【V1.3 · 分块处理核心实现】服务层主执行器"""
+    async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
+        """【V1.4 · 部分全量支持版】服务层主执行器"""
+        # [代码修改开始] 将 start_date_str 传递给上下文初始化函数
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
-            stock_code, is_incremental
+            stock_code, is_incremental, start_date_str
         )
-        # 引入分块处理逻辑
+        # [代码修改结束]
         total_processed_count = 0
-        # 如果是增量更新，则直接执行一次计算即可
         if is_incremental_final:
-            print(f"调试信息: {stock_code} 启动增量计算，起始日期: {fetch_start_date}")
+            # [代码修改开始] 统一日志输出格式
+            mode = "部分全量" if start_date_str else "增量"
+            print(f"调试信息: {stock_code} 启动{mode}计算，起始日期: {fetch_start_date}")
+            # [代码修改结束]
             merged_df = await self._load_and_merge_sources(stock_info, fetch_start_date)
             if not merged_df.empty:
                 daily_vwap_series = await self._calculate_daily_vwap(stock_info, merged_df.index)
@@ -44,17 +47,16 @@ class AdvancedFundFlowMetricsService:
                 self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, merged_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, merged_df)
                 final_metrics_df = self._calculate_derivatives(stock_code, df_with_advanced_metrics)
+                # [代码修改开始] 将 start_date_str 传递给保存函数
                 total_processed_count = await self._prepare_and_save_data(
-                    stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date
+                    stock_info, MetricsModel, final_metrics_df, is_incremental_final, last_metric_date, start_date_str
                 )
+                # [代码修改结束]
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
         else:
-            # 全量计算，启动分块处理循环
             print(f"调试信息: {stock_code} 启动全量分块计算...")
-            # 首次运行时，清空旧数据
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
-            # 获取所有日线数据的交易日历作为循环基准
             DailyModel = get_daily_data_model_by_code(stock_code)
             all_trade_dates = pd.to_datetime(
                 await sync_to_async(list)(DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time'))
@@ -62,12 +64,11 @@ class AdvancedFundFlowMetricsService:
             if all_trade_dates.empty:
                 print(f"调试信息: {stock_code} 无日线数据，无法进行计算。")
                 return 0
-            chunk_size = 180  # 每个区块处理180天的数据
+            chunk_size = 180
             for i in range(0, len(all_trade_dates), chunk_size):
                 chunk_dates = all_trade_dates[i:i + chunk_size]
                 if chunk_dates.empty:
                     continue
-                # 为确保衍生指标计算的连续性，需要向前加载一个缓冲期的数据
                 chunk_start_date = chunk_dates.min().date()
                 buffer_start_date = chunk_start_date - timedelta(days=self.max_lookback_days)
                 chunk_end_date = chunk_dates.max().date()
@@ -75,7 +76,6 @@ class AdvancedFundFlowMetricsService:
                 merged_df = await self._load_and_merge_sources(stock_info, buffer_start_date)
                 if merged_df.empty:
                     continue
-                # 仅为当前区块的日期计算高级指标
                 target_df = merged_df[merged_df.index.date >= chunk_start_date]
                 if target_df.empty:
                     continue
@@ -83,10 +83,8 @@ class AdvancedFundFlowMetricsService:
                 target_df['daily_vwap'] = daily_vwap_series
                 self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
                 df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
-                # 衍生指标计算需要用到缓冲期的数据，所以在完整的merged_df上计算
                 full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
                 final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
-                # 只保存属于当前区块的计算结果
                 chunk_to_save = final_metrics_df[final_metrics_df.index.date >= chunk_start_date]
                 processed_count = await self._prepare_and_save_data(
                     stock_info, MetricsModel, chunk_to_save, is_incremental=True, last_metric_date=chunk_start_date - timedelta(days=1)
@@ -95,15 +93,33 @@ class AdvancedFundFlowMetricsService:
                 if hasattr(self, '_minute_df_daily_grouped'):
                     del self._minute_df_daily_grouped
         return total_processed_count
-        
 
-    async def _initialize_context(self, stock_code: str, is_incremental: bool):
-        """【V1.1 · 分块处理版】初始化任务上下文，为分块处理做准备"""
+    async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
+        """【V1.2 · 部分全量支持版】初始化任务上下文，增加对start_date_str的处理。"""
+        # [代码新增开始]
+        from datetime import datetime
+        # [代码新增结束]
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
         MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         last_metric_date = None
-        # 调整逻辑以支持分块处理
-        # 在增量模式下，我们只计算最近的一小部分数据，无需分块
+        fetch_start_date = None
+        # [代码新增开始] 优先处理 start_date_str，如果存在则覆盖原有逻辑
+        if start_date_str:
+            print(f"调试信息: [{stock_code}] 检测到资金流起始日期覆盖: {start_date_str}，将执行部分全量计算。")
+            try:
+                start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # 强制走增量更新的路径，但使用自定义的日期
+                is_incremental = True
+                # 保存数据时，会保存 trade_time > last_metric_date 的数据
+                last_metric_date = start_date_obj - timedelta(days=1)
+                # 加载数据时，需要回溯足够天数以计算衍生指标
+                fetch_start_date = start_date_obj - timedelta(days=self.max_lookback_days)
+                return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
+            except (ValueError, TypeError):
+                print(f"警告: [{stock_code}] 提供的起始日期 '{start_date_str}' 格式错误，将忽略并执行默认逻辑。")
+                # 如果日期格式错误，则退回原始的增量判断逻辑
+                is_incremental = True
+        # [代码新增结束]
         if is_incremental:
             @sync_to_async(thread_sensitive=True)
             def get_latest_metric_async(model, stock_info_obj):
@@ -114,17 +130,13 @@ class AdvancedFundFlowMetricsService:
             latest_metric = await get_latest_metric_async(MetricsModel, stock_info)
             if latest_metric:
                 last_metric_date = latest_metric.trade_time
-                # 增量更新时，计算的起始日期为最后记录日期减去衍生指标最大回溯期
                 fetch_start_date = last_metric_date - timedelta(days=self.max_lookback_days)
             else:
-                # 如果没有历史数据，则转为全量计算
                 is_incremental = False
-                fetch_start_date = None # 全量计算从头开始
+                fetch_start_date = None
         else:
-            # 全量计算模式，起始日期设为None，由主循环处理
             fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-        
 
     async def _load_and_merge_sources(self, stock_info, fetch_start_date):
         """加载、标准化并合并多源数据"""
@@ -367,8 +379,11 @@ class AdvancedFundFlowMetricsService:
                         final_df[accel_col_name] = final_df.ta.slope(close=slope_series.astype(float), length=calc_window)
         return final_df
 
-    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date):
-        """准备并保存最终计算结果到数据库"""
+    async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None):
+        """【V1.1 · 部分全量支持版】准备并保存数据，增加按需删除逻辑。"""
+        # [代码新增开始]
+        from datetime import datetime
+        # [代码新增结束]
         if is_incremental and last_metric_date:
             records_to_save_df = final_df[final_df.index.date > last_metric_date]
         else:
@@ -393,12 +408,28 @@ class AdvancedFundFlowMetricsService:
                 )
             )
         @sync_to_async(thread_sensitive=True)
-        def save_metrics_async(model, stock_info_obj, records_to_create_list, do_delete_first: bool):
+        def save_metrics_async(model, stock_info_obj, records_to_create_list, is_incremental_flag, start_date_override):
             with transaction.atomic():
-                if do_delete_first:
+                # [代码修改开始] 增加对部分全量模式的数据删除逻辑
+                # 全量模式: 删除所有
+                if not is_incremental_flag and not start_date_override:
                     model.objects.filter(stock=stock_info_obj).delete()
+                    print(f"调试信息: [{stock_info_obj.stock_code}] 全量模式，已删除该股票所有旧资金流指标数据。")
+                # 部分全量模式: 删除指定日期之后的数据
+                elif start_date_override:
+                    try:
+                        start_date_obj = datetime.strptime(start_date_override, '%Y-%m-%d').date()
+                        deleted_count, _ = model.objects.filter(stock=stock_info_obj, trade_time__gte=start_date_obj).delete()
+                        print(f"调试信息: [{stock_info_obj.stock_code}] 部分全量模式，已删除从 {start_date_override} 开始的 {deleted_count} 条旧资金流指标数据。")
+                    except (ValueError, TypeError):
+                        pass # 日期格式错误在 initialize_context 已处理，此处仅作防御
+                # 增量模式: 不删除
+                # 最终执行批量创建
                 model.objects.bulk_create(records_to_create_list, batch_size=2000)
-        await save_metrics_async(MetricsModel, stock_info, records_to_create, not is_incremental)
+                # [代码修改结束]
+        # [代码修改开始] 将 is_incremental 和 start_date_str 传递给保存函数
+        await save_metrics_async(MetricsModel, stock_info, records_to_create, is_incremental, start_date_str)
+        # [代码修改结束]
         return len(records_to_create)
 
     # 重构为标准的 async 方法，并将ORM操作封装在内联函数中
