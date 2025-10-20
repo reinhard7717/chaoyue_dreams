@@ -778,27 +778,31 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
     return new_metrics_df
 
 async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame) -> pd.DataFrame:
-    """【新增】计算所有筹码指标的衍生指标（斜率、加速度等），并动态读取模型定义。"""
+    """【新增 V1.1 - pandas_ta调用修正版】计算所有筹码指标的衍生指标（斜率、加速度等），并动态读取模型定义。"""
     final_df = consensus_df.copy()
-    # 直接从模型类读取“生产管制清单”和核心指标列表
+    # [代码新增开始] 导入pandas_ta库以使用其直接函数调用
+    import pandas_ta as ta
+    # [代码新增结束]
     SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
     CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
     UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
-    # 筹码指标中没有需要计算sum的，直接计算斜率和加速度
     for col in CORE_METRICS_TO_DERIVE:
         if col in final_df.columns:
-            # 检查是否在排除列表中
             if col in SLOPE_ACCEL_EXCLUSIONS or col in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
                 continue
             source_series = final_df[col].astype(float)
             for p in UNIFIED_PERIODS:
                 calc_window = 2 if p == 1 else p
                 slope_col_name = f'{col}_slope_{p}d'
-                slope_series = final_df.ta.slope(close=source_series, length=calc_window)
+                # [代码修改开始] 使用 ta.slope() 直接函数调用，替代不稳定的 final_df.ta.slope()
+                slope_series = ta.slope(close=source_series, length=calc_window)
+                # [代码修改结束]
                 final_df[slope_col_name] = slope_series
                 if slope_series is not None and not slope_series.empty:
                     accel_col_name = f'{col}_accel_{p}d'
-                    final_df[accel_col_name] = final_df.ta.slope(close=slope_series.astype(float), length=calc_window)
+                    # [代码修改开始] 同样修正加速度的计算调用
+                    final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                    # [代码修改结束]
     return final_df
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
