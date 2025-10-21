@@ -588,39 +588,39 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 利润公式重塑版】使用金融学第一性原理重写P&L矩阵计算。
-        - 核心修正: 彻底废弃了 (sell-buy)*buy_vol 的错误利润公式。
-        - 核心修正: 将 main_force_intraday_profit 定义为 (总卖出金额 - 总买入金额)，从根本上解决利润归零问题。
+        【V3.1 · 单位统一版】使用金融学第一性原理，并统一单位为“万元”。
+        - 核心修正: 将最终计算出的以“元”为单位的利润，除以10000，转换为“万元”，与其他资金流指标对齐。
         """
         results_df = pd.DataFrame(index=df.index)
-        # [代码修改开始] 使用正确的金融学公式重塑整个P&L计算
-        # 1. 安全地获取所有输入数据
         cost_buy = self._get_numeric_series_with_nan(df, 'avg_cost_main_buy')
         cost_sell = self._get_numeric_series_with_nan(df, 'avg_cost_main_sell')
         close_price = self._get_numeric_series_with_nan(df, 'close')
         vol_buy_shares = (self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')) * 100
         vol_sell_shares = (self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')) * 100
-        # 2. 计算核心的P&L组件
-        # 已实现利润：针对日内T+0置换的部分
+        
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
-        results_df['realized_profit_on_exchange'] = (cost_sell - cost_buy) * exchanged_volume
-        # 净头寸变动及其成本
+        realized_profit_yuan = (cost_sell - cost_buy) * exchanged_volume
+        results_df['realized_profit_on_exchange'] = realized_profit_yuan / 10000 # 转换为万元
+        
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
-        # 当净买入时，新增头寸成本为买入成本；当净卖出时，减少头寸的成本（或说价格）为卖出价格
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
-        results_df['net_position_change_value'] = net_pos_change_vol * net_pos_change_cost
-        # 未实现盈亏：针对日终净头寸变动的部分，按收盘价计算浮动盈亏
-        results_df['unrealized_pnl_on_net_change'] = (close_price - net_pos_change_cost) * net_pos_change_vol
-        # 3. 【决定性修复】使用正确的金融学公式计算总利润
-        # 总利润 = 总卖出金额 - 总买入金额
-        total_sell_value = cost_sell * vol_sell_shares
-        total_buy_value = cost_buy * vol_buy_shares
-        results_df['main_force_intraday_profit'] = total_sell_value - total_buy_value
-        # 4. P&L矩阵可信度评分 (逻辑保持不变)
+        net_pos_change_value_yuan = net_pos_change_vol * net_pos_change_cost
+        results_df['net_position_change_value'] = net_pos_change_value_yuan / 10000 # 转换为万元
+        
+        unrealized_pnl_yuan = (close_price - net_pos_change_cost) * net_pos_change_vol
+        results_df['unrealized_pnl_on_net_change'] = unrealized_pnl_yuan / 10000 # 转换为万元
+        
+        # [代码修改开始] 统一利润单位为“万元”
+        total_sell_value_yuan = cost_sell * vol_sell_shares
+        total_buy_value_yuan = cost_buy * vol_buy_shares
+        total_profit_yuan = total_sell_value_yuan - total_buy_value_yuan
+        # 将最终利润转换为“万元”以匹配其他资金流指标
+        results_df['main_force_intraday_profit'] = total_profit_yuan / 10000
+        # [代码修改结束]
+        
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
         dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
-        # 在多源数据都存在的情况下才计算一致性
         agreement_count = pd.Series(0, index=df.index)
         valid_sources = 0
         if 'main_force_net_flow_ths' in df.columns:
@@ -632,14 +632,11 @@ class AdvancedFundFlowMetricsService:
         if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
              agreement_count += (dir_ths == dir_dc).astype(int)
              valid_sources += 1
-        # 避免除以零
         if valid_sources > 0:
-            # 将一致性评分标准化到0-1之间
             results_df['pnl_matrix_confidence_score'] = agreement_count / max(1, valid_sources)
         else:
             results_df['pnl_matrix_confidence_score'] = np.nan
         return results_df
-        # [代码修改结束]
 
     def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
@@ -757,32 +754,36 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V5.0 · 双轨制归因模型】计算基于“买卖压力代理”的日内归因权重。
-        - 核心逻辑: 引入双轨制。circ_mv可用时，使用货币阈值；不可用时，降级到使用成交量阈值，但始终保持方向性归因。
+        【V7.0 · 自适应分位数阈值版】使用动态分位数阈值对分钟交易进行分类。
+        - 核心修正: 彻底废弃基于日线流通市值的静态阈值。
+        - 核心逻辑: 改为计算当日分钟成交额的分布分位数，实现每日自适应分类。
         """
-        # [代码修改开始] 恢复此方法至其正确的V5.0版本，移除局部的排序
         df = minute_data_for_day.copy()
-        circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
-        if pd.notna(circ_mv) and circ_mv > 0:
-            thresholds = {
-                'elg': circ_mv * 0.001, 'lg': circ_mv * 0.0002,
-                'md': circ_mv * 0.00005
-            }
-            score_source_col = 'amount_yuan'
-        else:
-            total_daily_vol = df['vol_shares'].sum()
-            num_minutes = len(df)
-            if total_daily_vol > 0 and num_minutes > 0:
-                avg_minute_vol = total_daily_vol / num_minutes
-                thresholds = {
-                    'elg': avg_minute_vol * 10, 'lg': avg_minute_vol * 5,
-                    'md': avg_minute_vol * 2
-                }
-                score_source_col = 'vol_shares'
-            else:
-                for size in ['sm', 'md', 'lg', 'elg']:
-                    df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
-                return df
+        # [代码修改开始] 引入自适应分位数阈值逻辑
+        # 检查分钟成交额数据是否有效
+        if 'amount_yuan' not in df.columns or df['amount_yuan'].sum() < 1e-6:
+            # 如果没有有效的分钟成交额，则无法分类，返回全零权重
+            for size in ['sm', 'md', 'lg', 'elg']:
+                df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
+            return df
+        
+        # 计算当日分钟成交额的分位数作为动态阈值
+        # 只有在有交易的分钟才参与分位数计算
+        valid_amounts = df['amount_yuan'][df['amount_yuan'] > 0]
+        if valid_amounts.empty:
+            # 如果所有分钟成交额都为0，同样返回全零权重
+            for size in ['sm', 'md', 'lg', 'elg']:
+                df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
+            return df
+
+        thresholds = {
+            'elg': valid_amounts.quantile(0.95), # 成交额最高的5%的分钟
+            'lg': valid_amounts.quantile(0.85),  # 次高的10%
+            'md': valid_amounts.quantile(0.60)   # 中等的25%
+        }
+        score_source_col = 'amount_yuan'
+        # [代码修改结束]
+
         scores = {
             'elg': df[score_source_col].where(df[score_source_col] >= thresholds['elg'], 0),
             'lg': df[score_source_col].where((df[score_source_col] >= thresholds['lg']) & (df[score_source_col] < thresholds['elg']), 0),
@@ -817,7 +818,6 @@ class AdvancedFundFlowMetricsService:
             else:
                 df[f'{size}_sell_weight'] = 0
         return df
-        # [代码修改结束]
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
         """【新增 V1.0】从预加载的DataFrame计算日度VWAP"""
