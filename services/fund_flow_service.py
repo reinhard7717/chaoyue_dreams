@@ -545,20 +545,36 @@ class AdvancedFundFlowMetricsService:
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """【V1.3 · 纯净保存版 + 黑匣子】准备并保存最终计算结果到数据库。"""
+        """【V1.4 · 数据精加工终极版】准备并保存最终计算结果到数据库。"""
         records_to_save_df = final_df
-        # [代码新增开始] 增加黑匣子诊断信息
         stock_code = stock_info.stock_code
         print(f"调试信息: [{stock_code}] [节点6] 进入保存函数，待保存记录数: {len(records_to_save_df)}")
-        # [代码新增结束]
         if records_to_save_df.empty:
             return 0
+        # [代码修改开始]
+        # 步骤1: 识别所有DecimalField字段
+        from django.db.models import DecimalField
+        decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
+        # 步骤2: 对DataFrame中对应的Decimal列进行数据精加工
+        for col in decimal_fields:
+            if col in records_to_save_df.columns:
+                # 确保列是数值类型，以防万一
+                records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
+                # 替换无穷大值为NaN
+                records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
+                # 对非空值进行四舍五入，精确到6位小数
+                # 这是解决 numpy.float64 到 DecimalField 静默失败的关键
+                records_to_save_df.loc[records_to_save_df[col].notna(), col] = records_to_save_df.loc[records_to_save_df[col].notna(), col].round(6)
+        # 调试信息: 打印处理后的一行数据，检查关键字段
+        if not records_to_save_df.empty:
+            print("--- 探针：数据精加工后，准备存入数据库的一行数据 ---")
+            print(records_to_save_df.iloc[-1][['main_force_intraday_profit', 'avg_cost_main_buy', 'daily_vwap']])
+            print("----------------------------------------------------")
+        # [代码修改结束]
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        # [代码新增开始] 增加黑匣子诊断信息
         print(f"调试信息: [{stock_code}] [节点7] 按模型字段过滤后，待保存列: {df_filtered.columns.tolist()}")
-        # [代码新增结束]
         records_list = df_filtered.to_dict('records')
         records_to_create = []
         for record_date, record_data in zip(df_filtered.index, records_list):
@@ -573,17 +589,13 @@ class AdvancedFundFlowMetricsService:
                     **safe_record_data
                 )
             )
-        # [代码新增开始] 增加黑匣子诊断信息
         print(f"调试信息: [{stock_code}] [节点8] 已创建 {len(records_to_create)} 个待保存的ORM对象。")
-        # [代码新增结束]
         @sync_to_async(thread_sensitive=True)
         def save_metrics_async(model, records_to_create_list):
             with transaction.atomic():
                 model.objects.bulk_create(records_to_create_list, batch_size=2000)
         await save_metrics_async(MetricsModel, records_to_create)
-        # [代码新增开始] 增加黑匣子诊断信息
         print(f"调试信息: [{stock_code}] [节点9] 批量保存执行完毕。")
-        # [代码新增结束]
         return len(records_to_create)
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
