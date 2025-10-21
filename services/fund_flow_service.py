@@ -545,7 +545,7 @@ class AdvancedFundFlowMetricsService:
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """【V1.4 · 数据精加工终极版】准备并保存最终计算结果到数据库。"""
+        """【V1.5 · 终极类型转换版】准备并保存最终计算结果到数据库。"""
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
         print(f"调试信息: [{stock_code}] [节点6] 进入保存函数，待保存记录数: {len(records_to_save_df)}")
@@ -554,22 +554,13 @@ class AdvancedFundFlowMetricsService:
         # [代码修改开始]
         # 步骤1: 识别所有DecimalField字段
         from django.db.models import DecimalField
+        from decimal import Decimal, ROUND_HALF_UP
         decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
         # 步骤2: 对DataFrame中对应的Decimal列进行数据精加工
         for col in decimal_fields:
             if col in records_to_save_df.columns:
-                # 确保列是数值类型，以防万一
                 records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
-                # 替换无穷大值为NaN
                 records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
-                # 对非空值进行四舍五入，精确到6位小数
-                # 这是解决 numpy.float64 到 DecimalField 静默失败的关键
-                records_to_save_df.loc[records_to_save_df[col].notna(), col] = records_to_save_df.loc[records_to_save_df[col].notna(), col].round(6)
-        # 调试信息: 打印处理后的一行数据，检查关键字段
-        if not records_to_save_df.empty:
-            print("--- 探针：数据精加工后，准备存入数据库的一行数据 ---")
-            print(records_to_save_df.iloc[-1][['main_force_intraday_profit', 'avg_cost_main_buy', 'daily_vwap']])
-            print("----------------------------------------------------")
         # [代码修改结束]
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
@@ -578,10 +569,25 @@ class AdvancedFundFlowMetricsService:
         records_list = df_filtered.to_dict('records')
         records_to_create = []
         for record_date, record_data in zip(df_filtered.index, records_list):
-            safe_record_data = {
-                key: None if isinstance(value, float) and not np.isfinite(value) else value
-                for key, value in record_data.items()
-            }
+            safe_record_data = {}
+            for key, value in record_data.items():
+                # [代码修改开始]
+                # 终极修正：在创建ORM对象前，将所有Decimal字段的值显式转换为Python的Decimal类型
+                if key in decimal_fields and pd.notna(value):
+                    # 使用str()作为中间步骤可以避免二进制浮点数精度问题
+                    new_value = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+                    safe_record_data[key] = new_value
+                    # 终极探针：检查转换后的类型和值
+                    if key == 'main_force_intraday_profit':
+                        print(f"--- 终极探针: 正在处理 {record_date.date()} 的 main_force_intraday_profit ---")
+                        print(f"    原始值: {value}, 原始类型: {type(value)}")
+                        print(f"    转换后值: {new_value}, 转换后类型: {type(new_value)}")
+                        print("--------------------------------------------------------------------")
+                elif isinstance(value, float) and not np.isfinite(value):
+                    safe_record_data[key] = None
+                else:
+                    safe_record_data[key] = value
+                # [代码修改结束]
             records_to_create.append(
                 MetricsModel(
                     stock=stock_info,
