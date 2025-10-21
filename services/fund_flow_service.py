@@ -381,8 +381,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 方向性权重重构版】使用订单规模似然权重计算PVWAP成本。
-        - 核心修正: 彻底重构权重计算逻辑，为每个cost_type独立生成时间分布权重，解决成本恒等导致利润为0的BUG。
+        【V3.1 · 方向性权重应用版】使用订单规模似然权重计算PVWAP成本。
+        - 核心修正: 使用上游生成的、带有方向的score来构建权重，确保买卖成本的差异性。
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
@@ -394,10 +394,8 @@ class AdvancedFundFlowMetricsService:
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            # [代码修改] 先获取带有分数（而非错误权重）的分钟数据
             minute_data_for_day = self._calculate_order_size_likelihood_scores(minute_df_grouped.loc[[date_key]].copy(), daily_data)
             day_results = {'trade_time': date}
-            # [代码修改开始] 为每个cost_type独立计算权重和成本
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
                 db_vol_key = f'{direction}_{size}_vol'
@@ -406,22 +404,20 @@ class AdvancedFundFlowMetricsService:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
                     continue
-                # 动态计算当前cost_type专属的时间分布权重
-                score_col = f'{size}_score'
+                # [代码修改开始] 使用带有方向的、正确的score_col
+                score_col = f'{size}_{direction}_score'
+                # [代码修改结束]
                 total_score = minute_data_for_day[score_col].sum()
                 if total_score > 0:
                     weight_series = minute_data_for_day[score_col] / total_score
                 else:
-                    # 回退逻辑：如果智能评分为0，则按分钟成交量占比进行归因
                     weight_series = minute_data_for_day['vol_weight']
                 attributed_vol = weight_series * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
-                # 使用专属权重归因后的成交量，计算加权平均成本
                 attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-            # [代码修改结束]
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
@@ -729,23 +725,36 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_order_size_likelihood_scores(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V2.0 · 职责简化版】计算订单规模似然分数。
-        - 核心修正: 不再计算错误的、方向无关的权重，只计算分数，供下游独立生成权重。
+        【V3.0 · 方向性注入重构版】计算带有买卖方向的订单规模似然分数。
+        - 核心修正: 引入 close vs open 作为方向代理，为每个规模生成独立的 buy_score 和 sell_score。
         """
-        # [代码修改开始] 简化函数职责，只计算分数
         df = minute_data_for_day.copy()
         circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
-        # 如果没有流通市值，无法进行智能评分，所有分数都为0，下游将自动回退到按成交量加权
         if pd.isna(circ_mv) or circ_mv == 0:
-            df['sm_score'] = df['md_score'] = df['lg_score'] = df['elg_score'] = 0
+            for size in ['sm', 'md', 'lg', 'elg']:
+                df[f'{size}_buy_score'] = 0
+                df[f'{size}_sell_score'] = 0
             return df
+        # [代码修改开始] 引入方向性代理，并生成方向性分数
         elg_threshold = circ_mv * 0.001
         lg_threshold = circ_mv * 0.0002
         md_threshold = circ_mv * 0.00005
-        df['elg_score'] = df['amount_yuan'].where(df['amount_yuan'] >= elg_threshold, 0)
-        df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
-        df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
-        df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
+        # 1. 计算无方向的原始分数
+        elg_score = df['amount_yuan'].where(df['amount_yuan'] >= elg_threshold, 0)
+        lg_score = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
+        md_score = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
+        sm_score = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
+        # 2. 根据分钟线涨跌（方向代理）分配分数
+        # close > open: 认为是买方驱动，分数全部分配给buy_score
+        buy_driven_mask = df['close'] > df['open']
+        # close < open: 认为是卖方驱动，分数全部分配给sell_score
+        sell_driven_mask = df['close'] < df['open']
+        # close == open: 平盘，买卖均衡，分数对半分
+        neutral_mask = df['close'] == df['open']
+        # 3. 循环生成带方向的分数
+        for size, score_series in [('elg', elg_score), ('lg', lg_score), ('md', md_score), ('sm', sm_score)]:
+            df[f'{size}_buy_score'] = np.where(buy_driven_mask, score_series, 0) + np.where(neutral_mask, score_series / 2, 0)
+            df[f'{size}_sell_score'] = np.where(sell_driven_mask, score_series, 0) + np.where(neutral_mask, score_series / 2, 0)
         return df
         # [代码修改结束]
 
