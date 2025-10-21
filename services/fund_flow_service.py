@@ -727,40 +727,63 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V4.1 · 标量掩码修复版】计算基于“买卖压力代理”的日内归因权重。
-        - 核心修正: 修复了在归一化权重时，因误用np.divide的where参数导致putmask尺寸不匹配的致命BUG。
+        【V6.0 · 价格跳动仲裁版】计算日内归因权重。
+        - 核心修正: 当分钟K线无波幅(high==low)时，引入上一分钟收盘价作为“价格跳动”仲裁，解决压力代理失效导致利润归零的BUG。
         """
-        df = minute_data_for_day.copy()
+        df = minute_data_for_day.copy().sort_values('trade_time')
+        # [代码修改开始] 引入价格跳动仲裁逻辑
+        # 1. 准备基础数据和备用模型
         circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
         if pd.isna(circ_mv) or circ_mv == 0:
-            for size in ['sm', 'md', 'lg', 'elg']:
-                for direction in ['buy', 'sell']:
-                    df[f'{size}_{direction}_weight'] = 0
-            return df
-        elg_threshold = circ_mv * 0.001
-        lg_threshold = circ_mv * 0.0002
-        md_threshold = circ_mv * 0.00005
+            total_daily_vol = df['vol_shares'].sum()
+            num_minutes = len(df)
+            if total_daily_vol > 0 and num_minutes > 0:
+                avg_minute_vol = total_daily_vol / num_minutes
+                thresholds = {
+                    'elg': avg_minute_vol * 10, 'lg': avg_minute_vol * 5,
+                    'md': avg_minute_vol * 2
+                }
+                score_source_col = 'vol_shares'
+            else:
+                for size in ['sm', 'md', 'lg', 'elg']:
+                    df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
+                return df
+        else:
+            thresholds = {
+                'elg': circ_mv * 0.001, 'lg': circ_mv * 0.0002,
+                'md': circ_mv * 0.00005
+            }
+            score_source_col = 'amount_yuan'
+        # 2. 统一的评分逻辑
         scores = {
-            'elg': df['amount_yuan'].where(df['amount_yuan'] >= elg_threshold, 0),
-            'lg': df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0),
-            'md': df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0),
-            'sm': df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0),
+            'elg': df[score_source_col].where(df[score_source_col] >= thresholds['elg'], 0),
+            'lg': df[score_source_col].where((df[score_source_col] >= thresholds['lg']) & (df[score_source_col] < thresholds['elg']), 0),
+            'md': df[score_source_col].where((df[score_source_col] >= thresholds['md']) & (df[score_source_col] < thresholds['lg']), 0),
+            'sm': df[score_source_col].where(df[score_source_col] < thresholds['md'], 0),
         }
+        # 3. 引入价格跳动仲裁的压力代理计算
         price_range = df['high'] - df['low']
-        buy_pressure_proxy = np.divide(
-            df['close'] - df['low'],
-            price_range,
-            out=np.full_like(price_range.values, 0.5, dtype=float),
-            where=price_range != 0
-        )
+        prev_close = df['close'].shift(1)
+        # 使用np.select构建多条件选择，逻辑更清晰
+        conditions = [
+            price_range > 0,                                  # 主逻辑：K线有实体/影线
+            (price_range == 0) & (df['close'] > prev_close),  # 仲裁1：Uptick
+            (price_range == 0) & (df['close'] < prev_close),  # 仲裁2：Downtick
+        ]
+        choices = [
+            (df['close'] - df['low']) / price_range,          # 主逻辑：压力代理
+            1.0,                                              # 仲裁1：买方压力100%
+            0.0,                                              # 仲裁2：买方压力0%
+        ]
+        # 默认选择（price_range==0 且 close==prev_close，或第一根K线），退回50/50
+        buy_pressure_proxy = np.select(conditions, choices, default=0.5)
         sell_pressure_proxy = 1.0 - buy_pressure_proxy
-        # [代码修改开始] 修复致命的 "putmask" 尺寸不匹配错误
+        # 4. 统一的权重分配逻辑
         for size, score_series in scores.items():
             unnormalized_buy_score = score_series * buy_pressure_proxy
             unnormalized_sell_score = score_series * sell_pressure_proxy
             total_buy_score_day = unnormalized_buy_score.sum()
             total_sell_score_day = unnormalized_sell_score.sum()
-            # 使用清晰、稳健的if/else判断，取代错误的np.divide用法
             if total_buy_score_day > 1e-9:
                 df[f'{size}_buy_weight'] = unnormalized_buy_score / total_buy_score_day
             else:
