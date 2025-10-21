@@ -558,31 +558,50 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.3 · 指标补全版】构建“主力日内三维P&L矩阵”，并增加'main_force_intraday_profit'的计算。
+        【V2.0 · NaN感知重构版】彻底重写P&L矩阵计算，根除数据污染。
+        - 核心修正: 移除_get_safe_numeric_series的调用，让NaN在计算中自然传播。
+        - 核心修正: 确保任何依赖于无效成本的计算，其结果也为NaN，而不是0。
         """
         results_df = pd.DataFrame(index=df.index)
-        cost_buy = self._get_safe_numeric_series(df, 'avg_cost_main_buy')
-        cost_sell = self._get_safe_numeric_series(df, 'avg_cost_main_sell')
-        vol_buy = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')
-        vol_sell = self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')
-        close_price = self._get_safe_numeric_series(df, 'close')
+        # [代码修改开始] 移除污染源，使用直接、透明的数据访问
+        # 不再使用_get_safe_numeric_series，直接获取Series，保留原始的NaN信息
+        cost_buy = pd.to_numeric(df.get('avg_cost_main_buy'), errors='coerce')
+        cost_sell = pd.to_numeric(df.get('avg_cost_main_sell'), errors='coerce')
+        vol_buy = (pd.to_numeric(df.get('buy_lg_vol'), errors='coerce').fillna(0) + 
+                   pd.to_numeric(df.get('buy_elg_vol'), errors='coerce').fillna(0))
+        vol_sell = (pd.to_numeric(df.get('sell_lg_vol'), errors='coerce').fillna(0) + 
+                    pd.to_numeric(df.get('sell_elg_vol'), errors='coerce').fillna(0))
+        close_price = pd.to_numeric(df.get('close'), errors='coerce')
         vol_buy_shares = vol_buy * 100
         vol_sell_shares = vol_sell * 100
+        # 增加调试信息，观察最原始的输入数据
+        if not df.empty:
+            debug_date = df.index[-1] # 观察最后一天的计算
+            print(f"调试信息: 日期[{debug_date.date()}] P&L计算前: cost_buy={cost_buy.loc[debug_date]}, cost_sell={cost_sell.loc[debug_date]}, vol_buy_shares={vol_buy_shares.loc[debug_date]}")
+        # 1. 已实现利润 (Realized Profit)
+        # 只有在买卖成本都有效时才能计算
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
         results_df['realized_profit_on_exchange'] = (cost_sell - cost_buy) * exchanged_volume
+        # 2. 净头寸变动及浮动盈亏 (Unrealized P&L)
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
+        # 成本必须有效才能计算
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
         results_df['net_position_change_value'] = net_pos_change_vol * net_pos_change_cost
         results_df['unrealized_pnl_on_net_change'] = (close_price - net_pos_change_cost) * net_pos_change_vol
-        # [代码新增开始] 补全 'main_force_intraday_profit' 指标的计算
-        # 定义：(主力平均卖出成本 - 主力平均买入成本) * 主力总买入量，代表主力当天买入头寸的理论盈亏
+        # 3. 主力日内理论盈亏 (Main Force Intraday Profit)
+        # 同样，只有在买卖成本都有效时才能计算
         results_df['main_force_intraday_profit'] = (cost_sell - cost_buy) * vol_buy_shares
-        # [代码新增结束]
-        dir_ts = np.sign(results_df['net_position_change_value'])
-        dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
-        dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
+        # 增加调试信息，观察计算结果
+        if not df.empty:
+            print(f"调试信息: 日期[{debug_date.date()}] P&L计算后: main_force_intraday_profit={results_df.loc[debug_date, 'main_force_intraday_profit']}")
+        # 4. P&L矩阵可信度评分 (Confidence Score)
+        # 此处使用fillna(0)是安全的，因为我们只关心符号
+        dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
+        dir_ths = np.sign(pd.to_numeric(df.get('main_force_net_flow_ths'), errors='coerce').fillna(0))
+        dir_dc = np.sign(pd.to_numeric(df.get('main_force_net_flow_dc'), errors='coerce').fillna(0))
         agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
         results_df['pnl_matrix_confidence_score'] = ((agreement_count / 3 * 2) + 1) / 3
+        # [代码修改结束]
         return results_df
 
     def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
