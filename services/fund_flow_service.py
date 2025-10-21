@@ -357,7 +357,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.2 · 键值修正版】使用订单规模似然权重计算PVWAP成本
+        【V2.3 · 零成交量显式处理版】使用订单规模似然权重计算PVWAP成本
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
@@ -373,15 +373,17 @@ class AdvancedFundFlowMetricsService:
             minute_data_for_day = self._calculate_order_size_likelihood_weights(minute_data_for_day, daily_data)
             day_results = {'trade_time': date}
             for cost_type in cost_types:
-                # [代码修改开始] 修正成交量列名的构造逻辑
-                size, direction = cost_type.split('_') # 将 'sm_buy' 分解为 'sm' 和 'buy'
-                db_vol_key = f'{direction}_{size}_vol' # 构造正确的数据库列名，如 'buy_sm_vol'
-                daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100 # 使用修正后的键获取成交量
-                # [代码修改结束]
+                size, direction = cost_type.split('_')
+                db_vol_key = f'{direction}_{size}_vol'
+                daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
+                # [代码修改开始] 增加对零成交量的显式判断，使逻辑更清晰
                 if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
+                    # 如果当天该类型的成交量为0，则其平均成本无意义，直接记为NaN
                     day_results[f'avg_cost_{cost_type}'] = np.nan
+                    # 确保后续的归因成交量列也被创建并赋值为0
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue
+                    continue # 跳到下一种成本类型的计算
+                # [代码修改结束]
                 weight_col = f'{size}_weight'
                 attributed_vol = minute_data_for_day[weight_col] * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
@@ -408,30 +410,33 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.4 · 全量返回版】确保返回所有独立成本和聚合成本。
+        【V1.5 · 数据净化版】确保在聚合成本时正确处理NaN值。
         """
-        # [代码修改开始] 确保函数返回所有计算出的成本列
         df = pvwap_df.copy()
-        # 确保daily_df中的vol_cols存在，如果不存在则不进行join，避免错误
         vol_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
         existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
         if not existing_vol_cols:
-            # 如果没有任何成交量数据，无法计算聚合成本，直接返回独立成本
             return df
         df = df.join(daily_df[existing_vol_cols])
+        # [代码修改开始] 重构聚合逻辑，根除数据污染
         def weighted_avg_cost(cost_cols, vol_cols):
-            total_value = pd.Series(0.0, index=df.index)
-            total_volume = pd.Series(0.0, index=df.index)
+            """一个健壮的加权平均函数，能正确处理NaN"""
+            numerator = pd.Series(0.0, index=df.index)
+            denominator = pd.Series(0.0, index=df.index)
             for cost_col, vol_col in zip(cost_cols, vol_cols):
                 if cost_col in df.columns and vol_col in df.columns:
-                    cost = df[cost_col].fillna(0)
+                    cost = df[cost_col] # 直接获取Series，不填充NaN
                     volume = pd.to_numeric(df[vol_col], errors='coerce').fillna(0)
-                    total_value += cost * volume
-                    total_volume += volume
-            return total_value / total_volume.replace(0, np.nan)
+                    # 计算价值贡献，其中cost为NaN的部分，结果也是NaN，我们用0填充这部分贡献
+                    value_contribution = (cost * volume).fillna(0)
+                    numerator += value_contribution
+                    # 关键：只在成本有效（非NaN）的地方累加成交量到分母
+                    denominator += volume.where(cost.notna(), 0)
+            return numerator / denominator.replace(0, np.nan)
+        # [代码修改结束]
         df['avg_cost_main_buy'] = weighted_avg_cost(
             ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
             ['buy_lg_vol', 'buy_elg_vol']
@@ -450,9 +455,7 @@ class AdvancedFundFlowMetricsService:
         )
         if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
             df['vwap_tracking_error'] = df['avg_cost_main_buy'] - daily_df['daily_vwap']
-        # 返回一个包含所有独立成本和聚合成本的完整DataFrame
         return df.drop(columns=existing_vol_cols, errors='ignore')
-        # [代码修改结束]
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V3.2 · 健壮性加固版】修正pandas_ta调用方式，并优化min_periods。"""
@@ -683,28 +686,31 @@ class AdvancedFundFlowMetricsService:
         return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
     def _calculate_order_size_likelihood_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
-        """【新增】奥丁之眼算法核心：计算订单规模似然权重"""
+        """【V1.1 · 算法加固版】计算订单规模似然权重，增加回退机制"""
         df = minute_data_for_day.copy()
-        circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000 # 转换为元
+        circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
         if pd.isna(circ_mv) or circ_mv == 0:
-            # 如果没有流通市值，退回到旧的、基于成交量的权重
             total_day_vol = df['vol_shares'].sum()
             df['sm_weight'] = df['md_weight'] = df['lg_weight'] = df['elg_weight'] = df['vol_shares'] / total_day_vol if total_day_vol > 0 else 0
             return df
-        # 1. 定义动态绝对阈值
-        elg_threshold = circ_mv * 0.001  # 特大单门槛: 流通市值的千分之一 (e.g., 100亿 -> 1000万)
-        lg_threshold = circ_mv * 0.0002  # 大单门槛: 流通市值的万分之二 (e.g., 100亿 -> 200万)
-        md_threshold = circ_mv * 0.00005 # 中单门槛: 流通市值的十万分之五 (e.g., 100亿 -> 50万)
-        # 2. 计算各规模的似然分数 (Likelihood Score)
-        # 核心逻辑：只有当分钟成交额达到相应门槛，才认为它可能包含该规模的订单
+        elg_threshold = circ_mv * 0.001
+        lg_threshold = circ_mv * 0.0002
+        md_threshold = circ_mv * 0.00005
         df['elg_score'] = df['amount_yuan'].where(df['amount_yuan'] >= elg_threshold, 0)
         df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
         df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
         df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
-        # 3. 归一化似然分数，生成最终的归因权重
+        # [代码修改开始] 引入回退机制，修复“小单悖论”
         for size in ['sm', 'md', 'lg', 'elg']:
             total_score = df[f'{size}_score'].sum()
-            df[f'{size}_weight'] = df[f'{size}_score'] / total_score if total_score > 0 else 0
+            if total_score > 0:
+                # 主逻辑：如果智能评分成功，则按分数归一化
+                df[f'{size}_weight'] = df[f'{size}_score'] / total_score
+            else:
+                # 回退逻辑：如果智能评分为0（如高流动性股票的小单），则按分钟成交量占比进行归因
+                print(f"警告: 日期[{daily_data.name.date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
+                df[f'{size}_weight'] = df['vol_weight']
+        # [代码修改结束]
         return df
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
