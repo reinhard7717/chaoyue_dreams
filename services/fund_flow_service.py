@@ -258,30 +258,49 @@ class AdvancedFundFlowMetricsService:
         # [代码修改结束]
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V2.5 · 结构恒定版】确保所有核心指标列都被创建，即使值为空。"""
+        """【V2.6 · 成本指标重构版】重组成本衍生指标计算逻辑，并修正概念错误。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
-        # [代码修改开始] 实施“结构恒定”策略
-        # 步骤1: 初始化一个包含所有最终列的DataFrame，填充NaN，确保结构完整
         final_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         result_df = pd.DataFrame(index=df.index, columns=final_cols)
-        # 将df中已有的列（如daily_vwap）和原始数据合并过来
         result_df.update(df)
-        # 模块一：分钟数据依赖的高级指标计算
+        # [代码修改开始] 重构成本指标及其衍生指标的计算流程
+        # 模块一：分钟数据依赖的高级指标计算 (包含所有成本相关指标)
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            print(f"调试信息: [{stock_code}] 分钟数据和成交量数据满足，开始计算所有高级指标。")
+            # print(f"调试信息: [{stock_code}] 分钟数据和成交量数据满足，开始计算所有高级指标。")
+            # 1. 计算核心的PVWAP成本
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
-            result_df.update(pvwap_costs_df) # 使用update填充，而不是join
-            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df) # 基于更新后的result_df计算
+            result_df.update(pvwap_costs_df)
+            # 2. 【结构重组】紧接着计算所有依赖于PVWAP成本的衍生指标
+            # 确保只有在成本计算成功后才执行
+            if 'avg_cost_main_buy' in result_df.columns:
+                # 2.1 成本分歧度 (主力买 vs 散户卖)
+                result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
+                # 2.2 【概念重塑】成本加权主力资金流 (使用成交量而非成交额)
+                main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
+                main_force_net_vol_shares = main_force_net_vol * 100 # 从“手”转换为“股”
+                result_df['cost_weighted_main_flow'] = main_force_net_vol_shares * result_df['avg_cost_main_buy']
+                # 2.3 主力成本优势 (vs 收盘价)
+                result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
+                # 2.4 市场成本博弈 (主力买 vs 散户买)
+                result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
+                # 2.5 主力成本与VWAP的偏离
+                if 'daily_vwap' in result_df.columns:
+                    result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
+                    result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
+            # 3. 计算P&L矩阵 (它也依赖成本数据)
+            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
+            # 4. 计算其他行为和结构指标
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
             result_df.update(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df.update(structure_metrics_df)
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
+        # [代码修改结束]
         # 模块二：共识指标计算 (填充result_df)
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
@@ -343,17 +362,8 @@ class AdvancedFundFlowMetricsService:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        if 'avg_cost_main_buy' in result_df.columns:
-            result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
-            result_df['cost_weighted_main_flow'] = result_df.get('main_force_net_flow_tushare', np.nan) * result_df['avg_cost_main_buy']
-            result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
-            result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
-            if 'daily_vwap' in result_df.columns:
-                result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
-                result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
         print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
         return result_df
-        # [代码修改结束]
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
@@ -708,7 +718,7 @@ class AdvancedFundFlowMetricsService:
                 df[f'{size}_weight'] = df[f'{size}_score'] / total_score
             else:
                 # 回退逻辑：如果智能评分为0（如高流动性股票的小单），则按分钟成交量占比进行归因
-                print(f"警告: 日期[{daily_data.name.date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
+                # print(f"警告: 日期[{daily_data.name.date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
                 df[f'{size}_weight'] = df['vol_weight']
         # [代码修改结束]
         return df
