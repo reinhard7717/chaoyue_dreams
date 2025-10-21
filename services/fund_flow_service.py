@@ -40,8 +40,8 @@ class AdvancedFundFlowMetricsService:
         return pd.to_numeric(series, errors='coerce').fillna(default_value)
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
-        """【V4.0 · 统一滚动计算引擎版】服务层主执行器"""
-        # [代码修改开始] 统一增量与全量计算逻辑
+        """【V5.0 · 核心/衍生分离引擎版】服务层主执行器"""
+        # [代码修改开始] 彻底重构计算流程，分离核心指标与衍生指标的计算上下文
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
@@ -68,7 +68,6 @@ class AdvancedFundFlowMetricsService:
                     print(f"调试信息: [{stock_code}] {mode}模式，已删除从 {start_date_str} 开始的 {deleted_count} 条旧资金流指标数据。")
                 except (ValueError, TypeError):
                     pass
-            # 增量模式下，作战范围由 fetch_start_date 决定，并在后续筛选
             raw_data_df = await self._load_and_merge_sources(stock_info, start_date=fetch_start_date)
             if raw_data_df.empty:
                 print(f"调试信息: [{stock_code}] 原始数据合并后为空，任务终止。")
@@ -80,55 +79,56 @@ class AdvancedFundFlowMetricsService:
             print(f"调试信息: [{stock_code}] 无需计算的日期，任务终止。")
             return 0
             
-        # 步骤 2: 定义缓冲池和区块大小
-        LOOKBACK_BUFFER_DAYS = 250
-        CHUNK_SIZE = 50
-        
-        # 步骤 3: 初始化历史指标缓冲池
-        # 无论全量还是增量，都从第一个待计算日向前查找历史
+        # 步骤 2: 初始化【所有】历史核心指标作为基线上下文
         initial_history_end_date = dates_to_process.min()
-        historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, initial_history_end_date, LOOKBACK_BUFFER_DAYS)
+        # 调用无限回溯版函数，加载所有历史核心指标（这个DataFrame很小，不会爆内存）
+        historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, initial_history_end_date)
         
-        # 步骤 4: 统一的滚动计算循环
+        # 步骤 3: 【核心指标锻造循环】，分块处理，保证低内存
+        CHUNK_SIZE = 50
+        all_new_core_metrics_df = pd.DataFrame() # 用于累积所有新计算的核心指标
+        
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
             
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
-            print(f"--- 正在处理区块 {i//CHUNK_SIZE + 1}，日期范围: {chunk_start_date.date()} to {chunk_end_date.date()} ---")
+            print(f"--- 正在锻造核心指标 区块 {i//CHUNK_SIZE + 1}，日期范围: {chunk_start_date.date()} to {chunk_end_date.date()} ---")
             
-            # 4.1 准备当前区块的【原始】数据和【核心】指标
+            # 3.1 按区块加载【海量原始】数据
             chunk_raw_data_df = await self._load_and_merge_sources(stock_info, start_date=chunk_start_date, end_date=chunk_end_date)
             if chunk_raw_data_df.empty:
                 print(f"警告: 区块 {chunk_start_date.date()} to {chunk_end_date.date()} 原始数据为空，跳过。")
                 continue
 
-            # 分钟线数据加载也应按区块进行，以节省内存
+            # 3.2 按区块计算【核心】指标
             daily_vwap_series = await self._calculate_daily_vwap(stock_info, chunk_raw_data_df.index)
             self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, chunk_raw_data_df.index)
-            
             chunk_new_metrics_df = self._synthesize_and_forge_metrics(stock_code, chunk_raw_data_df, daily_vwap_series)
             
-            # 4.2 构建用于衍生计算的【完整】序列
-            full_sequence_df = pd.concat([historical_metrics_df, chunk_new_metrics_df])
-            full_sequence_df.sort_index(inplace=True)
-            
-            # 4.3 在完整序列上计算【衍生】指标
-            final_metrics_df_for_chunk = self._calculate_derivatives(stock_code, full_sequence_df)
-            
-            # 4.4 精确切分出当前区块的结果并保存
-            chunk_to_save = final_metrics_df_for_chunk[final_metrics_df_for_chunk.index.isin(chunk_new_metrics_df.index)]
-            processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
-            total_processed_count += processed_count
-            
-            # 4.5 更新历史缓冲池
-            historical_metrics_df = pd.concat([historical_metrics_df, chunk_new_metrics_df])
-            if len(historical_metrics_df) > LOOKBACK_BUFFER_DAYS + CHUNK_SIZE:
-                historical_metrics_df = historical_metrics_df.iloc[-(LOOKBACK_BUFFER_DAYS + CHUNK_SIZE):]
+            # 3.3 累积新计算的核心指标
+            all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
 
         if hasattr(self, '_minute_df_daily_grouped'):
             del self._minute_df_daily_grouped
+            
+        if all_new_core_metrics_df.empty:
+            print(f"调试信息: [{stock_code}] 所有区块均未能计算出核心指标，任务终止。")
+            return 0
+
+        # 步骤 4: 【衍生指标升维】，在全局视角下一次性完成
+        print(f"--- 核心指标锻造完毕，共 {len(all_new_core_metrics_df)} 条。开始全局衍生指标升维... ---")
+        # 4.1 构建用于衍生计算的【最终完整】序列
+        full_sequence_for_derivatives = pd.concat([historical_metrics_df, all_new_core_metrics_df])
+        full_sequence_for_derivatives.sort_index(inplace=True)
+        
+        # 4.2 在完整序列上计算【所有衍生】指标
+        final_metrics_df = self._calculate_derivatives(stock_code, full_sequence_for_derivatives)
+        
+        # 步骤 5: 精确切分出本次任务计算的最终结果并保存
+        chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
+        total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
             
         return total_processed_count
         # [代码修改结束]
@@ -786,33 +786,30 @@ class AdvancedFundFlowMetricsService:
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
         return df.set_index('date')
 
-    async def _load_historical_metrics(self, model, stock_info, end_date, lookback_days):
+    async def _load_historical_metrics(self, model, stock_info, end_date):
         """
-        【新增】从数据库加载历史高级资金流指标，为衍生计算提供上下文。
+        【V2.0 · 无限回溯版】从数据库加载【全部】历史高级资金流指标。
+        - 核心修正: 移除所有日期回溯限制，确保为衍生计算提供完整的历史序列。
         """
         @sync_to_async
-        def get_data(start_date):
-            # 只加载计算衍生指标所必需的列，减少内存占用
+        def get_data():
+            # [代码修改开始] 移除所有日期过滤，加载从开始到 end_date 之前的所有历史指标
             core_metric_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
+            # 确保只选择模型中实际存在的字段
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
             
             qs = model.objects.filter(
                 stock=stock_info, 
-                trade_time__gte=start_date,
                 trade_time__lt=end_date
             ).order_by('trade_time')
             
             return pd.DataFrame.from_records(qs.values(*required_cols))
-
-        # 计算查询的起始日期
-        from datetime import timedelta
-        query_start_date = end_date - timedelta(days=lookback_days + 150) # 额外增加回溯窗口，确保最长周期计算无误
         
-        df = await get_data(query_start_date)
+        df = await get_data()
+        # [代码修改结束]
         if not df.empty:
             df = df.set_index(pd.to_datetime(df['trade_time']))
         return df
-
 
 
 
