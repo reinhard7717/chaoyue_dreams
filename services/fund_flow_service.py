@@ -28,15 +28,26 @@ class AdvancedFundFlowMetricsService:
         self.max_lookback_days = 200
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
-        """【V2.0 · 时序统一重构版】服务层主执行器"""
+        """【V4.0 · 统一滚动计算引擎版】服务层主执行器"""
+        # [代码修改开始] 统一增量与全量计算逻辑
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
         total_processed_count = 0
-        if is_incremental_final:
+        
+        # 步骤 1: 确定总的作战范围 (dates_to_process)
+        if not is_incremental_final: # 全量计算模式
+            print(f"调试信息: [{stock_code}] 启动全量计算模式。")
+            await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
+            DailyModel = get_daily_data_model_by_code(stock_code)
+            all_dates_qs = DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
+            dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+            if dates_to_process.empty:
+                print(f"调试信息: [{stock_code}] 无日线数据，全量计算终止。")
+                return 0
+        else: # 增量或部分全量模式
             mode = "部分全量" if start_date_str else "增量"
             print(f"调试信息: [{stock_code}] 启动{mode}计算。数据拉取起始: {fetch_start_date}, 计算基准日期: {last_metric_date}")
-            
             if start_date_str:
                 from datetime import datetime
                 try:
@@ -45,90 +56,70 @@ class AdvancedFundFlowMetricsService:
                     print(f"调试信息: [{stock_code}] {mode}模式，已删除从 {start_date_str} 开始的 {deleted_count} 条旧资金流指标数据。")
                 except (ValueError, TypeError):
                     pass
-
-            # [代码修改开始] 实施全新的、正确的时序统一数据流
-            # 步骤 1: 加载计算新指标所需的【原始】数据
-            raw_data_df = await self._load_and_merge_sources(stock_info, fetch_start_date)
+            # 增量模式下，作战范围由 fetch_start_date 决定，并在后续筛选
+            raw_data_df = await self._load_and_merge_sources(stock_info, start_date=fetch_start_date)
             if raw_data_df.empty:
                 print(f"调试信息: [{stock_code}] 原始数据合并后为空，任务终止。")
                 return 0
-            
             target_df = raw_data_df[raw_data_df.index.date > last_metric_date] if last_metric_date else raw_data_df
-            if target_df.empty:
-                print(f"调试信息: [{stock_code}] 筛选需计算的日期后 target_df 为空，任务终止。")
-                return 0
+            dates_to_process = target_df.index
+        
+        if dates_to_process.empty:
+            print(f"调试信息: [{stock_code}] 无需计算的日期，任务终止。")
+            return 0
             
-            # 步骤 2: 仅为新日期计算【核心】指标
-            if preloaded_minute_data is not None and not preloaded_minute_data.empty:
-                minute_df_filtered = preloaded_minute_data[preloaded_minute_data['trade_time'].dt.date.isin(target_df.index.date)]
-                daily_vwap_series = self._calculate_daily_vwap_from_df(minute_df_filtered, target_df.index)
-                self._minute_df_daily_grouped = self._group_minute_data_from_df(minute_df_filtered)
-            else:
-                daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
-                self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
+        # 步骤 2: 定义缓冲池和区块大小
+        LOOKBACK_BUFFER_DAYS = 250
+        CHUNK_SIZE = 50
+        
+        # 步骤 3: 初始化历史指标缓冲池
+        # 无论全量还是增量，都从第一个待计算日向前查找历史
+        initial_history_end_date = dates_to_process.min()
+        historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, initial_history_end_date, LOOKBACK_BUFFER_DAYS)
+        
+        # 步骤 4: 统一的滚动计算循环
+        for i in range(0, len(dates_to_process), CHUNK_SIZE):
+            chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
+            if chunk_dates.empty:
+                continue
             
-            new_base_metrics_df = self._synthesize_and_forge_metrics(stock_code, target_df, daily_vwap_series)
+            chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
+            print(f"--- 正在处理区块 {i//CHUNK_SIZE + 1}，日期范围: {chunk_start_date.date()} to {chunk_end_date.date()} ---")
             
-            # 步骤 3: 加载【历史指标】数据作为上下文
-            history_end_date = new_base_metrics_df.index.min()
-            historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, history_end_date, self.max_lookback_days)
+            # 4.1 准备当前区块的【原始】数据和【核心】指标
+            chunk_raw_data_df = await self._load_and_merge_sources(stock_info, start_date=chunk_start_date, end_date=chunk_end_date)
+            if chunk_raw_data_df.empty:
+                print(f"警告: 区块 {chunk_start_date.date()} to {chunk_end_date.date()} 原始数据为空，跳过。")
+                continue
+
+            # 分钟线数据加载也应按区块进行，以节省内存
+            daily_vwap_series = await self._calculate_daily_vwap(stock_info, chunk_raw_data_df.index)
+            self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, chunk_raw_data_df.index)
             
-            # 步骤 4: 拼接成完整的【指标】时间序列
-            full_sequence_df = pd.concat([historical_metrics_df, new_base_metrics_df])
+            chunk_new_metrics_df = self._synthesize_and_forge_metrics(stock_code, chunk_raw_data_df, daily_vwap_series)
+            
+            # 4.2 构建用于衍生计算的【完整】序列
+            full_sequence_df = pd.concat([historical_metrics_df, chunk_new_metrics_df])
             full_sequence_df.sort_index(inplace=True)
             
-            # 步骤 5: 在完整序列上计算【衍生】指标
-            final_metrics_df = self._calculate_derivatives(stock_code, full_sequence_df)
+            # 4.3 在完整序列上计算【衍生】指标
+            final_metrics_df_for_chunk = self._calculate_derivatives(stock_code, full_sequence_df)
             
-            # 步骤 6: 精确切分出新数据并保存
-            chunk_to_save = final_metrics_df[final_metrics_df.index.isin(new_base_metrics_df.index)]
+            # 4.4 精确切分出当前区块的结果并保存
+            chunk_to_save = final_metrics_df_for_chunk[final_metrics_df_for_chunk.index.isin(chunk_new_metrics_df.index)]
+            processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
+            total_processed_count += processed_count
             
-            total_processed_count = await self._prepare_and_save_data(
-                stock_info, MetricsModel, chunk_to_save
-            )
-            # [代码修改结束]
+            # 4.5 更新历史缓冲池
+            historical_metrics_df = pd.concat([historical_metrics_df, chunk_new_metrics_df])
+            if len(historical_metrics_df) > LOOKBACK_BUFFER_DAYS + CHUNK_SIZE:
+                historical_metrics_df = historical_metrics_df.iloc[-(LOOKBACK_BUFFER_DAYS + CHUNK_SIZE):]
 
-            if hasattr(self, '_minute_df_daily_grouped'):
-                del self._minute_df_daily_grouped
-        else:            # 全量计算逻辑保持不变
-            print(f"调试信息: {stock_code} 启动全量分块计算...")
-            await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
-            DailyModel = get_daily_data_model_by_code(stock_code)
-            all_trade_dates = pd.to_datetime(
-                await sync_to_async(list)(DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time'))
-            )
-            if all_trade_dates.empty:
-                print(f"调试信息: {stock_code} 无日线数据，无法进行计算。")
-                return 0
-            chunk_size = 180
-            for i in range(0, len(all_trade_dates), chunk_size):
-                chunk_dates = all_trade_dates[i:i + chunk_size]
-                if chunk_dates.empty:
-                    continue
-                chunk_start_date = chunk_dates.min().date()
-                buffer_start_date = chunk_start_date - timedelta(days=self.max_lookback_days)
-                chunk_end_date = chunk_dates.max().date()
-                print(f"--- 正在处理区块 {i//chunk_size + 1}，日期范围: {chunk_start_date} to {chunk_end_date} ---")
-                merged_df = await self._load_and_merge_sources(stock_info, buffer_start_date)
-                if merged_df.empty:
-                    continue
-                target_df = merged_df[merged_df.index.date >= chunk_start_date]
-                if target_df.empty:
-                    continue
-                daily_vwap_series = await self._calculate_daily_vwap(stock_info, target_df.index)
-                target_df['daily_vwap'] = daily_vwap_series
-                self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, target_df.index)
-                df_with_advanced_metrics = self._synthesize_and_forge_metrics(stock_code, target_df)
-                full_df_with_metrics = merged_df.join(df_with_advanced_metrics, rsuffix='_calc')
-                final_metrics_df = self._calculate_derivatives(stock_code, full_df_with_metrics)
-                chunk_to_save = final_metrics_df[final_metrics_df.index.date >= chunk_start_date]
-                processed_count = await self._prepare_and_save_data(
-                    stock_info, MetricsModel, chunk_to_save
-                )
-                total_processed_count += processed_count
-                if hasattr(self, '_minute_df_daily_grouped'):
-                    del self._minute_df_daily_grouped
+        if hasattr(self, '_minute_df_daily_grouped'):
+            del self._minute_df_daily_grouped
+            
         return total_processed_count
+        # [代码修改结束]
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """【V1.2 · 部分全量支持版】初始化任务上下文，增加对start_date_str的处理。"""
@@ -174,38 +165,37 @@ class AdvancedFundFlowMetricsService:
             fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
 
-    async def _load_and_merge_sources(self, stock_info, fetch_start_date):
-        """【V1.3 · 数据源补全+质检版】加载、标准化并合并多源数据"""
+    async def _load_and_merge_sources(self, stock_info, start_date=None, end_date=None):
+        """【V1.4 · 精确范围查询版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
-        def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
+        def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None, end_date=None):
+            # [代码修改开始] 增加 end_date 过滤
             if not model: return pd.DataFrame()
             qs = model.objects.filter(stock=stock_info_obj)
             if start_date:
                 qs = qs.filter(**{f'{date_field}__gte': start_date})
+            if end_date:
+                qs = qs.filter(**{f'{date_field}__lte': end_date})
             return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-        # [代码修改开始] 补全物料清单，增加对 get_fund_flow_model_by_code (Tushare moneyflow) 的调用
+            # [代码修改结束]
+        
         data_tasks = {
-            "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-            "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-            "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=fetch_start_date),
-            "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=fetch_start_date),
-            "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=fetch_start_date),
+            "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
+            "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
+            "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
+            "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=start_date, end_date=end_date),
+            "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=start_date, end_date=end_date),
         }
-        # [代码修改结束]
         results = await asyncio.gather(*data_tasks.values())
         data_dfs = dict(zip(data_tasks.keys(), results))
-        # [代码新增开始] 增加黑匣子诊断信息
-        print(f"调试信息: [{stock_info.stock_code}] [节点0] 原始数据加载情况:")
-        for name, df in data_dfs.items():
-            print(f"    - {name}: {'非空' if not df.empty else '空'}, 形状: {df.shape}")
-        # [代码新增结束]
+        
+        # ... 后续的 standardize_and_prepare 和 merge 逻辑保持不变 ...
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             cols_to_numeric = [col for col in df.columns if col != 'trade_time' and 'code' not in col and 'name' not in col]
             df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric, errors='coerce')
             if source == 'tushare':
-                # [代码修改开始] 确保返回所有原始列，PVWAP计算需要它们
                 df['net_flow_tushare'] = df['net_mf_amount']
                 df['main_force_net_flow_tushare'] = df['buy_lg_amount'] + df['buy_elg_amount'] - df['sell_lg_amount'] - df['sell_elg_amount']
                 df['retail_net_flow_tushare'] = df['buy_sm_amount'] + df['buy_md_amount'] - df['sell_sm_amount'] - df['sell_md_amount']
@@ -214,7 +204,6 @@ class AdvancedFundFlowMetricsService:
                 df['net_md_amount_tushare'] = df['buy_md_amount'] - df['sell_md_amount']
                 df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
                 return df
-                # [代码修改结束]
             elif source == 'ths':
                 df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
                 df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
@@ -230,7 +219,8 @@ class AdvancedFundFlowMetricsService:
         df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
         dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
         if not dfs_to_merge:
-            raise ValueError("所有资金流数据源均为空")
+            # 在区块模式下，单个区块没有数据是正常的，不应抛出异常
+            return pd.DataFrame()
         merged_df = reduce(lambda left, right: pd.merge(left, right, on='trade_time', how='outer'), dfs_to_merge)
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         daily_dfs_to_join = []
@@ -242,9 +232,6 @@ class AdvancedFundFlowMetricsService:
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
             merged_df = merged_df.join(daily_dfs_to_join, how='inner')
-        # [代码新增开始] 增加黑匣子诊断信息
-        print(f"调试信息: [{stock_info.stock_code}] [节点0.5] 最终合并后 merged_df 列名: {merged_df.columns.tolist()}")
-        # [代码新增结束]
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
