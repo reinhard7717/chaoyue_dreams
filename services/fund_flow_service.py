@@ -381,7 +381,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.3 · 零成交量显式处理版】使用订单规模似然权重计算PVWAP成本
+        【V3.0 · 方向性权重重构版】使用订单规模似然权重计算PVWAP成本。
+        - 核心修正: 彻底重构权重计算逻辑，为每个cost_type独立生成时间分布权重，解决成本恒等导致利润为0的BUG。
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
@@ -393,28 +394,34 @@ class AdvancedFundFlowMetricsService:
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            minute_data_for_day = minute_df_grouped.loc[[date_key]].copy()
-            minute_data_for_day = self._calculate_order_size_likelihood_weights(minute_data_for_day, daily_data)
+            # [代码修改] 先获取带有分数（而非错误权重）的分钟数据
+            minute_data_for_day = self._calculate_order_size_likelihood_scores(minute_df_grouped.loc[[date_key]].copy(), daily_data)
             day_results = {'trade_time': date}
+            # [代码修改开始] 为每个cost_type独立计算权重和成本
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
                 db_vol_key = f'{direction}_{size}_vol'
                 daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
-                # [代码修改开始] 增加对零成交量的显式判断，使逻辑更清晰
                 if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
-                    # 如果当天该类型的成交量为0，则其平均成本无意义，直接记为NaN
                     day_results[f'avg_cost_{cost_type}'] = np.nan
-                    # 确保后续的归因成交量列也被创建并赋值为0
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue # 跳到下一种成本类型的计算
-                # [代码修改结束]
-                weight_col = f'{size}_weight'
-                attributed_vol = minute_data_for_day[weight_col] * daily_vol_shares
+                    continue
+                # 动态计算当前cost_type专属的时间分布权重
+                score_col = f'{size}_score'
+                total_score = minute_data_for_day[score_col].sum()
+                if total_score > 0:
+                    weight_series = minute_data_for_day[score_col] / total_score
+                else:
+                    # 回退逻辑：如果智能评分为0，则按分钟成交量占比进行归因
+                    weight_series = minute_data_for_day['vol_weight']
+                attributed_vol = weight_series * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
+                # 使用专属权重归因后的成交量，计算加权平均成本
                 attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
-                day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 and not np.isclose(total_attributed_vol, 0) else np.nan
+                day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
+            # [代码修改结束]
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
@@ -720,13 +727,17 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
-    def _calculate_order_size_likelihood_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
-        """【V1.1 · 算法加固版】计算订单规模似然权重，增加回退机制"""
+    def _calculate_order_size_likelihood_scores(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
+        """
+        【V2.0 · 职责简化版】计算订单规模似然分数。
+        - 核心修正: 不再计算错误的、方向无关的权重，只计算分数，供下游独立生成权重。
+        """
+        # [代码修改开始] 简化函数职责，只计算分数
         df = minute_data_for_day.copy()
         circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
+        # 如果没有流通市值，无法进行智能评分，所有分数都为0，下游将自动回退到按成交量加权
         if pd.isna(circ_mv) or circ_mv == 0:
-            total_day_vol = df['vol_shares'].sum()
-            df['sm_weight'] = df['md_weight'] = df['lg_weight'] = df['elg_weight'] = df['vol_shares'] / total_day_vol if total_day_vol > 0 else 0
+            df['sm_score'] = df['md_score'] = df['lg_score'] = df['elg_score'] = 0
             return df
         elg_threshold = circ_mv * 0.001
         lg_threshold = circ_mv * 0.0002
@@ -735,18 +746,8 @@ class AdvancedFundFlowMetricsService:
         df['lg_score'] = df['amount_yuan'].where((df['amount_yuan'] >= lg_threshold) & (df['amount_yuan'] < elg_threshold), 0)
         df['md_score'] = df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0)
         df['sm_score'] = df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0)
-        # [代码修改开始] 引入回退机制，修复“小单悖论”
-        for size in ['sm', 'md', 'lg', 'elg']:
-            total_score = df[f'{size}_score'].sum()
-            if total_score > 0:
-                # 主逻辑：如果智能评分成功，则按分数归一化
-                df[f'{size}_weight'] = df[f'{size}_score'] / total_score
-            else:
-                # 回退逻辑：如果智能评分为0（如高流动性股票的小单），则按分钟成交量占比进行归因
-                # print(f"警告: 日期[{daily_data.name.date()}] 尺寸[{size}]的似然分数为0，已回退到按成交量加权。")
-                df[f'{size}_weight'] = df['vol_weight']
-        # [代码修改结束]
         return df
+        # [代码修改结束]
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
         """【新增 V1.0】从预加载的DataFrame计算日度VWAP"""
