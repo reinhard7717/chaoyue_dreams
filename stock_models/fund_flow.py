@@ -834,43 +834,45 @@ class BaseAdvancedFundFlowMetrics(models.Model):
     # [代码修改结束]
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    # [代码修改开始] 重构衍生指标的定义循环，使其更清晰并确保类型正确
+    # 步骤3: 定义累计值字段
+    sum_cols = [
+        'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
+        'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
+        'net_sh_amount_consensus', 'cost_weighted_main_flow',
+        'consensus_calibrated_main_flow',
+        'consensus_flow_weighted',
+    ]
     for p in UNIFIED_PERIODS:
         if p > 1:
-            sum_cols = [
-                'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-                'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-                'net_sh_amount_consensus', 'cost_weighted_main_flow',
-                'consensus_calibrated_main_flow',
-                'consensus_flow_weighted',
-            ]
             for name in sum_cols:
                 if name in CORE_METRICS:
                     verbose_name = CORE_METRICS.get(name, name)
-                    # [代码修改开始] 统一累计值字段为高精度DecimalField
+                    # 累计值是货币类型，使用 DecimalField
                     vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=24, decimal_places=6, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
-                    # [代码修改结束]
-        for name, verbose in CORE_METRICS.items():
-            if name in SLOPE_ACCEL_EXCLUSIONS:
-                continue
-            vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
+    # 步骤4: 为所有可衍生的指标（核心指标+累计值指标）统一定义斜率和加速度字段
+    all_derivable_metrics = list(CORE_METRICS.keys())
+    for p in UNIFIED_PERIODS:
         if p > 1:
-            sum_slope_cols = [
-                'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-                'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-                'net_sh_amount_consensus', 'cost_weighted_main_flow',
-                'consensus_calibrated_main_flow',
-                'consensus_flow_weighted',
-            ]
-            for name in sum_slope_cols:
-                if name in CORE_METRICS:
-                    if name in SLOPE_ACCEL_EXCLUSIONS:
-                        continue
-                    verbose_name = CORE_METRICS.get(name, name)
-                    vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日累计之{p}日斜率', null=True, blank=True)
-        for name, verbose in CORE_METRICS.items():
-            if name in SLOPE_ACCEL_EXCLUSIONS:
-                continue
-            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
+            for name in sum_cols:
+                all_derivable_metrics.append(f'{name}_sum_{p}d')
+    for name in all_derivable_metrics:
+        # 检查该指标是否在排除列表中
+        base_name = name.split('_sum_')[0]
+        if base_name in SLOPE_ACCEL_EXCLUSIONS:
+            continue
+        # 获取正确的 verbose_name
+        verbose_name = CORE_METRICS.get(name, name) # 尝试获取原始名称
+        if '_sum_' in name:
+            original_verbose = CORE_METRICS.get(base_name, base_name)
+            period_str = name.split('_sum_')[1].split('d')[0]
+            verbose_name = f'{original_verbose}{period_str}日累计'
+        # 循环定义斜率和加速度
+        for p in UNIFIED_PERIODS:
+            # 斜率和加速度是纯数字，使用 FloatField
+            vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日斜率', null=True, blank=True)
+            vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日加速度', null=True, blank=True)
+    # [代码修改结束]
     class Meta:
         abstract = True
         ordering = ['-trade_time']
