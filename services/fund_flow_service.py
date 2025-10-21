@@ -468,11 +468,16 @@ class AdvancedFundFlowMetricsService:
         return df.drop(columns=existing_vol_cols, errors='ignore')
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.2 · 健壮性加固版】修正pandas_ta调用方式，并优化min_periods。"""
+        """【V3.3 · 强制净化版】在计算前强制转换数据类型，根除object污染。"""
         final_df = consensus_df.copy()
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
+        # [代码修改开始] 在衍生计算前，对所有目标列进行强制的、全面的数据类型净化
+        for col in CORE_METRICS_TO_DERIVE:
+            if col in final_df.columns:
+                final_df[col] = pd.to_numeric(final_df[col], errors='coerce')
+        # [代码修改结束]
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -484,24 +489,23 @@ class AdvancedFundFlowMetricsService:
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for p in UNIFIED_PERIODS:
             if p <= 1: continue
-            # [代码修改开始] 优化min_periods，确保在有足够数据时能尽快产出结果
-            min_p = max(2, int(p * 0.8)) # 更合理的最小周期，例如55天周期，需要约44天数据即可开始计算
+            min_p = max(2, int(p * 0.8))
             for col in sum_cols:
                 if col in final_df.columns:
+                    # 在这里也进行一次净化，确保sum计算的输入是纯净的
+                    source_series_for_sum = pd.to_numeric(final_df[col], errors='coerce')
                     sum_col_name = f'{col}_sum_{p}d'
-                    final_df[sum_col_name] = final_df[col].rolling(window=p, min_periods=min_p).sum()
-            # [代码修改结束]
+                    final_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + [f'{c}_sum_{p}d' for c in sum_cols for p in UNIFIED_PERIODS if p > 1]
         for col in all_cols_to_derive:
+            # 此时，由于前面的强制净化，这个if条件对于所有数值列都应该为True
             if col in final_df.columns and col not in final_df.select_dtypes(include=['object', 'bool']).columns:
                 base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
                 if base_col_name in SLOPE_ACCEL_EXCLUSIONS:
                     continue
-                source_series = final_df[col].astype(float)
+                source_series = final_df[col].astype(float) # 再次确认，双重保险
                 for p in UNIFIED_PERIODS:
-                    # [代码修改开始] 确保calc_window对于小周期也合理
-                    calc_window = max(2, p) if p > 1 else 2 # 1日斜率没有意义，至少用2天
-                    # [代码修改结束]
+                    calc_window = max(2, p) if p > 1 else 2
                     slope_col_name = f'{col}_slope_{p}d'
                     slope_series = ta.slope(close=source_series, length=calc_window)
                     final_df[slope_col_name] = slope_series
