@@ -258,50 +258,43 @@ class AdvancedFundFlowMetricsService:
         # [代码修改结束]
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V2.6 · 成本指标重构版】重组成本衍生指标计算逻辑，并修正概念错误。"""
+        """【V2.7 · P&L数据流修复版】确保为P&L计算提供完整的原始数据和成本数据。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
         final_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         result_df = pd.DataFrame(index=df.index, columns=final_cols)
         result_df.update(df)
-        # [代码修改开始] 重构成本指标及其衍生指标的计算流程
-        # 模块一：分钟数据依赖的高级指标计算 (包含所有成本相关指标)
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # print(f"调试信息: [{stock_code}] 分钟数据和成交量数据满足，开始计算所有高级指标。")
-            # 1. 计算核心的PVWAP成本
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df.update(pvwap_costs_df)
-            # 2. 【结构重组】紧接着计算所有依赖于PVWAP成本的衍生指标
-            # 确保只有在成本计算成功后才执行
             if 'avg_cost_main_buy' in result_df.columns:
-                # 2.1 成本分歧度 (主力买 vs 散户卖)
                 result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
-                # 2.2 【概念重塑】成本加权主力资金流 (使用成交量而非成交额)
                 main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
-                main_force_net_vol_shares = main_force_net_vol * 100 # 从“手”转换为“股”
+                main_force_net_vol_shares = main_force_net_vol * 100
                 result_df['cost_weighted_main_flow'] = main_force_net_vol_shares * result_df['avg_cost_main_buy']
-                # 2.3 主力成本优势 (vs 收盘价)
                 result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
-                # 2.4 市场成本博弈 (主力买 vs 散户买)
                 result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
-                # 2.5 主力成本与VWAP的偏离
                 if 'daily_vwap' in result_df.columns:
                     result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
-            # 3. 计算P&L矩阵 (它也依赖成本数据)
-            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
+            # [代码修改开始] 修复P&L计算的数据流断裂问题
+            # 1. 创建一个包含所有需要的数据的完整DataFrame
+            #    它包含原始数据(df)和新计算的成本数据(result_df)
+            df_for_pnl = df.copy()
+            df_for_pnl.update(result_df)
+            # 2. 将这个完整的DataFrame传递给P&L计算函数
+            pnl_matrix_df = self._upgrade_intraday_profit_metric(df_for_pnl)
+            # [代码修改结束]
             result_df.update(pnl_matrix_df)
-            # 4. 计算其他行为和结构指标
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
             result_df.update(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df.update(structure_metrics_df)
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
-        # [代码修改结束]
-        # 模块二：共识指标计算 (填充result_df)
+        # ... 后续代码保持不变 ...
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -315,7 +308,6 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
-        # 模块三：衍生共识与分歧度指标 (填充result_df)
         source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
         existing_sources = [col for col in source_cols if col in df.columns]
         if len(existing_sources) > 1:
@@ -334,7 +326,6 @@ class AdvancedFundFlowMetricsService:
             result_df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
         if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
             result_df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
-        # 模块四：最终比率指标 (填充result_df)
         safe_denom = lambda v: v.replace(0, np.nan)
         if 'trade_count' in df.columns and 'amount' in df.columns and 'close' in df.columns:
             total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
@@ -558,47 +549,40 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.0 · NaN感知重构版】彻底重写P&L矩阵计算，根除数据污染。
-        - 核心修正: 移除_get_safe_numeric_series的调用，让NaN在计算中自然传播。
-        - 核心修正: 确保任何依赖于无效成本的计算，其结果也为NaN，而不是0。
+        【V2.1 · 健壮性加固版】使用安全的辅助函数获取数据，防止因列缺失而崩溃。
         """
         results_df = pd.DataFrame(index=df.index)
-        # [代码修改开始] 移除污染源，使用直接、透明的数据访问
-        # 不再使用_get_safe_numeric_series，直接获取Series，保留原始的NaN信息
+        # [代码修改开始] 使用更健壮的方式获取数据
+        # 对于成本：我们希望保留NaN，因为成本未知不等于0。直接用pd.to_numeric即可。
         cost_buy = pd.to_numeric(df.get('avg_cost_main_buy'), errors='coerce')
         cost_sell = pd.to_numeric(df.get('avg_cost_main_sell'), errors='coerce')
-        vol_buy = (pd.to_numeric(df.get('buy_lg_vol'), errors='coerce').fillna(0) + 
-                   pd.to_numeric(df.get('buy_elg_vol'), errors='coerce').fillna(0))
-        vol_sell = (pd.to_numeric(df.get('sell_lg_vol'), errors='coerce').fillna(0) + 
-                    pd.to_numeric(df.get('sell_elg_vol'), errors='coerce').fillna(0))
         close_price = pd.to_numeric(df.get('close'), errors='coerce')
+        # 对于成交量：如果列不存在，其贡献为0是合理的。使用_get_safe_numeric_series来保证这一点，它总会返回一个Series。
+        vol_buy = (self._get_safe_numeric_series(df, 'buy_lg_vol') +
+                   self._get_safe_numeric_series(df, 'buy_elg_vol'))
+        vol_sell = (self._get_safe_numeric_series(df, 'sell_lg_vol') +
+                    self._get_safe_numeric_series(df, 'sell_elg_vol'))
         vol_buy_shares = vol_buy * 100
         vol_sell_shares = vol_sell * 100
-        # 增加调试信息，观察最原始的输入数据
+        # 增加调试信息
         if not df.empty:
-            debug_date = df.index[-1] # 观察最后一天的计算
-            print(f"调试信息: 日期[{debug_date.date()}] P&L计算前: cost_buy={cost_buy.loc[debug_date]}, cost_sell={cost_sell.loc[debug_date]}, vol_buy_shares={vol_buy_shares.loc[debug_date]}")
-        # 1. 已实现利润 (Realized Profit)
-        # 只有在买卖成本都有效时才能计算
+            debug_date = df.index[-1]
+            print(f"调试信息: 日期[{debug_date.date()}] P&L计算前: cost_buy={cost_buy.get(debug_date)}, cost_sell={cost_sell.get(debug_date)}, vol_buy_shares={vol_buy_shares.get(debug_date)}")
+        # --- 后续计算逻辑保持不变，因为输入已经安全 ---
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
         results_df['realized_profit_on_exchange'] = (cost_sell - cost_buy) * exchanged_volume
-        # 2. 净头寸变动及浮动盈亏 (Unrealized P&L)
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
-        # 成本必须有效才能计算
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
         results_df['net_position_change_value'] = net_pos_change_vol * net_pos_change_cost
         results_df['unrealized_pnl_on_net_change'] = (close_price - net_pos_change_cost) * net_pos_change_vol
-        # 3. 主力日内理论盈亏 (Main Force Intraday Profit)
-        # 同样，只有在买卖成本都有效时才能计算
         results_df['main_force_intraday_profit'] = (cost_sell - cost_buy) * vol_buy_shares
-        # 增加调试信息，观察计算结果
         if not df.empty:
-            print(f"调试信息: 日期[{debug_date.date()}] P&L计算后: main_force_intraday_profit={results_df.loc[debug_date, 'main_force_intraday_profit']}")
-        # 4. P&L矩阵可信度评分 (Confidence Score)
-        # 此处使用fillna(0)是安全的，因为我们只关心符号
+            debug_date = df.index[-1]
+            print(f"调试信息: 日期[{debug_date.date()}] P&L计算后: main_force_intraday_profit={results_df.get('main_force_intraday_profit', pd.Series(index=df.index)).get(debug_date)}")
+        # 对于评分，使用fillna(0)是安全的，因为只关心符号
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
-        dir_ths = np.sign(pd.to_numeric(df.get('main_force_net_flow_ths'), errors='coerce').fillna(0))
-        dir_dc = np.sign(pd.to_numeric(df.get('main_force_net_flow_dc'), errors='coerce').fillna(0))
+        dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
+        dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
         agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
         results_df['pnl_matrix_confidence_score'] = ((agreement_count / 3 * 2) + 1) / 3
         # [代码修改结束]
