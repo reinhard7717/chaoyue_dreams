@@ -727,14 +727,19 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V6.0 · 价格跳动仲裁版】计算日内归因权重。
-        - 核心修正: 当分钟K线无波幅(high==low)时，引入上一分钟收盘价作为“价格跳动”仲裁，解决压力代理失效导致利润归零的BUG。
+        【V5.0 · 双轨制归因模型】计算基于“买卖压力代理”的日内归因权重。
+        - 核心逻辑: 引入双轨制。circ_mv可用时，使用货币阈值；不可用时，降级到使用成交量阈值，但始终保持方向性归因。
         """
-        df = minute_data_for_day.copy().sort_values('trade_time')
-        # [代码修改开始] 引入价格跳动仲裁逻辑
-        # 1. 准备基础数据和备用模型
+        # [代码修改开始] 恢复此方法至其正确的V5.0版本，移除局部的排序
+        df = minute_data_for_day.copy()
         circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
-        if pd.isna(circ_mv) or circ_mv == 0:
+        if pd.notna(circ_mv) and circ_mv > 0:
+            thresholds = {
+                'elg': circ_mv * 0.001, 'lg': circ_mv * 0.0002,
+                'md': circ_mv * 0.00005
+            }
+            score_source_col = 'amount_yuan'
+        else:
             total_daily_vol = df['vol_shares'].sum()
             num_minutes = len(df)
             if total_daily_vol > 0 and num_minutes > 0:
@@ -748,37 +753,26 @@ class AdvancedFundFlowMetricsService:
                 for size in ['sm', 'md', 'lg', 'elg']:
                     df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
                 return df
-        else:
-            thresholds = {
-                'elg': circ_mv * 0.001, 'lg': circ_mv * 0.0002,
-                'md': circ_mv * 0.00005
-            }
-            score_source_col = 'amount_yuan'
-        # 2. 统一的评分逻辑
         scores = {
             'elg': df[score_source_col].where(df[score_source_col] >= thresholds['elg'], 0),
             'lg': df[score_source_col].where((df[score_source_col] >= thresholds['lg']) & (df[score_source_col] < thresholds['elg']), 0),
             'md': df[score_source_col].where((df[score_source_col] >= thresholds['md']) & (df[score_source_col] < thresholds['lg']), 0),
             'sm': df[score_source_col].where(df[score_source_col] < thresholds['md'], 0),
         }
-        # 3. 引入价格跳动仲裁的压力代理计算
         price_range = df['high'] - df['low']
         prev_close = df['close'].shift(1)
-        # 使用np.select构建多条件选择，逻辑更清晰
         conditions = [
-            price_range > 0,                                  # 主逻辑：K线有实体/影线
-            (price_range == 0) & (df['close'] > prev_close),  # 仲裁1：Uptick
-            (price_range == 0) & (df['close'] < prev_close),  # 仲裁2：Downtick
+            price_range > 0,
+            (price_range == 0) & (df['close'] > prev_close),
+            (price_range == 0) & (df['close'] < prev_close),
         ]
         choices = [
-            (df['close'] - df['low']) / price_range,          # 主逻辑：压力代理
-            1.0,                                              # 仲裁1：买方压力100%
-            0.0,                                              # 仲裁2：买方压力0%
+            (df['close'] - df['low']) / price_range,
+            1.0,
+            0.0,
         ]
-        # 默认选择（price_range==0 且 close==prev_close，或第一根K线），退回50/50
         buy_pressure_proxy = np.select(conditions, choices, default=0.5)
         sell_pressure_proxy = 1.0 - buy_pressure_proxy
-        # 4. 统一的权重分配逻辑
         for size, score_series in scores.items():
             unnormalized_buy_score = score_series * buy_pressure_proxy
             unnormalized_sell_score = score_series * sell_pressure_proxy
@@ -792,8 +786,8 @@ class AdvancedFundFlowMetricsService:
                 df[f'{size}_sell_weight'] = unnormalized_sell_score / total_sell_score_day
             else:
                 df[f'{size}_sell_weight'] = 0
-        # [代码修改结束]
         return df
+        # [代码修改结束]
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
         """【新增 V1.0】从预加载的DataFrame计算日度VWAP"""
@@ -812,10 +806,13 @@ class AdvancedFundFlowMetricsService:
         return daily_vwap.reindex(date_index)
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【新增 V1.0】从预加载的DataFrame构建按日分组的数据"""
+        """【V1.1 · 时间修正版】从预加载的DataFrame构建按日分组的数据。"""
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
+        # [代码修改开始] 在所有计算开始前，拨正时间流，这是最关键的、决定性的修复！
+        df.sort_values('trade_time', inplace=True)
+        # [代码修改结束]
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
