@@ -756,27 +756,27 @@ class AdvancedFundFlowMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
-        【V2.0 · 无限回溯版】从数据库加载【全部】历史高级资金流指标。
-        - 核心修正: 移除所有日期回溯限制，确保为衍生计算提供完整的历史序列。
+        【V2.1 · 数据类型净化版】从数据库加载并净化历史高级资金流指标。
+        - 核心修正: 在加载后立即将所有数值列转换为float，防止后续拼接时产生object类型污染。
         """
         @sync_to_async
         def get_data():
-            # [代码修改开始] 移除所有日期过滤，加载从开始到 end_date 之前的所有历史指标
             core_metric_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-            # 确保只选择模型中实际存在的字段
             required_cols = ['trade_time'] + [col for col in core_metric_cols if hasattr(model, col)]
-            
             qs = model.objects.filter(
                 stock=stock_info, 
                 trade_time__lt=end_date
             ).order_by('trade_time')
-            
             return pd.DataFrame.from_records(qs.values(*required_cols))
-        
         df = await get_data()
-        # [代码修改结束]
         if not df.empty:
             df = df.set_index(pd.to_datetime(df['trade_time']))
+            # [代码修改开始] 在数据源头进行类型净化，杜绝object类型污染
+            # 遍历所有非索引列，将它们强制转换为float类型，无法转换的将变为NaN
+            for col in df.columns:
+                if col != 'trade_time': # trade_time已经是索引了
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            # [代码修改结束]
         return df
 
 
