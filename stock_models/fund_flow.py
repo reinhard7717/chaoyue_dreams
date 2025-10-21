@@ -735,10 +735,14 @@ class FundFlowDailyDC_BJ(models.Model):
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V4.0 · 指标体系精炼版】
-    - 核心优化: 全面审查并排除所有不适用于趋势衍生计算的资金流指标。
+    【V5.0 · 语义化模型定义版】
+    - 核心重构: 彻底废弃基于名称关键字的脆弱字段类型判断。
+    - 核心逻辑: 改为基于数据语义定义字段类型。所有货币/价格/金额/价值指标统一使用高精度的DecimalField，
+                所有比率/分数/指数/纯数字指标统一使用FloatField。
+                这从根本上解决了因字段类型不当导致的数值存储错误问题。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+    # [代码修改开始] 统一P&L相关指标的单位为“万元”
     CORE_METRICS = {
         'net_flow_consensus': '共识-资金净流入(万元)',
         'main_force_net_flow_consensus': '共识-主力净流入(万元)',
@@ -778,11 +782,11 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'cost_divergence_mf_vs_retail': '成本分歧度(主力买-散户卖)',
         'cost_weighted_main_flow': '主力成本加权净流入',
         'main_buy_cost_advantage': '主力成本领先度(vs Close)',
-        'realized_profit_on_exchange': '已实现利润(T+0置换)',
-        'net_position_change_value': '净头寸变动市值',
-        'unrealized_pnl_on_net_change': '新增头寸浮动盈亏',
+        'realized_profit_on_exchange': '已实现利润(T+0置换)(万元)',
+        'net_position_change_value': '净头寸变动市值(万元)',
+        'unrealized_pnl_on_net_change': '新增头寸浮动盈亏(万元)',
         'pnl_matrix_confidence_score': 'P&L矩阵可信度评分',
-        'main_force_intraday_profit': '主力日内盈亏',
+        'main_force_intraday_profit': '主力日内盈亏(万元)',
         'market_cost_battle': '市场成本博弈差(主力买-散户买)',
         'daily_vwap': '当日成交加权平均价',
         'main_buy_cost_vs_vwap': '主力买入成本 vs VWAP',
@@ -794,27 +798,40 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'divergence_ts_dc': '分歧度(Tushare-东方财富)',
         'divergence_ths_dc': '分歧度(同花顺-东方财富)',
     }
-    # 定义不应计算斜率和加速度的指标完整列表
+    # [代码修改结束]
     SLOPE_ACCEL_EXCLUSIONS = [
-        # 结构与质量评估类
         'source_consistency_score', 'flow_internal_friction_ratio', 'cross_source_divergence_std',
         'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
         'pnl_matrix_confidence_score', 'volume_profile_jsd_vs_uniform',
-        # 日内事件与瞬时状态类
         'main_force_support_strength', 'main_force_distribution_pressure', 'retail_capitulation_score',
         'intraday_execution_alpha', 'closing_strength_index', 'final_hour_momentum',
         'aggression_index_opening', 'vwap_tracking_error', 'realized_profit_on_exchange',
-        # 成本与价格本身 (避免冗余)
         'daily_vwap', 'avg_cost_sm_buy', 'avg_cost_sm_sell', 'avg_cost_md_buy', 'avg_cost_md_sell',
         'avg_cost_lg_buy', 'avg_cost_lg_sell', 'avg_cost_elg_buy', 'avg_cost_elg_sell',
         'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
     ]
-    
+    # [代码修改开始] 彻底重构核心指标的字段定义逻辑
+    # 步骤1: 明确定义所有应为 FloatField 的指标（比率、分数、指数、纯数字等）
+    FLOAT_METRICS = [
+        'source_consistency_score', 'flow_internal_friction_ratio', 'cross_source_divergence_std',
+        'main_force_flow_intensity_ratio', 'main_force_flow_impact_ratio', 'trade_granularity_impact',
+        'main_force_support_strength', 'main_force_distribution_pressure', 'retail_capitulation_score',
+        'intraday_execution_alpha', 'intraday_volatility', 'closing_strength_index',
+        'close_vs_vwap_ratio', 'final_hour_momentum', 'trade_concentration_index',
+        'avg_order_value_norm_price', 'main_force_conviction_ratio', 'main_buy_cost_advantage',
+        'pnl_matrix_confidence_score', 'volume_profile_jsd_vs_uniform',
+        'aggression_index_opening',
+    ]
+    # 步骤2: 循环定义核心指标字段，根据语义分配正确的类型
     for name, verbose in CORE_METRICS.items():
-        if 'ratio' in name or 'pressure' in name or 'index' in name or 'cost' in name or 'profit' in name or 'battle' in name or 'advantage' in name or 'impact' in name or 'norm_price' in name or name == 'avg_order_value' or 'vwap' in name or 'error' in name or 'jsd' in name or 'strength' in name or 'score' in name or 'alpha' in name or 'volatility' in name or 'momentum' in name:
+        if name in FLOAT_METRICS:
+            # 如果是比率、分数、指数等，使用 FloatField
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
         else:
-            vars()[name] = models.DecimalField(max_digits=20, decimal_places=4, verbose_name=verbose, null=True, blank=True)
+            # 否则，默认为货币、价格、金额、价值，使用高精度的 DecimalField
+            # 增加精度以容纳价格和金额
+            vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
+    # [代码修改结束]
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     for p in UNIFIED_PERIODS:
@@ -829,12 +846,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             for name in sum_cols:
                 if name in CORE_METRICS:
                     verbose_name = CORE_METRICS.get(name, name)
-                    vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=22, decimal_places=4, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
+                    # [代码修改开始] 统一累计值字段为高精度DecimalField
+                    vars()[f'{name}_sum_{p}d'] = models.DecimalField(max_digits=24, decimal_places=6, verbose_name=f'{verbose_name}{p}日累计', null=True, blank=True)
+                    # [代码修改结束]
         for name, verbose in CORE_METRICS.items():
-            # 增加判断，跳过对排除列表内指标的斜率和加速度计算
             if name in SLOPE_ACCEL_EXCLUSIONS:
                 continue
-            
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
         if p > 1:
             sum_slope_cols = [
@@ -846,17 +863,13 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             ]
             for name in sum_slope_cols:
                 if name in CORE_METRICS:
-                    # 增加判断，跳过对排除列表内指标的斜率和加速度计算
                     if name in SLOPE_ACCEL_EXCLUSIONS:
                         continue
-                    
                     verbose_name = CORE_METRICS.get(name, name)
                     vars()[f'{name}_sum_{p}d_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日累计之{p}日斜率', null=True, blank=True)
         for name, verbose in CORE_METRICS.items():
-            # 增加判断，跳过对排除列表内指标的斜率和加速度计算
             if name in SLOPE_ACCEL_EXCLUSIONS:
                 continue
-            
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)
     class Meta:
         abstract = True
