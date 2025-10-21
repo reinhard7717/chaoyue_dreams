@@ -277,58 +277,31 @@ class AdvancedFundFlowMetricsService:
         # [代码修改结束]
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V2.3 · 数据流净化版】"""
-        # [代码修改开始] 接收独立的 daily_vwap_series 参数
+        """【V2.5 · 结构恒定版】确保所有核心指标列都被创建，即使值为空。"""
         df = merged_df.copy()
-        # 在此处，唯一地、正确地将 daily_vwap 添加到 df 中
         df['daily_vwap'] = daily_vwap_series
-        # [代码修改结束]
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
-        tushare_cols_exist = 'buy_sm_vol' in df.columns
-        if tushare_cols_exist:
-            minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
-            if minute_df_daily_grouped is None or minute_df_daily_grouped.empty:
-                print(f"调试信息: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据未预加载或为空，跳过PVWAP及所有基于分钟线的高级指标计算。")
-                cost_pairs = {
-                    'avg_cost_sm_buy': ('buy_sm_amount', 'buy_sm_vol'), 'avg_cost_sm_sell': ('sell_sm_amount', 'sell_sm_vol'),
-                    'avg_cost_md_buy': ('buy_md_amount', 'buy_md_vol'), 'avg_cost_md_sell': ('sell_md_amount', 'sell_md_vol'),
-                    'avg_cost_lg_buy': ('buy_lg_amount', 'buy_lg_vol'), 'avg_cost_lg_sell': ('sell_lg_amount', 'sell_lg_vol'),
-                    'avg_cost_elg_buy': ('buy_elg_amount', 'buy_elg_vol'), 'avg_cost_elg_sell': ('sell_elg_amount', 'sell_elg_vol'),
-                }
-                for new_col, (amount_col, vol_col) in cost_pairs.items():
-                    amount = pd.to_numeric(df[amount_col], errors='coerce') * 10000
-                    vol = pd.to_numeric(df[vol_col], errors='coerce') * 100
-                    df[new_col] = amount / vol.replace(0, np.nan)
-                df['avg_cost_main_buy'] = (df['buy_lg_amount'] * 10000 + df['buy_elg_amount'] * 10000) / (df['buy_lg_vol'] * 100 + df['buy_elg_vol'] * 100).replace(0, np.nan)
-                df['avg_cost_main_sell'] = (df['sell_lg_amount'] * 10000 + df['sell_elg_amount'] * 10000) / (df['sell_lg_vol'] * 100 + df['sell_elg_vol'] * 100).replace(0, np.nan)
-                df['avg_cost_retail_buy'] = (df['buy_sm_amount'] * 10000 + df['buy_md_amount'] * 10000) / (df['buy_sm_vol'] * 100 + df['buy_md_vol'] * 100).replace(0, np.nan)
-                df['avg_cost_retail_sell'] = (df['sell_sm_amount'] * 10000 + df['sell_md_amount'] * 10000) / (df['sell_sm_vol'] * 100 + df['sell_md_vol'] * 100).replace(0, np.nan)
-            else:
-                print(f"调试信息: [{stock_code}] 分钟数据加载成功，开始计算所有高级指标。")
-                pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
-                df = df.join(pvwap_costs_df)
-                pnl_matrix_df = self._upgrade_intraday_profit_metric(df)
-                df = df.join(pnl_matrix_df)
-                behavioral_metrics_df = self._upgrade_behavioral_metrics(df, minute_df_daily_grouped)
-                df = df.join(behavioral_metrics_df)
-                structure_metrics_df = self._calculate_intraday_structure_metrics(df, minute_df_daily_grouped)
-                df = df.join(structure_metrics_df)
-            df['cost_divergence_mf_vs_retail'] = df['avg_cost_main_buy'] - df['avg_cost_retail_sell']
-            df['cost_weighted_main_flow'] = df.get('main_force_net_flow_tushare', np.nan) * df['avg_cost_main_buy']
-            df['main_buy_cost_advantage'] = np.divide(df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
-            df['market_cost_battle'] = df['avg_cost_main_buy'] - df['avg_cost_retail_buy']
-            if 'daily_vwap' in df.columns:
-                df['main_buy_cost_vs_vwap'] = df['avg_cost_main_buy'] - df['daily_vwap']
-                df['main_sell_cost_vs_vwap'] = df['avg_cost_main_sell'] - df['daily_vwap']
-            if 'trade_count' in df.columns and 'amount' in df.columns:
-                total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce').values * 1000
-                trade_count_np = pd.to_numeric(df['trade_count'], errors='coerce').values
-                df['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
-                close_price_np = pd.to_numeric(df['close'], errors='coerce').values
-                avg_order_value_np = df['avg_order_value'].values
-                df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
+        # [代码修改开始] 实施“结构恒定”策略
+        # 步骤1: 初始化一个包含所有最终列的DataFrame，填充NaN，确保结构完整
+        final_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
+        result_df = pd.DataFrame(index=df.index, columns=final_cols)
+        # 将df中已有的列（如daily_vwap）和原始数据合并过来
+        result_df.update(df)
+        # 模块一：分钟数据依赖的高级指标计算
+        minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
+        if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
+            print(f"调试信息: [{stock_code}] 分钟数据和成交量数据满足，开始计算所有高级指标。")
+            pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
+            result_df.update(pvwap_costs_df) # 使用update填充，而不是join
+            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df) # 基于更新后的result_df计算
+            result_df.update(pnl_matrix_df)
+            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
+            result_df.update(behavioral_metrics_df)
+            structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
+            result_df.update(structure_metrics_df)
         else:
-            print(f"警告: [{stock_code}] 关键列 'buy_sm_vol' 不存在，跳过大部分高级资金指标计算。")
+            print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
+        # 模块二：共识指标计算 (填充result_df)
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -341,50 +314,166 @@ class AdvancedFundFlowMetricsService:
         for target_col, source_cols in consensus_map.items():
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
-                df[target_col] = df[existing_cols].mean(axis=1)
-            else:
-                df[target_col] = np.nan
+                result_df[target_col] = df[existing_cols].mean(axis=1)
+        # 模块三：衍生共识与分歧度指标 (填充result_df)
         source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
         existing_sources = [col for col in source_cols if col in df.columns]
         if len(existing_sources) > 1:
-            df['cross_source_divergence_std'] = df[existing_sources].std(axis=1)
             flows = df[existing_sources]
+            result_df['cross_source_divergence_std'] = flows.std(axis=1)
             median_flow = flows.median(axis=1)
             deviations = flows.sub(median_flow, axis=0).abs()
             weights = 1 / (1 + deviations)
             weighted_flows = flows.multiply(weights.values)
-            df['consensus_flow_weighted'] = weighted_flows.sum(axis=1) / weights.sum(axis=1).replace(0, np.nan)
+            result_df['consensus_flow_weighted'] = weighted_flows.sum(axis=1) / weights.sum(axis=1).replace(0, np.nan)
         else:
-            df['cross_source_divergence_std'] = np.nan
-            df['consensus_flow_weighted'] = df.get('main_force_net_flow_consensus', np.nan)
+            result_df['consensus_flow_weighted'] = result_df.get('main_force_net_flow_consensus', np.nan)
         if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
-            df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
+            result_df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
         if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_dc' in df.columns:
-            df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
+            result_df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
         if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
-            df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
+            result_df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
+        # 模块四：最终比率指标 (填充result_df)
         safe_denom = lambda v: v.replace(0, np.nan)
-        total_turnover_yuan = pd.to_numeric(df.get('amount'), errors='coerce') * 1000
-        main_force_net_flow_yuan = pd.to_numeric(df.get('main_force_net_flow_consensus'), errors='coerce') * 10000
-        circ_mv_yuan = pd.to_numeric(df.get('circ_mv'), errors='coerce') * 10000
-        df['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
-        if 'avg_order_value' in df.columns:
-            df['trade_granularity_impact'] = df['avg_order_value'] / safe_denom(circ_mv_yuan)
-        df['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
-        df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)) * 100
-        df['flow_divergence_mf_vs_retail'] = df.get('main_force_net_flow_consensus', np.nan) - df.get('retail_net_flow_consensus', np.nan)
-        df['main_force_vs_xl_divergence'] = df.get('main_force_net_flow_consensus', np.nan) - df.get('net_xl_amount_consensus', np.nan)
-        net_lg_consensus = df.get('net_lg_amount_consensus')
-        if net_lg_consensus is not None:
-            df['main_force_conviction_ratio'] = df.get('net_xl_amount_consensus', np.nan) / safe_denom(net_lg_consensus)
-        else:
-            df['main_force_conviction_ratio'] = np.nan
-        total_xl_trade_yuan = pd.to_numeric(df.get('net_xl_amount_consensus'), errors='coerce').abs() * 10000
-        df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
-        # [代码新增开始] 增加黑匣子诊断信息
-        print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {df.shape}")
-        # [代码新增结束]
-        return df
+        if 'trade_count' in df.columns and 'amount' in df.columns and 'close' in df.columns:
+            total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
+            trade_count_np = pd.to_numeric(df['trade_count'], errors='coerce')
+            result_df['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
+            close_price_np = pd.to_numeric(df['close'], errors='coerce')
+            avg_order_value_np = result_df['avg_order_value'].values
+            result_df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
+        if 'amount' in df.columns and 'circ_mv' in df.columns:
+            total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
+            circ_mv_yuan = pd.to_numeric(df['circ_mv'], errors='coerce') * 10000
+            if 'main_force_net_flow_consensus' in result_df.columns:
+                main_force_net_flow_yuan = pd.to_numeric(result_df['main_force_net_flow_consensus'], errors='coerce') * 10000
+                result_df['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
+                result_df['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
+                result_df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)) * 100
+            if 'avg_order_value' in result_df.columns:
+                result_df['trade_granularity_impact'] = result_df['avg_order_value'] / safe_denom(circ_mv_yuan)
+            if 'net_xl_amount_consensus' in result_df.columns:
+                total_xl_trade_yuan = pd.to_numeric(result_df['net_xl_amount_consensus'], errors='coerce').abs() * 10000
+                result_df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
+        if 'main_force_net_flow_consensus' in result_df.columns and 'retail_net_flow_consensus' in result_df.columns:
+            result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
+        if 'main_force_net_flow_consensus' in result_df.columns and 'net_xl_amount_consensus' in result_df.columns:
+            result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
+        if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
+            result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
+        if 'avg_cost_main_buy' in result_df.columns:
+            result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
+            result_df['cost_weighted_main_flow'] = result_df.get('main_force_net_flow_tushare', np.nan) * result_df['avg_cost_main_buy']
+            result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
+            result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
+            if 'daily_vwap' in result_df.columns:
+                result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
+                result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
+        print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
+        return result_df
+        # [代码修改结束]
+
+    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V2.1 · 数据流净化版】使用订单规模似然权重计算PVWAP成本
+        """
+        if minute_df_grouped is None:
+            print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
+            return pd.DataFrame(index=daily_df.index)
+        results = {}
+        cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
+        from scipy.spatial.distance import jensenshannon
+        for date, daily_data in daily_df.iterrows():
+            date_key = date.date()
+            if date_key not in minute_df_grouped.index:
+                continue
+            minute_data_for_day = minute_df_grouped.loc[[date_key]].copy()
+            minute_data_for_day = self._calculate_order_size_likelihood_weights(minute_data_for_day, daily_data)
+            day_results = {'trade_time': date}
+            for cost_type in cost_types:
+                size = cost_type.split('_')[0]
+                daily_vol_shares = pd.to_numeric(daily_data.get(f'{cost_type}_vol'), errors='coerce') * 100
+                if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
+                    day_results[f'avg_cost_{cost_type}'] = np.nan
+                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
+                    continue
+                weight_col = f'{size}_weight'
+                attributed_vol = minute_data_for_day[weight_col] * daily_vol_shares
+                minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
+                attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
+                total_attributed_value = attributed_value.sum()
+                total_attributed_vol = attributed_vol.sum()
+                day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 and not np.isclose(total_attributed_vol, 0) else np.nan
+            p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
+            q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
+            day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
+            first_hour_mask = (minute_data_for_day['trade_time'].dt.hour == 9) & (minute_data_for_day['trade_time'].dt.minute >= 30) | \
+                              (minute_data_for_day['trade_time'].dt.hour == 10) & (minute_data_for_day['trade_time'].dt.minute < 30)
+            first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
+            total_day_vol = minute_data_for_day['vol_shares'].sum()
+            day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
+            day_results['minute_data_attributed'] = minute_data_for_day
+            results[date] = day_results
+        if not results:
+            return pd.DataFrame()
+        # [代码修改开始] 简化数据流，确保所有成本指标都被传递
+        # 步骤1: 提取分钟数据供下游使用，并从results中移除
+        self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
+        # 步骤2: 从清理后的results创建包含所有独立成本的DataFrame
+        pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
+        # 步骤3: 调用聚合函数，该函数现在会返回包含【所有】成本列的DataFrame
+        final_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
+        return final_df
+        # [代码修改结束]
+
+    def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.4 · 全量返回版】确保返回所有独立成本和聚合成本。
+        """
+        # [代码修改开始] 确保函数返回所有计算出的成本列
+        df = pvwap_df.copy()
+        # 确保daily_df中的vol_cols存在，如果不存在则不进行join，避免错误
+        vol_cols = [
+            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
+            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
+        ]
+        existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
+        if not existing_vol_cols:
+            # 如果没有任何成交量数据，无法计算聚合成本，直接返回独立成本
+            return df
+        df = df.join(daily_df[existing_vol_cols])
+        def weighted_avg_cost(cost_cols, vol_cols):
+            total_value = pd.Series(0.0, index=df.index)
+            total_volume = pd.Series(0.0, index=df.index)
+            for cost_col, vol_col in zip(cost_cols, vol_cols):
+                if cost_col in df.columns and vol_col in df.columns:
+                    cost = df[cost_col].fillna(0)
+                    volume = pd.to_numeric(df[vol_col], errors='coerce').fillna(0)
+                    total_value += cost * volume
+                    total_volume += volume
+            return total_value / total_volume.replace(0, np.nan)
+        df['avg_cost_main_buy'] = weighted_avg_cost(
+            ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
+            ['buy_lg_vol', 'buy_elg_vol']
+        )
+        df['avg_cost_main_sell'] = weighted_avg_cost(
+            ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
+            ['sell_lg_vol', 'sell_elg_vol']
+        )
+        df['avg_cost_retail_buy'] = weighted_avg_cost(
+            ['avg_cost_sm_buy', 'avg_cost_md_buy'],
+            ['buy_sm_vol', 'buy_md_vol']
+        )
+        df['avg_cost_retail_sell'] = weighted_avg_cost(
+            ['avg_cost_sm_sell', 'avg_cost_md_sell'],
+            ['sell_sm_vol', 'sell_md_vol']
+        )
+        if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
+            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - daily_df['daily_vwap']
+        # 返回一个包含所有独立成本和聚合成本的完整DataFrame
+        return df.drop(columns=existing_vol_cols, errors='ignore')
+        # [代码修改结束]
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V3.2 · 健壮性加固版】修正pandas_ta调用方式，并优化min_periods。"""
@@ -470,114 +559,6 @@ class AdvancedFundFlowMetricsService:
         print(f"调试信息: [{stock_code}] [节点9] 批量保存执行完毕。")
         # [代码新增结束]
         return len(records_to_create)
-
-    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V2.0 · 奥丁之眼重构版】使用订单规模似然权重计算PVWAP成本
-        """
-        if minute_df_grouped is None:
-            print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
-            # 如果没有分钟数据，则不进行任何计算，返回空DataFrame
-            return pd.DataFrame(index=daily_df.index)
-        results = {}
-        cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        from scipy.spatial.distance import jensenshannon
-        for date, daily_data in daily_df.iterrows():
-            date_key = date.date()
-            if date_key not in minute_df_grouped.index:
-                continue
-            minute_data_for_day = minute_df_grouped.loc[[date_key]].copy()
-            # 调用新的权重计算方法
-            minute_data_for_day = self._calculate_order_size_likelihood_weights(minute_data_for_day, daily_data)
-            
-            day_results = {'trade_time': date}
-            # --- 1. 计算PVWAP成本 ---
-            for cost_type in cost_types:
-                size = cost_type.split('_')[0] # sm, md, lg, elg
-                daily_vol_shares = pd.to_numeric(daily_data.get(f'{cost_type}_vol'), errors='coerce') * 100
-                if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
-                    day_results[f'avg_cost_{cost_type}'] = np.nan
-                    # 同时记录归因后的分钟成交量，供下游使用
-                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    
-                    continue
-                # 使用新的、分规模的权重进行归因
-                weight_col = f'{size}_weight'
-                attributed_vol = minute_data_for_day[weight_col] * daily_vol_shares
-                minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol # 记录归因后的分钟成交量
-                
-                attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
-                total_attributed_value = attributed_value.sum()
-                total_attributed_vol = attributed_vol.sum()
-                day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 and not np.isclose(total_attributed_vol, 0) else np.nan
-            # --- 2. 计算算法交易指纹 (逻辑不变，但基于更精确的分钟数据) ---
-            p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
-            q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
-            day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            first_hour_mask = (minute_data_for_day['trade_time'].dt.hour == 9) & (minute_data_for_day['trade_time'].dt.minute >= 30) | \
-                              (minute_data_for_day['trade_time'].dt.hour == 10) & (minute_data_for_day['trade_time'].dt.minute < 30)
-            first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
-            total_day_vol = minute_data_for_day['vol_shares'].sum()
-            day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
-            # 将带有归因成交量的分钟数据存入day_results，供下游使用
-            day_results['minute_data_attributed'] = minute_data_for_day
-            
-            results[date] = day_results
-        if not results:
-            return pd.DataFrame()
-        # 调整数据处理流程，以传递分钟数据给下游
-        final_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # 提取分钟数据以供下游使用
-        self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items()}
-        final_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        
-        final_df = self._calculate_aggregate_pvwap_costs(final_df, daily_df)
-        return final_df
-
-    def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V1.3 · 数据流净化版】
-        - 核心修正: 彻底移除此处的 join 操作，直接使用 daily_df 中已存在的 daily_vwap 列。
-        """
-        df = pvwap_df.copy()
-        vol_cols = [
-            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
-            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
-        ]
-        df = df.join(daily_df[vol_cols])
-        def weighted_avg_cost(cost_cols, vol_cols):
-            total_value = pd.Series(0.0, index=df.index)
-            total_volume = pd.Series(0.0, index=df.index)
-            for cost_col, vol_col in zip(cost_cols, vol_cols):
-                cost = df.get(cost_col, 0).fillna(0)
-                volume = pd.to_numeric(df.get(vol_col, 0), errors='coerce').fillna(0)
-                total_value += cost * volume
-                total_volume += volume
-            return total_value / total_volume.replace(0, np.nan)
-        df['avg_cost_main_buy'] = weighted_avg_cost(
-            ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
-            ['buy_lg_vol', 'buy_elg_vol']
-        )
-        df['avg_cost_main_sell'] = weighted_avg_cost(
-            ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
-            ['sell_lg_vol', 'sell_elg_vol']
-        )
-        df['avg_cost_retail_buy'] = weighted_avg_cost(
-            ['avg_cost_sm_buy', 'avg_cost_md_buy'],
-            ['buy_sm_vol', 'buy_md_vol']
-        )
-        df['avg_cost_retail_sell'] = weighted_avg_cost(
-            ['avg_cost_sm_sell', 'avg_cost_md_sell'],
-            ['sell_sm_vol', 'sell_md_vol']
-        )
-        # [代码修改开始] 移除冗余的join，直接使用daily_df中的列
-        if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
-            # 此处不再需要join，因为 daily_df 已经包含了 daily_vwap
-            # df = df.join(daily_df['daily_vwap']) # <--- 移除此行
-            # 直接使用 daily_df 的 'daily_vwap' 列进行计算，Pandas会根据索引自动对齐
-            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - daily_df['daily_vwap']
-        # [代码修改结束]
-        return df.drop(columns=vol_cols, errors='ignore')
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
