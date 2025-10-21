@@ -25,7 +25,7 @@ class AdvancedFundFlowMetricsService:
     - 架构优势: 实现业务逻辑与任务调度的完全解耦。
     """
     def __init__(self):
-        self.max_lookback_days = 200
+        self.max_lookback_days = 300
 
     def _get_safe_numeric_series(self, df: pd.DataFrame, col_name: str, default_value=0) -> pd.Series:
         """
