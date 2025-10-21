@@ -27,6 +27,18 @@ class AdvancedFundFlowMetricsService:
     def __init__(self):
         self.max_lookback_days = 200
 
+    def _get_safe_numeric_series(self, df: pd.DataFrame, col_name: str, default_value=0) -> pd.Series:
+        """
+        【新增】类型安全的列获取辅助函数。
+        无论列是否存在、是否包含NaN，都确保返回一个填充了默认值的数值型Pandas Series。
+        """
+        series = df.get(col_name)
+        if series is None:
+            # 如果列不存在，创建一个填充了默认值的Series
+            return pd.Series(default_value, index=df.index)
+        # 如果列存在，确保其为数值类型并填充NaN
+        return pd.to_numeric(series, errors='coerce').fillna(default_value)
+
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None, preloaded_minute_data: pd.DataFrame = None):
         """【V4.0 · 统一滚动计算引擎版】服务层主执行器"""
         # [代码修改开始] 统一增量与全量计算逻辑
@@ -562,15 +574,17 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 类型安全版】构建“主力日内三维P&L矩阵”，并修复类型错误。
+        【V1.2 · 全面类型安全版】构建“主力日内三维P&L矩阵”，并使用辅助函数确保绝对类型安全。
         """
         results_df = pd.DataFrame(index=df.index)
+        # [代码修改开始] 全面使用_get_safe_numeric_series辅助函数，根除所有类型错误
         # --- 准备数据 ---
-        cost_buy = df.get('avg_cost_main_buy').fillna(0)
-        cost_sell = df.get('avg_cost_main_sell').fillna(0)
-        vol_buy = pd.to_numeric(df.get('buy_lg_vol'), errors='coerce').fillna(0) + pd.to_numeric(df.get('buy_elg_vol'), errors='coerce').fillna(0)
-        vol_sell = pd.to_numeric(df.get('sell_lg_vol'), errors='coerce').fillna(0) + pd.to_numeric(df.get('sell_elg_vol'), errors='coerce').fillna(0)
-        close_price = df.get('close').fillna(0)
+        cost_buy = self._get_safe_numeric_series(df, 'avg_cost_main_buy')
+        cost_sell = self._get_safe_numeric_series(df, 'avg_cost_main_sell')
+        vol_buy = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')
+        vol_sell = self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')
+        close_price = self._get_safe_numeric_series(df, 'close')
+        # [代码修改结束]
         # 转换成交量单位：手 -> 股
         vol_buy_shares = vol_buy * 100
         vol_sell_shares = vol_sell * 100
@@ -587,18 +601,11 @@ class AdvancedFundFlowMetricsService:
         # --- 可信度评分 (Confidence Score) ---
         # 1. Tushare 净流入方向 (基于我们的计算)
         dir_ts = np.sign(results_df['net_position_change_value'])
-        # [代码修改开始] 确保在任何情况下都操作Pandas Series，避免AttributeError
+        # [代码修改开始] 同样使用安全辅助函数
         # 2. THS 净流入方向
-        # 先获取Series，如果不存在则创建一个填充了0的Series
-        ths_flow = df.get('main_force_net_flow_ths')
-        if ths_flow is None:
-            ths_flow = pd.Series(0, index=df.index)
-        dir_ths = np.sign(ths_flow.fillna(0))
+        dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
         # 3. DC 净流入方向
-        dc_flow = df.get('main_force_net_flow_dc')
-        if dc_flow is None:
-            dc_flow = pd.Series(0, index=df.index)
-        dir_dc = np.sign(dc_flow.fillna(0))
+        dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
         # [代码修改结束]
         # 计算一致性
         agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
