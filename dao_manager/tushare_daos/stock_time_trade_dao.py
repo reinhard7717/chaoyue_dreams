@@ -515,12 +515,14 @@ class StockTimeTradeDAO(BaseDAO):
             logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
 
-    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="") -> None:
+    @with_rate_limit(name='api_stk_mins') # 新增：添加速率限制装饰器
+    async def save_minute_time_trade_history_by_stock_codes(self, stock_codes: List[str], start_date_str: str="2020-01-01 00:00:00", end_date_str: str="", *, limiter) -> None: # 修改：增加limiter参数
         """
-        【V5.0 向量化重构版】保存股票的历史分钟级交易数据
+        【V5.1 速率限制版】保存股票的历史分钟级交易数据
         - 核心优化:
           1. 【向量化处理】使用Pandas的向量化操作替代了原有的 `groupby()` 和循环，大幅提升了数据处理效率。
           2. 【内存优化】在处理完每一页数据后，及时进行分表和保存，避免将所有数据加载到内存中。
+          3. 【速率限制】集成了 'api_stk_mins' 分布式速率限制器。
         """
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
@@ -539,7 +541,12 @@ class StockTimeTradeDAO(BaseDAO):
                     logger.warning(f"offset已达10万，停止拉取。ts_code={stock_codes_str}, freq={time_level}min")
                     break
                 print(f"调试信息: 准备拉取 {time_level}min 数据, page={page_num}, offset={offset}, limit={limit}")
-                await asyncio.sleep(0.25)
+                # --- 新增的代码行开始 ---
+                # 在API调用前获取速率许可
+                while not await limiter.acquire():
+                    print(f"PID[{os.getpid()}] API[api_stk_mins] 速率超限，等待10秒后重试... (股票: {stock_codes_str}, Freq: {time_level}min)")
+                    await asyncio.sleep(10)
+                # --- 新增的代码行结束 ---
                 try:
                     df = self.ts_pro.stk_mins(**{
                         "ts_code": stock_codes_str, "freq": time_level + "min", "start_date": start_date_str, "end_date": end_date_str,
