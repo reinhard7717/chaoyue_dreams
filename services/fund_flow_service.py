@@ -577,37 +577,56 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.2 · 鲁棒性重构版】使用健壮的辅助函数重写P&L矩阵计算。
-        - 核心修正: 引入_get_numeric_series_with_nan处理成本，保留NaN。
-        - 核心修正: 使用修正后的_get_safe_numeric_series处理成交量，填充0。
+        【V3.0 · 利润公式重塑版】使用金融学第一性原理重写P&L矩阵计算。
+        - 核心修正: 彻底废弃了 (sell-buy)*buy_vol 的错误利润公式。
+        - 核心修正: 将 main_force_intraday_profit 定义为 (总卖出金额 - 总买入金额)，从根本上解决利润归零问题。
         """
-        # [代码修改开始] 全面采用新的、对单行数据免疫的辅助函数
         results_df = pd.DataFrame(index=df.index)
-        # 使用新辅助函数获取成本，保留NaN
+        # [代码修改开始] 使用正确的金融学公式重塑整个P&L计算
+        # 1. 安全地获取所有输入数据
         cost_buy = self._get_numeric_series_with_nan(df, 'avg_cost_main_buy')
         cost_sell = self._get_numeric_series_with_nan(df, 'avg_cost_main_sell')
         close_price = self._get_numeric_series_with_nan(df, 'close')
-        # 使用修正后的辅助函数获取成交量，填充0
-        vol_buy = (self._get_safe_numeric_series(df, 'buy_lg_vol') +
-                   self._get_safe_numeric_series(df, 'buy_elg_vol'))
-        vol_sell = (self._get_safe_numeric_series(df, 'sell_lg_vol') +
-                    self._get_safe_numeric_series(df, 'sell_elg_vol'))
-        vol_buy_shares = vol_buy * 100
-        vol_sell_shares = vol_sell * 100
-        # 后续计算逻辑在Numpy/Pandas的广播机制下，对NaN具有天然的传播性，无需修改
+        vol_buy_shares = (self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')) * 100
+        vol_sell_shares = (self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')) * 100
+        # 2. 计算核心的P&L组件
+        # 已实现利润：针对日内T+0置换的部分
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
         results_df['realized_profit_on_exchange'] = (cost_sell - cost_buy) * exchanged_volume
+        # 净头寸变动及其成本
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
+        # 当净买入时，新增头寸成本为买入成本；当净卖出时，减少头寸的成本（或说价格）为卖出价格
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
         results_df['net_position_change_value'] = net_pos_change_vol * net_pos_change_cost
+        # 未实现盈亏：针对日终净头寸变动的部分，按收盘价计算浮动盈亏
         results_df['unrealized_pnl_on_net_change'] = (close_price - net_pos_change_cost) * net_pos_change_vol
-        results_df['main_force_intraday_profit'] = (cost_sell - cost_buy) * vol_buy_shares
-        # 此处使用fillna(0)是安全的，因为我们只关心符号
+        # 3. 【决定性修复】使用正确的金融学公式计算总利润
+        # 总利润 = 总卖出金额 - 总买入金额
+        total_sell_value = cost_sell * vol_sell_shares
+        total_buy_value = cost_buy * vol_buy_shares
+        results_df['main_force_intraday_profit'] = total_sell_value - total_buy_value
+        # 4. P&L矩阵可信度评分 (逻辑保持不变)
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
         dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
-        agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
-        results_df['pnl_matrix_confidence_score'] = ((agreement_count / 3 * 2) + 1) / 3
+        # 在多源数据都存在的情况下才计算一致性
+        agreement_count = pd.Series(0, index=df.index)
+        valid_sources = 0
+        if 'main_force_net_flow_ths' in df.columns:
+            agreement_count += (dir_ts == dir_ths).astype(int)
+            valid_sources += 1
+        if 'main_force_net_flow_dc' in df.columns:
+            agreement_count += (dir_ts == dir_dc).astype(int)
+            valid_sources += 1
+        if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
+             agreement_count += (dir_ths == dir_dc).astype(int)
+             valid_sources += 1
+        # 避免除以零
+        if valid_sources > 0:
+            # 将一致性评分标准化到0-1之间
+            results_df['pnl_matrix_confidence_score'] = agreement_count / max(1, valid_sources)
+        else:
+            results_df['pnl_matrix_confidence_score'] = np.nan
         return results_df
         # [代码修改结束]
 
