@@ -581,7 +581,7 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【新增】构建“主力日内三维P&L矩阵”，并融合多源数据计算可信度评分。
+        【V1.1 · 类型安全版】构建“主力日内三维P&L矩阵”，并修复类型错误。
         """
         results_df = pd.DataFrame(index=df.index)
         # --- 准备数据 ---
@@ -606,10 +606,19 @@ class AdvancedFundFlowMetricsService:
         # --- 可信度评分 (Confidence Score) ---
         # 1. Tushare 净流入方向 (基于我们的计算)
         dir_ts = np.sign(results_df['net_position_change_value'])
+        # [代码修改开始] 确保在任何情况下都操作Pandas Series，避免AttributeError
         # 2. THS 净流入方向
-        dir_ths = np.sign(df.get('main_force_net_flow_ths', 0).fillna(0))
+        # 先获取Series，如果不存在则创建一个填充了0的Series
+        ths_flow = df.get('main_force_net_flow_ths')
+        if ths_flow is None:
+            ths_flow = pd.Series(0, index=df.index)
+        dir_ths = np.sign(ths_flow.fillna(0))
         # 3. DC 净流入方向
-        dir_dc = np.sign(df.get('main_force_net_flow_dc', 0).fillna(0))
+        dc_flow = df.get('main_force_net_flow_dc')
+        if dc_flow is None:
+            dc_flow = pd.Series(0, index=df.index)
+        dir_dc = np.sign(dc_flow.fillna(0))
+        # [代码修改结束]
         # 计算一致性
         agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
         # 3个方向一致 -> agreement_count=3 -> score=1.0
