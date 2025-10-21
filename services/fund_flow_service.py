@@ -727,15 +727,12 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V4.0 · 压力代理重构版】计算基于“买卖压力代理”的日内归因权重。
-        - 核心逻辑: 结合“规模似然”和“分钟买卖压力代理”，为每种规模和方向独立生成归因权重。
+        【V4.1 · 标量掩码修复版】计算基于“买卖压力代理”的日内归因权重。
+        - 核心修正: 修复了在归一化权重时，因误用np.divide的where参数导致putmask尺寸不匹配的致命BUG。
         """
-        # [代码新增开始] 这是一个全新重构的方法，取代了之前所有错误的权重/分数计算
         df = minute_data_for_day.copy()
-        # 1. 计算规模似然分数 (与之前逻辑类似)
         circ_mv = pd.to_numeric(daily_data.get('circ_mv'), errors='coerce') * 10000
         if pd.isna(circ_mv) or circ_mv == 0:
-            # 如果无法计算规模分数，则所有权重都为0，下游将回退到按成交量加权
             for size in ['sm', 'md', 'lg', 'elg']:
                 for direction in ['buy', 'sell']:
                     df[f'{size}_{direction}_weight'] = 0
@@ -749,28 +746,31 @@ class AdvancedFundFlowMetricsService:
             'md': df['amount_yuan'].where((df['amount_yuan'] >= md_threshold) & (df['amount_yuan'] < lg_threshold), 0),
             'sm': df['amount_yuan'].where(df['amount_yuan'] < md_threshold, 0),
         }
-        # 2. 计算分钟买卖压力代理 (核心修正)
         price_range = df['high'] - df['low']
-        # 使用np.divide安全处理 price_range 为0的情况 (平盘)，此时压力为0.5
         buy_pressure_proxy = np.divide(
             df['close'] - df['low'],
             price_range,
-            out=np.full_like(price_range, 0.5, dtype=float),
+            out=np.full_like(price_range.values, 0.5, dtype=float),
             where=price_range != 0
         )
         sell_pressure_proxy = 1.0 - buy_pressure_proxy
-        # 3. 生成最终的、带有方向的、归一化的权重
+        # [代码修改开始] 修复致命的 "putmask" 尺寸不匹配错误
         for size, score_series in scores.items():
-            # 计算带方向的、未归一化的分数
             unnormalized_buy_score = score_series * buy_pressure_proxy
             unnormalized_sell_score = score_series * sell_pressure_proxy
-            # 在全天范围内归一化，得到最终权重
             total_buy_score_day = unnormalized_buy_score.sum()
             total_sell_score_day = unnormalized_sell_score.sum()
-            df[f'{size}_buy_weight'] = np.divide(unnormalized_buy_score, total_buy_score_day, out=np.zeros_like(unnormalized_buy_score), where=total_buy_score_day != 0)
-            df[f'{size}_sell_weight'] = np.divide(unnormalized_sell_score, total_sell_score_day, out=np.zeros_like(unnormalized_sell_score), where=total_sell_score_day != 0)
+            # 使用清晰、稳健的if/else判断，取代错误的np.divide用法
+            if total_buy_score_day > 1e-9:
+                df[f'{size}_buy_weight'] = unnormalized_buy_score / total_buy_score_day
+            else:
+                df[f'{size}_buy_weight'] = 0
+            if total_sell_score_day > 1e-9:
+                df[f'{size}_sell_weight'] = unnormalized_sell_score / total_sell_score_day
+            else:
+                df[f'{size}_sell_weight'] = 0
+        # [代码修改结束]
         return df
-        # [代码新增结束]
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
         """【新增 V1.0】从预加载的DataFrame计算日度VWAP"""
