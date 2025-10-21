@@ -357,7 +357,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V2.1 · 数据流净化版】使用订单规模似然权重计算PVWAP成本
+        【V2.2 · 键值修正版】使用订单规模似然权重计算PVWAP成本
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算PVWAP成本及算法指纹。")
@@ -373,8 +373,11 @@ class AdvancedFundFlowMetricsService:
             minute_data_for_day = self._calculate_order_size_likelihood_weights(minute_data_for_day, daily_data)
             day_results = {'trade_time': date}
             for cost_type in cost_types:
-                size = cost_type.split('_')[0]
-                daily_vol_shares = pd.to_numeric(daily_data.get(f'{cost_type}_vol'), errors='coerce') * 100
+                # [代码修改开始] 修正成交量列名的构造逻辑
+                size, direction = cost_type.split('_') # 将 'sm_buy' 分解为 'sm' 和 'buy'
+                db_vol_key = f'{direction}_{size}_vol' # 构造正确的数据库列名，如 'buy_sm_vol'
+                daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100 # 使用修正后的键获取成交量
+                # [代码修改结束]
                 if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
@@ -398,15 +401,10 @@ class AdvancedFundFlowMetricsService:
             results[date] = day_results
         if not results:
             return pd.DataFrame()
-        # [代码修改开始] 简化数据流，确保所有成本指标都被传递
-        # 步骤1: 提取分钟数据供下游使用，并从results中移除
         self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
-        # 步骤2: 从清理后的results创建包含所有独立成本的DataFrame
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # 步骤3: 调用聚合函数，该函数现在会返回包含【所有】成本列的DataFrame
         final_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         return final_df
-        # [代码修改结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -543,45 +541,30 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 · 全面类型安全版】构建“主力日内三维P&L矩阵”，并使用辅助函数确保绝对类型安全。
+        【V1.3 · 指标补全版】构建“主力日内三维P&L矩阵”，并增加'main_force_intraday_profit'的计算。
         """
         results_df = pd.DataFrame(index=df.index)
-        # [代码修改开始] 全面使用_get_safe_numeric_series辅助函数，根除所有类型错误
-        # --- 准备数据 ---
         cost_buy = self._get_safe_numeric_series(df, 'avg_cost_main_buy')
         cost_sell = self._get_safe_numeric_series(df, 'avg_cost_main_sell')
         vol_buy = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')
         vol_sell = self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')
         close_price = self._get_safe_numeric_series(df, 'close')
-        # [代码修改结束]
-        # 转换成交量单位：手 -> 股
         vol_buy_shares = vol_buy * 100
         vol_sell_shares = vol_sell * 100
-        # --- 维度一: 已实现利润 (Realized P&L) ---
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
         results_df['realized_profit_on_exchange'] = (cost_sell - cost_buy) * exchanged_volume
-        # --- 维度二: 净头寸变动 (Net Position Change) ---
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
-        # 净买入时，成本为买入成本；净卖出时，成本为卖出成本
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
         results_df['net_position_change_value'] = net_pos_change_vol * net_pos_change_cost
-        # --- 维度三: 浮动盈亏 (Unrealized P&L) ---
         results_df['unrealized_pnl_on_net_change'] = (close_price - net_pos_change_cost) * net_pos_change_vol
-        # --- 可信度评分 (Confidence Score) ---
-        # 1. Tushare 净流入方向 (基于我们的计算)
+        # [代码新增开始] 补全 'main_force_intraday_profit' 指标的计算
+        # 定义：(主力平均卖出成本 - 主力平均买入成本) * 主力总买入量，代表主力当天买入头寸的理论盈亏
+        results_df['main_force_intraday_profit'] = (cost_sell - cost_buy) * vol_buy_shares
+        # [代码新增结束]
         dir_ts = np.sign(results_df['net_position_change_value'])
-        # [代码修改开始] 同样使用安全辅助函数
-        # 2. THS 净流入方向
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
-        # 3. DC 净流入方向
         dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
-        # [代码修改结束]
-        # 计算一致性
         agreement_count = (dir_ts == dir_ths).astype(int) + (dir_ts == dir_dc).astype(int) + (dir_ths == dir_dc).astype(int)
-        # 3个方向一致 -> agreement_count=3 -> score=1.0
-        # 2个方向一致 -> agreement_count=1 -> score=0.67 (近似2/3)
-        # 3个方向混战 -> agreement_count=0 -> score=0.33 (近似1/3)
-        # 注意：这里用 (agreement_count / 3 * 2 + 1) / 3 是一个映射技巧
         results_df['pnl_matrix_confidence_score'] = ((agreement_count / 3 * 2) + 1) / 3
         return results_df
 
