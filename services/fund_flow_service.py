@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.6 · 利润探针植入版】植入利润矩阵探针，诊断main_force_intraday_profit计算问题。"""
+        """【V3.7 · 全面join替换版】全面废弃update，使用join进行列合并，根治数据丢失问题。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -293,12 +293,11 @@ class AdvancedFundFlowMetricsService:
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df = result_df.join(pvwap_costs_df)
-            # [代码修改开始] 植入利润矩阵探针
-            probe_pnl_df = result_df.loc[[latest_date]]
-            self._probe_and_upgrade_intraday_profit_metric(probe_pnl_df)
-            # [代码修改结束]
+            # [代码修改开始] 移除利润探针调用
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
-            result_df.update(pnl_matrix_df)
+            # 使用join替换update，确保利润矩阵列被可靠地合并
+            result_df = result_df.join(pnl_matrix_df)
+            # [代码修改结束]
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
@@ -327,9 +326,11 @@ class AdvancedFundFlowMetricsService:
                     result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
-            result_df.update(behavioral_metrics_df)
+            # [代码修改开始] 同样使用join替换update
+            result_df = result_df.join(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
-            result_df.update(structure_metrics_df)
+            result_df = result_df.join(structure_metrics_df)
+            # [代码修改结束]
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
         if len(existing_sources) > 1:
