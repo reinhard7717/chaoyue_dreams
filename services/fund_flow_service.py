@@ -244,12 +244,15 @@ class AdvancedFundFlowMetricsService:
         # 使用新的、更可靠的辅助函数进行分组
         return self._group_minute_data_from_df(minute_df)
         
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V4.2 · 无探针清洁版】移除所有探针，恢复生产状态。"""
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
+        """【V5.0 · 显式返回版】显式返回指标DF和归因分钟数据字典。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
         result_df = df.copy()
+        # [代码新增开始]
+        attributed_minute_map = {} # 初始化以防万一
+        # [代码新增结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -267,7 +270,9 @@ class AdvancedFundFlowMetricsService:
         existing_sources = [col for col in source_cols if col in df.columns]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
+            # [代码修改开始] 接收两个返回值
+            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
+            # [代码修改结束]
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
@@ -296,7 +301,9 @@ class AdvancedFundFlowMetricsService:
                 if 'daily_vwap' in result_df.columns:
                     result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
-            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
+            # [代码修改开始] 将归因后的分钟数据传递给下游
+            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
+            # [代码修改结束]
             result_df = result_df.join(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df = result_df.join(structure_metrics_df)
@@ -345,14 +352,18 @@ class AdvancedFundFlowMetricsService:
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
         print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
-        return result_df
+        # [代码修改开始] 显式返回两个值
+        return result_df, attributed_minute_map
+        # [代码修改结束]
 
-    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
+    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         """
-        【V5.4 · 时区修正版】在时间窗口计算前，将时间转换为本地时区。
+        【V6.0 · 显式返回版】不再依赖副作用，显式返回归因后的分钟数据字典。
         """
         if minute_df_grouped is None:
-            return pd.DataFrame(index=daily_df.index)
+            # [代码修改开始] 确保在任何分支都返回两个值
+            return pd.DataFrame(index=daily_df.index), {}
+            # [代码修改结束]
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         from scipy.spatial.distance import jensenshannon
@@ -385,23 +396,24 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            # 在使用.dt访问器前，将时间转换为本地时区
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
                               (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
-            
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
-            return pd.DataFrame()
-        self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
+            # [代码修改开始] 确保在任何分支都返回两个值
+            return pd.DataFrame(), {}
+            # [代码修改结束]
+        # [代码修改开始] 不再设置实例属性，而是创建局部变量并返回
+        attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         final_df = pvwap_df.join(aggregate_costs_df)
-        return final_df
+        return final_df, attributed_minute_map
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -601,34 +613,31 @@ class AdvancedFundFlowMetricsService:
             results_df['pnl_matrix_confidence_score'] = np.nan
         return results_df
 
-    def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
+    def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
-        【V2.0 · 奥丁之眼适配版】使用精确归因后的分钟资金流计算战术行为指标
+        【V2.1 · 显式依赖版】使用显式传入的、精确归因后的分钟资金流计算战术行为指标
         """
-        # 检查新的、带有归因数据的分钟数据是否存在
-        minute_df_attributed_grouped = getattr(self, '_minute_df_attributed_daily_grouped', None)
-        if minute_df_attributed_grouped is None:
+        # [代码修改开始]
+        # 检查传入的、带有归因数据的分钟数据是否存在
+        if not minute_df_attributed_grouped:
             print("调试信息: 精确归因后的分钟数据为空，无法升维战术行为指标。")
             return pd.DataFrame(index=daily_df.index)
-        
+        # [代码修改结束]
         results = {}
         for date, daily_data in daily_df.iterrows():
-            # 从新的数据源获取带有归因成交量的分钟数据
+            # [代码修改开始]
+            # 从传入的字典中获取带有归因成交量的分钟数据
             if date not in minute_df_attributed_grouped:
                 continue
             minute_data_for_day = minute_df_attributed_grouped[date]
-            
+            # [代码修改结束]
             day_results = {'trade_time': date}
-            # --- 准备分钟级归属资金流数据 ---
-            # 直接使用已归因的成交量数据，不再需要vol_weight
-            minute_data_for_day['main_force_buy_vol'] = minute_data_for_day['lg_buy_vol_attr'] + minute_data_for_day['elg_buy_vol_attr']
-            minute_data_for_day['main_force_sell_vol'] = minute_data_for_day['lg_sell_vol_attr'] + minute_data_for_day['elg_sell_vol_attr']
+            minute_data_for_day['main_force_buy_vol'] = minute_data_for_day.get('lg_buy_vol_attr', 0) + minute_data_for_day.get('elg_buy_vol_attr', 0)
+            minute_data_for_day['main_force_sell_vol'] = minute_data_for_day.get('lg_sell_vol_attr', 0) + minute_data_for_day.get('elg_sell_vol_attr', 0)
             minute_data_for_day['main_force_net_vol'] = minute_data_for_day['main_force_buy_vol'] - minute_data_for_day['main_force_sell_vol']
-            minute_data_for_day['retail_buy_vol'] = minute_data_for_day['sm_buy_vol_attr'] + minute_data_for_day['md_buy_vol_attr']
-            minute_data_for_day['retail_sell_vol'] = minute_data_for_day['sm_sell_vol_attr'] + minute_data_for_day['md_sell_vol_attr']
+            minute_data_for_day['retail_buy_vol'] = minute_data_for_day.get('sm_buy_vol_attr', 0) + minute_data_for_day.get('md_buy_vol_attr', 0)
+            minute_data_for_day['retail_sell_vol'] = minute_data_for_day.get('sm_sell_vol_attr', 0) + minute_data_for_day.get('md_sell_vol_attr', 0)
             minute_data_for_day['retail_net_vol'] = minute_data_for_day['retail_buy_vol'] - minute_data_for_day['retail_sell_vol']
-            
-            # --- 1. `main_force_support_strength` (主力支撑强度) ---
             low_threshold = minute_data_for_day['minute_vwap'].quantile(0.1)
             bottom_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] <= low_threshold]
             if not bottom_zone_minutes.empty:
@@ -637,7 +646,6 @@ class AdvancedFundFlowMetricsService:
                 day_results['main_force_support_strength'] = support_net_flow / total_main_buy if total_main_buy else np.nan
             else:
                 day_results['main_force_support_strength'] = 0
-            # --- 2. `main_force_distribution_pressure` (主力派发压力) ---
             high_threshold = minute_data_for_day['minute_vwap'].quantile(0.9)
             top_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] >= high_threshold]
             if not top_zone_minutes.empty:
@@ -646,7 +654,6 @@ class AdvancedFundFlowMetricsService:
                 day_results['main_force_distribution_pressure'] = -distribution_net_flow / total_main_sell if total_main_sell else np.nan
             else:
                 day_results['main_force_distribution_pressure'] = 0
-            # --- 3. `retail_capitulation_score` (散户投降分) ---
             minute_data_for_day['price_return_5min'] = minute_data_for_day['minute_vwap'].pct_change(5)
             panic_minutes = minute_data_for_day[minute_data_for_day['price_return_5min'] < -0.015]
             if not panic_minutes.empty:
@@ -655,7 +662,6 @@ class AdvancedFundFlowMetricsService:
                 day_results['retail_capitulation_score'] = panic_sell_vol / total_retail_sell if total_retail_sell else np.nan
             else:
                 day_results['retail_capitulation_score'] = 0
-            # --- 4. `intraday_execution_alpha` (日内执行Alpha) ---
             main_force_net_flow_series = minute_data_for_day['main_force_net_vol'].fillna(0)
             price_change_series = minute_data_for_day['minute_vwap'].diff().fillna(0)
             if not main_force_net_flow_series.empty and not price_change_series.empty and main_force_net_flow_series.std() > 0 and price_change_series.std() > 0:

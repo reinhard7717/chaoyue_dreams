@@ -618,19 +618,17 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.0 · 深度融合调度器版】
-    - 核心重构: 真正实现筹码与资金流计算的深度融合，解决逻辑割裂与资源浪费问题。
+    【V24.1 · 显式数据流版】
+    - 核心修正: 彻底移除对副作用的依赖，通过显式返回和接收数据，建立健壮的数据管道。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
-        # 1. 初始化服务和上下文
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        # 2. 确定处理日期范围
         DailyModel = get_daily_data_model_by_code(stock_code)
         date_filter = {'stock': stock_info}
         if fetch_start_date: date_filter['trade_time__gte'] = fetch_start_date
@@ -640,7 +638,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
-        # 3. 统一分块处理
         CHUNK_SIZE = 50
         all_new_metrics_df = pd.DataFrame()
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -648,11 +645,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if chunk_dates.empty: continue
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
             print(f"--- 正在深度融合锻造 区块 {i//CHUNK_SIZE + 1}，日期范围: {chunk_start_date.date()} to {chunk_end_date.date()} ---")
-            # 4. 统一加载当前区块的所有原始数据
             data_dfs = await _load_all_sources_unified(stock_info, chunk_start_date, chunk_end_date)
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
-            # 5. 协同计算
-            # 步骤A: 准备并计算资金流指标，并捕获归因后的分钟数据
             ff_data_dfs = {
                 "tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"],
                 "daily": data_dfs["daily_data_ff"], "daily_basic": data_dfs["daily_basic_ff"],
@@ -660,28 +654,24 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
-            fund_flow_metrics_df = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
-            fund_flow_attributed_minute_map = getattr(fund_flow_service, '_minute_df_attributed_daily_grouped', {})
-            # 步骤B: 准备并计算筹码指标，注入归因后的分钟数据
+            # [代码修改开始] 接收两个返回值，并移除脆弱的getattr调用
+            fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
+            # [代码修改结束]
             chip_data_dfs = {
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data_chip"],
                 "daily_basic": data_dfs["daily_basic_chip"], "cyq_perf": data_dfs["cyq_perf"],
             }
             chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, chip_data_dfs)
             chip_metrics_df = chip_service._synthesize_and_forge_metrics(stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map)
-            # 步骤C: 合并当前区块的结果
             chunk_merged_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
             all_new_metrics_df = pd.concat([all_new_metrics_df, chunk_merged_df])
-        # 6. 统一衍生与存储
         if not all_new_metrics_df.empty:
-            # 统一计算衍生指标
             ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, all_new_metrics_df.index.min())
             chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, all_new_metrics_df.index.min())
             full_sequence_df = pd.concat([ff_hist_df.join(chip_hist_df, how='outer'), all_new_metrics_df]).sort_index()
             final_ff_df = fund_flow_service._calculate_derivatives(stock_code, full_sequence_df)
             final_chip_df = chip_service._calculate_derivatives(full_sequence_df)
             final_df = final_ff_df.join(final_chip_df, how='outer', lsuffix='_ff', rsuffix='_chip')
-            # 统一保存
             chunk_to_save = final_df[final_df.index.isin(all_new_metrics_df.index)]
             ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
             chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
