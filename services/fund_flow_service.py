@@ -272,7 +272,7 @@ class AdvancedFundFlowMetricsService:
         
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.0 · 核心指标补全版】新增 flow_internal_friction_ratio 和 source_consistency_score 的计算。"""
+        """【V3.1 · 类型错误修正版】修正对float标量调用replace方法的致命错误。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -290,22 +290,19 @@ class AdvancedFundFlowMetricsService:
             result_df.update(pnl_matrix_df)
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
-            #
-            # 计算内部摩擦比率 (Internal Friction Ratio)
             mf_flow = result_df.get('main_force_net_flow_consensus', np.nan)
             retail_flow = result_df.get('retail_net_flow_consensus', np.nan)
-            # Friction = |MF - Retail| / (|MF| + |Retail|)
             numerator = (mf_flow - retail_flow).abs()
             denominator = mf_flow.abs() + retail_flow.abs()
             result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
-            # 计算数据源一致性分数 (Source Consistency Score)
             if 'cross_source_divergence_std' in result_df.columns and 'main_force_net_flow_consensus' in result_df.columns:
-                # Consistency = 1 - (StdDev / Mean(|Flow|))，衡量波动性相对于平均幅度的比例
                 mean_abs_flow = result_df['main_force_net_flow_consensus'].abs().mean()
-                # 避免除以零，并确保分数在合理范围内（例如，不让它变成负数）
-                consistency_ratio = result_df['cross_source_divergence_std'] / mean_abs_flow.replace(0, np.nan)
+                # [代码修改开始] 修正对标量（float）调用.replace方法的错误
+                # 使用标准Python条件判断来处理标量，而不是Pandas方法
+                denominator_consistency = np.nan if mean_abs_flow == 0 else mean_abs_flow
+                consistency_ratio = result_df['cross_source_divergence_std'] / denominator_consistency
                 result_df['source_consistency_score'] = (1 - consistency_ratio).clip(lower=0)
-            
+                # [代码修改结束]
             if 'avg_cost_main_buy' in result_df.columns:
                 result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
                 main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
@@ -378,7 +375,7 @@ class AdvancedFundFlowMetricsService:
             result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
         if 'main_force_net_flow_consensus' in result_df.columns and 'net_xl_amount_consensus' in result_df.columns:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
-        if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
+        if 'net_xl_amount_consensus' in df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
         print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
         return result_df
