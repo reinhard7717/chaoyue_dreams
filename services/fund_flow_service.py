@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V4.0 · 作用域修正版】提升existing_sources的作用域，根除UnboundLocalError。"""
+        """【V4.1 · 行为指标探针植入版】植入新探针并移除所有旧探针。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -286,19 +286,18 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
-        # [代码修改开始] 将 existing_sources 的定义提升到 if/else 块之前
         source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
         existing_sources = [col for col in source_cols if col in df.columns]
-        # [代码修改结束]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            latest_date = df.index.max()
-            probe_df = df.loc[[latest_date]]
-            self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
+            # [代码修改开始] 植入新的行为指标探针
+            minute_df_attributed_grouped = getattr(self, '_minute_df_attributed_daily_grouped', None)
+            self._probe_and_upgrade_behavioral_metrics(result_df.loc[[df.index.max()]], minute_df_attributed_grouped)
+            # [代码修改结束]
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
@@ -956,6 +955,42 @@ class AdvancedFundFlowMetricsService:
         print("="*20 + " 时间指标探针已结束 " + "="*20 + "\n")
         # [代码新增结束]
 
+    def _probe_and_upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: pd.DataFrame):
+        """【V-Probe · 行为指标探针版】诊断散户投降分的计算过程。"""
+        # [代码新增开始]
+        print("\n" + "="*20 + " 行为指标探针已启动 " + "="*20)
+        if minute_df_attributed_grouped is None or minute_df_attributed_grouped.empty:
+            print("探针警告: 归因后的分钟数据为空，无法诊断。")
+            print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
+            return
+        latest_date = daily_df.index.max()
+        if latest_date not in minute_df_attributed_grouped:
+            print(f"探针警告: 在归因分钟数据中未找到日期 {latest_date.date()}，跳过。")
+            print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
+            return
+        minute_data_for_day = minute_df_attributed_grouped[latest_date]
+        print(f"探针目标日期: {latest_date.date()}")
+        print("\n--- 诊断 retail_capitulation_score ---")
+        minute_data_for_day['price_return_5min'] = minute_data_for_day['minute_vwap'].pct_change(5)
+        min_return = minute_data_for_day['price_return_5min'].min()
+        threshold = -0.015
+        print(f"步骤1: 计算5分钟回报率。 当日最小回报率: {min_return:.4f}")
+        print(f"步骤2: 与阈值 {threshold:.4f} 进行比较。")
+        if min_return < threshold:
+            print("  结果: 最小回报率 < 阈值，触发恐慌计算。")
+            panic_minutes = minute_data_for_day[minute_data_for_day['price_return_5min'] < threshold]
+            print(f"  找到 {len(panic_minutes)} 个恐慌分钟。")
+            minute_data_for_day['retail_sell_vol'] = minute_data_for_day['sm_sell_vol_attr'] + minute_data_for_day['md_sell_vol_attr']
+            panic_sell_vol = panic_minutes['retail_sell_vol'].sum()
+            total_retail_sell = minute_data_for_day['retail_sell_vol'].sum()
+            print(f"  恐慌分钟内散户卖出量: {panic_sell_vol:.2f}")
+            print(f"  全天散户总卖出量: {total_retail_sell:.2f}")
+            score = panic_sell_vol / total_retail_sell if total_retail_sell else 0
+            print(f"  最终计算得分: {score}")
+        else:
+            print("  结果: 最小回报率 >= 阈值，未触发恐慌计算，得分为 0。")
+        print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
+        # [代码新增结束]
 
 
 
