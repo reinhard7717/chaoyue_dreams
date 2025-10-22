@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.9 · 时间指标探针植入版】植入探针诊断开盘/尾盘/恐慌指标。"""
+        """【V4.0 · 作用域修正版】提升existing_sources的作用域，根除UnboundLocalError。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -286,11 +286,12 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
+        # [代码修改开始] 将 existing_sources 的定义提升到 if/else 块之前
+        source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
+        existing_sources = [col for col in source_cols if col in df.columns]
+        # [代码修改结束]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # [代码新增开始] 植入时间指标探针
-            self._probe_time_based_metrics(minute_df_daily_grouped)
-            # [代码新增结束]
             latest_date = df.index.max()
             probe_df = df.loc[[latest_date]]
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
@@ -305,8 +306,6 @@ class AdvancedFundFlowMetricsService:
             numerator = (mf_flow - retail_flow).abs()
             denominator = mf_flow.abs() + retail_flow.abs()
             result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
-            source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
-            existing_sources = [col for col in source_cols if col in df.columns]
             if len(existing_sources) > 1:
                 flows = df[existing_sources]
                 result_df['cross_source_divergence_std'] = flows.std(axis=1)
