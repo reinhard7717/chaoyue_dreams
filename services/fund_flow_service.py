@@ -377,8 +377,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.0 · 永久修复版】使用归因权重计算PVWAP成本。
-        - 核心修正: 彻底移除了当智能权重失效时，回退到对称的'vol_weight'的灾难性逻辑。
+        【V5.1 · 返回逻辑修正版】修正因直接返回聚合结果导致独立成本数据丢失的BUG。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
@@ -389,7 +388,6 @@ class AdvancedFundFlowMetricsService:
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            
             minute_data_for_day = self._calculate_intraday_attribution_weights(minute_df_grouped.loc[[date_key]].copy(), daily_data)
             day_results = {'trade_time': date}
             for cost_type in cost_types:
@@ -400,25 +398,18 @@ class AdvancedFundFlowMetricsService:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
                     continue
-                
                 weight_col = f'{size}_{direction}_weight'
                 weight_series = minute_data_for_day[weight_col]
-                
-                # 彻底移除灾难性的回退逻辑
-                # 如果权重和为0，意味着无法计算该类别的成本，结果应为NaN，而不是使用对称权重。
                 if weight_series.sum() < 1e-9:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
                     continue
-                
-
                 attributed_vol = weight_series * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
                 attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
@@ -433,8 +424,14 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        final_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
-        return final_df
+        # [代码修改开始] 修正返回逻辑，确保独立成本和聚合成本都被保留
+        # 1. 计算聚合成本
+        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
+        # 2. 将聚合成本合并回包含所有独立成本的pvwap_df中
+        pvwap_df.update(aggregate_costs_df)
+        # 3. 返回包含所有成本的完整DataFrame
+        return pvwap_df
+        # [代码修改结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -704,7 +701,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_structure_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 结构探针版】计算“日内交易结构”指标，为每个交易日绘制画像
+        【V1.2 · 探针移除版】计算“日内交易结构”指标，为每个交易日绘制画像
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算日内交易结构指标。")
@@ -716,19 +713,10 @@ class AdvancedFundFlowMetricsService:
                 continue
             minute_data_for_day = minute_df_grouped.loc[[date_key]]
             day_results = {'trade_time': date}
-            # 新增探针，检查关键输入
-            if pd.notna(daily_data.get('main_force_intraday_profit')):
-                print(f"--- 结构探针: {date_key} ---")
-                print(f"  Close: {daily_data.get('close')}, VWAP: {daily_data.get('daily_vwap')}")
-                print(f"  Minute VWAP Max: {minute_data_for_day['minute_vwap'].max()}")
-                print(f"  Minute VWAP Min: {minute_data_for_day['minute_vwap'].min()}")
-                print("--------------------------")
-            
-            # --- 1. 日内波动率 (intraday_volatility) ---
-            # 计算分钟收益率的标准差，作为日内波动性的度量
+            # [代码修改开始] 移除已完成使命的结构探针
+            # [代码修改结束]
             minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
             day_results['intraday_volatility'] = minute_returns.std() if not minute_returns.empty else 0
-            # --- 2. 收盘强度指数 (closing_strength_index) ---
             intraday_high = minute_data_for_day['minute_vwap'].max()
             intraday_low = minute_data_for_day['minute_vwap'].min()
             close_price = daily_data.get('close')
@@ -737,18 +725,15 @@ class AdvancedFundFlowMetricsService:
                 day_results['closing_strength_index'] = (close_price - intraday_low) / price_range
             else:
                 day_results['closing_strength_index'] = np.nan
-            # --- 3. 收盘价与VWAP偏离度 (close_vs_vwap_ratio) ---
             daily_vwap = daily_data.get('daily_vwap')
             if pd.notna(close_price) and pd.notna(daily_vwap) and daily_vwap > 0:
                 day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
             else:
                 day_results['close_vs_vwap_ratio'] = np.nan
-            # --- 4. 尾盘动能 (final_hour_momentum) ---
             final_hour_mask = minute_data_for_day['trade_time'].dt.hour >= 14
             final_hour_vol = minute_data_for_day[final_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             if total_day_vol > 0:
-                # 计算尾盘成交量占全天成交量的比例
                 day_results['final_hour_momentum'] = final_hour_vol / total_day_vol
             else:
                 day_results['final_hour_momentum'] = np.nan
@@ -895,8 +880,7 @@ class AdvancedFundFlowMetricsService:
 
     def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V-Probe · 探针版 V2.0】用于精确诊断最新一天的数据流和成本计算过程。
-        - 核心修正: 移除内部的P&L计算，使其职责更单一，只负责成本计算和诊断日志输出。
+        【V-Probe · 探针版 V2.1】新增对 avg_cost_elg_buy 的专项探针。
         """
         print("\n" + "="*20 + " 探针模式已启动 " + "="*20)
         latest_date = daily_df.index.max()
@@ -947,6 +931,16 @@ class AdvancedFundFlowMetricsService:
                 day_results[f'avg_cost_{cost_type}'] = calculated_cost
                 print(f"  总归因价值: {total_attributed_value:.2f}, 总归因成交量: {total_attributed_vol:.2f}")
                 print(f"  结果: 计算成本为 {calculated_cost:.4f}")
+                # [代码新增开始] 植入 avg_cost_elg_buy 专项探针
+                if cost_type == 'elg_buy':
+                    print("\n" + "!"*10 + " ELG_BUY成本探针 " + "!"*10)
+                    print(f"  输入-日线超大单买入量(手): {daily_data.get(db_vol_key)}")
+                    print(f"  输入-日线超大单买入量(股): {daily_vol_shares}")
+                    print(f"  计算-归因成交量(股)总和: {total_attributed_vol}")
+                    print(f"  计算-归因成交额(元)总和: {total_attributed_value}")
+                    print(f"  输出-最终计算成本: {calculated_cost}")
+                    print("!"*35 + "\n")
+                # [代码新增结束]
             results[date] = day_results
         if not results:
             print("探针未能处理任何数据。")
@@ -955,13 +949,7 @@ class AdvancedFundFlowMetricsService:
         print("\n步骤4: 计算聚合成本:")
         final_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_data_latest)
         print(final_df[['avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell']])
-        # [代码修改开始]
-        # 移除此处的P&L计算，它将被上层函数统一调用
-        # print("\n步骤5: 计算最终P&L矩阵:")
-        # pnl_df = self._upgrade_intraday_profit_metric(final_df.join(daily_data_latest))
-        # print(pnl_df[['main_force_intraday_profit', 'realized_profit_on_exchange', 'unrealized_pnl_on_net_change']])
         print("="*20 + " 探针模式已结束 " + "="*20 + "\n")
-        # 探针函数现在只返回成本相关的DataFrame，不再包含利润指标
         return final_df
         
 
