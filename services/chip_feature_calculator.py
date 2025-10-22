@@ -585,7 +585,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V2.0 · 时间参照修正版】计算跨日筹码迁徙"""
+        """【V2.1 · 变量引用修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -594,19 +594,15 @@ class ChipFeatureCalculator:
         }
         prev_chips_df = context.get('prev_chip_distribution')
         prev_close = context.get('prev_close_price')
-        # [代码修改开始] 修正时间参照错误：应使用当前计算日的20日前收盘价，而不是T-1日的。
         prev_20d_close = context.get('prev_20d_close')
-        # [代码修改结束]
         daily_turnover_vol = context.get('daily_turnover_volume')
         missing_keys = []
         if prev_chips_df is None or prev_chips_df.empty:
             missing_keys.append('prev_chip_distribution')
         if prev_close is None or pd.isnull(prev_close):
             missing_keys.append('prev_close_price')
-        # [代码修改开始] 修正时间参照错误：检查的变量也应同步修改。
         if prev_20d_close is None or pd.isnull(prev_20d_close):
             missing_keys.append('prev_20d_close')
-        # [代码修改结束]
         if daily_turnover_vol is None or pd.isnull(daily_turnover_vol) or daily_turnover_vol <= 0:
             missing_keys.append('daily_turnover_volume')
         if missing_keys:
@@ -617,11 +613,11 @@ class ChipFeatureCalculator:
             return results
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
-        # [代码修改开始] 修正时间参照错误：使用正确的20日前收盘价来划分长短期。
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_20d_close]['percent'].sum()
         lt_winners_pct = prev_winners[prev_winners['price'] < prev_20d_close]['percent'].sum()
         st_losers_pct = prev_losers[prev_losers['price'] >= prev_20d_close]['percent'].sum()
-        lt_losers_pct = prev_losers[losers_df['price'] < prev_20d_close]['percent'].sum()
+        # [代码修改开始] 修正变量引用错误，将 losers_df 修正为 prev_losers
+        lt_losers_pct = prev_losers[prev_losers['price'] < prev_20d_close]['percent'].sum()
         # [代码修改结束]
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
