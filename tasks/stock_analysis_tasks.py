@@ -15,7 +15,7 @@ from celery import group, chain, chord
 from django.db.models import Min, Max
 from utils.task_helpers import with_cache_manager
 from strategies.trend_following.utils import normalize_score
-from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code, get_minute_data_model_by_code_and_timelevel
+from utils.model_helpers import get_daily_data_model_by_code, get_cyq_chips_model_by_code, get_advanced_chip_metrics_model_by_code, get_advanced_fund_flow_metrics_model_by_code
 from tqdm import tqdm
 from services.performance_analysis_service import PerformanceAnalysisService
 from services.fund_flow_service import AdvancedFundFlowMetricsService
