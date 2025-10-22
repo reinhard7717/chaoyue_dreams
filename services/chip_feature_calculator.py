@@ -585,7 +585,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V2.1 · 变量引用修正版】计算跨日筹码迁徙"""
+        """【V2.2 · 终极变量引用修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
