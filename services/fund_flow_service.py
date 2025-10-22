@@ -377,7 +377,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.1 · 返回逻辑修正版】修正因直接返回聚合结果导致独立成本数据丢失的BUG。
+        【V5.2 · 安全合并版】适配职责分离的聚合函数，使用join安全合并结果。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
@@ -424,63 +424,57 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # [代码修改开始] 修正返回逻辑，确保独立成本和聚合成本都被保留
-        # 1. 计算聚合成本
+        # [代码修改开始] 使用新的职责分离的聚合函数，并用join合并结果
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
-        # 2. 将聚合成本合并回包含所有独立成本的pvwap_df中
-        pvwap_df.update(aggregate_costs_df)
-        # 3. 返回包含所有成本的完整DataFrame
-        return pvwap_df
+        final_df = pvwap_df.join(aggregate_costs_df)
+        return final_df
         # [代码修改结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.5 · 数据净化版】确保在聚合成本时正确处理NaN值。
+        【V1.6 · 职责分离版】仅计算并返回聚合成本，不再保留输入列，以明确函数职责。
         """
-        df = pvwap_df.copy()
+        temp_df = pvwap_df.copy()
         vol_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
         existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
+        agg_cols = ['avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell', 'vwap_tracking_error']
         if not existing_vol_cols:
-            return df
-        df = df.join(daily_df[existing_vol_cols])
-        # 重构聚合逻辑，根除数据污染
+            return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
+        temp_df = temp_df.join(daily_df[existing_vol_cols])
         def weighted_avg_cost(cost_cols, vol_cols):
-            """一个健壮的加权平均函数，能正确处理NaN"""
-            numerator = pd.Series(0.0, index=df.index)
-            denominator = pd.Series(0.0, index=df.index)
+            numerator = pd.Series(0.0, index=temp_df.index)
+            denominator = pd.Series(0.0, index=temp_df.index)
             for cost_col, vol_col in zip(cost_cols, vol_cols):
-                if cost_col in df.columns and vol_col in df.columns:
-                    cost = df[cost_col] # 直接获取Series，不填充NaN
-                    volume = pd.to_numeric(df[vol_col], errors='coerce').fillna(0)
-                    # 计算价值贡献，其中cost为NaN的部分，结果也是NaN，我们用0填充这部分贡献
+                if cost_col in temp_df.columns and vol_col in temp_df.columns:
+                    cost = temp_df[cost_col]
+                    volume = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0)
                     value_contribution = (cost * volume).fillna(0)
                     numerator += value_contribution
-                    # 关键：只在成本有效（非NaN）的地方累加成交量到分母
                     denominator += volume.where(cost.notna(), 0)
             return numerator / denominator.replace(0, np.nan)
-        
-        df['avg_cost_main_buy'] = weighted_avg_cost(
+        result_agg_df = pd.DataFrame(index=pvwap_df.index)
+        result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(
             ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
             ['buy_lg_vol', 'buy_elg_vol']
         )
-        df['avg_cost_main_sell'] = weighted_avg_cost(
+        result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(
             ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
             ['sell_lg_vol', 'sell_elg_vol']
         )
-        df['avg_cost_retail_buy'] = weighted_avg_cost(
+        result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(
             ['avg_cost_sm_buy', 'avg_cost_md_buy'],
             ['buy_sm_vol', 'buy_md_vol']
         )
-        df['avg_cost_retail_sell'] = weighted_avg_cost(
+        result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(
             ['avg_cost_sm_sell', 'avg_cost_md_sell'],
             ['sell_sm_vol', 'sell_md_vol']
         )
-        if 'avg_cost_main_buy' in df.columns and 'daily_vwap' in daily_df.columns:
-            df['vwap_tracking_error'] = df['avg_cost_main_buy'] - daily_df['daily_vwap']
-        return df.drop(columns=existing_vol_cols, errors='ignore')
+        if 'avg_cost_main_buy' in result_agg_df.columns and 'daily_vwap' in daily_df.columns:
+            result_agg_df['vwap_tracking_error'] = result_agg_df['avg_cost_main_buy'] - daily_df['daily_vwap']
+        return result_agg_df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V3.4 · 累积和输入补全版】在计算前强制转换数据类型，根除object污染。"""
@@ -880,7 +874,7 @@ class AdvancedFundFlowMetricsService:
 
     def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V-Probe · 探针版 V2.1】新增对 avg_cost_elg_buy 的专项探针。
+        【V-Probe · 探针版 V2.2】适配新的聚合函数调用方式，并增加最终探针。
         """
         print("\n" + "="*20 + " 探针模式已启动 " + "="*20)
         latest_date = daily_df.index.max()
@@ -931,7 +925,6 @@ class AdvancedFundFlowMetricsService:
                 day_results[f'avg_cost_{cost_type}'] = calculated_cost
                 print(f"  总归因价值: {total_attributed_value:.2f}, 总归因成交量: {total_attributed_vol:.2f}")
                 print(f"  结果: 计算成本为 {calculated_cost:.4f}")
-                # [代码新增开始] 植入 avg_cost_elg_buy 专项探针
                 if cost_type == 'elg_buy':
                     print("\n" + "!"*10 + " ELG_BUY成本探针 " + "!"*10)
                     print(f"  输入-日线超大单买入量(手): {daily_data.get(db_vol_key)}")
@@ -940,15 +933,23 @@ class AdvancedFundFlowMetricsService:
                     print(f"  计算-归因成交额(元)总和: {total_attributed_value}")
                     print(f"  输出-最终计算成本: {calculated_cost}")
                     print("!"*35 + "\n")
-                # [代码新增结束]
             results[date] = day_results
         if not results:
             print("探针未能处理任何数据。")
             return pd.DataFrame()
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         print("\n步骤4: 计算聚合成本:")
-        final_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_data_latest)
+        # [代码修改开始] 适配新的聚合函数调用方式，并增加最终探针
+        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_data_latest)
+        final_df = pvwap_df.join(aggregate_costs_df)
         print(final_df[['avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell']])
+        print("\n" + "!"*10 + " 最终返回前探针 " + "!"*10)
+        if 'avg_cost_elg_buy' in final_df.columns and not final_df['avg_cost_elg_buy'].isnull().all():
+            print(f"  成功: avg_cost_elg_buy 在最终DF中存在且有值，值为: {final_df['avg_cost_elg_buy'].iloc[0]}")
+        else:
+            print("  失败: avg_cost_elg_buy 在最终DF中丢失或全为空！")
+        print("!"*35 + "\n")
+        # [代码修改结束]
         print("="*20 + " 探针模式已结束 " + "="*20 + "\n")
         return final_df
         
