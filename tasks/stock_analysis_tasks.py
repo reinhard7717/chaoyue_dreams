@@ -577,7 +577,6 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
         else:
             is_incremental = False # 数据库为空，转为全量
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
-    
 
 async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
     """【V1.0 · 统一数据加载版】一次性加载两大服务所需的所有数据源。"""
@@ -614,7 +613,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
                 continue
             raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
     return data_dfs
-    
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager

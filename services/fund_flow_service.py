@@ -157,31 +157,10 @@ class AdvancedFundFlowMetricsService:
         # 如果是全量计算，fetch_start_date 为 None，将加载所有数据
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
-    async def _load_and_merge_sources(self, stock_info, start_date=None, end_date=None):
-        """【V1.4 · 精确范围查询版】加载、标准化并合并多源数据"""
-        @sync_to_async(thread_sensitive=True)
-        def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None, end_date=None):
-            # 增加 end_date 过滤
-            if not model: return pd.DataFrame()
-            qs = model.objects.filter(stock=stock_info_obj)
-            if start_date:
-                qs = qs.filter(**{f'{date_field}__gte': start_date})
-            if end_date:
-                qs = qs.filter(**{f'{date_field}__lte': end_date})
-            return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-            
-        
-        data_tasks = {
-            "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
-            "ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
-            "dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
-            "daily": get_data_async(get_daily_data_model_by_code(stock_info.stock_code), stock_info, fields=('trade_time', 'amount', 'close'), start_date=start_date, end_date=end_date),
-            "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_date=start_date, end_date=end_date),
-        }
-        results = await asyncio.gather(*data_tasks.values())
-        data_dfs = dict(zip(data_tasks.keys(), results))
-        
-        # ... 后续的 standardize_and_prepare 和 merge 逻辑保持不变 ...
+    async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
+        """【V2.0 · 依赖注入版】接收预加载的数据，不再自己加载。"""
+        # [代码修改开始]
+        # 移除内部的数据加载逻辑，直接使用传入的 data_dfs
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -211,7 +190,6 @@ class AdvancedFundFlowMetricsService:
         df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
         dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
         if not dfs_to_merge:
-            # 在区块模式下，单个区块没有数据是正常的，不应抛出异常
             return pd.DataFrame()
         merged_df = reduce(lambda left, right: pd.merge(left, right, on='trade_time', how='outer'), dfs_to_merge)
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
