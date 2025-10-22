@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.8 · 探针移除与全面join版】移除所有探针调用，确保所有指标通过join安全合并。"""
+        """【V3.9 · 时间指标探针植入版】植入探针诊断开盘/尾盘/恐慌指标。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -288,11 +288,12 @@ class AdvancedFundFlowMetricsService:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
+            # [代码新增开始] 植入时间指标探针
+            self._probe_time_based_metrics(minute_df_daily_grouped)
+            # [代码新增结束]
             latest_date = df.index.max()
             probe_df = df.loc[[latest_date]]
-            # [代码修改开始] 移除探针调用
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
-            # [代码修改结束]
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
@@ -377,7 +378,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.3 · 修正开盘时间窗口版】修正aggression_index_opening的时间窗口定义。
+        【V5.4 · 时区修正版】在时间窗口计算前，将时间转换为本地时区。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
@@ -413,9 +414,10 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            # [代码修改开始] 修正开盘时间窗口：从 9:30 到 10:30
-            first_hour_mask = (minute_data_for_day['trade_time'].dt.hour == 9) & (minute_data_for_day['trade_time'].dt.minute >= 30) | \
-                              (minute_data_for_day['trade_time'].dt.hour == 10) & (minute_data_for_day['trade_time'].dt.minute <= 30)
+            # [代码修改开始] 在使用.dt访问器前，将时间转换为本地时区
+            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
+            first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
+                              (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
             # [代码修改结束]
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
@@ -695,7 +697,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_structure_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.2 · 探针移除版】计算“日内交易结构”指标，为每个交易日绘制画像
+        【V1.3 · 时区修正版】在时间窗口计算前，将时间转换为本地时区。
         """
         if minute_df_grouped is None:
             print("调试信息: 分钟数据为空，无法计算日内交易结构指标。")
@@ -707,8 +709,6 @@ class AdvancedFundFlowMetricsService:
                 continue
             minute_data_for_day = minute_df_grouped.loc[[date_key]]
             day_results = {'trade_time': date}
-            # [代码修改开始] 移除已完成使命的结构探针
-            # [代码修改结束]
             minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
             day_results['intraday_volatility'] = minute_returns.std() if not minute_returns.empty else 0
             intraday_high = minute_data_for_day['minute_vwap'].max()
@@ -724,7 +724,10 @@ class AdvancedFundFlowMetricsService:
                 day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
             else:
                 day_results['close_vs_vwap_ratio'] = np.nan
-            final_hour_mask = minute_data_for_day['trade_time'].dt.hour >= 14
+            # [代码修改开始] 在使用.dt访问器前，将时间转换为本地时区
+            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
+            final_hour_mask = trade_time_local.dt.hour >= 14
+            # [代码修改结束]
             final_hour_vol = minute_data_for_day[final_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             if total_day_vol > 0:
@@ -918,6 +921,41 @@ class AdvancedFundFlowMetricsService:
         return final_df
         # [代码修改结束]
 
+    def _probe_time_based_metrics(self, minute_df_grouped: pd.DataFrame):
+        """【V-Probe · 时间指标探针版】诊断开盘/尾盘/恐慌指标的计算过程。"""
+        # [代码新增开始]
+        print("\n" + "="*20 + " 时间指标探针已启动 " + "="*20)
+        if minute_df_grouped is None or minute_df_grouped.empty:
+            print("探针警告: 分钟数据为空，无法诊断。")
+            print("="*20 + " 时间指标探针已结束 " + "="*20 + "\n")
+            return
+        latest_date_key = minute_df_grouped.index.max()
+        minute_data_for_day = minute_df_grouped.loc[[latest_date_key]].copy()
+        print(f"探针目标日期: {latest_date_key}")
+        print("\n步骤1: 检查原始 trade_time 列")
+        print(f"  类型 (dtype): {minute_data_for_day['trade_time'].dtype}")
+        print("  前2条 (原始UTC时间):")
+        print(minute_data_for_day['trade_time'].head(2))
+        print("  后2条 (原始UTC时间):")
+        print(minute_data_for_day['trade_time'].tail(2))
+        try:
+            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
+            print("\n步骤2: 转换为 'Asia/Shanghai' 本地时间")
+            print(f"  类型 (dtype): {trade_time_local.dtype}")
+            print("  前2条 (转换后):")
+            print(trade_time_local.head(2))
+            print("  后2条 (转换后):")
+            print(trade_time_local.tail(2))
+            print("\n步骤3: 测试时间窗口掩码 (使用本地时间)")
+            first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
+                              (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
+            print(f"  [开盘] 9:30-10:30 匹配到的分钟数: {first_hour_mask.sum()}")
+            final_hour_mask = trade_time_local.dt.hour >= 14
+            print(f"  [尾盘] 14:00-15:00 匹配到的分钟数: {final_hour_mask.sum()}")
+        except Exception as e:
+            print(f"探针错误: 在时区转换或掩码测试中发生错误: {e}")
+        print("="*20 + " 时间指标探针已结束 " + "="*20 + "\n")
+        # [代码新增结束]
 
 
 
