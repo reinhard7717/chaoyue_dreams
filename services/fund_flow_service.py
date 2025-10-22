@@ -40,7 +40,6 @@ class AdvancedFundFlowMetricsService:
         series = df[col_name]
         # 先转换为数值类型，再填充NaN
         return pd.to_numeric(series, errors='coerce').fillna(default_value)
-        
 
     def _get_numeric_series_with_nan(self, df: pd.DataFrame, col_name: str) -> pd.Series:
         """
@@ -268,7 +267,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V4.1 · 行为指标探针植入版】植入新探针并移除所有旧探针。"""
+        """【V4.2 · 无探针清洁版】移除所有探针，恢复生产状态。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -294,10 +293,6 @@ class AdvancedFundFlowMetricsService:
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
-            # [代码修改开始] 植入新的行为指标探针
-            minute_df_attributed_grouped = getattr(self, '_minute_df_attributed_daily_grouped', None)
-            self._probe_and_upgrade_behavioral_metrics(result_df.loc[[df.index.max()]], minute_df_attributed_grouped)
-            # [代码修改结束]
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
@@ -432,7 +427,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.6 · 职责分离版】仅计算并返回聚合成本，不再保留输入列，以明确函数职责。
+        【V1.7 · 聚合单位修正版】在加权平均聚合成本时，将成交量单位从“手”统一转换为“股”。
         """
         temp_df = pvwap_df.copy()
         vol_cols = [
@@ -450,10 +445,12 @@ class AdvancedFundFlowMetricsService:
             for cost_col, vol_col in zip(cost_cols, vol_cols):
                 if cost_col in temp_df.columns and vol_col in temp_df.columns:
                     cost = temp_df[cost_col]
-                    volume = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0)
-                    value_contribution = (cost * volume).fillna(0)
+                    # [代码修改开始] 将成交量从“手”转换为“股” (乘以100)
+                    volume_shares = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0) * 100
+                    value_contribution = (cost * volume_shares).fillna(0)
+                    # [代码修改结束]
                     numerator += value_contribution
-                    denominator += volume.where(cost.notna(), 0)
+                    denominator += volume_shares.where(cost.notna(), 0)
             return numerator / denominator.replace(0, np.nan)
         result_agg_df = pd.DataFrame(index=pvwap_df.index)
         result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(
@@ -873,124 +870,8 @@ class AdvancedFundFlowMetricsService:
             
         return df
 
-    def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V-Probe · 探针版 V2.4】恢复为静默、功能性的诊断函数。
-        """
-        # [代码修改开始] 恢复为静默功能
-        latest_date = daily_df.index.max()
-        daily_data_latest = daily_df.loc[[latest_date]]
-        results = {}
-        cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        from scipy.spatial.distance import jensenshannon
-        for date, daily_data in daily_data_latest.iterrows():
-            date_key = date.date()
-            if date_key not in minute_df_grouped.index:
-                continue
-            minute_data_for_day = self._calculate_intraday_attribution_weights(minute_df_grouped.loc[[date_key]].copy(), daily_data)
-            day_results = {'trade_time': date}
-            for cost_type in cost_types:
-                size, direction = cost_type.split('_')
-                db_vol_key = f'{direction}_{size}_vol'
-                daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
-                if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
-                    day_results[f'avg_cost_{cost_type}'] = np.nan
-                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue
-                weight_col = f'{size}_{direction}_weight'
-                weight_series = minute_data_for_day[weight_col]
-                if weight_series.sum() < 1e-9:
-                    day_results[f'avg_cost_{cost_type}'] = np.nan
-                    minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    continue
-                attributed_vol = weight_series * daily_vol_shares
-                minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
-                attributed_value = attributed_vol * minute_data_for_day['minute_vwap']
-                total_attributed_value = attributed_value.sum()
-                total_attributed_vol = attributed_vol.sum()
-                calculated_cost = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-                day_results[f'avg_cost_{cost_type}'] = calculated_cost
-            results[date] = day_results
-        if not results:
-            return pd.DataFrame()
-        pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_data_latest)
-        final_df = pvwap_df.join(aggregate_costs_df)
-        return final_df
-        # [代码修改结束]
 
-    def _probe_time_based_metrics(self, minute_df_grouped: pd.DataFrame):
-        """【V-Probe · 时间指标探针版】诊断开盘/尾盘/恐慌指标的计算过程。"""
-        # [代码新增开始]
-        print("\n" + "="*20 + " 时间指标探针已启动 " + "="*20)
-        if minute_df_grouped is None or minute_df_grouped.empty:
-            print("探针警告: 分钟数据为空，无法诊断。")
-            print("="*20 + " 时间指标探针已结束 " + "="*20 + "\n")
-            return
-        latest_date_key = minute_df_grouped.index.max()
-        minute_data_for_day = minute_df_grouped.loc[[latest_date_key]].copy()
-        print(f"探针目标日期: {latest_date_key}")
-        print("\n步骤1: 检查原始 trade_time 列")
-        print(f"  类型 (dtype): {minute_data_for_day['trade_time'].dtype}")
-        print("  前2条 (原始UTC时间):")
-        print(minute_data_for_day['trade_time'].head(2))
-        print("  后2条 (原始UTC时间):")
-        print(minute_data_for_day['trade_time'].tail(2))
-        try:
-            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
-            print("\n步骤2: 转换为 'Asia/Shanghai' 本地时间")
-            print(f"  类型 (dtype): {trade_time_local.dtype}")
-            print("  前2条 (转换后):")
-            print(trade_time_local.head(2))
-            print("  后2条 (转换后):")
-            print(trade_time_local.tail(2))
-            print("\n步骤3: 测试时间窗口掩码 (使用本地时间)")
-            first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
-                              (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
-            print(f"  [开盘] 9:30-10:30 匹配到的分钟数: {first_hour_mask.sum()}")
-            final_hour_mask = trade_time_local.dt.hour >= 14
-            print(f"  [尾盘] 14:00-15:00 匹配到的分钟数: {final_hour_mask.sum()}")
-        except Exception as e:
-            print(f"探针错误: 在时区转换或掩码测试中发生错误: {e}")
-        print("="*20 + " 时间指标探针已结束 " + "="*20 + "\n")
-        # [代码新增结束]
 
-    def _probe_and_upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: pd.DataFrame):
-        """【V-Probe · 行为指标探针版】诊断散户投降分的计算过程。"""
-        # [代码新增开始]
-        print("\n" + "="*20 + " 行为指标探针已启动 " + "="*20)
-        if minute_df_attributed_grouped is None or minute_df_attributed_grouped.empty:
-            print("探针警告: 归因后的分钟数据为空，无法诊断。")
-            print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
-            return
-        latest_date = daily_df.index.max()
-        if latest_date not in minute_df_attributed_grouped:
-            print(f"探针警告: 在归因分钟数据中未找到日期 {latest_date.date()}，跳过。")
-            print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
-            return
-        minute_data_for_day = minute_df_attributed_grouped[latest_date]
-        print(f"探针目标日期: {latest_date.date()}")
-        print("\n--- 诊断 retail_capitulation_score ---")
-        minute_data_for_day['price_return_5min'] = minute_data_for_day['minute_vwap'].pct_change(5)
-        min_return = minute_data_for_day['price_return_5min'].min()
-        threshold = -0.015
-        print(f"步骤1: 计算5分钟回报率。 当日最小回报率: {min_return:.4f}")
-        print(f"步骤2: 与阈值 {threshold:.4f} 进行比较。")
-        if min_return < threshold:
-            print("  结果: 最小回报率 < 阈值，触发恐慌计算。")
-            panic_minutes = minute_data_for_day[minute_data_for_day['price_return_5min'] < threshold]
-            print(f"  找到 {len(panic_minutes)} 个恐慌分钟。")
-            minute_data_for_day['retail_sell_vol'] = minute_data_for_day['sm_sell_vol_attr'] + minute_data_for_day['md_sell_vol_attr']
-            panic_sell_vol = panic_minutes['retail_sell_vol'].sum()
-            total_retail_sell = minute_data_for_day['retail_sell_vol'].sum()
-            print(f"  恐慌分钟内散户卖出量: {panic_sell_vol:.2f}")
-            print(f"  全天散户总卖出量: {total_retail_sell:.2f}")
-            score = panic_sell_vol / total_retail_sell if total_retail_sell else 0
-            print(f"  最终计算得分: {score}")
-        else:
-            print("  结果: 最小回报率 >= 阈值，未触发恐慌计算，得分为 0。")
-        print("="*20 + " 行为指标探针已结束 " + "="*20 + "\n")
-        # [代码新增结束]
 
 
 
