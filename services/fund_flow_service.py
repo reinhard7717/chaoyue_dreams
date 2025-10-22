@@ -536,23 +536,19 @@ class AdvancedFundFlowMetricsService:
         return final_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """【V1.5 · 终极类型转换版】准备并保存最终计算结果到数据库。"""
+        """【V1.6 · 探针移除版】准备并保存最终计算结果到数据库。"""
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
         print(f"调试信息: [{stock_code}] [节点6] 进入保存函数，待保存记录数: {len(records_to_save_df)}")
         if records_to_save_df.empty:
             return 0
-        # [代码修改开始]
-        # 步骤1: 识别所有DecimalField字段
         from django.db.models import DecimalField
         from decimal import Decimal, ROUND_HALF_UP
         decimal_fields = [f.name for f in MetricsModel._meta.get_fields() if isinstance(f, DecimalField)]
-        # 步骤2: 对DataFrame中对应的Decimal列进行数据精加工
         for col in decimal_fields:
             if col in records_to_save_df.columns:
                 records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
                 records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
-        
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
@@ -562,23 +558,15 @@ class AdvancedFundFlowMetricsService:
         for record_date, record_data in zip(df_filtered.index, records_list):
             safe_record_data = {}
             for key, value in record_data.items():
-                # [代码修改开始]
-                # 终极修正：在创建ORM对象前，将所有Decimal字段的值显式转换为Python的Decimal类型
+                # [代码修改开始] 移除已完成使命的终极探针
                 if key in decimal_fields and pd.notna(value):
-                    # 使用str()作为中间步骤可以避免二进制浮点数精度问题
                     new_value = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
                     safe_record_data[key] = new_value
-                    # 终极探针：检查转换后的类型和值
-                    if key == 'main_force_intraday_profit':
-                        print(f"--- 终极探针: 正在处理 {record_date.date()} 的 main_force_intraday_profit ---")
-                        print(f"    原始值: {value}, 原始类型: {type(value)}")
-                        print(f"    转换后值: {new_value}, 转换后类型: {type(new_value)}")
-                        print("--------------------------------------------------------------------")
                 elif isinstance(value, float) and not np.isfinite(value):
                     safe_record_data[key] = None
                 else:
                     safe_record_data[key] = value
-                
+                # [代码修改结束]
             records_to_create.append(
                 MetricsModel(
                     stock=stock_info,
@@ -771,55 +759,50 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V7.0 · 自适应分位数阈值版】使用动态分位数阈值对分钟交易进行分类。
-        - 核心修正: 彻底废弃基于日线流通市值的静态阈值。
-        - 核心逻辑: 改为计算当日分钟成交额的分布分位数，实现每日自适应分类。
+        【V7.1 · 级联选择重构版】使用np.select重构分钟成交额分类逻辑，根除“空桶”问题。
         """
         df = minute_data_for_day.copy()
-        # 引入自适应分位数阈值逻辑
-        # 检查分钟成交额数据是否有效
         if 'amount_yuan' not in df.columns or df['amount_yuan'].sum() < 1e-6:
-            # 如果没有有效的分钟成交额，则无法分类，返回全零权重
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
             return df
-        
-        # 计算当日分钟成交额的分位数作为动态阈值
-        # 只有在有交易的分钟才参与分位数计算
         valid_amounts = df['amount_yuan'][df['amount_yuan'] > 0]
         if valid_amounts.empty:
-            # 如果所有分钟成交额都为0，同样返回全零权重
             for size in ['sm', 'md', 'lg', 'elg']:
                 df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
             return df
-
         thresholds = {
-            'elg': valid_amounts.quantile(0.95), # 成交额最高的5%的分钟
-            'lg': valid_amounts.quantile(0.85),  # 次高的10%
-            'md': valid_amounts.quantile(0.60)   # 中等的25%
+            'elg': valid_amounts.quantile(0.95),
+            'lg': valid_amounts.quantile(0.85),
+            'md': valid_amounts.quantile(0.60)
         }
         score_source_col = 'amount_yuan'
-        
-
-        scores = {
-            'elg': df[score_source_col].where(df[score_source_col] >= thresholds['elg'], 0),
-            'lg': df[score_source_col].where((df[score_source_col] >= thresholds['lg']) & (df[score_source_col] < thresholds['elg']), 0),
-            'md': df[score_source_col].where((df[score_source_col] >= thresholds['md']) & (df[score_source_col] < thresholds['lg']), 0),
-            'sm': df[score_source_col].where(df[score_source_col] < thresholds['md'], 0),
-        }
+        # [代码修改开始] 使用级联选择（np.select）重构分类逻辑，使其对重合的分位数具有鲁棒性
+        conditions = [
+            df[score_source_col] >= thresholds['elg'],
+            df[score_source_col] >= thresholds['lg'],
+            df[score_source_col] >= thresholds['md'],
+        ]
+        choices = ['elg', 'lg', 'md']
+        # np.select按顺序匹配，第一个为True的条件决定分类，完美解决分位数重合问题
+        df['category'] = np.select(conditions, choices, default='sm')
+        scores = {}
+        for size in ['sm', 'md', 'lg', 'elg']:
+            scores[size] = df[score_source_col].where(df['category'] == size, 0)
+        # [代码修改结束]
         price_range = df['high'] - df['low']
         prev_close = df['close'].shift(1)
-        conditions = [
+        conditions_pressure = [
             price_range > 0,
             (price_range == 0) & (df['close'] > prev_close),
             (price_range == 0) & (df['close'] < prev_close),
         ]
-        choices = [
+        choices_pressure = [
             (df['close'] - df['low']) / price_range,
             1.0,
             0.0,
         ]
-        buy_pressure_proxy = np.select(conditions, choices, default=0.5)
+        buy_pressure_proxy = np.select(conditions_pressure, choices_pressure, default=0.5)
         sell_pressure_proxy = 1.0 - buy_pressure_proxy
         for size, score_series in scores.items():
             unnormalized_buy_score = score_series * buy_pressure_proxy
