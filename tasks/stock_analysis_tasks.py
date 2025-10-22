@@ -579,7 +579,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
-    """【V1.0 · 统一数据加载版】一次性加载两大服务所需的所有数据源。"""
+    """【V1.1 · 统一数据总线版】加载单一、完整的日线数据，供所有服务共享。"""
     
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
     @sync_to_async(thread_sensitive=True)
@@ -589,27 +589,31 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
+    
+    # [代码修改开始] 加载一个包含所有服务所需字段的、完整的日线数据DataFrame
+    all_daily_fields = (
+        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq'
+    )
+    all_daily_basic_fields = (
+        'trade_time', 'circ_mv', 'turnover_rate', 'float_share', 'trade_count'
+    )
     data_tasks = {
-        # 筹码服务所需
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_dt=start_date, end_dt=end_date),
-        "daily_data_chip": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_dt=start_date, end_dt=end_date),
-        "daily_basic_chip": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share', 'circ_mv'), start_dt=start_date, end_dt=end_date),
+        "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, start_dt=start_date, end_dt=end_date),
+        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=all_daily_basic_fields, start_dt=start_date, end_dt=end_date),
         "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_dt=start_date, end_dt=end_date),
-        # 资金流服务所需
         "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
-        "daily_data_ff": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'amount', 'close'), start_dt=start_date, end_dt=end_date),
-        "daily_basic_ff": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'circ_mv', 'turnover_rate'), start_dt=start_date, end_dt=end_date),
     }
+    # [代码修改结束]
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
-    # 数据审计
     for name, df in data_dfs.items():
         if df is None or df.empty:
-            # 资金流的ths和dc源是可选的，不应中断任务
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
                 logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
+                data_dfs[name] = pd.DataFrame() # 确保即使为空也是DataFrame
                 continue
             raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
     return data_dfs
@@ -618,8 +622,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.7 · 上下文预热与滚动拼接版】
-    - 终极方案: 结合了上下文完整性与内存效率。通过预热历史核心指标并滚动拼接，确保长周期衍生指标在分块处理中也能正确计算。
+    【V24.8 · 统一数据总线版】
+    - 核心修复: 不再预先拆分数据，向两个服务传递完整的日线数据包，根除数据孤岛问题。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -673,9 +677,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
             data_dfs = await _load_all_sources_unified(stock_info, chunk_start_date, chunk_end_date)
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
+            # 为资金流服务准备数据包
             ff_data_dfs = {
                 "tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"],
-                "daily": data_dfs["daily_data_ff"], "daily_basic": data_dfs["daily_basic_ff"],
+                "daily": data_dfs["daily_data"], "daily_basic": data_dfs["daily_basic"],
             }
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
             if fund_flow_raw_df.empty:
@@ -684,13 +689,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
+            # 为筹码服务准备数据包
             chip_data_dfs = {
-                "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data_chip"],
-                "daily_basic": data_dfs["daily_basic_chip"], "cyq_perf": data_dfs["cyq_perf"],
+                "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
+                "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
             }
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global
             )
+            # [代码修改结束]
             chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )

@@ -482,7 +482,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_minute_derived_dynamics(self, context: dict) -> dict:
-        """【V1.3 · 全天候协议版】增强对半日交易等极端情况的处理"""
+        """【V1.4 · 宙斯之雷协议版】重构 intraday_trend_efficiency 逻辑，精确处理极端行情"""
         minute_df = self.ctx.get('minute_data')
         total_daily_vol = self.ctx.get('daily_turnover_volume')
         close_price = self.ctx.get('close_price')
@@ -537,30 +537,35 @@ class ChipFeatureCalculator:
             results['intraday_volume_gini'] = (n + 1 - 2 * np.sum(cum_vol) / cum_vol[-1]) / n
             time_index = np.arange(1, n + 1)
             results['volume_weighted_time_index'] = np.sum(time_index * volumes) / (n * np.sum(volumes))
+        # [代码修改开始] 重构日内趋势效率的计算逻辑，以正确处理零波动情况
         if pd.notna(open_price) and pd.notna(close_price):
             total_path = (minute_df['high'] - minute_df['low']).sum()
-            net_change = abs(close_price - open_price) # [代码修改] 使用绝对值来衡量总位移
+            net_change_directional = close_price - open_price
             if total_path > 0:
-                results['intraday_trend_efficiency'] = (close_price - open_price) / total_path # 保持方向性
-            elif net_change == 0: # [代码修改] 如果路径和位移都为0，则效率为0
-                results['intraday_trend_efficiency'] = 0.0
+                results['intraday_trend_efficiency'] = net_change_directional / total_path
+            else: # 处理零日内波幅的极端情况
+                if net_change_directional > 0:
+                    results['intraday_trend_efficiency'] = 1.0 # 一字涨停，效率最高
+                elif net_change_directional < 0:
+                    results['intraday_trend_efficiency'] = -1.0 # 一字跌停，效率最负
+                else:
+                    results['intraday_trend_efficiency'] = 0.0 # 全天无任何价格变动
+        # [代码修改结束]
         minute_df['trade_time_obj'] = pd.to_datetime(minute_df['trade_time']).dt.time
         am_df = minute_df[minute_df['trade_time_obj'] < pd.to_datetime('12:00').time()]
         pm_df = minute_df[minute_df['trade_time_obj'] >= pd.to_datetime('13:00').time()]
-        # [代码修改开始] 增强对半日交易等情况的处理
         am_vol_sum = am_df['vol'].sum()
         pm_vol_sum = pm_df['vol'].sum()
         vwap_am = am_df['amount'].sum() / am_vol_sum if am_vol_sum > 0 else 0
         vwap_pm = pm_df['amount'].sum() / pm_vol_sum if pm_vol_sum > 0 else 0
         if vwap_am > 0 and vwap_pm > 0:
             results['am_pm_vwap_ratio'] = (vwap_pm / vwap_am - 1) * 100
-        elif vwap_am == 0 and vwap_pm > 0: # 仅下午交易
-            results['am_pm_vwap_ratio'] = 100.0 # 定义为极大值
-        elif vwap_am > 0 and vwap_pm == 0: # 仅上午交易
-            results['am_pm_vwap_ratio'] = -100.0 # 定义为极小值
-        else: # 全天无成交
+        elif vwap_am == 0 and vwap_pm > 0:
+            results['am_pm_vwap_ratio'] = 100.0
+        elif vwap_am > 0 and vwap_pm == 0:
+            results['am_pm_vwap_ratio'] = -100.0
+        else:
             results['am_pm_vwap_ratio'] = 0.0
-        # [代码修改结束]
         return results
 
     def _calculate_chip_interaction_dynamics(self, context: dict) -> dict:
