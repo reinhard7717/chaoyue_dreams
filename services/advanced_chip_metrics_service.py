@@ -118,8 +118,8 @@ class AdvancedChipMetricsService:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
 
-    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict) -> pd.DataFrame:
-        """预处理并合并多源数据，计算跨期依赖（如20日前收盘价）。"""
+    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict) -> pd.DataFrame:
+        """【V2.0 · 全局视野版】接收全局计算的map，不再自己计算长周期依赖。"""
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -133,13 +133,10 @@ class AdvancedChipMetricsService:
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='inner')
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='left')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
-        # 计算20日前收盘价
-        close_map = daily_combined_df['close_qfq'].to_dict()
-        unique_dates = merged_df['trade_time'].unique()
-        trade_dates_series = pd.Series(pd.to_datetime(unique_dates)).sort_values()
-        date_20d_ago_map = {date: trade_dates_series.iloc[i-20] if i >= 20 else pd.NaT for i, date in enumerate(trade_dates_series)}
+        # [代码修改开始] 移除内部的长周期依赖计算，直接使用传入的全局map
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
+        # [代码修改结束]
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
         return merged_df

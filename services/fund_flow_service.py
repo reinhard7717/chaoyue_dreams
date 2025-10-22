@@ -528,7 +528,6 @@ class AdvancedFundFlowMetricsService:
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
-        print(f"调试信息: [{stock_code}] [节点7] 按模型字段过滤后，待保存列: {df_filtered.columns.tolist()}")
         records_list = df_filtered.to_dict('records')
         records_to_create = []
         for record_date, record_data in zip(df_filtered.index, records_list):

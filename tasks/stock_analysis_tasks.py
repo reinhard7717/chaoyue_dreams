@@ -618,8 +618,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.3 · 记忆链版】
-    - 核心修正: 建立跨区块记忆链，解决区块边界的失忆问题。
+    【V24.4 · 全局视野版】
+    - 终极修正: 将长周期依赖的预处理提升到全局视角，彻底解决区块边界的“近视”问题。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -638,11 +638,23 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
+        # [代码新增开始] 全局预处理 prev_20d_close 的依赖
+        all_daily_data_for_lookback_qs = DailyModel.objects.filter(
+            stock=stock_info, trade_time__lte=dates_to_process.max()
+        ).values('trade_time', 'close_qfq').order_by('trade_time')
+        all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
+        all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
+        close_map_global = all_daily_data_for_lookback_df.set_index('trade_time')['close_qfq'].to_dict()
+        trade_dates_series_global = all_daily_data_for_lookback_df['trade_time'].sort_values().reset_index(drop=True)
+        date_index_map = {date: i for i, date in enumerate(trade_dates_series_global)}
+        date_20d_ago_map_global = {
+            date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
+            for date, idx in date_index_map.items()
+        }
+        # [代码新增结束]
         CHUNK_SIZE = 50
         all_new_metrics_df = pd.DataFrame()
-        # [代码新增开始] 在区块循环外初始化跨区块记忆
         cross_chunk_memory = {}
-        # [代码新增结束]
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
@@ -668,8 +680,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data_chip"],
                 "daily_basic": data_dfs["daily_basic_chip"], "cyq_perf": data_dfs["cyq_perf"],
             }
-            chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, chip_data_dfs)
-            # [代码修改开始] 传递并接收跨区块记忆
+            # [代码修改开始] 传递全局计算好的map
+            chip_raw_df = chip_service._preprocess_and_merge_data(
+                stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global
+            )
             chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )
