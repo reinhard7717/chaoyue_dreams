@@ -671,7 +671,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
-            print(f"--- 正在深度融合锻造 区块 {i//CHUNK_SIZE + 1}，日期范围: {chunk_start_date.date()} to {chunk_end_date.date()} ---")
             data_dfs = await _load_all_sources_unified(stock_info, chunk_start_date, chunk_end_date)
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
             ff_data_dfs = {

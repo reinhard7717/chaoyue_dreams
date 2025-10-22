@@ -249,7 +249,7 @@ class AdvancedFundFlowMetricsService:
         """【V5.2 · 流程诊断探针版】新增探针，检查关键输入列和输出指标的状态。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
-        print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
+        # print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
         result_df = df.copy()
         attributed_minute_map = {}
         # [代码新增开始] 流程诊断探针 1: 检查关键输入列是否存在
@@ -354,7 +354,7 @@ class AdvancedFundFlowMetricsService:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
+        # print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
         # [代码新增开始] 流程诊断探针 2: 检查关键输出指标的状态
         required_output_cols = ['main_force_net_flow_consensus', 'avg_order_value', 'main_force_flow_impact_ratio']
         output_status = {}
@@ -365,17 +365,12 @@ class AdvancedFundFlowMetricsService:
                 output_status[col] = f"{non_null_count}/{total_count} ({non_null_count/total_count:.1%})"
             else:
                 output_status[col] = "列不存在"
-        print(f"--- [流程诊断探针 2] [{stock_code}] 关键输出指标状态 ---")
+        # print(f"--- [流程诊断探针 2] [{stock_code}] 关键输出指标状态 ---")
         for col, status in output_status.items():
             print(f"  >>> {col}: {status}")
-        # [代码新增结束]
-        # [代码修改开始] 显式返回两个值
-        print(f"--- [出口探针] 资金流服务即将返回 ---")
+        # print(f"--- [出口探针] 资金流服务即将返回 ---")
         if not attributed_minute_map:
             print(f"  >>> 状态: 失败. 'attributed_minute_map' 为空。这意味着没有一天成功计算出归因数据。")
-        else:
-            print(f"  >>> 状态: 成功. 'attributed_minute_map' 包含 {len(attributed_minute_map)} 天的数据。")
-            print(f"  >>> 样本键: {list(attributed_minute_map.keys())[:3]}")
         return result_df, attributed_minute_map
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:

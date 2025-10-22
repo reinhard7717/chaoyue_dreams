@@ -31,7 +31,10 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V22.0 · 探针移除版】"""
+        """【V22.1 · 战备探针版】在计算前调用探针，诊断依赖项是否就绪。"""
+        # [代码新增开始] 在所有计算开始前，调用战备探针
+        self._probe_chip_calculation_readiness()
+        # [代码新增结束]
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
@@ -533,9 +536,6 @@ class ChipFeatureCalculator:
         }
         required_cols = ['main_force_buy_vol', 'retail_sell_vol']
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0 or not pd.notna(close_price) or not all(c in minute_df.columns for c in required_cols):
-            # [代码修改开始] 移除调试打印
-            # print(f"调试信息: 筹码交互计算跳过，因分钟数据不完整或未被资金流归因算法增强。")
-            # [代码修改结束]
             return results
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
@@ -568,7 +568,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.8 · 清晰命名版】计算跨日筹码迁徙"""
+        """【V1.9 · 记忆链修复版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -577,7 +577,7 @@ class ChipFeatureCalculator:
         }
         prev_chips_df = context.get('prev_chip_distribution')
         prev_close = context.get('prev_close_price')
-        # [代码修改开始] 使用新的、语义清晰的键
+        # [代码修改开始] 修正逻辑，直接使用T-1日上下文中传递过来的20日前收盘价
         prev_day_20d_ago_close = context.get('prev_day_20d_ago_close')
         # [代码修改结束]
         daily_turnover_vol = context.get('daily_turnover_volume')
@@ -597,7 +597,7 @@ class ChipFeatureCalculator:
             if not is_first_day:
                 stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
                 trade_date = context.get('trade_date', 'UNKNOWN_DATE')
-                print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。缺失项: {missing_keys}")
+                # 移除冗余打印，由探针统一报告
             return results
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]

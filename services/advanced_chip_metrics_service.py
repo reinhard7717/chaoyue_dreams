@@ -153,7 +153,7 @@ class AdvancedChipMetricsService:
         # [代码修改结束]
         grouped_data = merged_df.groupby('trade_time')
         is_first_day_in_batch = True
-        print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
+        # print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
         for trade_date, daily_full_df in grouped_data:
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
