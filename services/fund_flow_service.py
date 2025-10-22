@@ -270,15 +270,17 @@ class AdvancedFundFlowMetricsService:
         # 使用新的、更可靠的辅助函数进行分组
         return self._group_minute_data_from_df(minute_df)
         
-
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.1 · 类型错误修正版】修正对float标量调用replace方法的致命错误。"""
+        """【V3.2 · 上下文保留版】修正因错误初始化DataFrame导致原始数据丢失的致命BUG。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
-        final_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        result_df = pd.DataFrame(index=df.index, columns=final_cols)
-        result_df.update(df)
+        # [代码修改开始]
+        # 致命错误修正：不再创建只包含核心指标列的空DataFrame。
+        # 直接复制完整的输入DataFrame，以保留所有原始数据列（如 close, *_vol 等）作为计算上下文。
+        result_df = df.copy()
+        # 此处不再需要 result_df.update(df)，因为 result_df 已经是 df 的完整副本。
+        # [代码修改结束]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
             latest_date = df.index.max()
@@ -286,6 +288,7 @@ class AdvancedFundFlowMetricsService:
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df.update(pvwap_costs_df)
+            # 此时传递给利润计算函数的 result_df 包含了成本列和所有原始成交量列
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
@@ -297,12 +300,9 @@ class AdvancedFundFlowMetricsService:
             result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
             if 'cross_source_divergence_std' in result_df.columns and 'main_force_net_flow_consensus' in result_df.columns:
                 mean_abs_flow = result_df['main_force_net_flow_consensus'].abs().mean()
-                # [代码修改开始] 修正对标量（float）调用.replace方法的错误
-                # 使用标准Python条件判断来处理标量，而不是Pandas方法
                 denominator_consistency = np.nan if mean_abs_flow == 0 else mean_abs_flow
                 consistency_ratio = result_df['cross_source_divergence_std'] / denominator_consistency
                 result_df['source_consistency_score'] = (1 - consistency_ratio).clip(lower=0)
-                # [代码修改结束]
             if 'avg_cost_main_buy' in result_df.columns:
                 result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
                 main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
@@ -315,6 +315,7 @@ class AdvancedFundFlowMetricsService:
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
             result_df.update(behavioral_metrics_df)
+            # 此时传递给结构指标计算函数的 result_df 包含了 close 和 daily_vwap 列
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df.update(structure_metrics_df)
         else:
