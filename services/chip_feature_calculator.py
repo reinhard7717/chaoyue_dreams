@@ -409,7 +409,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_peak_dynamics(self, context: dict) -> dict:
-        """【新增】计算主峰战役复盘指标"""
+        """【V1.1 · 空值净化版】计算主峰战役复盘指标"""
         minute_df = self.ctx.get('minute_data')
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
@@ -423,9 +423,10 @@ class ChipFeatureCalculator:
         if minute_df is None or minute_df.empty or not all(pd.notna(v) for v in [peak_range_low, peak_range_high, peak_cost, total_daily_vol]) or total_daily_vol <= 0:
             return results
         peak_zone_df = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)].copy()
+        # [代码修改开始] 当中间DataFrame为空时，直接返回包含None的字典，而不是更新为0
         if peak_zone_df.empty:
-            results.update({'peak_defense_intensity': 0.0, 'peak_vwap_deviation': 0.0, 'peak_net_volume_flow': 0.0})
             return results
+        # [代码修改结束]
         vol_in_peak = peak_zone_df['vol'].sum() * 100
         if vol_in_peak > 0:
             results['peak_defense_intensity'] = (vol_in_peak / total_daily_vol) * 100
@@ -439,8 +440,9 @@ class ChipFeatureCalculator:
                 vol_up = peak_zone_df[peak_zone_df['is_up_minute']]['vol'].sum() * 100
                 vol_down = peak_zone_df[peak_zone_df['is_down_minute']]['vol'].sum() * 100
                 results['peak_net_volume_flow'] = (vol_up - vol_down) / vol_in_peak
-        else:
-            results.update({'peak_defense_intensity': 0.0, 'peak_vwap_deviation': 0.0, 'peak_net_volume_flow': 0.0})
+        # [代码修改开始] 当vol_in_peak为0时，保持None，而不是更新为0
+        # else 分支被移除，因为默认值已经是None
+        # [代码修改结束]
         return results
 
     def _calculate_minute_derived_dynamics(self, context: dict) -> dict:
@@ -523,7 +525,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_chip_interaction_dynamics(self, context: dict) -> dict:
-        """【V2.1 · 清洁版】计算主力-散户筹码博弈矩阵"""
+        """【V2.2 · 健壮区域划分版】计算主力-散户筹码博弈矩阵"""
         minute_df = self.ctx.get('minute_data')
         total_daily_vol = self.ctx.get('daily_turnover_volume')
         close_price = self.ctx.get('close_price')
@@ -537,14 +539,20 @@ class ChipFeatureCalculator:
         required_cols = ['main_force_buy_vol', 'retail_sell_vol']
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0 or not pd.notna(close_price) or not all(c in minute_df.columns for c in required_cols):
             return results
+        # [代码修改开始] 增加对获利盘/套牢盘区域是否存在的健壮性检查
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
-        winner_zone = (winners_df['price'].min(), winners_df['price'].max()) if not winners_df.empty else (0, 0)
-        loser_zone = (losers_df['price'].min(), losers_df['price'].max()) if not losers_df.empty else (np.inf, np.inf)
+        winner_zone_exists = not winners_df.empty
+        loser_zone_exists = not losers_df.empty
+        winner_zone = (winners_df['price'].min(), winners_df['price'].max()) if winner_zone_exists else (0, 0)
+        loser_zone = (losers_df['price'].min(), losers_df['price'].max()) if loser_zone_exists else (close_price, np.inf)
+        # [代码修改结束]
         minute_df['is_up'] = minute_df['close'] > minute_df['open']
         minute_df['is_down'] = minute_df['close'] < minute_df['open']
-        is_in_winner_zone = (minute_df['minute_vwap'] >= winner_zone[0]) & (minute_df['minute_vwap'] <= winner_zone[1])
-        is_in_loser_zone = (minute_df['minute_vwap'] >= loser_zone[0]) & (minute_df['minute_vwap'] <= loser_zone[1])
+        # [代码修改开始] 仅在区域存在时进行计算
+        is_in_winner_zone = (minute_df['minute_vwap'] >= winner_zone[0]) & (minute_df['minute_vwap'] <= winner_zone[1]) if winner_zone_exists else pd.Series(False, index=minute_df.index)
+        is_in_loser_zone = (minute_df['minute_vwap'] >= loser_zone[0]) & (minute_df['minute_vwap'] <= loser_zone[1]) if loser_zone_exists else pd.Series(False, index=minute_df.index)
+        # [代码修改结束]
         results['main_force_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'main_force_buy_vol'].sum()
         results['retail_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'retail_buy_vol'].sum()
         results['main_force_rally_distribution'] = minute_df.loc[minute_df['is_down'] & is_in_winner_zone, 'main_force_sell_vol'].sum()
@@ -614,8 +622,7 @@ class ChipFeatureCalculator:
         return results
 
     def _probe_chip_calculation_readiness(self):
-        """【V-Probe · 筹码战备探针】在计算前诊断所有依赖项是否就绪。"""
-        
+        """【V-Probe 2.0 · 上下文深度探针版】在计算前诊断所有依赖项是否就绪。"""
         print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -634,12 +641,24 @@ class ChipFeatureCalculator:
         # 诊断2: 检查跨日计算所需的T-1日数据
         prev_chip_dist = self.ctx.get('prev_chip_distribution')
         if prev_chip_dist is None or prev_chip_dist.empty:
-            print("  - [记忆链诊断 - 失败]: T-1日上下文数据(prev_chip_distribution)缺失。")
-            print("    原因: 这通常发生在每个计算区块的第一天，因为跨区块的'记忆'未能传递。")
-            print("    影响: 所有【跨日筹码迁徙】指标将无法计算 (例如: short_term_profit_taking_ratio)。")
-            is_ready = False
+            is_first_day = self.ctx.get('is_first_day_in_batch', False)
+            if not is_first_day:
+                print("  - [记忆链诊断 - 失败]: T-1日上下文数据(prev_chip_distribution)缺失。")
+                print("    原因: 跨区块的'记忆'未能成功传递。")
+                print("    影响: 所有【跨日筹码迁徙】指标将无法计算 (例如: short_term_profit_taking_ratio)。")
+                is_ready = False
+            else:
+                print("  - [记忆链诊断 - 正常]: 区块首日，无T-1日上下文数据。")
         else:
             print("  - [记忆链诊断 - 成功]: T-1日上下文数据已就绪。")
+        # [代码新增开始] 诊断3: 上下文深度探针
+        print("--- [上下文深度探针] ---")
+        context_keys_to_probe = ['prev_concentration_90pct', 'prev_winner_avg_cost', 'prev_day_20d_ago_close']
+        for key in context_keys_to_probe:
+            value = self.ctx.get(key)
+            status = f"值: {value:.4f}" if isinstance(value, (int, float)) and pd.notna(value) else f"状态: {value}"
+            print(f"  >>> T-1日上下文 '{key}': {status}")
+        # [代码新增结束]
         if is_ready:
             print("探针结论: 所有关键依赖项均已就绪，计算可以全面展开。")
         else:

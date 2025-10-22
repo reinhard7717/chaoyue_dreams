@@ -814,13 +814,13 @@ class AdvancedFundFlowMetricsService:
         daily_total_value = daily_agg['total_value'].sum()
         daily_total_volume = daily_agg['total_volume'].sum()
         # VWAP计算探针
-        if not daily_total_value.empty:
-            print("--- VWAP计算探针 ---")
-            print(f"日期范围: {daily_total_value.index.min()} to {daily_total_value.index.max()}")
-            print(f"总成交额(元)非零天数: {daily_total_value[daily_total_value > 0].count()}")
-            print(f"总成交量(股)非零天数: {daily_total_volume[daily_total_volume > 0].count()}")
-            print(f"最新一天 VWAP 输入: Value={daily_total_value.iloc[-1]:.2f}, Volume={daily_total_volume.iloc[-1]:.2f}")
-            print("--------------------")
+        # if not daily_total_value.empty:
+        #     print("--- VWAP计算探针 ---")
+        #     print(f"日期范围: {daily_total_value.index.min()} to {daily_total_value.index.max()}")
+        #     print(f"总成交额(元)非零天数: {daily_total_value[daily_total_value > 0].count()}")
+        #     print(f"总成交量(股)非零天数: {daily_total_volume[daily_total_volume > 0].count()}")
+        #     print(f"最新一天 VWAP 输入: Value={daily_total_value.iloc[-1]:.2f}, Volume={daily_total_volume.iloc[-1]:.2f}")
+        #     print("--------------------")
         
         daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
         daily_vwap.index = pd.to_datetime(daily_vwap.index)
