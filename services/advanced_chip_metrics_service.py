@@ -246,13 +246,15 @@ class AdvancedChipMetricsService:
         return df
 
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V2.1 · 终极专业化版】彻底修正，只计算并返回新增的衍生指标。"""
+        """【V2.2 · 导数定律统一版】修正加速度计算窗口，与资金流服务保持一致。"""
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
-        # [代码修改开始] 确保只计算并返回衍生列
+        # [代码新增开始] 为加速度定义一个独立的、符合数学定义的短窗口
+        ACCEL_WINDOW = 2
+        # [代码新增结束]
         for col in CORE_METRICS_TO_DERIVE:
             if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
                 source_series = pd.to_numeric(consensus_df[col], errors='coerce')
@@ -265,7 +267,8 @@ class AdvancedChipMetricsService:
                     derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                        # [代码修改开始] 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
+                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
         # [代码修改结束]
 

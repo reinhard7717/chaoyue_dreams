@@ -31,7 +31,7 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V22.3 · 终极审查探针版】为每个核心计算模块部署入口和出口探针，并增加最终审查。"""
+        """【V22.4 · 幽灵蓝图重建版】集成 cost_divergence 和 chip_health_score 的计算。"""
         self._probe_chip_calculation_readiness()
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 前置检查失败，核心上下文缺失，计算终止。")
@@ -57,18 +57,23 @@ class ChipFeatureCalculator:
             **winner_structure_info,
             **holder_costs_info,
         }
+        advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
+        print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
+        # [代码修改开始] 将高级结构指标也加入上下文，供后续计算使用
+        context_for_derived_metrics.update(advanced_structure_info)
         minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
         print(f"  [探针] _calculate_minute_derived_dynamics -> profit_taking_urgency: {minute_derived_dynamics_info.get('profit_taking_urgency')}")
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
         print(f"  [探针] _calculate_chip_interaction_dynamics -> main_force_suppressive_accumulation: {chip_interaction_info.get('main_force_suppressive_accumulation')}")
         cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
         print(f"  [探针] _calculate_cross_day_chip_flow -> short_term_profit_taking_ratio: {cross_day_flow_info.get('short_term_profit_taking_ratio')}")
-        advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
-        print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
         turnover_microstructure_info = self._calculate_turnover_microstructure(context_for_derived_metrics)
         concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
         fault_info = self._calculate_chip_fault(context_for_derived_metrics)
+        cost_divergence_info = self._calculate_cost_divergence(context_for_derived_metrics)
+        context_for_derived_metrics.update(cost_divergence_info)
+        health_score_info = self._calculate_health_score(context_for_derived_metrics)
         all_metrics = {
             **peaks_info,
             **concentration_info,
@@ -82,17 +87,18 @@ class ChipFeatureCalculator:
             **chip_interaction_info,
             **cross_day_flow_info,
             **advanced_structure_info,
-            **fault_info
+            **fault_info,
+            **cost_divergence_info,
+            **health_score_info
         }
+        # [代码修改结束]
         if 'total_winner_rate' in summary_info:
             all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
         if 'total_loser_rate' in winner_structure_info:
             all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        # [代码新增开始] 部署最终审查探针
         self._probe_final_metrics(all_metrics)
-        # [代码新增结束]
         return all_metrics
 
     def _prepare_minute_data_features(self):
@@ -381,22 +387,6 @@ class ChipFeatureCalculator:
             'concentration_decrease_by_distribution': decrease_by_distribution,
             'concentration_decrease_by_capitulation': decrease_by_capitulation,
         }
-    
-    def _get_turnover_in_range(self, low_bound, high_bound) -> float:
-        """辅助函数：估算在某个价格区间的换手量"""
-        low_price = self.ctx.get('low_price')
-        high_price = self.ctx.get('high_price')
-        daily_turnover = self.ctx.get('daily_turnover_volume')
-        if not all([low_price, high_price, daily_turnover, daily_turnover > 0]):
-            return 0
-        intersection_low = max(low_price, low_bound)
-        intersection_high = min(high_price, high_bound)
-        daily_price_range = high_price - low_price
-        intersection_range = intersection_high - intersection_low
-        if daily_price_range > 0 and intersection_range > 0:
-            effective_ratio = intersection_range / daily_price_range
-            return daily_turnover * effective_ratio
-        return 0
 
     def _calculate_chip_fault(self, context: dict) -> dict:
         """【V11.1 健壮性修复版】计算筹码断层指标。"""
@@ -673,13 +663,70 @@ class ChipFeatureCalculator:
             print("探针结论: 存在关键依赖项缺失，部分高级指标将为空。")
         print("="*20 + " 探针诊断结束 " + "="*20 + "\n")
 
+    def _calculate_cost_divergence(self, context: dict) -> dict:
+        """【新增】计算成本乖离率"""
+        avg_cost_short = context.get('avg_cost_short_term')
+        avg_cost_long = context.get('avg_cost_long_term')
+        if avg_cost_short is None or avg_cost_long is None or avg_cost_long == 0:
+            return {'cost_divergence': None}
+        divergence = (avg_cost_short / avg_cost_long - 1) * 100
+        return {'cost_divergence': divergence}
+
+    def _calculate_health_score(self, context: dict) -> dict:
+        """【新增】计算筹码健康分"""
+        # 定义健康分构成要素及其权重
+        # 权重为负表示该指标值越小越健康
+        components = {
+            'concentration_90pct': -0.25,
+            'winner_profit_margin': 0.30,
+            'cost_divergence': -0.20,
+            'peak_stability': 0.25,
+        }
+        # 归一化范围
+        SCORE_MIN, SCORE_MAX = 0, 100
+        # 预设的各指标经验上的“差”值和“优”值，用于归一化
+        # concentration_90pct: 50%为极差, 5%为极优
+        # winner_profit_margin: -20%为极差, 50%为极优
+        # cost_divergence: 15%为极差, -5%为极优
+        # peak_stability: 1为极差, 20为极优
+        normalization_ranges = {
+            'concentration_90pct': (0.50, 0.05),
+            'winner_profit_margin': (-0.20, 0.50),
+            'cost_divergence': (0.15, -0.05),
+            'peak_stability': (1.0, 20.0),
+        }
+        total_score = 0
+        total_weight = 0
+        for metric, weight in components.items():
+            value = context.get(metric)
+            if value is None or not pd.notna(value):
+                continue # 如果某个组件缺失，则跳过
+            min_val, max_val = normalization_ranges[metric]
+            # 归一化处理
+            # (value - min) / (max - min)
+            normalized_value = (value - min_val) / (max_val - min_val) if (max_val - min_val) != 0 else 0.5
+            # 裁剪到 [0, 1] 范围
+            clipped_value = np.clip(normalized_value, 0, 1)
+            # 映射到 [0, 100] 分数
+            score = clipped_value * (SCORE_MAX - SCORE_MIN) + SCORE_MIN
+            total_score += score * abs(weight)
+            total_weight += abs(weight)
+        if total_weight == 0:
+            return {'chip_health_score': None}
+        # 根据权重调整最终分数
+        final_score = total_score / total_weight
+        return {'chip_health_score': final_score}
+
+
+
+
     def _probe_final_metrics(self, metrics: dict):
-        """【新增】最终指标审查探针，在计算完成后检查关键指标的有效性。"""
+        """【V2.0 · 监控升级版】将 cost_divergence 和 chip_health_score 加入最终审查探针"""
         print("--- [最终指标审查探针] ---")
         critical_metrics = [
             'peak_cost', 'concentration_90pct', 'winner_avg_cost',
             'short_term_profit_taking_ratio', 'main_force_suppressive_accumulation',
-            'profit_taking_urgency'
+            'profit_taking_urgency', 'cost_divergence', 'chip_health_score'
         ]
         has_issues = False
         for metric_name in critical_metrics:
@@ -688,18 +735,11 @@ class ChipFeatureCalculator:
                 print(f"  >>> 警告: 关键指标 '{metric_name}' 计算结果为 None。")
                 has_issues = True
             elif isinstance(value, (int, float)) and value == 0:
-                # 对某些指标，0是有效值，但对另一些则可能是计算失败的信号
-                if metric_name not in ['main_force_suppressive_accumulation']: # 此指标为0很常见
+                if metric_name not in ['main_force_suppressive_accumulation']:
                     print(f"  >>> 注意: 关键指标 '{metric_name}' 计算结果为 0。请确认是否符合预期。")
         if not has_issues:
             print("  >>> 审查通过: 所有受监控的关键指标均已成功计算出有效值。")
         print("--- [最终审查结束] ---")
-
-
-
-
-
-
 
 
 
