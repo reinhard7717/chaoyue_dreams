@@ -453,7 +453,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_minute_derived_dynamics(self, context: dict) -> dict:
-        """【V1.1 · API单位对齐版】计算基于分钟K线的全面动态升维指标"""
+        """【V1.2 · 基石协议版】修复“无穷大陷阱”，确保真空突破强度可被记录"""
         minute_df = self.ctx.get('minute_data')
         total_daily_vol = self.ctx.get('daily_turnover_volume')
         close_price = self.ctx.get('close_price')
@@ -471,7 +471,6 @@ class ChipFeatureCalculator:
         }
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0:
             return results
-        # [代码修改开始] 根据API文档，分钟线的vol单位是股，amount单位是元，无需转换。
         if pd.notna(close_price):
             pressure_zone_low = close_price
             pressure_zone_high = close_price * 1.02
@@ -492,6 +491,7 @@ class ChipFeatureCalculator:
                 if vwap_profit_taking > 0:
                     results['profit_realization_premium'] = (vwap_profit_taking / prev_winner_avg_cost - 1) * 100
         peak_cost = context.get('peak_cost')
+        # [代码修改开始] 修复 fault_breakthrough_intensity 的“无穷大陷阱”
         if pd.notna(peak_cost) and pd.notna(close_price) and close_price > peak_cost:
             fault_zone_low = peak_cost
             fault_zone_high = close_price
@@ -499,8 +499,10 @@ class ChipFeatureCalculator:
             price_diff = close_price - peak_cost
             if vol_in_fault_zone > 0:
                 results['fault_breakthrough_intensity'] = price_diff / vol_in_fault_zone
-            elif price_diff > 0:
-                results['fault_breakthrough_intensity'] = np.inf
+            else:
+                # 当成交量为0时，代表真空突破，强度极大。用一个极大但有限的数表示，防止被np.inf净化。
+                # 乘以价格差，使其量级与突破幅度相关。1e12代表一个极小的非零成交量。
+                results['fault_breakthrough_intensity'] = price_diff * 1e12
         # [代码修改结束]
         volumes = minute_df['vol'].to_numpy()
         if volumes.sum() > 0:
@@ -519,10 +521,8 @@ class ChipFeatureCalculator:
         am_df = minute_df[minute_df['trade_time_obj'] < pd.to_datetime('12:00').time()]
         pm_df = minute_df[minute_df['trade_time_obj'] >= pd.to_datetime('13:00').time()]
         if not am_df.empty and not pm_df.empty:
-            # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
             vwap_am = am_df['amount'].sum() / am_df['vol'].sum() if am_df['vol'].sum() > 0 else 0
             vwap_pm = pm_df['amount'].sum() / pm_df['vol'].sum() if pm_df['vol'].sum() > 0 else 0
-            # [代码修改结束]
             if vwap_am > 0 and vwap_pm > 0:
                 results['am_pm_vwap_ratio'] = (vwap_pm / vwap_am - 1) * 100
         return results
