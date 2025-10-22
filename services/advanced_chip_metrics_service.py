@@ -146,14 +146,17 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict) -> pd.DataFrame:
         """
-        【V1.0 · 筹码指标合成引擎】
-        - 接收预加载的分钟数据和资金流归因后的分钟数据。
+        【V1.1 · 分发探针版】
+        - 新增: 在循环内部植入探针，诊断每一天的数据分发情况。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = {}
         grouped_data = merged_df.groupby('trade_time')
         is_first_day_in_batch = True
+        # [代码新增开始]
+        print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
+        # [代码新增结束]
         for trade_date, daily_full_df in grouped_data:
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
@@ -175,10 +178,23 @@ class AdvancedChipMetricsService:
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_prev_20d_close': prev_metrics.get('prev_20d_close'),
             })
-            # 优先使用资金流服务处理过的、带有归因的分钟数据
+            # [代码新增开始]
+            print(f"  --- [分发诊断] 日期: {trade_date.date()} ---")
+            # [代码新增结束]
             if fund_flow_attributed_minute_map and trade_date.date() in fund_flow_attributed_minute_map:
+                # [代码新增开始]
+                print(f"    >>> 状态: 成功. 在 'fund_flow_attributed_minute_map' 中找到键 '{trade_date.date()}'。使用增强数据。")
+                # [代码新增结束]
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date.date()]
-            else: # 如果没有，则使用原始分钟数据（部分指标会缺失）
+            else:
+                # [代码新增开始]
+                print(f"    >>> 状态: 失败. 未能匹配到增强数据。将回退到原始分钟数据。")
+                if not fund_flow_attributed_minute_map:
+                    print(f"      - 原因: 'fund_flow_attributed_minute_map' 本身为空。")
+                else:
+                    print(f"      - 原因: 键 '{trade_date.date()}' (类型: {type(trade_date.date())}) 不在 map 的键中。")
+                    print(f"      - 诊断: Map中的键类型为: {type(list(fund_flow_attributed_minute_map.keys())[0]) if fund_flow_attributed_minute_map else 'N/A'}")
+                # [代码新增结束]
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
             context_for_calc['minute_data'] = enhanced_minute_data

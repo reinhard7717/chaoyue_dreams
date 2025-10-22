@@ -245,14 +245,11 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
-        """【V5.0 · 显式返回版】显式返回指标DF和归因分钟数据字典。"""
+        """【V5.1 · 出口探针版】在返回前检查归因数据状态。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
-        print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
         result_df = df.copy()
-        # [代码新增开始]
-        attributed_minute_map = {} # 初始化以防万一
-        # [代码新增结束]
+        attributed_minute_map = {}
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -270,9 +267,7 @@ class AdvancedFundFlowMetricsService:
         existing_sources = [col for col in source_cols if col in df.columns]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # [代码修改开始] 接收两个返回值
             pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
-            # [代码修改结束]
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
@@ -301,9 +296,7 @@ class AdvancedFundFlowMetricsService:
                 if 'daily_vwap' in result_df.columns:
                     result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
-            # [代码修改开始] 将归因后的分钟数据传递给下游
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
-            # [代码修改结束]
             result_df = result_df.join(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df = result_df.join(structure_metrics_df)
@@ -351,10 +344,15 @@ class AdvancedFundFlowMetricsService:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
-        # [代码修改开始] 显式返回两个值
+        # [代码新增开始]
+        print(f"--- [出口探针] 资金流服务即将返回 ---")
+        if not attributed_minute_map:
+            print(f"  >>> 状态: 失败. 'attributed_minute_map' 为空。这意味着没有一天成功计算出归因数据。")
+        else:
+            print(f"  >>> 状态: 成功. 'attributed_minute_map' 包含 {len(attributed_minute_map)} 天的数据。")
+            print(f"  >>> 样本键: {list(attributed_minute_map.keys())[:3]}")
+        # [代码新增结束]
         return result_df, attributed_minute_map
-        # [代码修改结束]
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         """

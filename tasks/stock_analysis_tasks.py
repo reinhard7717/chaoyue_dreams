@@ -618,8 +618,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.1 · 显式数据流版】
-    - 核心修正: 彻底移除对副作用的依赖，通过显式返回和接收数据，建立健壮的数据管道。
+    【V24.2 · 信使追踪探针版】
+    - 新增: 在数据交接的关键节点植入探针，追踪归因数据的流转。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -654,9 +654,15 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
-            # [代码修改开始] 接收两个返回值，并移除脆弱的getattr调用
             fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
-            # [代码修改结束]
+            # [代码新增开始]
+            print(f"--- [信使探针] 主任务即将向筹码服务传递数据 ---")
+            if not fund_flow_attributed_minute_map:
+                print(f"  >>> 状态: 失败. 'fund_flow_attributed_minute_map' 为空。包裹未收到或为空。")
+            else:
+                print(f"  >>> 状态: 成功. 'fund_flow_attributed_minute_map' 包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
+                print(f"  >>> 样本键: {list(fund_flow_attributed_minute_map.keys())[:3]}")
+            # [代码新增结束]
             chip_data_dfs = {
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data_chip"],
                 "daily_basic": data_dfs["daily_basic_chip"], "cyq_perf": data_dfs["cyq_perf"],
