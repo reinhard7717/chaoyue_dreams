@@ -158,9 +158,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        """【V2.0 · 依赖注入版】接收预加载的数据，不再自己加载。"""
-        # [代码修改开始]
-        # 移除内部的数据加载逻辑，直接使用传入的 data_dfs
+        """【V2.1 · 无损标准化版】修正了对 ths 和 dc 数据源的破坏性转换问题。"""
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -178,12 +176,16 @@ class AdvancedFundFlowMetricsService:
             elif source == 'ths':
                 df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
                 df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
-                return df[['trade_time', 'net_flow_ths', 'main_force_net_flow_ths', 'retail_net_flow_ths']]
+                # [代码修改开始] 移除破坏性的列选择，返回完整的DataFrame
+                return df
+                # [代码修改结束]
             elif source == 'dc':
                 df = df.rename(columns={'net_amount': 'main_force_net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc', 'buy_lg_amount': 'net_lg_amount_dc', 'buy_md_amount': 'net_md_amount_dc', 'buy_sm_amount': 'net_sh_amount_dc'})
                 df['net_flow_dc'] = df.get('main_force_net_flow_dc', 0).fillna(0) + df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
                 df['retail_net_flow_dc'] = df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
-                return df[['trade_time', 'net_flow_dc', 'main_force_net_flow_dc', 'retail_net_flow_dc', 'net_xl_amount_dc']]
+                # [代码修改开始] 移除破坏性的列选择，返回完整的DataFrame
+                return df
+                # [代码修改结束]
             return df
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
         df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
