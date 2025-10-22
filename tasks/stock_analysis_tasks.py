@@ -618,8 +618,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.5 · 集中组装版】
-    - 终极修正: 重构衍生指标的计算和组装逻辑，根除列名冲突问题。
+    【V24.7 · 上下文预热与滚动拼接版】
+    - 终极方案: 结合了上下文完整性与内存效率。通过预热历史核心指标并滚动拼接，确保长周期衍生指标在分块处理中也能正确计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -630,14 +630,28 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock_code, incremental_flag, start_date_override
         )
         DailyModel = get_daily_data_model_by_code(stock_code)
-        date_filter = {'stock': stock_info}
-        if fetch_start_date: date_filter['trade_time__gte'] = fetch_start_date
-        if last_metric_date and is_incremental_final: date_filter['trade_time__gt'] = last_metric_date
-        all_dates_qs = DailyModel.objects.filter(**date_filter).values_list('trade_time', flat=True).order_by('trade_time')
+        # [代码修改开始] 区分“需要处理的日期”和“需要保存的日期”
+        # 1. 确定需要保存的起始日期
+        save_start_date = None
+        if start_date_override:
+            save_start_date = datetime.strptime(start_date_override, '%Y-%m-%d').date()
+        elif last_metric_date and is_incremental_final:
+            save_start_date = last_metric_date + timedelta(days=1)
+        # 2. 确定需要处理的日期范围（包含回溯期）
+        process_date_filter = {'stock': stock_info}
+        if fetch_start_date:
+            process_date_filter['trade_time__gte'] = fetch_start_date
+        all_dates_qs = DailyModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
         dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
+        # 3. 上下文预热：加载回溯期内已有的核心指标作为初始上下文
+        context_start_date = dates_to_process.min()
+        ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_start_date)
+        chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_start_date)
+        context_df = ff_hist_df.join(chip_hist_df, how='outer')
+        # [代码修改结束]
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info, trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'close_qfq').order_by('trade_time')
@@ -651,7 +665,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             for date, idx in date_index_map.items()
         }
         CHUNK_SIZE = 50
-        all_new_metrics_df = pd.DataFrame()
+        all_final_metrics_to_save = pd.DataFrame()
         cross_chunk_memory = {}
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
@@ -665,6 +679,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 "daily": data_dfs["daily_data_ff"], "daily_basic": data_dfs["daily_basic_ff"],
             }
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
+            if fund_flow_raw_df.empty:
+                logger.warning(f"[{stock_code}] 区块 {chunk_start_date.date()} to {chunk_end_date.date()} 资金流原始数据为空，跳过。")
+                continue
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
@@ -678,24 +695,36 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )
-            chunk_merged_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
-            all_new_metrics_df = pd.concat([all_new_metrics_df, chunk_merged_df])
-        if not all_new_metrics_df.empty:
-            ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, all_new_metrics_df.index.min())
-            chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, all_new_metrics_df.index.min())
-            full_sequence_df = pd.concat([ff_hist_df.join(chip_hist_df, how='outer'), all_new_metrics_df]).sort_index()
-            # [代码修改开始] 重构衍生指标计算和最终组装逻辑
-            # 1. 分别调用“专业化”的衍生计算函数，它们只返回新增的衍生列
-            final_ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_df)
-            final_chip_derivatives = chip_service._calculate_derivatives(full_sequence_df)
-            # 2. 将基础指标、资金流衍生、筹码衍生三者干净地合并，不再使用后缀
-            final_df = full_sequence_df.join([final_ff_derivatives, final_chip_derivatives])
+            # [代码修改开始] 实施滚动拼接与衍生计算
+            # a. 合并当前区块的核心指标
+            chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
+            # b. 与历史上下文拼接，形成用于衍生计算的完整序列
+            full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
+            # c. 在完整序列上计算衍生指标
+            ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
+            chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
+            # d. 将所有指标（核心+衍生）合并
+            chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
+            # e. 将当前区块的最终结果添加到待保存列表
+            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
+            # f. 更新上下文，为下一个循环做准备
+            context_df = full_sequence_for_derivatives
             # [代码修改结束]
-            chunk_to_save = final_df[final_df.index.isin(all_new_metrics_df.index)]
-            ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
-            chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
-            logger.info(f"[{stock_code}] 成功！深度融合计算完成。资金流指标保存 {ff_save_count} 条，筹码指标保存 {chip_save_count} 条。")
-            return {"status": "success", "fund_flow_days": ff_save_count, "chip_days": chip_save_count}
+        if not all_final_metrics_to_save.empty:
+            # [代码修改开始] 根据任务开始时确定的保存日期，精确切分需要保存的数据
+            if save_start_date:
+                chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
+            else: # 全量计算
+                chunk_to_save = all_final_metrics_to_save
+            # [代码修改结束]
+            if not chunk_to_save.empty:
+                ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
+                chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
+                logger.info(f"[{stock_code}] 成功！深度融合计算完成。资金流指标保存 {ff_save_count} 条，筹码指标保存 {chip_save_count} 条。")
+                return {"status": "success", "fund_flow_days": ff_save_count, "chip_days": chip_save_count}
+            else:
+                logger.info(f"[{stock_code}] 计算完成，但没有需要保存的新数据。")
+                return {"status": "no_new_data_to_save"}
         else:
             logger.info(f"[{stock_code}] 深度融合计算未产生任何新指标。")
             return {"status": "no_new_data"}
