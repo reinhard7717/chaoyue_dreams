@@ -31,25 +31,40 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V22.4 · 幽灵蓝图重建版】集成 cost_divergence 和 chip_health_score 的计算。"""
-        self._probe_chip_calculation_readiness()
+        """【V22.5 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
+        # [代码新增开始] 检查是否需要显示探针日志
+        show_probes = self.ctx.get('is_last_day_in_batch', False)
+        if show_probes:
+            self._probe_chip_calculation_readiness()
+        # [代码新增结束]
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
-            print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 前置检查失败，核心上下文缺失，计算终止。")
+            # [代码修改开始] 即使计算终止，也应在最后一天显示探针信息
+            if show_probes:
+                print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 前置检查失败，核心上下文缺失，计算终止。")
+            # [代码修改结束]
             return {}
-        print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 开始计算 {self.ctx.get('trade_date')} 的指标 ---")
+        # [代码修改开始] 将所有日志打印置于条件块内
+        if show_probes:
+            print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 开始计算 {self.ctx.get('trade_date')} 的指标 ---")
         summary_info = self._get_summary_metrics_from_context()
-        print(f"  [探针] _get_summary_metrics_from_context -> total_winner_rate: {summary_info.get('total_winner_rate')}")
+        if show_probes:
+            print(f"  [探针] _get_summary_metrics_from_context -> total_winner_rate: {summary_info.get('total_winner_rate')}")
         self.ctx.update(summary_info)
         peaks_info = self._calculate_peaks()
-        print(f"  [探针] _calculate_peaks -> peak_cost: {peaks_info.get('peak_cost')}, peak_volume: {peaks_info.get('peak_volume')}")
+        if show_probes:
+            print(f"  [探针] _calculate_peaks -> peak_cost: {peaks_info.get('peak_cost')}, peak_volume: {peaks_info.get('peak_volume')}")
         concentration_info = self._calculate_concentration_from_perf()
-        print(f"  [探针] _calculate_concentration_from_perf -> concentration_90pct: {concentration_info.get('concentration_90pct')}")
+        if show_probes:
+            print(f"  [探针] _calculate_concentration_from_perf -> concentration_90pct: {concentration_info.get('concentration_90pct')}")
         winner_structure_info = self._calculate_winner_structure()
-        print(f"  [探针] _calculate_winner_structure -> winner_rate_short_term: {winner_structure_info.get('winner_rate_short_term')}")
+        if show_probes:
+            print(f"  [探针] _calculate_winner_structure -> winner_rate_short_term: {winner_structure_info.get('winner_rate_short_term')}")
         holder_costs_info = self._calculate_holder_costs()
-        print(f"  [探针] _calculate_holder_costs -> avg_cost_short_term: {holder_costs_info.get('avg_cost_short_term')}")
+        if show_probes:
+            print(f"  [探针] _calculate_holder_costs -> avg_cost_short_term: {holder_costs_info.get('avg_cost_short_term')}")
         pressure_support_info = self._calculate_pressure_support()
-        print(f"  [探针] _calculate_pressure_support -> pressure_above: {pressure_support_info.get('pressure_above')}")
+        if show_probes:
+            print(f"  [探针] _calculate_pressure_support -> pressure_above: {pressure_support_info.get('pressure_above')}")
         context_for_derived_metrics = {
             **self.ctx,
             **peaks_info,
@@ -58,15 +73,18 @@ class ChipFeatureCalculator:
             **holder_costs_info,
         }
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
-        print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
-        # [代码修改开始] 将高级结构指标也加入上下文，供后续计算使用
+        if show_probes:
+            print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
         context_for_derived_metrics.update(advanced_structure_info)
         minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
-        print(f"  [探针] _calculate_minute_derived_dynamics -> profit_taking_urgency: {minute_derived_dynamics_info.get('profit_taking_urgency')}")
+        if show_probes:
+            print(f"  [探针] _calculate_minute_derived_dynamics -> profit_taking_urgency: {minute_derived_dynamics_info.get('profit_taking_urgency')}")
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
-        print(f"  [探针] _calculate_chip_interaction_dynamics -> main_force_suppressive_accumulation: {chip_interaction_info.get('main_force_suppressive_accumulation')}")
+        if show_probes:
+            print(f"  [探针] _calculate_chip_interaction_dynamics -> main_force_suppressive_accumulation: {chip_interaction_info.get('main_force_suppressive_accumulation')}")
         cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
-        print(f"  [探针] _calculate_cross_day_chip_flow -> short_term_profit_taking_ratio: {cross_day_flow_info.get('short_term_profit_taking_ratio')}")
+        if show_probes:
+            print(f"  [探针] _calculate_cross_day_chip_flow -> short_term_profit_taking_ratio: {cross_day_flow_info.get('short_term_profit_taking_ratio')}")
         turnover_microstructure_info = self._calculate_turnover_microstructure(context_for_derived_metrics)
         concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
@@ -91,14 +109,15 @@ class ChipFeatureCalculator:
             **cost_divergence_info,
             **health_score_info
         }
-        # [代码修改结束]
         if 'total_winner_rate' in summary_info:
             all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
         if 'total_loser_rate' in winner_structure_info:
             all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        self._probe_final_metrics(all_metrics)
+        if show_probes:
+            self._probe_final_metrics(all_metrics)
+        # [代码修改结束]
         return all_metrics
 
     def _prepare_minute_data_features(self):
@@ -619,50 +638,6 @@ class ChipFeatureCalculator:
         results['long_term_despair_selling_ratio'] = lt_losers_pct
         return results
 
-    def _probe_chip_calculation_readiness(self):
-        """【V-Probe 2.0 · 上下文深度探针版】在计算前诊断所有依赖项是否就绪。"""
-        print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
-        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
-        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-        print(f"探针目标: [{stock_code}] 日期: [{trade_date}]")
-        is_ready = True
-        # 诊断1: 检查分钟数据是否被资金流归因算法增强
-        minute_df = self.ctx.get('minute_data')
-        required_cols = ['main_force_buy_vol', 'retail_sell_vol']
-        if minute_df is None or minute_df.empty or not all(c in minute_df.columns for c in required_cols):
-            print("  - [依赖链诊断 - 失败]: 分钟数据未被资金流归因算法增强。")
-            print("    原因: 很可能当天的日线资金流数据(fund_flow)缺失，导致增强步骤跳过。")
-            print("    影响: 所有【主力-散户筹码博弈】指标将无法计算 (例如: main_force_suppressive_accumulation)。")
-            is_ready = False
-        else:
-            print("  - [依赖链诊断 - 成功]: 分钟数据已成功增强。")
-        # 诊断2: 检查跨日计算所需的T-1日数据
-        prev_chip_dist = self.ctx.get('prev_chip_distribution')
-        if prev_chip_dist is None or prev_chip_dist.empty:
-            is_first_day = self.ctx.get('is_first_day_in_batch', False)
-            if not is_first_day:
-                print("  - [记忆链诊断 - 失败]: T-1日上下文数据(prev_chip_distribution)缺失。")
-                print("    原因: 跨区块的'记忆'未能成功传递。")
-                print("    影响: 所有【跨日筹码迁徙】指标将无法计算 (例如: short_term_profit_taking_ratio)。")
-                is_ready = False
-            else:
-                print("  - [记忆链诊断 - 正常]: 区块首日，无T-1日上下文数据。")
-        else:
-            print("  - [记忆链诊断 - 成功]: T-1日上下文数据已就绪。")
-        # [代码新增开始] 诊断3: 上下文深度探针
-        print("--- [上下文深度探针] ---")
-        context_keys_to_probe = ['prev_concentration_90pct', 'prev_winner_avg_cost', 'prev_day_20d_ago_close']
-        for key in context_keys_to_probe:
-            value = self.ctx.get(key)
-            status = f"值: {value:.4f}" if isinstance(value, (int, float)) and pd.notna(value) else f"状态: {value}"
-            print(f"  >>> T-1日上下文 '{key}': {status}")
-        # [代码新增结束]
-        if is_ready:
-            print("探针结论: 所有关键依赖项均已就绪，计算可以全面展开。")
-        else:
-            print("探针结论: 存在关键依赖项缺失，部分高级指标将为空。")
-        print("="*20 + " 探针诊断结束 " + "="*20 + "\n")
-
     def _calculate_cost_divergence(self, context: dict) -> dict:
         """【新增】计算成本乖离率"""
         avg_cost_short = context.get('avg_cost_short_term')
@@ -719,9 +694,56 @@ class ChipFeatureCalculator:
 
 
 
+    def _probe_chip_calculation_readiness(self):
+        """【V-Probe 2.1 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
+        # [代码新增开始] 增加条件判断，仅在最后一天执行
+        if not self.ctx.get('is_last_day_in_batch', False):
+            return
+        # [代码新增结束]
+        print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        print(f"探针目标: [{stock_code}] 日期: [{trade_date}]")
+        is_ready = True
+        minute_df = self.ctx.get('minute_data')
+        required_cols = ['main_force_buy_vol', 'retail_sell_vol']
+        if minute_df is None or minute_df.empty or not all(c in minute_df.columns for c in required_cols):
+            print("  - [依赖链诊断 - 失败]: 分钟数据未被资金流归因算法增强。")
+            print("    原因: 很可能当天的日线资金流数据(fund_flow)缺失，导致增强步骤跳过。")
+            print("    影响: 所有【主力-散户筹码博弈】指标将无法计算 (例如: main_force_suppressive_accumulation)。")
+            is_ready = False
+        else:
+            print("  - [依赖链诊断 - 成功]: 分钟数据已成功增强。")
+        prev_chip_dist = self.ctx.get('prev_chip_distribution')
+        if prev_chip_dist is None or prev_chip_dist.empty:
+            is_first_day = self.ctx.get('is_first_day_in_batch', False)
+            if not is_first_day:
+                print("  - [记忆链诊断 - 失败]: T-1日上下文数据(prev_chip_distribution)缺失。")
+                print("    原因: 跨区块的'记忆'未能成功传递。")
+                print("    影响: 所有【跨日筹码迁徙】指标将无法计算 (例如: short_term_profit_taking_ratio)。")
+                is_ready = False
+            else:
+                print("  - [记忆链诊断 - 正常]: 区块首日，无T-1日上下文数据。")
+        else:
+            print("  - [记忆链诊断 - 成功]: T-1日上下文数据已就绪。")
+        print("--- [上下文深度探针] ---")
+        context_keys_to_probe = ['prev_concentration_90pct', 'prev_winner_avg_cost', 'prev_day_20d_ago_close']
+        for key in context_keys_to_probe:
+            value = self.ctx.get(key)
+            status = f"值: {value:.4f}" if isinstance(value, (int, float)) and pd.notna(value) else f"状态: {value}"
+            print(f"  >>> T-1日上下文 '{key}': {status}")
+        if is_ready:
+            print("探针结论: 所有关键依赖项均已就绪，计算可以全面展开。")
+        else:
+            print("探针结论: 存在关键依赖项缺失，部分高级指标将为空。")
+        print("="*20 + " 探针诊断结束 " + "="*20 + "\n")
 
     def _probe_final_metrics(self, metrics: dict):
-        """【V2.0 · 监控升级版】将 cost_divergence 和 chip_health_score 加入最终审查探针"""
+        """【V2.1 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
+        # [代码新增开始] 增加条件判断，仅在最后一天执行
+        if not self.ctx.get('is_last_day_in_batch', False):
+            return
+        # [代码新增结束]
         print("--- [最终指标审查探针] ---")
         critical_metrics = [
             'peak_cost', 'concentration_90pct', 'winner_avg_cost',
