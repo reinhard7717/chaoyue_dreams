@@ -799,35 +799,25 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
-        """【V1.2 · 单位换算终极修正版 + VWAP探针】从预加载的DataFrame计算日度VWAP"""
+        """【V1.3 · API单位对齐版】从预加载的DataFrame计算日度VWAP"""
         if minute_df.empty:
             return pd.Series(np.nan, index=date_index)
         df = minute_df.copy()
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
-        # 不再进行错误的乘法操作
+        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         df['total_value'] = df['amount']
         df['total_volume'] = df['vol']
-        
+        # [代码修改结束]
         daily_agg = df.groupby(df['trade_time'].dt.date)
         daily_total_value = daily_agg['total_value'].sum()
         daily_total_volume = daily_agg['total_volume'].sum()
-        # VWAP计算探针
-        # if not daily_total_value.empty:
-        #     print("--- VWAP计算探针 ---")
-        #     print(f"日期范围: {daily_total_value.index.min()} to {daily_total_value.index.max()}")
-        #     print(f"总成交额(元)非零天数: {daily_total_value[daily_total_value > 0].count()}")
-        #     print(f"总成交量(股)非零天数: {daily_total_volume[daily_total_volume > 0].count()}")
-        #     print(f"最新一天 VWAP 输入: Value={daily_total_value.iloc[-1]:.2f}, Volume={daily_total_volume.iloc[-1]:.2f}")
-        #     print("--------------------")
-        
         daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
         daily_vwap.index = pd.to_datetime(daily_vwap.index)
         return daily_vwap.reindex(date_index)
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.2 · 单位换算终极修正版】从预加载的DataFrame构建按日分组的数据。"""
+        """【V1.3 · API单位对齐版】从预加载的DataFrame构建按日分组的数据。"""
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
@@ -835,13 +825,10 @@ class AdvancedFundFlowMetricsService:
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        
-        # 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
-        # 不再进行错误的乘法操作
+        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
-        
-
+        # [代码修改结束]
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)

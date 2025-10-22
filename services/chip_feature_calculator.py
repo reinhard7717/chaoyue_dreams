@@ -96,13 +96,11 @@ class ChipFeatureCalculator:
         return all_metrics
 
     def _prepare_minute_data_features(self):
-        """【V2.0 · 内存优化版】对单日分钟数据进行类型降级，减少内存占用。"""
+        """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""
         minute_df = self.ctx.get('minute_data')
         if minute_df is None or minute_df.empty:
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
-        # 内存优化：对列进行类型降级
-        # 使用字典进行批量转换和错误处理
         dtype_map = {
             'amount': 'float32',
             'vol': 'int32',
@@ -114,15 +112,18 @@ class ChipFeatureCalculator:
         for col, dtype in dtype_map.items():
             if col in minute_df.columns:
                 minute_df[col] = pd.to_numeric(minute_df[col], errors='coerce').astype(dtype, errors='ignore')
-        
-        total_amount_yuan = (minute_df['amount'] * 1000).sum()
-        total_vol_shares = (minute_df['vol'] * 100).sum()
+        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        total_amount_yuan = minute_df['amount'].sum()
+        total_vol_shares = minute_df['vol'].sum()
+        # [代码修改结束]
         daily_vwap = total_amount_yuan / total_vol_shares if total_vol_shares > 0 else None
         self.ctx['daily_vwap'] = daily_vwap
         if daily_vwap is None:
             self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
-        minute_df['minute_vwap'] = ((minute_df['amount'] * 1000) / (minute_df['vol'] * 100).replace(0, np.nan)).astype('float32', errors='ignore')
+        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        minute_df['minute_vwap'] = (minute_df['amount'] / minute_df['vol'].replace(0, np.nan)).astype('float32', errors='ignore')
+        # [代码修改结束]
         vol_above_vwap = minute_df[minute_df['minute_vwap'] > daily_vwap]['vol'].sum()
         vol_below_vwap = minute_df[minute_df['minute_vwap'] < daily_vwap]['vol'].sum()
         total_vol = minute_df['vol'].sum()
@@ -331,20 +332,22 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_turnover_microstructure(self, context: dict) -> dict:
-        """【V2.0 · 裁汰版】精简指标，仅保留基于精确计算的 turnover_at_peak_ratio"""
+        """【V2.1 · API单位对齐版】精简指标，仅保留基于精确计算的 turnover_at_peak_ratio"""
         minute_df = self.ctx.get('minute_data')
         daily_turnover_vol = self.ctx.get('daily_turnover_volume')
         if minute_df is None or minute_df.empty or not daily_turnover_vol or daily_turnover_vol <= 0:
             return {'turnover_at_peak_ratio': None}
-        total_vol_shares = minute_df['vol'].sum() * 100
+        # [代码修改开始] 根据API文档，分钟线的vol单位是股，无需转换。
+        total_vol_shares = minute_df['vol'].sum()
         if total_vol_shares <= 0:
             return {'turnover_at_peak_ratio': 0.0}
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
         turnover_at_peak_ratio = None
         if peak_range_low is not None and peak_range_high is not None:
-            vol_at_peak = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)]['vol'].sum() * 100
+            vol_at_peak = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)]['vol'].sum()
             turnover_at_peak_ratio = (vol_at_peak / total_vol_shares) * 100
+        # [代码修改结束]
         return {'turnover_at_peak_ratio': turnover_at_peak_ratio}
 
     def _calculate_concentration_dynamics(self, context: dict) -> dict:
@@ -422,7 +425,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_peak_dynamics(self, context: dict) -> dict:
-        """【V1.1 · 空值净化版】计算主峰战役复盘指标"""
+        """【V1.2 · API单位对齐版】计算主峰战役复盘指标"""
         minute_df = self.ctx.get('minute_data')
         peak_range_low = context.get('peak_range_low')
         peak_range_high = context.get('peak_range_high')
@@ -436,34 +439,31 @@ class ChipFeatureCalculator:
         if minute_df is None or minute_df.empty or not all(pd.notna(v) for v in [peak_range_low, peak_range_high, peak_cost, total_daily_vol]) or total_daily_vol <= 0:
             return results
         peak_zone_df = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)].copy()
-        # [代码修改开始] 当中间DataFrame为空时，直接返回包含None的字典，而不是更新为0
         if peak_zone_df.empty:
             return results
-        # [代码修改结束]
-        vol_in_peak = peak_zone_df['vol'].sum() * 100
+        # [代码修改开始] 根据API文档，分钟线的vol单位是股，amount单位是元，无需转换。
+        vol_in_peak = peak_zone_df['vol'].sum()
         if vol_in_peak > 0:
             results['peak_defense_intensity'] = (vol_in_peak / total_daily_vol) * 100
-            amount_in_peak = (peak_zone_df['amount'] * 1000).sum()
+            amount_in_peak = peak_zone_df['amount'].sum()
             vwap_in_peak = amount_in_peak / vol_in_peak
             if peak_cost > 0:
                 results['peak_vwap_deviation'] = (vwap_in_peak / peak_cost - 1) * 100
             if 'open' in peak_zone_df.columns and 'close' in peak_zone_df.columns:
                 peak_zone_df['is_up_minute'] = peak_zone_df['close'] > peak_zone_df['open']
                 peak_zone_df['is_down_minute'] = peak_zone_df['close'] < peak_zone_df['open']
-                vol_up = peak_zone_df[peak_zone_df['is_up_minute']]['vol'].sum() * 100
-                vol_down = peak_zone_df[peak_zone_df['is_down_minute']]['vol'].sum() * 100
+                vol_up = peak_zone_df[peak_zone_df['is_up_minute']]['vol'].sum()
+                vol_down = peak_zone_df[peak_zone_df['is_down_minute']]['vol'].sum()
                 results['peak_net_volume_flow'] = (vol_up - vol_down) / vol_in_peak
-        # [代码修改开始] 当vol_in_peak为0时，保持None，而不是更新为0
-        # else 分支被移除，因为默认值已经是None
         # [代码修改结束]
         return results
 
     def _calculate_minute_derived_dynamics(self, context: dict) -> dict:
-        """【新增】计算基于分钟K线的全面动态升维指标"""
+        """【V1.1 · API单位对齐版】计算基于分钟K线的全面动态升维指标"""
         minute_df = self.ctx.get('minute_data')
         total_daily_vol = self.ctx.get('daily_turnover_volume')
         close_price = self.ctx.get('close_price')
-        open_price = self.ctx.get('open_price') # 假设上下文中已有日开盘价
+        open_price = self.ctx.get('open_price')
         results = {
             'realized_pressure_intensity': None,
             'realized_support_intensity': None,
@@ -477,62 +477,58 @@ class ChipFeatureCalculator:
         }
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0:
             return results
-        # --- 1. 支撑与压力动态交火 ---
+        # [代码修改开始] 根据API文档，分钟线的vol单位是股，amount单位是元，无需转换。
         if pd.notna(close_price):
             pressure_zone_low = close_price
             pressure_zone_high = close_price * 1.02
             support_zone_low = close_price * 0.98
             support_zone_high = close_price
-            vol_in_pressure_zone = minute_df[(minute_df['minute_vwap'] >= pressure_zone_low) & (minute_df['minute_vwap'] <= pressure_zone_high)]['vol'].sum() * 100
+            vol_in_pressure_zone = minute_df[(minute_df['minute_vwap'] >= pressure_zone_low) & (minute_df['minute_vwap'] <= pressure_zone_high)]['vol'].sum()
             results['realized_pressure_intensity'] = (vol_in_pressure_zone / total_daily_vol) * 100
-            vol_in_support_zone = minute_df[(minute_df['minute_vwap'] >= support_zone_low) & (minute_df['minute_vwap'] < support_zone_high)]['vol'].sum() * 100
+            vol_in_support_zone = minute_df[(minute_df['minute_vwap'] >= support_zone_low) & (minute_df['minute_vwap'] < support_zone_high)]['vol'].sum()
             results['realized_support_intensity'] = (vol_in_support_zone / total_daily_vol) * 100
-        # --- 2. 获利盘行为心理 ---
         prev_winner_avg_cost = self.ctx.get('prev_winner_avg_cost')
         if pd.notna(prev_winner_avg_cost) and prev_winner_avg_cost > 0:
             profit_taking_df = minute_df[minute_df['minute_vwap'] > prev_winner_avg_cost].copy()
             if not profit_taking_df.empty:
-                vol_profit_taking = profit_taking_df['vol'].sum() * 100
+                vol_profit_taking = profit_taking_df['vol'].sum()
                 results['profit_taking_urgency'] = (vol_profit_taking / total_daily_vol) * 100
-                amount_profit_taking = (profit_taking_df['amount'] * 1000).sum()
+                amount_profit_taking = profit_taking_df['amount'].sum()
                 vwap_profit_taking = amount_profit_taking / vol_profit_taking if vol_profit_taking > 0 else 0
                 if vwap_profit_taking > 0:
                     results['profit_realization_premium'] = (vwap_profit_taking / prev_winner_avg_cost - 1) * 100
-        # --- 3. 筹码断层突破动能 ---
         peak_cost = context.get('peak_cost')
         if pd.notna(peak_cost) and pd.notna(close_price) and close_price > peak_cost:
             fault_zone_low = peak_cost
             fault_zone_high = close_price
-            vol_in_fault_zone = minute_df[(minute_df['minute_vwap'] >= fault_zone_low) & (minute_df['minute_vwap'] <= fault_zone_high)]['vol'].sum() * 100
+            vol_in_fault_zone = minute_df[(minute_df['minute_vwap'] >= fault_zone_low) & (minute_df['minute_vwap'] <= fault_zone_high)]['vol'].sum()
             price_diff = close_price - peak_cost
             if vol_in_fault_zone > 0:
                 results['fault_breakthrough_intensity'] = price_diff / vol_in_fault_zone
             elif price_diff > 0:
                 results['fault_breakthrough_intensity'] = np.inf
-        # --- 4. 成交量时间解构 ---
+        # [代码修改结束]
         volumes = minute_df['vol'].to_numpy()
         if volumes.sum() > 0:
-            # Gini
             sorted_volumes = np.sort(volumes)
             n = len(volumes)
             cum_vol = np.cumsum(sorted_volumes, dtype=float)
             results['intraday_volume_gini'] = (n + 1 - 2 * np.sum(cum_vol) / cum_vol[-1]) / n
-            # VWTI
             time_index = np.arange(1, n + 1)
             results['volume_weighted_time_index'] = np.sum(time_index * volumes) / (n * np.sum(volumes))
-        # --- 5. 日内趋势质量 ---
         if pd.notna(open_price) and pd.notna(close_price):
             total_path = (minute_df['high'] - minute_df['low']).sum()
             net_change = close_price - open_price
             if total_path > 0:
                 results['intraday_trend_efficiency'] = net_change / total_path
-        # --- 6. 动态成本演化 ---
         minute_df['trade_time_obj'] = pd.to_datetime(minute_df['trade_time']).dt.time
         am_df = minute_df[minute_df['trade_time_obj'] < pd.to_datetime('12:00').time()]
         pm_df = minute_df[minute_df['trade_time_obj'] >= pd.to_datetime('13:00').time()]
         if not am_df.empty and not pm_df.empty:
-            vwap_am = (am_df['amount'] * 1000).sum() / (am_df['vol'] * 100).sum() if (am_df['vol'] * 100).sum() > 0 else 0
-            vwap_pm = (pm_df['amount'] * 1000).sum() / (pm_df['vol'] * 100).sum() if (pm_df['vol'] * 100).sum() > 0 else 0
+            # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+            vwap_am = am_df['amount'].sum() / am_df['vol'].sum() if am_df['vol'].sum() > 0 else 0
+            vwap_pm = pm_df['amount'].sum() / pm_df['vol'].sum() if pm_df['vol'].sum() > 0 else 0
+            # [代码修改结束]
             if vwap_am > 0 and vwap_pm > 0:
                 results['am_pm_vwap_ratio'] = (vwap_pm / vwap_am - 1) * 100
         return results
