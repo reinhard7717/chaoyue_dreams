@@ -486,24 +486,24 @@ class AdvancedFundFlowMetricsService:
         return result_agg_df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.4 · 累积和输入补全版】在计算前强制转换数据类型，根除object污染。"""
-        final_df = consensus_df.copy()
+        """【V3.5 · 专业化版】只计算并返回新增的衍生指标，不再返回完整副本。"""
+        # [代码修改开始] 初始化一个空的DataFrame，只用于存放新增的衍生列
+        derivatives_df = pd.DataFrame(index=consensus_df.index)
+        # [代码修改结束]
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        # 在衍生计算前，对所有目标列进行强制的、全面的数据类型净化
         for col in CORE_METRICS_TO_DERIVE:
-            if col in final_df.columns:
-                final_df[col] = pd.to_numeric(final_df[col], errors='coerce')
-        
+            if col in consensus_df.columns:
+                # [代码修改开始] 从原始的 consensus_df 中获取数据
+                derivatives_df[col] = pd.to_numeric(consensus_df[col], errors='coerce')
+                # [代码修改结束]
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
             'net_sh_amount_consensus', 'cost_weighted_main_flow',
-            # 确保 consensus_calibrated_main_flow 被纳入累积和计算
             'consensus_calibrated_main_flow',
             'consensus_flow_weighted',
-            
             'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
             'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
         ]
@@ -512,28 +512,36 @@ class AdvancedFundFlowMetricsService:
             if p <= 1: continue
             min_p = max(2, int(p * 0.8))
             for col in sum_cols:
-                if col in final_df.columns:
-                    # 在这里也进行一次净化，确保sum计算的输入是纯净的
-                    source_series_for_sum = pd.to_numeric(final_df[col], errors='coerce')
+                if col in consensus_df.columns:
+                    # [代码修改开始] 从原始的 consensus_df 中获取数据
+                    source_series_for_sum = pd.to_numeric(consensus_df[col], errors='coerce')
                     sum_col_name = f'{col}_sum_{p}d'
-                    final_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
+                    derivatives_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
+                    # [代码修改结束]
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + [f'{c}_sum_{p}d' for c in sum_cols for p in UNIFIED_PERIODS if p > 1]
         for col in all_cols_to_derive:
-            # 此时，由于前面的强制净化，这个if条件对于所有数值列都应该为True
-            if col in final_df.columns and col not in final_df.select_dtypes(include=['object', 'bool']).columns:
+            # [代码修改开始] 从 derivatives_df 中获取数据进行衍生计算
+            if col in derivatives_df.columns and col not in derivatives_df.select_dtypes(include=['object', 'bool']).columns:
+            # [代码修改结束]
                 base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
                 if base_col_name in SLOPE_ACCEL_EXCLUSIONS:
                     continue
-                source_series = final_df[col].astype(float) # 再次确认，双重保险
+                # [代码修改开始] 从 derivatives_df 中获取数据
+                source_series = derivatives_df[col].astype(float)
+                # [代码修改结束]
                 for p in UNIFIED_PERIODS:
                     calc_window = max(2, p) if p > 1 else 2
                     slope_col_name = f'{col}_slope_{p}d'
                     slope_series = ta.slope(close=source_series, length=calc_window)
-                    final_df[slope_col_name] = slope_series
+                    # [代码修改开始] 将新列添加到 derivatives_df
+                    derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
-        return final_df
+                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                    # [代码修改结束]
+        # [代码修改开始] 只返回包含新增衍生指标的DataFrame
+        return derivatives_df
+        # [代码修改结束]
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """【V1.6 · 探针移除版】准备并保存最终计算结果到数据库。"""

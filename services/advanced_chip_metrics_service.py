@@ -242,24 +242,32 @@ class AdvancedChipMetricsService:
         return df
 
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """计算所有筹码指标的衍生指标（斜率、加速度等）。"""
-        final_df = consensus_df.copy()
+        """【V2.0 · 专业化版】只计算并返回新增的衍生指标，不再返回完整副本。"""
+        # [代码修改开始] 初始化一个空的DataFrame，只用于存放新增的衍生列
+        derivatives_df = pd.DataFrame(index=consensus_df.index)
+        # [代码修改结束]
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
         for col in CORE_METRICS_TO_DERIVE:
-            if col in final_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
-                source_series = pd.to_numeric(final_df[col], errors='coerce')
+            # [代码修改开始] 从原始的 consensus_df 中获取数据
+            if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
+                source_series = pd.to_numeric(consensus_df[col], errors='coerce')
+                # [代码修改结束]
                 for p in UNIFIED_PERIODS:
                     calc_window = 2 if p == 1 else p
                     slope_col_name = f'{col}_slope_{p}d'
                     slope_series = ta.slope(close=source_series, length=calc_window)
-                    final_df[slope_col_name] = slope_series
+                    # [代码修改开始] 将新列添加到 derivatives_df
+                    derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        final_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
-        return final_df
+                        derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                    # [代码修改结束]
+        # [代码修改开始] 只返回包含新增衍生指标的DataFrame
+        return derivatives_df
+        # [代码修改结束]
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """准备并以“更新或创建”的方式原子化保存数据。"""
