@@ -117,7 +117,6 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-        
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """【V2.0 · 回滚式增量定义版】初始化任务上下文。"""
@@ -159,7 +158,6 @@ class AdvancedFundFlowMetricsService:
         # 如果是全量计算，fetch_start_date 为 None，将加载所有数据
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
-
     async def _load_and_merge_sources(self, stock_info, start_date=None, end_date=None):
         """【V1.4 · 精确范围查询版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
@@ -238,7 +236,6 @@ class AdvancedFundFlowMetricsService:
         # 使用新的、更可靠的辅助函数进行计算
         return self._calculate_daily_vwap_from_df(minute_df, date_index)
         
-
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):
         """【V1.3 · 时区修正与重构版】获取并按日聚合分钟数据"""
         # 修正时区查询BUG
@@ -271,16 +268,26 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.2 · 上下文保留版】修正因错误初始化DataFrame导致原始数据丢失的致命BUG。"""
+        """【V3.3 · 逻辑顺序修正版】修正因计算顺序颠倒导致的致命“先用后算”错误。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
-        # [代码修改开始]
-        # 致命错误修正：不再创建只包含核心指标列的空DataFrame。
-        # 直接复制完整的输入DataFrame，以保留所有原始数据列（如 close, *_vol 等）作为计算上下文。
         result_df = df.copy()
-        # 此处不再需要 result_df.update(df)，因为 result_df 已经是 df 的完整副本。
-        # [代码修改结束]
+        # [代码块移动开始] 将共识指标计算提前到所有依赖项之前
+        consensus_map = {
+            'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
+            'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
+            'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
+            'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
+            'net_lg_amount_consensus': ['net_lg_amount_tushare'],
+            'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
+            'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
+        }
+        for target_col, source_cols in consensus_map.items():
+            existing_cols = [col for col in source_cols if col in df.columns]
+            if existing_cols:
+                result_df[target_col] = df[existing_cols].mean(axis=1)
+        # [代码块移动结束]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
             latest_date = df.index.max()
@@ -288,16 +295,22 @@ class AdvancedFundFlowMetricsService:
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df.update(pvwap_costs_df)
-            # 此时传递给利润计算函数的 result_df 包含了成本列和所有原始成交量列
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
-            mf_flow = result_df.get('main_force_net_flow_consensus', np.nan)
-            retail_flow = result_df.get('retail_net_flow_consensus', np.nan)
+            # [代码修改开始] 此处代码现在可以安全执行，因为其依赖的列已经存在
+            mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
+            retail_flow = self._get_numeric_series_with_nan(result_df, 'retail_net_flow_consensus')
             numerator = (mf_flow - retail_flow).abs()
             denominator = mf_flow.abs() + retail_flow.abs()
             result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
+            # [代码修改结束]
+            source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
+            existing_sources = [col for col in source_cols if col in df.columns]
+            if len(existing_sources) > 1:
+                flows = df[existing_sources]
+                result_df['cross_source_divergence_std'] = flows.std(axis=1)
             if 'cross_source_divergence_std' in result_df.columns and 'main_force_net_flow_consensus' in result_df.columns:
                 mean_abs_flow = result_df['main_force_net_flow_consensus'].abs().mean()
                 denominator_consistency = np.nan if mean_abs_flow == 0 else mean_abs_flow
@@ -315,29 +328,13 @@ class AdvancedFundFlowMetricsService:
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
             result_df.update(behavioral_metrics_df)
-            # 此时传递给结构指标计算函数的 result_df 包含了 close 和 daily_vwap 列
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df.update(structure_metrics_df)
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
-        consensus_map = {
-            'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
-            'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
-            'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
-            'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
-            'net_lg_amount_consensus': ['net_lg_amount_tushare'],
-            'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
-            'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
-        }
-        for target_col, source_cols in consensus_map.items():
-            existing_cols = [col for col in source_cols if col in df.columns]
-            if existing_cols:
-                result_df[target_col] = df[existing_cols].mean(axis=1)
-        source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
-        existing_sources = [col for col in source_cols if col in df.columns]
+        # [代码块移动] 此处原有的 consensus_map 循环已被移至函数开头
         if len(existing_sources) > 1:
             flows = df[existing_sources]
-            result_df['cross_source_divergence_std'] = flows.std(axis=1)
             median_flow = flows.median(axis=1)
             deviations = flows.sub(median_flow, axis=0).abs()
             weights = 1 / (1 + deviations)
