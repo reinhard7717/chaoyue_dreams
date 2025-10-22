@@ -32,7 +32,7 @@ class AdvancedFundFlowMetricsService:
         【V2.0 · 单行兼容版】类型安全的列获取辅助函数。
         修正了对单行DataFrame处理时返回标量导致后续链式调用失败的BUG。
         """
-        # [代码修改开始] 彻底修正单行DataFrame问题
+        # 彻底修正单行DataFrame问题
         if col_name not in df.columns:
             # 如果列不存在，创建一个填充了默认值的Series
             return pd.Series(default_value, index=df.index, dtype=float)
@@ -40,7 +40,7 @@ class AdvancedFundFlowMetricsService:
         series = df[col_name]
         # 先转换为数值类型，再填充NaN
         return pd.to_numeric(series, errors='coerce').fillna(default_value)
-        # [代码修改结束]
+        
 
     def _get_numeric_series_with_nan(self, df: pd.DataFrame, col_name: str) -> pd.Series:
         """
@@ -59,7 +59,7 @@ class AdvancedFundFlowMetricsService:
             stock_code, is_incremental, start_date_str
         )
         total_processed_count = 0
-        # [代码修改开始] 重新定义增量模式下的作战范围和前置操作
+        # 重新定义增量模式下的作战范围和前置操作
         if not is_incremental_final: # 全量计算模式
             print(f"调试信息: [{stock_code}] 启动全量计算模式。")
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
@@ -117,7 +117,7 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-        # [代码修改结束]
+        
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """【V2.0 · 回滚式增量定义版】初始化任务上下文。"""
@@ -126,7 +126,7 @@ class AdvancedFundFlowMetricsService:
         MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         last_metric_date = None
         fetch_start_date = None
-        # [代码修改开始] 修正增量和部分全量模式的 fetch_start_date 定义
+        # 修正增量和部分全量模式的 fetch_start_date 定义
         if start_date_str:
             print(f"调试信息: [{stock_code}] 检测到资金流起始日期覆盖: {start_date_str}，将执行部分全量计算。")
             try:
@@ -158,13 +158,13 @@ class AdvancedFundFlowMetricsService:
                 fetch_start_date = None
         # 如果是全量计算，fetch_start_date 为 None，将加载所有数据
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-        # [代码修改结束]
+        
 
     async def _load_and_merge_sources(self, stock_info, start_date=None, end_date=None):
         """【V1.4 · 精确范围查询版】加载、标准化并合并多源数据"""
         @sync_to_async(thread_sensitive=True)
         def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None, end_date=None):
-            # [代码修改开始] 增加 end_date 过滤
+            # 增加 end_date 过滤
             if not model: return pd.DataFrame()
             qs = model.objects.filter(stock=stock_info_obj)
             if start_date:
@@ -172,7 +172,7 @@ class AdvancedFundFlowMetricsService:
             if end_date:
                 qs = qs.filter(**{f'{date_field}__lte': end_date})
             return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-            # [代码修改结束]
+            
         
         data_tasks = {
             "tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, start_date=start_date, end_date=end_date),
@@ -231,17 +231,17 @@ class AdvancedFundFlowMetricsService:
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
         """【V1.3 · 时区修正版】从分钟数据计算日度VWAP"""
-        # [代码修改开始] 修正时区查询BUG
+        # 修正时区查询BUG
         minute_df = await self._get_daily_grouped_minute_data(stock_info, date_index, fetch_full_cols=False)
         if minute_df is None or minute_df.empty:
             return pd.Series(np.nan, index=date_index)
         # 使用新的、更可靠的辅助函数进行计算
         return self._calculate_daily_vwap_from_df(minute_df, date_index)
-        # [代码修改结束]
+        
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):
         """【V1.3 · 时区修正与重构版】获取并按日聚合分钟数据"""
-        # [代码修改开始] 修正时区查询BUG
+        # 修正时区查询BUG
         from django.utils import timezone
         from datetime import datetime, time
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
@@ -269,10 +269,10 @@ class AdvancedFundFlowMetricsService:
             return None
         # 使用新的、更可靠的辅助函数进行分组
         return self._group_minute_data_from_df(minute_df)
-        # [代码修改结束]
+        
 
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V2.8 · 统一计算路径版】修正分裂的计算逻辑，确保所有指标对所有日期都被计算。"""
+        """【V3.0 · 核心指标补全版】新增 flow_internal_friction_ratio 和 source_consistency_score 的计算。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -281,19 +281,31 @@ class AdvancedFundFlowMetricsService:
         result_df.update(df)
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # [代码修改开始]
-            # 步骤1: 统一计算所有日期的成本指标
-            # 探针逻辑现在只用于打印日志，其计算结果会被标准流程覆盖，但为了诊断保留调用
             latest_date = df.index.max()
             probe_df = df.loc[[latest_date]]
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
-            # 对当前块内的所有日期运行标准成本计算流程
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df.update(pvwap_costs_df)
-            # 步骤2: 在所有成本指标计算完毕后，对整个 result_df 统一计算利润指标
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
-            # [代码修改结束]
+            if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
+                result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
+            #
+            # 计算内部摩擦比率 (Internal Friction Ratio)
+            mf_flow = result_df.get('main_force_net_flow_consensus', np.nan)
+            retail_flow = result_df.get('retail_net_flow_consensus', np.nan)
+            # Friction = |MF - Retail| / (|MF| + |Retail|)
+            numerator = (mf_flow - retail_flow).abs()
+            denominator = mf_flow.abs() + retail_flow.abs()
+            result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
+            # 计算数据源一致性分数 (Source Consistency Score)
+            if 'cross_source_divergence_std' in result_df.columns and 'main_force_net_flow_consensus' in result_df.columns:
+                # Consistency = 1 - (StdDev / Mean(|Flow|))，衡量波动性相对于平均幅度的比例
+                mean_abs_flow = result_df['main_force_net_flow_consensus'].abs().mean()
+                # 避免除以零，并确保分数在合理范围内（例如，不让它变成负数）
+                consistency_ratio = result_df['cross_source_divergence_std'] / mean_abs_flow.replace(0, np.nan)
+                result_df['source_consistency_score'] = (1 - consistency_ratio).clip(lower=0)
+            
             if 'avg_cost_main_buy' in result_df.columns:
                 result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
                 main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
@@ -400,13 +412,13 @@ class AdvancedFundFlowMetricsService:
                 weight_col = f'{size}_{direction}_weight'
                 weight_series = minute_data_for_day[weight_col]
                 
-                # [代码修改开始] 彻底移除灾难性的回退逻辑
+                # 彻底移除灾难性的回退逻辑
                 # 如果权重和为0，意味着无法计算该类别的成本，结果应为NaN，而不是使用对称权重。
                 if weight_series.sum() < 1e-9:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
                     continue
-                # [代码修改结束]
+                
 
                 attributed_vol = weight_series * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
@@ -445,7 +457,7 @@ class AdvancedFundFlowMetricsService:
         if not existing_vol_cols:
             return df
         df = df.join(daily_df[existing_vol_cols])
-        # [代码修改开始] 重构聚合逻辑，根除数据污染
+        # 重构聚合逻辑，根除数据污染
         def weighted_avg_cost(cost_cols, vol_cols):
             """一个健壮的加权平均函数，能正确处理NaN"""
             numerator = pd.Series(0.0, index=df.index)
@@ -460,7 +472,7 @@ class AdvancedFundFlowMetricsService:
                     # 关键：只在成本有效（非NaN）的地方累加成交量到分母
                     denominator += volume.where(cost.notna(), 0)
             return numerator / denominator.replace(0, np.nan)
-        # [代码修改结束]
+        
         df['avg_cost_main_buy'] = weighted_avg_cost(
             ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
             ['buy_lg_vol', 'buy_elg_vol']
@@ -482,21 +494,24 @@ class AdvancedFundFlowMetricsService:
         return df.drop(columns=existing_vol_cols, errors='ignore')
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.3 · 强制净化版】在计算前强制转换数据类型，根除object污染。"""
+        """【V3.4 · 累积和输入补全版】在计算前强制转换数据类型，根除object污染。"""
         final_df = consensus_df.copy()
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        # [代码修改开始] 在衍生计算前，对所有目标列进行强制的、全面的数据类型净化
+        # 在衍生计算前，对所有目标列进行强制的、全面的数据类型净化
         for col in CORE_METRICS_TO_DERIVE:
             if col in final_df.columns:
                 final_df[col] = pd.to_numeric(final_df[col], errors='coerce')
-        # [代码修改结束]
+        
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
             'net_sh_amount_consensus', 'cost_weighted_main_flow',
-            'consensus_calibrated_main_flow', 'consensus_flow_weighted',
+            # 确保 consensus_calibrated_main_flow 被纳入累积和计算
+            'consensus_calibrated_main_flow',
+            'consensus_flow_weighted',
+            
             'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
             'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
         ]
@@ -545,7 +560,7 @@ class AdvancedFundFlowMetricsService:
             if col in records_to_save_df.columns:
                 records_to_save_df[col] = pd.to_numeric(records_to_save_df[col], errors='coerce')
                 records_to_save_df[col] = records_to_save_df[col].replace([np.inf, -np.inf], np.nan)
-        # [代码修改结束]
+        
         records_to_save_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
@@ -571,7 +586,7 @@ class AdvancedFundFlowMetricsService:
                     safe_record_data[key] = None
                 else:
                     safe_record_data[key] = value
-                # [代码修改结束]
+                
             records_to_create.append(
                 MetricsModel(
                     stock=stock_info,
@@ -612,13 +627,13 @@ class AdvancedFundFlowMetricsService:
         unrealized_pnl_yuan = (close_price - net_pos_change_cost) * net_pos_change_vol
         results_df['unrealized_pnl_on_net_change'] = unrealized_pnl_yuan / 10000 # 转换为万元
         
-        # [代码修改开始] 统一利润单位为“万元”
+        # 统一利润单位为“万元”
         total_sell_value_yuan = cost_sell * vol_sell_shares
         total_buy_value_yuan = cost_buy * vol_buy_shares
         total_profit_yuan = total_sell_value_yuan - total_buy_value_yuan
         # 将最终利润转换为“万元”以匹配其他资金流指标
         results_df['main_force_intraday_profit'] = total_profit_yuan / 10000
-        # [代码修改结束]
+        
         
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
@@ -721,14 +736,14 @@ class AdvancedFundFlowMetricsService:
                 continue
             minute_data_for_day = minute_df_grouped.loc[[date_key]]
             day_results = {'trade_time': date}
-            # [代码修改开始] 新增探针，检查关键输入
+            # 新增探针，检查关键输入
             if pd.notna(daily_data.get('main_force_intraday_profit')):
                 print(f"--- 结构探针: {date_key} ---")
                 print(f"  Close: {daily_data.get('close')}, VWAP: {daily_data.get('daily_vwap')}")
                 print(f"  Minute VWAP Max: {minute_data_for_day['minute_vwap'].max()}")
                 print(f"  Minute VWAP Min: {minute_data_for_day['minute_vwap'].min()}")
                 print("--------------------------")
-            # [代码修改结束]
+            
             # --- 1. 日内波动率 (intraday_volatility) ---
             # 计算分钟收益率的标准差，作为日内波动性的度量
             minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
@@ -769,7 +784,7 @@ class AdvancedFundFlowMetricsService:
         - 核心逻辑: 改为计算当日分钟成交额的分布分位数，实现每日自适应分类。
         """
         df = minute_data_for_day.copy()
-        # [代码修改开始] 引入自适应分位数阈值逻辑
+        # 引入自适应分位数阈值逻辑
         # 检查分钟成交额数据是否有效
         if 'amount_yuan' not in df.columns or df['amount_yuan'].sum() < 1e-6:
             # 如果没有有效的分钟成交额，则无法分类，返回全零权重
@@ -792,7 +807,7 @@ class AdvancedFundFlowMetricsService:
             'md': valid_amounts.quantile(0.60)   # 中等的25%
         }
         score_source_col = 'amount_yuan'
-        # [代码修改结束]
+        
 
         scores = {
             'elg': df[score_source_col].where(df[score_source_col] >= thresholds['elg'], 0),
@@ -836,15 +851,15 @@ class AdvancedFundFlowMetricsService:
         df = minute_df.copy()
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # [代码修改开始] 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
+        # 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
         # 不再进行错误的乘法操作
         df['total_value'] = df['amount']
         df['total_volume'] = df['vol']
-        # [代码修改结束]
+        
         daily_agg = df.groupby(df['trade_time'].dt.date)
         daily_total_value = daily_agg['total_value'].sum()
         daily_total_volume = daily_agg['total_volume'].sum()
-        # [代码新增开始] VWAP计算探针
+        # VWAP计算探针
         if not daily_total_value.empty:
             print("--- VWAP计算探针 ---")
             print(f"日期范围: {daily_total_value.index.min()} to {daily_total_value.index.max()}")
@@ -852,7 +867,7 @@ class AdvancedFundFlowMetricsService:
             print(f"总成交量(股)非零天数: {daily_total_volume[daily_total_volume > 0].count()}")
             print(f"最新一天 VWAP 输入: Value={daily_total_value.iloc[-1]:.2f}, Volume={daily_total_volume.iloc[-1]:.2f}")
             print("--------------------")
-        # [代码新增结束]
+        
         daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
         daily_vwap.index = pd.to_datetime(daily_vwap.index)
         return daily_vwap.reindex(date_index)
@@ -867,11 +882,11 @@ class AdvancedFundFlowMetricsService:
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         
-        # [代码修改开始] 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
+        # 终极单位修正：根据探针日志反推，vol单位为“股”，amount单位为“元”
         # 不再进行错误的乘法操作
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
-        # [代码修改结束]
+        
 
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
@@ -895,12 +910,12 @@ class AdvancedFundFlowMetricsService:
         df = await get_data()
         if not df.empty:
             df = df.set_index(pd.to_datetime(df['trade_time']))
-            # [代码修改开始] 在数据源头进行类型净化，杜绝object类型污染
+            # 在数据源头进行类型净化，杜绝object类型污染
             # 遍历所有非索引列，将它们强制转换为float类型，无法转换的将变为NaN
             for col in df.columns:
                 if col != 'trade_time': # trade_time已经是索引了
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-            # [代码修改结束]
+            
         return df
 
     def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
@@ -973,7 +988,7 @@ class AdvancedFundFlowMetricsService:
         print("="*20 + " 探针模式已结束 " + "="*20 + "\n")
         # 探针函数现在只返回成本相关的DataFrame，不再包含利润指标
         return final_df
-        # [代码修改结束]
+        
 
 
 

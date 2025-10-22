@@ -532,9 +532,9 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================================================================
 async def _load_and_audit_data_sources(stock_info, fetch_start_date):
     """【辅助函数 V2.1 - 资金流归因数据注入版】加载数据并注入资金流数据源。"""
-    # [代码新增开始]
+    #
     from utils.model_helpers import get_fund_flow_model_by_code
-    # [代码新增结束]
+    
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_date=None):
         if not model:
@@ -548,9 +548,9 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
-    # [代码新增开始]
+    #
     fund_flow_model = get_fund_flow_model_by_code(stock_info.stock_code)
-    # [代码新增结束]
+    
     data_tasks = {
         "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_date=fetch_start_date),
         "daily_data": get_data_async(daily_data_model, stock_info, fields=('trade_time', 'close_qfq', 'vol', 'high_qfq', 'low_qfq'), start_date=fetch_start_date),
@@ -558,19 +558,19 @@ async def _load_and_audit_data_sources(stock_info, fetch_start_date):
         "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=('trade_time', 'float_share', 'circ_mv'), start_date=fetch_start_date),
         
         "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_date=fetch_start_date),
-        # [代码新增开始]
+        #
         "fund_flow": get_data_async(fund_flow_model, stock_info, start_date=fetch_start_date),
-        # [代码新增结束]
+        
     }
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     cyq_chips_df = data_dfs.get("cyq_chips")
     if cyq_chips_df is None or cyq_chips_df.empty:
         raise ValueError("[审计失败] 核心数据源 'cyq_chips' 为空或加载失败！任务无法继续。")
-    # [代码新增开始]
+    #
     if data_dfs.get("fund_flow") is None or data_dfs.get("fund_flow").empty:
         logger.warning(f"[{stock_info.stock_code}] [审计警告] 'fund_flow'数据源为空，筹码交互指标将无法计算。")
-    # [代码新增结束]
+    
     if data_dfs.get("cyq_perf") is None or data_dfs.get("cyq_perf").empty:
         raise ValueError("[审计失败] 关键数据源 'cyq_perf' 为空或加载失败！任务无法继续。")
     if data_dfs.get("daily_data") is None or data_dfs.get("daily_data").empty:
@@ -619,7 +619,7 @@ async def _load_minute_data_for_range(stock_info: StockInfo, start_date: pd.Time
     if not MinuteModel:
         logger.warning(f"[{stock_info.stock_code}] 未能找到1分钟线模型，所有依赖分钟线的计算将跳过。")
         return {}
-    # [代码修改开始] 使用绝对正确的时区感知范围查询
+    # 使用绝对正确的时区感知范围查询
     @sync_to_async(thread_sensitive=True)
     def get_data(model, stock_pk, start_dt, end_dt):
         qs = model.objects.filter(
@@ -633,7 +633,7 @@ async def _load_minute_data_for_range(stock_info: StockInfo, start_date: pd.Time
     end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
     
     minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
-    # [代码修改结束]
+    
     if minute_df.empty:
         logger.warning(f"[{stock_info.stock_code}] 在 {start_date.date()} 到 {end_date.date()} 期间未查询到任何分钟数据。")
         return {}
@@ -692,7 +692,7 @@ async def _save_metrics(stock_info, MetricsModel, final_df: pd.DataFrame):
     model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
     df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
     records_list = df_filtered.to_dict('records')
-    # [代码修改开始] 放弃批量操作，改为逐条精确打击
+    # 放弃批量操作，改为逐条精确打击
     @sync_to_async(thread_sensitive=True)
     def save_atomically(model, stock_obj, records_to_process):
         """
@@ -726,7 +726,7 @@ async def _save_metrics(stock_info, MetricsModel, final_df: pd.DataFrame):
     # 执行新的原子化保存函数
     processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
     return processed_count
-    # [代码修改结束]
+    
 
 def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
     """
@@ -737,18 +737,18 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
         daily_data_df = data_dfs['daily_data']
         daily_basic_df = data_dfs['daily_basic']
         cyq_perf_df = data_dfs['cyq_perf']
-        # [代码新增开始]
+        #
         fund_flow_df = data_dfs.get('fund_flow')
-        # [代码新增结束]
+        
         daily_data_df = daily_data_df.set_index('trade_time').copy()
         daily_basic_df = daily_basic_df.set_index('trade_time').copy()
         cyq_perf_df = cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore').set_index('trade_time').copy()
-        # [代码新增开始]
+        #
         daily_dfs_to_join = [daily_basic_df, cyq_perf_df]
         if fund_flow_df is not None and not fund_flow_df.empty:
             fund_flow_df = fund_flow_df.drop(columns=['id', 'stock_id'], errors='ignore').set_index('trade_time').copy()
             daily_dfs_to_join.append(fund_flow_df)
-        # [代码新增结束]
+        
         # [代码修改开始]
         daily_combined_df = daily_data_df.join(
             daily_dfs_to_join,
@@ -785,7 +785,7 @@ def _preprocess_and_merge_data(stock_code: str, data_dfs: dict) -> pd.DataFrame:
 
 async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.DataFrame, is_incremental: bool, last_metric_date, start_date_str: str = None, minute_data_map: dict = None) -> pd.DataFrame:
     """【辅助函数 V3.0 - 依赖注入版】"""
-    # [代码修改开始] 接收预加载的分钟数据字典，不再自己查询
+    # 接收预加载的分钟数据字典，不再自己查询
     stock_code = stock_info.stock_code
     all_metrics_list = []
     from datetime import datetime
@@ -829,7 +829,7 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
         context_for_calc['circ_mv'] = context_data.get('circ_mv')
         # 从预加载的字典中获取当天的分钟数据，而不是查询数据库
         raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
-        # [代码修改结束]
+        
         enhanced_minute_data = _enhance_minute_data_with_fund_flow_attribution(raw_minute_data_for_day, context_for_calc)
         if raw_minute_data_for_day.empty:
             print(f"调试信息: [{stock_code}] 在 {trade_date.date()} 无分钟数据，部分指标将跳过计算。")
@@ -861,9 +861,9 @@ async def _calculate_base_chip_metrics(stock_info: StockInfo, merged_df: pd.Data
 async def _calculate_derivative_metrics(MetricsModel, consensus_df: pd.DataFrame) -> pd.DataFrame:
     """【新增 V1.1 - pandas_ta调用修正版】计算所有筹码指标的衍生指标（斜率、加速度等），并动态读取模型定义。"""
     final_df = consensus_df.copy()
-    # [代码新增开始] 导入pandas_ta库以使用其直接函数调用
+    # 导入pandas_ta库以使用其直接函数调用
     import pandas_ta as ta
-    # [代码新增结束]
+    
     SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
     CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
     UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
@@ -905,13 +905,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             data_dfs = await _load_and_audit_data_sources(stock_info, fetch_start_date)
             merged_df = _preprocess_and_merge_data(stock_code, data_dfs)
             if not merged_df.empty:
-                # [代码修改开始] 统一加载分钟线数据
+                # 统一加载分钟线数据
                 calc_start_date = merged_df['trade_time'].min()
                 calc_end_date = merged_df['trade_time'].max()
                 minute_data_map = await _load_minute_data_for_range(stock_info, calc_start_date, calc_end_date)
                 # 将预加载的分钟数据注入到下游
                 base_metrics_df = await _calculate_base_chip_metrics(stock_info, merged_df, is_incremental_final, last_metric_date, start_date_override, minute_data_map=minute_data_map)
-                # [代码修改结束]
+                
                 if not base_metrics_df.empty:
                     @sync_to_async
                     def get_historical_metrics(model, stock, end_date):
@@ -943,11 +943,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         fund_flow_processed_days = 0
         try:
             fund_flow_service = AdvancedFundFlowMetricsService()
-            # [代码修改开始] 将预加载的分钟数据注入到资金流服务
+            # 将预加载的分钟数据注入到资金流服务
             # 注意：资金流服务需要的是按日期分组的DataFrame列表，与筹码模块的map格式略有不同，此处进行转换
             preloaded_minute_data_for_fundflow = pd.concat(minute_data_map.values()) if minute_data_map else pd.DataFrame()
             fund_flow_processed_days = await fund_flow_service.run_precomputation(stock_code, incremental_flag, start_date_str=start_date_override, preloaded_minute_data=preloaded_minute_data_for_fundflow)
-            # [代码修改结束]
+            
             mode = "部分全量" if start_date_override else "增量"
             if fund_flow_processed_days > 0:
                 logger.info(f"[{stock_code}] 成功！[资金流部分] 模式[{mode}]下，为 {fund_flow_processed_days} 个交易日计算并存储了高级资金流指标。")
@@ -1044,14 +1044,14 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-
             return {"status": "skipped", "reason": "No listed stocks found."}
         print(f"✅✅✅ [总调度器启动] 模式: {'增量' if is_incremental else '全量'}, 起始日期: {start_date_str}")
         print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。")
-        # [代码修改开始] 只创建和派遣合并后的“超级任务”
+        # 只创建和派遣合并后的“超级任务”
         tasks_to_dispatch = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
         print(f"✅✅✅ [总调度器] 已创建 {len(tasks_to_dispatch)} 个【合并计算】任务签名。")
         job_group = group(tasks_to_dispatch)
         job_group.apply_async()
         total_tasks_dispatched = len(tasks_to_dispatch)
         print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
-        # [代码修改结束]
+        
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个合并计算子任务。")
         return {
             "status": "success",

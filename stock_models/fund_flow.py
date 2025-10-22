@@ -742,7 +742,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
                 这从根本上解决了因字段类型不当导致的数值存储错误问题。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # [代码修改开始] 统一P&L相关指标的单位为“万元”
+    # 统一P&L相关指标的单位为“万元”
     CORE_METRICS = {
         'net_flow_consensus': '共识-资金净流入(万元)',
         'main_force_net_flow_consensus': '共识-主力净流入(万元)',
@@ -798,7 +798,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'divergence_ts_dc': '分歧度(Tushare-东方财富)',
         'divergence_ths_dc': '分歧度(同花顺-东方财富)',
     }
-    # [代码修改结束]
+    
     SLOPE_ACCEL_EXCLUSIONS = [
         'source_consistency_score', 'flow_internal_friction_ratio', 'cross_source_divergence_std',
         'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
@@ -810,7 +810,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'avg_cost_lg_buy', 'avg_cost_lg_sell', 'avg_cost_elg_buy', 'avg_cost_elg_sell',
         'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
     ]
-    # [代码修改开始] 彻底重构核心指标的字段定义逻辑
+    # 彻底重构核心指标的字段定义逻辑
     # 步骤1: 明确定义所有应为 FloatField 的指标（比率、分数、指数、纯数字等）
     FLOAT_METRICS = [
         'source_consistency_score', 'flow_internal_friction_ratio', 'cross_source_divergence_std',
@@ -831,10 +831,10 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             # 否则，默认为货币、价格、金额、价值，使用高精度的 DecimalField
             # 增加精度以容纳价格和金额
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
-    # [代码修改结束]
+    
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # [代码修改开始] 重构衍生指标的定义循环，使其更清晰并确保类型正确
+    # 重构衍生指标的定义循环，使其更清晰并确保类型正确
     # 步骤3: 定义累计值字段
     sum_cols = [
         'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
@@ -872,7 +872,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             # 斜率和加速度是纯数字，使用 FloatField
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日斜率', null=True, blank=True)
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose_name}{p}日加速度', null=True, blank=True)
-    # [代码修改结束]
+    
     class Meta:
         abstract = True
         ordering = ['-trade_time']
