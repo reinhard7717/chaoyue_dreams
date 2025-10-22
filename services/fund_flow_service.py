@@ -268,12 +268,11 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.3 · 逻辑顺序修正版】修正因计算顺序颠倒导致的致命“先用后算”错误。"""
+        """【V3.4 · 变量名修正版】修正因检查错误DataFrame导致的 main_force_conviction_ratio 计算被跳过的BUG。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
         result_df = df.copy()
-        # [代码块移动开始] 将共识指标计算提前到所有依赖项之前
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -287,7 +286,6 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
-        # [代码块移动结束]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
             latest_date = df.index.max()
@@ -299,13 +297,11 @@ class AdvancedFundFlowMetricsService:
             result_df.update(pnl_matrix_df)
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
-            # [代码修改开始] 此处代码现在可以安全执行，因为其依赖的列已经存在
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
             retail_flow = self._get_numeric_series_with_nan(result_df, 'retail_net_flow_consensus')
             numerator = (mf_flow - retail_flow).abs()
             denominator = mf_flow.abs() + retail_flow.abs()
             result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
-            # [代码修改结束]
             source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
             existing_sources = [col for col in source_cols if col in df.columns]
             if len(existing_sources) > 1:
@@ -332,7 +328,6 @@ class AdvancedFundFlowMetricsService:
             result_df.update(structure_metrics_df)
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
-        # [代码块移动] 此处原有的 consensus_map 循环已被移至函数开头
         if len(existing_sources) > 1:
             flows = df[existing_sources]
             median_flow = flows.median(axis=1)
@@ -373,8 +368,10 @@ class AdvancedFundFlowMetricsService:
             result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
         if 'main_force_net_flow_consensus' in result_df.columns and 'net_xl_amount_consensus' in result_df.columns:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
-        if 'net_xl_amount_consensus' in df.columns and 'net_lg_amount_consensus' in result_df.columns:
+        # [代码修改开始] 修正致命的变量名错误，确保检查的是包含新列的 result_df
+        if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
+        # [代码修改结束]
         print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
         return result_df
 
