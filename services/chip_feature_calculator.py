@@ -438,37 +438,47 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_peak_dynamics(self, context: dict) -> dict:
-        """【V1.2 · API单位对齐版】计算主峰战役复盘指标"""
-        minute_df = self.ctx.get('minute_data')
-        peak_range_low = context.get('peak_range_low')
-        peak_range_high = context.get('peak_range_high')
-        peak_cost = context.get('peak_cost')
-        total_daily_vol = self.ctx.get('daily_turnover_volume')
+        """【V1.1 · 统一流量原则版】修正 turnover_at_peak_ratio 的计算分母"""
         results = {
-            'peak_defense_intensity': None,
-            'peak_vwap_deviation': None,
             'peak_net_volume_flow': None,
+            'peak_defense_intensity': None,
+            'turnover_at_peak_ratio': None,
+            'peak_vwap_deviation': None,
         }
-        if minute_df is None or minute_df.empty or not all(pd.notna(v) for v in [peak_range_low, peak_range_high, peak_cost, total_daily_vol]) or total_daily_vol <= 0:
+        minute_df = self.ctx.get('minute_data')
+        if minute_df is None or minute_df.empty:
             return results
-        peak_zone_df = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)].copy()
-        if peak_zone_df.empty:
-            return results
-        # [代码修改开始] 根据API文档，分钟线的vol单位是股，amount单位是元，无需转换。
-        vol_in_peak = peak_zone_df['vol'].sum()
-        if vol_in_peak > 0:
-            results['peak_defense_intensity'] = (vol_in_peak / total_daily_vol) * 100
-            amount_in_peak = peak_zone_df['amount'].sum()
-            vwap_in_peak = amount_in_peak / vol_in_peak
-            if peak_cost > 0:
-                results['peak_vwap_deviation'] = (vwap_in_peak / peak_cost - 1) * 100
-            if 'open' in peak_zone_df.columns and 'close' in peak_zone_df.columns:
-                peak_zone_df['is_up_minute'] = peak_zone_df['close'] > peak_zone_df['open']
-                peak_zone_df['is_down_minute'] = peak_zone_df['close'] < peak_zone_df['open']
-                vol_up = peak_zone_df[peak_zone_df['is_up_minute']]['vol'].sum()
-                vol_down = peak_zone_df[peak_zone_df['is_down_minute']]['vol'].sum()
-                results['peak_net_volume_flow'] = (vol_up - vol_down) / vol_in_peak
-        # [代码修改结束]
+        peak_cost = context.get('peak_cost')
+        peak_volume = context.get('peak_volume')
+        daily_vwap = self.ctx.get('weight_avg')
+        total_daily_vol = self.ctx.get('daily_turnover_volume')
+        if pd.notna(peak_cost) and peak_volume is not None and peak_volume > 0:
+            peak_range_low = peak_cost * (1 - 0.01)
+            peak_range_high = peak_cost * (1 + 0.01)
+            peak_zone_df = minute_df[
+                (minute_df['minute_vwap'] >= peak_range_low) &
+                (minute_df['minute_vwap'] <= peak_range_high)
+            ]
+            if not peak_zone_df.empty:
+                main_force_buy_at_peak = peak_zone_df['main_force_buy_vol'].sum()
+                main_force_sell_at_peak = peak_zone_df['main_force_sell_vol'].sum()
+                net_flow = main_force_buy_at_peak - main_force_sell_at_peak
+                results['peak_net_volume_flow'] = (net_flow / peak_volume) * 100
+                turnover_at_peak = peak_zone_df['vol'].sum()
+                # [代码修改开始] 修正分母为当日总成交量，确保指标的流量属性一致
+                if total_daily_vol and total_daily_vol > 0:
+                    results['turnover_at_peak_ratio'] = (turnover_at_peak / total_daily_vol) * 100
+                # [代码修改结束]
+                peak_zone_vwap = peak_zone_df['amount'].sum() / turnover_at_peak if turnover_at_peak > 0 else 0
+                if peak_zone_vwap > 0 and pd.notna(daily_vwap):
+                    results['peak_vwap_deviation'] = (peak_zone_vwap / daily_vwap - 1) * 100
+            down_minutes_df = minute_df[minute_df['close'] < minute_df['open']]
+            defense_vol = down_minutes_df[
+                (down_minutes_df['minute_vwap'] >= peak_range_low) &
+                (down_minutes_df['minute_vwap'] <= peak_range_high)
+            ]['vol'].sum()
+            if total_daily_vol and total_daily_vol > 0:
+                results['peak_defense_intensity'] = (defense_vol / total_daily_vol) * 100
         return results
 
     def _calculate_minute_derived_dynamics(self, context: dict) -> dict:
