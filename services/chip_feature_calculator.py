@@ -31,10 +31,7 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V21.0 · 战备探针植入版】"""
-        
-        self._probe_chip_calculation_readiness()
-        
+        """【V22.0 · 探针移除版】"""
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
@@ -56,7 +53,6 @@ class ChipFeatureCalculator:
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
         minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
-        # 调用新增的跨日筹码流计算方法
         cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
         fault_info = self._calculate_chip_fault(context_for_derived_metrics)
@@ -71,7 +67,6 @@ class ChipFeatureCalculator:
             **peak_dynamics_info,
             **minute_derived_dynamics_info,
             **chip_interaction_info,
-            # 合并新的跨日筹码流指标
             **cross_day_flow_info,
             **advanced_structure_info,
             **fault_info
@@ -525,7 +520,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_chip_interaction_dynamics(self, context: dict) -> dict:
-        """【V2.0 · 海姆达尔之眼重构版】计算主力-散户筹码博弈矩阵"""
+        """【V2.1 · 清洁版】计算主力-散户筹码博弈矩阵"""
         minute_df = self.ctx.get('minute_data')
         total_daily_vol = self.ctx.get('daily_turnover_volume')
         close_price = self.ctx.get('close_price')
@@ -536,24 +531,20 @@ class ChipFeatureCalculator:
             'main_force_chasing_accumulation': None, 'retail_chasing_accumulation': None,
             'main_force_t0_arbitrage': None, 'retail_t0_arbitrage': None,
         }
-        # 检查分钟数据是否已被“奥丁之眼”算法增强
-        required_cols = ['main_force_buy_vol', 'retail_sell_vol'] # 抽样检查关键列
+        required_cols = ['main_force_buy_vol', 'retail_sell_vol']
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0 or not pd.notna(close_price) or not all(c in minute_df.columns for c in required_cols):
-            print(f"调试信息: 筹码交互计算跳过，因分钟数据不完整或未被资金流归因算法增强。")
+            # [代码修改开始] 移除调试打印
+            # print(f"调试信息: 筹码交互计算跳过，因分钟数据不完整或未被资金流归因算法增强。")
+            # [代码修改结束]
             return results
-        
-        # 1. 定义筹码地图区域
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
         winner_zone = (winners_df['price'].min(), winners_df['price'].max()) if not winners_df.empty else (0, 0)
         loser_zone = (losers_df['price'].min(), losers_df['price'].max()) if not losers_df.empty else (np.inf, np.inf)
-        # 2. 定义分钟级行为
         minute_df['is_up'] = minute_df['close'] > minute_df['open']
         minute_df['is_down'] = minute_df['close'] < minute_df['open']
-        # 3. 识别每分钟的行为象限
         is_in_winner_zone = (minute_df['minute_vwap'] >= winner_zone[0]) & (minute_df['minute_vwap'] <= winner_zone[1])
         is_in_loser_zone = (minute_df['minute_vwap'] >= loser_zone[0]) & (minute_df['minute_vwap'] <= loser_zone[1])
-        # 4. 计算8个核心博弈指标
         results['main_force_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'main_force_buy_vol'].sum()
         results['retail_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'retail_buy_vol'].sum()
         results['main_force_rally_distribution'] = minute_df.loc[minute_df['is_down'] & is_in_winner_zone, 'main_force_sell_vol'].sum()
@@ -562,7 +553,6 @@ class ChipFeatureCalculator:
         results['retail_capitulation_distribution'] = minute_df.loc[minute_df['is_down'] & is_in_loser_zone, 'retail_sell_vol'].sum()
         results['main_force_chasing_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_winner_zone, 'main_force_buy_vol'].sum()
         results['retail_chasing_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_winner_zone, 'retail_buy_vol'].sum()
-        # 5. 计算T0套利
         cost_15pct = context.get('cost_15pct')
         cost_85pct = context.get('cost_85pct')
         if pd.notna(cost_15pct) and pd.notna(cost_85pct):
@@ -572,14 +562,13 @@ class ChipFeatureCalculator:
             retail_sell_high = minute_df.loc[minute_df['is_down'] & (minute_df['minute_vwap'] > cost_85pct), 'retail_sell_vol'].sum()
             retail_buy_low = minute_df.loc[minute_df['is_up'] & (minute_df['minute_vwap'] < cost_15pct), 'retail_buy_vol'].sum()
             results['retail_t0_arbitrage'] = retail_sell_high + retail_buy_low
-        # 6. 归一化并填充结果
         for key in results:
             if results[key] is not None:
                 results[key] = (results[key] / total_daily_vol) * 100
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.7 - 精确诊断版】计算跨日筹码迁徙"""
+        """【V1.8 · 清晰命名版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -588,16 +577,19 @@ class ChipFeatureCalculator:
         }
         prev_chips_df = context.get('prev_chip_distribution')
         prev_close = context.get('prev_close_price')
-        prev_prev_20d_close = context.get('prev_prev_20d_close')
+        # [代码修改开始] 使用新的、语义清晰的键
+        prev_day_20d_ago_close = context.get('prev_day_20d_ago_close')
+        # [代码修改结束]
         daily_turnover_vol = context.get('daily_turnover_volume')
-        # 增加精确的缺失数据项检查
         missing_keys = []
         if prev_chips_df is None or prev_chips_df.empty:
             missing_keys.append('prev_chip_distribution')
         if prev_close is None or pd.isnull(prev_close):
             missing_keys.append('prev_close_price')
-        if prev_prev_20d_close is None or pd.isnull(prev_prev_20d_close):
-            missing_keys.append('prev_prev_20d_close')
+        # [代码修改开始] 检查新的键
+        if prev_day_20d_ago_close is None or pd.isnull(prev_day_20d_ago_close):
+            missing_keys.append('prev_day_20d_ago_close')
+        # [代码修改结束]
         if daily_turnover_vol is None or pd.isnull(daily_turnover_vol) or daily_turnover_vol <= 0:
             missing_keys.append('daily_turnover_volume')
         if missing_keys:
@@ -607,13 +599,14 @@ class ChipFeatureCalculator:
                 trade_date = context.get('trade_date', 'UNKNOWN_DATE')
                 print(f"调试信息: [{stock_code}] 在 [{trade_date}] 跨日筹码流计算跳过，因T-1日数据不完整。缺失项: {missing_keys}")
             return results
-        
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
-        st_winners_pct = prev_winners[prev_winners['price'] >= prev_prev_20d_close]['percent'].sum()
-        lt_winners_pct = prev_winners[prev_winners['price'] < prev_prev_20d_close]['percent'].sum()
-        st_losers_pct = prev_losers[prev_losers['price'] >= prev_prev_20d_close]['percent'].sum()
-        lt_losers_pct = prev_losers[prev_losers['price'] < prev_prev_20d_close]['percent'].sum()
+        # [代码修改开始] 使用新的变量
+        st_winners_pct = prev_winners[prev_winners['price'] >= prev_day_20d_ago_close]['percent'].sum()
+        lt_winners_pct = prev_winners[prev_winners['price'] < prev_day_20d_ago_close]['percent'].sum()
+        st_losers_pct = prev_losers[prev_losers['price'] >= prev_day_20d_ago_close]['percent'].sum()
+        lt_losers_pct = prev_losers[prev_losers['price'] < prev_day_20d_ago_close]['percent'].sum()
+        # [代码修改结束]
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
         results['short_term_capitulation_ratio'] = st_losers_pct

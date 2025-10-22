@@ -146,8 +146,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict) -> pd.DataFrame:
         """
-        【V1.2 · 精确匹配版】
-        - 核心修正: 使用 pandas.Timestamp 对象作为查找键，解决键类型不匹配问题。
+        【V1.3 · 清晰命名版】
+        - 核心修正: 废除 prev_prev_20d_close，改用语义清晰的 prev_day_20d_ago_close。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -174,10 +174,11 @@ class AdvancedChipMetricsService:
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
                 'prev_close_price': prev_metrics.get('close_price'),
-                'prev_prev_20d_close': prev_metrics.get('prev_20d_close'),
+                # [代码修改开始] 废除 prev_prev_20d_close，改用语义清晰的新命名
+                'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
+                # [代码修改结束]
             })
             print(f"  --- [分发诊断] 日期: {trade_date.date()} ---")
-            # [代码修改开始] 使用 trade_date (Timestamp) 而不是 trade_date.date() (date) 作为键
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 print(f"    >>> 状态: 成功. 在 'fund_flow_attributed_minute_map' 中找到键 '{trade_date}'。使用增强数据。")
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
@@ -186,12 +187,10 @@ class AdvancedChipMetricsService:
                 if not fund_flow_attributed_minute_map:
                     print(f"      - 原因: 'fund_flow_attributed_minute_map' 本身为空。")
                 else:
-                    # 使用 trade_date 进行诊断，以匹配实际的查找操作
                     print(f"      - 原因: 键 '{trade_date}' (类型: {type(trade_date)}) 不在 map 的键中。")
                     print(f"      - 诊断: Map中的键类型为: {type(list(fund_flow_attributed_minute_map.keys())[0]) if fund_flow_attributed_minute_map else 'N/A'}")
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-            # [代码修改结束]
             context_for_calc['minute_data'] = enhanced_minute_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
