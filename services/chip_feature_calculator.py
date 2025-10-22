@@ -620,7 +620,7 @@ class ChipFeatureCalculator:
         results['long_term_despair_selling_ratio'] = lt_losers_pct
         return results
 
-def _probe_chip_calculation_readiness(self):
+    def _probe_chip_calculation_readiness(self):
         """【V-Probe · 筹码战备探针】在计算前诊断所有依赖项是否就绪。"""
         
         print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
