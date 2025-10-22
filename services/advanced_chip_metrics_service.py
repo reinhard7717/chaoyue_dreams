@@ -144,14 +144,16 @@ class AdvancedChipMetricsService:
         merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict) -> pd.DataFrame:
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
         """
-        【V1.3 · 清晰命名版】
-        - 核心修正: 废除 prev_prev_20d_close，改用语义清晰的 prev_day_20d_ago_close。
+        【V1.4 · 记忆接力版】
+        - 核心修正: 接收并返回记忆字典，建立跨区块记忆链。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
-        prev_metrics = {}
+        # [代码修改开始] 使用传入的记忆初始化，而不是重置为空字典
+        prev_metrics = memory.copy() if memory is not None else {}
+        # [代码修改结束]
         grouped_data = merged_df.groupby('trade_time')
         is_first_day_in_batch = True
         print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
@@ -174,9 +176,7 @@ class AdvancedChipMetricsService:
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
                 'prev_close_price': prev_metrics.get('close_price'),
-                # [代码修改开始] 废除 prev_prev_20d_close，改用语义清晰的新命名
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
-                # [代码修改结束]
             })
             print(f"  --- [分发诊断] 日期: {trade_date.date()} ---")
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
@@ -205,8 +205,13 @@ class AdvancedChipMetricsService:
                     'prev_20d_close': context_data.get('prev_20d_close')
                 }
             if is_first_day_in_batch: is_first_day_in_batch = False
-        if not all_metrics_list: return pd.DataFrame()
-        return pd.DataFrame(all_metrics_list).set_index('trade_time')
+        if not all_metrics_list:
+            # [代码修改开始] 确保在任何分支都返回两个值
+            return pd.DataFrame(), prev_metrics
+            # [代码修改结束]
+        # [代码修改开始] 返回指标DF和更新后的记忆字典
+        return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
+        # [代码修改结束]
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """当资金流数据缺失时，提供一个基础的分钟数据增强。"""

@@ -618,8 +618,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.2 · 信使追踪探针版】
-    - 新增: 在数据交接的关键节点植入探针，追踪归因数据的流转。
+    【V24.3 · 记忆链版】
+    - 核心修正: 建立跨区块记忆链，解决区块边界的失忆问题。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -640,6 +640,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return {"status": "skipped", "reason": "No new dates to process."}
         CHUNK_SIZE = 50
         all_new_metrics_df = pd.DataFrame()
+        # [代码新增开始] 在区块循环外初始化跨区块记忆
+        cross_chunk_memory = {}
+        # [代码新增结束]
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
@@ -655,20 +658,22 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
-            # [代码新增开始]
             print(f"--- [信使探针] 主任务即将向筹码服务传递数据 ---")
             if not fund_flow_attributed_minute_map:
                 print(f"  >>> 状态: 失败. 'fund_flow_attributed_minute_map' 为空。包裹未收到或为空。")
             else:
                 print(f"  >>> 状态: 成功. 'fund_flow_attributed_minute_map' 包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
                 print(f"  >>> 样本键: {list(fund_flow_attributed_minute_map.keys())[:3]}")
-            # [代码新增结束]
             chip_data_dfs = {
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data_chip"],
                 "daily_basic": data_dfs["daily_basic_chip"], "cyq_perf": data_dfs["cyq_perf"],
             }
             chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, chip_data_dfs)
-            chip_metrics_df = chip_service._synthesize_and_forge_metrics(stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map)
+            # [代码修改开始] 传递并接收跨区块记忆
+            chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
+                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
+            )
+            # [代码修改结束]
             chunk_merged_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
             all_new_metrics_df = pd.concat([all_new_metrics_df, chunk_merged_df])
         if not all_new_metrics_df.empty:
