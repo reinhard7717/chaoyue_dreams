@@ -158,7 +158,7 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        """【V2.1 · 无损标准化版】修正了对 ths 和 dc 数据源的破坏性转换问题。"""
+        """【V2.2 · 消歧版】在最终合并前移除资金流数据中冗余的 'close' 列，解决列名冲突。"""
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -176,16 +176,12 @@ class AdvancedFundFlowMetricsService:
             elif source == 'ths':
                 df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
                 df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
-                # [代码修改开始] 移除破坏性的列选择，返回完整的DataFrame
                 return df
-                # [代码修改结束]
             elif source == 'dc':
                 df = df.rename(columns={'net_amount': 'main_force_net_flow_dc', 'buy_elg_amount': 'net_xl_amount_dc', 'buy_lg_amount': 'net_lg_amount_dc', 'buy_md_amount': 'net_md_amount_dc', 'buy_sm_amount': 'net_sh_amount_dc'})
                 df['net_flow_dc'] = df.get('main_force_net_flow_dc', 0).fillna(0) + df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
                 df['retail_net_flow_dc'] = df.get('net_md_amount_dc', 0).fillna(0) + df.get('net_sh_amount_dc', 0).fillna(0)
-                # [代码修改开始] 移除破坏性的列选择，返回完整的DataFrame
                 return df
-                # [代码修改结束]
             return df
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
         df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
@@ -195,6 +191,9 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         merged_df = reduce(lambda left, right: pd.merge(left, right, on='trade_time', how='outer'), dfs_to_merge)
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
+        # [代码新增开始] 在与日线数据join前，移除资金流数据中可能存在的、冗余的'close'列，避免冲突
+        merged_df = merged_df.drop(columns=['close'], errors='ignore')
+        # [代码新增结束]
         daily_dfs_to_join = []
         if not data_dfs['daily'].empty:
             daily_df = data_dfs['daily'].set_index(pd.to_datetime(data_dfs['daily']['trade_time'])).drop(columns='trade_time')
