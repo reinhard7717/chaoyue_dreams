@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.7 · 全面join替换版】全面废弃update，使用join进行列合并，根治数据丢失问题。"""
+        """【V3.8 · 探针移除与全面join版】移除所有探针调用，确保所有指标通过join安全合并。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -290,14 +290,13 @@ class AdvancedFundFlowMetricsService:
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
             latest_date = df.index.max()
             probe_df = df.loc[[latest_date]]
+            # [代码修改开始] 移除探针调用
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
+            # [代码修改结束]
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
             result_df = result_df.join(pvwap_costs_df)
-            # [代码修改开始] 移除利润探针调用
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
-            # 使用join替换update，确保利润矩阵列被可靠地合并
             result_df = result_df.join(pnl_matrix_df)
-            # [代码修改结束]
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
@@ -326,11 +325,9 @@ class AdvancedFundFlowMetricsService:
                     result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
                     result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, minute_df_daily_grouped)
-            # [代码修改开始] 同样使用join替换update
             result_df = result_df.join(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df = result_df.join(structure_metrics_df)
-            # [代码修改结束]
         else:
             print(f"警告: [{stock_code}] 在 {df.index.min().date()} 到 {df.index.max().date()} 期间分钟数据或成交量数据缺失，跳过大部分高级指标计算。")
         if len(existing_sources) > 1:
@@ -380,7 +377,7 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.2 · 安全合并版】适配职责分离的聚合函数，使用join安全合并结果。
+        【V5.3 · 修正开盘时间窗口版】修正aggression_index_opening的时间窗口定义。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
@@ -416,8 +413,10 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
+            # [代码修改开始] 修正开盘时间窗口：从 9:30 到 10:30
             first_hour_mask = (minute_data_for_day['trade_time'].dt.hour == 9) & (minute_data_for_day['trade_time'].dt.minute >= 30) | \
-                              (minute_data_for_day['trade_time'].dt.hour == 10) & (minute_data_for_day['trade_time'].dt.minute < 30)
+                              (minute_data_for_day['trade_time'].dt.hour == 10) & (minute_data_for_day['trade_time'].dt.minute <= 30)
+            # [代码修改结束]
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
@@ -427,11 +426,9 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         self._minute_df_attributed_daily_grouped = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # [代码修改开始] 使用新的职责分离的聚合函数，并用join合并结果
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         final_df = pvwap_df.join(aggregate_costs_df)
         return final_df
-        # [代码修改结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -877,9 +874,9 @@ class AdvancedFundFlowMetricsService:
 
     def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V-Probe · 探针版 V2.3】移除所有探针，恢复为静默的诊断函数。
+        【V-Probe · 探针版 V2.4】恢复为静默、功能性的诊断函数。
         """
-        # [代码修改开始] 移除所有探针日志，使其在非调试模式下静默运行
+        # [代码修改开始] 恢复为静默功能
         latest_date = daily_df.index.max()
         daily_data_latest = daily_df.loc[[latest_date]]
         results = {}
@@ -920,48 +917,6 @@ class AdvancedFundFlowMetricsService:
         final_df = pvwap_df.join(aggregate_costs_df)
         return final_df
         # [代码修改结束]
-        
-    def _probe_and_upgrade_intraday_profit_metric(self, df: pd.DataFrame):
-        """【V-Probe · 利润矩阵探针版】用于精确诊断主力日内盈亏的计算过程。"""
-        # [代码新增开始]
-        print("\n" + "="*20 + " 利润矩阵探针已启动 " + "="*20)
-        if df.empty:
-            print("探针警告: 传入的DataFrame为空，无法进行诊断。")
-            print("="*20 + " 利润矩阵探针已结束 " + "="*20 + "\n")
-            return
-        latest_date = df.index.max().date()
-        print(f"探针目标日期: {latest_date}")
-        day_data = df.loc[[df.index.max()]]
-        cost_buy = self._get_numeric_series_with_nan(day_data, 'avg_cost_main_buy').iloc[0]
-        cost_sell = self._get_numeric_series_with_nan(day_data, 'avg_cost_main_sell').iloc[0]
-        buy_lg_vol = self._get_safe_numeric_series(day_data, 'buy_lg_vol').iloc[0]
-        buy_elg_vol = self._get_safe_numeric_series(day_data, 'buy_elg_vol').iloc[0]
-        sell_lg_vol = self._get_safe_numeric_series(day_data, 'sell_lg_vol').iloc[0]
-        sell_elg_vol = self._get_safe_numeric_series(day_data, 'sell_elg_vol').iloc[0]
-        print("\n步骤1: 原始输入值")
-        print(f"  avg_cost_main_buy: {cost_buy}, 类型: {type(cost_buy)}")
-        print(f"  avg_cost_main_sell: {cost_sell}, 类型: {type(cost_sell)}")
-        print(f"  buy_lg_vol (手): {buy_lg_vol}, 类型: {type(buy_lg_vol)}")
-        print(f"  buy_elg_vol (手): {buy_elg_vol}, 类型: {type(buy_elg_vol)}")
-        print(f"  sell_lg_vol (手): {sell_lg_vol}, 类型: {type(sell_lg_vol)}")
-        print(f"  sell_elg_vol (手): {sell_elg_vol}, 类型: {type(sell_elg_vol)}")
-        vol_buy_shares = (buy_lg_vol + buy_elg_vol) * 100
-        vol_sell_shares = (sell_lg_vol + sell_elg_vol) * 100
-        print("\n步骤2: 计算成交量(股)")
-        print(f"  vol_buy_shares: {vol_buy_shares}")
-        print(f"  vol_sell_shares: {vol_sell_shares}")
-        total_buy_value_yuan = cost_buy * vol_buy_shares
-        total_sell_value_yuan = cost_sell * vol_sell_shares
-        print("\n步骤3: 计算总买卖金额(元)")
-        print(f"  total_buy_value_yuan: {total_buy_value_yuan}")
-        print(f"  total_sell_value_yuan: {total_sell_value_yuan}")
-        total_profit_yuan = total_sell_value_yuan - total_buy_value_yuan
-        final_profit_wan_yuan = total_profit_yuan / 10000
-        print("\n步骤4: 计算最终利润")
-        print(f"  total_profit_yuan (元): {total_profit_yuan}")
-        print(f"  main_force_intraday_profit (万元): {final_profit_wan_yuan}")
-        print("="*20 + " 利润矩阵探针已结束 " + "="*20 + "\n")
-        # [代码新增结束]
 
 
 
