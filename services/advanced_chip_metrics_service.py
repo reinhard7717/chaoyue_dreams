@@ -175,17 +175,9 @@ class AdvancedChipMetricsService:
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
-            print(f"  --- [分发诊断] 日期: {trade_date.date()} ---")
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
-                print(f"    >>> 状态: 成功. 在 'fund_flow_attributed_minute_map' 中找到键 '{trade_date}'。使用增强数据。")
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
-                print(f"    >>> 状态: 失败. 未能匹配到增强数据。将回退到原始分钟数据。")
-                if not fund_flow_attributed_minute_map:
-                    print(f"      - 原因: 'fund_flow_attributed_minute_map' 本身为空。")
-                else:
-                    print(f"      - 原因: 键 '{trade_date}' (类型: {type(trade_date)}) 不在 map 的键中。")
-                    print(f"      - 诊断: Map中的键类型为: {type(list(fund_flow_attributed_minute_map.keys())[0]) if fund_flow_attributed_minute_map else 'N/A'}")
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
             context_for_calc['minute_data'] = enhanced_minute_data
@@ -205,10 +197,8 @@ class AdvancedChipMetricsService:
         if not all_metrics_list:
             # [代码修改开始] 确保在任何分支都返回两个值
             return pd.DataFrame(), prev_metrics
-            # [代码修改结束]
         # [代码修改开始] 返回指标DF和更新后的记忆字典
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
-        # [代码修改结束]
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """当资金流数据缺失时，提供一个基础的分钟数据增强。"""
