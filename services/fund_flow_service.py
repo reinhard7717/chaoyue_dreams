@@ -486,11 +486,14 @@ class AdvancedFundFlowMetricsService:
         return result_agg_df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.6 · 终极专业化版】彻底修正，只计算并返回新增的衍生指标。"""
+        """【V3.7 · 导数协议修正版】为二阶导数（加速度）使用独立的、正确的短计算窗口。"""
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
+        # [代码新增开始] 为加速度定义一个独立的、符合数学定义的短窗口
+        ACCEL_WINDOW = 2
+        # [代码新增结束]
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -501,8 +504,6 @@ class AdvancedFundFlowMetricsService:
             'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
         ]
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-        # [代码修改开始] 移除错误的复制核心指标的循环
-        # 阶段一：计算累积和指标，并存入derivatives_df
         for p in UNIFIED_PERIODS:
             if p <= 1: continue
             min_p = max(2, int(p * 0.8))
@@ -511,13 +512,11 @@ class AdvancedFundFlowMetricsService:
                     source_series_for_sum = pd.to_numeric(consensus_df[col], errors='coerce')
                     sum_col_name = f'{col}_sum_{p}d'
                     derivatives_df[sum_col_name] = source_series_for_sum.rolling(window=p, min_periods=min_p).sum()
-        # 阶段二：计算所有需要衍生指标的列（核心指标+刚算出的累积和指标）的斜率和加速度
         all_cols_to_derive = CORE_METRICS_TO_DERIVE + list(derivatives_df.columns)
         for col in all_cols_to_derive:
             base_col_name = col.split('_sum_')[0] if '_sum_' in col else col
             if base_col_name in SLOPE_ACCEL_EXCLUSIONS:
                 continue
-            # 确定源数据系列
             if col in consensus_df.columns:
                 source_series = pd.to_numeric(consensus_df[col], errors='coerce')
             elif col in derivatives_df.columns:
@@ -533,9 +532,10 @@ class AdvancedFundFlowMetricsService:
                 derivatives_df[slope_col_name] = slope_series
                 if slope_series is not None and not slope_series.empty:
                     accel_col_name = f'{col}_accel_{p}d'
-                    derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=calc_window)
+                    # [代码修改开始] 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
+                    derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
+                    # [代码修改结束]
         return derivatives_df
-        # [代码修改结束]
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """【V1.6 · 探针移除版】准备并保存最终计算结果到数据库。"""
