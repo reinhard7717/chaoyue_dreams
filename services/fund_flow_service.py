@@ -407,11 +407,11 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            # [代码修改开始] 在使用.dt访问器前，将时间转换为本地时区
+            # 在使用.dt访问器前，将时间转换为本地时区
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
                               (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
-            # [代码修改结束]
+            
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
@@ -445,10 +445,10 @@ class AdvancedFundFlowMetricsService:
             for cost_col, vol_col in zip(cost_cols, vol_cols):
                 if cost_col in temp_df.columns and vol_col in temp_df.columns:
                     cost = temp_df[cost_col]
-                    # [代码修改开始] 将成交量从“手”转换为“股” (乘以100)
+                    # 将成交量从“手”转换为“股” (乘以100)
                     volume_shares = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0) * 100
                     value_contribution = (cost * volume_shares).fillna(0)
-                    # [代码修改结束]
+                    
                     numerator += value_contribution
                     denominator += volume_shares.where(cost.notna(), 0)
             return numerator / denominator.replace(0, np.nan)
@@ -546,7 +546,7 @@ class AdvancedFundFlowMetricsService:
         for record_date, record_data in zip(df_filtered.index, records_list):
             safe_record_data = {}
             for key, value in record_data.items():
-                # [代码修改开始] 移除已完成使命的终极探针
+                # 移除已完成使命的终极探针
                 if key in decimal_fields and pd.notna(value):
                     new_value = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
                     safe_record_data[key] = new_value
@@ -554,7 +554,7 @@ class AdvancedFundFlowMetricsService:
                     safe_record_data[key] = None
                 else:
                     safe_record_data[key] = value
-                # [代码修改结束]
+                
             records_to_create.append(
                 MetricsModel(
                     stock=stock_info,
@@ -719,10 +719,10 @@ class AdvancedFundFlowMetricsService:
                 day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
             else:
                 day_results['close_vs_vwap_ratio'] = np.nan
-            # [代码修改开始] 在使用.dt访问器前，将时间转换为本地时区
+            # 在使用.dt访问器前，将时间转换为本地时区
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             final_hour_mask = trade_time_local.dt.hour >= 14
-            # [代码修改结束]
+            
             final_hour_vol = minute_data_for_day[final_hour_mask]['vol_shares'].sum()
             total_day_vol = minute_data_for_day['vol_shares'].sum()
             if total_day_vol > 0:
@@ -754,7 +754,7 @@ class AdvancedFundFlowMetricsService:
             'md': valid_amounts.quantile(0.60)
         }
         score_source_col = 'amount_yuan'
-        # [代码修改开始] 使用级联选择（np.select）重构分类逻辑，使其对重合的分位数具有鲁棒性
+        # 使用级联选择（np.select）重构分类逻辑，使其对重合的分位数具有鲁棒性
         conditions = [
             df[score_source_col] >= thresholds['elg'],
             df[score_source_col] >= thresholds['lg'],
@@ -766,7 +766,7 @@ class AdvancedFundFlowMetricsService:
         scores = {}
         for size in ['sm', 'md', 'lg', 'elg']:
             scores[size] = df[score_source_col].where(df['category'] == size, 0)
-        # [代码修改结束]
+        
         price_range = df['high'] - df['low']
         prev_close = df['close'].shift(1)
         conditions_pressure = [

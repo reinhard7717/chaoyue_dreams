@@ -31,7 +31,10 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V20.0 · 筹码迁徙版】"""
+        """【V21.0 · 战备探针植入版】"""
+        
+        self._probe_chip_calculation_readiness()
+        
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
@@ -55,7 +58,6 @@ class ChipFeatureCalculator:
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
         # 调用新增的跨日筹码流计算方法
         cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
-        
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
         fault_info = self._calculate_chip_fault(context_for_derived_metrics)
         all_metrics = {
@@ -71,7 +73,6 @@ class ChipFeatureCalculator:
             **chip_interaction_info,
             # 合并新的跨日筹码流指标
             **cross_day_flow_info,
-            
             **advanced_structure_info,
             **fault_info
         }
@@ -619,7 +620,38 @@ class ChipFeatureCalculator:
         results['long_term_despair_selling_ratio'] = lt_losers_pct
         return results
 
-
+def _probe_chip_calculation_readiness(self):
+        """【V-Probe · 筹码战备探针】在计算前诊断所有依赖项是否就绪。"""
+        
+        print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        print(f"探针目标: [{stock_code}] 日期: [{trade_date}]")
+        is_ready = True
+        # 诊断1: 检查分钟数据是否被资金流归因算法增强
+        minute_df = self.ctx.get('minute_data')
+        required_cols = ['main_force_buy_vol', 'retail_sell_vol']
+        if minute_df is None or minute_df.empty or not all(c in minute_df.columns for c in required_cols):
+            print("  - [依赖链诊断 - 失败]: 分钟数据未被资金流归因算法增强。")
+            print("    原因: 很可能当天的日线资金流数据(fund_flow)缺失，导致增强步骤跳过。")
+            print("    影响: 所有【主力-散户筹码博弈】指标将无法计算 (例如: main_force_suppressive_accumulation)。")
+            is_ready = False
+        else:
+            print("  - [依赖链诊断 - 成功]: 分钟数据已成功增强。")
+        # 诊断2: 检查跨日计算所需的T-1日数据
+        prev_chip_dist = self.ctx.get('prev_chip_distribution')
+        if prev_chip_dist is None or prev_chip_dist.empty:
+            print("  - [记忆链诊断 - 失败]: T-1日上下文数据(prev_chip_distribution)缺失。")
+            print("    原因: 这通常发生在每个计算区块的第一天，因为跨区块的'记忆'未能传递。")
+            print("    影响: 所有【跨日筹码迁徙】指标将无法计算 (例如: short_term_profit_taking_ratio)。")
+            is_ready = False
+        else:
+            print("  - [记忆链诊断 - 成功]: T-1日上下文数据已就绪。")
+        if is_ready:
+            print("探针结论: 所有关键依赖项均已就绪，计算可以全面展开。")
+        else:
+            print("探针结论: 存在关键依赖项缺失，部分高级指标将为空。")
+        print("="*20 + " 探针诊断结束 " + "="*20 + "\n")
 
 
 
