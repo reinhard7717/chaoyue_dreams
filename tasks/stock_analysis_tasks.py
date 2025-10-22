@@ -33,7 +33,7 @@ from stock_models.index import TradeCalendar
 from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockDailyBasic, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
+from stock_models.time_trade import StockDailyBasic, StockCyqPerf, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 
@@ -583,7 +583,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
     """【V1.0 · 统一数据加载版】一次性加载两大服务所需的所有数据源。"""
     
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
-    from stock_models.chip_models import StockCyqPerf
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_dt=None, end_dt=None):
         if not model: return pd.DataFrame()
