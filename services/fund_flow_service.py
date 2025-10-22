@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.5 · join替换update版】使用join方法替换update，根除因合并逻辑不明确导致的数据丢失BUG。"""
+        """【V3.6 · 利润探针植入版】植入利润矩阵探针，诊断main_force_intraday_profit计算问题。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -292,8 +292,10 @@ class AdvancedFundFlowMetricsService:
             probe_df = df.loc[[latest_date]]
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
-            # [代码修改开始] 使用join替换update，确保新列被可靠地合并
             result_df = result_df.join(pvwap_costs_df)
+            # [代码修改开始] 植入利润矩阵探针
+            probe_pnl_df = result_df.loc[[latest_date]]
+            self._probe_and_upgrade_intraday_profit_metric(probe_pnl_df)
             # [代码修改结束]
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
@@ -874,11 +876,10 @@ class AdvancedFundFlowMetricsService:
 
     def _probe_and_calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
         """
-        【V-Probe · 探针版 V2.2】适配新的聚合函数调用方式，并增加最终探针。
+        【V-Probe · 探针版 V2.3】移除所有探针，恢复为静默的诊断函数。
         """
-        print("\n" + "="*20 + " 探针模式已启动 " + "="*20)
+        # [代码修改开始] 移除所有探针日志，使其在非调试模式下静默运行
         latest_date = daily_df.index.max()
-        print(f"探针目标日期: {latest_date.date()}")
         daily_data_latest = daily_df.loc[[latest_date]]
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
@@ -886,35 +887,22 @@ class AdvancedFundFlowMetricsService:
         for date, daily_data in daily_data_latest.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
-                print(f"探针警告: 在分钟数据中未找到日期 {date_key}，跳过。")
                 continue
-            print(f"\n--- 探针: 处理日期 {date_key} ---")
-            print("步骤1: 传入的日线数据:")
-            print(daily_data)
             minute_data_for_day = self._calculate_intraday_attribution_weights(minute_df_grouped.loc[[date_key]].copy(), daily_data)
-            print("\n步骤2: 计算归因权重后的分钟数据 (展示部分列和权重和):")
-            weight_sums = {f'{s}_{d}_weight': minute_data_for_day[f'{s}_{d}_weight'].sum() for s in ['sm', 'md', 'lg', 'elg'] for d in ['buy', 'sell']}
-            print(pd.DataFrame([weight_sums]).T.rename(columns={0: '权重总和'}))
             day_results = {'trade_time': date}
-            print("\n步骤3: 逐一计算各类别的PVWAP成本:")
             for cost_type in cost_types:
-                print(f"\n  --- 计算 {cost_type} ---")
                 size, direction = cost_type.split('_')
                 db_vol_key = f'{direction}_{size}_vol'
                 daily_vol_shares = pd.to_numeric(daily_data.get(db_vol_key), errors='coerce') * 100
-                print(f"  日成交量(股): {daily_vol_shares}")
                 if pd.isna(daily_vol_shares) or daily_vol_shares == 0:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    print(f"  结果: 成交量为0，成本设为 NaN")
                     continue
                 weight_col = f'{size}_{direction}_weight'
                 weight_series = minute_data_for_day[weight_col]
-                print(f"  权重序列和: {weight_series.sum()}")
                 if weight_series.sum() < 1e-9:
                     day_results[f'avg_cost_{cost_type}'] = np.nan
                     minute_data_for_day[f'{cost_type}_vol_attr'] = 0
-                    print(f"  结果: 权重和为0，无法计算，成本设为 NaN")
                     continue
                 attributed_vol = weight_series * daily_vol_shares
                 minute_data_for_day[f'{cost_type}_vol_attr'] = attributed_vol
@@ -923,36 +911,56 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_vol = attributed_vol.sum()
                 calculated_cost = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
                 day_results[f'avg_cost_{cost_type}'] = calculated_cost
-                print(f"  总归因价值: {total_attributed_value:.2f}, 总归因成交量: {total_attributed_vol:.2f}")
-                print(f"  结果: 计算成本为 {calculated_cost:.4f}")
-                if cost_type == 'elg_buy':
-                    print("\n" + "!"*10 + " ELG_BUY成本探针 " + "!"*10)
-                    print(f"  输入-日线超大单买入量(手): {daily_data.get(db_vol_key)}")
-                    print(f"  输入-日线超大单买入量(股): {daily_vol_shares}")
-                    print(f"  计算-归因成交量(股)总和: {total_attributed_vol}")
-                    print(f"  计算-归因成交额(元)总和: {total_attributed_value}")
-                    print(f"  输出-最终计算成本: {calculated_cost}")
-                    print("!"*35 + "\n")
             results[date] = day_results
         if not results:
-            print("探针未能处理任何数据。")
             return pd.DataFrame()
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        print("\n步骤4: 计算聚合成本:")
-        # [代码修改开始] 适配新的聚合函数调用方式，并增加最终探针
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_data_latest)
         final_df = pvwap_df.join(aggregate_costs_df)
-        print(final_df[['avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell']])
-        print("\n" + "!"*10 + " 最终返回前探针 " + "!"*10)
-        if 'avg_cost_elg_buy' in final_df.columns and not final_df['avg_cost_elg_buy'].isnull().all():
-            print(f"  成功: avg_cost_elg_buy 在最终DF中存在且有值，值为: {final_df['avg_cost_elg_buy'].iloc[0]}")
-        else:
-            print("  失败: avg_cost_elg_buy 在最终DF中丢失或全为空！")
-        print("!"*35 + "\n")
-        # [代码修改结束]
-        print("="*20 + " 探针模式已结束 " + "="*20 + "\n")
         return final_df
+        # [代码修改结束]
         
+    def _probe_and_upgrade_intraday_profit_metric(self, df: pd.DataFrame):
+        """【V-Probe · 利润矩阵探针版】用于精确诊断主力日内盈亏的计算过程。"""
+        # [代码新增开始]
+        print("\n" + "="*20 + " 利润矩阵探针已启动 " + "="*20)
+        if df.empty:
+            print("探针警告: 传入的DataFrame为空，无法进行诊断。")
+            print("="*20 + " 利润矩阵探针已结束 " + "="*20 + "\n")
+            return
+        latest_date = df.index.max().date()
+        print(f"探针目标日期: {latest_date}")
+        day_data = df.loc[[df.index.max()]]
+        cost_buy = self._get_numeric_series_with_nan(day_data, 'avg_cost_main_buy').iloc[0]
+        cost_sell = self._get_numeric_series_with_nan(day_data, 'avg_cost_main_sell').iloc[0]
+        buy_lg_vol = self._get_safe_numeric_series(day_data, 'buy_lg_vol').iloc[0]
+        buy_elg_vol = self._get_safe_numeric_series(day_data, 'buy_elg_vol').iloc[0]
+        sell_lg_vol = self._get_safe_numeric_series(day_data, 'sell_lg_vol').iloc[0]
+        sell_elg_vol = self._get_safe_numeric_series(day_data, 'sell_elg_vol').iloc[0]
+        print("\n步骤1: 原始输入值")
+        print(f"  avg_cost_main_buy: {cost_buy}, 类型: {type(cost_buy)}")
+        print(f"  avg_cost_main_sell: {cost_sell}, 类型: {type(cost_sell)}")
+        print(f"  buy_lg_vol (手): {buy_lg_vol}, 类型: {type(buy_lg_vol)}")
+        print(f"  buy_elg_vol (手): {buy_elg_vol}, 类型: {type(buy_elg_vol)}")
+        print(f"  sell_lg_vol (手): {sell_lg_vol}, 类型: {type(sell_lg_vol)}")
+        print(f"  sell_elg_vol (手): {sell_elg_vol}, 类型: {type(sell_elg_vol)}")
+        vol_buy_shares = (buy_lg_vol + buy_elg_vol) * 100
+        vol_sell_shares = (sell_lg_vol + sell_elg_vol) * 100
+        print("\n步骤2: 计算成交量(股)")
+        print(f"  vol_buy_shares: {vol_buy_shares}")
+        print(f"  vol_sell_shares: {vol_sell_shares}")
+        total_buy_value_yuan = cost_buy * vol_buy_shares
+        total_sell_value_yuan = cost_sell * vol_sell_shares
+        print("\n步骤3: 计算总买卖金额(元)")
+        print(f"  total_buy_value_yuan: {total_buy_value_yuan}")
+        print(f"  total_sell_value_yuan: {total_sell_value_yuan}")
+        total_profit_yuan = total_sell_value_yuan - total_buy_value_yuan
+        final_profit_wan_yuan = total_profit_yuan / 10000
+        print("\n步骤4: 计算最终利润")
+        print(f"  total_profit_yuan (元): {total_profit_yuan}")
+        print(f"  main_force_intraday_profit (万元): {final_profit_wan_yuan}")
+        print("="*20 + " 利润矩阵探针已结束 " + "="*20 + "\n")
+        # [代码新增结束]
 
 
 
