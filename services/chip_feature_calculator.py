@@ -215,11 +215,13 @@ class ChipFeatureCalculator:
         }
 
     def _calculate_winner_structure(self) -> dict:
-        """【V13.6 · 普罗米修斯之火 · 最终正确版】"""
+        """【V13.7 · 定义统一化修正版】使用 prev_20d_close 统一划分长短期筹码"""
         close_price = self.ctx.get('close_price')
-        weight_avg_cost = self.ctx.get('weight_avg_cost')
+        # [代码修改开始] 引入正确的长短期划分基准
+        prev_20d_close = self.ctx.get('prev_20d_close')
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
-        if not all(pd.notna(v) for v in [close_price, weight_avg_cost]):
+        # 检查所有必需的上下文变量
+        if not all(pd.notna(v) for v in [close_price, prev_20d_close]):
             return {
                 'winner_rate_short_term': None, 'winner_rate_long_term': None,
                 'loser_rate_short_term': None, 'loser_rate_long_term': None,
@@ -227,10 +229,12 @@ class ChipFeatureCalculator:
             }
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
-        long_term_winner_rate = winners_df[winners_df['price'] < weight_avg_cost]['percent'].sum()
-        short_term_winner_rate = winners_df[winners_df['price'] >= weight_avg_cost]['percent'].sum()
-        long_term_loser_rate = losers_df[losers_df['price'] < weight_avg_cost]['percent'].sum()
-        short_term_loser_rate = losers_df[losers_df['price'] >= weight_avg_cost]['percent'].sum()
+        # 使用 prev_20d_close 作为长短期的分界线，与 _calculate_holder_costs 保持一致
+        long_term_winner_rate = winners_df[winners_df['price'] < prev_20d_close]['percent'].sum()
+        short_term_winner_rate = winners_df[winners_df['price'] >= prev_20d_close]['percent'].sum()
+        long_term_loser_rate = losers_df[losers_df['price'] < prev_20d_close]['percent'].sum()
+        short_term_loser_rate = losers_df[losers_df['price'] >= prev_20d_close]['percent'].sum()
+        # [代码修改结束]
         total_loser_rate = long_term_loser_rate + short_term_loser_rate
         return {
             'winner_rate_short_term': short_term_winner_rate,
