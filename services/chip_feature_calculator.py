@@ -31,12 +31,11 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V22.2 · 全流程探针版】为每个核心计算模块部署入口和出口探针。"""
+        """【V22.3 · 终极审查探针版】为每个核心计算模块部署入口和出口探针，并增加最终审查。"""
         self._probe_chip_calculation_readiness()
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 前置检查失败，核心上下文缺失，计算终止。")
             return {}
-        # [代码新增开始] 部署全流程微型探针
         print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 开始计算 {self.ctx.get('trade_date')} 的指标 ---")
         summary_info = self._get_summary_metrics_from_context()
         print(f"  [探针] _get_summary_metrics_from_context -> total_winner_rate: {summary_info.get('total_winner_rate')}")
@@ -66,8 +65,6 @@ class ChipFeatureCalculator:
         print(f"  [探针] _calculate_cross_day_chip_flow -> short_term_profit_taking_ratio: {cross_day_flow_info.get('short_term_profit_taking_ratio')}")
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
         print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
-        # [代码新增结束]
-        # ... (其余代码保持不变) ...
         turnover_microstructure_info = self._calculate_turnover_microstructure(context_for_derived_metrics)
         concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
@@ -93,6 +90,9 @@ class ChipFeatureCalculator:
             all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
+        # [代码新增开始] 部署最终审查探针
+        self._probe_final_metrics(all_metrics)
+        # [代码新增结束]
         return all_metrics
 
     def _prepare_minute_data_features(self):
@@ -585,7 +585,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V1.9 · 记忆链修复版】计算跨日筹码迁徙"""
+        """【V2.0 · 时间参照修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
@@ -594,8 +594,8 @@ class ChipFeatureCalculator:
         }
         prev_chips_df = context.get('prev_chip_distribution')
         prev_close = context.get('prev_close_price')
-        # [代码修改开始] 修正逻辑，直接使用T-1日上下文中传递过来的20日前收盘价
-        prev_day_20d_ago_close = context.get('prev_day_20d_ago_close')
+        # [代码修改开始] 修正时间参照错误：应使用当前计算日的20日前收盘价，而不是T-1日的。
+        prev_20d_close = context.get('prev_20d_close')
         # [代码修改结束]
         daily_turnover_vol = context.get('daily_turnover_volume')
         missing_keys = []
@@ -603,9 +603,9 @@ class ChipFeatureCalculator:
             missing_keys.append('prev_chip_distribution')
         if prev_close is None or pd.isnull(prev_close):
             missing_keys.append('prev_close_price')
-        # [代码修改开始] 检查新的键
-        if prev_day_20d_ago_close is None or pd.isnull(prev_day_20d_ago_close):
-            missing_keys.append('prev_day_20d_ago_close')
+        # [代码修改开始] 修正时间参照错误：检查的变量也应同步修改。
+        if prev_20d_close is None or pd.isnull(prev_20d_close):
+            missing_keys.append('prev_20d_close')
         # [代码修改结束]
         if daily_turnover_vol is None or pd.isnull(daily_turnover_vol) or daily_turnover_vol <= 0:
             missing_keys.append('daily_turnover_volume')
@@ -614,15 +614,14 @@ class ChipFeatureCalculator:
             if not is_first_day:
                 stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
                 trade_date = context.get('trade_date', 'UNKNOWN_DATE')
-                # 移除冗余打印，由探针统一报告
             return results
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
-        # [代码修改开始] 使用新的变量
-        st_winners_pct = prev_winners[prev_winners['price'] >= prev_day_20d_ago_close]['percent'].sum()
-        lt_winners_pct = prev_winners[prev_winners['price'] < prev_day_20d_ago_close]['percent'].sum()
-        st_losers_pct = prev_losers[prev_losers['price'] >= prev_day_20d_ago_close]['percent'].sum()
-        lt_losers_pct = prev_losers[prev_losers['price'] < prev_day_20d_ago_close]['percent'].sum()
+        # [代码修改开始] 修正时间参照错误：使用正确的20日前收盘价来划分长短期。
+        st_winners_pct = prev_winners[prev_winners['price'] >= prev_20d_close]['percent'].sum()
+        lt_winners_pct = prev_winners[prev_winners['price'] < prev_20d_close]['percent'].sum()
+        st_losers_pct = prev_losers[prev_losers['price'] >= prev_20d_close]['percent'].sum()
+        lt_losers_pct = prev_losers[losers_df['price'] < prev_20d_close]['percent'].sum()
         # [代码修改结束]
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
@@ -674,6 +673,27 @@ class ChipFeatureCalculator:
             print("探针结论: 存在关键依赖项缺失，部分高级指标将为空。")
         print("="*20 + " 探针诊断结束 " + "="*20 + "\n")
 
+    def _probe_final_metrics(self, metrics: dict):
+        """【新增】最终指标审查探针，在计算完成后检查关键指标的有效性。"""
+        print("--- [最终指标审查探针] ---")
+        critical_metrics = [
+            'peak_cost', 'concentration_90pct', 'winner_avg_cost',
+            'short_term_profit_taking_ratio', 'main_force_suppressive_accumulation',
+            'profit_taking_urgency'
+        ]
+        has_issues = False
+        for metric_name in critical_metrics:
+            value = metrics.get(metric_name)
+            if value is None:
+                print(f"  >>> 警告: 关键指标 '{metric_name}' 计算结果为 None。")
+                has_issues = True
+            elif isinstance(value, (int, float)) and value == 0:
+                # 对某些指标，0是有效值，但对另一些则可能是计算失败的信号
+                if metric_name not in ['main_force_suppressive_accumulation']: # 此指标为0很常见
+                    print(f"  >>> 注意: 关键指标 '{metric_name}' 计算结果为 0。请确认是否符合预期。")
+        if not has_issues:
+            print("  >>> 审查通过: 所有受监控的关键指标均已成功计算出有效值。")
+        print("--- [最终审查结束] ---")
 
 
 
