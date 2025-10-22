@@ -143,27 +143,28 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
         """
-        【V1.4 · 记忆接力版】
-        - 核心修正: 接收并返回记忆字典，建立跨区块记忆链。
+        【V1.6 · 记忆全链路修复版】
+        - 核心修正: 确保 winner_avg_cost 在记忆链中被正确写入和读取。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
-        # [代码修改开始] 使用传入的记忆初始化，而不是重置为空字典
         prev_metrics = memory.copy() if memory is not None else {}
-        # [代码修改结束]
         grouped_data = merged_df.groupby('trade_time')
         is_first_day_in_batch = True
-        # print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
+        if fund_flow_attributed_minute_map:
+             print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
         for trade_date, daily_full_df in grouped_data:
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             if chip_data_for_calc.empty: continue
-            cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close']
+            cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
+            # [代码修改开始] 修复记忆读取：增加 prev_winner_avg_cost
             context_for_calc.update({
                 'close_price': context_data.get('close_qfq'),
                 'high_price': context_data.get('high_qfq'),
                 'low_price': context_data.get('low_qfq'),
+                'open_price': context_data.get('open_qfq'),
                 'daily_turnover_volume': context_data.get('vol', 0) * 100,
                 'total_chip_volume': context_data.get('float_share', 0) * 10000,
                 'stock_code': stock_code,
@@ -171,10 +172,12 @@ class AdvancedChipMetricsService:
                 'circ_mv': context_data.get('circ_mv'),
                 'is_first_day_in_batch': is_first_day_in_batch,
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
+                'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
+            # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
@@ -187,17 +190,18 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
+                # [代码修改开始] 修复记忆写入：增加 winner_avg_cost
                 prev_metrics = {
                     'concentration_90pct': daily_metrics.get('concentration_90pct'),
+                    'winner_avg_cost': daily_metrics.get('winner_avg_cost'),
                     'chip_distribution': chip_data_for_calc,
                     'close_price': context_data.get('close_qfq'),
                     'prev_20d_close': context_data.get('prev_20d_close')
                 }
+                # [代码修改结束]
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
-            # [代码修改开始] 确保在任何分支都返回两个值
             return pd.DataFrame(), prev_metrics
-        # [代码修改开始] 返回指标DF和更新后的记忆字典
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
