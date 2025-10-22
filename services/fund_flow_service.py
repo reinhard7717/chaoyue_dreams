@@ -268,7 +268,7 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> pd.DataFrame:
-        """【V3.4 · 变量名修正版】修正因检查错误DataFrame导致的 main_force_conviction_ratio 计算被跳过的BUG。"""
+        """【V3.5 · join替换update版】使用join方法替换update，根除因合并逻辑不明确导致的数据丢失BUG。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
@@ -292,7 +292,9 @@ class AdvancedFundFlowMetricsService:
             probe_df = df.loc[[latest_date]]
             self._probe_and_calculate_probabilistic_costs(probe_df, minute_df_daily_grouped)
             pvwap_costs_df = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
-            result_df.update(pvwap_costs_df)
+            # [代码修改开始] 使用join替换update，确保新列被可靠地合并
+            result_df = result_df.join(pvwap_costs_df)
+            # [代码修改结束]
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df.update(pnl_matrix_df)
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
@@ -368,10 +370,8 @@ class AdvancedFundFlowMetricsService:
             result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
         if 'main_force_net_flow_consensus' in result_df.columns and 'net_xl_amount_consensus' in result_df.columns:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
-        # [代码修改开始] 修正致命的变量名错误，确保检查的是包含新列的 result_df
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        # [代码修改结束]
         print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
         return result_df
 
