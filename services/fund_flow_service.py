@@ -158,7 +158,13 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        """【V2.2 · 消歧版】在最终合并前移除资金流数据中冗余的 'close' 列，解决列名冲突。"""
+        """【V2.3 · 主权数据协议版】修正合并策略为 left join，并增加数据流探针。"""
+        # [代码新增开始] 探针 1: 记录初始数据帧大小
+        print(f"--- [数据合并探针 1: 入口] [{stock_info.stock_code}] ---")
+        for name, df in data_dfs.items():
+            if df is not None:
+                print(f"  >>> 输入源 '{name}': {len(df)} 行")
+        # [代码新增结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -186,14 +192,23 @@ class AdvancedFundFlowMetricsService:
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
         df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
         df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
-        dfs_to_merge = [df for df in [df_tushare, df_ths, df_dc] if not df.empty]
-        if not dfs_to_merge:
+        # [代码修改开始] 确立 fund_flow_tushare 为主权数据源
+        if df_tushare.empty:
+            print(f"警告: [{stock_info.stock_code}] 核心资金流数据源(Tushare)为空，无法进行合并。")
             return pd.DataFrame()
-        merged_df = reduce(lambda left, right: pd.merge(left, right, on='trade_time', how='outer'), dfs_to_merge)
+        # 将 Tushare 作为基础，其他资金流数据合并上去
+        merged_df = df_tushare
+        other_flow_dfs = [df for df in [df_ths, df_dc] if not df.empty]
+        if other_flow_dfs:
+            for right_df in other_flow_dfs:
+                merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
+        # [代码修改结束]
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
-        # [代码新增开始] 在与日线数据join前，移除资金流数据中可能存在的、冗余的'close'列，避免冲突
-        merged_df = merged_df.drop(columns=['close'], errors='ignore')
+        # [代码新增开始] 探针 2: 检查资金流数据合并后的行数
+        print(f"--- [数据合并探针 2: 资金流合并后] [{stock_info.stock_code}] ---")
+        print(f"  >>> 资金流合并后行数: {len(merged_df)} 行")
         # [代码新增结束]
+        merged_df = merged_df.drop(columns=['close'], errors='ignore')
         daily_dfs_to_join = []
         if not data_dfs['daily'].empty:
             daily_df = data_dfs['daily'].set_index(pd.to_datetime(data_dfs['daily']['trade_time'])).drop(columns='trade_time')
@@ -202,7 +217,13 @@ class AdvancedFundFlowMetricsService:
             daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
-            merged_df = merged_df.join(daily_dfs_to_join, how='inner')
+            # [代码修改开始] 关键修复：使用 'left' join 保证主数据源的完整性
+            merged_df = merged_df.join(daily_dfs_to_join, how='left')
+            # [代码修改结束]
+        # [代码新增开始] 探针 3: 检查与日线数据合并后的最终行数
+        print(f"--- [数据合并探针 3: 最终合并后] [{stock_info.stock_code}] ---")
+        print(f"  >>> 与日线/基本面合并后行数: {len(merged_df)} 行")
+        # [代码新增结束]
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
@@ -246,20 +267,21 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
-        """【V5.2 · 流程诊断探针版】新增探针，检查关键输入列和输出指标的状态。"""
+        """【V5.3 · 入口探针增强版】在计算开始前，增加对输入数据帧的探针检查。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
-        # print(f"调试信息: [{stock_code}] 进入指标合成引擎，传入数据形状: {df.shape}, 列: {df.columns.tolist()}")
+        # [代码新增开始] 流程诊断探针 0: 检查入口数据帧状态
+        print(f"--- [流程诊断探针 0: 入口] [{stock_code}] ---")
+        print(f"  >>> 指标合成引擎接收到 {len(df)} 行数据进行计算。")
+        # [代码新增结束]
         result_df = df.copy()
         attributed_minute_map = {}
-        # [代码新增开始] 流程诊断探针 1: 检查关键输入列是否存在
         required_input_cols = ['trade_count', 'amount', 'circ_mv', 'main_force_net_flow_tushare']
         missing_inputs = [col for col in required_input_cols if col not in df.columns]
         if missing_inputs:
             print(f"--- [流程诊断探针 1] [{stock_code}] 关键输入缺失警告 ---")
             print(f"  >>> 缺失列: {missing_inputs}")
             print(f"  >>> 影响: 依赖这些列的指标将无法计算。")
-        # [代码新增结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
@@ -354,8 +376,6 @@ class AdvancedFundFlowMetricsService:
             result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        # print(f"调试信息: [{stock_code}] 指标合成引擎执行完毕，返回数据形状: {result_df.shape}")
-        # [代码新增开始] 流程诊断探针 2: 检查关键输出指标的状态
         required_output_cols = ['main_force_net_flow_consensus', 'avg_order_value', 'main_force_flow_impact_ratio']
         output_status = {}
         for col in required_output_cols:
@@ -365,10 +385,9 @@ class AdvancedFundFlowMetricsService:
                 output_status[col] = f"{non_null_count}/{total_count} ({non_null_count/total_count:.1%})"
             else:
                 output_status[col] = "列不存在"
-        # print(f"--- [流程诊断探针 2] [{stock_code}] 关键输出指标状态 ---")
+        print(f"--- [流程诊断探针 2] [{stock_code}] 关键输出指标状态 ---")
         for col, status in output_status.items():
             print(f"  >>> {col}: {status}")
-        # print(f"--- [出口探针] 资金流服务即将返回 ---")
         if not attributed_minute_map:
             print(f"  >>> 状态: 失败. 'attributed_minute_map' 为空。这意味着没有一天成功计算出归因数据。")
         return result_df, attributed_minute_map
