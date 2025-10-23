@@ -74,15 +74,14 @@
         "peak_stability_D": [1, 5, 13, 21, 55],
         "cost_divergence_D": [1, 5, 13, 21, 55],
         "winner_profit_margin_D": [1, 5, 13, 21, 55],
-        "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55],
         "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "turnover_from_losers_ratio_D": [5, 13, 21, 55],
         "chip_health_score_D": [1, 5, 13, 21, 55],
         "profit_taking_urgency_D": [1, 5, 13, 21, 55],
         "profit_realization_premium_D": [1, 5, 13, 21, 55],
         "intraday_volume_gini_D": [1, 5, 13, 21, 55],
-        "volume_weighted_time_index_D": [1, 5, 13, 21, 55]
+        "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
+        "retail_capitulation_distribution_D": [5, 13, 21, 55]
       }
     },
     "accel_params": {
@@ -96,14 +95,14 @@
         "MACDh_13_34_8_D": [1, 5, 13, 21, 55], "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
         "peak_cost_D": [1, 5, 13, 21, 55], "concentration_90pct_D": [1, 5, 13, 21, 55], "concentration_70pct_D": [1, 5, 13, 21, 55],
         "peak_control_ratio_D": [1, 5, 13, 21, 55], "peak_stability_D": [1, 5, 13, 21, 55], "cost_divergence_D": [1, 5, 13, 21, 55],
-        "winner_profit_margin_D": [1, 5, 13, 21, 55], "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
+        "winner_profit_margin_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "turnover_from_losers_ratio_D": [5, 13, 21, 55],
         "chip_health_score_D": [1, 5, 13, 21, 55],
         "profit_taking_urgency_D": [1, 5, 13, 21, 55],
         "profit_realization_premium_D": [1, 5, 13, 21, 55],
         "intraday_volume_gini_D": [1, 5, 13, 21, 55],
-        "volume_weighted_time_index_D": [1, 5, 13, 21, 55]
+        "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
+        "retail_capitulation_distribution_D": [5, 13, 21, 55]
       }
     }
   },
@@ -363,13 +362,13 @@
             "comment": "【基础元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。"
           },
           {
-            "name": "PROCESS_META_PRICE_VS_RETAIL_PANIC",
+            "name": "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION",
             "type": "meta_analysis",
             "task_type": "base",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "retail_panic_index_D", "source_B": "df", "change_type_B": "pct",
+            "signal_B": "retail_capitulation_distribution_D", "source_B": "df", "change_type_B": "pct",
             "signal_b_factor_k": -1.5,
-            "comment": "【基础元分析-心理】诊断是否出现'散户恐慌投降'的底部特征。"
+            "comment": "【逻辑升级】诊断'价格下跌'与'散户投降式派发行为加剧'的背离。正分代表恐慌盘被吸收，是看涨的底部特征。"
           },
           {
             "name": "PROCESS_META_PE_EFFICIENCY_TURN",
@@ -436,17 +435,17 @@
             "name": "PROCESS_META_WINNER_CONVICTION",
             "type": "meta_analysis", "task_type": "base",
             "signal_A": "winner_profit_margin_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "turnover_from_winners_ratio_D", "source_B": "df", "change_type_B": "diff",
+            "signal_B": "profit_taking_urgency_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": -1.0,
-            "description": "赢家信念：获利盘拒绝出售，预期更高价格的过程。"
+            "description": "赢家信念：获利盘安全垫增加，但获利了结紧迫度并未同步增加，代表赢家惜售，信念坚定。"
           },
           {
             "name": "PROCESS_META_LOSER_CAPITULATION",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "turnover_from_losers_ratio_D", "source_A": "df", "change_type_A": "diff",
+            "signal_A": "retail_capitulation_distribution_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "total_loser_rate_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "description": "投降仪式：套牢盘最终放弃希望，不计成本卖出的过程。"
+            "description": "投降仪式：总套牢盘比例增加的同时，散户投降式派发行为也在增加，代表套牢盘正在加速割肉。"
           },
           {
             "name": "PROCESS_META_COST_VS_PRICE",

@@ -124,9 +124,9 @@ class CognitiveIntelligence:
             'PROCESS_META_LOSER_CAPITULATION',
             'PROCESS_META_MAIN_FORCE_URGENCY',
             'PROCESS_META_SMART_MONEY_COST_ADVANTAGE',
-            'PROCESS_META_PROFIT_VS_FLOW'
+            'PROCESS_META_PROFIT_VS_FLOW',
+            'PROCESS_META_PRICE_VS_RETAIL_CAPITULATION' # 替换了旧的幽灵信号
         ]
-        
         process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
         process_consensus_score = pd.Series(
             np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
@@ -941,19 +941,23 @@ class CognitiveIntelligence:
 
     def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 时空同步版】“真伪识别：打压 vs 撤退”诊断引擎
-        - 核心修复: 重构了变量计算顺序，确保在构建“打压”和“撤退”证据链时，
-                      明确使用同一个“盈利盘信念”信号的两个对立面（信念坚定 vs 信念瓦解），
-                      彻底解决了因逻辑交叉引用导致的探针重算偏差问题。
+        【V5.4 · 幽灵信号替代版】“真伪识别：打压 vs 撤退”诊断引擎
+        - 核心修复: 使用 `retail_capitulation_distribution_D` 和 `profit_taking_urgency_D` 作为替代品，
+                      替换了原始代码中对不存在的 `turnover_from_losers_ratio_D` 和 `turnover_from_winners_ratio_D` 的依赖。
+                      这不仅修复了因信号缺失导致的计算错误，还使证据链的逻辑更加清晰和强大。
         """
         states = {}
         norm_window = 55
         p = 5
+        # [代码修改开始] 使用新的代理信号重构“近期派发强度”的计算逻辑
         # --- 步骤1: 量化“近期派发强度”证据 ---
+        # “筹码流向主力”的证据：成本发散（主力成本更低）且 散户正在投降式卖出
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
-                   normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=True))**0.5
+                   normalize_score(df.get(f'SLOPE_{p}_retail_capitulation_distribution_D'), df.index, norm_window, ascending=True))**0.5
+        # “筹码流向散户”的证据：成本收敛 且 获利盘正在紧急了结
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
-                     normalize_score(df.get(f'SLOPE_{p}_turnover_from_losers_ratio_D'), df.index, norm_window, ascending=False))**0.5
+                     normalize_score(df.get(f'SLOPE_{p}_profit_taking_urgency_D'), df.index, norm_window, ascending=True))**0.5
+        # [代码修改结束]
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
         recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
         # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 ---
@@ -970,11 +974,9 @@ class CognitiveIntelligence:
         behavior_bullish_resonance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE', 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
         # --- 步骤3: 准备核心对立证据：“盈利盘信念” ---
-        # 修改开始(V5.3): 明确定义信念的两个对立面
         winner_conviction_0_1 = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
-        winner_belief_score = winner_conviction_0_1 # 信念坚定分，越高越好
-        winner_capitulation_score = (1.0 - winner_conviction_0_1) ** 0.7 # 信念瓦解/投降分，越高越糟
-        # 修改结束(V5.3)
+        winner_belief_score = winner_conviction_0_1
+        winner_capitulation_score = (1.0 - winner_conviction_0_1) ** 0.7
         # --- 步骤4: 构建“战术性打压”的证据链 (看涨) ---
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
@@ -982,7 +984,7 @@ class CognitiveIntelligence:
         absorption_evidence_chain = (
             trend_quality_context *
             panic_absorption_score *
-            winner_belief_score * # 使用“信念坚定分”
+            winner_belief_score *
             (1 + structural_support_score * 0.5)
         )
         tactical_suppression_score = (
@@ -999,7 +1001,7 @@ class CognitiveIntelligence:
         retreat_evidence_chain = (
             trend_decay_context *
             no_absorption_score *
-            winner_capitulation_score * # 使用“信念瓦解分”
+            winner_capitulation_score *
             bull_trap_evidence
         )
         true_retreat_score = (recent_distribution_strength * retreat_evidence_chain).clip(0, 1)

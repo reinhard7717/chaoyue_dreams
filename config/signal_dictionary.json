@@ -110,13 +110,13 @@
             "scoring_mode": "bipolar",
             "description": "诊断'价格-筹码集中度'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
         },
-        "PROCESS_META_PRICE_VS_RETAIL_PANIC": {
-            "cn_name": "【过程】价与散户恐慌",
+        "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION": {
+            "cn_name": "【过程】价与散户投降",
             "category": "过程层-基础",
             "type": "process",
             "score": 180,
             "scoring_mode": "bipolar",
-            "description": "诊断'价格下跌与散户恐慌指数上升'的背离。正分为看涨背离，负分为看跌背离（惩罚）。"
+            "description": "【逻辑升级】诊断'价格下跌'与'散户投降式派发行为加剧'的背离。正分代表恐慌盘被吸收，是看涨的底部特征。"
         },
         "PROCESS_META_PE_EFFICIENCY_TURN": {
             "cn_name": "【过程】VPA效率看涨拐点",
