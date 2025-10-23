@@ -127,8 +127,8 @@ class AdvancedStructuralMetricsService:
 
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp) -> dict:
         """
-        【V1.3 · 时区修正版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
-        - 核心修复: 强制将从数据库加载的UTC时间转换为北京时间('Asia/Shanghai')，从根源解决时区不匹配问题。
+        【V1.4 · 升序修正版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
+        - 核心修复: 查询时强制使用 .order_by('trade_time')，确保从数据库源头获取升序排列的数据。
         """
         from django.utils import timezone
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
@@ -136,11 +136,13 @@ class AdvancedStructuralMetricsService:
             return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
+            # [代码修改开始] 强制按交易时间升序排序
             qs = model.objects.filter(
                 stock_id=stock_pk,
                 trade_time__gte=start_dt,
                 trade_time__lt=end_dt
-            ).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount')
+            ).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
+            # [代码修改结束]
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
@@ -148,14 +150,10 @@ class AdvancedStructuralMetricsService:
         if minute_df.empty:
             return {}
         minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        # [代码修改开始] 强制将时间戳转换为北京时间
         if minute_df['trade_time'].dt.tz is not None:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
         else:
-            # 如果数据源是naive时间，则假定其为UTC并转换为北京时间
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-        # [代码修改结束]
-        # 实施“数据类型净化协议”
         cols_to_float = ['open', 'high', 'low', 'close', 'amount', 'vol']
         for col in cols_to_float:
             if col in minute_df.columns:
@@ -165,39 +163,64 @@ class AdvancedStructuralMetricsService:
 
     def _forge_advanced_structural_metrics(self, minute_data_map: dict) -> pd.DataFrame:
         """
-        【V2.5 · 探针植入与逻辑修正版】高级结构与行为指标锻造核心引擎
-        - 核心修复: 修正了成交量加权时间指数的计算逻辑，确保时间差计算正确。
-        - 新增功能: 植入数据探针，用于调试和验证数据流。
+        【V2.7 · 竞价隔离版】高级结构与行为指标锻造核心引擎
+        - 核心升级: 隔离最后三分钟的集合竞价数据，确保过程形态类指标（如趋势、背离、价值区间）
+                      仅在连续交易时段 (09:30-14:57) 内计算，避免数据污染。
         """
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
         AM_END_TIME = time(11, 30, 0)
         PM_START_TIME = time(13, 0, 0)
-        TOTAL_TRADING_SECONDS = 14400 # 4小时 = 14400秒
-        # [代码新增开始] 获取最新的日期用于探针输出
-        latest_date_in_chunk = max(minute_data_map.keys())
+        # [代码新增开始] 定义连续交易与集合竞价的边界
+        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
         # [代码新增结束]
+        TOTAL_TRADING_SECONDS = 14400 # 4小时 = 14400秒
+        LUNCH_BREAK_SECONDS = 5400 # 1.5小时午休 = 5400秒
+        latest_date_in_chunk = max(minute_data_map.keys())
         for date, group in minute_data_map.items():
             if group.empty or len(group) < 10:
                 continue
-            # [代码新增开始] 数据探针，仅对最新日期的数据进行输出
-            if date == latest_date_in_chunk:
-                print(f"--- [数据探针] 开始处理日期: {date} ---")
-                print("分钟数据 (头5条):")
-                print(group.head(5)[['trade_time', 'vol', 'amount']])
-                print("分钟数据 (尾5条):")
-                print(group.tail(5)[['trade_time', 'vol', 'amount']])
+            # 防御性编程：确保数据按时间升序排列
+            group = group.sort_values(by='trade_time', ascending=True).reset_index(drop=True)
+            # [代码新增开始] 数据隔离：划分为连续交易部分和全天部分
+            continuous_mask = group['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
+            continuous_group = group[continuous_mask]
+            # 如果没有连续交易数据（例如全天停牌只在收盘成交），则跳过
+            if continuous_group.empty:
+                continue
             # [代码新增结束]
-            # --- 基础变量计算 ---
+            # --- 基础变量计算 (使用全天数据 'group') ---
             day_open, day_high, day_low, day_close = group['open'].iloc[0], group['high'].max(), group['low'].min(), group['close'].iloc[-1]
             day_range = day_high - day_low
             day_range_safe = day_range if day_range > 0 else np.nan
             total_volume = group['vol'].sum()
             total_volume_safe = total_volume if total_volume > 0 else np.nan
-            group['minute_vwap'] = group['amount'] / group['vol'].replace(0, np.nan)
-            group['minute_vwap'] = group['minute_vwap'].fillna(method='ffill').fillna(day_open)
-            # --- V1.0 指标计算 (略作优化) ---
+            # --- 过程形态类指标 (使用连续交易数据 'continuous_group') ---
+            # 为连续交易时段计算分钟VWAP
+            continuous_group = continuous_group.copy() # 避免SettingWithCopyWarning
+            continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
+            continuous_group['minute_vwap'] = continuous_group['minute_vwap'].fillna(method='ffill').fillna(day_open)
+            # 1. 日内趋势效率
+            path_length = continuous_group['minute_vwap'].diff().abs().sum()
+            intraday_trend_efficiency = abs(day_close - day_open) / path_length if path_length > 0 else 0
+            # 2. 日内价值区间 (VPOC/VAH/VAL)
+            vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
+            vpoc_interval = vp.idxmax() if not vp.empty else np.nan
+            vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else continuous_group['close'].iloc[-1]
+            # 注意：价值区域的成交量目标仍然是全天成交量的70%
+            intraday_vah, intraday_val = self._calculate_value_area(vp, total_volume, vpoc_interval)
+            # 3. 日内趋势线性度(R²)
+            x = np.arange(len(continuous_group))
+            y = continuous_group['close'].values
+            slope, intercept = np.polyfit(x, y, 1)
+            y_pred = slope * x + intercept
+            ss_res = np.sum((y - y_pred) ** 2)
+            ss_tot = np.sum((y - np.mean(y)) ** 2)
+            intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
+            # 4. 日内背离检测
+            is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(continuous_group)
+            # --- 全天总结性指标 (使用全天数据 'group') ---
             vwap = (group['amount']).sum() / total_volume_safe if pd.notna(total_volume_safe) else day_close
             vwap_pos = (vwap - day_low) / day_range_safe if pd.notna(day_range_safe) else 0.5
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
@@ -206,20 +229,11 @@ class AdvancedStructuralMetricsService:
             lower_shadow_vol_ratio = group[lower_shadow_mask]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
             mfm = ((group['close'] - group['low']) - (group['high'] - group['close'])) / (group['high'] - group['low']).replace(0, np.nan)
             true_daily_cmf = (mfm.fillna(0) * group['vol']).sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
-            path_length = group['minute_vwap'].diff().abs().sum()
-            intraday_trend_efficiency = abs(day_close - day_open) / path_length if path_length > 0 else 0
             if pd.notna(day_range_safe):
                 intraday_reversal_intensity = ((day_close - day_low) - (day_high - day_close)) / day_range_safe
             else:
                 intraday_reversal_intensity = 0
-            # --- V2.0 指标计算 ---
-            # 1. 日内价值区间
-            vp = group.groupby(pd.cut(group['close'], bins=20))['vol'].sum()
-            vpoc_interval = vp.idxmax() if not vp.empty else np.nan
-            vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close
             close_vs_vpoc_ratio = day_close / vpoc if vpoc > 0 else 1.0
-            intraday_vah, intraday_val = self._calculate_value_area(vp, total_volume, vpoc_interval)
-            # 2. 上下午成交量/VWAP比
             am_mask = group['trade_time'].dt.time <= AM_END_TIME
             pm_mask = group['trade_time'].dt.time >= PM_START_TIME
             am_vol = group[am_mask]['vol'].sum()
@@ -228,15 +242,6 @@ class AdvancedStructuralMetricsService:
             am_vwap = (group[am_mask]['amount']).sum() / am_vol if am_vol > 0 else np.nan
             pm_vwap = (group[pm_mask]['amount']).sum() / pm_vol if pm_vol > 0 else np.nan
             am_pm_vwap_ratio = pm_vwap / am_vwap if pd.notna(am_vwap) and am_vwap > 0 else np.nan
-            # [代码新增开始] 数据探针，输出AM/PM计算结果
-            if date == latest_date_in_chunk:
-                print(f"AM mask 匹配条数: {am_mask.sum()}, PM mask 匹配条数: {pm_mask.sum()}")
-                print(f"AM 成交量: {am_vol}, PM 成交量: {pm_vol}")
-                print(f"AM/PM 成交量比: {am_pm_volume_ratio}")
-                print(f"AM VWAP: {am_vwap}, PM VWAP: {pm_vwap}")
-                print(f"AM/PM VWAP比: {am_pm_vwap_ratio}")
-            # [代码新增结束]
-            # 3. 日内成交量基尼系数
             vol_array = group['vol'].dropna().values
             if len(vol_array) > 1:
                 sorted_vol = np.sort(vol_array)
@@ -245,32 +250,11 @@ class AdvancedStructuralMetricsService:
                 intraday_volume_gini = (n + 1 - 2 * np.sum(cum_vol) / cum_vol[-1]) / n if cum_vol[-1] > 0 else 0
             else:
                 intraday_volume_gini = 0
-            # 4. 日内趋势线性度(R²)
-            x = np.arange(len(group))
-            y = group['close'].values
-            slope, intercept = np.polyfit(x, y, 1)
-            y_pred = slope * x + intercept
-            ss_res = np.sum((y - y_pred) ** 2)
-            ss_tot = np.sum((y - np.mean(y)) ** 2)
-            intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
-            # 5. 成交量加权时间指数
-            # [代码修改开始] 修正时间差计算，排除午休时间
-            am_group = group[am_mask]
-            pm_group = group[pm_mask]
-            if not am_group.empty and not pm_group.empty:
-                # 计算上午部分的时间秒数
-                am_time_as_float = (am_group['trade_time'] - am_group['trade_time'].iloc[0]).dt.total_seconds()
-                am_weighted_time = (am_time_as_float * am_group['vol']).sum()
-                # 计算下午部分的时间秒数 (从13:00开始)
-                pm_start_time = pm_group['trade_time'].iloc[0].replace(hour=13, minute=0, second=0)
-                pm_time_as_float = (pm_group['trade_time'] - pm_start_time).dt.total_seconds() + 7200 # 加上上午的秒数
-                pm_weighted_time = (pm_time_as_float * pm_group['vol']).sum()
-                volume_weighted_time_index = (am_weighted_time + pm_weighted_time) / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) else 0.5
-            else: # 如果只有半天交易数据
-                time_as_float = (group['trade_time'] - group['trade_time'].iloc[0]).dt.total_seconds()
-                volume_weighted_time_index = (time_as_float * group['vol']).sum() / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) else 0.5
-            # [代码修改结束]
-            is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(group)
+            time_series = group['trade_time']
+            seconds_from_start = (time_series - time_series.iloc[0]).dt.total_seconds()
+            seconds_from_start[pm_mask] -= LUNCH_BREAK_SECONDS
+            weighted_time = (seconds_from_start * group['vol']).sum()
+            volume_weighted_time_index = weighted_time / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) and total_volume_safe > 0 else 0.5
             daily_metrics.append({
                 'trade_time': date,
                 'volume_weighted_close_position': vwap_pos,

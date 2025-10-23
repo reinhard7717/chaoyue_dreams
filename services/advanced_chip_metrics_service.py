@@ -212,7 +212,7 @@ class AdvancedChipMetricsService:
         if not MinuteModel: return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
-            qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low')
+            qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
             return pd.DataFrame.from_records(qs)
         start_datetime = datetime.combine(start_date, time.min)
         end_datetime = datetime.combine(end_date, time.max)
