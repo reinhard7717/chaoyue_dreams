@@ -30,10 +30,10 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 四维意图罗盘版】终极资金流信号诊断模块
-        - 核心重构: 废除旧的“指标大杂烩”式支柱，引入基于“共识、信念、冲突、情绪”的四维意图罗盘框架。
-        - 科学性加固: 所有支柱均基于最恰当的、经过尺度归一化的“影响力”或“比率”指标，彻底解决了错误的归一化问题。
-        - 新增支柱: 引入“长期布局”和“散户资金流影响力”两大新支柱，使分析更全面。
+        【V5.0 · 战略预备队激活版】终极资金流信号诊断模块
+        - 核心升级: 从“指标军火库”中调遣了更多王牌指标，如主力信念比率、支撑强度等，
+                      构建了更立体、更深刻的“五维意图罗盘”。
+        - 新增维度: 引入“行为(Behavior)”维度，直接量化主力的日内攻防动作。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -41,24 +41,29 @@ class FundFlowIntelligence:
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        # 引入全新的、基于“四维意图”的支柱配置
+        # [代码修改开始] 引入全新的、基于“五维意图”的支柱配置
         pillar_configs = {
             # --- 意图I: 共识 (Consensus) ---
             'consensus_flow_impact': {'base': 'main_force_flow_impact_ratio', 'type': 'daily', 'intent': 'consensus', 'polarity': 1, 'desc': '主力资金流影响力'},
-            'consensus_long_term_accumulation': {'base': 'main_force_flow_impact_ratio', 'type': 'sum', 'intent': 'consensus', 'polarity': 1, 'desc': '主力长期布局强度'},
+            'consensus_long_term_accumulation': {'base': 'main_force_net_flow_consensus_sum_55d', 'type': 'daily', 'intent': 'consensus', 'polarity': 1, 'desc': '主力长期布局强度(55日)'},
+            
             # --- 意图II: 信念 (Conviction) ---
             'conviction_intraday_profit': {'base': 'main_force_intraday_profit', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主力日内盈利能力(控盘)'},
-            'conviction_cost_advantage': {'base': 'cost_divergence_mf_vs_retail', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主力成本优势(吸筹意愿)'},
-            'conviction_active_pressure': {'base': 'active_buy_pressure', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主动买盘压力'},
+            'conviction_ratio': {'base': 'main_force_conviction_ratio', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主力信念比率(超大单/大单)'},
+            
             # --- 意图III: 冲突 (Conflict) ---
-            'conflict_cost_battle': {'base': 'market_cost_battle', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': '主力散户成本博弈(差值越大越冲突)'},
-            'conflict_source_divergence_ts_ths': {'base': 'divergence_ts_ths', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': 'Tushare与同花顺分歧度'},
-            'conflict_source_divergence_ts_dc': {'base': 'divergence_ts_dc', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': 'Tushare与东方财富分歧度'},
+            'conflict_cost_battle': {'base': 'market_cost_battle', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': '主力散户成本博弈'},
+            'conflict_internal_divergence': {'base': 'main_force_vs_xl_divergence', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': '主力内部结构分歧(主力-超大单)'},
+            
             # --- 意图IV: 情绪 (Sentiment) ---
-            'sentiment_retail_panic': {'base': 'retail_panic_index', 'type': 'daily', 'intent': 'sentiment', 'polarity': 1, 'desc': '散户恐慌指数(越高越利于反转)'},
+            'sentiment_retail_capitulation': {'base': 'retail_capitulation_score', 'type': 'daily', 'intent': 'sentiment', 'polarity': 1, 'desc': '散户投降指数'},
             'sentiment_retail_flow_impact': {'base': 'retail_net_flow_consensus', 'type': 'daily', 'intent': 'sentiment', 'polarity': -1, 'normalize_by_mv': True, 'desc': '散户资金流影响力'},
+
+            # --- 意图V: 行为 (Behavior) ---
+            'behavior_support_strength': {'base': 'main_force_support_strength', 'type': 'daily', 'intent': 'behavior', 'polarity': 1, 'desc': '主力支撑强度'},
+            'behavior_distribution_pressure': {'base': 'main_force_distribution_pressure', 'type': 'daily', 'intent': 'behavior', 'polarity': -1, 'desc': '主力派发压力'},
         }
-        
+        # [代码修改结束]
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
@@ -185,92 +190,41 @@ class FundFlowIntelligence:
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:
         """
-        【V7.0 · 逻辑纯化版】计算单个资金流支柱的三维健康度
-        - 核心重构: 彻底剥离了错误的、统一的市值归一化逻辑。函数现在只负责对“输入指标”进行健康度评估。
-                      归一化问题由上游的指标定义（如使用'main_force_flow_impact_ratio'）或显式标志'normalize_by_mv'来解决。
+        【V8.0 · 逻辑再纯化版】计算单个资金流支柱的三维健康度
+        - 核心重构: 彻底废除内部的累积计算逻辑。现在所有指标，包括累积指标（如 _sum_55d），
+                      都被视为 'daily' 类型，直接进行归一化和关系元分析。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
-        col_type = config['type']
-        # 增加对显式归一化标志的处理
+        # [代码修改开始] 移除 col_type，因为所有指标现在都按 'daily' 类型处理
         normalize_by_mv = config.get('normalize_by_mv', False)
-        
-        if col_type == 'sum':
-            # 对于需要累积分析的指标，调用多时间级别累积分析引擎
-            bullish_snapshot_score = self._calculate_net_accumulation_score(df, base_col_name, norm_window, periods, ascending=(polarity == 1))
-            bearish_snapshot_score = self._calculate_net_accumulation_score(df, base_col_name, norm_window, periods, ascending=(polarity == -1))
-        else: # col_type == 'daily'
-            # 逻辑纯化，不再默认进行市值归一化
-            static_col = f"{base_col_name}_D"
-            if static_col not in df.columns:
-                print(f"      -> [支柱健康度] 警告: 缺少核心列 '{static_col}'，该支柱将返回默认值。")
-                default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-                for p in periods:
-                    s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-                return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-            static_series = df[static_col]
-            # 仅在显式指定时，才进行市值归一化
-            if normalize_by_mv:
-                market_cap_col = 'circ_mv_D'
-                if market_cap_col not in df.columns:
-                    print(f"      -> [支柱健康度] 警告: 缺少流通市值列 '{market_cap_col}'，无法为 '{static_col}' 进行归一化。")
-                else:
-                    market_cap_in_yuan = df[market_cap_col] * 10000
-                    market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
-                    # 注意：这里是资金流金额（万元）/ 市值（万元），需要统一单位
-                    static_series = (static_series / market_cap_in_yuan).fillna(0)
-            # 对已经归一化或原始的比率/价格指标进行历史百分位排名
-            indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
-            indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
-            bullish_snapshot_score = indicator_static_bull.astype(np.float32)
-            bearish_snapshot_score = indicator_static_bear.astype(np.float32)
-            
+        static_col = f"{base_col_name}_D"
+        if static_col not in df.columns:
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
+        static_series = df[static_col]
+        if normalize_by_mv:
+            market_cap_col = 'circ_mv_D'
+            if market_cap_col not in df.columns:
+                pass
+            else:
+                market_cap_in_yuan = df[market_cap_col] * 10000
+                market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
+                static_series = (static_series * 10000 / market_cap_in_yuan).fillna(0) # 修正单位统一
+        indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
+        indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
+        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
+        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
         unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
         for p in periods:
             s_bull[p] = bullish_snapshot_score
             s_bear[p] = bearish_snapshot_score
             d_intensity[p] = unified_d_intensity
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-
-    def _calculate_net_accumulation_score(self, df: pd.DataFrame, base_col_name: str, norm_window: int, periods: list, ascending: bool) -> pd.Series:
-        """
-        【V2.0 · 累积影响力版】计算多时间级别加权资金净累积得分
-        - 核心升维: 函数的计算核心从“累积绝对金额”升级为“累积相对影响力”。
-                      它现在对输入的、已经过市值归一化的“影响力”指标（如 main_force_flow_impact_ratio）进行滚动求和。
-        - 新物理意义: 计算结果不再是“N日累积流入多少万元”，而是“N日累-积流入了相当于流通市值百分之多少的资金”，
-                        这是一个彻底消除尺度效应的、可在全市场横向比较的“长期布局强度”指标。
-        """
-        # [代码修改开始]
-        # 步骤1: 获取日度资金流“影响力”数据，而非绝对值数据
-        daily_series = df.get(f"{base_col_name}_D")
-        if daily_series is None or daily_series.empty:
-            print(f"      -> [资金净累积] 警告: 缺少核心影响力指标列 '{base_col_name}_D'，无法计算。")
-            return pd.Series(0.5, index=df.index, dtype=np.float32)
-        # 步骤2: 从配置中获取各时间窗口的权重
-        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
-        acc_weights = get_param_value(p_conf.get('accumulation_analysis_weights'), {})
-        # 步骤3: 计算加权“累积影响力”得分
-        accumulation_periods = [p for p in periods if p > 1]
-        weighted_scores = []
-        total_weight = 0
-        for p in accumulation_periods:
-            weight = acc_weights.get(str(p), 0)
-            if weight > 0:
-                # 计算滚动窗口内的“影响力”净累积值
-                rolling_sum_of_impact = daily_series.rolling(window=p, min_periods=max(1, p // 2)).sum()
-                # 对“累积影响力”进行历史百分位归一化，得到该窗口的强度分
-                normalized_sum = normalize_score(rolling_sum_of_impact, df.index, norm_window, ascending=ascending)
-                weighted_scores.append(normalized_sum * weight)
-                total_weight += weight
-        if not weighted_scores or total_weight == 0:
-            # 如果没有有效的权重配置，则返回一个中性分数
-            print(f"      -> [资金净累积] 警告: 指标 '{base_col_name}_D' 的累积分析权重未配置或总权重为0。")
-            return pd.Series(0.5, index=df.index, dtype=np.float32)
-        # 对所有时间窗口的得分进行加权平均
-        final_accumulation_score = sum(weighted_scores) / total_weight
-        return final_accumulation_score.astype(np.float32)
-        
+        # [代码修改结束]
 
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法

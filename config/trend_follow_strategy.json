@@ -53,7 +53,7 @@
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V239.1 资金流补完版】为所有情报引擎的健康度计算提供必需的斜率指标。",
+      "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的斜率计算。",
       "series_to_slope": {
         "close_D": [1, 5, 13, 21, 55],
         "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
@@ -77,52 +77,17 @@
         "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55],
         "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus_sum_5d_D": [5], "main_force_net_flow_consensus_sum_13d_D": [13], "main_force_net_flow_consensus_sum_21d_D": [21], "main_force_net_flow_consensus_sum_55d_D": [55],
-        "net_xl_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_xl_amount_consensus_sum_5d_D": [5], "net_xl_amount_consensus_sum_13d_D": [13], "net_xl_amount_consensus_sum_21d_D": [21], "net_xl_amount_consensus_sum_55d_D": [55],
-        "net_lg_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_lg_amount_consensus_sum_5d_D": [5], "net_lg_amount_consensus_sum_13d_D": [13], "net_lg_amount_consensus_sum_21d_D": [21], "net_lg_amount_consensus_sum_55d_D": [55],
-        "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
-        "active_buy_pressure_D": [1, 5, 13, 21, 55],
-        "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
-        "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55],
-        "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
-        "retail_panic_index_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_sum_5d_D": [5],
-        "net_sh_amount_consensus_sum_13d_D": [13],
-        "net_sh_amount_consensus_sum_21d_D": [21],
-        "net_sh_amount_consensus_sum_55d_D": [55],
-        "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_md_amount_consensus_sum_5d_D": [5],
-        "net_md_amount_consensus_sum_13d_D": [13],
-        "net_md_amount_consensus_sum_21d_D": [21],
-        "net_md_amount_consensus_sum_55d_D": [55],
-        "avg_order_value_D": [5],
-        "trade_concentration_index_D": [5, 13, 21, 55],
         "turnover_from_losers_ratio_D": [5, 13, 21, 55],
-        "cost_weighted_main_flow_D": [1, 5, 13, 21, 55],
-        "cost_weighted_main_flow_sum_5d_D": [5], 
-        "cost_weighted_main_flow_sum_13d_D": [13], 
-        "cost_weighted_main_flow_sum_21d_D": [21], 
-        "cost_weighted_main_flow_sum_55d_D": [55],
-        "main_buy_cost_advantage_D": [1, 5, 13, 21, 55],
-        "main_force_intraday_profit_D": [1, 5, 13, 21, 55],
-        "market_cost_battle_D": [1, 5, 13, 21, 55],
-        "cost_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
-        "avg_cost_main_buy_D": [1, 5, 13, 21, 55],
-        "avg_cost_main_sell_D": [1, 5, 13, 21, 55],
-        "avg_cost_retail_buy_D": [1, 5, 13, 21, 55],
-        "avg_cost_retail_sell_D": [1, 5, 13, 21, 55],
-        "divergence_ts_ths_D": [1, 5, 13, 21, 55],
-        "divergence_ts_dc_D": [1, 5, 13, 21, 55],
-        "divergence_ths_dc_D": [1, 5, 13, 21, 55]
+        "chip_health_score_D": [1, 5, 13, 21, 55],
+        "profit_taking_urgency_D": [1, 5, 13, 21, 55],
+        "profit_realization_premium_D": [1, 5, 13, 21, 55],
+        "intraday_volume_gini_D": [1, 5, 13, 21, 55],
+        "volume_weighted_time_index_D": [1, 5, 13, 21, 55]
       }
     },
     "accel_params": {
       "enabled": true,
-      "说明": "【V239.1 资金流补完版】为所有情报引擎的健康度计算提供必需的加速度指标。",
+      "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的加速度计算。",
       "series_to_accel": {
         "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
         "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
@@ -133,45 +98,12 @@
         "peak_control_ratio_D": [1, 5, 13, 21, 55], "peak_stability_D": [1, 5, 13, 21, 55], "cost_divergence_D": [1, 5, 13, 21, 55],
         "winner_profit_margin_D": [1, 5, 13, 21, 55], "turnover_from_winners_ratio_D": [1, 5, 13, 21, 55],
         "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus_D": [1, 5, 13, 21, 55],
-        "main_force_net_flow_consensus_sum_5d_D": [5], "main_force_net_flow_consensus_sum_13d_D": [13], "main_force_net_flow_consensus_sum_21d_D": [21], "main_force_net_flow_consensus_sum_55d_D": [55],
-        "net_xl_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_xl_amount_consensus_sum_5d_D": [5], "net_xl_amount_consensus_sum_13d_D": [13], "net_xl_amount_consensus_sum_21d_D": [21], "net_xl_amount_consensus_sum_55d_D": [55],
-        "net_lg_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_lg_amount_consensus_sum_5d_D": [5], "net_lg_amount_consensus_sum_13d_D": [13], "net_lg_amount_consensus_sum_21d_D": [21], "net_lg_amount_consensus_sum_55d_D": [55],
-        "main_force_flow_intensity_ratio_D": [1, 5, 13, 21, 55],
-        "active_buy_pressure_D": [1, 5, 13, 21, 55], "main_force_conviction_ratio_D": [1, 5, 13, 21, 55],
-        "main_force_vs_xl_divergence_D": [1, 5, 13, 21, 55], "flow_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
-        "retail_panic_index_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_sh_amount_consensus_sum_5d_D": [5],
-        "net_sh_amount_consensus_sum_13d_D": [13],
-        "net_sh_amount_consensus_sum_21d_D": [21],
-        "net_sh_amount_consensus_sum_55d_D": [55],
-        "net_md_amount_consensus_D": [1, 5, 13, 21, 55],
-        "net_md_amount_consensus_sum_5d_D": [5],
-        "net_md_amount_consensus_sum_13d_D": [13],
-        "net_md_amount_consensus_sum_21d_D": [21],
-        "net_md_amount_consensus_sum_55d_D": [55],
-        "avg_order_value_D": [5],
-        "trade_concentration_index_D": [5, 13, 21, 55],
         "turnover_from_losers_ratio_D": [5, 13, 21, 55],
-        "cost_weighted_main_flow_D": [1, 5, 13, 21, 55],
-        "cost_weighted_main_flow_sum_5d_D": [5], 
-        "cost_weighted_main_flow_sum_13d_D": [13], 
-        "cost_weighted_main_flow_sum_21d_D": [21], 
-        "cost_weighted_main_flow_sum_55d_D": [55],
-        "main_buy_cost_advantage_D": [1, 5, 13, 21, 55],
-        "main_force_intraday_profit_D": [1, 5, 13, 21, 55],
-        "market_cost_battle_D": [1, 5, 13, 21, 55],
-        "cost_divergence_mf_vs_retail_D": [1, 5, 13, 21, 55],
-        "avg_cost_main_buy_D": [1, 5, 13, 21, 55],
-        "avg_cost_main_sell_D": [1, 5, 13, 21, 55],
-        "avg_cost_retail_buy_D": [1, 5, 13, 21, 55],
-        "avg_cost_retail_sell_D": [1, 5, 13, 21, 55],
-        "divergence_ts_ths_D": [1, 5, 13, 21, 55],
-        "divergence_ts_dc_D": [1, 5, 13, 21, 55],
-        "divergence_ths_dc_D": [1, 5, 13, 21, 55]
+        "chip_health_score_D": [1, 5, 13, 21, 55],
+        "profit_taking_urgency_D": [1, 5, 13, 21, 55],
+        "profit_realization_premium_D": [1, 5, 13, 21, 55],
+        "intraday_volume_gini_D": [1, 5, 13, 21, 55],
+        "volume_weighted_time_index_D": [1, 5, 13, 21, 55]
       }
     }
   },
@@ -525,20 +457,12 @@
             "description": "【过程】主力成本vs价格: 诊断主力买入成本的变化率是否超越价格本身的变化率。正分代表主力在加速、追高买入。"
           },
           {
-            "name": "PROCESS_META_PROFIT_VS_FLOW",
-            "type": "meta_analysis", "task_type": "base",
-            "signal_A": "main_force_intraday_profit_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【过程】主力盈亏vs流量: 诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
-          },
-          {
             "name": "PROCESS_META_MAIN_FORCE_URGENCY",
             "type": "meta_analysis", "task_type": "base",
             "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "close_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": -1.0,
-            "description": "【过程】主力紧迫度: 诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
+            "description": "【新增】主力紧迫度: 诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
           },
           {
             "name": "PROCESS_META_SMART_MONEY_COST_ADVANTAGE",
@@ -546,7 +470,15 @@
             "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "avg_cost_retail_sell_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": -1.0,
-            "description": "【过程】聪明钱成本优势: 诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
+            "description": "【新增】聪明钱成本优势: 诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
+          },
+          {
+            "name": "PROCESS_META_PROFIT_VS_FLOW",
+            "type": "meta_analysis", "task_type": "base",
+            "signal_A": "main_force_intraday_profit_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": -1.0,
+            "description": "【新增】主力盈亏vs流量: 诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
           }
         ]
       },
@@ -708,6 +640,11 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "context_modulation_params": {
+          "description": "【新增】上下文感知模块，用于增强或抑制筹码信号。",
+          "bottom_context_factor": 0.5,
+          "top_context_factor": 0.5
         }
       },
       "dynamic_mechanics_params": {

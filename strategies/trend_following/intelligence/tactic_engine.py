@@ -42,20 +42,17 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 商神杖激活版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 调用全新的 _calculate_ma_health 函数，以正确实现配置文件中定义的四维均线健康度评估。
+        【V5.0 · 资金流恐慌支柱版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 引入全新的“资金流恐慌”支柱，融合“散户投降分”与“主力吸筹行为”，
+                      从行为层面直接诊断恐慌抛售的真实性。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
         p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
-        
         intraday_low_pct_change = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
-
-        # 调用全新的、功能更强大的四维均线健康度评估引擎
         ma_health_score = self._calculate_ma_health(df, p_tactic, 55)
-        
         logic_params = get_param_value(p_panic.get('volume_calmness_logic'), {})
         lifeline_ma_period = get_param_value(logic_params.get('lifeline_ma_period'), 5)
         lifeline_base_score = get_param_value(logic_params.get('lifeline_base_score'), 1.0)
@@ -78,39 +75,36 @@ class TacticEngine:
                     raw_calmness_score += (is_below_lifeline & is_level_1).astype(float) * level_weights.get('level_1', 0.0)
                     raw_calmness_score += (is_below_lifeline & is_level_2).astype(float) * level_weights.get('level_2', 0.0)
                     raw_calmness_score += (is_below_lifeline & is_level_3).astype(float) * level_weights.get('level_3', 0.0)
-        
         final_calmness_score = raw_calmness_score
         states['INTERNAL_SCORE_VOLUME_CALMNESS'] = final_calmness_score.astype(np.float32)
-        
         price_drop_score = normalize_score(intraday_low_pct_change, df.index, window=60, ascending=False)
         volume_spike_score = normalize_score(df['volume_D'] / df['VOL_MA_21_D'], df.index, window=60, ascending=True)
-        chip_breakdown_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
-        chip_integrity_score = 1.0 - chip_breakdown_score
+        chip_integrity_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
-        
+        # [代码修改开始] 引入全新的“资金流恐慌”支柱
+        retail_capitulation = normalize_score(df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
+        main_force_absorption = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
+        fund_flow_panic_score = (retail_capitulation * main_force_absorption)**0.5
+        # [代码修改结束]
         snapshot_panic = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +
             chip_integrity_score * pillar_weights.get('chip_integrity', 0) +
             despair_context_score * pillar_weights.get('despair_context', 0) +
             structural_test_score * pillar_weights.get('structural_test', 0) +
-            ma_health_score * pillar_weights.get('ma_structure', 0) # 使用新的 ma_health_score
+            ma_health_score * pillar_weights.get('ma_structure', 0) +
+            fund_flow_panic_score * pillar_weights.get('fund_flow_panic', 0) # [代码修改] 将新支柱加入融合
         ).astype(np.float32)
-        
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
-        
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         rebound_strength_score = ((df['close_D'] - df['low_D']) / day_range).fillna(0.5).clip(0, 1)
-        
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
-
         base_score = snapshot_panic * final_calmness_score * rebound_strength_score
         final_score = base_score.where(is_significant_drop, 0) * hermes_regulator
-        
         states['SCORE_SETUP_PANIC_SELLING'] = final_score.clip(0, 1)
         return states
 

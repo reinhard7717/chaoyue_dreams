@@ -107,33 +107,23 @@ class CognitiveIntelligence:
 
     def synthesize_state_process_synergy(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.3 · 创世纪版】状态-过程协同融合引擎
-        - 核心升级: 将四个全新的“创世纪”过程信号全部纳入“过程共识分”的计算，
-                      使顶层认知能够理解市场的真实博弈。
-        - 优化说明: 使用Numpy向量化计算几何平均数，提高计算效率和数值稳定性。
+        【V1.4 · 意图洞察版】状态-过程协同融合引擎
+        - 核心升级: 将“主力紧迫度”、“聪明钱成本优势”、“盈亏流量背离”三大“意图洞察型”
+                      过程信号全部纳入“过程共识分”的计算，极大提升了对主力真实意图的洞察力。
         """
-        states = {} # 新增(规范): 初始化用于存储结果的字典
-        
-        # --- 状态共识分计算 ---
-        # 状态层面的多头信号列表
+        states = {}
         state_bullish_signals = [
             'SCORE_CHIP_BULLISH_RESONANCE', 'SCORE_BEHAVIOR_BULLISH_RESONANCE',
             'SCORE_FF_BULLISH_RESONANCE', 'SCORE_STRUCTURE_BULLISH_RESONANCE',
             'SCORE_DYN_BULLISH_RESONANCE', 'SCORE_FOUNDATION_BULLISH_RESONANCE'
         ]
-        # 使用列表推导式和.values高效获取所有信号的Numpy数组
         state_scores = [self._get_atomic_score(df, sig, 0.5).values for sig in state_bullish_signals]
-        
-        # 使用np.stack将列表转换为2D数组，然后计算几何平均数，避免pandas开销
-        # 几何平均数可以惩罚那些存在极低分数的项，要求各维度协同看多
         state_consensus_score = pd.Series(
             np.prod(np.stack(state_scores, axis=0), axis=0) ** (1.0 / len(state_scores)),
             index=df.index, dtype=np.float32
         )
         states['COGNITIVE_INTERNAL_STATE_CONSENSUS'] = state_consensus_score
-
-        # --- 过程共识分计算 ---
-        # 引入所有“创世纪”过程信号，这些信号描述了市场参与者行为的动态演变
+        # [代码修改开始] 引入所有“意图洞察型”过程信号
         process_bullish_signals = [
             'PROCESS_META_PV_REL_BULLISH_TURN',
             'PROCESS_META_PF_REL_BULLISH_TURN',
@@ -141,25 +131,21 @@ class CognitiveIntelligence:
             'PROCESS_META_POWER_TRANSFER',
             'PROCESS_META_STEALTH_ACCUMULATION',
             'PROCESS_META_WINNER_CONVICTION',
-            'PROCESS_META_LOSER_CAPITULATION'
+            'PROCESS_META_LOSER_CAPITULATION',
+            'PROCESS_META_MAIN_FORCE_URGENCY',
+            'PROCESS_META_SMART_MONEY_COST_ADVANTAGE',
+            'PROCESS_META_PROFIT_VS_FLOW'
         ]
-        # 将信号值从[-1, 1]区间归一化到[0, 1]区间，并直接获取Numpy数组
-        # (score * 0.5 + 0.5) 是将[-1, 1]映射到[0, 1]的标准方法
+        # [代码修改结束]
         process_scores = [(self._get_atomic_score(df, sig, 0.0).clip(-1, 1) * 0.5 + 0.5).values for sig in process_bullish_signals]
-        
-        # 同样使用Numpy高效计算过程信号的几何平均数
         process_consensus_score = pd.Series(
             np.prod(np.stack(process_scores, axis=0), axis=0) ** (1.0 / len(process_scores)),
             index=df.index, dtype=np.float32
         )
         states['COGNITIVE_INTERNAL_PROCESS_CONSENSUS'] = process_consensus_score
-
-        # --- 最终协同分数合成 ---
-        # 状态共识与过程共识相乘，代表静态优势与动态演变的协同效应
         synergy_score = (state_consensus_score * process_consensus_score).astype(np.float32)
         states['COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'] = synergy_score
-        
-        self.strategy.atomic_states.update(states) # 新增(规范): 统一更新原子状态库
+        self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -503,26 +489,30 @@ class CognitiveIntelligence:
 
     def synthesize_reversal_resonance_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V4.0 · 赫淮斯托斯熔炉版】多域反转共振分数合成模块
-        - 核心升级: 引入关系元分析，对融合后的“反转共振快照分”进行动态锻造。
+        【V4.1 · 资金流补完版】多域反转共振分数合成模块
+        - 核心升级: 将被遗漏的资金流反转信号(SCORE_FF_BOTTOM_REVERSAL/TOP_REVERSAL)
+                      纳入共振融合计算，补全了反转决策的关键一环。
         """
         states = {}
         default_score = pd.Series(0.5, index=df.index, dtype=np.float32)
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p = get_params_block(self.strategy, 'reversal_resonance_params', {})
-        bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
-        top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3})
+        bottom_weights = p.get('bottom_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3, 'ff': 0.2})
+        top_weights = p.get('top_resonance_weights', {'mechanics': 0.3, 'chip': 0.3, 'foundation': 0.2, 'behavior': 0.2, 'structure': 0.3, 'ff': 0.2})
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
         # --- 底部反转共振分数 ---
+        # [代码修改开始] 增加资金流反转信号
         bottom_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BOTTOM_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL'),
             'foundation': get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_BOTTOM_REVERSAL'),
             'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
-            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL')
+            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BOTTOM_REVERSAL'),
+            'ff': get_unified_score(self.strategy.atomic_states, df.index, 'FF_BOTTOM_REVERSAL')
         }
+        # [代码修改结束]
         bottom_scores_np = [s.values for d, s in bottom_sources.items() if bottom_weights.get(d, 0) > 0]
         bottom_weights_np = [w for d, w in bottom_weights.items() if d in bottom_sources and w > 0]
         if bottom_scores_np:
@@ -536,22 +526,23 @@ class CognitiveIntelligence:
             capitulation_potential_score = self._get_atomic_score(df, 'SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL', 0.0)
             capitulation_bonus_factor = get_param_value(p_cognitive.get('capitulation_potential_bonus_factor'), 0.5)
             capitulation_amplifier = 1.0 + (capitulation_potential_score.values * capitulation_bonus_factor)
-            # 计算快照分并进行动态锻造
             bottom_reversal_snapshot_values = bottom_reversal_values_raw * bottom_context_score.values * reliability_amplifier * capitulation_amplifier
             bottom_reversal_snapshot_score = pd.Series(bottom_reversal_snapshot_values, index=df.index, dtype=np.float32).clip(0, 1)
             final_bottom_reversal_score = self._perform_cognitive_relational_meta_analysis(df, bottom_reversal_snapshot_score)
             states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = final_bottom_reversal_score
-            
         else:
             states['COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE'] = default_score.copy()
         # --- 顶部反转共振分数 ---
+        # [代码修改开始] 增加资金流顶部反转信号
         top_sources = {
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_TOP_REVERSAL'),
             'foundation': get_unified_score(self.strategy.atomic_states, df.index, 'FOUNDATION_TOP_REVERSAL'),
             'behavior': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
-            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL')
+            'structure': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_TOP_REVERSAL'),
+            'ff': get_unified_score(self.strategy.atomic_states, df.index, 'FF_TOP_REVERSAL')
         }
+        # [代码修改结束]
         top_scores_np = [s.values for d, s in top_sources.items() if top_weights.get(d, 0) > 0]
         top_weights_np = [w for d, w in top_weights.items() if d in top_sources and w > 0]
         if top_scores_np:
@@ -559,12 +550,10 @@ class CognitiveIntelligence:
             weights_array /= weights_array.sum()
             stacked_scores = np.stack(top_scores_np, axis=0)
             top_reversal_values_raw = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            # 计算快照分并进行动态锻造
             top_reversal_snapshot_values = top_reversal_values_raw * top_context_score.values
             top_reversal_snapshot_score = pd.Series(top_reversal_snapshot_values, index=df.index, dtype=np.float32).clip(0, 1)
             final_top_reversal_score = self._perform_cognitive_relational_meta_analysis(df, top_reversal_snapshot_score)
             states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = final_top_reversal_score
-            
         else:
             states['COGNITIVE_SCORE_TOP_REVERSAL_RESONANCE'] = default_score.copy()
         self.strategy.atomic_states.update(states)
