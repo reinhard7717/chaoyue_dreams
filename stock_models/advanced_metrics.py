@@ -462,8 +462,8 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V2.1 · 导数净化版】高级结构与行为指标模型
-    - 核心升级: 新增导数计算排除列表(SLOPE_ACCEL_EXCLUSIONS)，对不适合计算斜率和加速度的布尔型指标进行屏蔽，避免引入噪音。
+    【V2.2 · 竞价指标固化版】高级结构与行为指标模型
+    - 核心升级: 新增对收盘集合竞价的分析指标，并将其加入导数计算的排除列表。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     CORE_METRICS = {
@@ -484,24 +484,30 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_weighted_time_index': '成交量加权时间指数',
         'is_intraday_bullish_divergence': '是否存在日内底部背离',
         'is_intraday_bearish_divergence': '是否存在日内顶部背离',
+        # [代码新增开始] 新增集合竞价分析指标
+        'auction_volume_ratio': '集合竞价成交量占比',
+        'auction_price_impact': '集合竞价价格冲击',
+        'auction_conviction_index': '集合竞价强度指数',
+        # [代码新增结束]
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = ['is_intraday_bullish_divergence', 'is_intraday_bearish_divergence']
-    # [代码新增开始]
+    # [代码修改开始] 将新的竞价指标加入排除列表，因为它们是事件驱动型指标，不适合求导
     SLOPE_ACCEL_EXCLUSIONS = [
         'is_intraday_bullish_divergence',
         'is_intraday_bearish_divergence',
+        'auction_volume_ratio',
+        'auction_price_impact',
+        'auction_conviction_index',
     ]
-    # [代码新增结束]
+    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)
         else:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
-        # [代码修改开始] 增加判断，跳过对排除列表中的指标的导数计算
         if name in SLOPE_ACCEL_EXCLUSIONS:
             continue
-        # [代码修改结束]
         for p in UNIFIED_PERIODS:
             vars()[f'{name}_slope_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日斜率', null=True, blank=True)
             vars()[f'{name}_accel_{p}d'] = models.FloatField(verbose_name=f'{verbose}{p}日加速度', null=True, blank=True)

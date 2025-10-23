@@ -198,27 +198,47 @@ class AdvancedChipMetricsService:
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
-        """当资金流数据缺失时，提供一个基础的分钟数据增强。"""
+        """
+        【V1.1 · 竞价隔离版】当资金流数据缺失时，提供一个基础的分钟数据增强。
+        - 核心修复: 过滤掉集合竞价时段的数据。
+        """
         if minute_df.empty: return minute_df
         df = minute_df.copy()
+        # [代码新增开始] 过滤集合竞价时段
+        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
+        df = df[df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME].copy()
+        if df.empty: return df
+        # [代码新增结束]
         df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
         df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce')
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         return df
 
     async def _load_minute_data_for_range(self, stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
-        """一次性加载指定日期范围内的所有分钟线数据，并按日期分组。"""
+        """
+        【V1.1 · 时区修正版】一次性加载指定日期范围内的所有分钟线数据，并按日期分组。
+        - 核心修复: 强制将时间戳转换为北京时间，并确保升序排列。
+        """
+        from django.utils import timezone
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
         if not MinuteModel: return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
+            # [代码修改开始] 强制按交易时间升序排序
             qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
+            # [代码修改结束]
             return pd.DataFrame.from_records(qs)
-        start_datetime = datetime.combine(start_date, time.min)
-        end_datetime = datetime.combine(end_date, time.max)
+        start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
+        end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
         minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
         if minute_df.empty: return {}
         minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
+        # [代码新增开始] 强制将时间戳转换为北京时间
+        if minute_df['trade_time'].dt.tz is not None:
+            minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
+        else:
+            minute_df['trade_time'] = minute_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+        # [代码新增结束]
         minute_df['date'] = minute_df['trade_time'].dt.date
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 

@@ -163,33 +163,27 @@ class AdvancedStructuralMetricsService:
 
     def _forge_advanced_structural_metrics(self, minute_data_map: dict) -> pd.DataFrame:
         """
-        【V2.7 · 竞价隔离版】高级结构与行为指标锻造核心引擎
-        - 核心升级: 隔离最后三分钟的集合竞价数据，确保过程形态类指标（如趋势、背离、价值区间）
-                      仅在连续交易时段 (09:30-14:57) 内计算，避免数据污染。
+        【V2.8 · 日终事件分析版】高级结构与行为指标锻造核心引擎
+        - 核心升级: 新增对收盘集合竞价阶段的专门分析，提取“抢筹”或“派发”的战术信号。
+                      锻造 auction_volume_ratio, auction_price_impact, auction_conviction_index 三个新指标。
         """
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
         AM_END_TIME = time(11, 30, 0)
         PM_START_TIME = time(13, 0, 0)
-        # [代码新增开始] 定义连续交易与集合竞价的边界
         CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
-        # [代码新增结束]
-        TOTAL_TRADING_SECONDS = 14400 # 4小时 = 14400秒
-        LUNCH_BREAK_SECONDS = 5400 # 1.5小时午休 = 5400秒
-        latest_date_in_chunk = max(minute_data_map.keys())
+        AUCTION_TIME = time(15, 0, 0)
+        TOTAL_TRADING_SECONDS = 14400
+        LUNCH_BREAK_SECONDS = 5400
         for date, group in minute_data_map.items():
             if group.empty or len(group) < 10:
                 continue
-            # 防御性编程：确保数据按时间升序排列
             group = group.sort_values(by='trade_time', ascending=True).reset_index(drop=True)
-            # [代码新增开始] 数据隔离：划分为连续交易部分和全天部分
             continuous_mask = group['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
             continuous_group = group[continuous_mask]
-            # 如果没有连续交易数据（例如全天停牌只在收盘成交），则跳过
             if continuous_group.empty:
                 continue
-            # [代码新增结束]
             # --- 基础变量计算 (使用全天数据 'group') ---
             day_open, day_high, day_low, day_close = group['open'].iloc[0], group['high'].max(), group['low'].min(), group['close'].iloc[-1]
             day_range = day_high - day_low
@@ -197,20 +191,15 @@ class AdvancedStructuralMetricsService:
             total_volume = group['vol'].sum()
             total_volume_safe = total_volume if total_volume > 0 else np.nan
             # --- 过程形态类指标 (使用连续交易数据 'continuous_group') ---
-            # 为连续交易时段计算分钟VWAP
-            continuous_group = continuous_group.copy() # 避免SettingWithCopyWarning
+            continuous_group = continuous_group.copy()
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'] = continuous_group['minute_vwap'].fillna(method='ffill').fillna(day_open)
-            # 1. 日内趋势效率
             path_length = continuous_group['minute_vwap'].diff().abs().sum()
             intraday_trend_efficiency = abs(day_close - day_open) / path_length if path_length > 0 else 0
-            # 2. 日内价值区间 (VPOC/VAH/VAL)
             vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
             vpoc_interval = vp.idxmax() if not vp.empty else np.nan
             vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else continuous_group['close'].iloc[-1]
-            # 注意：价值区域的成交量目标仍然是全天成交量的70%
             intraday_vah, intraday_val = self._calculate_value_area(vp, total_volume, vpoc_interval)
-            # 3. 日内趋势线性度(R²)
             x = np.arange(len(continuous_group))
             y = continuous_group['close'].values
             slope, intercept = np.polyfit(x, y, 1)
@@ -218,7 +207,6 @@ class AdvancedStructuralMetricsService:
             ss_res = np.sum((y - y_pred) ** 2)
             ss_tot = np.sum((y - np.mean(y)) ** 2)
             intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
-            # 4. 日内背离检测
             is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(continuous_group)
             # --- 全天总结性指标 (使用全天数据 'group') ---
             vwap = (group['amount']).sum() / total_volume_safe if pd.notna(total_volume_safe) else day_close
@@ -255,6 +243,22 @@ class AdvancedStructuralMetricsService:
             seconds_from_start[pm_mask] -= LUNCH_BREAK_SECONDS
             weighted_time = (seconds_from_start * group['vol']).sum()
             volume_weighted_time_index = weighted_time / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) and total_volume_safe > 0 else 0.5
+            # [代码新增开始] 集合竞价事件分析
+            auction_volume_ratio = np.nan
+            auction_price_impact = np.nan
+            auction_conviction_index = np.nan
+            auction_data = group[group['trade_time'].dt.time == AUCTION_TIME]
+            if not auction_data.empty and not continuous_group.empty:
+                auction_vol = auction_data['vol'].iloc[0]
+                auction_close = auction_data['close'].iloc[0]
+                last_continuous_close = continuous_group['close'].iloc[-1]
+                if pd.notna(total_volume_safe) and total_volume_safe > 0:
+                    auction_volume_ratio = auction_vol / total_volume_safe
+                if pd.notna(last_continuous_close) and last_continuous_close > 0:
+                    auction_price_impact = (auction_close - last_continuous_close) / last_continuous_close
+                if pd.notna(auction_price_impact) and pd.notna(auction_volume_ratio):
+                    auction_conviction_index = auction_price_impact * auction_volume_ratio * 100
+            # [代码新增结束]
             daily_metrics.append({
                 'trade_time': date,
                 'volume_weighted_close_position': vwap_pos,
@@ -274,6 +278,11 @@ class AdvancedStructuralMetricsService:
                 'volume_weighted_time_index': volume_weighted_time_index,
                 'is_intraday_bullish_divergence': is_intraday_bullish_divergence,
                 'is_intraday_bearish_divergence': is_intraday_bearish_divergence,
+                # [代码新增开始] 填入新的集合竞价指标
+                'auction_volume_ratio': auction_volume_ratio,
+                'auction_price_impact': auction_price_impact,
+                'auction_conviction_index': auction_conviction_index,
+                # [代码新增结束]
             })
         if not daily_metrics:
             return pd.DataFrame()

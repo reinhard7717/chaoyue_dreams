@@ -98,7 +98,6 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-        
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         from datetime import datetime
@@ -130,7 +129,6 @@ class AdvancedFundFlowMetricsService:
                 is_incremental = False
                 fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-        
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
         # 移除所有探针性质的print语句
@@ -181,7 +179,6 @@ class AdvancedFundFlowMetricsService:
         if daily_dfs_to_join:
             merged_df = merged_df.join(daily_dfs_to_join, how='left')
         return merged_df
-        
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
         """【V1.3 · 时区修正版】从分钟数据计算日度VWAP"""
@@ -217,7 +214,6 @@ class AdvancedFundFlowMetricsService:
         if minute_df.empty:
             return None
         return self._group_minute_data_from_df(minute_df)
-        
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
         df = merged_df.copy()
@@ -317,16 +313,13 @@ class AdvancedFundFlowMetricsService:
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
         return result_df, attributed_minute_map
-        
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         """
-        【V6.0 · 显式返回版】不再依赖副作用，显式返回归因后的分钟数据字典。
+        【V6.1 · 竞价隔离版】计算概率成本时，仅使用连续交易时段的数据。
         """
         if minute_df_grouped is None:
-            # 确保在任何分支都返回两个值
             return pd.DataFrame(index=daily_df.index), {}
-            
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         from scipy.spatial.distance import jensenshannon
@@ -334,7 +327,13 @@ class AdvancedFundFlowMetricsService:
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            minute_data_for_day = self._calculate_intraday_attribution_weights(minute_df_grouped.loc[[date_key]].copy(), daily_data)
+            # [代码修改开始] 仅使用连续交易时段的数据进行成本归因
+            minute_data_full = minute_df_grouped.loc[[date_key]].copy()
+            minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
+            if minute_data_continuous.empty:
+                continue
+            minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_continuous, daily_data)
+            # [代码修改结束]
             day_results = {'trade_time': date}
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
@@ -356,22 +355,24 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
+            # [代码修改开始] 确保 volume_profile_jsd_vs_uniform 仅使用连续交易时段的成交量
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
+            # [代码修改结束]
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
                               (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
-            total_day_vol = minute_data_for_day['vol_shares'].sum()
+            # [代码修改开始] total_day_vol 应该使用全天成交量，但这里计算的是连续交易时段的成交量，需要修正
+            total_continuous_vol = minute_data_for_day['vol_shares'].sum()
+            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100 # 使用日线数据中的全天成交量
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
+            # [代码修改结束]
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
-            # 确保在任何分支都返回两个值
             return pd.DataFrame(), {}
-            
-        # 不再设置实例属性，而是创建局部变量并返回
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
@@ -520,7 +521,6 @@ class AdvancedFundFlowMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
-        
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -570,15 +570,18 @@ class AdvancedFundFlowMetricsService:
         return results_df
 
     def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
-        # 移除调试性质的print语句
+        """
+        【V3.1 · 竞价隔离版】计算行为指标时，仅使用连续交易时段的数据。
+        """
         if not minute_df_attributed_grouped:
             return pd.DataFrame(index=daily_df.index)
-        
         results = {}
         for date, daily_data in daily_df.iterrows():
             if date not in minute_df_attributed_grouped:
                 continue
+            # [代码修改开始] minute_data_for_day 已经是连续交易时段的数据
             minute_data_for_day = minute_df_attributed_grouped[date]
+            # [代码修改结束]
             day_results = {'trade_time': date}
             minute_data_for_day['main_force_buy_vol'] = minute_data_for_day.get('lg_buy_vol_attr', 0) + minute_data_for_day.get('elg_buy_vol_attr', 0)
             minute_data_for_day['main_force_sell_vol'] = minute_data_for_day.get('lg_sell_vol_attr', 0) + minute_data_for_day.get('elg_sell_vol_attr', 0)
@@ -623,16 +626,23 @@ class AdvancedFundFlowMetricsService:
         return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
     def _calculate_intraday_structure_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
-        # 移除调试性质的print语句
+        """
+        【V3.1 · 竞价隔离版】计算日内结构指标时，仅使用连续交易时段的数据。
+        """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
-        
         results = {}
+        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            minute_data_for_day = minute_df_grouped.loc[[date_key]]
+            # [代码修改开始] 过滤出连续交易时段的数据
+            minute_data_full = minute_df_grouped.loc[[date_key]]
+            minute_data_for_day = minute_data_full[minute_data_full['is_continuous_trading']].copy()
+            if minute_data_for_day.empty:
+                continue
+            # [代码修改结束]
             day_results = {'trade_time': date}
             minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
             day_results['intraday_volatility'] = minute_returns.std() if not minute_returns.empty else 0
@@ -641,7 +651,9 @@ class AdvancedFundFlowMetricsService:
             close_price = daily_data.get('close')
             price_range = intraday_high - intraday_low
             if pd.notna(close_price) and price_range > 0:
+                # [代码修改开始] 修正：使用全天收盘价与连续交易时段的极值计算强度
                 day_results['closing_strength_index'] = (close_price - intraday_low) / price_range
+                # [代码修改结束]
             else:
                 day_results['closing_strength_index'] = np.nan
             daily_vwap = daily_data.get('daily_vwap')
@@ -649,14 +661,19 @@ class AdvancedFundFlowMetricsService:
                 day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
             else:
                 day_results['close_vs_vwap_ratio'] = np.nan
+            # [代码修改开始] final_hour_momentum 应该使用全天数据，但这里计算的是连续交易时段的最后部分
+            # 重新定义 final_hour_momentum 为连续交易时段的最后半小时（14:00-14:57）
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             final_hour_mask = trade_time_local.dt.hour >= 14
             final_hour_vol = minute_data_for_day[final_hour_mask]['vol_shares'].sum()
-            total_day_vol = minute_data_for_day['vol_shares'].sum()
+            total_continuous_vol = minute_data_for_day['vol_shares'].sum()
+            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100 # 使用日线数据中的全天成交量
             if total_day_vol > 0:
+                # 修正为：连续交易时段最后半小时的成交量占全天成交量的比例
                 day_results['final_hour_momentum'] = final_hour_vol / total_day_vol
             else:
                 day_results['final_hour_momentum'] = np.nan
+            # [代码修改结束]
             results[date] = day_results
         if not results:
             return pd.DataFrame()
@@ -743,21 +760,29 @@ class AdvancedFundFlowMetricsService:
         return daily_vwap.reindex(date_index)
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.3 · API单位对齐版】从预加载的DataFrame构建按日分组的数据。"""
+        """【V1.4 · 竞价隔离版】从预加载的DataFrame构建按日分组的数据。"""
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
         df.sort_values('trade_time', inplace=True)
         df['trade_time'] = pd.to_datetime(df['trade_time'])
+        # [代码新增开始] 强制转换为北京时间，以便进行时间过滤
+        if df['trade_time'].dt.tz is None:
+            df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
+        else:
+            df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
+        # [代码新增结束]
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
-        
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
+        # [代码新增开始] 标记集合竞价时段
+        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
+        df['is_continuous_trading'] = df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
+        # [代码新增结束]
         return df.set_index('date')
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
