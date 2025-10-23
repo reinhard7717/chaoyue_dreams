@@ -160,14 +160,17 @@ class AdvancedStructuralMetricsService:
 
     def _forge_advanced_structural_metrics(self, minute_data_map: dict) -> pd.DataFrame:
         """
-        【V2.3 · 逻辑深化版】高级结构与行为指标锻造核心引擎
-        - 优化点: 
-            1. 日内趋势效率: 使用 VWAP 路径长度代替收盘价路径长度，更平滑。
-            2. 日内反转强度: 优化计算逻辑，避免除以零。
+        【V2.4 · 交易时段修正版】高级结构与行为指标锻造核心引擎
+        - 核心修复: 修正了上下午交易时段的划分逻辑，并修正了成交量加权时间指数的归一化因子。
         """
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
+        # [代码新增开始] 定义A股上下午交易时间边界
+        AM_END_TIME = time(11, 30, 0)
+        PM_START_TIME = time(13, 0, 0)
+        TOTAL_TRADING_SECONDS = 14400 # 4小时 = 14400秒
+        # [代码新增结束]
         for date, group in minute_data_map.items():
             if group.empty or len(group) < 10:
                 continue
@@ -177,10 +180,9 @@ class AdvancedStructuralMetricsService:
             day_range_safe = day_range if day_range > 0 else np.nan
             total_volume = group['vol'].sum()
             total_volume_safe = total_volume if total_volume > 0 else np.nan
-            # [代码新增开始] 计算分钟VWAP，用于路径分析和背离检测
+            # 计算分钟VWAP，用于路径分析和背离检测
             group['minute_vwap'] = group['amount'] / group['vol'].replace(0, np.nan)
             group['minute_vwap'] = group['minute_vwap'].fillna(method='ffill').fillna(day_open)
-            # [代码新增结束]
             # --- V1.0 指标计算 (略作优化) ---
             vwap = (group['amount']).sum() / total_volume_safe if pd.notna(total_volume_safe) else day_close
             vwap_pos = (vwap - day_low) / day_range_safe if pd.notna(day_range_safe) else 0.5
@@ -190,33 +192,30 @@ class AdvancedStructuralMetricsService:
             lower_shadow_vol_ratio = group[lower_shadow_mask]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
             mfm = ((group['close'] - group['low']) - (group['high'] - group['close'])) / (group['high'] - group['low']).replace(0, np.nan)
             true_daily_cmf = (mfm.fillna(0) * group['vol']).sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
-            # [代码修改开始] 使用 VWAP 路径长度代替收盘价路径长度
             path_length = group['minute_vwap'].diff().abs().sum()
             intraday_trend_efficiency = abs(day_close - day_open) / path_length if path_length > 0 else 0
-            # [代码修改结束]
-            # [代码修改开始] 优化日内反转强度计算
             if pd.notna(day_range_safe):
-                # 强度 = (收盘价到低点的距离 - 收盘价到高点的距离) / 振幅
                 intraday_reversal_intensity = ((day_close - day_low) - (day_high - day_close)) / day_range_safe
             else:
                 intraday_reversal_intensity = 0
-            # [代码修改结束]
             # --- V2.0 指标计算 ---
-            # 1. 日内价值区间 (简易实现)
+            # 1. 日内价值区间
             vp = group.groupby(pd.cut(group['close'], bins=20))['vol'].sum()
             vpoc_interval = vp.idxmax() if not vp.empty else np.nan
             vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close
             close_vs_vpoc_ratio = day_close / vpoc if vpoc > 0 else 1.0
             intraday_vah, intraday_val = self._calculate_value_area(vp, total_volume, vpoc_interval)
             # 2. 上下午成交量/VWAP比
-            am_mask = group['trade_time'].dt.hour < 12
-            pm_mask = ~am_mask
+            # [代码修改开始] 使用精确时间划分上下午交易时段
+            am_mask = group['trade_time'].dt.time <= AM_END_TIME
+            pm_mask = group['trade_time'].dt.time >= PM_START_TIME
             am_vol = group[am_mask]['vol'].sum()
             pm_vol = group[pm_mask]['vol'].sum()
             am_pm_volume_ratio = pm_vol / am_vol if am_vol > 0 else np.nan
             am_vwap = (group[am_mask]['amount']).sum() / am_vol if am_vol > 0 else np.nan
             pm_vwap = (group[pm_mask]['amount']).sum() / pm_vol if pm_vol > 0 else np.nan
             am_pm_vwap_ratio = pm_vwap / am_vwap if pd.notna(am_vwap) and am_vwap > 0 else np.nan
+            # [代码修改结束]
             # 3. 日内成交量基尼系数
             vol_array = group['vol'].dropna().values
             if len(vol_array) > 1:
@@ -235,8 +234,10 @@ class AdvancedStructuralMetricsService:
             ss_tot = np.sum((y - np.mean(y)) ** 2)
             intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
             # 5. 成交量加权时间指数
+            # [代码修改开始] 使用 TOTAL_TRADING_SECONDS 作为归一化因子
             time_as_float = (group['trade_time'] - group['trade_time'].iloc[0]).dt.total_seconds()
-            volume_weighted_time_index = (time_as_float * group['vol']).sum() / (time_as_float.max() * total_volume_safe) if pd.notna(total_volume_safe) and time_as_float.max() > 0 else 0.5
+            volume_weighted_time_index = (time_as_float * group['vol']).sum() / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) and TOTAL_TRADING_SECONDS > 0 else 0.5
+            # [代码修改结束]
             is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(group)
             daily_metrics.append({
                 'trade_time': date,
@@ -405,15 +406,16 @@ class AdvancedStructuralMetricsService:
         - 优化点: 
             1. 使用分钟VWAP作为价格代理，更具代表性。
             2. 引入 scipy.signal.find_peaks 进行更可靠的波峰波谷检测。
+            3. 移除冗余的 minute_vwap 计算。
         """
         from scipy.signal import find_peaks
+        from itertools import combinations
         is_bullish_divergence = False
         is_bearish_divergence = False
         if len(group) < 30:
             return is_bullish_divergence, is_bearish_divergence
-        # [代码修改开始] 使用分钟VWAP作为价格代理
-        group['minute_vwap'] = group['amount'] / group['vol'].replace(0, np.nan)
-        price_series = group['minute_vwap'].fillna(method='ffill').fillna(group['close'].iloc[0])
+        # [代码修改开始] 直接使用主函数计算好的 minute_vwap
+        price_series = group['minute_vwap']
         # [代码修改结束]
         rsi_series = ta.rsi(price_series, length=14).dropna()
         if rsi_series.empty:
@@ -421,11 +423,9 @@ class AdvancedStructuralMetricsService:
         # 对齐价格和RSI序列
         aligned_price = price_series.loc[rsi_series.index]
         aligned_rsi = rsi_series
-        # [代码修改开始] 使用 find_peaks 寻找波峰和波谷
-        # 寻找波谷 (低点)
+        # 使用 find_peaks 寻找波峰和波谷
         price_low_indices, _ = find_peaks(-aligned_price.values, distance=10, prominence=0.005) # 至少间隔10分钟，显著性0.5%
         rsi_low_indices, _ = find_peaks(-aligned_rsi.values, distance=10, prominence=1.0) # RSI显著性1.0
-        # 寻找波峰 (高点)
         price_high_indices, _ = find_peaks(aligned_price.values, distance=10, prominence=0.005)
         rsi_high_indices, _ = find_peaks(aligned_rsi.values, distance=10, prominence=1.0)
         # 将索引转换为时间戳索引
@@ -433,33 +433,23 @@ class AdvancedStructuralMetricsService:
         rsi_lows = aligned_rsi.iloc[rsi_low_indices]
         price_highs = aligned_price.iloc[price_high_indices]
         rsi_highs = aligned_rsi.iloc[rsi_high_indices]
-        # [代码修改结束]
         # --- 检测底部背离 (价格创新低，RSI未创新低) ---
         if len(price_lows) >= 2 and len(rsi_lows) >= 2:
-            from itertools import combinations
             for (t1, p1), (t2, p2) in combinations(price_lows.items(), 2):
-                # 确保 t2 > t1
                 if t2 < t1: continue
-                # 价格创新低 (p2 < p1)
                 if p2 < p1:
-                    # 找到 t1 和 t2 附近最近的 RSI 低点
                     rsi_l1 = rsi_lows[rsi_lows.index <= t1].iloc[-1] if not rsi_lows[rsi_lows.index <= t1].empty else np.nan
                     rsi_l2 = rsi_lows[rsi_lows.index >= t2].iloc[0] if not rsi_lows[rsi_lows.index >= t2].empty else np.nan
-                    # RSI未创新低 (rsi_l2 > rsi_l1)
                     if pd.notna(rsi_l1) and pd.notna(rsi_l2) and rsi_l2 > rsi_l1:
                         is_bullish_divergence = True
                         break
         # --- 检测顶部背离 (价格创新高，RSI未创新高) ---
         if not is_bullish_divergence and len(price_highs) >= 2 and len(rsi_highs) >= 2:
-            from itertools import combinations
             for (t1, p1), (t2, p2) in combinations(price_highs.items(), 2):
                 if t2 < t1: continue
-                # 价格创新高 (p2 > p1)
                 if p2 > p1:
-                    # 找到 t1 和 t2 附近最近的 RSI 高点
                     rsi_h1 = rsi_highs[rsi_highs.index <= t1].iloc[-1] if not rsi_highs[rsi_highs.index <= t1].empty else np.nan
                     rsi_h2 = rsi_highs[rsi_highs.index >= t2].iloc[0] if not rsi_highs[rsi_highs.index >= t2].empty else np.nan
-                    # RSI未创新高 (rsi_h2 < rsi_h1)
                     if pd.notna(rsi_h1) and pd.notna(rsi_h2) and rsi_h2 < rsi_h1:
                         is_bearish_divergence = True
                         break
