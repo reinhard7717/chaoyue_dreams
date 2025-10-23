@@ -25,7 +25,7 @@ import pandas_ta as ta
 from django.db import transaction, connection
 from chaoyue_dreams.celery import app as celery_app
 from dao_manager.tushare_daos.stock_basic_info_dao import StockBasicInfoDao
-from stock_models.time_trade import BaseAdvancedChipMetrics
+from stock_models.advanced_metrics import BaseAdvancedChipMetrics, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
 from dao_manager.tushare_daos.industry_dao import IndustryDao
 from dao_manager.tushare_daos.strategies_dao import StrategiesDAO
 from stock_models.stock_analytics import DailyPositionSnapshot, PositionTracker, StrategyDailyScore, TradingSignal, AtomicSignalPerformance, StrategyDailyState
@@ -33,7 +33,7 @@ from stock_models.index import TradeCalendar
 from services.contextual_analysis_service import ContextualAnalysisService
 from services.chip_feature_calculator import ChipFeatureCalculator
 from stock_models.stock_basic import StockInfo
-from stock_models.time_trade import StockDailyBasic, StockCyqPerf, AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ, StockCyqPerf
+from stock_models.time_trade import StockDailyBasic, StockCyqPerf, StockCyqPerf
 from strategies.multi_timeframe_trend_strategy import MultiTimeframeTrendStrategy
 from utils.cache_manager import CacheManager
 
@@ -749,11 +749,47 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_structural_metrics_for_stock', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
+    """
+    【V1.0 · 新增】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
+    """
+    # [代码新增开始]
+    async def main(incremental_flag: bool, start_date_override: str):
+        from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
+        
+        structural_service = AdvancedStructuralMetricsService()
+        
+        try:
+            processed_count = await structural_service.run_precomputation(
+                stock_code=stock_code,
+                is_incremental=incremental_flag,
+                start_date_str=start_date_override
+            )
+            logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
+            return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}
+        except Exception as e:
+            logger.error(f"[{stock_code}] [结构指标任务] 执行失败: {e}", exc_info=True)
+            # 可以在这里决定是否重试
+            raise
+            
+    try:
+        # 使用 async_to_sync 将异步的 main 函数同步执行
+        result = async_to_sync(main)(is_incremental, start_date_str)
+        return result
+    except Exception as e:
+        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_structural_metrics_for_stock for {stock_code}: {e}", exc_info=True)
+        # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
+        raise
+    # [代码新增结束]
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-01", is_incremental: bool = True):
     """
-    【总调度器 V1.4 · 单一任务派遣版】
-    - 核心变更: 只派遣合并后的筹码任务，不再派遣独立的资金流任务。
+    【总调度器 V1.5 · 结构指标并行版】
+    - 核心升级: 在派遣合并后的筹码/资金流任务的同时，并行派遣新的结构指标计算任务。
     """
     try:
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
@@ -762,20 +798,34 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = "2025-09-
             return {"status": "skipped", "reason": "No listed stocks found."}
         print(f"✅✅✅ [总调度器启动] 模式: {'增量' if is_incremental else '全量'}, 起始日期: {start_date_str}")
         print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。")
-        # 只创建和派遣合并后的“超级任务”
-        tasks_to_dispatch = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
-        print(f"✅✅✅ [总调度器] 已创建 {len(tasks_to_dispatch)} 个【合并计算】任务签名。")
+        
+        # [代码修改开始]
+        # 任务列表现在包含两种类型的任务
+        tasks_to_dispatch = []
+        
+        # 1. 创建并添加合并后的筹码/资金流计算任务
+        chip_ff_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        tasks_to_dispatch.extend(chip_ff_tasks)
+        print(f"✅✅✅ [总调度器] 已创建 {len(chip_ff_tasks)} 个【合并计算】任务签名。")
+
+        # 2. 创建并添加新的结构指标计算任务
+        structural_tasks = [precompute_advanced_structural_metrics_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
+        tasks_to_dispatch.extend(structural_tasks)
+        print(f"✅✅✅ [总调度器] 已创建 {len(structural_tasks)} 个【结构指标】任务签名。")
+        
         job_group = group(tasks_to_dispatch)
         job_group.apply_async()
+        
         total_tasks_dispatched = len(tasks_to_dispatch)
         print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
         
-        logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个合并计算子任务。")
+        logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务。")
         return {
             "status": "success",
             "dispatched_stocks": len(stock_codes),
             "total_tasks_dispatched": total_tasks_dispatched
         }
+        # [代码修改结束]
     except Exception as e:
         import traceback
         print(f"🔥🔥🔥 [总调度器-严重错误] 捕获到 Exception: {e} 🔥🔥🔥")

@@ -4,9 +4,7 @@
 from stock_models.time_trade import (
     StockDailyData_SZ, StockDailyData_SH, StockDailyData_CY, 
     StockDailyData_KC, StockDailyData_BJ, StockCyqChipsCY,
-    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ,
-    AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC,
-    AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ, StockDailyBasic_CY,
+    StockCyqChipsSZ, StockCyqChipsKC, StockCyqChipsSH, StockCyqChipsBJ, StockDailyBasic_CY,
     StockDailyBasic_SZ, StockDailyBasic_KC, StockDailyBasic_SH, StockDailyBasic_BJ,
     StockMinuteData_1_SZ, StockMinuteData_5_SZ, StockMinuteData_15_SZ, StockMinuteData_30_SZ, StockMinuteData_60_SZ,
     StockMinuteData_1_CY, StockMinuteData_5_CY, StockMinuteData_15_CY, StockMinuteData_30_CY, StockMinuteData_60_CY,
@@ -15,9 +13,12 @@ from stock_models.time_trade import (
     StockMinuteData_1_BJ, StockMinuteData_5_BJ, StockMinuteData_15_BJ, StockMinuteData_30_BJ, StockMinuteData_60_BJ,
     StockPriceLimit_SZ, StockPriceLimit_SH, StockPriceLimit_CY,StockPriceLimit_KC, StockPriceLimit_BJ,
 )
-
+from stock_models.advanced_metrics import (
+    AdvancedChipMetrics_CY, AdvancedChipMetrics_SZ, AdvancedChipMetrics_KC, AdvancedChipMetrics_SH, AdvancedChipMetrics_BJ,
+    AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ,
+    AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_BJ
+)
 from stock_models.fund_flow import FundFlowDailyDC_CY, FundFlowDailyDC_SZ, FundFlowDailyDC_KC, FundFlowDailyDC_SH, FundFlowDailyDC_BJ, FundFlowDailyTHS_CY, FundFlowDailyTHS_SZ, FundFlowDailyTHS_KC, FundFlowDailyTHS_SH, FundFlowDailyTHS_BJ, FundFlowDailyCY, FundFlowDailySZ, FundFlowDailyKC, FundFlowDailySH, FundFlowDailyBJ
-from stock_models.fund_flow import AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_BJ
 from typing import Type, Optional, List, Dict
 from datetime import datetime, timezone
 from django.db import models
@@ -204,6 +205,26 @@ def get_advanced_fund_flow_metrics_model_by_code(stock_code: str):
     else:
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
         return AdvancedFundFlowMetrics_SZ  # 默认返回深市主板
+
+def get_advanced_structural_metrics_model_by_code(stock_code: str):
+    """
+    【V1.0 · 新增】根据股票代码返回对应的高级结构与行为指标数据表Model
+    """
+    # [代码新增开始]
+    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+        return AdvancedStructuralMetrics_CY
+    elif stock_code.endswith('.SZ'):
+        return AdvancedStructuralMetrics_SZ
+    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+        return AdvancedStructuralMetrics_KC
+    elif stock_code.endswith('.SH'):
+        return AdvancedStructuralMetrics_SH
+    elif stock_code.endswith('.BJ'):
+        return AdvancedStructuralMetrics_BJ
+    else:
+        print(f"未识别的股票代码: {stock_code}，默认使用SZ主板高级结构指标表")
+        return AdvancedStructuralMetrics_SZ
+    # [代码新增结束]
 
 def get_price_limit_percent(stock_code: str) -> float:
     """
