@@ -31,40 +31,16 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        """【V22.5 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
-        # [代码新增开始] 检查是否需要显示探针日志
-        show_probes = self.ctx.get('is_last_day_in_batch', False)
-        if show_probes:
-            self._probe_chip_calculation_readiness()
-        # [代码新增结束]
+        # [代码修改开始] 移除所有探针及相关的条件判断逻辑
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
-            # [代码修改开始] 即使计算终止，也应在最后一天显示探针信息
-            if show_probes:
-                print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 前置检查失败，核心上下文缺失，计算终止。")
-            # [代码修改结束]
             return {}
-        # [代码修改开始] 将所有日志打印置于条件块内
-        if show_probes:
-            print(f"--- [计算引擎] [{self.ctx.get('stock_code')}] 开始计算 {self.ctx.get('trade_date')} 的指标 ---")
         summary_info = self._get_summary_metrics_from_context()
-        if show_probes:
-            print(f"  [探针] _get_summary_metrics_from_context -> total_winner_rate: {summary_info.get('total_winner_rate')}")
         self.ctx.update(summary_info)
         peaks_info = self._calculate_peaks()
-        if show_probes:
-            print(f"  [探针] _calculate_peaks -> peak_cost: {peaks_info.get('peak_cost')}, peak_volume: {peaks_info.get('peak_volume')}")
         concentration_info = self._calculate_concentration_from_perf()
-        if show_probes:
-            print(f"  [探针] _calculate_concentration_from_perf -> concentration_90pct: {concentration_info.get('concentration_90pct')}")
         winner_structure_info = self._calculate_winner_structure()
-        if show_probes:
-            print(f"  [探针] _calculate_winner_structure -> winner_rate_short_term: {winner_structure_info.get('winner_rate_short_term')}")
         holder_costs_info = self._calculate_holder_costs()
-        if show_probes:
-            print(f"  [探针] _calculate_holder_costs -> avg_cost_short_term: {holder_costs_info.get('avg_cost_short_term')}")
         pressure_support_info = self._calculate_pressure_support()
-        if show_probes:
-            print(f"  [探针] _calculate_pressure_support -> pressure_above: {pressure_support_info.get('pressure_above')}")
         context_for_derived_metrics = {
             **self.ctx,
             **peaks_info,
@@ -73,18 +49,10 @@ class ChipFeatureCalculator:
             **holder_costs_info,
         }
         advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
-        if show_probes:
-            print(f"  [探针] _calculate_advanced_structures -> winner_avg_cost: {advanced_structure_info.get('winner_avg_cost')}")
         context_for_derived_metrics.update(advanced_structure_info)
         minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
-        if show_probes:
-            print(f"  [探针] _calculate_minute_derived_dynamics -> profit_taking_urgency: {minute_derived_dynamics_info.get('profit_taking_urgency')}")
         chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
-        if show_probes:
-            print(f"  [探针] _calculate_chip_interaction_dynamics -> main_force_suppressive_accumulation: {chip_interaction_info.get('main_force_suppressive_accumulation')}")
         cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
-        if show_probes:
-            print(f"  [探针] _calculate_cross_day_chip_flow -> short_term_profit_taking_ratio: {cross_day_flow_info.get('short_term_profit_taking_ratio')}")
         turnover_microstructure_info = self._calculate_turnover_microstructure(context_for_derived_metrics)
         concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
         peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
@@ -115,10 +83,8 @@ class ChipFeatureCalculator:
             all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
-        if show_probes:
-            self._probe_final_metrics(all_metrics)
-        # [代码修改结束]
         return all_metrics
+        # [代码修改结束]
 
     def _prepare_minute_data_features(self):
         """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""

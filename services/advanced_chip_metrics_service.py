@@ -142,21 +142,13 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """
-        【V1.7 · 静默行军版】
-        - 核心修正: 增加 is_last_day_in_batch 标记，以控制探针日志的输出时机。
-        """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        # [代码修改开始] 获取总天数，用于判断最后一天
-        num_days = len(grouped_data)
+        # [代码修改开始] 移除用于探针的 is_first_day_in_batch 标记
         is_first_day_in_batch = True
-        if fund_flow_attributed_minute_map:
-             print(f"--- [分发探针] 筹码服务接收到 'fund_flow_attributed_minute_map'，包含 {len(fund_flow_attributed_minute_map)} 天的数据。")
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # [代码修改结束]
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']]
             if chip_data_for_calc.empty: continue
@@ -173,15 +165,13 @@ class AdvancedChipMetricsService:
                 'trade_date': trade_date.date(),
                 'circ_mv': context_data.get('circ_mv'),
                 'is_first_day_in_batch': is_first_day_in_batch,
-                # [代码新增开始] 注入“是否为最后一天”的信标
-                'is_last_day_in_batch': (i == num_days - 1),
-                # [代码新增结束]
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
+            # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
