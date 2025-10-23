@@ -552,7 +552,7 @@ class AdvancedFundFlowMetricsService:
         return derivatives_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
-        """【V1.6 · 探针移除版】准备并保存最终计算结果到数据库。"""
+        """【V1.7 · 持久化条令统一版】采用 update_or_create 替换 bulk_create，并增加写入探针。"""
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
         print(f"调试信息: [{stock_code}] [节点6] 进入保存函数，待保存记录数: {len(records_to_save_df)}")
@@ -569,34 +569,41 @@ class AdvancedFundFlowMetricsService:
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = records_to_save_df[[col for col in records_to_save_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')
-        records_to_create = []
-        for record_date, record_data in zip(df_filtered.index, records_list):
-            safe_record_data = {}
-            for key, value in record_data.items():
-                # 移除已完成使命的终极探针
-                if key in decimal_fields and pd.notna(value):
-                    new_value = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
-                    safe_record_data[key] = new_value
-                elif isinstance(value, float) and not np.isfinite(value):
-                    safe_record_data[key] = None
-                else:
-                    safe_record_data[key] = value
-                
-            records_to_create.append(
-                MetricsModel(
-                    stock=stock_info,
-                    trade_time=record_date.date(),
-                    **safe_record_data
-                )
-            )
-        print(f"调试信息: [{stock_code}] [节点8] 已创建 {len(records_to_create)} 个待保存的ORM对象。")
+        # [代码修改开始] 废除 bulk_create，改用与筹码服务一致的、更健壮的 update_or_create 模式
         @sync_to_async(thread_sensitive=True)
-        def save_metrics_async(model, records_to_create_list):
-            with transaction.atomic():
-                model.objects.bulk_create(records_to_create_list, batch_size=2000)
-        await save_metrics_async(MetricsModel, records_to_create)
-        print(f"调试信息: [{stock_code}] [节点9] 批量保存执行完毕。")
-        return len(records_to_create)
+        def save_atomically(model, stock_obj, records_to_process):
+            processed_count = 0
+            total_records = len(records_to_process)
+            print(f"--- [写入探针] [{stock_obj.stock_code}] 准备使用 update_or_create 写入 {total_records} 条资金流数据 ---")
+            for i, record_data in enumerate(records_to_process):
+                trade_time = record_data.pop('trade_time').date()
+                # 清理 NaN 和 Inf 值
+                defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
+                # 对 Decimal 字段进行处理
+                for key, value in defaults_data.items():
+                    if key in decimal_fields and pd.notna(value):
+                        defaults_data[key] = Decimal(str(value)).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
+                try:
+                    obj, created = model.objects.update_or_create(
+                        stock=stock_obj,
+                        trade_time=trade_time,
+                        defaults=defaults_data
+                    )
+                    processed_count += 1
+                    # 部署进度探针，每处理10条或最后一条时报告
+                    if (i + 1) % 10 == 0 or (i + 1) == total_records:
+                        print(f"  >>> [写入进度] [{stock_obj.stock_code}] 已处理 {i + 1}/{total_records} 条...")
+                except Exception as e:
+                    logger.error(f"[{stock_obj.stock_code}] [资金流保存失败] 日期: {trade_time}, 错误: {e}")
+            return processed_count
+        records_for_atomic_save = []
+        for record_date, record_data in zip(df_filtered.index, records_list):
+            record_data['trade_time'] = record_date
+            records_for_atomic_save.append(record_data)
+        processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
+        print(f"调试信息: [{stock_code}] [节点9] 原子化保存执行完毕，实际处理 {processed_count} 条。")
+        return processed_count
+        # [代码修改结束]
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
