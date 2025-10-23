@@ -30,48 +30,175 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 战略预备队激活版】终极资金流信号诊断模块
-        - 核心升级: 从“指标军火库”中调遣了更多王牌指标，如主力信念比率、支撑强度等，
-                      构建了更立体、更深刻的“五维意图罗盘”。
-        - 新增维度: 引入“行为(Behavior)”维度，直接量化主力的日内攻防动作。
+        【V21.0 · 物理公理重构版】终极资金流信号诊断模块
+        - 核心革命: 废除抽象的“五维意图”范式，全面转向与筹码情报对齐的“两大物理公理”范式。
+        - 新指挥流程: 1. 诊断“资金流-聚散动态”。 2. 诊断“资金流-权力转移”。 3. 融合两大公理，合成终极信号。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return {}
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        # [代码修改开始] 引入全新的、基于“五维意图”的支柱配置
-        pillar_configs = {
-            # --- 意图I: 共识 (Consensus) ---
-            'consensus_flow_impact': {'base': 'main_force_flow_impact_ratio', 'type': 'daily', 'intent': 'consensus', 'polarity': 1, 'desc': '主力资金流影响力'},
-            'consensus_long_term_accumulation': {'base': 'main_force_net_flow_consensus_sum_55d', 'type': 'daily', 'intent': 'consensus', 'polarity': 1, 'desc': '主力长期布局强度(55日)'},
-            
-            # --- 意图II: 信念 (Conviction) ---
-            'conviction_intraday_profit': {'base': 'main_force_intraday_profit', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主力日内盈利能力(控盘)'},
-            'conviction_ratio': {'base': 'main_force_conviction_ratio', 'type': 'daily', 'intent': 'conviction', 'polarity': 1, 'desc': '主力信念比率(超大单/大单)'},
-            
-            # --- 意图III: 冲突 (Conflict) ---
-            'conflict_cost_battle': {'base': 'market_cost_battle', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': '主力散户成本博弈'},
-            'conflict_internal_divergence': {'base': 'main_force_vs_xl_divergence', 'type': 'daily', 'intent': 'conflict', 'polarity': -1, 'desc': '主力内部结构分歧(主力-超大单)'},
-            
-            # --- 意图IV: 情绪 (Sentiment) ---
-            'sentiment_retail_capitulation': {'base': 'retail_capitulation_score', 'type': 'daily', 'intent': 'sentiment', 'polarity': 1, 'desc': '散户投降指数'},
-            'sentiment_retail_flow_impact': {'base': 'retail_net_flow_consensus', 'type': 'daily', 'intent': 'sentiment', 'polarity': -1, 'normalize_by_mv': True, 'desc': '散户资金流影响力'},
-
-            # --- 意图V: 行为 (Behavior) ---
-            'behavior_support_strength': {'base': 'main_force_support_strength', 'type': 'daily', 'intent': 'behavior', 'polarity': 1, 'desc': '主力支撑强度'},
-            'behavior_distribution_pressure': {'base': 'main_force_distribution_pressure', 'type': 'daily', 'intent': 'behavior', 'polarity': -1, 'desc': '主力派发压力'},
-        }
-        # [代码修改结束]
-        ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
-        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
-        context_scores = {'bottom_context': bottom_context_score, 'top_context': top_context_score}
-        pillar_health = self._calculate_all_pillar_health(df, pillar_configs, norm_window, periods, ma_health_score)
-        fused_health = self._fuse_health_with_intent_weights(df, pillar_health, pillar_configs, p_conf, periods)
-        final_scores = self._synthesize_final_signals(df, fused_health, context_scores, p_synthesis)
+        
+        # 调用新的物理公理诊断模块
+        concentration_scores = self._diagnose_concentration_dynamics_ff(df, p_conf)
+        power_transfer_scores = self._diagnose_power_transfer_ff(df, p_conf)
+        
+        # 将公理分数存入原子状态，供调试或上层模块使用
+        self.strategy.atomic_states['SCORE_FF_AXIOM_CONCENTRATION'] = concentration_scores
+        self.strategy.atomic_states['SCORE_FF_AXIOM_POWER_TRANSFER'] = power_transfer_scores
+        
+        # 调用新的、基于公理的终极信号合成器
+        final_scores = self._synthesize_ultimate_signals_from_axioms(df, concentration_scores, power_transfer_scores, p_conf)
+        
+        
         states = self._assign_graded_states(final_scores)
         return states
+
+    def _diagnose_concentration_dynamics_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V2.0 · 四维时空修正版】资金流公理一：诊断资金“聚散”的动态
+        - 核心修正: 引入“内部上下文(势)”，即多时间框架印证。短周期的动态必须由长周期趋势确认。
+        """
+        periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+        scores = {}
+        
+        # 引入多时间框架循环，实现内部上下文印证
+        for i, p in enumerate(periods):
+            context_p = periods[i + 1] if i + 1 < len(periods) else p
+            
+            # --- 看涨证据（聚集） ---
+            bullish_static = df.get('main_force_flow_impact_ratio_D', 0) + df.get('main_force_conviction_ratio_D', 0)
+            bullish_slope = df.get(f'SLOPE_{p}_main_force_flow_impact_ratio_D', 0) + df.get(f'SLOPE_{p}_main_force_conviction_ratio_D', 0)
+            bullish_accel = df.get(f'ACCEL_{p}_main_force_flow_impact_ratio_D', 0) + df.get(f'ACCEL_{p}_main_force_conviction_ratio_D', 0)
+            
+            # 战术层 (p)
+            tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
+            tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
+            tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
+            tactical_bullish_quality = (tactical_bullish_static * tactical_bullish_slope * tactical_bullish_accel)**(1/3)
+            
+            # 战略/上下文层 (context_p)
+            context_bullish_static = normalize_score(bullish_static, df.index, context_p, ascending=True)
+            context_bullish_slope = normalize_score(bullish_slope, df.index, context_p, ascending=True)
+            context_bullish_accel = normalize_score(bullish_accel, df.index, context_p, ascending=True)
+            context_bullish_quality = (context_bullish_static * context_bullish_slope * context_bullish_accel)**(1/3)
+            
+            final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
+            
+            # --- 看跌证据（发散） ---
+            bearish_static = df.get('retail_net_flow_consensus_D', 0).abs() + df.get('main_force_vs_xl_divergence_D', 0)
+            bearish_slope = df.get(f'SLOPE_{p}_retail_net_flow_consensus_D', 0).abs() + df.get(f'SLOPE_{p}_main_force_vs_xl_divergence_D', 0)
+            bearish_accel = df.get(f'ACCEL_{p}_retail_net_flow_consensus_D', 0).abs() + df.get(f'ACCEL_{p}_main_force_vs_xl_divergence_D', 0)
+            
+            # 战术层 (p)
+            tactical_bearish_static = normalize_score(bearish_static, df.index, p, ascending=True)
+            tactical_bearish_slope = normalize_score(bearish_slope, df.index, p, ascending=True)
+            tactical_bearish_accel = normalize_score(bearish_accel, df.index, p, ascending=True)
+            tactical_bearish_quality = (tactical_bearish_static * tactical_bearish_slope * tactical_bearish_accel)**(1/3)
+            
+            # 战略/上下文层 (context_p)
+            context_bearish_static = normalize_score(bearish_static, df.index, context_p, ascending=True)
+            context_bearish_slope = normalize_score(bearish_slope, df.index, context_p, ascending=True)
+            context_bearish_accel = normalize_score(bearish_accel, df.index, context_p, ascending=True)
+            context_bearish_quality = (context_bearish_static * context_bearish_slope * context_bearish_accel)**(1/3)
+            
+            final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
+            
+            concentration_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
+            scores[p] = concentration_snapshot.clip(-1, 1)
+            
+        return scores
+        
+
+    def _diagnose_power_transfer_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
+        """
+        【V2.0 · 四维时空修正版】资金流公理二：诊断资金“权力转移”的方向
+        - 核心修正: 引入“内部上下文(势)”，即多时间框架印证。短周期的动态必须由长周期趋势确认。
+        """
+        periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+        scores = {}
+        
+        # 引入多时间框架循环，实现内部上下文印证
+        for i, p in enumerate(periods):
+            context_p = periods[i + 1] if i + 1 < len(periods) else p
+            
+            # --- 看涨证据（向主力转移） ---
+            bullish_static = df.get('retail_capitulation_score_D', 0) + df.get('main_force_support_strength_D', 0)
+            bullish_slope = df.get(f'SLOPE_{p}_retail_capitulation_score_D', 0) + df.get(f'SLOPE_{p}_main_force_support_strength_D', 0)
+            bullish_accel = df.get(f'ACCEL_{p}_retail_capitulation_score_D', 0) + df.get(f'ACCEL_{p}_main_force_support_strength_D', 0)
+            
+            # 战术层 (p)
+            tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
+            tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
+            tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
+            tactical_bullish_quality = (tactical_bullish_static * tactical_bullish_slope * tactical_bullish_accel)**(1/3)
+            
+            # 战略/上下文层 (context_p)
+            context_bullish_static = normalize_score(bullish_static, df.index, context_p, ascending=True)
+            context_bullish_slope = normalize_score(bullish_slope, df.index, context_p, ascending=True)
+            context_bullish_accel = normalize_score(bullish_accel, df.index, context_p, ascending=True)
+            context_bullish_quality = (context_bullish_static * context_bullish_slope * context_bullish_accel)**(1/3)
+            
+            final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
+            
+            # --- 看跌证据（向散户转移） ---
+            bearish_static = df.get('main_force_distribution_pressure_D', 0) + df.get('retail_chasing_accumulation_D', 0)
+            bearish_slope = df.get(f'SLOPE_{p}_main_force_distribution_pressure_D', 0) + df.get(f'SLOPE_{p}_retail_chasing_accumulation_D', 0)
+            bearish_accel = df.get(f'ACCEL_{p}_main_force_distribution_pressure_D', 0) + df.get(f'ACCEL_{p}_retail_chasing_accumulation_D', 0)
+            
+            # 战术层 (p)
+            tactical_bearish_static = normalize_score(bearish_static, df.index, p, ascending=True)
+            tactical_bearish_slope = normalize_score(bearish_slope, df.index, p, ascending=True)
+            tactical_bearish_accel = normalize_score(bearish_accel, df.index, p, ascending=True)
+            tactical_bearish_quality = (tactical_bearish_static * tactical_bearish_slope * tactical_bearish_accel)**(1/3)
+            
+            # 战略/上下文层 (context_p)
+            context_bearish_static = normalize_score(bearish_static, df.index, context_p, ascending=True)
+            context_bearish_slope = normalize_score(bearish_slope, df.index, context_p, ascending=True)
+            context_bearish_accel = normalize_score(bearish_accel, df.index, context_p, ascending=True)
+            context_bearish_quality = (context_bearish_static * context_bearish_slope * context_bearish_accel)**(1/3)
+            
+            final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
+            
+            power_transfer_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
+            scores[p] = power_transfer_snapshot.clip(-1, 1)
+            
+        return scores
+        
+
+    def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 纯粹化版】基于物理公理的终极信号合成器
+        - 核心升级: 移除对全局上下文的应用。本模块现在只负责输出最纯粹的、未经外部环境调制的资金流信号，
+                      将战略价值评估的权力上交至顶层认知模块(CognitiveIntelligence)。
+        """
+        states = {}
+        # 移除所有关于外部上下文(bottom/top_context_score)的计算和应用
+        axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.5, 'power_transfer': 0.5})
+        tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
+        total_tf_weight = sum(tf_weights.values())
+        bullish_resonance = pd.Series(0.0, index=df.index)
+        bearish_resonance = pd.Series(0.0, index=df.index)
+        if total_tf_weight > 0:
+            for p, weight in tf_weights.items():
+                conc_score = concentration.get(p, 0.0)
+                trans_score = power_transfer.get(p, 0.0)
+                period_bullish = (conc_score.clip(0, 1) * axiom_weights['concentration'] + trans_score.clip(0, 1) * axiom_weights['power_transfer'])
+                period_bearish = (conc_score.clip(-1, 0).abs() * axiom_weights['concentration'] + trans_score.clip(-1, 0).abs() * axiom_weights['power_transfer'])
+                bullish_resonance += period_bullish * (weight / total_tf_weight)
+                bearish_resonance += period_bearish * (weight / total_tf_weight)
+        bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)
+        top_reversal = self._perform_fund_flow_relational_meta_analysis(df, bearish_resonance)
+        tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
+        # 输出纯粹的、未经调制的信号
+        final_scores = {
+            'bullish_resonance': bullish_resonance,
+            'bottom_reversal': bottom_reversal,
+            'bearish_resonance': bearish_resonance,
+            'top_reversal': top_reversal,
+            'tactical_reversal': tactical_reversal,
+        }
+        
+        return final_scores
 
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法
@@ -190,41 +317,64 @@ class FundFlowIntelligence:
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:
         """
-        【V8.0 · 逻辑再纯化版】计算单个资金流支柱的三维健康度
-        - 核心重构: 彻底废除内部的累积计算逻辑。现在所有指标，包括累积指标（如 _sum_55d），
-                      都被视为 'daily' 类型，直接进行归一化和关系元分析。
+        【V10.0 · 四维时空版】计算单个资金流支柱的四维健康度
+        - 核心升级: 引入“四维时空”分析范式，融合“状态”、“速度(斜率)”、“加速度”和“势(上下文)”。
+        - 坐标修正: 全面使用数据层提供的真实列名（如 `SLOPE_5_...` 和 `ACCEL_5_...`）。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
         polarity = config['polarity']
-        # [代码修改开始] 移除 col_type，因为所有指标现在都按 'daily' 类型处理
         normalize_by_mv = config.get('normalize_by_mv', False)
-        static_col = f"{base_col_name}_D"
-        if static_col not in df.columns:
+        static_col_name = f"{base_col_name}_D"
+        if static_col_name not in df.columns:
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-        static_series = df[static_col]
+        static_series = df[static_col_name]
         if normalize_by_mv:
             market_cap_col = 'circ_mv_D'
-            if market_cap_col not in df.columns:
-                pass
-            else:
+            if market_cap_col in df.columns:
                 market_cap_in_yuan = df[market_cap_col] * 10000
                 market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
-                static_series = (static_series * 10000 / market_cap_in_yuan).fillna(0) # 修正单位统一
-        indicator_static_bull = normalize_score(static_series, df.index, norm_window, ascending=(polarity == 1))
-        indicator_static_bear = normalize_score(static_series, df.index, norm_window, ascending=(polarity == -1))
-        bullish_snapshot_score = indicator_static_bull.astype(np.float32)
-        bearish_snapshot_score = indicator_static_bear.astype(np.float32)
-        unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
+                static_series = (static_series * 10000 / market_cap_in_yuan).fillna(0)
+        # 引入状态、速度、加速度、上下文的四维融合
         for p in periods:
-            s_bull[p] = bullish_snapshot_score
-            s_bear[p] = bearish_snapshot_score
+            context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+            slope_col_name = f"SLOPE_{p}_{base_col_name}_D"
+            accel_col_name = f"ACCEL_{p}_{base_col_name}_D"
+            slope_series = df.get(slope_col_name, pd.Series(0.0, index=df.index))
+            accel_series = df.get(accel_col_name, pd.Series(0.0, index=df.index))
+            # --- 看涨证据 ---
+            # 战术层
+            tactical_static_bull = normalize_score(static_series, df.index, p, ascending=(polarity == 1))
+            tactical_slope_bull = normalize_score(slope_series, df.index, p, ascending=True)
+            tactical_accel_bull = normalize_score(accel_series, df.index, p, ascending=True)
+            tactical_bullish_quality = (tactical_static_bull * tactical_slope_bull * tactical_accel_bull)**(1/3)
+            # 上下文层
+            context_static_bull = normalize_score(static_series, df.index, context_p, ascending=(polarity == 1))
+            context_slope_bull = normalize_score(slope_series, df.index, context_p, ascending=True)
+            context_accel_bull = normalize_score(accel_series, df.index, context_p, ascending=True)
+            context_bullish_quality = (context_static_bull * context_slope_bull * context_accel_bull)**(1/3)
+            bullish_snapshot_score = (tactical_bullish_quality * context_bullish_quality)**0.5
+            # --- 看跌证据 ---
+            # 战术层
+            tactical_static_bear = normalize_score(static_series, df.index, p, ascending=(polarity == -1))
+            tactical_slope_bear = normalize_score(slope_series, df.index, p, ascending=False)
+            tactical_accel_bear = normalize_score(accel_series, df.index, p, ascending=False)
+            tactical_bearish_quality = (tactical_static_bear * tactical_slope_bear * tactical_accel_bear)**(1/3)
+            # 上下文层
+            context_static_bear = normalize_score(static_series, df.index, context_p, ascending=(polarity == -1))
+            context_slope_bear = normalize_score(slope_series, df.index, context_p, ascending=False)
+            context_accel_bear = normalize_score(accel_series, df.index, context_p, ascending=False)
+            context_bearish_quality = (context_static_bear * context_slope_bear * context_accel_bear)**(1/3)
+            bearish_snapshot_score = (tactical_bearish_quality * context_bearish_quality)**0.5
+            
+            unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
+            s_bull[p] = bullish_snapshot_score.astype(np.float32)
+            s_bear[p] = bearish_snapshot_score.astype(np.float32)
             d_intensity[p] = unified_d_intensity
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
-        # [代码修改结束]
 
     # ==============================================================================
     # 以下为V2.1版新增的模块化辅助方法

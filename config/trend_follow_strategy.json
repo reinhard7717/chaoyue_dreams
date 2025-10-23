@@ -689,28 +689,23 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V2.7 · 阿瑞斯之怒版】此模块现在定义特定于资金流领域的意图和支柱权重，并新增均线健康度评估配置。",
-        "resonance_pillar_weights": { "consensus": 0.4, "conviction": 0.3, "conflict": 0.1, "sentiment": 0.2 },
-        "reversal_pillar_weights": { "consensus": 0.1, "conviction": 0.3, "conflict": 0.4, "sentiment": 0.2 },
-        "accumulation_analysis_weights": {
-          "description": "多时间级别资金净值累积分析的权重，用于识别主力长期建仓行为。",
-          "5": 0.4,
-          "13": 0.3,
-          "21": 0.2,
-          "55": 0.1
-        },
-        "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
-          "alignment": 0.15,
-          "slope": 0.15,
-          "accel": 0.2,
-          "relational": 0.5
+        "description": "【V4.0 · 物理公理版】资金流引擎已与筹码引擎哲学对齐，基于“聚散”和“转移”两大物理公理。",
+        "periods": [1, 5, 13, 21, 55],
+        "axiom_weights": {
+          "description": "融合两大物理公理时的权重。",
+          "concentration": 0.5,
+          "power_transfer": 0.5
         },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "context_modulation_params": {
+          "description": "上下文感知模块，用于增强或抑制资金流信号。",
+          "bottom_context_factor": 0.5,
+          "top_context_factor": 0.5
         }
       },
       "micro_behavior_params": {

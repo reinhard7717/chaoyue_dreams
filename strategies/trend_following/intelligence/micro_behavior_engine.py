@@ -74,46 +74,50 @@ class MicroBehaviorEngine:
 
     def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 物理事实重构版】隐秘吸筹诊断引擎 (原名：伪装散户吸筹)
-        - 核心重构: 彻底废除旧的、基于模糊表象的逻辑。基于“物理事实”构建全新的四维证据链，以识别主力在压制价格的同时，
-                      通过行为伪装（拆单）实现筹码归集的高级战术。
-        - 新证据链:
-          1. 行为伪装: “交易颗粒度影响力”极低，呈现散户化特征。
-          2. 筹码归集: 筹码集中度斜率为正，发生事实上的集中。
-          3. 价格压制: VPA效率低下，成交量无法推升价格。
-          4. 成本优势: 主力以低于市场均价的成本吸筹。
+        【V6.0 · 筹码升维版】隐秘吸筹诊断引擎
+        - 核心升维: 对“筹码归集”支柱的诊断，从单一的“斜率”维度，升维至“状态+速度+加速度”三位一体的四维时空分析，
+                      与筹码情报引擎的分析范式完全对齐，极大提升了对真实筹码集中的识别能力。
         """
         states = {}
         p = get_params_block(self.strategy, 'deceptive_flow_params', {})
         if not get_param_value(p.get('enabled'), True): return states
-        # 引入分层印证框架和新的四维证据链
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         deception_scores_by_period = {}
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 分层计算四大支柱证据 ---
             def get_fused_pillar_score(metric_name: str, ascending: bool, period_t: int, period_c: int) -> pd.Series:
                 tactical_score = normalize_score(df.get(metric_name), df.index, window=period_t, ascending=ascending)
                 context_score = normalize_score(df.get(metric_name), df.index, window=period_c, ascending=ascending)
                 return (tactical_score * context_score)**0.5
-            # 支柱一: 行为伪装 (交易颗粒度影响力低)
             disguise_score = get_fused_pillar_score(f'trade_granularity_impact_D', ascending=False, period_t=p_tactical, period_c=p_context)
-            # 支柱二: 筹码归集 (集中度斜率高)
-            accumulation_score = get_fused_pillar_score(f'SLOPE_{p_tactical}_concentration_90pct_D', ascending=True, period_t=p_tactical, period_c=p_context)
-            # 支柱三: 价格压制 (VPA效率低 + 价格平稳)
+            
+            # [代码修改开始] 对“筹码归集”支柱进行三位一体升维
+            chip_metric = 'concentration_90pct_D'
+            chip_static = df.get(chip_metric, 0)
+            chip_slope = df.get(f'SLOPE_{p_tactical}_{chip_metric}', 0)
+            chip_accel = df.get(f'ACCEL_{p_tactical}_{chip_metric}', 0)
+            # 战术层
+            tactical_chip_static = normalize_score(chip_static, df.index, p_tactical, ascending=True)
+            tactical_chip_slope = normalize_score(chip_slope, df.index, p_tactical, ascending=True)
+            tactical_chip_accel = normalize_score(chip_accel, df.index, p_tactical, ascending=True)
+            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
+            # 上下文层
+            context_chip_static = normalize_score(chip_static, df.index, p_context, ascending=True)
+            context_chip_slope = normalize_score(chip_slope, df.index, p_context, ascending=True)
+            context_chip_accel = normalize_score(chip_accel, df.index, p_context, ascending=True)
+            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
+            accumulation_score = (tactical_chip_quality * context_chip_quality)**0.5
+            # [代码修改结束]
+
             vpa_inefficiency = get_fused_pillar_score('VPA_EFFICIENCY_D', ascending=False, period_t=p_tactical, period_c=p_context)
             price_stagnation = 1.0 - get_fused_pillar_score(df.get(f'SLOPE_{p_tactical}_close_D', pd.Series(0, index=df.index)).abs(), ascending=True, period_t=p_tactical, period_c=p_context)
             suppression_score = (vpa_inefficiency * price_stagnation)**0.5
-            # 支柱四: 成本优势 (主力买入成本低于收盘价)
             cost_advantage_score = get_fused_pillar_score('main_buy_cost_advantage_D', ascending=False, period_t=p_tactical, period_c=p_context)
-            # --- 融合四大支柱，生成“瞬时关系快照分” ---
             snapshot_score = (disguise_score * accumulation_score * suppression_score * cost_advantage_score)**(1/4)
-            # --- 对快照分进行关系元分析，得到该周期的动态分数 ---
             period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
             deception_scores_by_period[p_tactical] = period_score
-        # --- 跨周期融合，生成最终信号 ---
         final_fused_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
@@ -121,60 +125,56 @@ class MicroBehaviorEngine:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 final_fused_score += deception_scores_by_period.get(p_tactical, 0.0) * weight
         states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION'] = final_fused_score.clip(0, 1).astype(np.float32)
-        
         return states
 
     def diagnose_hermes_gambit(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 分层印证版】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
-        - 核心升级: 借鉴筹码情报引擎的“分层动态印证”框架。每个战术周期的行为，都由其更长一级周期的趋势进行印证，形成动态共振，以提升信号的可靠性。
-        - 印证链: 1日由5日印证，5日由13日印证，以此类推。
-        - 证据链:
-          1. 表象矛盾: 主力资金共识为净流出，但Tushare(物理)与THS/DC(情绪)之间存在巨大正向分歧。
-          2. 价量矛盾: 成交量放大 vs 价格滞涨或下跌。
-          3. 结果矛盾: 主力看似卖出 vs 筹码集中度反而上升。
-          4. 环境矛盾: 短期价格走弱 vs 长期趋势依然健康。
+        【V5.0 · 资金流升维版】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
+        - 核心升维: 对“表象矛盾”证据链中主力资金流出信号进行四维质量评估。
         """
         states = {}
-        # 引入分层印证框架
         periods = [1, 5, 13, 21, 55]
         sorted_periods = sorted(periods)
         hermes_scores_by_period = {}
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
             # --- 证据1: 表象矛盾 (分层计算) ---
-            # 战术层 (p)
-            tactical_main_force_outflow = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=p, ascending=False)
+            # [代码修改开始] 使用四维质量评估主力资金流出
+            # 主力资金流出质量 (MFNF, ascending=False)
+            main_force_outflow_quality = self._calculate_4d_metric_quality(
+                df, 'main_force_net_flow_consensus', p, context_p, ascending=False
+            )
+            # 资金源分歧度 (发散度越高越好，ascending=True)
             tactical_div_ts_ths = normalize_score(df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)), df.index, window=p, ascending=True)
             tactical_div_ts_dc = normalize_score(df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)), df.index, window=p, ascending=True)
-            tactical_source_divergence = np.maximum(tactical_div_ts_ths, tactical_div_ts_dc)
-            tactical_contradiction_flow = (tactical_main_force_outflow * tactical_source_divergence)**0.5
-            # 上下文层 (context_p)
-            context_main_force_outflow = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=context_p, ascending=False)
             context_div_ts_ths = normalize_score(df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)), df.index, window=context_p, ascending=True)
             context_div_ts_dc = normalize_score(df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)), df.index, window=context_p, ascending=True)
-            context_source_divergence = np.maximum(context_div_ts_ths, context_div_ts_dc)
-            context_contradiction_flow = (context_main_force_outflow * context_source_divergence)**0.5
-            # 融合
-            contradiction_flow_score = (tactical_contradiction_flow * context_contradiction_flow)**0.5
+            fused_source_divergence = (np.maximum(tactical_div_ts_ths, tactical_div_ts_dc) * np.maximum(context_div_ts_ths, context_div_ts_dc))**0.5
+            # 融合：高质量的流出表象 * 高质量的分歧
+            contradiction_flow_score = (main_force_outflow_quality * fused_source_divergence)**0.5
+            # [代码修改结束]
             # --- 证据2: 价量矛盾 (分层计算) ---
-            # 战术层 (p)
             tactical_volume_spike = normalize_score(df['volume_D'], df.index, window=p, ascending=True)
             tactical_price_stagnation = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, window=p, ascending=True)
             tactical_contradiction_pv = (tactical_volume_spike * tactical_price_stagnation)**0.5
-            # 上下文层 (context_p)
             context_volume_spike = normalize_score(df['volume_D'], df.index, window=context_p, ascending=True)
             context_price_stagnation = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, window=context_p, ascending=True)
             context_contradiction_pv = (context_volume_spike * context_price_stagnation)**0.5
-            # 融合
             contradiction_pv_score = (tactical_contradiction_pv * context_contradiction_pv)**0.5
-            # --- 证据3: 结果矛盾 (分层计算) ---
-            # 战术层 (p)
-            tactical_chip_rising = normalize_score(df.get(f'SLOPE_{p}_concentration_90pct_D', pd.Series(0, index=df.index)).clip(lower=0), df.index, window=p, ascending=True)
-            # 上下文层 (context_p)
-            context_chip_rising = normalize_score(df.get(f'SLOPE_{context_p}_concentration_90pct_D', pd.Series(0, index=df.index)).clip(lower=0), df.index, window=context_p, ascending=True)
-            # 融合
-            chip_concentration_rising_score = (tactical_chip_rising * context_chip_rising)**0.5
+            # --- 证据3: 结果矛盾 (筹码集中度上升，已在筹码升维中修改) ---
+            chip_metric = 'concentration_90pct'
+            chip_static = df.get(f'{chip_metric}_D', 0)
+            chip_slope = df.get(f'SLOPE_{p}_{chip_metric}_D', 0)
+            chip_accel = df.get(f'ACCEL_{p}_{chip_metric}_D', 0)
+            tactical_chip_static = normalize_score(chip_static, df.index, p, ascending=True)
+            tactical_chip_slope = normalize_score(chip_slope, df.index, p, ascending=True)
+            tactical_chip_accel = normalize_score(chip_accel, df.index, p, ascending=True)
+            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
+            context_chip_static = normalize_score(chip_static, df.index, context_p, ascending=True)
+            context_chip_slope = normalize_score(df.get(f'SLOPE_{context_p}_{chip_metric}_D', 0), df.index, context_p, ascending=True)
+            context_chip_accel = normalize_score(df.get(f'ACCEL_{context_p}_{chip_metric}_D', 0), df.index, context_p, ascending=True)
+            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
+            chip_concentration_rising_score = (tactical_chip_quality * context_chip_quality)**0.5
             # --- 证据4: 环境矛盾 (静态上下文，无需分层) ---
             trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.5)
             # --- 最终融合，生成“瞬时关系快照分” ---
@@ -196,19 +196,17 @@ class MicroBehaviorEngine:
                 weight = tf_weights.get(p, 0) / total_weight
                 final_fused_score += hermes_scores_by_period.get(p, 0.0) * weight
         states['SCORE_MICRO_HERMES_GAMBIT'] = final_fused_score.clip(0, 1).astype(np.float32)
-        
         return states
 
     def diagnose_icarus_fall_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 分层印证版】“伊卡洛斯之坠”风险诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。将四重证据链的计算分层，在多个时间维度上进行交叉验证，极大提升了风险识别的准确性。
+        【V6.0 · 资金流升维版】“伊卡洛斯之坠”风险诊断引擎
+        - 核心升维: 对“矛盾的博弈”证据链中主力流出和散户追涨信号进行四维质量评估。
         """
         states = {}
         p = get_params_block(self.strategy, 'icarus_fall_params', {})
         if not get_param_value(p.get('enabled'), True):
             return states
-        # 引入分层印证框架
         periods = [1, 5, 13, 21, 55]
         sorted_periods = sorted(periods)
         icarus_scores_by_period = {}
@@ -217,8 +215,7 @@ class MicroBehaviorEngine:
         betrayal_evidence = (previous_trend_quality * top_context_score)**0.5
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 证据链 1: 虚假的繁荣 (分层计算) ---
-            # 战术层
+            # --- 证据链 1: 虚假的繁荣 (略) ---
             tactical_rally = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=p_tactical, ascending=True)
             tactical_inefficient_vol = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_tactical, ascending=False)
             tactical_vol_spike = normalize_score(df['volume_D'] / df.get(f'VOL_MA_{p_tactical}_D', df['volume_D']), df.index, window=p_tactical, ascending=True)
@@ -228,29 +225,44 @@ class MicroBehaviorEngine:
             is_at_limit_up = (df['close_D'] >= df.get('up_limit_D', np.inf) * 0.995).astype(float)
             tactical_limit_up_deception = is_at_limit_up * tactical_vol_spike
             tactical_alluring_rally = np.maximum(tactical_high_level_dist, tactical_limit_up_deception)
-            # 上下文层
             context_rally = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=p_context, ascending=True)
             context_inefficient_vol = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_context, ascending=False)
             context_vol_spike = normalize_score(df['volume_D'] / df.get(f'VOL_MA_{p_context}_D', df['volume_D']), df.index, window=p_context, ascending=True)
             context_high_level_dist = (context_rally * closing_weakness_score * context_inefficient_vol)**(1/3)
             context_limit_up_deception = is_at_limit_up * context_vol_spike
             context_alluring_rally = np.maximum(context_high_level_dist, context_limit_up_deception)
-            # 融合
             alluring_rally_evidence = (tactical_alluring_rally * context_alluring_rally)**0.5
             # --- 证据链 2: 矛盾的博弈 (分层计算) ---
+            # [代码修改开始] 使用四维质量评估资金流
+            # 主力日内获利 (状态)
             tactical_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)
-            tactical_outflow = normalize_score(df.get('main_force_net_flow_consensus_D'), df.index, window=p_tactical, ascending=False)
-            tactical_fomo = normalize_score(df.get('retail_net_flow_consensus_D'), df.index, window=p_tactical, ascending=True)
-            tactical_contradiction = (tactical_profit * tactical_outflow * tactical_fomo)**(1/3)
             context_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_context, ascending=True)
-            context_outflow = normalize_score(df.get('main_force_net_flow_consensus_D'), df.index, window=p_context, ascending=False)
-            context_fomo = normalize_score(df.get('retail_net_flow_consensus_D'), df.index, window=p_context, ascending=True)
-            context_contradiction = (context_profit * context_outflow * context_fomo)**(1/3)
-            contradiction_evidence = (tactical_contradiction * context_contradiction)**0.5
-            # --- 证据链 4: 恶化的结构 (分层计算) ---
-            tactical_chip_decay = normalize_score(df.get(f'SLOPE_{p_tactical}_concentration_90pct_D'), df.index, window=p_tactical, ascending=False)
-            context_chip_decay = normalize_score(df.get(f'SLOPE_{p_context}_concentration_90pct_D'), df.index, window=p_context, ascending=False)
-            chip_concentration_decay_score = (tactical_chip_decay * context_chip_decay)**0.5
+            fused_profit = (tactical_profit * context_profit)**0.5
+            # 主力流出质量 (MFNF, ascending=False)
+            outflow_quality = self._calculate_4d_metric_quality(
+                df, 'main_force_net_flow_consensus', p_tactical, p_context, ascending=False
+            )
+            # 散户追涨质量 (RNF, ascending=True)
+            fomo_quality = self._calculate_4d_metric_quality(
+                df, 'retail_net_flow_consensus', p_tactical, p_context, ascending=True
+            )
+            # 融合：日内获利 * 高质量流出 * 高质量追涨
+            contradiction_evidence = (fused_profit * outflow_quality * fomo_quality)**(1/3)
+            # [代码修改结束]
+            # --- 证据链 4: 恶化的结构 (筹码集中度衰减，已在筹码升维中修改) ---
+            chip_metric = 'concentration_90pct'
+            chip_static = df.get(f'{chip_metric}_D', 0)
+            chip_slope = df.get(f'SLOPE_{p_tactical}_{chip_metric}_D', 0)
+            chip_accel = df.get(f'ACCEL_{p_tactical}_{chip_metric}_D', 0)
+            tactical_chip_static = normalize_score(chip_static, df.index, p_tactical, ascending=False)
+            tactical_chip_slope = normalize_score(chip_slope, df.index, p_tactical, ascending=False)
+            tactical_chip_accel = normalize_score(chip_accel, df.index, p_tactical, ascending=False)
+            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
+            context_chip_static = normalize_score(chip_static, df.index, p_context, ascending=False)
+            context_chip_slope = normalize_score(df.get(f'SLOPE_{p_context}_{chip_metric}_D', 0), df.index, p_context, ascending=False)
+            context_chip_accel = normalize_score(df.get(f'ACCEL_{p_context}_{chip_metric}_D', 0), df.index, p_context, ascending=False)
+            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
+            chip_concentration_decay_score = (tactical_chip_quality * context_chip_quality)**0.5
             # --- 最终融合，生成“瞬时风险快照分” ---
             snapshot_score = (alluring_rally_evidence * contradiction_evidence * betrayal_evidence * chip_concentration_decay_score)**(1/4)
             # --- 对“风险关系”进行元分析 ---
@@ -265,7 +277,6 @@ class MicroBehaviorEngine:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 final_fused_score += icarus_scores_by_period.get(p_tactical, 0.0) * weight
         states['SCORE_RISK_ICARUS_FALL'] = final_fused_score.clip(0, 1).astype(np.float32)
-        
         return states
 
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
@@ -657,6 +668,29 @@ class MicroBehaviorEngine:
         
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
+    def _calculate_4d_metric_quality(self, df: pd.DataFrame, metric_name: str, p: int, context_p: int, ascending: bool) -> pd.Series:
+        """
+        【V1.0 · 新增】计算原子指标的四维质量分 (状态+速度+加速度+内部上下文)。
+        - 核心逻辑: 融合战术层(p)和战略层(context_p)的质量，实现内部上下文印证。
+        """
+        # 状态
+        static = df.get(f'{metric_name}_D', 0)
+        # 速度 (战术层)
+        slope = df.get(f'SLOPE_{p}_{metric_name}_D', 0)
+        # 加速度 (战术层)
+        accel = df.get(f'ACCEL_{p}_{metric_name}_D', 0)
+        # 战术层 (p)
+        tactical_static = normalize_score(static, df.index, p, ascending=ascending)
+        tactical_slope = normalize_score(slope, df.index, p, ascending=ascending)
+        tactical_accel = normalize_score(accel, df.index, p, ascending=ascending)
+        tactical_quality = (tactical_static * tactical_slope * tactical_accel)**(1/3)
+        # 战略/上下文层 (context_p)
+        context_static = normalize_score(static, df.index, context_p, ascending=ascending)
+        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{metric_name}_D', 0), df.index, context_p, ascending=ascending)
+        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{metric_name}_D', 0), df.index, context_p, ascending=ascending)
+        context_quality = (context_static * context_slope * context_accel)**(1/3)
+        # 最终融合 (战术 * 战略)
+        return (tactical_quality * context_quality)**0.5
 
 
 

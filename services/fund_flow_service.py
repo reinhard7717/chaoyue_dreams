@@ -56,7 +56,7 @@ class AdvancedFundFlowMetricsService:
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
-        # [代码修改开始] 移除所有调试性质的print语句
+        # 移除所有调试性质的print语句
         if not is_incremental_final:
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
@@ -98,7 +98,7 @@ class AdvancedFundFlowMetricsService:
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         return total_processed_count
-        # [代码修改结束]
+        
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         from datetime import datetime
@@ -106,7 +106,7 @@ class AdvancedFundFlowMetricsService:
         MetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         last_metric_date = None
         fetch_start_date = None
-        # [代码修改开始] 移除所有调试性质的print语句
+        # 移除所有调试性质的print语句
         if start_date_str:
             try:
                 start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
@@ -130,10 +130,10 @@ class AdvancedFundFlowMetricsService:
                 is_incremental = False
                 fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
-        # [代码修改结束]
+        
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        # [代码修改开始] 移除所有探针性质的print语句
+        # 移除所有探针性质的print语句
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -181,7 +181,7 @@ class AdvancedFundFlowMetricsService:
         if daily_dfs_to_join:
             merged_df = merged_df.join(daily_dfs_to_join, how='left')
         return merged_df
-        # [代码修改结束]
+        
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
         """【V1.3 · 时区修正版】从分钟数据计算日度VWAP"""
@@ -196,7 +196,7 @@ class AdvancedFundFlowMetricsService:
         from django.utils import timezone
         from datetime import datetime, time
         MinuteModel = get_minute_data_model_by_code_and_timelevel(stock_info.stock_code, '1')
-        # [代码修改开始] 移除所有调试性质的print语句
+        # 移除所有调试性质的print语句
         if not MinuteModel:
             return None
         if date_index.empty:
@@ -217,14 +217,14 @@ class AdvancedFundFlowMetricsService:
         if minute_df.empty:
             return None
         return self._group_minute_data_from_df(minute_df)
-        # [代码修改结束]
+        
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         result_df = df.copy()
         attributed_minute_map = {}
-        # [代码修改开始] 移除所有探针性质的print语句
+        # 移除所有探针性质的print语句
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
@@ -317,16 +317,16 @@ class AdvancedFundFlowMetricsService:
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
         return result_df, attributed_minute_map
-        # [代码修改结束]
+        
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         """
         【V6.0 · 显式返回版】不再依赖副作用，显式返回归因后的分钟数据字典。
         """
         if minute_df_grouped is None:
-            # [代码修改开始] 确保在任何分支都返回两个值
+            # 确保在任何分支都返回两个值
             return pd.DataFrame(index=daily_df.index), {}
-            # [代码修改结束]
+            
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         from scipy.spatial.distance import jensenshannon
@@ -368,10 +368,10 @@ class AdvancedFundFlowMetricsService:
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
-            # [代码修改开始] 确保在任何分支都返回两个值
+            # 确保在任何分支都返回两个值
             return pd.DataFrame(), {}
-            # [代码修改结束]
-        # [代码修改开始] 不再设置实例属性，而是创建局部变量并返回
+            
+        # 不再设置实例属性，而是创建局部变量并返回
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
@@ -473,15 +473,15 @@ class AdvancedFundFlowMetricsService:
                 derivatives_df[slope_col_name] = slope_series
                 if slope_series is not None and not slope_series.empty:
                     accel_col_name = f'{col}_accel_{p}d'
-                    # [代码修改开始] 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
+                    # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
                     derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
-                    # [代码修改结束]
+                    
         return derivatives_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         records_to_save_df = final_df
         stock_code = stock_info.stock_code
-        # [代码修改开始] 移除所有探针性质的print语句
+        # 移除所有探针性质的print语句
         if records_to_save_df.empty:
             return 0
         from django.db.models import DecimalField
@@ -520,7 +520,7 @@ class AdvancedFundFlowMetricsService:
             records_for_atomic_save.append(record_data)
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
-        # [代码修改结束]
+        
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -542,13 +542,13 @@ class AdvancedFundFlowMetricsService:
         results_df['net_position_change_value'] = net_pos_change_value_yuan / 10000 # 转换为万元
         unrealized_pnl_yuan = (close_price - net_pos_change_cost) * net_pos_change_vol
         results_df['unrealized_pnl_on_net_change'] = unrealized_pnl_yuan / 10000 # 转换为万元
-        # [代码修改开始] 修正主力日内盈亏的计算逻辑
+        # 修正主力日内盈亏的计算逻辑
         # 旧的错误逻辑: total_profit_yuan = (cost_sell * vol_sell_shares) - (total_buy_value_yuan = cost_buy * vol_buy_shares)
         # 这是净现金流，不是利润。
         # 新的正确逻辑: 总利润 = 已实现利润 + 未实现（浮动）利润
         total_profit_yuan = realized_profit_yuan + unrealized_pnl_yuan
         results_df['main_force_intraday_profit'] = total_profit_yuan / 10000 # 将最终利润转换为“万元”
-        # [代码修改结束]
+        
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
         dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
@@ -570,10 +570,10 @@ class AdvancedFundFlowMetricsService:
         return results_df
 
     def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
-        # [代码修改开始] 移除调试性质的print语句
+        # 移除调试性质的print语句
         if not minute_df_attributed_grouped:
             return pd.DataFrame(index=daily_df.index)
-        # [代码修改结束]
+        
         results = {}
         for date, daily_data in daily_df.iterrows():
             if date not in minute_df_attributed_grouped:
@@ -623,10 +623,10 @@ class AdvancedFundFlowMetricsService:
         return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
     def _calculate_intraday_structure_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
-        # [代码修改开始] 移除调试性质的print语句
+        # 移除调试性质的print语句
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index)
-        # [代码修改结束]
+        
         results = {}
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
@@ -731,10 +731,10 @@ class AdvancedFundFlowMetricsService:
         df = minute_df.copy()
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         df['total_value'] = df['amount']
         df['total_volume'] = df['vol']
-        # [代码修改结束]
+        
         daily_agg = df.groupby(df['trade_time'].dt.date)
         daily_total_value = daily_agg['total_value'].sum()
         daily_total_volume = daily_agg['total_volume'].sum()
@@ -751,10 +751,10 @@ class AdvancedFundFlowMetricsService:
         df['trade_time'] = pd.to_datetime(df['trade_time'])
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         df['amount_yuan'] = df['amount']
         df['vol_shares'] = df['vol']
-        # [代码修改结束]
+        
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)

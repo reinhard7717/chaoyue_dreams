@@ -334,7 +334,7 @@ class BehavioralIntelligence:
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
         # --- 急跌信号计算 (应用分层印证) ---
-        # [代码修改开始]
+        
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
             periods = [1, 5, 13, 21, 55]

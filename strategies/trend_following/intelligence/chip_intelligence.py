@@ -46,62 +46,54 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 上下文感知版】终极信号合成器
-        - 核心升级: 引入全局上下文！为底部/顶部反转信号和看跌共振信号，注入由 utils.calculate_context_scores
-                      计算的 bottom_context_score 和 top_context_score，实现筹码行为与市场大环境的协同判断。
+        【V4.0 · 纯粹化版】终极信号合成器
+        - 核心升级: 移除对全局上下文的应用。本模块现在只负责输出最纯粹的、未经外部环境调制的筹码信号，
+                      将战略价值评估的权力上交至顶层认知模块(CognitiveIntelligence)。
         """
         states = {}
         periods = sorted(concentration.keys())
-        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {}) # 修改：获取配置
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}) # 修改：从配置获取
         norm_window = 55
-        # [代码新增开始] 获取全局上下文分数
-        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        p_context = get_param_value(p_conf.get('context_modulation_params'), {})
-        bottom_context_factor = get_param_value(p_context.get('bottom_context_factor'), 0.5)
-        top_context_factor = get_param_value(p_context.get('top_context_factor'), 0.5)
-        self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
-        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
-        del self.strategy.atomic_states['strategy_instance_ref']
-        # [代码新增结束]
+        # 移除所有关于外部上下文(bottom/top_context_score)的计算和应用
+        # self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
+        # bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        # del self.strategy.atomic_states['strategy_instance_ref']
         bullish_scores_by_period = {}
         bearish_scores_by_period = {}
         for p in periods:
-            bullish_scores_by_period[p] = (concentration[p] + accumulation[p] + power_transfer[p]) / 3.0
-            bearish_scores_by_period[p] = ((1 - concentration[p]) + (1 - accumulation[p]) + (1 - power_transfer[p])) / 3.0
-        bullish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
-        bearish_resonance = pd.Series(0.0, index=self.strategy.df_indicators.index)
+            # 注意：这里的除法可能不是最优融合，但为了保持原始业务逻辑，我们暂时保留
+            bullish_scores_by_period[p] = (concentration.get(p, 0.0) + accumulation.get(p, 0.0) + power_transfer.get(p, 0.0)) / 3.0
+            # 看跌分数应该是1减去看涨分，而不是重新计算
+            bearish_scores_by_period[p] = 1.0 - bullish_scores_by_period[p]
+        bullish_resonance = pd.Series(0.0, index=df.index) # 修改：使用df.index
+        bearish_resonance = pd.Series(0.0, index=df.index) # 修改：使用df.index
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
-                bullish_resonance += bullish_scores_by_period[p] * weight
-                bearish_resonance += bearish_scores_by_period[p] * weight
+                bullish_resonance += bullish_scores_by_period.get(p, 0.0) * weight
+                bearish_resonance += bearish_scores_by_period.get(p, 0.0) * weight
+        # 输出纯粹的共振信号
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        # [代码修改开始] 使用 top_context_score 增强看跌共振信号
-        final_bearish_resonance = (bearish_resonance * (1 + top_context_score * top_context_factor)).clip(0, 1)
-        states['SCORE_CHIP_BEARISH_RESONANCE'] = final_bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
         bottom_reversal_scores = {}
         top_reversal_scores = {}
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period[p], p, context_p, norm_window)
-            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period[p], p, context_p, norm_window)
-        bottom_reversal_divergence = pd.Series(0.0, index=self.strategy.df_indicators.index)
-        top_reversal_divergence = pd.Series(0.0, index=self.strategy.df_indicators.index)
+            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
+            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
+        bottom_reversal_divergence = pd.Series(0.0, index=df.index) # 修改：使用df.index
+        top_reversal_divergence = pd.Series(0.0, index=df.index) # 修改：使用df.index
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
-                bottom_reversal_divergence += bottom_reversal_scores[p] * weight
-                top_reversal_divergence += top_reversal_scores[p] * weight
-        # [代码修改开始] 使用 bottom_context_score 增强底部反转信号
-        final_bottom_reversal = (bottom_reversal_divergence * (1 + bottom_context_score * bottom_context_factor)).clip(0, 1)
-        states['SCORE_CHIP_BOTTOM_REVERSAL'] = final_bottom_reversal.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
-        # [代码修改开始] 使用 top_context_score 增强顶部反转信号
-        final_top_reversal = (top_reversal_divergence * (1 + top_context_score * top_context_factor)).clip(0, 1)
-        states['SCORE_CHIP_TOP_REVERSAL'] = final_top_reversal.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+                bottom_reversal_divergence += bottom_reversal_scores.get(p, 0.0) * weight
+                top_reversal_divergence += top_reversal_scores.get(p, 0.0) * weight
+        # 输出纯粹的反转信号
+        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
+        
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
         p = 5
@@ -119,40 +111,50 @@ class ChipIntelligence:
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V5.0 · 三维全息版】核心公理一：诊断筹码“聚散”的动态
-        - 核心升级: 引入“三维全息”分析范式，将“状态”、“动态”、“势（上下文）”三者融合。
-        - 新范式: 最终证据分 = (战术状态 * 战术动态 * 上下文状态 * 上下文动态) ^ 0.25。
+        【V6.0 · 四维时空版】核心公理一：诊断筹码“聚散”的动态
+        - 核心升级: 引入“四维时空”分析范式，融合“状态”、“速度(斜率)”、“加速度”和“势(上下文)”。
+        - 坐标修正: 全面使用数据层提供的真实列名（如 `SLOPE_5_...` 和 `ACCEL_5_...`）。
         """
         scores = {}
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 引入状态、动态、上下文的三维融合
+            # 引入状态、速度、加速度、上下文的四维融合
             # --- 看涨证据 ---
-            bullish_evidence_static = df.get(f'concentration_increase_by_support_D', 0) + df.get(f'concentration_increase_by_chasing_D', 0)
-            bullish_evidence_dynamic = df.get(f'concentration_increase_by_support_slope_{p}d_D', 0) + df.get(f'concentration_increase_by_chasing_slope_{p}d_D', 0)
+            bullish_evidence_static = df.get('concentration_increase_by_support_D', 0) + df.get('concentration_increase_by_chasing_D', 0)
+            bullish_evidence_slope = df.get(f'SLOPE_{p}_concentration_increase_by_support_D', 0) + df.get(f'SLOPE_{p}_concentration_increase_by_chasing_D', 0)
+            bullish_evidence_accel = df.get(f'ACCEL_{p}_concentration_increase_by_support_D', 0) + df.get(f'ACCEL_{p}_concentration_increase_by_chasing_D', 0)
             # 战术层 (p)
             tactical_bullish_static_score = normalize_score(bullish_evidence_static, df.index, p, ascending=True)
-            tactical_bullish_dynamic_score = normalize_score(bullish_evidence_dynamic, df.index, p, ascending=True)
+            tactical_bullish_slope_score = normalize_score(bullish_evidence_slope, df.index, p, ascending=True)
+            tactical_bullish_accel_score = normalize_score(bullish_evidence_accel, df.index, p, ascending=True)
+            tactical_bullish_quality = (tactical_bullish_static_score * tactical_bullish_slope_score * tactical_bullish_accel_score)**(1/3)
             # 上下文层 (context_p)
             context_bullish_static_score = normalize_score(bullish_evidence_static, df.index, context_p, ascending=True)
-            context_bullish_dynamic_score = normalize_score(bullish_evidence_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            tactical_bullish_quality = (tactical_bullish_static_score * tactical_bullish_dynamic_score * context_bullish_static_score * context_bullish_dynamic_score)**0.25
+            context_bullish_slope_score = normalize_score(bullish_evidence_slope, df.index, context_p, ascending=True)
+            context_bullish_accel_score = normalize_score(bullish_evidence_accel, df.index, context_p, ascending=True)
+            context_bullish_quality = (context_bullish_static_score * context_bullish_slope_score * context_bullish_accel_score)**(1/3)
+            # 融合
+            final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
             # --- 看跌证据 ---
-            bearish_evidence_static = df.get(f'concentration_decrease_by_distribution_D', 0) + df.get(f'concentration_decrease_by_capitulation_D', 0)
-            bearish_evidence_dynamic = df.get(f'concentration_decrease_by_distribution_slope_{p}d_D', 0) + df.get(f'concentration_decrease_by_capitulation_slope_{p}d_D', 0)
+            bearish_evidence_static = df.get('concentration_decrease_by_distribution_D', 0) + df.get('concentration_decrease_by_capitulation_D', 0)
+            bearish_evidence_slope = df.get(f'SLOPE_{p}_concentration_decrease_by_distribution_D', 0) + df.get(f'SLOPE_{p}_concentration_decrease_by_capitulation_D', 0)
+            bearish_evidence_accel = df.get(f'ACCEL_{p}_concentration_decrease_by_distribution_D', 0) + df.get(f'ACCEL_{p}_concentration_decrease_by_capitulation_D', 0)
             # 战术层 (p)
             tactical_bearish_static_score = normalize_score(bearish_evidence_static, df.index, p, ascending=True)
-            tactical_bearish_dynamic_score = normalize_score(bearish_evidence_dynamic, df.index, p, ascending=True)
+            tactical_bearish_slope_score = normalize_score(bearish_evidence_slope, df.index, p, ascending=True)
+            tactical_bearish_accel_score = normalize_score(bearish_evidence_accel, df.index, p, ascending=True)
+            tactical_bearish_quality = (tactical_bearish_static_score * tactical_bearish_slope_score * tactical_bearish_accel_score)**(1/3)
             # 上下文层 (context_p)
             context_bearish_static_score = normalize_score(bearish_evidence_static, df.index, context_p, ascending=True)
-            context_bearish_dynamic_score = normalize_score(bearish_evidence_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            tactical_bearish_quality = (tactical_bearish_static_score * tactical_bearish_dynamic_score * context_bearish_static_score * context_bearish_dynamic_score)**0.25
+            context_bearish_slope_score = normalize_score(bearish_evidence_slope, df.index, context_p, ascending=True)
+            context_bearish_accel_score = normalize_score(bearish_evidence_accel, df.index, context_p, ascending=True)
+            context_bearish_quality = (context_bearish_static_score * context_bearish_slope_score * context_bearish_accel_score)**(1/3)
+            # 融合
+            final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
             # 生成双极快照分
-            concentration_quality_snapshot = (tactical_bullish_quality - tactical_bearish_quality).astype(np.float32)
-            # [代码修改结束]
+            concentration_quality_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
+            
             holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, p * 2)
             dynamic_concentration_score = self._perform_chip_relational_meta_analysis(
                 df, concentration_quality_snapshot, p, holographic_divergence
@@ -162,38 +164,46 @@ class ChipIntelligence:
 
     def _diagnose_main_force_action(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V5.0 · 三维全息版】核心公理二：诊断主力“吸筹与派发”
-        - 核心升级: 引入“三维全息”分析范式，将“状态”、“动态”、“势（上下文）”三者融合。
-        - 新范式: 最终证据分 = (战术状态 * 战术动态 * 上下文状态 * 上下文动态) ^ 0.25。
+        【V6.0 · 四维时空版】核心公理二：诊断主力“吸筹与派发”
+        - 核心升级: 引入“四维时空”分析范式，融合“状态”、“速度(斜率)”、“加速度”和“势(上下文)”。
+        - 坐标修正: 全面使用数据层提供的真实列名。
         """
         scores = {}
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 引入状态、动态、上下文的三维融合
+            # 引入状态、速度、加速度、上下文的四维融合
             # --- 吸筹证据 ---
-            accumulation_evidence_static = df.get('main_force_suppressive_accumulation_D', 0) + df.get('main_force_chasing_accumulation_D', 0)
-            accumulation_evidence_dynamic = df.get(f'main_force_suppressive_accumulation_slope_{p}d_D', 0) + df.get(f'main_force_chasing_accumulation_slope_{p}d_D', 0)
+            accumulation_static = df.get('main_force_suppressive_accumulation_D', 0) + df.get('main_force_chasing_accumulation_D', 0)
+            accumulation_slope = df.get(f'SLOPE_{p}_main_force_suppressive_accumulation_D', 0) + df.get(f'SLOPE_{p}_main_force_chasing_accumulation_D', 0)
+            accumulation_accel = df.get(f'ACCEL_{p}_main_force_suppressive_accumulation_D', 0) + df.get(f'ACCEL_{p}_main_force_chasing_accumulation_D', 0)
             # 战术层
-            tactical_accumulation_static_score = normalize_score(accumulation_evidence_static, df.index, p, ascending=True)
-            tactical_accumulation_dynamic_score = normalize_score(accumulation_evidence_dynamic, df.index, p, ascending=True)
+            tactical_acc_static = normalize_score(accumulation_static, df.index, p, ascending=True)
+            tactical_acc_slope = normalize_score(accumulation_slope, df.index, p, ascending=True)
+            tactical_acc_accel = normalize_score(accumulation_accel, df.index, p, ascending=True)
+            tactical_acc_quality = (tactical_acc_static * tactical_acc_slope * tactical_acc_accel)**(1/3)
             # 上下文层
-            context_accumulation_static_score = normalize_score(accumulation_evidence_static, df.index, context_p, ascending=True)
-            context_accumulation_dynamic_score = normalize_score(accumulation_evidence_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            accumulation_evidence = (tactical_accumulation_static_score * tactical_accumulation_dynamic_score * context_accumulation_static_score * context_accumulation_dynamic_score)**0.25
+            context_acc_static = normalize_score(accumulation_static, df.index, context_p, ascending=True)
+            context_acc_slope = normalize_score(accumulation_slope, df.index, context_p, ascending=True)
+            context_acc_accel = normalize_score(accumulation_accel, df.index, context_p, ascending=True)
+            context_acc_quality = (context_acc_static * context_acc_slope * context_acc_accel)**(1/3)
+            accumulation_evidence = (tactical_acc_quality * context_acc_quality)**0.5
             # --- 派发证据 ---
-            distribution_evidence_static = df.get('main_force_rally_distribution_D', 0) + df.get('main_force_capitulation_distribution_D', 0)
-            distribution_evidence_dynamic = df.get(f'main_force_rally_distribution_slope_{p}d_D', 0) + df.get(f'main_force_capitulation_distribution_slope_{p}d_D', 0)
+            distribution_static = df.get('main_force_rally_distribution_D', 0) + df.get('main_force_capitulation_distribution_D', 0)
+            distribution_slope = df.get(f'SLOPE_{p}_main_force_rally_distribution_D', 0) + df.get(f'SLOPE_{p}_main_force_capitulation_distribution_D', 0)
+            distribution_accel = df.get(f'ACCEL_{p}_main_force_rally_distribution_D', 0) + df.get(f'ACCEL_{p}_main_force_capitulation_distribution_D', 0)
             # 战术层
-            tactical_distribution_static_score = normalize_score(distribution_evidence_static, df.index, p, ascending=True)
-            tactical_distribution_dynamic_score = normalize_score(distribution_evidence_dynamic, df.index, p, ascending=True)
+            tactical_dist_static = normalize_score(distribution_static, df.index, p, ascending=True)
+            tactical_dist_slope = normalize_score(distribution_slope, df.index, p, ascending=True)
+            tactical_dist_accel = normalize_score(distribution_accel, df.index, p, ascending=True)
+            tactical_dist_quality = (tactical_dist_static * tactical_dist_slope * tactical_dist_accel)**(1/3)
             # 上下文层
-            context_distribution_static_score = normalize_score(distribution_evidence_static, df.index, context_p, ascending=True)
-            context_distribution_dynamic_score = normalize_score(distribution_evidence_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            distribution_evidence = (tactical_distribution_static_score * tactical_distribution_dynamic_score * context_distribution_static_score * context_distribution_dynamic_score)**0.25
-            # [代码修改结束]
+            context_dist_static = normalize_score(distribution_static, df.index, context_p, ascending=True)
+            context_dist_slope = normalize_score(distribution_slope, df.index, context_p, ascending=True)
+            context_dist_accel = normalize_score(distribution_accel, df.index, context_p, ascending=True)
+            context_dist_quality = (context_dist_static * context_dist_slope * context_dist_accel)**(1/3)
+            distribution_evidence = (tactical_dist_quality * context_dist_quality)**0.5
+            
             action_snapshot = (accumulation_evidence - distribution_evidence).astype(np.float32)
             holographic_divergence = self._calculate_holographic_divergence(action_snapshot, 1, p, p * 2)
             dynamic_action_score = self._perform_chip_relational_meta_analysis(
@@ -204,38 +214,46 @@ class ChipIntelligence:
 
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V4.0 · 三维全息版】核心公理三：诊断筹码“转移方向”
-        - 核心升级: 引入“三维全息”分析范式，将“状态”、“动态”、“势（上下文）”三者融合。
-        - 新范式: 最终证据分 = (战术状态 * 战术动态 * 上下文状态 * 上下文动态) ^ 0.25。
+        【V5.0 · 四维时空版】核心公理三：诊断筹码“转移方向”
+        - 核心升级: 引入“四维时空”分析范式，融合“状态”、“速度(斜率)”、“加速度”和“势(上下文)”。
+        - 坐标修正: 全面使用数据层提供的真实列名。
         """
         scores = {}
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 引入状态、动态、上下文的三维融合
+            # 引入状态、速度、加速度、上下文的四维融合
             # --- 向主力转移的证据 ---
-            transfer_to_main_force_static = df.get('short_term_capitulation_ratio_D', 0) + df.get('long_term_despair_selling_ratio_D', 0)
-            transfer_to_main_force_dynamic = df.get(f'short_term_capitulation_ratio_slope_{p}d_D', 0) + df.get(f'long_term_despair_selling_ratio_slope_{p}d_D', 0)
+            transfer_to_main_static = df.get('short_term_capitulation_ratio_D', 0) + df.get('long_term_despair_selling_ratio_D', 0)
+            transfer_to_main_slope = df.get(f'SLOPE_{p}_short_term_capitulation_ratio_D', 0) + df.get(f'SLOPE_{p}_long_term_despair_selling_ratio_D', 0)
+            transfer_to_main_accel = df.get(f'ACCEL_{p}_short_term_capitulation_ratio_D', 0) + df.get(f'ACCEL_{p}_long_term_despair_selling_ratio_D', 0)
             # 战术层
-            tactical_transfer_to_main_static_score = normalize_score(transfer_to_main_force_static, df.index, p, ascending=True)
-            tactical_transfer_to_main_dynamic_score = normalize_score(transfer_to_main_force_dynamic, df.index, p, ascending=True)
+            tactical_main_static = normalize_score(transfer_to_main_static, df.index, p, ascending=True)
+            tactical_main_slope = normalize_score(transfer_to_main_slope, df.index, p, ascending=True)
+            tactical_main_accel = normalize_score(transfer_to_main_accel, df.index, p, ascending=True)
+            tactical_main_quality = (tactical_main_static * tactical_main_slope * tactical_main_accel)**(1/3)
             # 上下文层
-            context_transfer_to_main_static_score = normalize_score(transfer_to_main_force_static, df.index, context_p, ascending=True)
-            context_transfer_to_main_dynamic_score = normalize_score(transfer_to_main_force_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            transfer_to_main_force_evidence = (tactical_transfer_to_main_static_score * tactical_transfer_to_main_dynamic_score * context_transfer_to_main_static_score * context_transfer_to_main_dynamic_score)**0.25
+            context_main_static = normalize_score(transfer_to_main_static, df.index, context_p, ascending=True)
+            context_main_slope = normalize_score(transfer_to_main_slope, df.index, context_p, ascending=True)
+            context_main_accel = normalize_score(transfer_to_main_accel, df.index, context_p, ascending=True)
+            context_main_quality = (context_main_static * context_main_slope * context_main_accel)**(1/3)
+            transfer_to_main_force_evidence = (tactical_main_quality * context_main_quality)**0.5
             # --- 向散户转移的证据 ---
             transfer_to_retail_static = df.get('short_term_profit_taking_ratio_D', 0) + df.get('long_term_chips_unlocked_ratio_D', 0)
-            transfer_to_retail_dynamic = df.get(f'short_term_profit_taking_ratio_slope_{p}d_D', 0) + df.get(f'long_term_chips_unlocked_ratio_slope_{p}d_D', 0)
+            transfer_to_retail_slope = df.get(f'SLOPE_{p}_short_term_profit_taking_ratio_D', 0) + df.get(f'SLOPE_{p}_long_term_chips_unlocked_ratio_D', 0)
+            transfer_to_retail_accel = df.get(f'ACCEL_{p}_short_term_profit_taking_ratio_D', 0) + df.get(f'ACCEL_{p}_long_term_chips_unlocked_ratio_D', 0)
             # 战术层
-            tactical_transfer_to_retail_static_score = normalize_score(transfer_to_retail_static, df.index, p, ascending=True)
-            tactical_transfer_to_retail_dynamic_score = normalize_score(transfer_to_retail_dynamic, df.index, p, ascending=True)
+            tactical_retail_static = normalize_score(transfer_to_retail_static, df.index, p, ascending=True)
+            tactical_retail_slope = normalize_score(transfer_to_retail_slope, df.index, p, ascending=True)
+            tactical_retail_accel = normalize_score(transfer_to_retail_accel, df.index, p, ascending=True)
+            tactical_retail_quality = (tactical_retail_static * tactical_retail_slope * tactical_retail_accel)**(1/3)
             # 上下文层
-            context_transfer_to_retail_static_score = normalize_score(transfer_to_retail_static, df.index, context_p, ascending=True)
-            context_transfer_to_retail_dynamic_score = normalize_score(transfer_to_retail_dynamic, df.index, context_p, ascending=True)
-            # 三维融合
-            transfer_to_retail_evidence = (tactical_transfer_to_retail_static_score * tactical_transfer_to_retail_dynamic_score * context_transfer_to_retail_static_score * context_transfer_to_retail_dynamic_score)**0.25
-            # [代码修改结束]
+            context_retail_static = normalize_score(transfer_to_retail_static, df.index, context_p, ascending=True)
+            context_retail_slope = normalize_score(transfer_to_retail_slope, df.index, context_p, ascending=True)
+            context_retail_accel = normalize_score(transfer_to_retail_accel, df.index, context_p, ascending=True)
+            context_retail_quality = (context_retail_static * context_retail_slope * context_retail_accel)**(1/3)
+            transfer_to_retail_evidence = (tactical_retail_quality * context_retail_quality)**0.5
+            
             transfer_snapshot = (transfer_to_main_force_evidence - transfer_to_retail_evidence).astype(np.float32)
             holographic_divergence = self._calculate_holographic_divergence(transfer_snapshot, 1, p, p * 2)
             dynamic_transfer_score = self._perform_chip_relational_meta_analysis(
@@ -353,14 +371,14 @@ class ChipIntelligence:
         rally_scores_by_period = {}
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # [代码修改开始] 使用新的归因指标重构“拉升吸筹”逻辑
+            # 使用新的归因指标重构“拉升吸筹”逻辑
             # 战术层
             tactical_retail_chasing = normalize_score(df.get('retail_chasing_accumulation_D', 0), df.index, p_tactical, ascending=True)
             tactical_main_force_not_distributing = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', 0), df.index, p_tactical, ascending=True)
             # 上下文层
             context_retail_chasing = normalize_score(df.get('retail_chasing_accumulation_D', 0), df.index, p_context, ascending=True)
             context_main_force_not_distributing = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', 0), df.index, p_context, ascending=True)
-            # [代码修改结束]
+            
             fused_retail_chasing = (tactical_retail_chasing * context_retail_chasing)**0.5
             fused_main_force_not_distributing = (tactical_main_force_not_distributing * context_main_force_not_distributing)**0.5
             rally_snapshot_score = (fused_retail_chasing * fused_main_force_not_distributing)**0.5

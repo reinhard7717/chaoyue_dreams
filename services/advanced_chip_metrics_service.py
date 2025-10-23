@@ -133,10 +133,10 @@ class AdvancedChipMetricsService:
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='inner')
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='left')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
-        # [代码修改开始] 移除内部的长周期依赖计算，直接使用传入的全局map
+        # 移除内部的长周期依赖计算，直接使用传入的全局map
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
-        # [代码修改结束]
+        
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
         return merged_df
@@ -146,7 +146,7 @@ class AdvancedChipMetricsService:
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        # [代码修改开始] 移除用于探针的 is_first_day_in_batch 标记
+        # 移除用于探针的 is_first_day_in_batch 标记
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
@@ -171,7 +171,7 @@ class AdvancedChipMetricsService:
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
-            # [代码修改结束]
+            
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
@@ -259,10 +259,10 @@ class AdvancedChipMetricsService:
                     derivatives_df[slope_col_name] = slope_series
                     if slope_series is not None and not slope_series.empty:
                         accel_col_name = f'{col}_accel_{p}d'
-                        # [代码修改开始] 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
+                        # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
                         derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
-        # [代码修改结束]
+        
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """准备并以“更新或创建”的方式原子化保存数据。"""

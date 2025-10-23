@@ -82,11 +82,11 @@ class TacticEngine:
         chip_integrity_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
-        # [代码修改开始] 引入全新的“资金流恐慌”支柱
+        # 引入全新的“资金流恐慌”支柱
         retail_capitulation = normalize_score(df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         main_force_absorption = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         fund_flow_panic_score = (retail_capitulation * main_force_absorption)**0.5
-        # [代码修改结束]
+        
         snapshot_panic = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +

@@ -588,7 +588,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
-    # [代码修改开始] 修正 trade_count 的情报来源
+    # 修正 trade_count 的情报来源
     # 1. 定义日线行情所需字段，不包含 trade_count
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq'
@@ -614,7 +614,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
     }
-    # [代码修改结束]
+    
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     for name, df in data_dfs.items():
@@ -642,7 +642,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock_code, incremental_flag, start_date_override
         )
         DailyModel = get_daily_data_model_by_code(stock_code)
-        # [代码修改开始] 区分“需要处理的日期”和“需要保存的日期”
+        # 区分“需要处理的日期”和“需要保存的日期”
         # 1. 确定需要保存的起始日期
         save_start_date = None
         if start_date_override:
@@ -663,7 +663,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_start_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_start_date)
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
-        # [代码修改结束]
+        
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info, trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'close_qfq').order_by('trade_time')
@@ -705,11 +705,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global
             )
-            # [代码修改结束]
+            
             chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )
-            # [代码修改开始] 实施滚动拼接与衍生计算
+            # 实施滚动拼接与衍生计算
             # a. 合并当前区块的核心指标
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
             # b. 与历史上下文拼接，形成用于衍生计算的完整序列
@@ -723,14 +723,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
             # f. 更新上下文，为下一个循环做准备
             context_df = full_sequence_for_derivatives
-            # [代码修改结束]
+            
         if not all_final_metrics_to_save.empty:
-            # [代码修改开始] 根据任务开始时确定的保存日期，精确切分需要保存的数据
+            # 根据任务开始时确定的保存日期，精确切分需要保存的数据
             if save_start_date:
                 chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
             else: # 全量计算
                 chunk_to_save = all_final_metrics_to_save
-            # [代码修改结束]
+            
             if not chunk_to_save.empty:
                 ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
                 chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)

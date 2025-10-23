@@ -57,8 +57,10 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V415.1 · 指挥链审查版】情报层总指挥官
-        - 核心升级: 部署“指挥链审查”探针，监控对认知层的调用。
+        【V416.0 · 指挥链重塑版】情报层总指挥官
+        - 核心重构: 重新编排所有情报引擎的调用顺序，以解决微观层对专业层（筹码、资金流）的数据依赖问题。
+        - 新指挥链: 1. 基础/专业层 -> 2. 微观/战术层 -> 3. 认知融合/预测/剧本层。
+        - 职责调整: CognitiveIntelligence 不再负责调用微观和战术引擎，其职责被上收到本模块。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -68,6 +70,10 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
+        
+        # [代码修改开始] 重新编排指挥链
+        # --- 阶段一: 基础层 & 专业层情报生成 ---
+        print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
@@ -81,6 +87,17 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
+        
+        # --- 阶段二: 微观层 & 战术层情报生成 (现在可以安全消费专业层数据) ---
+        print("  -> [指挥链] 正在执行: 微观层 & 战术层情报生成...")
+        micro_behavior_states = self.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(df)
+        update_states(micro_behavior_states)
+        tactic_states = self.cognitive_intel.tactic_engine.run_tactic_synthesis(df, pullback_enhancements={})
+        update_states(tactic_states)
+        self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
+
+        # --- 阶段三: 顶层认知融合与决策生成 ---
+        print("  -> [指挥链] 正在执行: 顶层认知融合与决策生成...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
         update_states(self.predictive_intel.run_predictive_diagnostics())
         trigger_events = self.playbook_engine.define_trigger_events(df)
@@ -89,6 +106,8 @@ class IntelligenceLayer:
         self.strategy.playbook_states.update(playbook_states)
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
+        # [代码修改结束]
+        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         return self.strategy.trigger_events
 

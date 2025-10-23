@@ -31,7 +31,7 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        # [代码修改开始] 移除所有探针及相关的条件判断逻辑
+        # 移除所有探针及相关的条件判断逻辑
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
@@ -84,7 +84,7 @@ class ChipFeatureCalculator:
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
         return all_metrics
-        # [代码修改结束]
+        
 
     def _prepare_minute_data_features(self):
         """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""
@@ -103,18 +103,18 @@ class ChipFeatureCalculator:
         for col, dtype in dtype_map.items():
             if col in minute_df.columns:
                 minute_df[col] = pd.to_numeric(minute_df[col], errors='coerce').astype(dtype, errors='ignore')
-        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         total_amount_yuan = minute_df['amount'].sum()
         total_vol_shares = minute_df['vol'].sum()
-        # [代码修改结束]
+        
         daily_vwap = total_amount_yuan / total_vol_shares if total_vol_shares > 0 else None
         self.ctx['daily_vwap'] = daily_vwap
         if daily_vwap is None:
             self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
-        # [代码修改开始] 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
+        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         minute_df['minute_vwap'] = (minute_df['amount'] / minute_df['vol'].replace(0, np.nan)).astype('float32', errors='ignore')
-        # [代码修改结束]
+        
         vol_above_vwap = minute_df[minute_df['minute_vwap'] > daily_vwap]['vol'].sum()
         vol_below_vwap = minute_df[minute_df['minute_vwap'] < daily_vwap]['vol'].sum()
         total_vol = minute_df['vol'].sum()
@@ -208,7 +208,7 @@ class ChipFeatureCalculator:
     def _calculate_winner_structure(self) -> dict:
         """【V13.7 · 定义统一化修正版】使用 prev_20d_close 统一划分长短期筹码"""
         close_price = self.ctx.get('close_price')
-        # [代码修改开始] 引入正确的长短期划分基准
+        # 引入正确的长短期划分基准
         prev_20d_close = self.ctx.get('prev_20d_close')
         total_winner_rate = self.ctx.get('total_winner_rate', 0.0)
         # 检查所有必需的上下文变量
@@ -225,7 +225,7 @@ class ChipFeatureCalculator:
         short_term_winner_rate = winners_df[winners_df['price'] >= prev_20d_close]['percent'].sum()
         long_term_loser_rate = losers_df[losers_df['price'] < prev_20d_close]['percent'].sum()
         short_term_loser_rate = losers_df[losers_df['price'] >= prev_20d_close]['percent'].sum()
-        # [代码修改结束]
+        
         total_loser_rate = long_term_loser_rate + short_term_loser_rate
         return {
             'winner_rate_short_term': short_term_winner_rate,
@@ -332,7 +332,7 @@ class ChipFeatureCalculator:
         daily_turnover_vol = self.ctx.get('daily_turnover_volume')
         if minute_df is None or minute_df.empty or not daily_turnover_vol or daily_turnover_vol <= 0:
             return {'turnover_at_peak_ratio': None}
-        # [代码修改开始] 根据API文档，分钟线的vol单位是股，无需转换。
+        # 根据API文档，分钟线的vol单位是股，无需转换。
         total_vol_shares = minute_df['vol'].sum()
         if total_vol_shares <= 0:
             return {'turnover_at_peak_ratio': 0.0}
@@ -342,7 +342,7 @@ class ChipFeatureCalculator:
         if peak_range_low is not None and peak_range_high is not None:
             vol_at_peak = minute_df[(minute_df['minute_vwap'] >= peak_range_low) & (minute_df['minute_vwap'] <= peak_range_high)]['vol'].sum()
             turnover_at_peak_ratio = (vol_at_peak / total_vol_shares) * 100
-        # [代码修改结束]
+        
         return {'turnover_at_peak_ratio': turnover_at_peak_ratio}
 
     def _calculate_concentration_dynamics(self, context: dict) -> dict:
@@ -431,10 +431,10 @@ class ChipFeatureCalculator:
                 net_flow = main_force_buy_at_peak - main_force_sell_at_peak
                 results['peak_net_volume_flow'] = (net_flow / peak_volume) * 100
                 turnover_at_peak = peak_zone_df['vol'].sum()
-                # [代码修改开始] 修正分母为当日总成交量，确保指标的流量属性一致
+                # 修正分母为当日总成交量，确保指标的流量属性一致
                 if total_daily_vol and total_daily_vol > 0:
                     results['turnover_at_peak_ratio'] = (turnover_at_peak / total_daily_vol) * 100
-                # [代码修改结束]
+                
                 peak_zone_vwap = peak_zone_df['amount'].sum() / turnover_at_peak if turnover_at_peak > 0 else 0
                 if peak_zone_vwap > 0 and pd.notna(daily_vwap):
                     results['peak_vwap_deviation'] = (peak_zone_vwap / daily_vwap - 1) * 100
@@ -503,7 +503,7 @@ class ChipFeatureCalculator:
             results['intraday_volume_gini'] = (n + 1 - 2 * np.sum(cum_vol) / cum_vol[-1]) / n
             time_index = np.arange(1, n + 1)
             results['volume_weighted_time_index'] = np.sum(time_index * volumes) / (n * np.sum(volumes))
-        # [代码修改开始] 重构日内趋势效率的计算逻辑，以正确处理零波动情况
+        # 重构日内趋势效率的计算逻辑，以正确处理零波动情况
         if pd.notna(open_price) and pd.notna(close_price):
             total_path = (minute_df['high'] - minute_df['low']).sum()
             net_change_directional = close_price - open_price
@@ -516,7 +516,7 @@ class ChipFeatureCalculator:
                     results['intraday_trend_efficiency'] = -1.0 # 一字跌停，效率最负
                 else:
                     results['intraday_trend_efficiency'] = 0.0 # 全天无任何价格变动
-        # [代码修改结束]
+        
         minute_df['trade_time_obj'] = pd.to_datetime(minute_df['trade_time']).dt.time
         am_df = minute_df[minute_df['trade_time_obj'] < pd.to_datetime('12:00').time()]
         pm_df = minute_df[minute_df['trade_time_obj'] >= pd.to_datetime('13:00').time()]
@@ -549,20 +549,20 @@ class ChipFeatureCalculator:
         required_cols = ['main_force_buy_vol', 'retail_sell_vol']
         if minute_df is None or minute_df.empty or not total_daily_vol or total_daily_vol <= 0 or not pd.notna(close_price) or not all(c in minute_df.columns for c in required_cols):
             return results
-        # [代码修改开始] 增加对获利盘/套牢盘区域是否存在的健壮性检查
+        # 增加对获利盘/套牢盘区域是否存在的健壮性检查
         winners_df = self.df[self.df['price'] < close_price]
         losers_df = self.df[self.df['price'] > close_price]
         winner_zone_exists = not winners_df.empty
         loser_zone_exists = not losers_df.empty
         winner_zone = (winners_df['price'].min(), winners_df['price'].max()) if winner_zone_exists else (0, 0)
         loser_zone = (losers_df['price'].min(), losers_df['price'].max()) if loser_zone_exists else (close_price, np.inf)
-        # [代码修改结束]
+        
         minute_df['is_up'] = minute_df['close'] > minute_df['open']
         minute_df['is_down'] = minute_df['close'] < minute_df['open']
-        # [代码修改开始] 仅在区域存在时进行计算
+        # 仅在区域存在时进行计算
         is_in_winner_zone = (minute_df['minute_vwap'] >= winner_zone[0]) & (minute_df['minute_vwap'] <= winner_zone[1]) if winner_zone_exists else pd.Series(False, index=minute_df.index)
         is_in_loser_zone = (minute_df['minute_vwap'] >= loser_zone[0]) & (minute_df['minute_vwap'] <= loser_zone[1]) if loser_zone_exists else pd.Series(False, index=minute_df.index)
-        # [代码修改结束]
+        
         results['main_force_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'main_force_buy_vol'].sum()
         results['retail_suppressive_accumulation'] = minute_df.loc[minute_df['is_up'] & is_in_loser_zone, 'retail_buy_vol'].sum()
         results['main_force_rally_distribution'] = minute_df.loc[minute_df['is_down'] & is_in_winner_zone, 'main_force_sell_vol'].sum()
@@ -617,9 +617,9 @@ class ChipFeatureCalculator:
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_20d_close]['percent'].sum()
         lt_winners_pct = prev_winners[prev_winners['price'] < prev_20d_close]['percent'].sum()
         st_losers_pct = prev_losers[prev_losers['price'] >= prev_20d_close]['percent'].sum()
-        # [代码修改开始] 修正变量引用错误，将 losers_df 修正为 prev_losers
+        # 修正变量引用错误，将 losers_df 修正为 prev_losers
         lt_losers_pct = prev_losers[prev_losers['price'] < prev_20d_close]['percent'].sum()
-        # [代码修改结束]
+        
         results['short_term_profit_taking_ratio'] = st_winners_pct
         results['long_term_chips_unlocked_ratio'] = lt_winners_pct
         results['short_term_capitulation_ratio'] = st_losers_pct
