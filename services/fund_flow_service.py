@@ -158,13 +158,11 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        """【V2.3 · 主权数据协议版】修正合并策略为 left join，并增加数据流探针。"""
-        # [代码新增开始] 探针 1: 记录初始数据帧大小
+        """【V2.6 · 代理-纯化混合策略版】恢复THS主力流代理指标，用于加权共识。"""
         print(f"--- [数据合并探针 1: 入口] [{stock_info.stock_code}] ---")
         for name, df in data_dfs.items():
             if df is not None:
                 print(f"  >>> 输入源 '{name}': {len(df)} 行")
-        # [代码新增结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -180,7 +178,13 @@ class AdvancedFundFlowMetricsService:
                 df['net_sh_amount_tushare'] = df['buy_sm_amount'] - df['sell_sm_amount']
                 return df
             elif source == 'ths':
-                df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'main_force_net_flow_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
+                df = df.rename(columns={'net_amount': 'net_flow_ths', 'buy_lg_amount': 'net_lg_amount_ths', 'buy_md_amount': 'net_md_amount_ths', 'buy_sm_amount': 'net_sh_amount_ths'})
+                # [代码修改开始] 恢复THS主力净流入的“代理”指标计算
+                # 战术说明：此处使用“大单净流入(net_lg_amount_ths)”作为“主力净流入”的代理。
+                # 这并非完美定义，但为当前最稳健的工程选择。
+                # 此代理指标将主要用于鲁棒性更强的“加权共识”，而非直接平均的“核心共识”。
+                df['main_force_net_flow_ths'] = df.get('net_lg_amount_ths', 0)
+                # [代码修改结束]
                 df['retail_net_flow_ths'] = df.get('net_md_amount_ths', 0).fillna(0) + df.get('net_sh_amount_ths', 0).fillna(0)
                 return df
             elif source == 'dc':
@@ -192,22 +196,17 @@ class AdvancedFundFlowMetricsService:
         df_tushare = standardize_and_prepare(data_dfs['tushare'], 'tushare')
         df_ths = standardize_and_prepare(data_dfs['ths'], 'ths')
         df_dc = standardize_and_prepare(data_dfs['dc'], 'dc')
-        # [代码修改开始] 确立 fund_flow_tushare 为主权数据源
         if df_tushare.empty:
             print(f"警告: [{stock_info.stock_code}] 核心资金流数据源(Tushare)为空，无法进行合并。")
             return pd.DataFrame()
-        # 将 Tushare 作为基础，其他资金流数据合并上去
         merged_df = df_tushare
         other_flow_dfs = [df for df in [df_ths, df_dc] if not df.empty]
         if other_flow_dfs:
             for right_df in other_flow_dfs:
                 merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
-        # [代码修改结束]
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
-        # [代码新增开始] 探针 2: 检查资金流数据合并后的行数
         print(f"--- [数据合并探针 2: 资金流合并后] [{stock_info.stock_code}] ---")
         print(f"  >>> 资金流合并后行数: {len(merged_df)} 行")
-        # [代码新增结束]
         merged_df = merged_df.drop(columns=['close'], errors='ignore')
         daily_dfs_to_join = []
         if not data_dfs['daily'].empty:
@@ -217,13 +216,9 @@ class AdvancedFundFlowMetricsService:
             daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
             daily_dfs_to_join.append(daily_basic_df)
         if daily_dfs_to_join:
-            # [代码修改开始] 关键修复：使用 'left' join 保证主数据源的完整性
             merged_df = merged_df.join(daily_dfs_to_join, how='left')
-            # [代码修改结束]
-        # [代码新增开始] 探针 3: 检查与日线数据合并后的最终行数
         print(f"--- [数据合并探针 3: 最终合并后] [{stock_info.stock_code}] ---")
         print(f"  >>> 与日线/基本面合并后行数: {len(merged_df)} 行")
-        # [代码新增结束]
         return merged_df
 
     async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
@@ -267,13 +262,11 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
-        """【V5.3 · 入口探针增强版】在计算开始前，增加对输入数据帧的探针检查。"""
+        """【V5.6 · 代理-纯化混合策略版】区分核心共识与加权共识的数据源。"""
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
-        # [代码新增开始] 流程诊断探针 0: 检查入口数据帧状态
         print(f"--- [流程诊断探针 0: 入口] [{stock_code}] ---")
         print(f"  >>> 指标合成引擎接收到 {len(df)} 行数据进行计算。")
-        # [代码新增结束]
         result_df = df.copy()
         attributed_minute_map = {}
         required_input_cols = ['trade_count', 'amount', 'circ_mv', 'main_force_net_flow_tushare']
@@ -284,10 +277,12 @@ class AdvancedFundFlowMetricsService:
             print(f"  >>> 影响: 依赖这些列的指标将无法计算。")
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
-            'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc'],
+            # [代码修改开始] 维持核心共识的纯度，仅使用定义一致的Tushare和DC
+            'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
+            # [代码修改结束]
             'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
             'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
-            'net_lg_amount_consensus': ['net_lg_amount_tushare'],
+            'net_lg_amount_consensus': ['net_lg_amount_tushare', 'net_lg_amount_ths', 'net_lg_amount_dc'],
             'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
             'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
         }
@@ -295,7 +290,9 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
+        # [代码修改开始] 明确定义用于加权共识和分歧度计算的所有可用“主力”源
         source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
+        # [代码修改结束]
         existing_sources = [col for col in source_cols if col in df.columns]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
@@ -303,6 +300,8 @@ class AdvancedFundFlowMetricsService:
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
+            if 'net_position_change_value' in result_df.columns:
+                result_df['cost_weighted_main_flow'] = result_df['net_position_change_value']
             if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
                 result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
             mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
@@ -320,9 +319,6 @@ class AdvancedFundFlowMetricsService:
                 result_df['source_consistency_score'] = (1 - consistency_ratio).clip(lower=0)
             if 'avg_cost_main_buy' in result_df.columns:
                 result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
-                main_force_net_vol = self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol') - self._get_safe_numeric_series(df, 'sell_lg_vol') - self._get_safe_numeric_series(df, 'sell_elg_vol')
-                main_force_net_vol_shares = main_force_net_vol * 100
-                result_df['cost_weighted_main_flow'] = main_force_net_vol_shares * result_df['avg_cost_main_buy']
                 result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
                 result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
                 if 'daily_vwap' in result_df.columns:
@@ -607,8 +603,8 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.1 · 单位统一版】使用金融学第一性原理，并统一单位为“万元”。
-        - 核心修正: 将最终计算出的以“元”为单位的利润，除以10000，转换为“万元”，与其他资金流指标对齐。
+        【V3.2 · 会计准则修正版】修正 main_force_intraday_profit 的计算逻辑。
+        - 核心修正: 遵循金融第一性原理，将总盈亏修正为“已实现盈亏 + 未实现盈亏”。
         """
         results_df = pd.DataFrame(index=df.index)
         cost_buy = self._get_numeric_series_with_nan(df, 'avg_cost_main_buy')
@@ -616,27 +612,22 @@ class AdvancedFundFlowMetricsService:
         close_price = self._get_numeric_series_with_nan(df, 'close')
         vol_buy_shares = (self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')) * 100
         vol_sell_shares = (self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')) * 100
-        
         exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
         realized_profit_yuan = (cost_sell - cost_buy) * exchanged_volume
         results_df['realized_profit_on_exchange'] = realized_profit_yuan / 10000 # 转换为万元
-        
         net_pos_change_vol = vol_buy_shares - vol_sell_shares
         net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
         net_pos_change_value_yuan = net_pos_change_vol * net_pos_change_cost
         results_df['net_position_change_value'] = net_pos_change_value_yuan / 10000 # 转换为万元
-        
         unrealized_pnl_yuan = (close_price - net_pos_change_cost) * net_pos_change_vol
         results_df['unrealized_pnl_on_net_change'] = unrealized_pnl_yuan / 10000 # 转换为万元
-        
-        # 统一利润单位为“万元”
-        total_sell_value_yuan = cost_sell * vol_sell_shares
-        total_buy_value_yuan = cost_buy * vol_buy_shares
-        total_profit_yuan = total_sell_value_yuan - total_buy_value_yuan
-        # 将最终利润转换为“万元”以匹配其他资金流指标
-        results_df['main_force_intraday_profit'] = total_profit_yuan / 10000
-        
-        
+        # [代码修改开始] 修正主力日内盈亏的计算逻辑
+        # 旧的错误逻辑: total_profit_yuan = (cost_sell * vol_sell_shares) - (total_buy_value_yuan = cost_buy * vol_buy_shares)
+        # 这是净现金流，不是利润。
+        # 新的正确逻辑: 总利润 = 已实现利润 + 未实现（浮动）利润
+        total_profit_yuan = realized_profit_yuan + unrealized_pnl_yuan
+        results_df['main_force_intraday_profit'] = total_profit_yuan / 10000 # 将最终利润转换为“万元”
+        # [代码修改结束]
         dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
         dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
         dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
