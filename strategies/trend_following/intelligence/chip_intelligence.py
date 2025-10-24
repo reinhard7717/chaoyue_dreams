@@ -347,12 +347,11 @@ class ChipIntelligence:
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.0 · 阿波罗战车版】计算均线趋势上下文分数
-        - 核心升级: 全面升级为“四维趋势健康度”评估，融合排列、速度、加速度和元动力。
-        - 新增武器: 引入“元动力”维度，使用跨周期导数（如SLOPE_5_EMA_55_D）捕捉长期趋势的短期变化，
-                      从而获得预判趋势拐点的领先信号。
+        【V2.1 · 类型安全版】计算均线趋势上下文分数
+        - 核心修复: 在处理从配置中读取的权重字典时，增加了对非数字类型值的过滤。
+                      这可以防止 'description' 等说明性字段污染权重数组，从根本上解决了
+                      因类型不匹配导致的 'ufunc 'add' did not contain a loop' 错误。
         """
-        # 整个方法被重写以实现四维评估
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         weights = get_param_value(p_conf.get('ma_trend_context_weights'), {
             'alignment': 0.3, 'velocity': 0.2, 'acceleration': 0.2, 'meta_dynamics': 0.3
@@ -362,24 +361,20 @@ class ChipIntelligence:
         if len(ma_cols) < 2:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        # 维度1: 排列健康度 (Alignment Health)
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-        # 维度2: 速度健康度 (Velocity Health) - 周期匹配导数
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
         if slope_cols:
             slope_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0)
             velocity_health = np.mean(slope_values, axis=0)
         else:
             velocity_health = np.full(len(df.index), 0.5)
-        # 维度3: 加速度健康度 (Acceleration Health) - 周期匹配二阶导数
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
         if accel_cols:
             accel_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in accel_cols], axis=0)
             acceleration_health = np.mean(accel_values, axis=0)
         else:
             acceleration_health = np.full(len(df.index), 0.5)
-        # 维度4: 元动力健康度 (Meta-Dynamics Health) - 跨周期导数
         meta_dynamics_cols = [
             'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
         ]
@@ -389,13 +384,18 @@ class ChipIntelligence:
             meta_dynamics_health = np.mean(meta_values, axis=0)
         else:
             meta_dynamics_health = np.full(len(df.index), 0.5)
-        # 最终融合：加权几何平均
         scores = np.stack([alignment_health, velocity_health, acceleration_health, meta_dynamics_health], axis=0)
-        weights_array = np.array(list(weights.values()))
+        # [代码修改开始] 增加类型过滤，确保只处理数字类型的权重值
+        numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
+        print(f"      -> [ChipIntel:_calculate_ma_trend_context] 原始权重: {weights}")
+        print(f"      -> [ChipIntel:_calculate_ma_trend_context] 过滤后数字权重: {numeric_weights}")
+        weights_array = np.array(list(numeric_weights.values()))
+        # [代码修改结束]
+        if weights_array.sum() == 0: # 增加对权重和为0的保护
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
         weights_array /= weights_array.sum()
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
-
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的“剧本”诊断模块
