@@ -93,12 +93,12 @@ class PlaybookEngine:
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score > get_param_value(p_dominant.get('trigger_threshold'), 0.4)
 
         # --- 2. 定义剧本触发器 (注入周期意识) ---
-        # [代码修改开始] 引入周期环境判断
+        # 引入周期环境判断
         p_cyclical = p_triggers.get('cyclical_bottom_fishing', {})
         is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > get_param_value(p_cyclical.get('cyclical_regime_threshold'), 0.3)
         is_near_trough = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE').fillna(0) < get_param_value(p_cyclical.get('phase_threshold'), -0.8)
         is_not_strong_cyclical = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') < get_param_value(p_cyclical.get('strong_cyclical_suppression_threshold'), 0.7)
-        # [代码修改结束]
+        
 
         # V型反转王牌剧本 (趋势型，应在非周期市触发)
         setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING')

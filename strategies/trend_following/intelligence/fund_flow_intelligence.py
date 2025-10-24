@@ -492,11 +492,11 @@ class FundFlowIntelligence:
         else:
             meta_dynamics_health = np.full(len(df.index), 0.5)
         scores = np.stack([alignment_health, velocity_health, meta_dynamics_health], axis=0)
-        # [代码修改开始] 增加类型过滤，确保只处理数字类型的权重值
+        # 增加类型过滤，确保只处理数字类型的权重值
         numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
         print(f"      -> [FundFlowIntel:_calculate_trend_context_ff] 过滤后数字权重: {numeric_weights}")
         weights_array = np.array(list(numeric_weights.values()))
-        # [代码修改结束]
+        
         if weights_array.sum() == 0:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
         weights_array /= weights_array.sum()

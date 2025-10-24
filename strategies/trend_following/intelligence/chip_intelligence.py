@@ -385,7 +385,7 @@ class ChipIntelligence:
         else:
             meta_dynamics_health = np.full(len(df.index), 0.5)
         scores = np.stack([alignment_health, velocity_health, acceleration_health, meta_dynamics_health], axis=0)
-        # [代码修改开始] 增加类型过滤，确保只处理数字类型的权重值
+        # 增加类型过滤，确保只处理数字类型的权重值
         numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
         weights_array = np.array(list(numeric_weights.values()))
         if weights_array.sum() == 0: # 增加对权重和为0的保护

@@ -60,10 +60,10 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
         cyclical_risk_states = self._calculate_cyclical_top_risk(df)
         self.strategy.atomic_states.update(cyclical_risk_states)
-        # [代码修改开始] 使用全新的统一引擎替换所有零散的 _synthesize_* 方法
+        # 使用全新的统一引擎替换所有零散的 _synthesize_* 方法
         # 旧的、冗长的方法调用链已被移除
         self.strategy.atomic_states.update(self._synthesize_cognitive_expansion_engine(df))
-        # [代码修改结束]
+        
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
@@ -71,7 +71,7 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        # [代码修改开始] 动态构建有效的看涨信号列表，并加入新的高价值信号
+        # 动态构建有效的看涨信号列表，并加入新的高价值信号
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
             'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE',
@@ -111,7 +111,7 @@ class CognitiveIntelligence:
             'COGNITIVE_SCORE_BOTTOM_POWER_TRANSFER',
             'COGNITIVE_SCORE_BREAKOUT_VALIDATION_CONFIRM',
         ]
-        # [代码修改结束]
+        
         valid_bullish_scores = []
         for signal_name in bullish_signal_names:
             signal_series = self._get_atomic_score(df, signal_name)
@@ -178,7 +178,7 @@ class CognitiveIntelligence:
         """
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
-        # [代码修改开始] 调整domain_scores_map，将周期性解耦
+        # 调整domain_scores_map，将周期性解耦
         domain_scores_map = {
             'behavior': 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'STRUCT_BEHAVIOR_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE'),
@@ -188,7 +188,7 @@ class CognitiveIntelligence:
             'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
             'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') # 新增：周期性作为负向指标
         }
-        # [代码修改结束]
+        
         valid_scores = [score.values for name, score in domain_scores_map.items() if weights.get(name, 0) > 0]
         valid_weights = [weights.get(name) for name in domain_scores_map if weights.get(name, 0) > 0]
         if valid_scores:
