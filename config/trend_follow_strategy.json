@@ -401,7 +401,7 @@
             "type": "strategy_sync",
             "task_type": "strategy",
             "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_B": "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【战略元分析】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。高分代表行为正在快速追赶或超越筹码，是强确认信号。"
           },

@@ -81,9 +81,8 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 火力升级与接口修复版】原子信号中心
+        【V1.5 · 接口修复版】原子信号中心，负责生产所有基础行为信号。
         - 核心修复: 修正了对 `_diagnose_volume_price_dynamics` 的调用，补全了缺失的 `params` 参数。
-        - 火力升级: 新增调用 `_diagnose_smart_intraday_trading` 引擎，引入“日内聪明钱”情报。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -104,9 +103,7 @@ class BehavioralIntelligence:
         # [代码修改结束]
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
-        # [代码新增开始] 新增调用“日内聪明钱”诊断引擎
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
-        # [代码新增结束]
         return atomic_signals
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
