@@ -630,13 +630,21 @@
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V601.0 · 筹码公理版】定义了基于“三大核心公理”的新筹码引擎参数。",
+        "description": "【V602.0 · 四公理版】定义了基于“聚散、吸派、转移、峰健康”四大核心公理的新筹码引擎参数。",
         "tf_fusion_weights": {
           "description": "【全息共振】在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
+          "1": 0.1,
           "5": 0.4,
           "13": 0.3,
-          "21": 0.2,
-          "55": 0.1
+          "21": 0.15,
+          "55": 0.05
+        },
+        "axiom_weights": {
+          "description": "【新增】融合四大物理公理时的权重。",
+          "concentration": 0.3,
+          "accumulation": 0.3,
+          "power_transfer": 0.25,
+          "peak_integrity": 0.15
         },
         "relational_meta_analysis_params": {
           "description": "【元分析贯穿协议】关系元分析参数，贯穿于每个核心公理的诊断过程。",
@@ -692,12 +700,13 @@
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V4.0 · 物理公理版】资金流引擎已与筹码引擎哲学对齐，基于“聚散”和“转移”两大物理公理。",
+        "description": "【V4.1 · 三公理版】资金流引擎已与筹码引擎哲学对齐，基于“聚散”、“转移”和“内部结构”三大物理公理。",
         "periods": [1, 5, 13, 21, 55],
         "axiom_weights": {
-          "description": "融合两大物理公理时的权重。",
-          "concentration": 0.5,
-          "power_transfer": 0.5
+          "description": "融合三大物理公理时的权重。",
+          "concentration": 0.4,
+          "power_transfer": 0.4,
+          "internal_structure": 0.2
         },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",

@@ -30,139 +30,109 @@ class FundFlowIntelligence:
 
     def diagnose_ultimate_fund_flow_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.0 · 物理公理重构版】终极资金流信号诊断模块
-        - 核心革命: 废除抽象的“五维意图”范式，全面转向与筹码情报对齐的“两大物理公理”范式。
-        - 新指挥流程: 1. 诊断“资金流-聚散动态”。 2. 诊断“资金流-权力转移”。 3. 融合两大公理，合成终极信号。
+        【V21.1 · 三公理版】终极资金流信号诊断模块
+        - 核心升级: 新增调用“公理三：内部资金结构”诊断引擎，并将其纳入终极信号合成。
         """
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return {}
-        
-        # 调用新的物理公理诊断模块
         concentration_scores = self._diagnose_concentration_dynamics_ff(df, p_conf)
         power_transfer_scores = self._diagnose_power_transfer_ff(df, p_conf)
-        
-        # 将公理分数存入原子状态，供调试或上层模块使用
+        # [代码修改开始] 新增调用公理三诊断引擎
+        internal_structure_scores = self._diagnose_internal_flow_structure_ff(df, p_conf)
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONCENTRATION'] = concentration_scores
         self.strategy.atomic_states['SCORE_FF_AXIOM_POWER_TRANSFER'] = power_transfer_scores
-        
-        # 调用新的、基于公理的终极信号合成器
-        final_scores = self._synthesize_ultimate_signals_from_axioms(df, concentration_scores, power_transfer_scores, p_conf)
-        
-        
+        self.strategy.atomic_states['SCORE_FF_AXIOM_INTERNAL_STRUCTURE'] = internal_structure_scores
+        final_scores = self._synthesize_ultimate_signals_from_axioms(
+            df, concentration_scores, power_transfer_scores, internal_structure_scores, p_conf
+        )
+        # [代码修改结束]
         states = self._assign_graded_states(final_scores)
         return states
 
     def _diagnose_concentration_dynamics_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V2.0 · 四维时空修正版】资金流公理一：诊断资金“聚散”的动态
-        - 核心修正: 引入“内部上下文(势)”，即多时间框架印证。短周期的动态必须由长周期趋势确认。
+        【V2.1 · 健壮性修复版】资金流公理一：诊断资金“聚散”的动态
+        - 核心修复: 全面将 df.get(..., 0) 的默认值升级为 pd.Series(0.0, index=df.index)，
+                      防止因上游指标缺失导致的类型错误，实现“装甲加固”。
         """
         periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
         scores = {}
-        
-        # 引入多时间框架循环，实现内部上下文印证
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            
-            # --- 看涨证据（聚集） ---
-            bullish_static = df.get('main_force_flow_impact_ratio_D', 0) + df.get('main_force_conviction_ratio_D', 0)
-            bullish_slope = df.get(f'SLOPE_{p}_main_force_flow_impact_ratio_D', 0) + df.get(f'SLOPE_{p}_main_force_conviction_ratio_D', 0)
-            bullish_accel = df.get(f'ACCEL_{p}_main_force_flow_impact_ratio_D', 0) + df.get(f'ACCEL_{p}_main_force_conviction_ratio_D', 0)
-            
-            # 战术层 (p)
+            # [代码修改开始] 全面加固 df.get() 调用，防止类型错误
+            bullish_static = df.get('main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+            bullish_slope = df.get(f'SLOPE_{p}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+            bullish_accel = df.get(f'ACCEL_{p}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+            bearish_static = df.get('retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get('main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+            bearish_slope = df.get(f'SLOPE_{p}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'SLOPE_{p}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+            bearish_accel = df.get(f'ACCEL_{p}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'ACCEL_{p}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+            # [代码修改结束]
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
             tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
             tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
             tactical_bullish_quality = (tactical_bullish_static * tactical_bullish_slope * tactical_bullish_accel)**(1/3)
-            
-            # 战略/上下文层 (context_p)
             context_bullish_static = normalize_score(bullish_static, df.index, context_p, ascending=True)
             context_bullish_slope = normalize_score(bullish_slope, df.index, context_p, ascending=True)
             context_bullish_accel = normalize_score(bullish_accel, df.index, context_p, ascending=True)
             context_bullish_quality = (context_bullish_static * context_bullish_slope * context_bullish_accel)**(1/3)
-            
             final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
-            
-            # --- 看跌证据（发散） ---
-            bearish_static = df.get('retail_net_flow_consensus_D', 0).abs() + df.get('main_force_vs_xl_divergence_D', 0)
-            bearish_slope = df.get(f'SLOPE_{p}_retail_net_flow_consensus_D', 0).abs() + df.get(f'SLOPE_{p}_main_force_vs_xl_divergence_D', 0)
-            bearish_accel = df.get(f'ACCEL_{p}_retail_net_flow_consensus_D', 0).abs() + df.get(f'ACCEL_{p}_main_force_vs_xl_divergence_D', 0)
-            
-            # 战术层 (p)
             tactical_bearish_static = normalize_score(bearish_static, df.index, p, ascending=True)
             tactical_bearish_slope = normalize_score(bearish_slope, df.index, p, ascending=True)
             tactical_bearish_accel = normalize_score(bearish_accel, df.index, p, ascending=True)
             tactical_bearish_quality = (tactical_bearish_static * tactical_bearish_slope * tactical_bearish_accel)**(1/3)
-            
-            # 战略/上下文层 (context_p)
             context_bearish_static = normalize_score(bearish_static, df.index, context_p, ascending=True)
             context_bearish_slope = normalize_score(bearish_slope, df.index, context_p, ascending=True)
             context_bearish_accel = normalize_score(bearish_accel, df.index, context_p, ascending=True)
             context_bearish_quality = (context_bearish_static * context_bearish_slope * context_bearish_accel)**(1/3)
-            
             final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
-            
             concentration_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
             scores[p] = concentration_snapshot.clip(-1, 1)
-            
         return scores
 
     def _diagnose_power_transfer_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.1 · 状态-动态分离版】资金流公理二：诊断资金“权力转移”的方向
-        - 核心升级: 采纳【状态-动态分离】范式。
-                      1. 状态 (State): 保留对事件型指标(如retail_capitulation_score)的直接使用，作为评分基础。
-                      2. 动态 (Dynamics): 斜率和加速度的计算，则基于更能反映过程的指标(如成本优势变化率)。
+        【V3.2 · 前线换装与健壮性修复版】资金流公理二：诊断资金“权力转移”的方向
+        - 核心修复: 1. 废弃已失效的 `short_term_profit_taking_ratio_D`，换装为 `profit_taking_urgency_D`。
+                      2. 全面将 df.get(..., 0) 的默认值升级为 pd.Series(0.0, index=df.index)，实现“装甲加固”。
         """
         periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
         scores = {}
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            # 实施“状态-动态分离”模型
+            # [代码修改开始] 全面加固 df.get() 调用并换装新指标
             # --- 看涨证据（权力向主力转移） ---
-            # --- 维度1: 状态 (State) - 事件本身 ---
-            # 评估“散户投降”和“主力支撑”这两个关键事件是否发生。
-            bullish_static = df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)) + df.get('main_force_support_strength_D', pd.Series(0, index=df.index))
-            # --- 维度2: 动态 (Dynamics) - 过程的导数 ---
-            # 评估“主力成本优势”和“套牢盘卖出意愿”这两个过程的演化速度。
-            cost_advantage_slope = df.get(f'SLOPE_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0, index=df.index))
-            cost_advantage_accel = df.get(f'ACCEL_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0, index=df.index))
-            loser_selling_slope = df.get(f'SLOPE_{p}_loser_rate_short_term_D', pd.Series(0, index=df.index))
-            loser_selling_accel = df.get(f'ACCEL_{p}_loser_rate_short_term_D', pd.Series(0, index=df.index))
+            bullish_static = df.get('retail_capitulation_score_D', pd.Series(0.0, index=df.index)) + df.get('main_force_support_strength_D', pd.Series(0.0, index=df.index))
+            cost_advantage_slope = df.get(f'SLOPE_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index))
+            cost_advantage_accel = df.get(f'ACCEL_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index))
+            loser_selling_slope = df.get(f'SLOPE_{p}_loser_rate_short_term_D', pd.Series(0.0, index=df.index))
+            loser_selling_accel = df.get(f'ACCEL_{p}_loser_rate_short_term_D', pd.Series(0.0, index=df.index))
             bullish_slope = cost_advantage_slope + loser_selling_slope
             bullish_accel = cost_advantage_accel + loser_selling_accel
             # --- 看跌证据（权力向散户转移） ---
-            # --- 维度1: 状态 (State) - 事件本身 ---
-            # 评估“主力派发”和“散户追高”这两个关键事件是否发生。
-            bearish_static = df.get('main_force_distribution_pressure_D', pd.Series(0, index=df.index)) + df.get('retail_chasing_accumulation_D', pd.Series(0, index=df.index))
-            # --- 维度2: 动态 (Dynamics) - 过程的导数 ---
-            # 评估“主力成本优势丧失”和“获利盘兑现意愿”这两个过程的演化速度。
-            cost_disadvantage_slope = -cost_advantage_slope # 成本优势的减少即为成本劣势的增加
+            bearish_static = df.get('main_force_distribution_pressure_D', pd.Series(0.0, index=df.index)) + df.get('retail_chasing_accumulation_D', pd.Series(0.0, index=df.index))
+            cost_disadvantage_slope = -cost_advantage_slope
             cost_disadvantage_accel = -cost_advantage_accel
-            profit_taking_slope = df.get(f'SLOPE_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index))
-            profit_taking_accel = df.get(f'ACCEL_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index))
+            # 换装新武器: profit_taking_urgency_D
+            profit_taking_slope = df.get(f'SLOPE_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index))
+            profit_taking_accel = df.get(f'ACCEL_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index))
             bearish_slope = cost_disadvantage_slope + profit_taking_slope
             bearish_accel = cost_disadvantage_accel + profit_taking_accel
-            
+            # [代码修改结束]
             # --- 融合计算 ---
-            # 战术层 (p)
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
             tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
             tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
             tactical_bullish_quality = (tactical_bullish_static * tactical_bullish_slope * tactical_bullish_accel)**(1/3)
-            # 战略/上下文层 (context_p)
             context_bullish_static = normalize_score(bullish_static, df.index, context_p, ascending=True)
             context_bullish_slope = normalize_score(bullish_slope, df.index, context_p, ascending=True)
             context_bullish_accel = normalize_score(bullish_accel, df.index, context_p, ascending=True)
             context_bullish_quality = (context_bullish_static * context_bullish_slope * context_bullish_accel)**(1/3)
             final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
-            # 战术层 (p)
             tactical_bearish_static = normalize_score(bearish_static, df.index, p, ascending=True)
             tactical_bearish_slope = normalize_score(bearish_slope, df.index, p, ascending=True)
             tactical_bearish_accel = normalize_score(bearish_accel, df.index, p, ascending=True)
             tactical_bearish_quality = (tactical_bearish_static * tactical_bearish_slope * tactical_bearish_accel)**(1/3)
-            # 战略/上下文层 (context_p)
             context_bearish_static = normalize_score(bearish_static, df.index, context_p, ascending=True)
             context_bearish_slope = normalize_score(bearish_slope, df.index, context_p, ascending=True)
             context_bearish_accel = normalize_score(bearish_accel, df.index, context_p, ascending=True)
@@ -172,15 +142,61 @@ class FundFlowIntelligence:
             scores[p] = power_transfer_snapshot.clip(-1, 1)
         return scores
 
-    def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
+    def _diagnose_internal_flow_structure_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.0 · 纯粹化版】基于物理公理的终极信号合成器
-        - 核心升级: 移除对全局上下文的应用。本模块现在只负责输出最纯粹的、未经外部环境调制的资金流信号，
-                      将战略价值评估的权力上交至顶层认知模块(CognitiveIntelligence)。
+        【V1.0 · 新增】资金流公理三：诊断资金“内部结构”的健康度
+        - 核心逻辑: 剖析主力资金内部（超大单/大单 vs 中单/小单）的协同与背离，揭示更深层次的市场意图。
         """
+        # [代码新增开始]
+        periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
+        scores = {}
+        for i, p in enumerate(periods):
+            context_p = periods[i + 1] if i + 1 < len(periods) else p
+            # --- 定义核心参与者资金流 ---
+            xl_flow = df.get('net_xl_amount_consensus_D', pd.Series(0.0, index=df.index))
+            lg_flow = df.get('net_lg_amount_consensus_D', pd.Series(0.0, index=df.index))
+            md_flow = df.get('net_md_amount_consensus_D', pd.Series(0.0, index=df.index))
+            sh_flow = df.get('net_sh_amount_consensus_D', pd.Series(0.0, index=df.index))
+            # --- 看涨证据：大单吸筹，小单派发 ---
+            smart_money_inflow = (xl_flow + lg_flow).clip(lower=0)
+            retail_money_outflow = (md_flow + sh_flow).clip(upper=0).abs()
+            # 战术层
+            tactical_smart_in = normalize_score(smart_money_inflow, df.index, p, ascending=True)
+            tactical_retail_out = normalize_score(retail_money_outflow, df.index, p, ascending=True)
+            # 上下文层
+            context_smart_in = normalize_score(smart_money_inflow, df.index, context_p, ascending=True)
+            context_retail_out = normalize_score(retail_money_outflow, df.index, context_p, ascending=True)
+            # 融合
+            fused_smart_in = (tactical_smart_in * context_smart_in)**0.5
+            fused_retail_out = (tactical_retail_out * context_retail_out)**0.5
+            bullish_divergence = (fused_smart_in * fused_retail_out)**0.5
+            # --- 看跌证据：大单派发，小单接盘 ---
+            smart_money_outflow = (xl_flow + lg_flow).clip(upper=0).abs()
+            retail_money_inflow = (md_flow + sh_flow).clip(lower=0)
+            # 战术层
+            tactical_smart_out = normalize_score(smart_money_outflow, df.index, p, ascending=True)
+            tactical_retail_in = normalize_score(retail_money_inflow, df.index, p, ascending=True)
+            # 上下文层
+            context_smart_out = normalize_score(smart_money_outflow, df.index, context_p, ascending=True)
+            context_retail_in = normalize_score(retail_money_inflow, df.index, context_p, ascending=True)
+            # 融合
+            fused_smart_out = (tactical_smart_out * context_smart_out)**0.5
+            fused_retail_in = (tactical_retail_in * context_retail_in)**0.5
+            bearish_divergence = (fused_smart_out * fused_retail_in)**0.5
+            # --- 生成双极快照分 ---
+            internal_structure_snapshot = (bullish_divergence - bearish_divergence).astype(np.float32)
+            scores[p] = internal_structure_snapshot.clip(-1, 1)
+        return scores
+        # [代码新增结束]
+
+    def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], internal_structure: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
+        """
+        【V3.1 · 三公理版】基于物理公理的终极信号合成器
+        - 核心升级: 将新增的“公理三：内部资金结构”纳入融合计算，形成更稳固的三足鼎立结构。
+        """
+        # [代码修改开始] 接收并处理第三公理
         states = {}
-        # 移除所有关于外部上下文(bottom/top_context_score)的计算和应用
-        axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.5, 'power_transfer': 0.5})
+        axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.4, 'power_transfer': 0.4, 'internal_structure': 0.2})
         tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         total_tf_weight = sum(tf_weights.values())
         bullish_resonance = pd.Series(0.0, index=df.index)
@@ -189,14 +205,23 @@ class FundFlowIntelligence:
             for p, weight in tf_weights.items():
                 conc_score = concentration.get(p, 0.0)
                 trans_score = power_transfer.get(p, 0.0)
-                period_bullish = (conc_score.clip(0, 1) * axiom_weights['concentration'] + trans_score.clip(0, 1) * axiom_weights['power_transfer'])
-                period_bearish = (conc_score.clip(-1, 0).abs() * axiom_weights['concentration'] + trans_score.clip(-1, 0).abs() * axiom_weights['power_transfer'])
+                struct_score = internal_structure.get(p, 0.0)
+                period_bullish = (
+                    conc_score.clip(0, 1) * axiom_weights['concentration'] +
+                    trans_score.clip(0, 1) * axiom_weights['power_transfer'] +
+                    struct_score.clip(0, 1) * axiom_weights['internal_structure']
+                )
+                period_bearish = (
+                    conc_score.clip(-1, 0).abs() * axiom_weights['concentration'] +
+                    trans_score.clip(-1, 0).abs() * axiom_weights['power_transfer'] +
+                    struct_score.clip(-1, 0).abs() * axiom_weights['internal_structure']
+                )
                 bullish_resonance += period_bullish * (weight / total_tf_weight)
                 bearish_resonance += period_bearish * (weight / total_tf_weight)
+        # [代码修改结束]
         bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)
         top_reversal = self._perform_fund_flow_relational_meta_analysis(df, bearish_resonance)
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
-        # 输出纯粹的、未经调制的信号
         final_scores = {
             'bullish_resonance': bullish_resonance,
             'bottom_reversal': bottom_reversal,
@@ -204,7 +229,6 @@ class FundFlowIntelligence:
             'top_reversal': top_reversal,
             'tactical_reversal': tactical_reversal,
         }
-        
         return final_scores
 
     # ==============================================================================

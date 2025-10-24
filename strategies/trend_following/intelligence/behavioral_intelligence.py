@@ -104,41 +104,40 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.0 · 高保真升维版】结构与行为健康度计算核心引擎
-        - 核心升级: 在构建“看涨/看跌结构复合分”时，引入了 closing_strength_index_D 和
-                      intraday_trend_efficiency_D 等更高维度的日内行为指标，
-                      使其对日内博弈的刻画更加精准和全面。
+        【V3.2 · 前线换装版】结构与行为健康度计算核心引擎
+        - 核心升级: 彻底清除对已失效的 "幽灵信号" (如 intraday_reversal_intensity_D,
+                      lower_shadow_volume_ratio_D, auction_conviction_index_D) 的依赖。
+                      全面换装为 closing_strength_index_D, flow_divergence_mf_vs_retail_D,
+                      final_hour_momentum_D 等新式高保真指标。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 引入更多高保真指标重构复合状态分
+        # [代码修改开始] 全面换装新式高保真指标
+        # --- 构建全新的“日内博弈战果分” ---
+        closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
+        reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
+        reversal_weakness = ((1.0 - closing_strength_score) * (1.0 - vwap_dominance_score))**0.5
         # --- 步骤1: 构建“复合状态”信号 ---
         # 看涨复合状态分
-        reversal_strength = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(0), df.index, norm_window)
-        lower_shadow_power = normalize_score(df.get('lower_shadow_volume_ratio_D', 0.0), df.index, norm_window)
-        bullish_divergence = df.get('is_intraday_bullish_divergence_D', 0.0).astype(float)
-        auction_power = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, norm_window)
-        # 收盘强度与日内趋势效率
-        closing_strength = normalize_score(df.get('closing_strength_index_D', 0.5), df.index, norm_window)
-        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, norm_window)
-        bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * closing_strength * trend_efficiency)**(1/6)
+        lower_shadow_power = closing_strength_score # 新武器：用收盘强度代表下影线力量
+        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) # 新武器：主力散户行为背离
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) # 新武器：尾盘动能
+        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * trend_efficiency)**(1/5)
         # 看跌复合状态分
-        reversal_weakness = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(upper=0).abs(), df.index, norm_window)
-        upper_shadow_pressure = normalize_score(df.get('upper_shadow_volume_ratio_D', 0.0), df.index, norm_window)
-        bearish_divergence = df.get('is_intraday_bearish_divergence_D', 0.0).astype(float)
-        auction_weakness = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(upper=0).abs(), df.index, norm_window)
-        # 收盘疲软与日内趋势挣扎
-        closing_weakness = 1 - closing_strength
+        upper_shadow_pressure = 1.0 - closing_strength_score # 新武器：收盘强度的反面代表上影线压力
+        bearish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window) # 新武器
+        auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window) # 新武器
         trend_inefficiency = 1 - trend_efficiency
-        bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * closing_weakness * trend_inefficiency)**(1/6)
-
+        bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
+        # [代码修改结束]
         # --- 步骤2 & 3: 在循环中分析动态并三维融合 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # --- 看涨健康度三维锻造 ---
             bullish_static_norm = normalize_score(bullish_composite_state, df.index, p, ascending=True)
             bullish_slope_raw = bullish_composite_state.diff(p).fillna(0)
             bullish_slope_norm = normalize_score(bullish_slope_raw, df.index, p, ascending=True)
@@ -150,7 +149,6 @@ class BehavioralIntelligence:
             context_bullish_accel_norm = normalize_score(bullish_accel_raw, df.index, context_p, ascending=True)
             context_bullish_health = (context_bullish_static_norm * context_bullish_slope_norm * context_bullish_accel_norm)**(1/3)
             s_bull[p] = ((tactical_bullish_health * context_bullish_health)**0.5).astype(np.float32)
-            # --- 看跌健康度三维锻造 ---
             bearish_static_norm = normalize_score(bearish_composite_state, df.index, p, ascending=True)
             bearish_slope_raw = bearish_composite_state.diff(p).fillna(0)
             bearish_slope_norm = normalize_score(bearish_slope_raw, df.index, p, ascending=True)
@@ -162,7 +160,6 @@ class BehavioralIntelligence:
             context_bearish_accel_norm = normalize_score(bearish_accel_raw, df.index, context_p, ascending=True)
             context_bearish_health = (context_bearish_static_norm * context_bearish_slope_norm * context_bearish_accel_norm)**(1/3)
             s_bear[p] = ((tactical_bearish_health * context_bearish_health)**0.5).astype(np.float32)
-        # --- 动态强度分 (d_intensity) 逻辑保持不变 ---
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
@@ -249,10 +246,9 @@ class BehavioralIntelligence:
 
     def _diagnose_board_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 结构加固版】诊断天地板/地天板模式
-        - 核心升级: 引入`auction_conviction_index_D`作为确认因子。
-                      一个强劲的收盘竞价将显著增强“地天板”信号的置信度，
-                      一个疲弱的收盘竞价则会加剧“天地板”的风险。
+        【V1.3 · 前线换装版】诊断天地板/地天板模式
+        - 核心升级: 废弃 `auction_conviction_index_D`，换装为 `final_hour_momentum_D`
+                      作为更可靠的收盘意图确认因子。
         """
         states = {}
         p = get_params_block(self.strategy, 'board_pattern_params')
@@ -270,16 +266,13 @@ class BehavioralIntelligence:
         close_near_limit_up_score = ((df['close_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
         high_near_limit_up_score = ((df['high_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
         close_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['close_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
-        # 引入收盘竞价作为确认因子
-        auction_bullish_confirmation = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, 55)
-        auction_bearish_confirmation = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(upper=0).abs(), df.index, 55)
-        
-        # 在最终融合时加入竞价确认因子
-        # 地天板得分 = 振幅强度 * 触及跌停 * 收于涨停 * 看涨竞价确认
+        # [代码修改开始] 换装新式武器
+        # 使用尾盘动能作为收盘意图的确认因子
+        auction_bullish_confirmation = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, 55)
+        auction_bearish_confirmation = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, 55)
+        # [代码修改结束]
         states['SCORE_BOARD_EARTH_HEAVEN'] = (strength_score * low_near_limit_down_score * close_near_limit_up_score * (1 + auction_bullish_confirmation)).clip(0, 1).astype(np.float32)
-        # 天地板得分 = 振幅强度 * 触及涨停 * 收于跌停 * 看跌竞价确认
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score * (1 + auction_bearish_confirmation)).clip(0, 1).astype(np.float32)
-        
         return states
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -368,9 +361,8 @@ class BehavioralIntelligence:
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.0 · 高保真升维版】量价原子信号诊断引擎
-        - 核心升级: 对“卖盘衰竭反转”信号，引入`closing_strength_index_D`和`auction_conviction_index_D`
-                      作为强确认因子，极大提升了信号的可靠性。
+        【V12.1 · 前线换装版】量价原子信号诊断引擎
+        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，使用新式高保真指标重铸“卖盘衰竭反转”信号。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -416,33 +408,31 @@ class BehavioralIntelligence:
                 final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight_drain)
         drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
         states.update(drain_signal_dict)
-        # 升级“卖盘衰竭反转”信号
+        # [代码修改开始] 使用新式武器重铸“卖盘衰竭反转”信号
         # --- 信号三: 卖盘衰竭反转 (SCORE_BULLISH_EXHAUSTION_REVERSAL) ---
         norm_window = 55
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        lower_shadow_power = normalize_score(df.get('lower_shadow_volume_ratio_D', 0.0), df.index, norm_window)
-        reversal_strength = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(0), df.index, norm_window)
-        bottom_support_power = (lower_shadow_power * reversal_strength)**0.5
-        bullish_divergence = df.get('is_intraday_bullish_divergence_D', pd.Series(0.0, index=df.index)).astype(float)
-        # 收盘强度和竞价强度作为强确认因子
-        closing_strength = normalize_score(df.get('closing_strength_index_D', 0.5), df.index, norm_window)
-        auction_power = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, norm_window)
+        # 新武器：用收盘强度代表底部支撑
+        bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        # 新武器：用主力散户行为背离代表看涨背离
+        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        # 新武器：用尾盘动能代表竞价强度
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         # 融合所有看涨证据
         exhaustion_snapshot = (
-            vol_dry_up * bottom_support_power * closing_strength * auction_power * (1 + bullish_divergence)
+            vol_dry_up * bottom_support_power * auction_power * (1 + bullish_divergence)
         ).clip(0, 1).astype(np.float32)
         exhaustion_signal_dict = self._perform_relational_meta_analysis(df, exhaustion_snapshot, "SCORE_BULLISH_EXHAUSTION_REVERSAL")
         states.update(exhaustion_signal_dict)
-
+        # [代码修改结束]
         return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 高保真升维版】原子级“底部形态”诊断引擎
-        - 核心升级: “微观结构确认”支柱升级为“六位一体”融合。引入`closing_strength_index_D`和
-                      `intraday_trend_efficiency_D`，并改用几何平均融合，要求多重证据协同。
+        【V5.3 · 前线换装版】原子级“底部形态”诊断引擎
+        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，全面换装为新式高保真指标。
         """
-        # --- 支柱1: 宏观背景 (在正确的区域寻找) ---
+        # --- 支柱1: 宏观背景 (逻辑不变) ---
         ma55 = df.get('EMA_55_D', df['close_D'])
         distance_from_ma55 = (df['close_D'] - ma55) / ma55
         lifeline_proximity_score = np.exp(-((distance_from_ma55 - 0.015) / 0.03)**2)
@@ -452,28 +442,23 @@ class BehavioralIntelligence:
         deep_bottom_context_score = 1.0 - price_pos_yearly
         pessimism_exhaustion_score = np.maximum(was_rsi_oversold, deep_bottom_context_score)
         macro_context_score = (lifeline_proximity_score * pessimism_exhaustion_score)**0.5
-        # --- 支柱2: 静态设置 (在正确的时机寻找) ---
+        # --- 支柱2: 静态设置 (逻辑不变) ---
         vol_compression_score = normalize_score(df.get('BBW_21_2.0_D', 1.0), df.index, 60, ascending=False)
-        # 重构“微观结构确认”支柱，引入新指标并使用几何平均融合
+        # [代码修改开始] 全面换装新式武器
         # --- 支柱3: 微观结构确认 (看到真实的转折力量) ---
         norm_window = 55
-        reversal_strength = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(0), df.index, norm_window)
-        lower_shadow_power = normalize_score(df.get('lower_shadow_volume_ratio_D', 0.0), df.index, norm_window)
-        bullish_divergence = df.get('is_intraday_bullish_divergence_D', 0.0).astype(float)
-        auction_power = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, norm_window)
-        # 收盘强度与日内趋势效率
-        closing_strength = normalize_score(df.get('closing_strength_index_D', 0.5), df.index, norm_window)
-        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, norm_window)
-        # “六位一体”融合，要求多重证据共存
+        closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        vwap_dominance = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
+        reversal_strength = (closing_strength * vwap_dominance)**0.5
+        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         micro_confirmation_score = (
-            reversal_strength * lower_shadow_power * (1 + bullish_divergence) *
-            auction_power * closing_strength * trend_efficiency
-        )**(1/6)
-
-        # --- 融合三大支柱，得到“瞬时关系快照分” ---
-        snapshot_score = (
-            macro_context_score * vol_compression_score * micro_confirmation_score
-        ).astype(np.float32)
+            reversal_strength * (1 + bullish_divergence) * auction_power * trend_efficiency
+        )**(1/4)
+        # [代码修改结束]
+        # --- 融合三大支柱 ---
+        snapshot_score = (macro_context_score * vol_compression_score * micro_confirmation_score).astype(np.float32)
         return self._perform_relational_meta_analysis(
             df=df,
             snapshot_score=snapshot_score,
@@ -482,31 +467,26 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_rebound_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 高保真升维版】原子级“史诗探底回升”诊断引擎
-        - 核心升级: “微观结构确认”支柱升级为“五位一体”融合，引入`closing_strength_index_D`和
-                      `auction_conviction_index_D`，要求最终的收盘结果必须强劲。
+        【V6.3 · 前线换装版】原子级“史诗探底回升”诊断引擎
+        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，全面换装为新式高保真指标。
         """
-        # --- 支柱1 & 2: 绝望背景 和 结构测试 (逻辑保留) ---
+        # --- 支柱1 & 2: 绝望背景 和 结构测试 (逻辑不变) ---
         p_rebound = get_params_block(self.strategy, 'panic_selling_setup_params', {})
         despair_context_score = self._calculate_despair_context_score(df, p_rebound)
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_rebound)
-        # 重构“微观结构确认”支柱，引入收盘与竞价强度
+        # [代码修改开始] 全面换装新式武器
         # --- 支柱3: 微观结构确认 (全新的“反转质量”评分) ---
         norm_window = 55
-        reversal_intensity = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(0), df.index, norm_window)
-        bottom_support = normalize_score(df.get('lower_shadow_volume_ratio_D', 0.0), df.index, norm_window)
+        closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        vwap_dominance = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
+        reversal_intensity = (closing_strength * vwap_dominance)**0.5
         is_positive_day = df['pct_change_D'] > 0
-        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', 0.0), df.index, norm_window)
+        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
         efficient_rise = trend_efficiency.where(is_positive_day, 0)
-        # 收盘强度与竞价信念
-        closing_strength = normalize_score(df.get('closing_strength_index_D', 0.5), df.index, norm_window)
-        auction_power = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, norm_window)
-        # “五位一体”融合，对反转质量提出更高要求
-        confirmation_score = (
-            reversal_intensity * bottom_support * efficient_rise * closing_strength * auction_power
-        )**(1/5)
-
-        # --- 融合三大支柱，得到“瞬时关系快照分” ---
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        confirmation_score = (reversal_intensity * efficient_rise * auction_power)**(1/3)
+        # [代码修改结束]
+        # --- 融合三大支柱 ---
         snapshot_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
         return self._perform_relational_meta_analysis(
             df=df,
@@ -516,11 +496,10 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_continuation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 高保真升维版】原子级“延续性反转”诊断引擎
-        - 核心升级: “微观反转质量”支柱升级为“六位一体”融合，引入`closing_strength_index_D`和
-                      `auction_conviction_index_D`，确保回调后的反转得到强劲收盘的确认。
+        【V5.3 · 前线换装版】原子级“延续性反转”诊断引擎
+        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，全面换装为新式高保真指标。
         """
-        # --- 支柱1 & 2: 趋势背景 和 结构支撑 (逻辑保留) ---
+        # --- 支柱1 & 2: 趋势背景 和 结构支撑 (逻辑不变) ---
         p_continuation = get_params_block(self.strategy, 'continuation_reversal_params', {})
         ma_periods = get_param_value(p_continuation.get('ma_periods'), [5, 13, 21, 55])
         uptrending_ma_count = pd.Series(0, index=df.index)
@@ -530,23 +509,18 @@ class BehavioralIntelligence:
                 uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
         trend_alignment_score = uptrending_ma_count / len(ma_periods)
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_continuation)
-        # 重构“微观反转质量”支柱
+        # [代码修改开始] 全面换装新式武器
         # --- 支柱3: 微观反转质量 (Micro-Behavioral Reversal Quality) ---
         norm_window = 55
-        reversal_intensity = normalize_score(df.get('intraday_reversal_intensity_D', 0.0).clip(0), df.index, norm_window)
-        lower_shadow_power = normalize_score(df.get('lower_shadow_volume_ratio_D', 0.0), df.index, norm_window)
-        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', 0.0), df.index, norm_window)
-        bullish_divergence_bonus = df.get('is_intraday_bullish_divergence_D', 0.0).astype(float) * 0.5
-        # 收盘强度与竞价信念
-        closing_strength = normalize_score(df.get('closing_strength_index_D', 0.5), df.index, norm_window)
-        auction_power = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(0), df.index, norm_window)
-        # “六位一体”融合
-        confirmation_score = (
-            (reversal_intensity * lower_shadow_power * trend_efficiency * closing_strength * auction_power)**(1/5) +
-            bullish_divergence_bonus
-        ).clip(0, 1)
-
-        # --- 融合三大支柱，得到单一的“瞬时关系分” ---
+        closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        vwap_dominance = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
+        reversal_intensity = (closing_strength * vwap_dominance)**0.5
+        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        bullish_divergence_bonus = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) * 0.5
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        confirmation_score = ((reversal_intensity * trend_efficiency * auction_power)**(1/3) + bullish_divergence_bonus).clip(0, 1)
+        # [代码修改结束]
+        # --- 融合三大支柱 ---
         snapshot_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
         return self._perform_relational_meta_analysis(
             df=df,
@@ -556,25 +530,23 @@ class BehavioralIntelligence:
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V3.0 · 高保真升维版】“冥河之渡”多维绝望背景诊断引擎
-        - 核心升级: 在“恐慌行为分”的计算中，用 `closing_strength_index_D` 替换了
-                      `intraday_reversal_intensity_D`，更精确地量化了“收盘无力”这一恐慌特征。
+        【V3.2 · 前线换装版】“冥河之渡”多维绝望背景诊断引擎
+        - 核心升级: 废弃 `auction_conviction_index_D`，换装为 `final_hour_momentum_D`
+                      来量化“竞价确认恐慌”。
         """
         despair_periods = get_param_value(params.get('despair_periods'), {'short': (21, 5), 'mid': (60, 21), 'long': (250, 60)})
         despair_weights = get_param_value(params.get('despair_weights'), {'short': 0.2, 'mid': 0.3, 'long': 0.5})
         period_scores = []
         period_weight_values = []
         is_negative_day = df['pct_change_D'] < 0
-        # 升级“恐慌行为分”的计算逻辑
-        # 1. 下跌效率：下跌是否流畅无抵抗
-        panic_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', 0.0), df.index, 55).where(is_negative_day, 0)
-        # 2. 收盘无力程度：使用收盘强度指数的反面，更精确
-        closing_weakness = 1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)
-        # 3. 竞价确认恐慌
-        auction_panic = normalize_score(df.get('auction_conviction_index_D', 0.0).clip(upper=0).abs(), df.index, 55)
-        # 融合得到恐慌行为分
+        norm_window = 55
+        # [代码修改开始] 换装新式武器
+        panic_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.0, index=df.index)), df.index, norm_window).where(is_negative_day, 0)
+        closing_weakness = 1.0 - normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
+        # 使用尾盘动能的负向部分代表竞价恐慌
+        auction_panic = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
+        # [代码修改结束]
         panic_behavior_score = (panic_efficiency * closing_weakness * auction_panic)**(1/3)
-
         for name, (drawdown_period, roc_period) in despair_periods.items():
             rolling_peak = df['high_D'].rolling(window=drawdown_period, min_periods=max(1, drawdown_period//2)).max()
             drawdown_from_peak = (rolling_peak - df['close_D']) / rolling_peak.replace(0, np.nan)

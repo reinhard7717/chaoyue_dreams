@@ -213,46 +213,35 @@ class FoundationIntelligence:
     # ==============================================================================
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> Tuple[Dict, Dict, Dict]:
         """
-        【V5.0 · 关系元分析版】计算EMA维度的三维健康度
-        - 核心逻辑: 从均线排列、斜率、加速度、关系四个维度综合评估趋势健康度。
-        - 优化说明: 1. 使用Numpy向量化操作替换原先低效的`pd.DataFrame.mean()`和`pd.concat().mean()`，显著提升性能。
-                      2. 增加对所需指标列的健壮性检查。
+        【V5.1 · 逻辑净化版】计算EMA维度的三维健康度
+        - 核心修正: 移除了在计算斜率和加速度健康度时无效的 `if p != 1` 条件判断。
+                      由于循环的 `ma_periods` 列表不包含1，该条件永远为真，属于逻辑冗余和潜在隐患。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         fusion_weights = p_conf.get('ma_health_fusion_weights', {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
         ma_periods = [5, 13, 21, 55]
-        
-        # 检查所需列，如果缺失则返回默认值
-        required_cols = [f'EMA_{p}_D' for p in ma_periods] + [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if p != 1] + [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if p != 1]
+        required_cols = [f'EMA_{p}_D' for p in ma_periods] + [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods] + [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-
-        # --- 步骤一：计算四维融合的“瞬时关系快照分” (s_bull) ---
-        # 1.1 均线排列健康度
         bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
         bear_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
-        # 使用Numpy高效计算均值
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
         static_bear_score = np.mean(bear_alignment_scores, axis=0) if bear_alignment_scores else np.full(len(df.index), 0.5)
-
-        # 1.2 斜率、加速度、关系健康度
-        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D' if p != 1 else 'SLOPE_1_close_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
-        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D' if p != 1 else 'ACCEL_1_close_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
+        # [代码修改开始] 移除无效的条件判断，直接使用列名
+        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
+        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
+        # [代码修改结束]
         relational_health_scores = []
         for short_p, long_p in [(5, 21), (13, 55)]:
             spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
             relational_health_scores.append(((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0).values)
-        
-        # 使用Numpy高效计算均值，避免创建和合并DataFrame
         avg_slope_health = np.mean(slope_health_scores, axis=0) if slope_health_scores else np.full(len(df.index), 0.5)
         avg_accel_health = np.mean(accel_health_scores, axis=0) if accel_health_scores else np.full(len(df.index), 0.5)
         avg_relational_health = np.mean(relational_health_scores, axis=0) if relational_health_scores else np.full(len(df.index), 0.5)
-
-        # 1.3 加权融合四维度分数
         static_bull_score_values = (
             alignment_score * fusion_weights.get('alignment', 0.1) +
             avg_slope_health * fusion_weights.get('slope', 0.2) +
@@ -261,16 +250,11 @@ class FoundationIntelligence:
         )
         static_bull_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
         static_bear_score = pd.Series(static_bear_score, index=df.index, dtype=np.float32)
-
-        # --- 步骤二：对“瞬时关系快照分”进行元分析，得到动态强度分 (d_intensity) ---
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, static_bull_score)
-
-        # --- 步骤三：更新输出 ---
         for p in periods:
             s_bull[p] = static_bull_score
             s_bear[p] = static_bear_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
 
     def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:

@@ -20,6 +20,18 @@
             "type": "subtotal",
             "description": "第三层：剧本协同奖励分的汇总得分。"
         },
+        "SCORE_FF_AXIOM_INTERNAL_STRUCTURE": {
+            "cn_name": "【内部】FF-内部结构分",
+            "category": "内部计分-资金流",
+            "type": "context",
+            "description": "【资金流公理三】诊断资金流内部结构（超大单/大单 vs 中单/小单）的健康度。正分代表大资金吸筹，负分代表大资金派发。"
+        },
+        "SCORE_CHIP_MTF_PEAK_INTEGRITY": {
+            "cn_name": "【内部】MTF-筹码峰健康度",
+            "category": "内部计分-筹码",
+            "type": "context",
+            "description": "【筹码公理四】多时间级别(MTF)的筹码峰健康度动态分。这是一个字典，key为周期，value为该周期的动态分。评估核心筹码阵地的稳固性、控制力及攻防状态。"
+        },
         "SCORE_ATOMIC_STORM_BORN_POWER": {
             "cn_name": "【内部】风暴降生之力",
             "category": "内部计分-过程",
