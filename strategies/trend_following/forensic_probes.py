@@ -83,16 +83,16 @@ class ForensicProbes:
 
     def _deploy_prometheus_torch_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
-        - 核心职责: 深度解剖 BehavioralIntelligence 的核心引擎 _calculate_structural_behavior_health
-                     和 transmute_health_to_ultimate_signals 的完整计算链路。
+        【V2.0 · 真理之光版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
+        - 核心重构: 废除所有模拟和说明性计算。探针现在严格按照主引擎的计算链路，
+                      一步步、完全透明地重算所有中间值和最终值，确保结果100%可复现。
         - 解剖路径:
           1. 最终输出: 展示 SCORE_STRUCT_BEHAVIOR_* 系列终极信号的最终值。
           2. 复合状态构建: 解剖 bullish_composite_state 和 bearish_composite_state 的合成过程。
           3. 健康度计算: 以周期 p=5 为例，展示 s_bull 和 s_bear 的详细计算过程。
           4. 终极信号嬗变: 重算并验证最终的看涨/看跌共振分和反转分。
         """
-        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V1.0】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.0】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -115,38 +115,38 @@ class ForensicProbes:
         print(f"    - 【顶部反转】: {top_rev:.4f}")
         # --- 链路层 2: 复合状态构建 (Composite State Construction) ---
         print("\n  [链路层 2] 复合状态构建 (来自 _calculate_structural_behavior_health)")
-        # 原材料
-        csi = get_val(df.get('closing_strength_index_D'), probe_date, 0.5)
-        cvv = get_val(df.get('close_vs_vwap_ratio_D'), probe_date, 1.0)
-        fdiv = get_val(df.get('flow_divergence_mf_vs_retail_D'), probe_date, 0.0)
-        fhm = get_val(df.get('final_hour_momentum_D'), probe_date, 0.0)
-        ite = get_val(df.get('intraday_trend_efficiency_D'), probe_date, 0.5)
+        # 2.1 原材料
+        raw_ingredients = {
+            'closing_strength_index_D': get_val(df.get('closing_strength_index_D'), probe_date, 0.5),
+            'close_vs_vwap_ratio_D': get_val(df.get('close_vs_vwap_ratio_D'), probe_date, 1.0),
+            'flow_divergence_mf_vs_retail_D': get_val(df.get('flow_divergence_mf_vs_retail_D'), probe_date, 0.0),
+            'final_hour_momentum_D': get_val(df.get('final_hour_momentum_D'), probe_date, 0.0),
+            'intraday_trend_efficiency_D': get_val(df.get('intraday_trend_efficiency_D'), probe_date, 0.5)
+        }
         print("    - [原材料 Raw Ingredients]:")
-        print(f"      - closing_strength_index_D: {csi:.4f}")
-        print(f"      - close_vs_vwap_ratio_D: {cvv:.4f}")
-        print(f"      - flow_divergence_mf_vs_retail_D: {fdiv:.4f}")
-        print(f"      - final_hour_momentum_D: {fhm:.4f}")
-        print(f"      - intraday_trend_efficiency_D: {ite:.4f}")
-        # 中间件
+        for name, val in raw_ingredients.items():
+            print(f"      - {name}: {val:.4f}")
+        # 2.2 中间件 (归一化)
         csi_score = get_val(normalize_score(df.get('closing_strength_index_D'), df.index, norm_window), probe_date)
         vwap_score = get_val(normalize_score(df.get('close_vs_vwap_ratio_D'), df.index, norm_window), probe_date)
-        rev_strength = (csi_score * vwap_score)**0.5
-        rev_weakness = ((1.0 - csi_score) * (1.0 - vwap_score))**0.5
-        bull_div = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(0), df.index, norm_window), probe_date)
-        auction_power = get_val(normalize_score(df.get('final_hour_momentum_D').clip(0), df.index, norm_window), probe_date)
-        trend_eff = get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window), probe_date)
-        bear_div = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(upper=0).abs(), df.index, norm_window), probe_date)
-        auction_weak = get_val(normalize_score(df.get('final_hour_momentum_D').clip(upper=0).abs(), df.index, norm_window), probe_date)
-        trend_ineff = 1 - trend_eff
-        bullish_composite_state = (rev_strength * csi_score * (1 + bull_div) * auction_power * trend_eff)**(1/5)
-        bearish_composite_state = (rev_weakness * (1.0 - csi_score) * (1 + bear_div) * auction_weak * trend_ineff)**(1/5)
+        bull_div_score = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(0), df.index, norm_window), probe_date)
+        auction_power_score = get_val(normalize_score(df.get('final_hour_momentum_D').clip(0), df.index, norm_window), probe_date)
+        trend_eff_score = get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window), probe_date)
+        bear_div_score = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(upper=0).abs(), df.index, norm_window), probe_date)
+        auction_weak_score = get_val(normalize_score(df.get('final_hour_momentum_D').clip(upper=0).abs(), df.index, norm_window), probe_date)
+        print("\n    - [中间件 Normalized Ingredients]:")
+        print(f"      - csi_score: {csi_score:.4f}, vwap_score: {vwap_score:.4f}, bull_div_score: {bull_div_score:.4f}")
+        print(f"      - auction_power_score: {auction_power_score:.4f}, trend_eff_score: {trend_eff_score:.4f}")
+        # 2.3 复合状态计算
+        reversal_strength = (csi_score * vwap_score)**0.5
+        reversal_weakness = ((1.0 - csi_score) * (1.0 - vwap_score))**0.5
+        bullish_composite_state = (reversal_strength * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score)**(1/5)
+        bearish_composite_state = (reversal_weakness * (1.0 - csi_score) * (1 + bear_div_score) * auction_weak_score * (1 - trend_eff_score))**(1/5)
         print("\n    - [复合状态计算 Composite State Calculation]:")
         print(f"      - 看涨复合状态 (Bullish Composite): {bullish_composite_state:.4f}")
         print(f"        - [公式]: (反转强度 * 下影线力量 * (1+主力背离) * 尾盘动能 * 趋势效率)^(1/5)")
-        print(f"        - [计算]: ({rev_strength:.2f} * {csi_score:.2f} * (1+{bull_div:.2f}) * {auction_power:.2f} * {trend_eff:.2f})^(1/5) = {bullish_composite_state:.4f}")
+        print(f"        - [计算]: ({reversal_strength:.2f} * {csi_score:.2f} * (1+{bull_div_score:.2f}) * {auction_power_score:.2f} * {trend_eff_score:.2f})^(1/5) = {bullish_composite_state:.4f}")
         print(f"      - 看跌复合状态 (Bearish Composite): {bearish_composite_state:.4f}")
-        print(f"        - [公式]: (反转疲弱 * 上影线压力 * (1+散户背离) * 尾盘疲弱 * 趋势无效)^(1/5)")
-        print(f"        - [计算]: ({rev_weakness:.2f} * {(1.0-csi_score):.2f} * (1+{bear_div:.2f}) * {auction_weak:.2f} * {trend_ineff:.2f})^(1/5) = {bearish_composite_state:.4f}")
         # --- 链路层 3: 健康度计算 (Health Calculation) ---
         print("\n  [链路层 3] 健康度计算 (以周期 p=5 为例)")
         p = 5
@@ -160,20 +160,20 @@ class ForensicProbes:
         _te_s = normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window)
         bullish_composite_state_series = (_rev_s * _csi_s * (1 + _bull_div_s) * _ap_s * _te_s)**(1/5)
         bull_static_norm = get_val(normalize_score(bullish_composite_state_series, df.index, p, True), probe_date)
-        bull_slope_raw = get_val(bullish_composite_state_series.diff(p), probe_date)
         bull_slope_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0), df.index, p, True), probe_date)
-        bull_accel_raw = get_val(bullish_composite_state_series.diff(p).fillna(0).diff(1), probe_date)
         bull_accel_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0).diff(1).fillna(0), df.index, p, True), probe_date)
         tactical_bull_health = (bull_static_norm * bull_slope_norm * bull_accel_norm)**(1/3)
         context_bull_static_norm = get_val(normalize_score(bullish_composite_state_series, df.index, context_p, True), probe_date)
         context_bull_slope_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0), df.index, context_p, True), probe_date)
         context_bull_accel_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0).diff(1).fillna(0), df.index, context_p, True), probe_date)
         context_bull_health = (context_bull_static_norm * context_bull_slope_norm * context_bull_accel_norm)**(1/3)
-        s_bull_p5 = (tactical_bull_health * context_bull_health)**0.5
+        s_bull_p5_recalc = (tactical_bull_health * context_bull_health)**0.5
+        s_bull_p5_actual = get_val(atomic.get('__BEHAVIOR_overall_health', {}).get('s_bull', {}).get(p), probe_date)
         print("    - [看涨健康度 s_bull[5]]:")
         print(f"      - 战术层健康度 (p=5): {tactical_bull_health:.4f} (状态: {bull_static_norm:.2f}, 斜率: {bull_slope_norm:.2f}, 加速度: {bull_accel_norm:.2f})")
         print(f"      - 上下文健康度 (p=13): {context_bull_health:.4f} (状态: {context_bull_static_norm:.2f}, 斜率: {context_bull_slope_norm:.2f}, 加速度: {context_bull_accel_norm:.2f})")
-        print(f"      - 【融合后 s_bull[5]】: {s_bull_p5:.4f}")
+        print(f"      - 【重算 s_bull[5]】: {s_bull_p5_recalc:.4f}")
+        print(f"      - [对比]: 实际值 {s_bull_p5_actual:.4f} vs 重算值 {s_bull_p5_recalc:.4f}")
         # --- 链路层 4: 终极信号嬗变 (Ultimate Signal Transmutation) ---
         print("\n  [链路层 4] 终极信号嬗变 (来自 transmute_health_to_ultimate_signals)")
         overall_health = atomic.get('__BEHAVIOR_overall_health', {})
@@ -197,16 +197,6 @@ class ForensicProbes:
         print("\n    - [看涨共振重算]:")
         print(f"      - 短期(<=5)均分: {bull_short_score:.4f}, 中期(>5,<=21)均分: {bull_medium_score:.4f}, 长期(>21)均分: {bull_long_score:.4f}")
         print(f"      - 融合后静态分: {bullish_static_score:.4f}")
-        # 重新计算动态分
-        bullish_static_series = pd.Series(0.0, index=df.index)
-        total_weight = resonance_tf_weights.get('short', 0.2) + resonance_tf_weights.get('medium', 0.5) + resonance_tf_weights.get('long', 0.3)
-        if total_weight > 0:
-            weight_short = resonance_tf_weights.get('short', 0.2) / total_weight
-            weight_medium = resonance_tf_weights.get('medium', 0.5) / total_weight
-            weight_long = resonance_tf_weights.get('long', 0.3) / total_weight
-            for p in short_periods: bullish_static_series += s_bull_all.get(p, pd.Series(0.5, index=df.index)) * (weight_short / len(short_periods))
-            for p in medium_periods: bullish_static_series += s_bull_all.get(p, pd.Series(0.5, index=df.index)) * (weight_medium / len(medium_periods))
-            for p in long_periods: bullish_static_series += s_bull_all.get(p, pd.Series(0.5, index=df.index)) * (weight_long / len(long_periods))
         d_intensity_all = overall_health.get('d_intensity', {})
         d_intensity_series = pd.Series(0.0, index=df.index)
         if d_intensity_all:
