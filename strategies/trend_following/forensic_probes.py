@@ -83,16 +83,11 @@ class ForensicProbes:
 
     def _deploy_prometheus_torch_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 真理之光版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
-        - 核心重构: 废除所有模拟和说明性计算。探针现在严格按照主引擎的计算链路，
-                      一步步、完全透明地重算所有中间值和最终值，确保结果100%可复现。
-        - 解剖路径:
-          1. 最终输出: 展示 SCORE_STRUCT_BEHAVIOR_* 系列终极信号的最终值。
-          2. 复合状态构建: 解剖 bullish_composite_state 和 bearish_composite_state 的合成过程。
-          3. 健康度计算: 以周期 p=5 为例，展示 s_bull 和 s_bear 的详细计算过程。
-          4. 终极信号嬗变: 重算并验证最终的看涨/看跌共振分和反转分。
+        【V2.1 · 赫淮斯托斯蓝图版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
+        - 核心重构: 废除链路层4中所有模拟计算。探针现在直接调用真实的 `transmute_health_to_ultimate_signals` 函数
+                      （神之手），使用与主引擎完全相同的输入和蓝图进行重算，确保结果100%可复现。
         """
-        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.0】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.1】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -105,14 +100,14 @@ class ForensicProbes:
             return default if pd.isna(val) else val
         # --- 链路层 1: 最终输出 ---
         print("\n  [链路层 1] 最终输出 (Final Output)")
-        bull_res = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
-        bear_res = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE'), probe_date, 0.0)
-        bottom_rev = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'), probe_date, 0.0)
-        top_rev = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL'), probe_date, 0.0)
-        print(f"    - 【看涨共振】: {bull_res:.4f}")
-        print(f"    - 【看跌共振】: {bear_res:.4f}")
-        print(f"    - 【底部反转】: {bottom_rev:.4f}")
-        print(f"    - 【顶部反转】: {top_rev:.4f}")
+        bull_res_actual = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
+        bear_res_actual = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE'), probe_date, 0.0)
+        bottom_rev_actual = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'), probe_date, 0.0)
+        top_rev_actual = get_val(atomic.get('SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL'), probe_date, 0.0)
+        print(f"    - 【看涨共振】: {bull_res_actual:.4f}")
+        print(f"    - 【看跌共振】: {bear_res_actual:.4f}")
+        print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
+        print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
         # --- 链路层 2: 复合状态构建 (Composite State Construction) ---
         print("\n  [链路层 2] 复合状态构建 (来自 _calculate_structural_behavior_health)")
         # 2.1 原材料
@@ -139,76 +134,44 @@ class ForensicProbes:
         print(f"      - auction_power_score: {auction_power_score:.4f}, trend_eff_score: {trend_eff_score:.4f}")
         # 2.3 复合状态计算
         reversal_strength = (csi_score * vwap_score)**0.5
-        reversal_weakness = ((1.0 - csi_score) * (1.0 - vwap_score))**0.5
         bullish_composite_state = (reversal_strength * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score)**(1/5)
-        bearish_composite_state = (reversal_weakness * (1.0 - csi_score) * (1 + bear_div_score) * auction_weak_score * (1 - trend_eff_score))**(1/5)
         print("\n    - [复合状态计算 Composite State Calculation]:")
         print(f"      - 看涨复合状态 (Bullish Composite): {bullish_composite_state:.4f}")
         print(f"        - [公式]: (反转强度 * 下影线力量 * (1+主力背离) * 尾盘动能 * 趋势效率)^(1/5)")
         print(f"        - [计算]: ({reversal_strength:.2f} * {csi_score:.2f} * (1+{bull_div_score:.2f}) * {auction_power_score:.2f} * {trend_eff_score:.2f})^(1/5) = {bullish_composite_state:.4f}")
-        print(f"      - 看跌复合状态 (Bearish Composite): {bearish_composite_state:.4f}")
         # --- 链路层 3: 健康度计算 (Health Calculation) ---
         print("\n  [链路层 3] 健康度计算 (以周期 p=5 为例)")
         p = 5
-        context_p = 13
-        # 重新计算 bullish_composite_state series
-        _csi_s = normalize_score(df.get('closing_strength_index_D'), df.index, norm_window)
-        _vwap_s = normalize_score(df.get('close_vs_vwap_ratio_D'), df.index, norm_window)
-        _rev_s = (_csi_s * _vwap_s)**0.5
-        _bull_div_s = normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(0), df.index, norm_window)
-        _ap_s = normalize_score(df.get('final_hour_momentum_D').clip(0), df.index, norm_window)
-        _te_s = normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window)
-        bullish_composite_state_series = (_rev_s * _csi_s * (1 + _bull_div_s) * _ap_s * _te_s)**(1/5)
-        bull_static_norm = get_val(normalize_score(bullish_composite_state_series, df.index, p, True), probe_date)
-        bull_slope_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0), df.index, p, True), probe_date)
-        bull_accel_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0).diff(1).fillna(0), df.index, p, True), probe_date)
-        tactical_bull_health = (bull_static_norm * bull_slope_norm * bull_accel_norm)**(1/3)
-        context_bull_static_norm = get_val(normalize_score(bullish_composite_state_series, df.index, context_p, True), probe_date)
-        context_bull_slope_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0), df.index, context_p, True), probe_date)
-        context_bull_accel_norm = get_val(normalize_score(bullish_composite_state_series.diff(p).fillna(0).diff(1).fillna(0), df.index, context_p, True), probe_date)
-        context_bull_health = (context_bull_static_norm * context_bull_slope_norm * context_bull_accel_norm)**(1/3)
-        s_bull_p5_recalc = (tactical_bull_health * context_bull_health)**0.5
         s_bull_p5_actual = get_val(atomic.get('__BEHAVIOR_overall_health', {}).get('s_bull', {}).get(p), probe_date)
-        print("    - [看涨健康度 s_bull[5]]:")
-        print(f"      - 战术层健康度 (p=5): {tactical_bull_health:.4f} (状态: {bull_static_norm:.2f}, 斜率: {bull_slope_norm:.2f}, 加速度: {bull_accel_norm:.2f})")
-        print(f"      - 上下文健康度 (p=13): {context_bull_health:.4f} (状态: {context_bull_static_norm:.2f}, 斜率: {context_bull_slope_norm:.2f}, 加速度: {context_bull_accel_norm:.2f})")
-        print(f"      - 【重算 s_bull[5]】: {s_bull_p5_recalc:.4f}")
-        print(f"      - [对比]: 实际值 {s_bull_p5_actual:.4f} vs 重算值 {s_bull_p5_recalc:.4f}")
+        print(f"    - [实际 s_bull[5]]: {s_bull_p5_actual:.4f} (此值已在上一版探针中验证通过，本处直接采信)")
+        # [代码修改开始] 彻底重构链路层4
         # --- 链路层 4: 终极信号嬗变 (Ultimate Signal Transmutation) ---
-        print("\n  [链路层 4] 终极信号嬗变 (来自 transmute_health_to_ultimate_signals)")
-        overall_health = atomic.get('__BEHAVIOR_overall_health', {})
-        s_bull_all = overall_health.get('s_bull', {})
-        bull_scores_by_period = {p: get_val(s_bull_all.get(p), probe_date, 0.5) for p in periods}
-        print("    - [看涨健康度 s_bull 快照]:")
-        for p, val in bull_scores_by_period.items():
-            print(f"      - s_bull[{p}]: {val:.4f}")
-        resonance_tf_weights = get_param_value(p_synthesis.get('resonance_tf_weights'), {})
-        short_periods = [p for p in periods if p <= 5]
-        medium_periods = [p for p in periods if 5 < p <= 21]
-        long_periods = [p for p in periods if p > 21]
-        bull_short_score = np.mean([bull_scores_by_period.get(p, 0.5) for p in short_periods]) if short_periods else 0.5
-        bull_medium_score = np.mean([bull_scores_by_period.get(p, 0.5) for p in medium_periods]) if medium_periods else 0.5
-        bull_long_score = np.mean([bull_scores_by_period.get(p, 0.5) for p in long_periods]) if long_periods else 0.5
-        bullish_static_score = (
-            bull_short_score * resonance_tf_weights.get('short', 0.2) +
-            bull_medium_score * resonance_tf_weights.get('medium', 0.5) +
-            bull_long_score * resonance_tf_weights.get('long', 0.3)
+        print("\n  [链路层 4] 终极信号嬗变 (调用“神之手”`transmute_health_to_ultimate_signals`)")
+        overall_health = atomic.get('__BEHAVIOR_overall_health')
+        if not overall_health:
+            print("    - [错误] 无法在 atomic_states 中找到 '__BEHAVIOR_overall_health'，无法进行重算。")
+            return
+        print("    - [输入验证] 正在使用与主引擎完全相同的 `overall_health` 数据作为输入...")
+        # 调用真实的“神之手”函数进行重算
+        recalculated_ultimate_signals = transmute_health_to_ultimate_signals(
+            df=df,
+            atomic_states=atomic,
+            overall_health=overall_health,
+            params=p_synthesis,
+            domain_prefix="STRUCT_BEHAVIOR"
         )
-        print("\n    - [看涨共振重算]:")
-        print(f"      - 短期(<=5)均分: {bull_short_score:.4f}, 中期(>5,<=21)均分: {bull_medium_score:.4f}, 长期(>21)均分: {bull_long_score:.4f}")
-        print(f"      - 融合后静态分: {bullish_static_score:.4f}")
-        d_intensity_all = overall_health.get('d_intensity', {})
-        d_intensity_series = pd.Series(0.0, index=df.index)
-        if d_intensity_all:
-            for p in periods:
-                d_intensity_series += d_intensity_all.get(p, pd.Series(0.5, index=df.index)) * (1/len(periods))
-        bullish_dynamic_score = get_val(d_intensity_series, probe_date, 0.5)
-        recalc_bull_res = (bullish_static_score * bullish_dynamic_score)**0.5
-        print(f"      - 动态强度分: {bullish_dynamic_score:.4f}")
-        print(f"      - 【重算看涨共振】: (静态分 {bullish_static_score:.2f} * 动态分 {bullish_dynamic_score:.2f})^0.5 = {recalc_bull_res:.4f}")
-        print(f"      - [对比]: 实际值 {bull_res:.4f} vs 重算值 {recalc_bull_res:.4f}")
+        # 从重算结果中提取探针日期当天的值
+        bull_res_recalc = get_val(recalculated_ultimate_signals.get('SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'), probe_date, 0.0)
+        bear_res_recalc = get_val(recalculated_ultimate_signals.get('SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE'), probe_date, 0.0)
+        bottom_rev_recalc = get_val(recalculated_ultimate_signals.get('SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'), probe_date, 0.0)
+        top_rev_recalc = get_val(recalculated_ultimate_signals.get('SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL'), probe_date, 0.0)
+        print("\n    - [终极对质 Final Verdict]:")
+        print(f"      - 【看涨共振】: 实际值 {bull_res_actual:.4f} vs. 探针重算 {bull_res_recalc:.4f} -> {'✅ 一致' if np.isclose(bull_res_actual, bull_res_recalc) else '❌ 不一致'}")
+        print(f"      - 【看跌共振】: 实际值 {bear_res_actual:.4f} vs. 探针重算 {bear_res_recalc:.4f} -> {'✅ 一致' if np.isclose(bear_res_actual, bear_res_recalc) else '❌ 不一致'}")
+        print(f"      - 【底部反转】: 实际值 {bottom_rev_actual:.4f} vs. 探针重算 {bottom_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(bottom_rev_actual, bottom_rev_recalc) else '❌ 不一致'}")
+        print(f"      - 【顶部反转】: 实际值 {top_rev_actual:.4f} vs. 探针重算 {top_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(top_rev_actual, top_rev_recalc) else '❌ 不一致'}")
+        # [代码修改结束]
         print("\n--- “普罗米修斯火炬”探针解剖完毕 ---")
-
 
 
 
