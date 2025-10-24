@@ -839,6 +839,13 @@
             "context_role": "bottom_opportunity",
             "description": "结构动态健康度在底部形成强力反转信号。"
         },
+        "SCORE_STRUCTURAL_FAULT_BREAKTHROUGH": {
+            "cn_name": "【结构】结构性断层突破",
+            "category": "结构层-机会",
+            "type": "dynamic",
+            "score": 450,
+            "description": "【B级战术信号】识别价格强势突破筹码真空区的关键结构性事件。融合了突破强度、断层质量、成交量和收盘强度四重证据，预示着后续可能出现快速拉升。"
+        },
         "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
             "cn_name": "【结构终极】战术反转",
             "category": "结构层-机会",

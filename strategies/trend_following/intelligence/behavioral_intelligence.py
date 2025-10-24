@@ -81,8 +81,9 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 接口修复版】原子信号中心，负责生产所有基础行为信号。
+        【V1.6 · 结构火力升级版】原子信号中心
         - 核心修复: 修正了对 `_diagnose_volume_price_dynamics` 的调用，补全了缺失的 `params` 参数。
+        - 火力升级: 新增调用 `_diagnose_structural_fault_breakthrough` 引擎，引入“结构性断层突破”情报。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -98,12 +99,13 @@ class BehavioralIntelligence:
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
-        # [代码修改开始] 补全缺失的 params 参数
         atomic_signals.update(self._diagnose_volume_price_dynamics(df, params))
-        # [代码修改结束]
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
+        # [代码新增开始] 新增调用“结构性断层突破”诊断引擎
+        atomic_signals.update(self._diagnose_structural_fault_breakthrough(df))
+        # [代码新增结束]
         return atomic_signals
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
@@ -556,6 +558,34 @@ class BehavioralIntelligence:
         # 融合四大证据，生成瞬时快照分
         snapshot_score = (
             execution_alpha * closing_strength * afternoon_power * trend_efficiency
+        )**(1/4)
+        # 对快照分进行关系元分析，得到最终的动态信号
+        final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
+        states.update(final_signal_dict)
+        return states
+        # [代码新增结束]
+
+    def _diagnose_structural_fault_breakthrough(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“结构性断层突破”诊断引擎
+        - 核心逻辑: 融合断层突破强度、断层真空度、成交量和收盘强度，
+                      识别价格突破筹码真空区的关键结构性战机。
+        """
+        # [代码新增开始]
+        states = {}
+        signal_name = 'SCORE_STRUCTURAL_FAULT_BREAKTHROUGH'
+        norm_window = 55
+        # 证据1: 断层突破强度
+        breakthrough_intensity = normalize_score(df.get('fault_breakthrough_intensity_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据2: 断层质量 (真空度)
+        fault_quality = normalize_score(df.get('chip_fault_vacuum_percent_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据3: 力量确认 (成交量)
+        volume_confirmation = normalize_score(df.get('volume_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据4: 战果确认 (收盘强度)
+        closing_confirmation = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window, ascending=True)
+        # 融合四大证据，生成瞬时快照分
+        snapshot_score = (
+            breakthrough_intensity * fault_quality * volume_confirmation * closing_confirmation
         )**(1/4)
         # 对快照分进行关系元分析，得到最终的动态信号
         final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
