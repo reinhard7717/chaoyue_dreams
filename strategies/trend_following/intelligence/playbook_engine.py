@@ -112,7 +112,7 @@ class PlaybookEngine:
         triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = (mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)) & is_cyclical_regime & is_near_trough
 
         # 周期底捞剧本 (周期型，逻辑已包含周期判断，保持不变)
-        triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_in_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
+        triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_near_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
         
         # 恐慌投降反转剧本
         p_capitulation = p_triggers.get('capitulation_reversal', {'trigger_threshold': 0.4})
