@@ -462,11 +462,10 @@ class FundFlowIntelligence:
 
     def _calculate_trend_context_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.0 · 新增】“波塞冬的三叉戟”资金流专属趋势上下文引擎
-        - 核心逻辑: 从“排列、速度、元动力”三个维度评估趋势健康度，为资金流信号提供背景判断。
-        - 新增武器: 引入“元动力”维度，利用跨周期导数捕捉长期趋势的短期变化，实现领先预判。
+        【V1.1 · 类型安全版】“波塞冬的三叉戟”资金流专属趋势上下文引擎
+        - 核心修复: 在处理从配置中读取的权重字典时，增加了对非数字类型值的过滤，
+                      以防止 'description' 等说明性字段污染权重数组，修复潜在的类型错误。
         """
-        #
         p_context = get_param_value(params, {})
         weights = get_param_value(p_context.get('ma_trend_context_weights'), {
             'alignment': 0.4, 'velocity': 0.3, 'meta_dynamics': 0.3
@@ -477,17 +476,14 @@ class FundFlowIntelligence:
         if len(ma_cols) < 2:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        # 叉戟一: 排列健康度 (Alignment)
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-        # 叉戟二: 速度健康度 (Velocity) - 周期匹配导数
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
         if slope_cols:
             slope_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0)
             velocity_health = np.mean(slope_values, axis=0)
         else:
             velocity_health = np.full(len(df.index), 0.5)
-        # 叉戟三: 元动力健康度 (Meta-Dynamics) - 跨周期导数
         meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
         if valid_meta_cols:
@@ -495,9 +491,14 @@ class FundFlowIntelligence:
             meta_dynamics_health = np.mean(meta_values, axis=0)
         else:
             meta_dynamics_health = np.full(len(df.index), 0.5)
-        # 最终融合：加权几何平均
         scores = np.stack([alignment_health, velocity_health, meta_dynamics_health], axis=0)
-        weights_array = np.array(list(weights.values()))
+        # [代码修改开始] 增加类型过滤，确保只处理数字类型的权重值
+        numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
+        print(f"      -> [FundFlowIntel:_calculate_trend_context_ff] 过滤后数字权重: {numeric_weights}")
+        weights_array = np.array(list(numeric_weights.values()))
+        # [代码修改结束]
+        if weights_array.sum() == 0:
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
         weights_array /= weights_array.sum()
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)

@@ -135,21 +135,15 @@ class DynamicMechanicsEngine:
         # 维度2: 速度健康度
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
         if all(col in df.columns for col in slope_cols):
-            # [代码修改开始] 修正归一化逻辑，对每个序列独立归一化
-            print(f"      -> [DynamicMechanicsEngine:_calculate_ma_health] 正在独立归一化 {len(slope_cols)} 个速度序列...")
             normalized_slopes = [normalize_score(df[col], df.index, norm_window).values for col in slope_cols]
             slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
-            # [代码修改结束]
         else:
             slope_health = np.full(len(df.index), 0.5)
         # 维度3: 加速度健康度
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
         if all(col in df.columns for col in accel_cols):
-            # [代码修改开始] 修正归一化逻辑，对每个序列独立归一化
-            print(f"      -> [DynamicMechanicsEngine:_calculate_ma_health] 正在独立归一化 {len(accel_cols)} 个加速度序列...")
             normalized_accels = [normalize_score(df[col], df.index, norm_window).values for col in accel_cols]
             accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
-            # [代码修改结束]
         else:
             accel_health = np.full(len(df.index), 0.5)
         # 维度4: 关系健康度

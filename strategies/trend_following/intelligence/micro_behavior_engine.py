@@ -611,9 +611,9 @@ class MicroBehaviorEngine:
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 接口修复版】“赫尔墨斯的商神杖”四维均线健康度评估引擎
-        - 核心修复: 修正了斜率和加速度列名的构建逻辑，使其与数据层提供的真实列名（如 `SLOPE_13_EMA_13_D`）精确匹配，
-                      解决了因“幽灵信号”依赖导致的引擎失效问题。
+        【V1.3 · 维度安全版】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心修复: 修正了斜率和加速度健康度的计算逻辑。废弃了“展平-归一化-重塑”的错误流程，
+                      改为对每个序列独立进行归一化，从根本上解决了维度不匹配的ValueError。
         """
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
@@ -629,27 +629,27 @@ class MicroBehaviorEngine:
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-        # 动态构建正确的斜率和加速度列名
         slope_cols = [f'SLOPE_{p}_{col}' for p, col in zip(ma_periods, ma_cols)]
-
         if all(col in df.columns for col in slope_cols):
-            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
-            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+            normalized_slopes = [normalize_score(df[col], df.index, norm_window).values for col in slope_cols]
+            slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
         else:
             slope_health = np.full(len(df.index), 0.5)
-        # 动态构建正确的斜率和加速度列名
         accel_cols = [f'ACCEL_{p}_{col}' for p, col in zip(ma_periods, ma_cols)]
-
         if all(col in df.columns for col in accel_cols):
-            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
-            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+            normalized_accels = [normalize_score(df[col], df.index, norm_window).values for col in accel_cols]
+            accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
         else:
             accel_health = np.full(len(df.index), 0.5)
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
         relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
         scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
-        weights_array = np.array(list(weights.values()))
-        weights_array /= weights_array.sum()
+        numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
+        weights_array = np.array(list(numeric_weights.values()))
+        if weights_array.sum() > 0:
+            weights_array /= weights_array.sum()
+        else:
+            weights_array = np.full(len(numeric_weights), 1.0 / len(numeric_weights))
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
