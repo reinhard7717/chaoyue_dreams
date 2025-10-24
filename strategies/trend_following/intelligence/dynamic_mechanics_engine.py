@@ -112,11 +112,10 @@ class DynamicMechanicsEngine:
     # ==============================================================================
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 五维元动力版】“赫尔墨斯的商神杖”五维均线健康度评估引擎
-        - 核心升级: 引入第五维度“元动力(Meta-Dynamics)”，利用跨周期导数（如SLOPE_5_EMA_55_D）
-                      来评估长期趋势的短期变化率，从而获得预判趋势拐点的领先信号。
+        【V2.1 · 维度安全版】“赫尔墨斯的商神杖”五维均线健康度评估引擎
+        - 核心修复: 修正了速度和加速度健康度的计算逻辑。废弃了“展平-归一化-重塑”的错误流程，
+                      改为对每个斜率/加速度序列独立进行归一化，从根本上解决了维度不匹配的ValueError。
         """
-        # 增加 'meta_dynamics' 权重
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
             'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
@@ -125,7 +124,6 @@ class DynamicMechanicsEngine:
             'relational': get_param_value(p_ma_health.get('relational'), 0.25),
             'meta_dynamics': get_param_value(p_ma_health.get('meta_dynamics'), 0.25)
         }
-
         ma_periods = [5, 13, 21, 55]
         ma_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in ma_cols):
@@ -137,15 +135,21 @@ class DynamicMechanicsEngine:
         # 维度2: 速度健康度
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
         if all(col in df.columns for col in slope_cols):
-            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
-            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+            # [代码修改开始] 修正归一化逻辑，对每个序列独立归一化
+            print(f"      -> [DynamicMechanicsEngine:_calculate_ma_health] 正在独立归一化 {len(slope_cols)} 个速度序列...")
+            normalized_slopes = [normalize_score(df[col], df.index, norm_window).values for col in slope_cols]
+            slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
+            # [代码修改结束]
         else:
             slope_health = np.full(len(df.index), 0.5)
         # 维度3: 加速度健康度
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
         if all(col in df.columns for col in accel_cols):
-            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
-            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+            # [代码修改开始] 修正归一化逻辑，对每个序列独立归一化
+            print(f"      -> [DynamicMechanicsEngine:_calculate_ma_health] 正在独立归一化 {len(accel_cols)} 个加速度序列...")
+            normalized_accels = [normalize_score(df[col], df.index, norm_window).values for col in accel_cols]
+            accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
+            # [代码修改结束]
         else:
             accel_health = np.full(len(df.index), 0.5)
         # 维度4: 关系健康度
@@ -161,13 +165,16 @@ class DynamicMechanicsEngine:
             meta_dynamics_health = np.mean(meta_values, axis=0)
         else:
             meta_dynamics_health = np.full(len(df.index), 0.5)
-        
         # 将新维度加入最终融合
         scores = np.stack([alignment_health, slope_health, accel_health, relational_health, meta_dynamics_health], axis=0)
-        weights_array = np.array(list(weights.values()))
-        weights_array /= weights_array.sum()
+        # 过滤掉非数字类型的权重值
+        numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
+        weights_array = np.array(list(numeric_weights.values()))
+        if weights_array.sum() > 0:
+            weights_array /= weights_array.sum()
+        else: # 如果权重和为0，则使用等权重
+            weights_array = np.full(len(numeric_weights), 1.0 / len(numeric_weights))
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
-
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
