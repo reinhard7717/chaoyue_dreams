@@ -1035,7 +1035,7 @@ def save_stocks_minute_data_history_task(cache_manager=None):
     async_to_sync(main)()
 
 #  ================ 1分钟数据任务（历史全量） - 新增任务 ================
-@celery_app.task(queue='SaveHistoryData_TimeTrade') # 新增：执行器任务
+@celery_app.task(queue='SaveHistoryData_TimeTrade') # 执行器任务
 @with_cache_manager
 def save_1min_data_history_batch(stock_code: str, cache_manager=None):
     """
@@ -1059,7 +1059,7 @@ def save_1min_data_history_batch(stock_code: str, cache_manager=None):
         # 可以在这里决定是否重试任务
         raise
 
-@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_1min_data_history_task', queue='celery') # 新增：调度器任务
+@celery_app.task(name='tasks.tushare.stock_time_trade_tasks.save_stocks_1min_data_history_task', queue='celery') # 调度器任务
 @with_cache_manager
 def save_stocks_1min_data_history_task(cache_manager=None):
     """

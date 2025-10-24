@@ -45,7 +45,7 @@ class DynamicMechanicsEngine:
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
-        # [代码修改开始] 重塑四大力学支柱
+        # 重塑四大力学支柱
         # --- 支柱1: 波动率 (Volatility) ---
         # 看涨 = 带宽压缩(BBW低) + 真实波幅平稳(ATR低)
         vol_bull_snapshot = (
@@ -100,7 +100,7 @@ class DynamicMechanicsEngine:
         stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots], axis=0)
         fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
         fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
-        # [代码修改结束]
+
         # 主循环：为每个周期 p 计算其最终的、经过分层印证的健康度
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
