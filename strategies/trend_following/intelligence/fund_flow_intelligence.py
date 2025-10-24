@@ -107,63 +107,70 @@ class FundFlowIntelligence:
             scores[p] = concentration_snapshot.clip(-1, 1)
             
         return scores
-        
 
     def _diagnose_power_transfer_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V2.0 · 四维时空修正版】资金流公理二：诊断资金“权力转移”的方向
-        - 核心修正: 引入“内部上下文(势)”，即多时间框架印证。短周期的动态必须由长周期趋势确认。
+        【V3.1 · 状态-动态分离版】资金流公理二：诊断资金“权力转移”的方向
+        - 核心升级: 采纳【状态-动态分离】范式。
+                      1. 状态 (State): 保留对事件型指标(如retail_capitulation_score)的直接使用，作为评分基础。
+                      2. 动态 (Dynamics): 斜率和加速度的计算，则基于更能反映过程的指标(如成本优势变化率)。
         """
         periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
         scores = {}
-        
-        # 引入多时间框架循环，实现内部上下文印证
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            
-            # --- 看涨证据（向主力转移） ---
-            bullish_static = df.get('retail_capitulation_score_D', 0) + df.get('main_force_support_strength_D', 0)
-            bullish_slope = df.get(f'SLOPE_{p}_retail_capitulation_score_D', 0) + df.get(f'SLOPE_{p}_main_force_support_strength_D', 0)
-            bullish_accel = df.get(f'ACCEL_{p}_retail_capitulation_score_D', 0) + df.get(f'ACCEL_{p}_main_force_support_strength_D', 0)
-            
+            # [代码修改开始] 实施“状态-动态分离”模型
+            # --- 看涨证据（权力向主力转移） ---
+            # --- 维度1: 状态 (State) - 事件本身 ---
+            # 评估“散户投降”和“主力支撑”这两个关键事件是否发生。
+            bullish_static = df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)) + df.get('main_force_support_strength_D', pd.Series(0, index=df.index))
+            # --- 维度2: 动态 (Dynamics) - 过程的导数 ---
+            # 评估“主力成本优势”和“套牢盘卖出意愿”这两个过程的演化速度。
+            cost_advantage_slope = df.get(f'SLOPE_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0, index=df.index))
+            cost_advantage_accel = df.get(f'ACCEL_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0, index=df.index))
+            loser_selling_slope = df.get(f'SLOPE_{p}_loser_rate_short_term_D', pd.Series(0, index=df.index))
+            loser_selling_accel = df.get(f'ACCEL_{p}_loser_rate_short_term_D', pd.Series(0, index=df.index))
+            bullish_slope = cost_advantage_slope + loser_selling_slope
+            bullish_accel = cost_advantage_accel + loser_selling_accel
+            # --- 看跌证据（权力向散户转移） ---
+            # --- 维度1: 状态 (State) - 事件本身 ---
+            # 评估“主力派发”和“散户追高”这两个关键事件是否发生。
+            bearish_static = df.get('main_force_distribution_pressure_D', pd.Series(0, index=df.index)) + df.get('retail_chasing_accumulation_D', pd.Series(0, index=df.index))
+            # --- 维度2: 动态 (Dynamics) - 过程的导数 ---
+            # 评估“主力成本优势丧失”和“获利盘兑现意愿”这两个过程的演化速度。
+            cost_disadvantage_slope = -cost_advantage_slope # 成本优势的减少即为成本劣势的增加
+            cost_disadvantage_accel = -cost_advantage_accel
+            profit_taking_slope = df.get(f'SLOPE_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index))
+            profit_taking_accel = df.get(f'ACCEL_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index))
+            bearish_slope = cost_disadvantage_slope + profit_taking_slope
+            bearish_accel = cost_disadvantage_accel + profit_taking_accel
+            # [代码修改结束]
+            # --- 融合计算 ---
             # 战术层 (p)
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
             tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
             tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
             tactical_bullish_quality = (tactical_bullish_static * tactical_bullish_slope * tactical_bullish_accel)**(1/3)
-            
             # 战略/上下文层 (context_p)
             context_bullish_static = normalize_score(bullish_static, df.index, context_p, ascending=True)
             context_bullish_slope = normalize_score(bullish_slope, df.index, context_p, ascending=True)
             context_bullish_accel = normalize_score(bullish_accel, df.index, context_p, ascending=True)
             context_bullish_quality = (context_bullish_static * context_bullish_slope * context_bullish_accel)**(1/3)
-            
             final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
-            
-            # --- 看跌证据（向散户转移） ---
-            bearish_static = df.get('main_force_distribution_pressure_D', 0) + df.get('retail_chasing_accumulation_D', 0)
-            bearish_slope = df.get(f'SLOPE_{p}_main_force_distribution_pressure_D', 0) + df.get(f'SLOPE_{p}_retail_chasing_accumulation_D', 0)
-            bearish_accel = df.get(f'ACCEL_{p}_main_force_distribution_pressure_D', 0) + df.get(f'ACCEL_{p}_retail_chasing_accumulation_D', 0)
-            
             # 战术层 (p)
             tactical_bearish_static = normalize_score(bearish_static, df.index, p, ascending=True)
             tactical_bearish_slope = normalize_score(bearish_slope, df.index, p, ascending=True)
             tactical_bearish_accel = normalize_score(bearish_accel, df.index, p, ascending=True)
             tactical_bearish_quality = (tactical_bearish_static * tactical_bearish_slope * tactical_bearish_accel)**(1/3)
-            
             # 战略/上下文层 (context_p)
             context_bearish_static = normalize_score(bearish_static, df.index, context_p, ascending=True)
             context_bearish_slope = normalize_score(bearish_slope, df.index, context_p, ascending=True)
             context_bearish_accel = normalize_score(bearish_accel, df.index, context_p, ascending=True)
             context_bearish_quality = (context_bearish_static * context_bearish_slope * context_bearish_accel)**(1/3)
-            
             final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
-            
             power_transfer_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
             scores[p] = power_transfer_snapshot.clip(-1, 1)
-            
         return scores
-        
 
     def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
         """
