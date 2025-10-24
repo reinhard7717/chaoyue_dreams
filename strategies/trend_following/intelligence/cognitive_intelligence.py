@@ -140,50 +140,43 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 赫淮斯托斯熔炉版】趋势质量融合评分模块
-        - 核心升级: 引入关系元分析，对融合后的“趋势质量快照分”进行动态锻造。
+        【V4.0 · 宙斯鹰眼版】趋势质量融合评分模块
+        - 核心升级: 引入“宙斯鹰眼”引擎 (`_calculate_cognitive_trend_health`) 对趋势进行直接的、
+                      五维一体的评估。最终的趋势质量分将是“直接评估分”与“跨领域共识分”的融合，
+                      兼具第一性原理的深刻洞察与跨领域验证的广度。
         """
-        # --- 1. 获取各维度健康度分数 ---
-        behavior_health_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL')
-        fund_flow_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
-        structural_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
-        mechanics_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE')
-        regime_health_score_hurst = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME')
-        regime_health_score_fft = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT')
-        regime_health_score = (regime_health_score_hurst * regime_health_score_fft)**0.5
-        chip_health_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
-        # --- 2. 读取权重配置 ---
+        # 引入“宙斯鹰眼”直接评估，并与跨领域共识融合
+        # --- 1. 跨领域共识分 (旧逻辑保留，作为横向验证) ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
-        # --- 3. 静态融合，计算“趋势质量快照分” ---
-        domain_scores = [
-            behavior_health_score, chip_health_score, fund_flow_health_score,
-            structural_health_score, mechanics_health_score, regime_health_score
-        ]
-        domain_weights_config = [
-            weights.get('behavior', 0.20), weights.get('chip', 0.30), weights.get('fund_flow', 0.15),
-            weights.get('structural', 0.15), weights.get('mechanics', 0.10), weights.get('regime', 0.10)
-        ]
-        valid_scores = []
-        valid_weights = []
-        for score, weight in zip(domain_scores, domain_weights_config):
-            if weight > 0:
-                valid_scores.append(score.values)
-                valid_weights.append(weight)
+        domain_scores_map = {
+            'behavior': 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
+            'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE'),
+            'fund_flow': get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE'),
+            'structural': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE'),
+            'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE'),
+            'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5
+        }
+        valid_scores = [score.values for name, score in domain_scores_map.items() if weights.get(name, 0) > 0]
+        valid_weights = [weights.get(name) for name in domain_scores_map if weights.get(name, 0) > 0]
         if valid_scores:
             weights_array = np.array(valid_weights)
             weights_array /= weights_array.sum()
             stacked_scores = np.stack(valid_scores, axis=0)
-            trend_quality_snapshot_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            trend_quality_snapshot_score = pd.Series(trend_quality_snapshot_values, index=df.index, dtype=np.float32)
+            consensus_snapshot_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            consensus_snapshot_score = pd.Series(consensus_snapshot_values, index=df.index, dtype=np.float32)
         else:
-            trend_quality_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        # 动态锻造
-        # --- 4. 对“趋势质量快照分”进行关系元分析，得到最终动态分数 ---
+            consensus_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        # --- 2. “宙斯鹰眼”直接评估分 (新逻辑，作为第一性原理的纵向洞察) ---
+        direct_trend_health_score = self._calculate_cognitive_trend_health(df)
+        # --- 3. 终极融合：直接评估分 与 跨领域共识分 的融合 ---
+        # 结合了第一性原理的深度和跨领域验证的广度
+        trend_quality_snapshot_score = (direct_trend_health_score * consensus_snapshot_score)**0.5
+        # --- 4. 对最终的“趋势质量快照分”进行关系元分析，得到最终动态分数 ---
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = final_trend_quality_score.astype(np.float32)
-        
         return df
+
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1008,6 +1001,51 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TRUE_RETREAT_RISK'] = true_retreat_score.astype(np.float32)
         return states
 
+    def _calculate_cognitive_trend_health(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】“宙斯之鹰眼”五维趋势健康度评估引擎
+        - 核心逻辑: 作为认知层的专属趋势评估器，从“排列、速度、加速度、关系、元动力”
+                      五个维度对趋势进行最全面、最权威的直接评估。
+        """
+        #
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        p_health = get_param_value(p_cognitive.get('trend_health_fusion_weights'), {})
+        weights = {
+            'alignment': get_param_value(p_health.get('alignment'), 0.2),
+            'velocity': get_param_value(p_health.get('velocity'), 0.15),
+            'acceleration': get_param_value(p_health.get('acceleration'), 0.15),
+            'relational': get_param_value(p_health.get('relational'), 0.2),
+            'meta_dynamics': get_param_value(p_health.get('meta_dynamics'), 0.3)
+        }
+        norm_window = 55
+        ma_periods = [5, 13, 21, 55, 89]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods if f'EMA_{p}_D' in df.columns]
+        if len(ma_cols) < 2:
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        # 维度1: 排列健康度 (Alignment)
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        # 维度2: 速度健康度 (Velocity)
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
+        velocity_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0) if slope_cols else np.full(len(df.index), 0.5)
+        # 维度3: 加速度健康度 (Acceleration)
+        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
+        acceleration_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in accel_cols], axis=0) if accel_cols else np.full(len(df.index), 0.5)
+        # 维度4: 关系健康度 (Relational)
+        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
+        # 维度5: 元动力健康度 (Meta-Dynamics)
+        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
+        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
+        meta_dynamics_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in valid_meta_cols], axis=0) if valid_meta_cols else np.full(len(df.index), 0.5)
+        # 最终融合
+        scores = np.stack([alignment_health, velocity_health, acceleration_health, relational_health, meta_dynamics_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum()
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+        
 
 
 

@@ -31,9 +31,9 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V17.0 · 关系元分析版】
-        - 核心革命: 1. 引入关系元分析，重构四大支柱健康度计算。
-                      2. 使用加权几何平均融合四大支柱，体现不同支柱的重要性。
+        【V18.0 · 四位一体版】
+        - 核心革命: 废弃旧的“一核三辅”架构，重铸为“趋势完整性、MTF协同、结构突破、形态确认”四大独立支柱。
+                      每个支柱都装备了最新的动态分析武器，实现了真正的“四位一体”打击。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -41,25 +41,33 @@ class StructuralIntelligence:
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        # 获取支柱权重
-        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {'ma': 0.25, 'mechanics': 0.25, 'mtf': 0.25, 'pattern': 0.25})
-        # 准备存储健康度和权重的容器
+        pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
+        # 重构为全新的四大支柱
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] }
-        pillar_names_in_order = ['ma', 'mechanics', 'mtf', 'pattern']
+        pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'pattern_confirmation']
         weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
-        calculators = {
-            'ma': self._calculate_ma_health,
-            'mechanics': self._calculate_mechanics_health,
-            'mtf': self._calculate_mtf_health,
-            'pattern': self._calculate_pattern_health
-        }
-        # 循环计算并存储每个支柱的健康度
-        for name in pillar_names_in_order:
-            calculator = calculators[name]
-            s_bull, s_bear, d_intensity = calculator(df, periods, norm_window)
-            health_data['s_bull'].append(s_bull)
-            health_data['s_bear'].append(s_bear)
-            health_data['d_intensity'].append(d_intensity)
+        # --- 依次调用四大支柱引擎 ---
+        # 支柱一: 趋势完整性 (Trend Integrity)
+        ti_s_bull, ti_s_bear, ti_d_intensity = self._calculate_trend_integrity_health(df, periods, norm_window)
+        health_data['s_bull'].append(ti_s_bull)
+        health_data['s_bear'].append(ti_s_bear)
+        health_data['d_intensity'].append(ti_d_intensity)
+        # 支柱二: 多时间框架协同 (MTF Cohesion)
+        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, ti_s_bull)
+        health_data['s_bull'].append(mtf_s_bull)
+        health_data['s_bear'].append(mtf_s_bear)
+        health_data['d_intensity'].append(mtf_d_intensity)
+        # 支柱三: 结构突破潜力 (Breakout Potential)
+        bp_s_bull, bp_s_bear, bp_d_intensity = self._calculate_breakout_potential_health(df, periods, norm_window)
+        health_data['s_bull'].append(bp_s_bull)
+        health_data['s_bear'].append(bp_s_bear)
+        health_data['d_intensity'].append(bp_d_intensity)
+        # 支柱四: 形态确认 (Pattern Confirmation)
+        pc_s_bull, pc_s_bear, pc_d_intensity = self._calculate_pattern_health(df, periods, norm_window)
+        health_data['s_bull'].append(pc_s_bull)
+        health_data['s_bear'].append(pc_s_bear)
+        health_data['d_intensity'].append(pc_d_intensity)
+
         overall_health = {}
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
@@ -67,11 +75,6 @@ class StructuralIntelligence:
                 components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
                 if components_for_period:
                     stacked_values = np.stack(components_for_period, axis=0)
-                    # 实现加权几何平均
-                    # weights_array = np.array(weights_in_order).reshape(-1, 1)
-                    # weighted_prod = np.prod(stacked_values ** weights_array, axis=0)
-                    # fused_values = weighted_prod # 权重和为1，无需再开方
-                    # 修正：权重和可能不为1，需要归一化
                     total_weight = sum(weights_in_order)
                     if total_weight > 0:
                         normalized_weights = np.array(weights_in_order) / total_weight
@@ -93,129 +96,136 @@ class StructuralIntelligence:
         states.update(ultimate_signals)
         return states
 
-    # ==============================================================================
-    # 以下为重构后的健康度组件计算器，现在返回四维健康度
-    # ==============================================================================
-    def _calculate_ma_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V4.1 · 逻辑净化版】计算MA支柱的三维健康度
-        - 核心修复: 移除了对 `_perform_structural_relational_meta_analysis` 的冗余调用。
-                      MA健康度本身已是四维融合的先进模型，无需再次进行动态调制。
+        【V1.0 · 新增】支柱一：趋势完整性 (赫尔墨斯的商神杖)
+        - 核心逻辑: 对日线级别趋势进行五维一体的评估（排列、速度、加速度、关系、元动力）。
         """
+        #
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
+        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
-        bull_alignment_scores, bear_alignment_scores = [], []
-        for i in range(len(ma_periods) - 1):
-            short_col, long_col = f'EMA_{ma_periods[i]}_D', f'EMA_{ma_periods[i+1]}_D'
-            if short_col in df and long_col in df:
-                bull_alignment_scores.append((df[short_col] > df[long_col]).astype(float))
-                bear_alignment_scores.append((df[short_col] < df[long_col]).astype(float))
-        alignment_score = pd.DataFrame(bull_alignment_scores).mean().fillna(0.5) if bull_alignment_scores else pd.Series(0.5, index=df.index)
-        static_bear_score = pd.DataFrame(bear_alignment_scores).mean().fillna(0.5) if bear_alignment_scores else pd.Series(0.5, index=df.index)
-        slope_health_scores, accel_health_scores, relational_health_scores = [], [], []
-        for p in ma_periods:
-            slope_col = f'SLOPE_{p}_EMA_{p}_D' if p != 1 else f'SLOPE_1_close_D'
-            accel_col = f'ACCEL_{p}_EMA_{p}_D' if p != 1 else f'ACCEL_1_close_D'
-            if slope_col in df.columns:
-                slope_health_scores.append((normalize_to_bipolar(df[slope_col], df.index, norm_window) + 1) / 2.0)
-            if accel_col in df.columns:
-                accel_health_scores.append((normalize_to_bipolar(df[accel_col], df.index, norm_window) + 1) / 2.0)
-        for short_p, long_p in [(5, 21), (13, 55)]:
-            spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
-            relational_health_scores.append((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0)
-        avg_slope_health = pd.concat(slope_health_scores, axis=1).mean(axis=1).fillna(0.5) if slope_health_scores else pd.Series(0.5, index=df.index)
-        avg_accel_health = pd.concat(accel_health_scores, axis=1).mean(axis=1).fillna(0.5) if accel_health_scores else pd.Series(0.5, index=df.index)
-        avg_relational_health = pd.concat(relational_health_scores, axis=1).mean(axis=1).fillna(0.5) if relational_health_scores else pd.Series(0.5, index=df.index)
-        raw_ma_health_score = (
-            alignment_score * fusion_weights.get('alignment', 0.1) +
-            avg_slope_health * fusion_weights.get('slope', 0.2) +
-            avg_accel_health * fusion_weights.get('accel', 0.2) +
-            avg_relational_health * fusion_weights.get('relational', 0.5)
+        # 检查所需列
+        required_cols = [f'EMA_{p}_D' for p in ma_periods]
+        if not all(col in df.columns for col in required_cols):
+            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            for p in periods:
+                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
+            return s_bull, s_bear, d_intensity
+        ma_values = np.stack([df[col].values for col in required_cols], axis=0)
+        # 1. 排列
+        bull_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
+        bear_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
+        # 2. 速度
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
+        velocity_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in slope_cols], axis=0) if slope_cols else 0.5
+        # 3. 加速度
+        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
+        acceleration_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in accel_cols], axis=0) if accel_cols else 0.5
+        # 4. 关系
+        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
+        # 5. 元动力
+        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D']
+        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
+        meta_dynamics_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
+        # 融合
+        bull_score_values = (
+            bull_alignment * fusion_weights.get('alignment', 0.15) +
+            velocity_health * fusion_weights.get('slope', 0.15) +
+            acceleration_health * fusion_weights.get('accel', 0.2) +
+            relational_health * fusion_weights.get('relational', 0.25) +
+            meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
         )
-        # MA健康度本身就是最终的静态分和动态分，不再进行二次加工
-        snapshot_score = raw_ma_health_score
-        unified_d_intensity = raw_ma_health_score
+        bull_snapshot_score = pd.Series(bull_score_values, index=df.index, dtype=np.float32)
+        bear_snapshot_score = pd.Series(bear_alignment, index=df.index, dtype=np.float32)
+        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, bull_snapshot_score)
         for p in periods:
-            s_bull[p] = snapshot_score
-            s_bear[p] = static_bear_score
-            d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
-
-    def _calculate_mechanics_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
-        """
-        【V4.1 · 上下文统一版】计算力学支柱的三维健康度
-        - 核心修复: 废除过时的 `_calculate_ma_trend_context`，改用先进的 `_calculate_ma_health` 作为上下文。
-        """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        raw_mechanics_score = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
-        # 调用先进的四维MA健康度评估作为上下文
-        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
-        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
-        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
-        snapshot_score = raw_mechanics_score * ma_context_score
-        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        bear_snapshot_score = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False) * ma_bear_context_score
-        for p in periods:
-            s_bull[p] = snapshot_score
+            s_bull[p] = bull_snapshot_score
             s_bear[p] = bear_snapshot_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
+        
 
-    def _calculate_mtf_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_health: Dict) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.1 · 上下文统一版】计算MTF(多时间框架)支柱的三维健康度
-        - 核心修复: 废除过时的 `_calculate_ma_trend_context`，改用先进的 `_calculate_ma_health` 作为上下文。
+        【V1.0 · 新增】支柱二：多时间框架协同 (克洛诺斯的时间之轮)
+        - 核心逻辑: 对周线趋势进行独立的五维健康度评估，并与日线健康度融合，形成协同分数。
         """
+        #
         s_bull, s_bear, d_intensity = {}, {}, {}
-        weekly_cols = [col for col in df.columns if 'EMA' in col and col.endswith('_W')]
-        if len(weekly_cols) > 1:
-            bull_align_matrix = np.stack([(df[weekly_cols[i]] > df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
-            bear_align_matrix = np.stack([(df[weekly_cols[i]] < df[weekly_cols[i+1]]).values for i in range(len(weekly_cols)-1)], axis=0)
-            raw_mtf_bull_score = pd.Series(np.mean(bull_align_matrix, axis=0), index=df.index, dtype=np.float32)
-            raw_mtf_bear_score = pd.Series(np.mean(bear_align_matrix, axis=0), index=df.index, dtype=np.float32)
+        # 1. 计算周线健康度
+        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
+        ma_periods_w = [5, 13, 21, 55]
+        required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
+        if not all(col in df.columns for col in required_cols_w):
+            weekly_bull_health = pd.Series(0.5, index=df.index, dtype=np.float32)
         else:
-            raw_mtf_bull_score = raw_mtf_bear_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        # 调用先进的四维MA健康度评估作为上下文
-        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
-        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
-        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
-        snapshot_score = raw_mtf_bull_score * ma_context_score
-        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        bear_snapshot_score = raw_mtf_bear_score * ma_bear_context_score
+            weekly_alignment = np.mean([(df[f'EMA_{ma_periods_w[i]}_W'] > df[f'EMA_{ma_periods_w[i+1]}_W']).values for i in range(len(ma_periods_w) - 1)], axis=0)
+            weekly_slope_cols = [f'SLOPE_{p}_EMA_{p}_W' for p in ma_periods_w if f'SLOPE_{p}_EMA_{p}_W' in df.columns]
+            weekly_velocity = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in weekly_slope_cols], axis=0) if weekly_slope_cols else 0.5
+            weekly_bull_health_values = weekly_alignment * 0.5 + weekly_velocity * 0.5
+            weekly_bull_health = pd.Series(weekly_bull_health_values, index=df.index, dtype=np.float32)
+        # 2. 融合日线与周线健康度
+        daily_bull_health = daily_health.get(norm_window, pd.Series(0.5, index=df.index))
+        bull_snapshot_score = (daily_bull_health * weekly_bull_health)**0.5
+        # 简单定义熊市分
+        bear_snapshot_score = 1.0 - bull_snapshot_score
+        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, bull_snapshot_score)
         for p in periods:
-            s_bull[p] = snapshot_score
+            s_bull[p] = bull_snapshot_score
             s_bear[p] = bear_snapshot_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
+        
+
+    def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
+        """
+        【V1.0 · 新增】支柱三：结构突破潜力 (赫淮斯托斯的火山熔炉)
+        - 核心逻辑: 融合“结构性突破”与“能量跃迁”，捕捉高价值的突破事件。
+        """
+        #
+        s_bull, s_bear, d_intensity = {}, {}, {}
+        # 1. 结构性突破
+        score_breakout = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
+        score_breakdown = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        # 2. 能量跃迁
+        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
+        atr_slope = df.get('SLOPE_5_ATR_14_D', pd.Series(0, index=df.index))
+        energy_expansion_score = (normalize_score(bbw_slope.clip(lower=0), df.index, norm_window) * normalize_score(atr_slope.clip(lower=0), df.index, norm_window))**0.5
+        # 3. 融合
+        bull_snapshot_score = (score_breakout * energy_expansion_score).astype(np.float32)
+        bear_snapshot_score = (score_breakdown * energy_expansion_score).astype(np.float32)
+        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, bull_snapshot_score)
+        for p in periods:
+            s_bull[p] = bull_snapshot_score
+            s_bear[p] = bear_snapshot_score
+            d_intensity[p] = unified_d_intensity
+        return s_bull, s_bear, d_intensity
+        
 
     def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V4.0 · 重建连接版】计算形态支柱的三维健康度
-        - 核心修复: 废除使用废弃原子信号的旧逻辑，改为正确消费由 `PatternIntelligence` 引擎产出的核心信号。
+        【V5.0 · 职责明确版】支柱四：形态确认 (阿波罗的竖琴)
+        - 核心逻辑: 消费 PatternIntelligence 产出的高阶形态信号，并对其进行动态调制。
         """
+        # 逻辑重构，消费正确的原子信号
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 从原子状态库中正确获取由 PatternIntelligence 生成的信号
-        bullish_resonance_score = self.strategy.atomic_states.get('SCORE_PATTERN_BULLISH_RESONANCE', pd.Series(0.5, index=df.index))
-        bottom_reversal_score = self.strategy.atomic_states.get('SCORE_PATTERN_BOTTOM_REVERSAL', pd.Series(0.5, index=df.index))
-        bearish_resonance_score = self.strategy.atomic_states.get('SCORE_PATTERN_BEARISH_RESONANCE', pd.Series(0.5, index=df.index))
-        top_reversal_score = self.strategy.atomic_states.get('SCORE_PATTERN_TOP_REVERSAL', pd.Series(0.5, index=df.index))
-        # 形态分数现在是两种看涨模式的融合
-        raw_pattern_bull_score = (bullish_resonance_score + bottom_reversal_score).clip(0, 1)
-        raw_pattern_bear_score = (bearish_resonance_score + top_reversal_score).clip(0, 1)
-        # 调用先进的四维MA健康度评估作为上下文
-        ma_health_s_bull, ma_health_s_bear, _ = self._calculate_ma_health(df, periods, norm_window)
-        ma_context_score = ma_health_s_bull[norm_window] if norm_window in ma_health_s_bull else pd.Series(0.5, index=df.index)
-        ma_bear_context_score = ma_health_s_bear[norm_window] if norm_window in ma_health_s_bear else pd.Series(0.5, index=df.index)
-        snapshot_score = raw_pattern_bull_score * ma_context_score
-        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, snapshot_score)
-        bear_snapshot_score = raw_pattern_bear_score * ma_bear_context_score
+        bullish_resonance = self.strategy.atomic_states.get('SCORE_PATTERN_BULLISH_RESONANCE', pd.Series(0.5, index=df.index))
+        bottom_reversal = self.strategy.atomic_states.get('SCORE_PATTERN_BOTTOM_REVERSAL', pd.Series(0.5, index=df.index))
+        bearish_resonance = self.strategy.atomic_states.get('SCORE_PATTERN_BEARISH_RESONANCE', pd.Series(0.5, index=df.index))
+        top_reversal = self.strategy.atomic_states.get('SCORE_PATTERN_TOP_REVERSAL', pd.Series(0.5, index=df.index))
+        bull_snapshot_score = np.maximum(bullish_resonance, bottom_reversal)
+        bear_snapshot_score = np.maximum(bearish_resonance, top_reversal)
+        unified_d_intensity = self._perform_structural_relational_meta_analysis(df, bull_snapshot_score)
         for p in periods:
-            s_bull[p] = snapshot_score
+            s_bull[p] = bull_snapshot_score
             s_bear[p] = bear_snapshot_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
+
 
     def _perform_structural_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
@@ -224,42 +234,32 @@ class StructuralIntelligence:
                       “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
         - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
         """
-        # 引入新的权重体系和加法融合模型
-        # 从配置中获取新的加法模型权重
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
-        # 核心参数
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
         state_score = snapshot_score.clip(0, 1)
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 终极融合：从乘法调制升级为加法赋权
-        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
-        # 新的加法模型:
         final_score = (
             state_score * w_state +
             velocity_score * w_velocity +
             acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
+        ).clip(0, 1)
         return final_score.astype(np.float32)
+
         
 
 

@@ -213,41 +213,63 @@ class FoundationIntelligence:
     # ==============================================================================
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> Tuple[Dict, Dict, Dict]:
         """
-        【V5.1 · 逻辑净化版】计算EMA维度的三维健康度
-        - 核心修正: 移除了在计算斜率和加速度健康度时无效的 `if p != 1` 条件判断。
-                      由于循环的 `ma_periods` 列表不包含1，该条件永远为真，属于逻辑冗余和潜在隐患。
+        【V6.0 · 五维元动力版】计算EMA维度的五维健康度
+        - 核心升级: 引入第五维度“元动力(Meta-Dynamics)”，利用跨周期导数（如SLOPE_5_EMA_55_D）
+                      来评估长期趋势的短期变化率，从而获得预判趋势拐点的领先信号。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        fusion_weights = p_conf.get('ma_health_fusion_weights', {'alignment': 0.1, 'slope': 0.2, 'accel': 0.2, 'relational': 0.5})
+        # 增加 'meta_dynamics' 权重
+        fusion_weights = p_conf.get('ma_health_fusion_weights', {
+            'alignment': 0.15, 'slope': 0.15, 'accel': 0.2, 'relational': 0.25, 'meta_dynamics': 0.25
+        })
+
         ma_periods = [5, 13, 21, 55]
-        required_cols = [f'EMA_{p}_D' for p in ma_periods] + [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods] + [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
+        required_slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
+        required_accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
+        required_cols = [f'EMA_{p}_D' for p in ma_periods] + required_slope_cols + required_accel_cols
         if not all(col in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
+        # 维度1: 排列健康度
         bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
         bear_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
         static_bear_score = np.mean(bear_alignment_scores, axis=0) if bear_alignment_scores else np.full(len(df.index), 0.5)
-        # [代码修改开始] 移除无效的条件判断，直接使用列名
-        slope_health_scores = [((normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
-        accel_health_scores = [((normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D'], df.index, norm_window) + 1) / 2.0).values for p in ma_periods]
-        # [代码修改结束]
+        # 维度2: 速度健康度
+        slope_health_scores = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in required_slope_cols]
+        # 维度3: 加速度健康度
+        accel_health_scores = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in required_accel_cols]
+        # 维度4: 关系健康度
         relational_health_scores = []
         for short_p, long_p in [(5, 21), (13, 55)]:
             spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
             relational_health_scores.append(((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0).values)
+        # 维度5: 元动力健康度 (Meta-Dynamics Health) - 跨周期导数
+        meta_dynamics_cols = [
+            'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
+        ]
+        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
+        if valid_meta_cols:
+            meta_values = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in valid_meta_cols]
+            avg_meta_dynamics_health = np.mean(meta_values, axis=0)
+        else:
+            avg_meta_dynamics_health = np.full(len(df.index), 0.5)
+        
         avg_slope_health = np.mean(slope_health_scores, axis=0) if slope_health_scores else np.full(len(df.index), 0.5)
         avg_accel_health = np.mean(accel_health_scores, axis=0) if accel_health_scores else np.full(len(df.index), 0.5)
         avg_relational_health = np.mean(relational_health_scores, axis=0) if relational_health_scores else np.full(len(df.index), 0.5)
+        # 将新维度加入最终融合
         static_bull_score_values = (
-            alignment_score * fusion_weights.get('alignment', 0.1) +
-            avg_slope_health * fusion_weights.get('slope', 0.2) +
+            alignment_score * fusion_weights.get('alignment', 0.15) +
+            avg_slope_health * fusion_weights.get('slope', 0.15) +
             avg_accel_health * fusion_weights.get('accel', 0.2) +
-            avg_relational_health * fusion_weights.get('relational', 0.5)
+            avg_relational_health * fusion_weights.get('relational', 0.25) +
+            avg_meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
         )
+
         static_bull_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
         static_bear_score = pd.Series(static_bear_score, index=df.index, dtype=np.float32)
         unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, static_bull_score)

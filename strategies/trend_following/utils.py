@@ -247,9 +247,10 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
 def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.Series, pd.Series]:
     """
-    【V11.3 · 确认逻辑融合版】计算全局的底部和顶部上下文分数
-    - 将“历史低点支撑分”也纳入“底部确认”信号的计算范畴，实现“或”逻辑。
-                  无论“盖亚基石”还是“历史低点”支撑生效，都会激活 SCORE_FOUNDATION_BOTTOM_CONFIRMED。
+    【V11.4 · 元动力注入版】计算全局的底部和顶部上下文分数
+    - 核心升级: 注入“元动力”奖励逻辑。当市场处于深熊区域时，如果长期趋势的下跌开始减速
+                  （通过跨周期导数`SLOPE_5_EMA_55_D`判断），将为底部上下文分数提供一个显著的奖励加成，
+                  从而更早、更灵敏地捕捉市场底部的形成。
     """
     if isinstance(df, dict):
         df = df.get('df_indicators', pd.DataFrame())
@@ -304,16 +305,28 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         safe_scores = np.maximum(stacked_scores, 1e-9)
         weighted_log_sum = np.sum(np.log(safe_scores) * normalized_weights[:, np.newaxis], axis=0)
         bottom_context_score_raw = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
+    # 注入“元动力”奖励逻辑
+    p_meta = get_param_value(p_synthesis.get('meta_dynamics_context_params'), {})
+    if get_param_value(p_meta.get('enabled'), False):
+        long_ma_p = get_param_value(p_meta.get('long_ma_period'), 55)
+        short_slope_p = get_param_value(p_meta.get('short_slope_period'), 5)
+        bonus_factor = get_param_value(p_meta.get('bonus_factor'), 0.3)
+        meta_dynamics_col = f'SLOPE_{short_slope_p}_EMA_{long_ma_p}_D'
+        if meta_dynamics_col in df.columns:
+            # 归一化跨周期导数，捕捉下跌减速的信号
+            deceleration_score = normalize_score(df[meta_dynamics_col], df.index, window=norm_window, ascending=True)
+            # 只有在深熊区，下跌减速才有意义
+            meta_dynamics_bonus = (deceleration_score * is_deep_bearish_zone * bonus_factor)
+            # 将奖励加成到原始底部上下文中
+            bottom_context_score_raw = (bottom_context_score_raw + meta_dynamics_bonus).clip(0, 1)
+    
     conventional_bottom_score = bottom_context_score_raw * is_deep_bearish_zone
     gaia_bedrock_support_score = _calculate_gaia_bedrock_support(df, gaia_params, atomic_states)
     p_fib_support = get_param_value(p_synthesis.get('fibonacci_support_params'), {})
     historical_low_support_score = _calculate_historical_low_support(df, p_fib_support)
-    # 融合历史低点支撑分到“盖亚基石确认”信号中，实现“或”逻辑
-    # 这一步确保了无论哪种结构性支撑被触发，都会被视为一种“确认”
     gaia_confirmation_score = atomic_states.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
     fused_confirmation_score = np.maximum(gaia_confirmation_score, historical_low_support_score)
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = fused_confirmation_score.astype(np.float32)
-    
     structural_support_score = np.maximum(gaia_bedrock_support_score, historical_low_support_score).astype(np.float32)
     bottom_context_score = np.maximum(conventional_bottom_score, structural_support_score).astype(np.float32)
     ma55 = df.get('MA_55_D', df[close_col])

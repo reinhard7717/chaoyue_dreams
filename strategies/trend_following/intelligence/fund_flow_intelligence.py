@@ -38,7 +38,7 @@ class FundFlowIntelligence:
             return {}
         concentration_scores = self._diagnose_concentration_dynamics_ff(df, p_conf)
         power_transfer_scores = self._diagnose_power_transfer_ff(df, p_conf)
-        # [代码修改开始] 新增调用公理三诊断引擎
+        # 新增调用公理三诊断引擎
         internal_structure_scores = self._diagnose_internal_flow_structure_ff(df, p_conf)
         self.strategy.atomic_states['SCORE_FF_AXIOM_CONCENTRATION'] = concentration_scores
         self.strategy.atomic_states['SCORE_FF_AXIOM_POWER_TRANSFER'] = power_transfer_scores
@@ -46,7 +46,7 @@ class FundFlowIntelligence:
         final_scores = self._synthesize_ultimate_signals_from_axioms(
             df, concentration_scores, power_transfer_scores, internal_structure_scores, p_conf
         )
-        # [代码修改结束]
+
         states = self._assign_graded_states(final_scores)
         return states
 
@@ -60,14 +60,14 @@ class FundFlowIntelligence:
         scores = {}
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            # [代码修改开始] 全面加固 df.get() 调用，防止类型错误
+            # 全面加固 df.get() 调用，防止类型错误
             bullish_static = df.get('main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
             bullish_slope = df.get(f'SLOPE_{p}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
             bullish_accel = df.get(f'ACCEL_{p}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
             bearish_static = df.get('retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get('main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
             bearish_slope = df.get(f'SLOPE_{p}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'SLOPE_{p}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
             bearish_accel = df.get(f'ACCEL_{p}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'ACCEL_{p}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
-            # [代码修改结束]
+    
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
             tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
             tactical_bullish_accel = normalize_score(bullish_accel, df.index, p, ascending=True)
@@ -100,7 +100,7 @@ class FundFlowIntelligence:
         scores = {}
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            # [代码修改开始] 全面加固 df.get() 调用并换装新指标
+            # 全面加固 df.get() 调用并换装新指标
             # --- 看涨证据（权力向主力转移） ---
             bullish_static = df.get('retail_capitulation_score_D', pd.Series(0.0, index=df.index)) + df.get('main_force_support_strength_D', pd.Series(0.0, index=df.index))
             cost_advantage_slope = df.get(f'SLOPE_{p}_cost_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index))
@@ -118,7 +118,7 @@ class FundFlowIntelligence:
             profit_taking_accel = df.get(f'ACCEL_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index))
             bearish_slope = cost_disadvantage_slope + profit_taking_slope
             bearish_accel = cost_disadvantage_accel + profit_taking_accel
-            # [代码修改结束]
+    
             # --- 融合计算 ---
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)
             tactical_bullish_slope = normalize_score(bullish_slope, df.index, p, ascending=True)
@@ -147,7 +147,7 @@ class FundFlowIntelligence:
         【V1.0 · 新增】资金流公理三：诊断资金“内部结构”的健康度
         - 核心逻辑: 剖析主力资金内部（超大单/大单 vs 中单/小单）的协同与背离，揭示更深层次的市场意图。
         """
-        # [代码新增开始]
+        #
         periods = get_param_value(params.get('periods'), [1, 5, 13, 21, 55])
         scores = {}
         for i, p in enumerate(periods):
@@ -187,18 +187,21 @@ class FundFlowIntelligence:
             internal_structure_snapshot = (bullish_divergence - bearish_divergence).astype(np.float32)
             scores[p] = internal_structure_snapshot.clip(-1, 1)
         return scores
-        # [代码新增结束]
+        
 
     def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], internal_structure: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 三公理版】基于物理公理的终极信号合成器
-        - 核心升级: 将新增的“公理三：内部资金结构”纳入融合计算，形成更稳固的三足鼎立结构。
+        【V3.2 · 波塞冬裁决版】基于物理公理的终极信号合成器
+        - 核心升级: 调用“波塞冬的三叉戟”引擎计算趋势健康度，并用其对最终的资金流信号进行调节，
+                      使其具备趋势感知能力，能有效过滤牛市陷阱和熊市陷阱。
         """
-        # [代码修改开始] 接收并处理第三公理
         states = {}
         axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.4, 'power_transfer': 0.4, 'internal_structure': 0.2})
         tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         total_tf_weight = sum(tf_weights.values())
+        # 调用“波塞冬的三叉戟”引擎，获取趋势上下文
+        trend_health_score = self._calculate_trend_context_ff(df, params)
+        
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         if total_tf_weight > 0:
@@ -218,7 +221,10 @@ class FundFlowIntelligence:
                 )
                 bullish_resonance += period_bullish * (weight / total_tf_weight)
                 bearish_resonance += period_bearish * (weight / total_tf_weight)
-        # [代码修改结束]
+        # 使用趋势健康度对资金流信号进行调节
+        bullish_resonance = bullish_resonance * trend_health_score
+        bearish_resonance = bearish_resonance * (1 - trend_health_score)
+
         bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)
         top_reversal = self._perform_fund_flow_relational_meta_analysis(df, bearish_resonance)
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
@@ -454,53 +460,48 @@ class FundFlowIntelligence:
         ).clip(0, 1) # clip确保分数在[0, 1]范围内
         return final_score.astype(np.float32)
 
-    def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
+    def _calculate_trend_context_ff(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
-        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
+        【V1.0 · 新增】“波塞冬的三叉戟”资金流专属趋势上下文引擎
+        - 核心逻辑: 从“排列、速度、元动力”三个维度评估趋势健康度，为资金流信号提供背景判断。
+        - 新增武器: 引入“元动力”维度，利用跨周期导数捕捉长期趋势的短期变化，实现领先预判。
         """
-        p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
-        weights = {
-            'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
-            'slope': get_param_value(p_ma_health.get('slope'), 0.15),
-            'accel': get_param_value(p_ma_health.get('accel'), 0.2),
-            'relational': get_param_value(p_ma_health.get('relational'), 0.5)
-        }
-        
-        ma_periods = [5, 13, 21, 55]
-        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
-        if not all(col in df.columns for col in ma_cols):
+        #
+        p_context = get_param_value(params, {})
+        weights = get_param_value(p_context.get('ma_trend_context_weights'), {
+            'alignment': 0.4, 'velocity': 0.3, 'meta_dynamics': 0.3
+        })
+        norm_window = 55
+        ma_periods = [5, 13, 21, 55, 89]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods if f'EMA_{p}_D' in df.columns]
+        if len(ma_cols) < 2:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
-
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        
+        # 叉戟一: 排列健康度 (Alignment)
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-
-        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
-        if all(col in df.columns for col in slope_cols):
-            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
-            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+        # 叉戟二: 速度健康度 (Velocity) - 周期匹配导数
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
+        if slope_cols:
+            slope_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0)
+            velocity_health = np.mean(slope_values, axis=0)
         else:
-            slope_health = np.full(len(df.index), 0.5)
-
-        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
-        if all(col in df.columns for col in accel_cols):
-            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
-            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+            velocity_health = np.full(len(df.index), 0.5)
+        # 叉戟三: 元动力健康度 (Meta-Dynamics) - 跨周期导数
+        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
+        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
+        if valid_meta_cols:
+            meta_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in valid_meta_cols], axis=0)
+            meta_dynamics_health = np.mean(meta_values, axis=0)
         else:
-            accel_health = np.full(len(df.index), 0.5)
-
-        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
-
-        scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
+            meta_dynamics_health = np.full(len(df.index), 0.5)
+        # 最终融合：加权几何平均
+        scores = np.stack([alignment_health, velocity_health, meta_dynamics_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
-
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
-        
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+        
 
 
 

@@ -756,7 +756,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
     【V1.0 · 新增】为单只股票预计算高级结构与行为指标的Celery任务。
     - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
     """
-    # [代码新增开始]
+    #
     async def main(incremental_flag: bool, start_date_override: str):
         from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
         

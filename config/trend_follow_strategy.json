@@ -60,7 +60,7 @@
       "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的斜率计算。",
       "series_to_slope": {
         "close_D": [1, 5, 13, 21, 55],
-        "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
+        "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21],
         "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
         "volume_D": [1, 5, 13, 21, 55],
         "BBW_21_2.0_D": [1, 5, 13],
@@ -87,14 +87,18 @@
         "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
         "retail_capitulation_distribution_D": [5, 13, 21, 55],
         "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
-        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55]
+        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55],
+        "EMA_55_D": [5, 13, 55],
+        "EMA_89_D": [5, 13, 89],
+        "EMA_144_D": [5, 13, 21],
+        "EMA_233_D": [5, 13, 21]
       }
     },
     "accel_params": {
       "enabled": true,
       "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的加速度计算。",
       "series_to_accel": {
-        "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21], "EMA_55_D": [55], "EMA_89_D": [89],
+        "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21],
         "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
         "volume_D": [1, 5, 13, 21, 55], "BBW_21_2.0_D": [1, 5, 13], "RSI_13_D": [1, 5, 13, 21, 55],
         "CMF_21_D": [1, 5, 13, 21, 55], "ATR_14_D": [1, 5, 13, 21, 55], "ADX_14_D": [1, 5, 13, 21, 55],
@@ -110,7 +114,11 @@
         "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
         "retail_capitulation_distribution_D": [5, 13, 21, 55],
         "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
-        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55]
+        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55],
+        "EMA_55_D": [5, 13, 55],
+        "EMA_89_D": [5, 13, 89],
+        "EMA_144_D": [5, 13, 21],
+        "EMA_233_D": [5, 13, 21]
       }
     }
   },
@@ -225,6 +233,13 @@
           }
         },
         "deep_bearish_threshold": 0.05,
+        "meta_dynamics_context_params": {
+          "enabled": true,
+          "description": "【V1.0 · 新增】元动力上下文奖励。当长期趋势下跌减速时，为底部信号提供额外加成。",
+          "long_ma_period": 55,
+          "short_slope_period": 5,
+          "bonus_factor": 0.3
+        },
         "bottom_context_weights": { "price_pos": 0.5, "rsi_w": 0.3, "cycle": 0.2 },
         "bias_overheat_params": {
           "description": "【赫淮斯托斯卡尺】用于计算顶部风险的绝对乖离率阈值。",
@@ -586,7 +601,26 @@
       },
       "pattern_params": {
         "enabled": true,
-        "description": "【V1.0】形态智能引擎参数。"
+        "description": "【V4.0 · 四维聚变版】形态智能引擎参数。基于“背离、反转、突破、跃迁”四维融合。",
+        "fusion_weights": {
+          "description": "看涨/看跌形态的四维融合权重。",
+          "divergence": 0.3,
+          "momentum_reversal": 0.3,
+          "structural_breakout": 0.2,
+          "energy_transition": 0.2
+        },
+        "continuation_params": {
+          "description": "看涨/看跌延续形态的识别参数。",
+          "rsi_threshold": 55,
+          "adx_threshold": 20
+        }
+      },
+      "consolidation_breakout_params": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】结构性盘整突破诊断引擎参数。",
+        "min_consolidation_duration": 5,
+        "volume_confirmation_ma_period": 21,
+        "min_closing_strength": 0.7
       },
       "fund_flow_params": {
         "enabled": true,
@@ -650,6 +684,13 @@
           "power_transfer": 0.25,
           "peak_integrity": 0.15
         },
+        "ma_trend_context_weights": {
+          "description": "【V2.0 · 阿波罗战车版】为筹码引擎专用的四维趋势上下文评估提供权重。",
+          "alignment": 0.3,
+          "velocity": 0.2,
+          "acceleration": 0.2,
+          "meta_dynamics": 0.3
+        },
         "relational_meta_analysis_params": {
           "description": "【元分析贯穿协议】关系元分析参数，贯穿于每个核心公理的诊断过程。",
           "state_weight": 0.3,
@@ -664,9 +705,9 @@
       },
       "dynamic_mechanics_params": {
         "enabled": true, 
-        "description": "【V12.1 · 阿瑞斯之怒版】此模块现在只定义特定于力学领域的支柱权重。",
+        "description": "【V12.2 · 五大支柱版】新增“能量跃迁”支柱，用于捕捉市场能量的相变时刻。",
         "pillar_weights": {
-          "volatility": 0.25, "efficiency": 0.25, "momentum": 0.25, "inertia": 0.25
+          "volatility": 0.25, "efficiency": 0.25, "momentum": 0.2, "inertia": 0.2, "energy_transition": 0.1
         },
         "ma_health_fusion_weights": {
           "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
@@ -689,11 +730,12 @@
           "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
         },
         "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "description": "【V2.0 · 五维元动力版】五维均线健康度加权融合权重。关系分与元动力分是核心。",
           "alignment": 0.15,
           "slope": 0.15,
           "accel": 0.2,
-          "relational": 0.5
+          "relational": 0.25,
+          "meta_dynamics": 0.25
         },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
@@ -753,16 +795,20 @@
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V17.1 · 阿瑞斯之怒版】此模块现在定义特定于结构领域的支柱权重，并新增关系元分析参数。",
+        "description": "【V18.0 · 四位一体版】定义了基于“趋势完整性、MTF协同、结构突破、形态确认”四大核心支柱的新结构引擎参数。",
         "pillar_weights": {
-          "ma": 0.3, "mechanics": 0.3, "mtf": 0.2, "pattern": 0.2
+          "trend_integrity": 0.4,
+          "mtf_cohesion": 0.3,
+          "breakout_potential": 0.15,
+          "pattern_confirmation": 0.15
         },
         "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "description": "【赫尔墨斯的商神杖】五维均线健康度加权融合权重。元动力和关系分是核心。",
           "alignment": 0.15,
           "slope": 0.15,
           "accel": 0.2,
-          "relational": 0.5
+          "relational": 0.25,
+          "meta_dynamics": 0.25
         },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
@@ -811,6 +857,14 @@
             "signal_conflict": 0.6,
             "flow_divergence": 0.4
           }
+        },
+        "trend_health_fusion_weights": {
+          "description": "【V1.0 · 宙斯鹰眼版】为认知层专属的五维趋势健康度评估引擎提供权重。",
+          "alignment": 0.2,
+          "velocity": 0.15,
+          "acceleration": 0.15,
+          "relational": 0.2,
+          "meta_dynamics": 0.3
         }
       },
       "intraday_behavior_engine_params": {

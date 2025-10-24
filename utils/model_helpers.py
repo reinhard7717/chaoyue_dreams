@@ -210,7 +210,7 @@ def get_advanced_structural_metrics_model_by_code(stock_code: str):
     """
     【V1.0 · 新增】根据股票代码返回对应的高级结构与行为指标数据表Model
     """
-    # [代码新增开始]
+    #
     if stock_code.startswith('3') and stock_code.endswith('.SZ'):
         return AdvancedStructuralMetrics_CY
     elif stock_code.endswith('.SZ'):

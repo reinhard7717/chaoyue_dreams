@@ -41,7 +41,7 @@ class MicroBehaviorEngine:
         update_states(self.diagnose_hermes_gambit(df))
         # 调用全新的“伊卡洛斯之坠”诊断引擎
         update_states(self.diagnose_icarus_fall_risk(df))
-        
+        update_states(self._diagnose_consolidation_breakout(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
@@ -578,52 +578,42 @@ class MicroBehaviorEngine:
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 阿瑞斯之怒协议版】微观行为专用的关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V2.1 · 签名简化版】微观行为专用的关系元分析核心引擎
+        - 核心简化: 移除不再需要的 signal_name 参数，直接返回计算出的 Series。
         """
-        # 引入新的权重体系和加法融合模型
-        # 从配置中获取新的加法模型权重
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
-        # 核心参数
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
         state_score = snapshot_score.clip(0, 1)
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 终极融合：从乘法调制升级为加法赋权
-        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
-        # 新的加法模型:
+        # 移除 signal_name 参数的使用
         final_score = (
             state_score * w_state +
             velocity_score * w_velocity +
             acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
+        ).clip(0, 1)
         return final_score.astype(np.float32)
+
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
-        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
+        【V1.1 · 接口修复版】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心修复: 修正了斜率和加速度列名的构建逻辑，使其与数据层提供的真实列名（如 `SLOPE_13_EMA_13_D`）精确匹配，
+                      解决了因“幽灵信号”依赖导致的引擎失效问题。
         """
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
@@ -632,40 +622,35 @@ class MicroBehaviorEngine:
             'accel': get_param_value(p_ma_health.get('accel'), 0.2),
             'relational': get_param_value(p_ma_health.get('relational'), 0.5)
         }
-        
         ma_periods = [5, 13, 21, 55]
         ma_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in ma_cols):
             return pd.Series(0.5, index=df.index, dtype=np.float32)
-
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        # 动态构建正确的斜率和加速度列名
+        slope_cols = [f'SLOPE_{p}_{col}' for p, col in zip(ma_periods, ma_cols)]
 
-        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
         if all(col in df.columns for col in slope_cols):
             slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
             slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
         else:
             slope_health = np.full(len(df.index), 0.5)
+        # 动态构建正确的斜率和加速度列名
+        accel_cols = [f'ACCEL_{p}_{col}' for p, col in zip(ma_periods, ma_cols)]
 
-        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
         if all(col in df.columns for col in accel_cols):
             accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
             accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
         else:
             accel_health = np.full(len(df.index), 0.5)
-
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
         relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
-
         scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
-
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
-        
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
     def _calculate_4d_metric_quality(self, df: pd.DataFrame, metric_name: str, p: int, context_p: int, ascending: bool) -> pd.Series:
@@ -691,6 +676,39 @@ class MicroBehaviorEngine:
         context_quality = (context_static * context_slope * context_accel)**(1/3)
         # 最终融合 (战术 * 战略)
         return (tactical_quality * context_quality)**0.5
+
+    def _diagnose_consolidation_breakout(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“结构性盘整突破”诊断引擎
+        - 核心逻辑: 识别价格在经历充分盘整后，放量向上突破盘整区间的关键结构性事件。
+        """
+        #
+        states = {}
+        signal_name = 'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT'
+        p_conf = get_params_block(self.strategy, 'consolidation_breakout_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            return states
+        min_duration = get_param_value(p_conf.get('min_consolidation_duration'), 5)
+        vol_ma_period = get_param_value(p_conf.get('volume_confirmation_ma_period'), 21)
+        min_closing_strength = get_param_value(p_conf.get('min_closing_strength'), 0.7)
+        # 证据1: 战备状态 (处于盘整期且持续时间足够)
+        is_consolidating = df.get('is_consolidation_D', pd.Series(0, index=df.index)) == 1
+        duration_met = df.get('dynamic_consolidation_duration_D', pd.Series(0, index=df.index)) >= min_duration
+        setup_condition = is_consolidating & duration_met
+        # 证据2: 突破信号 (收盘价突破盘整上轨)
+        breakout_condition = df['close_D'] > df.get('dynamic_consolidation_high_D', pd.Series(np.inf, index=df.index))
+        # 证据3: 力量确认 (成交量 & 收盘强度)
+        vol_ma_col = f'VOL_MA_{vol_ma_period}_D'
+        volume_confirmation = df['volume_D'] > df.get(vol_ma_col, pd.Series(np.inf, index=df.index))
+        closing_strength = df.get('closing_strength_index_D', pd.Series(0.0, index=df.index)) > min_closing_strength
+        confirmation_condition = volume_confirmation & closing_strength
+        # 融合所有条件，生成瞬时快照分
+        snapshot_score = (setup_condition & breakout_condition & confirmation_condition).astype(float)
+        # 对快照分进行关系元分析，得到最终的动态信号
+        final_signal_dict = self._perform_micro_behavior_relational_meta_analysis(df=df, snapshot_score=snapshot_score)
+        states[signal_name] = final_signal_dict
+        return states
+        
 
 
 

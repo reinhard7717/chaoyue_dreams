@@ -103,9 +103,9 @@ class BehavioralIntelligence:
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
-        # [代码新增开始] 新增调用“结构性断层突破”诊断引擎
+        # 新增调用“结构性断层突破”诊断引擎
         atomic_signals.update(self._diagnose_structural_fault_breakthrough(df))
-        # [代码新增结束]
+        
         return atomic_signals
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
@@ -121,7 +121,7 @@ class BehavioralIntelligence:
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # [代码修改开始] 全面换装新式高保真指标
+        # 全面换装新式高保真指标
         # --- 构建全新的“日内博弈战果分” ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
@@ -140,7 +140,7 @@ class BehavioralIntelligence:
         auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window) # 新武器
         trend_inefficiency = 1 - trend_efficiency
         bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
-        # [代码修改结束]
+
         # --- 步骤2 & 3: 在循环中分析动态并三维融合 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
@@ -272,11 +272,11 @@ class BehavioralIntelligence:
         close_near_limit_up_score = ((df['close_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
         high_near_limit_up_score = ((df['high_D'] - limit_up_price * (1 - price_buffer)) / (limit_up_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
         close_near_limit_down_score = ((limit_down_price * (1 + price_buffer) - df['close_D']) / (limit_down_price * price_buffer).replace(0, np.nan)).clip(0, 1).fillna(0)
-        # [代码修改开始] 换装新式武器
+        # 换装新式武器
         # 使用尾盘动能作为收盘意图的确认因子
         auction_bullish_confirmation = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, 55)
         auction_bearish_confirmation = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, 55)
-        # [代码修改结束]
+
         states['SCORE_BOARD_EARTH_HEAVEN'] = (strength_score * low_near_limit_down_score * close_near_limit_up_score * (1 + auction_bullish_confirmation)).clip(0, 1).astype(np.float32)
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score * (1 + auction_bearish_confirmation)).clip(0, 1).astype(np.float32)
         return states
@@ -414,7 +414,7 @@ class BehavioralIntelligence:
                 final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight_drain)
         drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
         states.update(drain_signal_dict)
-        # [代码修改开始] 使用新式武器重铸“卖盘衰竭反转”信号
+        # 使用新式武器重铸“卖盘衰竭反转”信号
         # --- 信号三: 卖盘衰竭反转 (SCORE_BULLISH_EXHAUSTION_REVERSAL) ---
         norm_window = 55
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
@@ -430,7 +430,7 @@ class BehavioralIntelligence:
         ).clip(0, 1).astype(np.float32)
         exhaustion_signal_dict = self._perform_relational_meta_analysis(df, exhaustion_snapshot, "SCORE_BULLISH_EXHAUSTION_REVERSAL")
         states.update(exhaustion_signal_dict)
-        # [代码修改结束]
+
         return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -450,7 +450,7 @@ class BehavioralIntelligence:
         macro_context_score = (lifeline_proximity_score * pessimism_exhaustion_score)**0.5
         # --- 支柱2: 静态设置 (逻辑不变) ---
         vol_compression_score = normalize_score(df.get('BBW_21_2.0_D', 1.0), df.index, 60, ascending=False)
-        # [代码修改开始] 全面换装新式武器
+        # 全面换装新式武器
         # --- 支柱3: 微观结构确认 (看到真实的转折力量) ---
         norm_window = 55
         closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
@@ -462,7 +462,7 @@ class BehavioralIntelligence:
         micro_confirmation_score = (
             reversal_strength * (1 + bullish_divergence) * auction_power * trend_efficiency
         )**(1/4)
-        # [代码修改结束]
+
         # --- 融合三大支柱 ---
         snapshot_score = (macro_context_score * vol_compression_score * micro_confirmation_score).astype(np.float32)
         return self._perform_relational_meta_analysis(
@@ -480,7 +480,7 @@ class BehavioralIntelligence:
         p_rebound = get_params_block(self.strategy, 'panic_selling_setup_params', {})
         despair_context_score = self._calculate_despair_context_score(df, p_rebound)
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_rebound)
-        # [代码修改开始] 全面换装新式武器
+        # 全面换装新式武器
         # --- 支柱3: 微观结构确认 (全新的“反转质量”评分) ---
         norm_window = 55
         closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
@@ -491,7 +491,7 @@ class BehavioralIntelligence:
         efficient_rise = trend_efficiency.where(is_positive_day, 0)
         auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         confirmation_score = (reversal_intensity * efficient_rise * auction_power)**(1/3)
-        # [代码修改结束]
+
         # --- 融合三大支柱 ---
         snapshot_score = (despair_context_score * structural_test_score * confirmation_score).astype(np.float32)
         return self._perform_relational_meta_analysis(
@@ -502,20 +502,17 @@ class BehavioralIntelligence:
 
     def _diagnose_atomic_continuation_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 前线换装版】原子级“延续性反转”诊断引擎
-        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，全面换装为新式高保真指标。
+        【V5.4 · 阿波罗战车升级版】原子级“延续性反转”诊断引擎
+        - 核心升级: 废弃了原有的、粗糙的`uptrending_ma_count`逻辑。
+                      全面换装为调用全新的`_calculate_trend_health_score`引擎，
+                      从“排列、速度、加速度、元动力”四个维度对趋势背景进行精准评估。
         """
         # --- 支柱1 & 2: 趋势背景 和 结构支撑 (逻辑不变) ---
         p_continuation = get_params_block(self.strategy, 'continuation_reversal_params', {})
-        ma_periods = get_param_value(p_continuation.get('ma_periods'), [5, 13, 21, 55])
-        uptrending_ma_count = pd.Series(0, index=df.index)
-        for p in ma_periods:
-            ma_col = f'EMA_{p}_D'
-            if ma_col in df:
-                uptrending_ma_count += (df[ma_col] > df[ma_col].shift(1)).astype(int)
-        trend_alignment_score = uptrending_ma_count / len(ma_periods)
+        # 使用全新的四维趋势健康度评分替换旧的趋势对齐分
+        trend_health_score = self._calculate_trend_health_score(df)
+
         structural_test_score = self.tactic_engine.calculate_structural_test_score(df, p_continuation)
-        # [代码修改开始] 全面换装新式武器
         # --- 支柱3: 微观反转质量 (Micro-Behavioral Reversal Quality) ---
         norm_window = 55
         closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
@@ -525,9 +522,10 @@ class BehavioralIntelligence:
         bullish_divergence_bonus = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) * 0.5
         auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         confirmation_score = ((reversal_intensity * trend_efficiency * auction_power)**(1/3) + bullish_divergence_bonus).clip(0, 1)
-        # [代码修改结束]
         # --- 融合三大支柱 ---
-        snapshot_score = (trend_alignment_score * structural_test_score * confirmation_score).astype(np.float32)
+        # 使用新的 trend_health_score 进行融合
+        snapshot_score = (trend_health_score * structural_test_score * confirmation_score).astype(np.float32)
+
         return self._perform_relational_meta_analysis(
             df=df,
             snapshot_score=snapshot_score,
@@ -543,7 +541,7 @@ class BehavioralIntelligence:
                       3. 下午盘强于上午盘: 持续的买入意愿。
                       4. 高效趋势: 流畅的攻击效率。
         """
-        # [代码新增开始]
+        #
         states = {}
         signal_name = 'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING'
         norm_window = 55
@@ -563,7 +561,7 @@ class BehavioralIntelligence:
         final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
         states.update(final_signal_dict)
         return states
-        # [代码新增结束]
+        
 
     def _diagnose_structural_fault_breakthrough(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -571,7 +569,7 @@ class BehavioralIntelligence:
         - 核心逻辑: 融合断层突破强度、断层真空度、成交量和收盘强度，
                       识别价格突破筹码真空区的关键结构性战机。
         """
-        # [代码新增开始]
+        #
         states = {}
         signal_name = 'SCORE_STRUCTURAL_FAULT_BREAKTHROUGH'
         norm_window = 55
@@ -591,7 +589,58 @@ class BehavioralIntelligence:
         final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
         states.update(final_signal_dict)
         return states
-        # [代码新增结束]
+        
+
+    def _calculate_trend_health_score(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】“阿波罗的战车”四维趋势健康度评估引擎
+        - 核心逻辑: 从“排列、速度、加速度、元动力”四个维度评估趋势的健康度。
+                      1. 排列 (Alignment): 均线是否呈多头排列。
+                      2. 速度 (Velocity): 均线趋势的强度 (周期匹配导数)。
+                      3. 加速度 (Acceleration): 均线趋势的加速能力 (周期匹配二阶导数)。
+                      4. 元动力 (Meta-Dynamics): 长期趋势的短期变化率 (跨周期导数)，用于捕捉拐点。
+        """
+        #
+        norm_window = 55
+        ma_periods = [5, 13, 21, 55, 89]
+        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
+        if not all(col in df.columns for col in ma_cols):
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
+        # 维度1: 排列健康度 (Alignment Health)
+        alignment_bools = ma_values[:-1] > ma_values[1:]
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        # 维度2: 速度健康度 (Velocity Health) - 周期匹配导数
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
+        if all(col in df.columns for col in slope_cols):
+            slope_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0)
+            velocity_health = np.mean(slope_values, axis=0)
+        else:
+            velocity_health = np.full(len(df.index), 0.5)
+        # 维度3: 加速度健康度 (Acceleration Health) - 周期匹配二阶导数
+        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
+        if all(col in df.columns for col in accel_cols):
+            accel_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in accel_cols], axis=0)
+            acceleration_health = np.mean(accel_values, axis=0)
+        else:
+            acceleration_health = np.full(len(df.index), 0.5)
+        # 维度4: 元动力健康度 (Meta-Dynamics Health) - 跨周期导数
+        meta_dynamics_cols = [
+            'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
+        ]
+        if all(col in df.columns for col in meta_dynamics_cols):
+            meta_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in meta_dynamics_cols], axis=0)
+            meta_dynamics_health = np.mean(meta_values, axis=0)
+        else:
+            meta_dynamics_health = np.full(len(df.index), 0.5)
+        # 最终融合：加权几何平均
+        weights = {'alignment': 0.3, 'velocity': 0.2, 'acceleration': 0.2, 'meta_dynamics': 0.3}
+        scores = np.stack([alignment_health, velocity_health, acceleration_health, meta_dynamics_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum()
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+        
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
@@ -605,12 +654,12 @@ class BehavioralIntelligence:
         period_weight_values = []
         is_negative_day = df['pct_change_D'] < 0
         norm_window = 55
-        # [代码修改开始] 换装新式武器
+        # 换装新式武器
         panic_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.0, index=df.index)), df.index, norm_window).where(is_negative_day, 0)
         closing_weakness = 1.0 - normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         # 使用尾盘动能的负向部分代表竞价恐慌
         auction_panic = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
-        # [代码修改结束]
+
         panic_behavior_score = (panic_efficiency * closing_weakness * auction_panic)**(1/3)
         for name, (drawdown_period, roc_period) in despair_periods.items():
             rolling_peak = df['high_D'].rolling(window=drawdown_period, min_periods=max(1, drawdown_period//2)).max()

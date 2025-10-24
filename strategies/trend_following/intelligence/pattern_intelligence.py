@@ -17,87 +17,92 @@ class PatternIntelligence:
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 语境修正版】形态分析总指挥
-        - 核心升级: 补完缺失的“四位一体”看跌形态识别逻辑，使引擎具备完整的风险诊断能力。
-        - 本次修改: 为“上涨动能衰竭”信号引入RSI高位语境，防止在底部反转初期误报风险。
+        【V4.0 · 四维聚变版】形态分析总指挥
+        - 核心升级: 废弃旧的“四模式或逻辑”，全面升级为基于“背离、反转、突破、跃迁”的四维动态融合模型。
+                      利用 SLOPE 和 ACCEL 指标，实现对形态更深层次的动态评估。
         """
+        # 整个方法被重写以实现四维聚变逻辑
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
             return {}
-        
-        # --- 看涨形态识别 (四位一体) ---
+        weights = get_param_value(p.get('fusion_weights'), {})
+        norm_window = 60
+        # --- 准备基础数据 ---
         rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
         macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        
-        # 模式一: RSI从超卖区反转 (经典V反)
-        was_oversold = (rsi.rolling(window=5, min_periods=1).min() < 35)
-        is_recovering = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) > 0)
-        score_rsi_reversal = (was_oversold & is_recovering).astype(float)
-        
-        # 模式二: 突破动态盘整平台 (箱体突破)
-        is_breaking_consolidation = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
-        score_consolidation_breakout = is_breaking_consolidation * 0.8
-        
-        # 模式三: MACD柱状线金叉 (趋势扭转)
-        is_macd_bull_cross = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
-        score_macd_bullish_cross = is_macd_bull_cross
-
-        # 模式四: 下跌动能衰竭 (预测性指标)
-        rsi_slope_abs = df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)).abs()
-        macd_hist_slope_abs = df.get('SLOPE_1_MACDh_13_34_8_D', pd.Series(0, index=df.index)).abs()
-        rsi_exhaustion_score = normalize_score(rsi_slope_abs, df.index, window=60, ascending=False)
-        macd_exhaustion_score = normalize_score(macd_hist_slope_abs, df.index, window=60, ascending=False)
-        score_momentum_exhaustion = (rsi_exhaustion_score * macd_exhaustion_score)**0.5
-        
-        # 融合四种看涨模式
-        bottom_pattern_score = np.maximum.reduce([
-            score_rsi_reversal.values, 
-            score_consolidation_breakout.values, 
-            score_macd_bullish_cross.values,
-            score_momentum_exhaustion.values
-        ])
-        bottom_pattern_score = pd.Series(bottom_pattern_score, index=df.index)
-
-        # 看涨共振形态
-        bullish_pattern_score = (rsi > 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
-
-        # --- 看跌形态识别 (四位一体) ---
-        # 模式一: RSI从超买区回落 (顶部反转)
-        was_overbought = (rsi.rolling(window=5, min_periods=1).max() > 70)
-        is_falling = (df.get('SLOPE_1_RSI_13_D', pd.Series(0, index=df.index)) < 0)
-        score_rsi_top_reversal = (was_overbought & is_falling).astype(float)
-
-        # 模式二: 跌破动态盘整平台 (箱体破位)
-        is_breaking_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
-        score_consolidation_breakdown = is_breaking_down * 0.8
-
-        # 模式三: MACD柱状线死叉 (趋势扭转)
-        is_macd_bear_cross = ((macd_hist < 0) & (macd_hist.shift(1) >= 0)).astype(float)
-        score_macd_bearish_cross = is_macd_bear_cross
-
-        # 为“上涨动能衰竭”引入语境判断
-        # 只有在RSI已经处于高位（例如大于60）时，动能的衰竭才被视为一种风险
-        is_uptrend_context = (rsi > 60).astype(float)
-        # 引入语境调节器，防止在底部误判
-        score_up_momentum_exhaustion = score_momentum_exhaustion * is_uptrend_context
-
-
-        # 融合四种看跌模式
-        top_pattern_score = np.maximum.reduce([
-            score_rsi_top_reversal.values,
-            score_consolidation_breakdown.values,
-            score_macd_bearish_cross.values,
-            score_up_momentum_exhaustion.values
-        ])
-        top_pattern_score = pd.Series(top_pattern_score, index=df.index)
-
-        # 看跌共振形态
-        bearish_pattern_score = (rsi < 50).astype(float) * normalize_score(df.get('ADX_14_D', pd.Series(20, index=df.index)), df.index, 120)
-
+        price_slope = df.get('SLOPE_5_close_D', pd.Series(0, index=df.index))
+        rsi_slope = df.get('SLOPE_5_RSI_13_D', pd.Series(0, index=df.index))
+        macd_slope = df.get('SLOPE_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
+        rsi_accel = df.get('ACCEL_5_RSI_13_D', pd.Series(0, index=df.index))
+        macd_accel = df.get('ACCEL_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
+        # --- 维度一: 经典背离 (Classic Divergence) ---
+        bullish_rsi_div = (price_slope < 0) & (rsi_slope > 0)
+        bullish_macd_div = (price_slope < 0) & (macd_slope > 0)
+        score_bullish_divergence = np.maximum(bullish_rsi_div, bullish_macd_div).astype(float)
+        bearish_rsi_div = (price_slope > 0) & (rsi_slope < 0)
+        bearish_macd_div = (price_slope > 0) & (macd_slope < 0)
+        score_bearish_divergence = np.maximum(bearish_rsi_div, bearish_macd_div).astype(float)
+        # --- 维度二: 动能反转 (Momentum Reversal) ---
+        bullish_reversal_accel = (normalize_score(rsi_accel.clip(lower=0), df.index, norm_window) * normalize_score(macd_accel.clip(lower=0), df.index, norm_window))**0.5
+        bearish_reversal_accel = (normalize_score(rsi_accel.clip(upper=0).abs(), df.index, norm_window) * normalize_score(macd_accel.clip(upper=0).abs(), df.index, norm_window))**0.5
+        # --- 维度三: 结构突破 (Structural Breakout) ---
+        score_consolidation_breakout = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
+        score_consolidation_breakdown = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        # --- 维度四: 能量跃迁 (Energy Transition) ---
+        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
+        atr_slope = df.get('SLOPE_5_ATR_14_D', pd.Series(0, index=df.index))
+        energy_expansion_score = (normalize_score(bbw_slope.clip(lower=0), df.index, norm_window) * normalize_score(atr_slope.clip(lower=0), df.index, norm_window))**0.5
+        # --- 融合看涨形态 ---
+        bullish_pillars = {
+            'divergence': score_bullish_divergence,
+            'momentum_reversal': bullish_reversal_accel,
+            'structural_breakout': score_consolidation_breakout,
+            'energy_transition': energy_expansion_score
+        }
+        valid_bull_scores = [s.values for name, s in bullish_pillars.items() if weights.get(name, 0) > 0]
+        valid_bull_weights = [weights.get(name) for name in bullish_pillars if weights.get(name, 0) > 0]
+        if valid_bull_scores:
+            bull_weights_array = np.array(valid_bull_weights) / sum(valid_bull_weights)
+            bottom_pattern_score = np.prod(np.stack(valid_bull_scores, axis=0) ** bull_weights_array[:, np.newaxis], axis=0)
+        else:
+            bottom_pattern_score = np.zeros(len(df.index))
+        # --- 融合看跌形态 ---
+        bearish_pillars = {
+            'divergence': score_bearish_divergence,
+            'momentum_reversal': bearish_reversal_accel,
+            'structural_breakout': score_consolidation_breakdown,
+            'energy_transition': energy_expansion_score
+        }
+        valid_bear_scores = [s.values for name, s in bearish_pillars.items() if weights.get(name, 0) > 0]
+        valid_bear_weights = [weights.get(name) for name in bearish_pillars if weights.get(name, 0) > 0]
+        if valid_bear_scores:
+            bear_weights_array = np.array(valid_bear_weights) / sum(valid_bear_weights)
+            top_pattern_score = np.prod(np.stack(valid_bear_scores, axis=0) ** bear_weights_array[:, np.newaxis], axis=0)
+        else:
+            top_pattern_score = np.zeros(len(df.index))
+        # --- 延续形态 (逻辑优化) ---
+        p_cont = get_params_block(self.strategy, 'pattern_params.continuation_params', {})
+        rsi_cont_thresh = get_param_value(p_cont.get('rsi_threshold'), 55)
+        adx_cont_thresh = get_param_value(p_cont.get('adx_threshold'), 20)
+        adx = df.get('ADX_14_D', pd.Series(20, index=df.index))
+        is_trending = adx > adx_cont_thresh
+        bullish_pattern_score = (rsi > rsi_cont_thresh) & is_trending
+        bearish_pattern_score = (rsi < (100 - rsi_cont_thresh)) & is_trending
         states = {
-            'SCORE_PATTERN_BOTTOM_REVERSAL': bottom_pattern_score.astype(np.float32),
+            'SCORE_PATTERN_BOTTOM_REVERSAL': pd.Series(bottom_pattern_score, index=df.index).astype(np.float32),
             'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
-            'SCORE_PATTERN_TOP_REVERSAL': top_pattern_score.astype(np.float32),
+            'SCORE_PATTERN_TOP_REVERSAL': pd.Series(top_pattern_score, index=df.index).astype(np.float32),
             'SCORE_PATTERN_BEARISH_RESONANCE': bearish_pattern_score.astype(np.float32),
         }
         return states
+
+
+
+
+
+
+
+
+
+
+

@@ -28,7 +28,7 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
         all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
-        # [代码修改开始] 新增调用第四公理诊断引擎
+        # 新增调用第四公理诊断引擎
         peak_integrity_scores = self._diagnose_peak_integrity_dynamics(df, periods)
         all_chip_states['SCORE_CHIP_MTF_PEAK_INTEGRITY'] = peak_integrity_scores
         ultimate_signals = self._synthesize_ultimate_signals(
@@ -38,7 +38,7 @@ class ChipIntelligence:
             power_transfer_scores,
             peak_integrity_scores
         )
-        # [代码修改结束]
+
         all_chip_states.update(ultimate_signals)
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
@@ -51,7 +51,7 @@ class ChipIntelligence:
         【V4.2 · 四公理版】终极信号合成器
         - 核心升级: 将新增的“公理四：筹码峰健康度”纳入融合计算，形成更稳固的四足鼎立结构。
         """
-        # [代码修改开始] 接收并处理第四公理
+        # 接收并处理第四公理
         states = {}
         periods = sorted(concentration.keys())
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
@@ -68,7 +68,7 @@ class ChipIntelligence:
                 peak_integrity.get(p, 0.0) * axiom_weights.get('peak_integrity', 0.15)
             )
             bearish_scores_by_period[p] = 1.0 - bullish_scores_by_period[p]
-        # [代码修改结束]
+
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
@@ -221,14 +221,14 @@ class ChipIntelligence:
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 全面加固 df.get() 调用并换装新指标
+            # 全面加固 df.get() 调用并换装新指标
             transfer_to_main_static = df.get('retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get('long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_main_slope = df.get(f'SLOPE_{p}_retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_main_accel = df.get(f'ACCEL_{p}_retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_retail_static = df.get('profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get('long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_retail_slope = df.get(f'SLOPE_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_retail_accel = df.get(f'ACCEL_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
-            # [代码修改结束]
+    
             tactical_main_static = normalize_score(transfer_to_main_static, df.index, p, ascending=True)
             tactical_main_slope = normalize_score(transfer_to_main_slope, df.index, p, ascending=True)
             tactical_main_accel = normalize_score(transfer_to_main_accel, df.index, p, ascending=True)
@@ -260,7 +260,7 @@ class ChipIntelligence:
         【V1.0 · 新增】核心公理四：诊断筹码峰“健康度”的动态
         - 核心逻辑: 评估核心筹码阵地（单峰密集区）的稳固性、控制力及攻防状态。
         """
-        # [代码新增开始]
+        #
         scores = {}
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
@@ -282,7 +282,7 @@ class ChipIntelligence:
             )
             scores[p] = dynamic_peak_score
         return scores
-        # [代码新增结束]
+        
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
@@ -347,36 +347,55 @@ class ChipIntelligence:
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V1.1 · 赫尔墨斯之翼优化版】计算均线趋势上下文分数
-        - 性能优化: 全程使用Numpy数组进行计算，避免了多个中间Pandas Series的创建和开销，
-                      显著提升了计算速度和内存效率。
-        - 核心逻辑: 保持“均线排列健康度 * 价格位置健康度”的融合逻辑不变。
+        【V2.0 · 阿波罗战车版】计算均线趋势上下文分数
+        - 核心升级: 全面升级为“四维趋势健康度”评估，融合排列、速度、加速度和元动力。
+        - 新增武器: 引入“元动力”维度，使用跨周期导数（如SLOPE_5_EMA_55_D）捕捉长期趋势的短期变化，
+                      从而获得预判趋势拐点的领先信号。
         """
-        ma_cols = [f'EMA_{p}_D' for p in periods]
-        if not all(col in df.columns for col in ma_cols):
+        # 整个方法被重写以实现四维评估
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        weights = get_param_value(p_conf.get('ma_trend_context_weights'), {
+            'alignment': 0.3, 'velocity': 0.2, 'acceleration': 0.2, 'meta_dynamics': 0.3
+        })
+        norm_window = 55
+        ma_cols = [f'EMA_{p}_D' for p in periods if f'EMA_{p}_D' in df.columns]
+        if len(ma_cols) < 2:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
-
-        # 将所有需要的Series一次性转换为Numpy数组
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        close_values = df['close_D'].values
-
-        # 1. 计算均线排列健康度 (Alignment Health)
-        # 比较相邻均线的大小关系 (short > long)，结果为布尔数组
+        # 维度1: 排列健康度 (Alignment Health)
         alignment_bools = ma_values[:-1] > ma_values[1:]
-        # 沿均线轴计算看涨排列的比例
-        alignment_health = np.mean(alignment_bools, axis=0)
+        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        # 维度2: 速度健康度 (Velocity Health) - 周期匹配导数
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
+        if slope_cols:
+            slope_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0)
+            velocity_health = np.mean(slope_values, axis=0)
+        else:
+            velocity_health = np.full(len(df.index), 0.5)
+        # 维度3: 加速度健康度 (Acceleration Health) - 周期匹配二阶导数
+        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
+        if accel_cols:
+            accel_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in accel_cols], axis=0)
+            acceleration_health = np.mean(accel_values, axis=0)
+        else:
+            acceleration_health = np.full(len(df.index), 0.5)
+        # 维度4: 元动力健康度 (Meta-Dynamics Health) - 跨周期导数
+        meta_dynamics_cols = [
+            'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
+        ]
+        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
+        if valid_meta_cols:
+            meta_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in valid_meta_cols], axis=0)
+            meta_dynamics_health = np.mean(meta_values, axis=0)
+        else:
+            meta_dynamics_health = np.full(len(df.index), 0.5)
+        # 最终融合：加权几何平均
+        scores = np.stack([alignment_health, velocity_health, acceleration_health, meta_dynamics_health], axis=0)
+        weights_array = np.array(list(weights.values()))
+        weights_array /= weights_array.sum()
+        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
-        # 2. 计算价格位置健康度 (Position Health)
-        # 比较收盘价与所有均线的大小关系 (close > ma)
-        position_bools = close_values > ma_values
-        # 沿均线轴计算价格在均线上方的比例
-        position_health = np.mean(position_bools, axis=0)
-
-        # 3. 融合得到最终的趋势上下文分数
-        # 使用Numpy进行高效的几何平均计算
-        ma_context_score_values = np.sqrt(alignment_health * position_health)
-        
-        return pd.Series(ma_context_score_values, index=df.index, dtype=np.float32)
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的“剧本”诊断模块
@@ -394,12 +413,12 @@ class ChipIntelligence:
         rally_scores_by_period = {}
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # [代码修改开始] 全面加固 df.get() 调用
+            # 全面加固 df.get() 调用
             tactical_retail_chasing = normalize_score(df.get('retail_chasing_accumulation_D', pd.Series(0.0, index=df.index)), df.index, p_tactical, ascending=True)
             tactical_main_force_not_distributing = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index)), df.index, p_tactical, ascending=True)
             context_retail_chasing = normalize_score(df.get('retail_chasing_accumulation_D', pd.Series(0.0, index=df.index)), df.index, p_context, ascending=True)
             context_main_force_not_distributing = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index)), df.index, p_context, ascending=True)
-            # [代码修改结束]
+    
             fused_retail_chasing = (tactical_retail_chasing * context_retail_chasing)**0.5
             fused_main_force_not_distributing = (tactical_main_force_not_distributing * context_main_force_not_distributing)**0.5
             rally_snapshot_score = (fused_retail_chasing * fused_main_force_not_distributing)**0.5
@@ -412,9 +431,9 @@ class ChipIntelligence:
             for p_tactical in periods:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 final_fused_score += rally_scores_by_period.get(p_tactical, 0.0) * weight
-        # [代码修改开始] 全面加固 df.get() 调用
+        # 全面加固 df.get() 调用
         suppressive_accumulation = normalize_score(df.get('main_force_suppressive_accumulation_D', pd.Series(0.0, index=df.index)), df.index, 55, ascending=True)
-        # [代码修改结束]
+
         true_accumulation_score = np.maximum(final_fused_score, suppressive_accumulation)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = final_fused_score.clip(0, 1).astype(np.float32)
@@ -422,32 +441,29 @@ class ChipIntelligence:
 
     def diagnose_capitulation_reversal_potential(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 前线换装版】诊断“恐慌投降反转”的潜力
-        - 核心修复: 废弃已失效的 `turnover_from_losers_ratio_D` 指标。
-                      换装为 `retail_capitulation_distribution_D` 作为“输家换手”的核心证据。
+        【V4.2 · 阿波罗战车升级版】诊断“恐慌投降反转”的潜力
+        - 核心升级: 调用全新的、基于四维评估的 `_calculate_ma_trend_context` 方法，
+                      以获得对熊市背景更精准的动态评估。
         """
         states = {}
-        # [代码修改开始] 检查新指标 'retail_capitulation_distribution_D'
         required_cols = ['total_loser_rate_D', 'close_D', 'retail_capitulation_distribution_D']
-        # [代码修改结束]
         if any(col not in df.columns for col in required_cols):
             states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = pd.Series(0.0, index=df.index)
             return states
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         capitulation_scores_by_period = {}
+        # 调用全新的四维趋势上下文评估引擎
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
+
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_deep_cap = normalize_score(df['total_loser_rate_D'], df.index, p_tactical, ascending=True)
             tactical_price_lows = 1.0 - normalize_score(df['close_D'], df.index, window=p_tactical, ascending=True)
-            # [代码修改开始] 换装新式武器
-            # 使用 'retail_capitulation_distribution_D' 替换 'turnover_from_losers_ratio_D'
             tactical_loser_turnover = normalize_score(df.get('retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)), df.index, p_tactical, ascending=True)
             context_deep_cap = normalize_score(df['total_loser_rate_D'], df.index, p_context, ascending=True)
             context_price_lows = 1.0 - normalize_score(df['close_D'], df.index, window=p_context, ascending=True)
             context_loser_turnover = normalize_score(df.get('retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)), df.index, p_context, ascending=True)
-            # [代码修改结束]
             fused_deep_cap = (tactical_deep_cap * context_deep_cap)**0.5
             fused_price_lows = (tactical_price_lows * context_price_lows)**0.5
             fused_loser_turnover = (tactical_loser_turnover * context_loser_turnover)**0.5
