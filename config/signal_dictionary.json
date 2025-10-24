@@ -842,7 +842,7 @@
             "category": "力学层-机会",
             "type": "dynamic",
             "score": 150,
-            "description": "【C级基础信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看涨共振。"
+            "description": "【动态升维版】基于波动率、效率、动能、惯性四大力学支柱自身的“状态-速度-加速度”三维动态健康度，在所有周期上形成的看涨共振。"
         },
         "SCORE_DYN_BEARISH_RESONANCE": {
             "cn_name": "【力学终极风险】看跌共振",
@@ -850,7 +850,7 @@
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】波动率、效率、动能、惯性四大力学支柱在所有周期上形成看跌共振。"
+            "description": "【动态升维版】基于波动率、效率、动能、惯性四大力学支柱自身的“状态-速度-加速度”三维动态健康度，在所有周期上形成的看跌共振。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
             "cn_name": "【力学终极】底部反转",
@@ -858,7 +858,7 @@
             "type": "positional",
             "score": 300,
             "context_role": "bottom_opportunity",
-            "description": "力学动态健康度在底部形成强力反转信号。"
+            "description": "【动态升维版】力学动态健康度在底部形成强力反转信号。捕捉的是宏观物理属性（波动率、动能等）从看跌到看涨的“加速度”拐点。"
         },
         "SCORE_DYN_TACTICAL_REVERSAL": {
             "cn_name": "【力学终极】战术反转",
@@ -866,7 +866,7 @@
             "type": "dynamic",
             "score": 250,
             "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场力学健康、短期回调创造的战术性买入点。"
+            "description": "【动态升维版】在上升趋势中，捕捉由市场宏观力学属性（如波动率收缩、效率提升）健康、短期回调创造的战术性买入点。"
         },
         "SCORE_DYN_TOP_REVERSAL": {
             "cn_name": "【力学终极风险】顶部反转",
@@ -874,7 +874,7 @@
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】力学动态健康度在顶部形成强力反转风险。"
+            "description": "【动态升维版】力学动态健康度在顶部形成强力反转风险。捕捉的是宏观物理属性（波动率、动能等）从看涨到看跌的“加速度”拐点。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {

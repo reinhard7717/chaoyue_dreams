@@ -29,14 +29,15 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V14.0 · 分层印证版】动态力学终极信号诊断引擎
-        - 核心升级: 全面采纳“分层动态印证”框架。在主循环中为每个周期 p，对四大力学支柱进行“战术周期 p vs 上下文周期 context_p”的动态共振计算。
-        - 架构重构: 废除旧的 _calculate_*_health 辅助方法，将所有逻辑内聚到本方法中，使诊断流程更清晰、更强大。
+        【V16.0 · 四大支柱重塑版】动态力学终极信号诊断引擎
+        - 核心升级: 彻底废除旧的 _calculate_*_health 方法。
+                      利用新的高维指标（如 intraday_trend_efficiency_D, hurst_120d_D, MACDh）
+                      重塑了波动率、效率、动能、惯性四大力学支柱的内涵，
+                      使其与行为引擎的微观分析形成完美的维度互补。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        # 全面重构为分层印证框架
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
@@ -44,42 +45,70 @@ class DynamicMechanicsEngine:
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
+        # [代码修改开始] 重塑四大力学支柱
+        # --- 支柱1: 波动率 (Volatility) ---
+        # 看涨 = 带宽压缩(BBW低) + 真实波幅平稳(ATR低)
+        vol_bull_snapshot = (
+            normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) *
+            normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False)
+        )**0.5
+        # 看跌 = 带宽扩张(BBW高) + 真实波幅放大(ATR高)
+        vol_bear_snapshot = (
+            normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True) *
+            normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=True)
+        )**0.5
+        # --- 支柱2: 效率 (Efficiency) ---
+        # 看涨 = 价量转化效率高(VPA) + 日内趋势线性度高
+        eff_bull_snapshot = (
+            normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=True) *
+            normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=True)
+        )**0.5
+        # 看跌 = 效率低
+        eff_bear_snapshot = (
+            normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) *
+            normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=False)
+        )**0.5
+        # --- 支柱3: 动能 (Kinetic Energy) ---
+        # 看涨 = 价格变化率高(ROC) + 动能变化率强(MACDh)
+        mom_bull_snapshot = (
+            normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=True) *
+            normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
+        )**0.5
+        # 看跌 = 动能弱
+        mom_bear_snapshot = (
+            normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=False) *
+            normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
+        )**0.5
+        # --- 支柱4: 惯性 (Inertia) ---
+        # 看涨 = 趋势强度高(ADX) + 趋势可持续性强(Hurst)
+        adx_strength = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
+        adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
+        hurst_strength = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
+        ine_bull_snapshot = (adx_strength * adx_direction * hurst_strength)**(1/3)
+        # 看跌 = 趋势强度弱(ADX低) + 均值回归特性强(Hurst低)
+        ine_bear_snapshot = (
+            normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) *
+            normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False)
+        )**0.5
+        # --- 融合四大支柱的快照分 ---
+        weight_keys = list(pillar_weights.keys())
+        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
+        weights_array /= weights_array.sum()
+        bull_snapshots = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot]
+        bear_snapshots = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot]
+        stacked_bull = np.stack([s.fillna(0.5).values for s in bull_snapshots], axis=0)
+        stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots], axis=0)
+        fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
+        fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
+        # [代码修改结束]
         # 主循环：为每个周期 p 计算其最终的、经过分层印证的健康度
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # --- 为当前周期 p，计算四大力学支柱的原始快照分 ---
-            # 1. 波动率快照 (看涨=收缩, 看跌=扩张)
-            vol_bull_snapshot = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False)
-            vol_bear_snapshot = normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True)
-            # 2. 效率快照 (看涨=高效, 看跌=低效)
-            eff_bull_snapshot = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window)
-            eff_bear_snapshot = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False)
-            # 3. 动能快照 (看涨=动能强, 看跌=动能弱)
-            mom_bull_snapshot = normalize_score(df.get('ATR_14_D'), df.index, norm_window)
-            mom_bear_snapshot = normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False)
-            # 4. 惯性快照 (看涨=ADX强且PDI>NDI, 看跌=ADX弱)
-            adx_strength = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
-            adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
-            ine_bull_snapshot = (adx_strength * adx_direction)
-            ine_bear_snapshot = normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False)
-            # --- 融合四大支柱的快照分 ---
-            weight_keys = list(pillar_weights.keys())
-            weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
-            weights_array /= weights_array.sum()
-            bull_snapshots = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot]
-            bear_snapshots = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot]
-            stacked_bull = np.stack([s.values for s in bull_snapshots], axis=0)
-            stacked_bear = np.stack([s.values for s in bear_snapshots], axis=0)
-            fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
-            fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
             # --- 对融合后的快照分进行双层动态印证 ---
-            # 看涨健康度 s_bull
             final_bull_health = self._perform_dynamic_relational_meta_analysis(df, fused_bull_snapshot, p, context_p)
             overall_health['s_bull'][p] = (final_bull_health * ma_health_score).astype(np.float32)
-            # 看跌健康度 s_bear
             final_bear_health = self._perform_dynamic_relational_meta_analysis(df, fused_bear_snapshot, p, context_p)
             overall_health['s_bear'][p] = (final_bear_health * (1 - ma_health_score)).astype(np.float32)
-            # 动态强度 d_intensity (使用看涨健康度的最终结果作为强度的代理)
             overall_health['d_intensity'][p] = final_bull_health.astype(np.float32)
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(
@@ -90,7 +119,6 @@ class DynamicMechanicsEngine:
             domain_prefix="DYN"
         )
         states.update(ultimate_signals)
-        
         return states
 
     # ==============================================================================
@@ -154,112 +182,6 @@ class DynamicMechanicsEngine:
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
-
-    def _calculate_volatility_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
-        """
-        【V4.0 · 德尔斐神谕协议版】计算波动率(BBW)维度的三维健康度
-        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
-        """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        if 'BBW_21_2.0_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p] = default_series.copy()
-                s_bear[p] = default_series.copy()
-                d_intensity[p] = default_series.copy()
-            return s_bull, s_bear, d_intensity
-        bbw_series = df['BBW_21_2.0_D']
-        mechanic_static_bull = normalize_score(bbw_series, df.index, norm_window, ascending=False)
-        mechanic_static_bear = normalize_score(bbw_series, df.index, norm_window, ascending=True)
-        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
-        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
-        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
-        unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-        for p in periods:
-            s_bull[p] = bullish_snapshot_score
-            s_bear[p] = bearish_snapshot_score
-            d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
-
-    def _calculate_efficiency_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
-        """
-        【V4.0 · 德尔斐神谕协议版】计算效率(VPA)维度的三维健康度
-        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
-        """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        if 'VPA_EFFICIENCY_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p] = default_series.copy()
-                s_bear[p] = default_series.copy()
-                d_intensity[p] = default_series.copy()
-            return s_bull, s_bear, d_intensity
-        vpa_series = df['VPA_EFFICIENCY_D']
-        mechanic_static_bull = normalize_score(vpa_series, df.index, norm_window)
-        mechanic_static_bear = normalize_score(vpa_series, df.index, norm_window, ascending=False)
-        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
-        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
-        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
-        unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-        for p in periods:
-            s_bull[p] = bullish_snapshot_score
-            s_bear[p] = bearish_snapshot_score
-            d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
-
-    def _calculate_kinetic_energy_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
-        """
-        【V4.0 · 德尔斐神谕协议版】计算动能(ATR)维度的三维健康度
-        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
-        """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        if 'ATR_14_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p] = default_series.copy()
-                s_bear[p] = default_series.copy()
-                d_intensity[p] = default_series.copy()
-            return s_bull, s_bear, d_intensity
-        atr_series = df['ATR_14_D']
-        mechanic_static_bull = normalize_score(atr_series, df.index, norm_window)
-        mechanic_static_bear = normalize_score(atr_series, df.index, norm_window, ascending=False)
-        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
-        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
-        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
-        unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-        for p in periods:
-            s_bull[p] = bullish_snapshot_score
-            s_bear[p] = bearish_snapshot_score
-            d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
-
-    def _calculate_inertia_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
-        """
-        【V4.0 · 德尔斐神谕协议版】计算惯性(ADX)维度的三维健康度
-        - 核心修正: 签署“德尔斐神谕协议”，剥离 ma_context_score 对 s_bull/s_bear 的污染。
-        """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        required_cols = ['ADX_14_D', 'PDI_14_D', 'NDI_14_D']
-        if any(col not in df.columns for col in required_cols):
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p] = default_series.copy()
-                s_bear[p] = default_series.copy()
-                d_intensity[p] = default_series.copy()
-            return s_bull, s_bear, d_intensity
-        adx_strength = normalize_score(df['ADX_14_D'], df.index, norm_window)
-        adx_direction = (df['PDI_14_D'] > df['NDI_14_D']).astype(float)
-        mechanic_static_bull = (adx_strength * adx_direction)
-        mechanic_static_bear = normalize_score(df['ADX_14_D'], df.index, norm_window, ascending=False)
-        # bullish_snapshot_score 和 bearish_snapshot_score 现在是纯粹的静态分
-        bullish_snapshot_score = mechanic_static_bull.astype(np.float32)
-        bearish_snapshot_score = mechanic_static_bear.astype(np.float32)
-        unified_d_intensity = self._perform_dynamic_relational_meta_analysis(df, bullish_snapshot_score)
-        for p in periods:
-            s_bull[p] = bullish_snapshot_score
-            s_bear[p] = bearish_snapshot_score
-            d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
 
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
         """
