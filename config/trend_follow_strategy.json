@@ -137,7 +137,7 @@
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
         "enabled": { "value": true },
-        "probe_dates": ["2025-10-09", "2025-10-10"],
+        "probe_dates": ["2025-10-15", "2025-10-16", "2025-10-17", "2025-10-18"],
         "enable_bottom_reversal_probe": true,
         "enable_nan_probe": true
       },

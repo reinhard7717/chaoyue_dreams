@@ -113,8 +113,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.4 · 调用链路修复版】法医探针调度中心
-        - 核心修复: 修正了对 _deploy_zeus_thunderbolt_probe 的调用，移除了多余的参数，解决 TypeError 崩溃问题。
+        【V2.5 · 行为探针激活版】法医探针调度中心
+        - 核心升级: 新增对“普罗米修斯火炬”行为探针的调度支持。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', False):
@@ -126,8 +126,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.3] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
-        # [代码删除] 移除对上下文分数的预计算，因为新的探针链会自行处理
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.5] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -145,15 +144,8 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            # 修正调用签名，不再传递多余参数
-            self._deploy_zeus_thunderbolt_probe(probe_date)
-            # 自动调度“哈迪斯凝视”探针
-            if probe_date_str == '2025-09-17':
-                print("\n" + "="*25 + f" 检测到特定风险日期，启动哈迪斯凝视探针 " + "="*25)
-                self.probes._deploy_hades_gaze_probe(probe_date, 'CHIP', 'BEARISH_RESONANCE')
-                self.probes._deploy_hades_gaze_probe(probe_date, 'CHIP', 'TOP_REVERSAL')
-                self.probes._deploy_hades_gaze_probe(probe_date, 'FUND_FLOW', 'BEARISH_RESONANCE')
-                self.probes._deploy_hades_gaze_probe(probe_date, 'FUND_FLOW', 'TOP_REVERSAL')
+            if debug_params.get('enable_behavioral_probe', False):
+                self.probes._deploy_prometheus_torch_probe(probe_date)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):
@@ -179,91 +171,6 @@ class IntelligenceLayer:
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 
-    # 注入全新的“宙斯之雷”终极探针
-    def _deploy_zeus_thunderbolt_probe(self, probe_date: pd.Timestamp):
-        """
-        【V4.0.0 · 神盾协议同步版】终极得分构成解剖探针
-        - 核心修正: 探针现在能够读取并应用“神盾加值”(shield_bonus)，完美复现“神盾防御”信号的最终得分。
-        - 收益: 彻底解决了探针重算与实际得分之间的最后偏差，实现了与主裁决层的完全同步。
-        """
-        print(f"\n--- [探针] 正在召唤⚡️【宙斯之雷 · 终极得分解剖探针 V4.0.0】⚡️---")
-        self.probes._deploy_thanatos_scythe_probe(probe_date)
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        print("\n  [链路层 1] 最终裁决")
-        final_score = df.get('final_score', pd.Series(np.nan, index=df.index)).get(probe_date, 'N/A')
-        final_signal = df.get('signal_type', pd.Series('N/A', index=df.index)).get(probe_date, 'N/A')
-        print(f"    - 【最终信号】: {final_signal}")
-        if isinstance(final_score, (float, np.floating)):
-            print(f"    - 【最终得分】: {final_score:.0f}")
-        else:
-            print(f"    - 【最终得分】: {final_score}")
-        print("\n  [链路层 2] 激活的进攻项 (按贡献度排序)")
-        score_details_json_str = df.get('signal_details_cn', pd.Series('{}', index=df.index)).get(probe_date, '{}')
-        try:
-            score_details = json.loads(score_details_json_str) if isinstance(score_details_json_str, str) else score_details_json_str
-            if not isinstance(score_details, dict): score_details = {}
-        except (json.JSONDecodeError, TypeError):
-            score_details = {}
-        offense_items = score_details.get('offense', [])
-        offense_total = 0
-        valid_offense_items = []
-        if offense_items and isinstance(offense_items, list):
-            for item in offense_items:
-                if not isinstance(item, dict): continue
-                item_name = item.get('name', 'N/A')
-                if '筹码行为同步' in item_name or '风险' in item_name:
-                    print(f"    - 【幻影/错误信号已忽略】: {item_name} (贡献: {item.get('score', 0)})")
-                    continue
-                valid_offense_items.append(item)
-        sorted_offense_items = sorted(valid_offense_items, key=lambda x: x.get('score', 0), reverse=True)
-        for item in sorted_offense_items:
-            contribution = item.get('score', 0)
-            raw_score = item.get('raw_score', 0)
-            base_score = item.get('base_score', 0)
-            item_name = item.get('name', 'N/A')
-            print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
-            offense_total += contribution
-        print("    ----------------------------------")
-        print(f"    - 【进攻项总分】: {offense_total:.0f}")
-        print("\n  [链路层 3] 激活的风险项 (按贡献度排序)")
-        risk_items = score_details.get('risk', [])
-        risk_total = 0
-        if risk_items:
-            if not isinstance(risk_items, list): risk_items = []
-            for item in sorted(risk_items, key=lambda x: abs(x.get('score', 0)), reverse=True):
-                if not isinstance(item, dict): continue
-                contribution = item.get('score', 0)
-                raw_score = item.get('raw_score', 0)
-                base_score = item.get('base_score', 0)
-                item_name = item.get('name', 'N/A')
-                print(f"    - 【{item_name}】: {contribution: <5.0f} (原始值: {raw_score:.4f} * 基础分: {base_score})")
-                risk_total += contribution
-        print("    ----------------------------------")
-        print(f"    - 【风险项总分】: {risk_total:.0f}")
-        print("\n  [链路层 4] 终极对质 (宙斯最终敕令)")
-        pre_damper_score = offense_total + risk_total
-        print(f"    - [探针重算] 前置裁决分 = {offense_total:.0f} (进攻) + {risk_total:.0f} (风险) = {pre_damper_score:.0f}")
-        chimera_conflict_score = atomic.get('COGNITIVE_SCORE_CHIMERA_CONFLICT', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-        dominant_signal_type = self.probes._get_dominant_offense_type_for_probe(offense_total, sorted_offense_items)
-        is_reversal_day = (dominant_signal_type == 'positional')
-        dynamic_chimera_score = chimera_conflict_score * 0.5 if is_reversal_day else chimera_conflict_score
-        confidence_damper = 1.0 - dynamic_chimera_score
-        print(f"    - [探针诊断] 主导进攻类型: '{dominant_signal_type}' -> 是否为反转日: {is_reversal_day}")
-        print(f"    - [探针诊断] 动态奇美拉冲突分: {dynamic_chimera_score:.4f} (原始分: {chimera_conflict_score:.4f})")
-        post_damper_score_recalc = pre_damper_score * confidence_damper
-        print(f"    - [探针重算] 奇美拉调节后得分 = {pre_damper_score:.0f} * (1 - {dynamic_chimera_score:.2f}) = {post_damper_score_recalc:.0f}")
-        # 修改开始(V4.0.0): 引入神盾协议
-        shield_bonus = df.get('shield_bonus', pd.Series(0.0, index=df.index)).get(probe_date, 0.0)
-        final_score_recalc = post_damper_score_recalc + shield_bonus
-        print(f"    - [探针诊断] 神盾加值 (Shield Bonus): {shield_bonus:.0f}")
-        print(f"    - [探针重算] 最终得分 = {post_damper_score_recalc:.0f} (调节后) + {shield_bonus:.0f} (神盾加值) = {final_score_recalc:.0f}")
-        # 修改结束(V4.0.0)
-        if isinstance(final_score, (float, np.floating)):
-            print(f"    - [对比]: 实际值 {final_score:.0f} vs 重算值 {final_score_recalc:.0f}")
-        else:
-            print(f"    - [对比]: 实际值 {final_score} vs 重算值 {final_score_recalc:.0f}")
-        print("\n--- “宙斯之雷”审查完毕 ---")
 
 
 
