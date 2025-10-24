@@ -39,9 +39,10 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V5.0 · 职责净化版】顶层认知总分合成模块
-        - 核心重构: 移除了对微观和战术引擎的调用，这些调用已被上移至最高指挥中心(IntelligenceLayer)。
-                      本模块现在专注于其核心职责：融合所有已经生成的原子信号，形成顶层认知。
+        【V14.0 · 万象归一版】顶层认知总分合成模块
+        - 核心升级:
+          1. [架构重构] 废除所有零散的 _synthesize_* 扩展信号方法，统一由全新的 `_synthesize_cognitive_expansion_engine` 引擎生成。
+          2. [分析升维] 所有扩展信号现在都将经过“关系元分析”，具备“状态-速度-加速度”的动态洞察力。
         """        
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
@@ -57,6 +58,12 @@ class CognitiveIntelligence:
         self.synthesize_tactical_opportunity_fusion(df)
         suppression_vs_retreat_states = self._diagnose_suppression_vs_retreat(df)
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
+        cyclical_risk_states = self._calculate_cyclical_top_risk(df)
+        self.strategy.atomic_states.update(cyclical_risk_states)
+        # [代码修改开始] 使用全新的统一引擎替换所有零散的 _synthesize_* 方法
+        # 旧的、冗长的方法调用链已被移除
+        self.strategy.atomic_states.update(self._synthesize_cognitive_expansion_engine(df))
+        # [代码修改结束]
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
@@ -64,7 +71,7 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
         archangel_states = self._diagnose_archangel_top_reversal(df)
         self.strategy.atomic_states.update(archangel_states)
-        # 动态构建有效的看涨信号列表
+        # [代码修改开始] 动态构建有效的看涨信号列表，并加入新的高价值信号
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
             'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE',
@@ -78,7 +85,33 @@ class CognitiveIntelligence:
             'SCORE_CHIP_TRUE_ACCUMULATION',
             'COGNITIVE_SCORE_TACTICAL_SUPPRESSION',
             'SMART_MONEY_SYNERGY_BUY_D',
+            'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING',
+            'SCORE_STRUCTURAL_FAULT_BREAKTHROUGH',
+            'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT',
+            'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT',
+            'SCORE_MICRO_HERMES_GAMBIT',
+            # 以下为通过新引擎生成的信号
+            'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE',
+            'COGNITIVE_SCORE_INDUSTRY_RECESSION_INDIVIDUAL_STRENGTH',
+            'COGNITIVE_SCORE_SENTIMENT_TECH_RESONANCE',
+            'COGNITIVE_SCORE_LEADER_BREAKOUT_AWAKENING',
+            'COGNITIVE_SCORE_POLICY_DRIVEN_BREAKOUT',
+            'COGNITIVE_SCORE_LIMIT_DOWN_REVERSAL',
+            'COGNITIVE_SCORE_DESPAIR_EMOTION_REVERSAL',
+            'COGNITIVE_SCORE_PROFIT_MAKING_LOCKUP',
+            'COGNITIVE_SCORE_MAIN_FORCE_COST_ADVANTAGE',
+            'COGNITIVE_SCORE_ACCUMULATION_COMPRESSION_BREAKOUT',
+            'COGNITIVE_SCORE_CHIP_PEAK_PLATFORM_SUPPORT',
+            'COGNITIVE_SCORE_CHIP_FAULT_ACCELERATION',
+            'COGNITIVE_SCORE_MAIN_FORCE_LOW_COST_ACCUMULATION',
+            'COGNITIVE_SCORE_PANIC_SELLING_ABSORPTION',
+            'COGNITIVE_SCORE_MAIN_FORCE_BREAKOUT_CONFIRMATION',
+            'COGNITIVE_SCORE_VOLATILITY_COMPRESSION_ACCUMULATION',
+            'COGNITIVE_SCORE_CHIP_STRUCTURE_STABLE_TREND',
+            'COGNITIVE_SCORE_BOTTOM_POWER_TRANSFER',
+            'COGNITIVE_SCORE_BREAKOUT_VALIDATION_CONFIRM',
         ]
+        # [代码修改结束]
         valid_bullish_scores = []
         for signal_name in bullish_signal_names:
             signal_series = self._get_atomic_score(df, signal_name)
@@ -88,7 +121,6 @@ class CognitiveIntelligence:
             cognitive_bullish_score = np.maximum.reduce(valid_bullish_scores)
         else:
             cognitive_bullish_score = np.zeros(len(df.index), dtype=np.float32)
-        
         self.strategy.atomic_states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df.index, dtype=np.float32)
         fused_risk_states = self.synthesize_fused_risk_scores(df)
         self.strategy.atomic_states.update(fused_risk_states)
@@ -140,23 +172,23 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V4.0 · 宙斯鹰眼版】趋势质量融合评分模块
-        - 核心升级: 引入“宙斯鹰眼”引擎 (`_calculate_cognitive_trend_health`) 对趋势进行直接的、
-                      五维一体的评估。最终的趋势质量分将是“直接评估分”与“跨领域共识分”的融合，
-                      兼具第一性原理的深刻洞察与跨领域验证的广度。
+        【V5.0 · 周期解耦版】趋势质量融合评分模块
+        - 核心升级: 将“周期性”从“趋势政权”中解耦，作为一个独立的、负向的评估维度。
+                      高质量的趋势必然是低周期性的。此修改使趋势质量的评估更纯粹、更精准。
         """
-        # 引入“宙斯鹰眼”直接评估，并与跨领域共识融合
-        # --- 1. 跨领域共识分 (旧逻辑保留，作为横向验证) ---
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
+        # [代码修改开始] 调整domain_scores_map，将周期性解耦
         domain_scores_map = {
-            'behavior': 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
+            'behavior': 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'STRUCT_BEHAVIOR_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE'),
             'fund_flow': get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE'),
             'structural': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE'),
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE'),
-            'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5
+            'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
+            'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') # 新增：周期性作为负向指标
         }
+        # [代码修改结束]
         valid_scores = [score.values for name, score in domain_scores_map.items() if weights.get(name, 0) > 0]
         valid_weights = [weights.get(name) for name in domain_scores_map if weights.get(name, 0) > 0]
         if valid_scores:
@@ -167,16 +199,11 @@ class CognitiveIntelligence:
             consensus_snapshot_score = pd.Series(consensus_snapshot_values, index=df.index, dtype=np.float32)
         else:
             consensus_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        # --- 2. “宙斯鹰眼”直接评估分 (新逻辑，作为第一性原理的纵向洞察) ---
         direct_trend_health_score = self._calculate_cognitive_trend_health(df)
-        # --- 3. 终极融合：直接评估分 与 跨领域共识分 的融合 ---
-        # 结合了第一性原理的深度和跨领域验证的广度
         trend_quality_snapshot_score = (direct_trend_health_score * consensus_snapshot_score)**0.5
-        # --- 4. 对最终的“趋势质量快照分”进行关系元分析，得到最终动态分数 ---
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = final_trend_quality_score.astype(np.float32)
         return df
-
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -834,6 +861,310 @@ class CognitiveIntelligence:
         
         print(f"    -> [日内引擎] 微观分析完成。")
 
+    def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增 · 万象归一】认知扩展信号统一合成引擎
+        - 核心逻辑:
+          1. 使用一个声明式的配置字典 `expansion_signal_configs` 来定义所有扩展信号的合成逻辑。
+          2. 引擎根据配置动态获取数据源、进行转换和归一化。
+          3. 对每个信号的初步融合结果（快照分），强制调用 `_perform_cognitive_relational_meta_analysis`
+             进行“状态-速度-加速度”三维动态分析，确保所有信号都具备前瞻性。
+        - 收益: 极大地简化了主流程，提高了代码的可维护性和可扩展性。新增信号只需修改配置，无需修改引擎代码。
+        """
+        states = {}
+        norm_window = 55  # 统一的归一化窗口
+
+        # --- 声明式配置字典 ---
+        # 定义所有认知扩展信号的合成逻辑
+        expansion_signal_configs = {
+            # --- 机会信号 ---
+            'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE': {
+                'components': [
+                    {'source': 'df', 'name': 'is_market_leader_D', 'is_gate': True},
+                    {'source': 'df', 'name': 'industry_leader_score_D'},
+                    {'source': 'df', 'name': 'industry_rank_slope_D'},
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY'},
+                    {'source': 'df', 'name': 'industry_markup_score_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_INDUSTRY_RECESSION_INDIVIDUAL_STRENGTH': {
+                'components': [
+                    {'source': 'df', 'name': 'industry_downtrend_score_D'},
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_STATE_PROCESS_SYNERGY'},
+                    {'source': 'atomic', 'name': 'SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'},
+                ]
+            },
+            'COGNITIVE_SCORE_SENTIMENT_TECH_RESONANCE': {
+                'components': [
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_IGNITION_RESONANCE'},
+                    {'source': 'df', 'name': 'THEME_HOTNESS_SCORE_D'},
+                    {'source': 'df', 'name': 'market_sentiment_score_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_LEADER_BREAKOUT_AWAKENING': {
+                'components': [
+                    {'source': 'df', 'name': 'is_market_leader_D', 'is_gate': True},
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY', 'transform': 'shift_lt', 'params': (1, 0.4)}, # was_dormant
+                    {'source': 'df', 'name': 'is_limit_up', 'is_gate': True}, # is_limit_up 需要预计算
+                    {'source': 'df', 'name': 'volume_spike', 'is_gate': True}, # volume_spike 需要预计算
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY'},
+                ]
+            },
+            'COGNITIVE_SCORE_POLICY_DRIVEN_BREAKOUT': {
+                'components': [
+                    {'source': 'df', 'name': 'significant_gap_up', 'is_gate': True}, # significant_gap_up 需要预计算
+                    {'source': 'df', 'name': 'gap_not_filled', 'is_gate': True},
+                    {'source': 'df', 'name': 'closing_strength_index_D'},
+                    {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'pos_clip'},
+                    {'source': 'df', 'name': 'THEME_HOTNESS_SCORE_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_LIMIT_DOWN_REVERSAL': {
+                'components': [
+                    {'source': 'df', 'name': 'touched_limit_down', 'is_gate': True}, # touched_limit_down 需要预计算
+                    {'source': 'df', 'name': 'main_force_support_strength_D'},
+                    {'source': 'df', 'name': 'retail_capitulation_score_D'},
+                    {'source': 'df', 'name': 'closing_strength_index_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_DESPAIR_EMOTION_REVERSAL': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'},
+                    {'source': 'df', 'name': 'total_loser_rate_D'},
+                    {'source': 'df', 'name': 'retail_capitulation_score_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_PROFIT_MAKING_LOCKUP': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'},
+                    {'source': 'df', 'name': 'winner_profit_margin_D'},
+                    {'source': 'df', 'name': 'profit_taking_urgency_D', 'transform': 'inverse'},
+                ]
+            },
+            'COGNITIVE_SCORE_MAIN_FORCE_COST_ADVANTAGE': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING'},
+                    {'source': 'df', 'name': 'cost_divergence_mf_vs_retail_D'},
+                    {'source': 'df', 'name': 'main_buy_cost_advantage_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_ACCUMULATION_COMPRESSION_BREAKOUT': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_CHIP_TRUE_ACCUMULATION'},
+                    {'source': 'df', 'name': 'price_cv_60d_D', 'transform': 'inverse'},
+                    {'source': 'df', 'name': 'BBW_21_2.0_D', 'transform': 'inverse'},
+                ]
+            },
+            'COGNITIVE_SCORE_CHIP_PEAK_PLATFORM_SUPPORT': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_CHIP_BULLISH_RESONANCE'},
+                    {'source': 'df', 'name': 'price_to_peak_ratio_D', 'transform': 'inverse_proximity'},
+                    {'source': 'df', 'name': 'intraday_volatility_D', 'transform': 'inverse'},
+                    {'source': 'df', 'name': 'support_below_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_CHIP_FAULT_ACCELERATION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'},
+                    {'source': 'df', 'name': 'intraday_trend_efficiency_D'},
+                    {'source': 'df', 'name': 'closing_strength_index_D'},
+                    {'source': 'df', 'name': 'main_force_flow_impact_ratio_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_MAIN_FORCE_LOW_COST_ACCUMULATION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FF_BULLISH_RESONANCE'},
+                    {'source': 'df', 'name': 'main_buy_cost_advantage_D'},
+                    {'source': 'df', 'name': 'avg_order_value_norm_price_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_PANIC_SELLING_ABSORPTION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FF_BOTTOM_REVERSAL'},
+                    {'source': 'df', 'name': 'pct_change_D', 'transform': 'neg_clip_abs'},
+                    {'source': 'df', 'name': 'market_sentiment_score_D', 'transform': 'inverse'},
+                    {'source': 'df', 'name': 'retail_capitulation_score_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_MAIN_FORCE_BREAKOUT_CONFIRMATION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FOUNDATION_IGNITION_CONFIRMATION'},
+                    {'source': 'df', 'name': 'main_force_flow_impact_ratio_D'},
+                    {'source': 'df', 'name': 'trade_concentration_index_D'},
+                    {'source': 'df', 'name': 'intraday_trend_efficiency_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_VOLATILITY_COMPRESSION_ACCUMULATION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FOUNDATION_VOL_COMPRESSION_OPP'},
+                    {'source': 'df', 'name': 'concentration_increase_by_support_D'},
+                    {'source': 'df', 'name': 'main_force_intraday_profit_D', 'transform': 'neg_clip_abs'},
+                ]
+            },
+            'COGNITIVE_SCORE_CHIP_STRUCTURE_STABLE_TREND': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_STRUCTURE_BULLISH_RESONANCE'},
+                    {'source': 'df', 'name': 'peak_control_ratio_D'},
+                    {'source': 'df', 'name': 'peak_stability_D'},
+                    {'source': 'df', 'name': 'winner_profit_margin_D'},
+                ]
+            },
+            'COGNITIVE_SCORE_BOTTOM_POWER_TRANSFER': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_STRUCTURE_BOTTOM_REVERSAL'},
+                    {'source': 'df', 'name': 'retail_capitulation_score_D'},
+                    {'source': 'df', 'name': 'main_force_support_strength_D'},
+                    {'source': 'df', 'name': 'cost_divergence_mf_vs_retail_D', 'transform': 'pos_clip'},
+                ]
+            },
+            'COGNITIVE_SCORE_BREAKOUT_VALIDATION_CONFIRM': {
+                'components': [
+                    {'source': 'df', 'name': 'is_breakthrough_D', 'transform': 'shift', 'params': (1,), 'is_gate': True},
+                    {'source': 'df', 'name': 'unrealized_pnl_on_net_change_D', 'transform': 'pos_clip'},
+                    {'source': 'df', 'name': 'flow_divergence_mf_vs_retail_D', 'transform': 'pos_clip'},
+                ]
+            },
+            # --- 风险信号 ---
+            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE'},
+                    {'source': 'df', 'name': 'long_term_chips_unlocked_ratio_D'},
+                    {'source': 'df', 'name': 'SLOPE_5_long_term_chips_unlocked_ratio_D'},
+                    {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip'},
+                ]
+            },
+            'COGNITIVE_RISK_MULTI_SOURCE_SIGNAL_CONFLICT': {
+                'components': [
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_CHIMERA_CONFLICT'},
+                    {'source': 'df', 'name': 'cross_source_divergence_std_D'},
+                    {'source': 'df', 'name': 'pnl_matrix_confidence_score_D', 'transform': 'inverse'},
+                ]
+            },
+            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': {
+                'components': [
+                    {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE'},
+                    {'source': 'df', 'name': 'pct_change_D', 'transform': 'is_positive', 'is_gate': True},
+                    {'source': 'df', 'name': 'retail_chasing_accumulation_D'},
+                    {'source': 'df', 'name': 'main_force_rally_distribution_D'},
+                ]
+            },
+            'COGNITIVE_RISK_UPTHRUST_PROFIT_TAKING': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_RISK_UPTHRUST_DISTRIBUTION'},
+                    {'source': 'df', 'name': 'realized_profit_on_exchange_D'},
+                    {'source': 'df', 'name': 'profit_realization_premium_D'},
+                ]
+            },
+            'COGNITIVE_RISK_DISTRIBUTION_WITH_RETAIL_FOMO': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_CHIP_BEARISH_RESONANCE'},
+                    {'source': 'df', 'name': 'retail_chasing_accumulation_D'},
+                    {'source': 'df', 'name': 'VPA_EFFICIENCY_D', 'transform': 'inverse'},
+                    {'source': 'df', 'name': 'closing_strength_index_D', 'transform': 'inverse'},
+                ]
+            },
+            'COGNITIVE_RISK_LIQUIDITY_TRAP': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FF_BEARISH_RESONANCE'},
+                    {'source': 'df', 'name': 'intraday_volume_gini_D'},
+                    {'source': 'df', 'name': 'vwap_tracking_error_D'},
+                ]
+            },
+            'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FF_TOP_REVERSAL'},
+                    {'source': 'df', 'name': 'main_force_t0_arbitrage_D'},
+                    {'source': 'df', 'name': 'main_force_intraday_profit_D', 'transform': 'pos_clip'},
+                ]
+            },
+            'COGNITIVE_RISK_SUPPORT_BREAKDOWN': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_FOUNDATION_PANIC_SELLING_RISK'},
+                    {'source': 'df', 'name': 'support_below_D', 'transform': 'inverse'},
+                    {'source': 'df', 'name': 'peak_defense_intensity_D', 'transform': 'inverse'},
+                ]
+            },
+            'COGNITIVE_RISK_STRUCTURAL_TOP_DISTRIBUTION': {
+                'components': [
+                    {'source': 'atomic', 'name': 'SCORE_STRUCTURE_TOP_REVERSAL'},
+                    {'source': 'df', 'name': 'main_force_rally_distribution_D'},
+                    {'source': 'df', 'name': 'retail_chasing_accumulation_D'},
+                    {'source': 'df', 'name': 'closing_strength_index_D', 'transform': 'inverse'},
+                ]
+            },
+        }
+
+        # --- 预计算一些衍生列，避免在循环中重复计算 ---
+        df['is_limit_up'] = df.get('close_D', 0) >= df.get('up_limit_D', np.inf) * 0.995
+        df['volume_spike'] = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
+        df['significant_gap_up'] = (df['open_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
+        df['gap_not_filled'] = (df['low_D'] > df['pre_close_D'])
+        df['touched_limit_down'] = (df['low_D'] <= df.get('down_limit_D', 0) * 1.005)
+
+        # --- 引擎主循环 ---
+        for signal_name, config in expansion_signal_configs.items():
+            component_scores = []
+            gate_scores = []
+
+            for comp in config['components']:
+                # 1. 获取数据源
+                source_series = None
+                if comp['source'] == 'df':
+                    source_series = df.get(comp['name'], pd.Series(0.0, index=df.index))
+                elif comp['source'] == 'atomic':
+                    source_series = self._get_atomic_score(df, comp['name'], 0.0)
+
+                if source_series is None or source_series.empty:
+                    source_series = pd.Series(0.0, index=df.index)
+
+                # 2. 数据转换
+                transform = comp.get('transform')
+                params = comp.get('params', ())
+                if transform == 'inverse':
+                    source_series = 1.0 - source_series
+                elif transform == 'inverse_proximity': # 1 - (1-x) = x, for price_to_peak_ratio
+                    source_series = 1.0 - (1.0 - source_series).clip(0, 1)
+                elif transform == 'neg_clip':
+                    source_series = -source_series.clip(upper=0)
+                elif transform == 'pos_clip':
+                    source_series = source_series.clip(lower=0)
+                elif transform == 'neg_clip_abs':
+                    source_series = source_series.clip(upper=0).abs()
+                elif transform == 'is_positive':
+                    source_series = (source_series > 0).astype(float)
+                elif transform == 'shift':
+                    source_series = source_series.shift(params[0]).fillna(0)
+                elif transform == 'shift_lt': # shift and less than
+                    source_series = source_series.shift(params[0]).fillna(params[1]) < params[1]
+
+                # 3. 归一化
+                normalized_series = normalize_score(source_series, df.index, norm_window)
+
+                # 4. 分配到组件或门控
+                if comp.get('is_gate', False):
+                    gate_scores.append(normalized_series.values)
+                else:
+                    component_scores.append(normalized_series.values)
+
+            # 5. 融合生成快照分
+            if not component_scores:
+                snapshot_score_values = np.ones(len(df.index), dtype=np.float32)
+            else:
+                stacked_scores = np.stack(component_scores, axis=0)
+                snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(component_scores))
+
+            if gate_scores:
+                for gate in gate_scores:
+                    snapshot_score_values *= gate
+            
+            snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
+
+            # 6. 应用关系元分析，实现动态升维
+            final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
+            states[signal_name] = final_dynamic_score
+
+        return states
+
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
         【V1.0 · 新增】认知层专用的关系元分析核心引擎 (普罗米修斯之火)
@@ -1046,6 +1377,22 @@ class CognitiveIntelligence:
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
         
+    def _calculate_cyclical_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】计算“周期顶”风险
+        - 核心逻辑: 融合“主导周期强度”和“当前相位”，当市场处于一个强周期的波峰位置时，风险分会显著提高。
+        """
+        states = {}
+        cycle_power = self._get_atomic_score(df, 'DOMINANT_CYCLE_POWER', 0.0)
+        # 将相位[-1, 1]映射为分数[0, 1]，-1(波谷)对应0分，+1(波峰)对应1分
+        cycle_phase_score = (self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE', 0.0) + 1) / 2.0
+        
+        # 周期顶风险 = 周期强度 * 相位位置
+        cyclical_top_risk = (cycle_power * cycle_phase_score).clip(0, 1)
+        
+        states['COGNITIVE_RISK_CYCLICAL_TOP'] = cyclical_top_risk.astype(np.float32)
+        print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
+        return states
 
 
 

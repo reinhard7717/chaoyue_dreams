@@ -979,6 +979,20 @@
             "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false },
             "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 },
             "SCORE_RISK_ICARUS_FALL": { "weight": 2.2, "description": "【新增】伊卡洛斯之坠风险，识别主力背叛趋势、高位诱多派发的行为，权重极高。" }
+         },
+         "cyclical_risk": {
+            "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "【新增】周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }
+         },
+         "cognitive_expansion_risk": {
+            "COGNITIVE_RISK_OLD_GUARD_RETREAT": { "weight": 1.5, "description": "【新增】旧神的黄昏风险，识别长期获利盘的派发迹象。" },
+            "COGNITIVE_RISK_HECATE_CROSSROADS": { "weight": 2.0, "description": "【新增】赫卡忒的十字路口风险，量化市场的不可预测性。" },
+            "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": { "weight": 2.0, "description": "【新增】散户狂热与主力撤退风险，识别经典的牛市陷阱。" },
+            "COGNITIVE_RISK_HARVEST_CONFIRMATION": { "weight": 1.8, "description": "【新增】收割确认风险，确认上冲派发是否伴随真实利润兑现。" },
+            "COGNITIVE_RISK_SIREN_SONG": { "weight": 2.2, "description": "【新增】塞壬之歌风险，识别筹码派发背景下的诱多收割行为。" },
+            "COGNITIVE_RISK_LIQUIDITY_TRAP": { "weight": 1.2, "description": "【新增】流动性陷阱风险，资金流出与流动性枯竭的共振。" },
+            "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": { "weight": 1.0, "description": "【新增】T+0套利压力风险，主力短期派发行为。" },
+            "COGNITIVE_RISK_DAM_BREACH": { "weight": 2.5, "description": "【新增】堤坝溃决风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
+            "COGNITIVE_RISK_OLYMPUS_CRUMBLING": { "weight": 2.4, "description": "【新增】奥林匹斯之崩风险，结构顶部与主力派发、散户接盘的共振。" }
          }
         },
         "resonance_penalty_params": {
@@ -1021,7 +1035,13 @@
           "quantitative": 0.2, "advanced": 0.2, "internal": 0.25, "holder": 0.25, "fault": 0.1
         },
         "domain_weights": {
-          "behavior": 0.20, "chip": 0.30, "fund_flow": 0.15, "structural": 0.15, "mechanics": 0.10, "regime": 0.10
+          "behavior": 0.20,
+          "chip": 0.25,
+          "fund_flow": 0.15,
+          "structural": 0.15,
+          "mechanics": 0.10,
+          "regime": 0.10,
+          "cyclical": 0.05
         }
       },
       "reversal_reliability_params": {

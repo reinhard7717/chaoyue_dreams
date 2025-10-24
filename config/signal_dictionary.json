@@ -154,7 +154,7 @@
         },
         "说明_atomic_and_tactical": "--- 原子与战术信号 ---",
         "SCORE_CHIP_HADES_TRAP": {
-            "cn_name": "【筹码】哈迪斯陷阱",
+            "cn_name": "【筹码风险】底部诱多派发",
             "category": "筹码层-风险",
             "type": "risk",
             "penalty_weight": -100,
@@ -373,6 +373,225 @@
             "description": "诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
+        "COGNITIVE_SCORE_ALPHA_WOLF_LEADERSHIP": {
+            "cn_name": "【认知】龙头引领行业上涨",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 500,
+            "description": "【领袖信号】识别并奖励那些作为龙头引领整个行业板块进入上升周期的“领头狼”股票。"
+        },
+        "COGNITIVE_SCORE_CONTRARIAN_DEFIANCE": {
+            "cn_name": "【认知】行业逆境个股走强",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 450,
+            "context_role": "bottom_opportunity",
+            "description": "【逆境信号】识别在行业逆境中，自身却表现出顽强生命力（如主力吸筹、股东换手）的“盗火者”。"
+        },
+        "COGNITIVE_SCORE_SENTIMENT_IGNITION": {
+            "cn_name": "【认知】情绪与技术共振",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 600,
+            "description": "【共振信号】捕捉技术上形成突破，同时市场上又具备极高题材热度和良好情绪的“戴维斯双击”时刻。"
+        },
+        "COGNITIVE_RISK_OLD_GUARD_RETREAT": {
+            "cn_name": "【认知风险】长期获利盘高位派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1800,
+            "context_role": "top_risk",
+            "description": "【领先风险】识别在价格高位时，长期获利盘（旧神）开始悄然解锁并派发的迹象，是比资金净流出更领先的顶部信号。"
+        },
+        "COGNITIVE_RISK_HECATE_CROSSROADS": {
+            "cn_name": "【认知风险】多源信号冲突",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2200,
+            "description": "【混乱风险】量化市场的“极度不可预测性”。当多源数据严重冲突、信号真伪难辨时发出警报，建议降低仓位。"
+        },
+        "COGNITIVE_SCORE_DRAGON_HEAD_AWAKENING": {
+            "cn_name": "【认知】龙头股放量涨停",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 800,
+            "description": "【A股特供】捕捉沉寂已久的行业龙头以爆发性方式（如放量涨停）苏醒的时刻，是“王者归来”的黄金信号。"
+        },
+        "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": {
+            "cn_name": "【认知风险】散户狂热与主力撤退",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2500,
+            "context_role": "top_risk",
+            "description": "【A股特供】识别价格上涨末期，散户非理性追高而主力资金悄然派发的“牛市陷阱”，是极高优先级的风险预警。"
+        },
+        "COGNITIVE_SCORE_POLICY_CATALYST_IGNITION": {
+            "cn_name": "【认知】政策驱动高开走强",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 700,
+            "description": "【A股特供】识别由重大利好（通常体现为大幅高开）驱动的、具备极强市场共识的趋势起点。"
+        },
+        "COGNITIVE_SCORE_ICE_FIRE_REVERSAL": {
+            "cn_name": "【认知】跌停板强势反转",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 950,
+            "context_role": "bottom_opportunity",
+            "description": "【A股特供】识别股价触及跌停后，在主力资金强力介入下完成的V型反转，是“不破不立”的终极反转信号。"
+        },
+        "COGNITIVE_SCORE_FLOWER_OF_DESPAIR": {
+            "cn_name": "【认知】绝望情绪下的反转",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 850,
+            "context_role": "bottom_opportunity",
+            "description": "【行为增强】在市场极度悲观（高亏损比例、散户投降）时出现的行为反转信号，是高确定性的底部信号。"
+        },
+        "COGNITIVE_SCORE_CONVICTION_SOLIDIFICATION": {
+            "cn_name": "【认知】盈利盘惜售",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 400,
+            "description": "【行为增强】识别在健康趋势中，盈利盘利润丰厚但了结意愿低下的“惜售”状态，是趋势可持续的强确认信号。"
+        },
+        "COGNITIVE_SCORE_COST_BARRIER": {
+            "cn_name": "【认知】主力构建成本优势",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 500,
+            "description": "【行为增强】确认“日内聪明钱”的交易行为是否成功构建了相对散户的成本优势，是战略建仓的有力证据。"
+        },
+        "COGNITIVE_RISK_HARVEST_CONFIRMATION": {
+            "cn_name": "【认知风险】上冲派发利润兑现",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1500,
+            "context_role": "top_risk",
+            "description": "【行为增强】确认“上冲派发”的行为模式是否伴随着真实的利润兑现，是高置信度的顶部风险信号。"
+        },
+        "COGNITIVE_SCORE_DRAGON_IN_ABYSS": {
+            "cn_name": "【认知】吸筹后压盘蓄势",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 750,
+            "context_role": "bottom_opportunity",
+            "description": "【筹码增强】捕捉主力吸筹完成、价格被压制、波动率降至冰点的“突破前夜”黄金战机。"
+        },
+        "COGNITIVE_SCORE_AEGIS_PLATFORM": {
+            "cn_name": "【认知】筹码峰平台支撑",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 450,
+            "description": "【筹码增强】确认价格正将一个健康的筹码峰作为坚实的平台进行盘整，是稳固的趋势中继或底部信号。"
+        },
+        "COGNITIVE_RISK_SIREN_SONG": {
+            "cn_name": "【认知风险】拉高诱多派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2600,
+            "context_role": "top_risk",
+            "description": "【筹码增强】识别在筹码派发背景下，主力利用散户狂热情绪，在虚假拉升中完成“收割”的极高风险信号。"
+        },
+        "COGNITIVE_SCORE_FAULT_VACUUM_THRUST": {
+            "cn_name": "【认知】真空加速",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 650,
+            "description": "【筹码增强】确认筹码断层突破是一次高效率、高确定性的“真空加速”突破，预示后续可能有快速拉升。"
+        },
+        "COGNITIVE_SCORE_COST_MOAT": {
+            "cn_name": "【认知】主力低成本吸筹",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 550,
+            "description": "【资金流增强】资金流健康 + 主力买入成本低廉 + 订单质量高 = 高质量的战略性吸筹信号。"
+        },
+        "COGNITIVE_RISK_LIQUIDITY_TRAP": {
+            "cn_name": "【认知风险】流动性陷阱",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1200,
+            "context_role": "top_risk",
+            "description": "【资金流增强】资金流出 + 市场流动性差 + 价格波动剧烈 = 极高的流动性风险。"
+        },
+        "COGNITIVE_SCORE_UPSTREAM_SWIMMER": {
+            "cn_name": "【认知】恐慌中逆势吸筹",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 800,
+            "context_role": "bottom_opportunity",
+            "description": "【资金流增强】资金流逆转 + 价格下跌 + 情绪恐慌 + 散户割肉 = 高确定性的战略抄底信号。"
+        },
+        "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": {
+            "cn_name": "【认知风险】T+0套利压力",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1000,
+            "context_role": "top_risk",
+            "description": "【资金流增强】资金流恶化 + 主力T+0套利活跃 + 日内利润兑现 = 强烈的短期派发风险。"
+        },
+        "COGNITIVE_SCORE_COUNTERATTACK_ON_BEDROCK": {
+            "cn_name": "【认知】主力在技术底背驰买入",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 700,
+            "context_role": "bottom_opportunity",
+            "description": "【基础增强】确认技术指标反转是由主力资金主导的战略性反击，而非普通技术反弹。"
+        },
+        "COGNITIVE_SCORE_MAIN_ENGINE_IGNITION": {
+            "cn_name": "【认知】主力主导的放量突破",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 600,
+            "description": "【基础增强】确认量价点火是由主力驱动的、高效率的趋势启动，而非散户追高引发的虚火。"
+        },
+        "COGNITIVE_SCORE_COILED_SPRING": {
+            "cn_name": "【认知】波动压缩期主力吸筹",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 750,
+            "context_role": "bottom_opportunity",
+            "description": "【基础增强】捕捉波动率压缩至极致，且主力在期间隐秘吸筹的“突破前夜”黄金战机。"
+        },
+        "COGNITIVE_RISK_DAM_BREACH": {
+            "cn_name": "【认知风险】关键支撑破位",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2800,
+            "context_role": "top_risk",
+            "description": "【基础增强】确认恐慌抛售已击穿下方所有关键支撑，可能引发系统性、不可逆的崩盘风险。"
+        },
+        "COGNITIVE_SCORE_FORTRESS_TREND": {
+            "cn_name": "【认知】筹码稳固的健康趋势",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 500,
+            "description": "【结构增强】确认健康的结构趋势是否由一个强大、稳定且盈利丰厚的筹码堡垒所支撑。"
+        },
+        "COGNITIVE_SCORE_THRONE_USURPATION": {
+            "cn_name": "【认知】底部主力与散户换手",
+            "category": "认知层-机会",
+            "type": "positional",
+            "score": 900,
+            "context_role": "bottom_opportunity",
+            "description": "【结构增强】确认结构性底部伴随着散户的绝望投降和主力的强势接管，是高确定性的权力交接信号。"
+        },
+        "COGNITIVE_RISK_OLYMPUS_CRUMBLING": {
+            "cn_name": "【认知风险】结构顶部派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2700,
+            "context_role": "top_risk",
+            "description": "【结构增强】确认结构性顶部伴随着主力派发和散户接盘的末日景象。"
+        },
+        "COGNITIVE_SCORE_BREAKOUT_VALIDATION": {
+            "cn_name": "【认知】突破后主力资金确认",
+            "category": "认知层-机会",
+            "type": "dynamic",
+            "score": 600,
+            "description": "【结构增强】验证结构性突破是由主力主导，且新入场资金立即浮盈，是高质量的突破确认信号。"
+        },
         "COGNITIVE_SCORE_TACTICAL_SUPPRESSION": {
             "cn_name": "【认知】战术性打压",
             "category": "认知层-机会",
@@ -380,6 +599,14 @@
             "score": 480,
             "context_role": "bottom_opportunity",
             "description": "【B级战术信号】在短期派发和价格下跌的表象下，通过交叉验证发现主力仍在吸收恐慌盘且长期信念坚定，是典型的“打压吸筹”战术动作。"
+        },
+        "COGNITIVE_RISK_CYCLICAL_TOP": {
+            "cn_name": "【认知风险】周期顶风险",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -500,
+            "context_role": "top_risk",
+            "description": "【新增】融合了主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。"
         },
         "COGNITIVE_SCORE_TRUE_RETREAT_RISK": {
             "cn_name": "【认知风险】真实撤退",
@@ -551,7 +778,7 @@
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
         "SCORE_RISK_ICARUS_FALL": {
-            "cn_name": "【微观风险】伊卡洛斯之坠",
+            "cn_name": "【微观风险】冲高回落诱多派发",
             "category": "微观行为-风险",
             "type": "risk",
             "penalty_weight": -2800,
