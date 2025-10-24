@@ -25,18 +25,20 @@ class ChipIntelligence:
         all_chip_states = {}
         # 增加1日周期，实现最灵敏的战术变化捕捉
         periods = [1, 5, 13, 21, 55]
-        
         concentration_scores = self._diagnose_concentration_dynamics(df, periods)
         all_chip_states['SCORE_CHIP_MTF_CONCENTRATION'] = concentration_scores
         accumulation_scores = self._diagnose_main_force_action(df, periods)
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
         all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
+        # [代码修改开始] 修正方法调用，补全缺失的 df 参数
         ultimate_signals = self._synthesize_ultimate_signals(
+            df,
             concentration_scores,
             accumulation_scores,
             power_transfer_scores
         )
+        # [代码修改结束]
         all_chip_states.update(ultimate_signals)
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
