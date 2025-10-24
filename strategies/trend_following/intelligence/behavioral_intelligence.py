@@ -110,67 +110,69 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.2 · 前线换装版】结构与行为健康度计算核心引擎
-        - 核心升级: 彻底清除对已失效的 "幽灵信号" (如 intraday_reversal_intensity_D,
-                      lower_shadow_volume_ratio_D, auction_conviction_index_D) 的依赖。
-                      全面换装为 closing_strength_index_D, flow_divergence_mf_vs_retail_D,
-                      final_hour_momentum_D 等新式高保真指标。
+        【V3.3 · 赫利俄斯战车版】结构与行为健康度计算核心引擎
+        - 核心革命: 废除 d_intensity 作为最终乘数的错误逻辑。
+                      将其作为“第四维度”在计算初期就注入复合状态分，形成“动态复合状态”，
+                      再对这个蕴含了动态能量的新序列进行“状态-速度-加速度”分析。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 全面换装新式高保真指标
-        # --- 构建全新的“日内博弈战果分” ---
+        # --- 步骤1: 构建原始“复合状态”信号 (逻辑不变) ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
         reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
         reversal_weakness = ((1.0 - closing_strength_score) * (1.0 - vwap_dominance_score))**0.5
-        # --- 步骤1: 构建“复合状态”信号 ---
-        # 看涨复合状态分
-        lower_shadow_power = closing_strength_score # 新武器：用收盘强度代表下影线力量
-        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) # 新武器：主力散户行为背离
-        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window) # 新武器：尾盘动能
+        lower_shadow_power = closing_strength_score
+        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
+        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * trend_efficiency)**(1/5)
-        # 看跌复合状态分
-        upper_shadow_pressure = 1.0 - closing_strength_score # 新武器：收盘强度的反面代表上影线压力
-        bearish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window) # 新武器
-        auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window) # 新武器
+        upper_shadow_pressure = 1.0 - closing_strength_score
+        bearish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
+        auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         trend_inefficiency = 1 - trend_efficiency
         bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
-
-        # --- 步骤2 & 3: 在循环中分析动态并三维融合 ---
+        # [代码修改开始] 核心重构：计算统一动态强度，并将其注入复合状态
+        # --- 步骤2: 计算统一动态强度 (Unified Dynamic Intensity) ---
+        efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
+        gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
+        unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
+        # --- 步骤3: 动态注入，形成“动态复合状态分” ---
+        dynamic_bullish_composite = bullish_composite_state * unified_d_intensity
+        dynamic_bearish_composite = bearish_composite_state * unified_d_intensity
+        # [代码修改结束]
+        # --- 步骤4: 对全新的“动态复合状态分”进行三维时空分析 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            bullish_static_norm = normalize_score(bullish_composite_state, df.index, p, ascending=True)
-            bullish_slope_raw = bullish_composite_state.diff(p).fillna(0)
+            # [代码修改] 使用 dynamic_bullish_composite 替换 bullish_composite_state
+            bullish_static_norm = normalize_score(dynamic_bullish_composite, df.index, p, ascending=True)
+            bullish_slope_raw = dynamic_bullish_composite.diff(p).fillna(0)
             bullish_slope_norm = normalize_score(bullish_slope_raw, df.index, p, ascending=True)
             bullish_accel_raw = bullish_slope_raw.diff(1).fillna(0)
             bullish_accel_norm = normalize_score(bullish_accel_raw, df.index, p, ascending=True)
             tactical_bullish_health = (bullish_static_norm * bullish_slope_norm * bullish_accel_norm)**(1/3)
-            context_bullish_static_norm = normalize_score(bullish_composite_state, df.index, context_p, ascending=True)
+            context_bullish_static_norm = normalize_score(dynamic_bullish_composite, df.index, context_p, ascending=True)
             context_bullish_slope_norm = normalize_score(bullish_slope_raw, df.index, context_p, ascending=True)
             context_bullish_accel_norm = normalize_score(bullish_accel_raw, df.index, context_p, ascending=True)
             context_bullish_health = (context_bullish_static_norm * context_bullish_slope_norm * context_bullish_accel_norm)**(1/3)
             s_bull[p] = ((tactical_bullish_health * context_bullish_health)**0.5).astype(np.float32)
-            bearish_static_norm = normalize_score(bearish_composite_state, df.index, p, ascending=True)
-            bearish_slope_raw = bearish_composite_state.diff(p).fillna(0)
+            # [代码修改] 使用 dynamic_bearish_composite 替换 bearish_composite_state
+            bearish_static_norm = normalize_score(dynamic_bearish_composite, df.index, p, ascending=True)
+            bearish_slope_raw = dynamic_bearish_composite.diff(p).fillna(0)
             bearish_slope_norm = normalize_score(bearish_slope_raw, df.index, p, ascending=True)
             bearish_accel_raw = bearish_slope_raw.diff(1).fillna(0)
             bearish_accel_norm = normalize_score(bearish_accel_raw, df.index, p, ascending=True)
             tactical_bearish_health = (bearish_static_norm * bearish_slope_norm * bearish_accel_norm)**(1/3)
-            context_bearish_static_norm = normalize_score(bearish_composite_state, df.index, context_p, ascending=True)
+            context_bearish_static_norm = normalize_score(dynamic_bearish_composite, df.index, context_p, ascending=True)
             context_bearish_slope_norm = normalize_score(bearish_slope_raw, df.index, context_p, ascending=True)
             context_bearish_accel_norm = normalize_score(bearish_accel_raw, df.index, context_p, ascending=True)
             context_bearish_health = (context_bearish_static_norm * context_bearish_slope_norm * context_bearish_accel_norm)**(1/3)
             s_bear[p] = ((tactical_bearish_health * context_bearish_health)**0.5).astype(np.float32)
-        efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
-        gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
-        unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
         for p in periods:
-            d_intensity[p] = unified_d_intensity
+            d_intensity[p] = pd.Series(1.0, index=df.index, dtype=np.float32) # 返回1.0，使其在旧的乘法模式下无效
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # 以下方法被降级为私有，作为原子信号的生产者
