@@ -31,23 +31,18 @@ class AdvancedStructuralMetricsService:
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
-        【V1.1 · 标准化流程版】高级结构与行为指标预计算总指挥
-        - 核心升级: 调整了分钟数据的加载和处理流程，与筹码/资金流服务完全对齐。
-                      现在一次性加载区块数据并预分组为字典，再传递给锻造引擎。
+        【V1.2 · 原料审计版】高级结构与行为指标预计算总指挥
+        - 核心升级: 在锻造指标前，增加对分钟级原料数据的存在性校验。
         """
-        # 步骤 1: 初始化上下文，确定计算范围和目标数据表
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
-        # 步骤 2: 根据模式（全量/增量）确定需要处理的日期列表
         if not is_incremental_final:
-            # 全量模式：删除旧数据，获取该股票所有历史交易日
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
             all_dates_qs = DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         else:
-            # 增量/部分全量模式：删除指定日期之后的数据，获取需要重新计算的日期范围
             rollback_start_date = fetch_start_date if fetch_start_date else start_date_str
             if rollback_start_date:
                 await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=rollback_start_date).delete)()
@@ -57,34 +52,36 @@ class AdvancedStructuralMetricsService:
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] [结构指标] 没有需要处理的日期，任务结束。")
             return 0
-        # 步骤 3: 加载历史指标数据，为计算衍生指标（斜率、加速度）做准备
         initial_history_end_date = dates_to_process.min()
         historical_metrics_df = await self._load_historical_metrics(MetricsModel, stock_info, initial_history_end_date)
-        # 步骤 4: 分块处理，避免一次性加载过多分钟数据到内存
-        CHUNK_SIZE = 50 # 每次处理50个交易日
+        CHUNK_SIZE = 50
         all_new_core_metrics_df = pd.DataFrame()
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty:
                 continue
-            # [代码修改开始]
-            # 步骤 4.1: 为当前块加载所需的分钟级原始数据，并预分组为字典
             minute_data_map = await self._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
+            # [代码新增开始] 审计分钟数据是否覆盖了区块内的所有日期
+            processed_dates_in_chunk = set(minute_data_map.keys())
+            required_dates_in_chunk = set(chunk_dates.date)
+            missing_dates = required_dates_in_chunk - processed_dates_in_chunk
+            if missing_dates:
+                for missing_date in sorted(list(missing_dates)):
+                    logger.warning(f"[{stock_code}] [{missing_date}] 跳过结构指标计算，缺失当日全部的分钟数据。")
             if not minute_data_map:
+                logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何分钟数据，跳过整个区块。")
                 continue
-            # 步骤 4.2: 调用核心锻造引擎，计算高保真结构指标
-            chunk_new_metrics_df = self._forge_advanced_structural_metrics(minute_data_map)
+            # [代码新增结束]
+            # [代码修改开始] 将 stock_code 传递给锻造引擎
+            chunk_new_metrics_df = self._forge_advanced_structural_metrics(minute_data_map, stock_code)
             # [代码修改结束]
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
             return 0
-        # 步骤 5: 拼接历史数据与新数据，为计算衍生指标构建完整序列
         full_sequence_for_derivatives = pd.concat([historical_metrics_df, all_new_core_metrics_df])
         full_sequence_for_derivatives.sort_index(inplace=True)
-        # 步骤 6: 计算所有核心指标的斜率和加速度
         final_metrics_df = self._calculate_derivatives(stock_code, full_sequence_for_derivatives)
-        # 步骤 7: 筛选出本次计算的新数据，并存入数据库
         chunk_to_save = final_metrics_df[final_metrics_df.index.isin(all_new_core_metrics_df.index)]
         total_processed_count = await self._prepare_and_save_data(stock_info, MetricsModel, chunk_to_save)
         logger.info(f"[{stock_code}] [结构指标] 成功处理并保存了 {total_processed_count} 条高级结构与行为指标。")
@@ -161,11 +158,10 @@ class AdvancedStructuralMetricsService:
         minute_df['date'] = minute_df['trade_time'].dt.date
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 
-    def _forge_advanced_structural_metrics(self, minute_data_map: dict) -> pd.DataFrame:
+    def _forge_advanced_structural_metrics(self, minute_data_map: dict, stock_code: str) -> pd.DataFrame:
         """
-        【V2.8 · 日终事件分析版】高级结构与行为指标锻造核心引擎
-        - 核心升级: 新增对收盘集合竞价阶段的专门分析，提取“抢筹”或“派发”的战术信号。
-                      锻造 auction_volume_ratio, auction_price_impact, auction_conviction_index 三个新指标。
+        【V2.9 · 原料审计版】高级结构与行为指标锻造核心引擎
+        - 核心升级: 增强对分钟数据的校验，对数据不足的日期进行明确的日志记录并跳过。
         """
         if not minute_data_map:
             return pd.DataFrame()
@@ -177,20 +173,22 @@ class AdvancedStructuralMetricsService:
         TOTAL_TRADING_SECONDS = 14400
         LUNCH_BREAK_SECONDS = 5400
         for date, group in minute_data_map.items():
+            # [代码修改开始] 增强对分钟数据的校验和日志记录
             if group.empty or len(group) < 10:
+                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟数据不足 (记录数: {len(group)})。")
                 continue
+            # [代码修改结束]
             group = group.sort_values(by='trade_time', ascending=True).reset_index(drop=True)
             continuous_mask = group['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
             continuous_group = group[continuous_mask]
             if continuous_group.empty:
+                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，无连续交易时段的分钟数据。")
                 continue
-            # --- 基础变量计算 (使用全天数据 'group') ---
             day_open, day_high, day_low, day_close = group['open'].iloc[0], group['high'].max(), group['low'].min(), group['close'].iloc[-1]
             day_range = day_high - day_low
             day_range_safe = day_range if day_range > 0 else np.nan
             total_volume = group['vol'].sum()
             total_volume_safe = total_volume if total_volume > 0 else np.nan
-            # --- 过程形态类指标 (使用连续交易数据 'continuous_group') ---
             continuous_group = continuous_group.copy()
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'] = continuous_group['minute_vwap'].fillna(method='ffill').fillna(day_open)
@@ -208,7 +206,6 @@ class AdvancedStructuralMetricsService:
             ss_tot = np.sum((y - np.mean(y)) ** 2)
             intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
             is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(continuous_group)
-            # --- 全天总结性指标 (使用全天数据 'group') ---
             vwap = (group['amount']).sum() / total_volume_safe if pd.notna(total_volume_safe) else day_close
             vwap_pos = (vwap - day_low) / day_range_safe if pd.notna(day_range_safe) else 0.5
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
@@ -243,7 +240,6 @@ class AdvancedStructuralMetricsService:
             seconds_from_start[pm_mask] -= LUNCH_BREAK_SECONDS
             weighted_time = (seconds_from_start * group['vol']).sum()
             volume_weighted_time_index = weighted_time / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) and total_volume_safe > 0 else 0.5
-            # [代码新增开始] 集合竞价事件分析
             auction_volume_ratio = np.nan
             auction_price_impact = np.nan
             auction_conviction_index = np.nan
@@ -258,7 +254,6 @@ class AdvancedStructuralMetricsService:
                     auction_price_impact = (auction_close - last_continuous_close) / last_continuous_close
                 if pd.notna(auction_price_impact) and pd.notna(auction_volume_ratio):
                     auction_conviction_index = auction_price_impact * auction_volume_ratio * 100
-            # [代码新增结束]
             daily_metrics.append({
                 'trade_time': date,
                 'volume_weighted_close_position': vwap_pos,
@@ -278,11 +273,9 @@ class AdvancedStructuralMetricsService:
                 'volume_weighted_time_index': volume_weighted_time_index,
                 'is_intraday_bullish_divergence': is_intraday_bullish_divergence,
                 'is_intraday_bearish_divergence': is_intraday_bearish_divergence,
-                # [代码新增开始] 填入新的集合竞价指标
                 'auction_volume_ratio': auction_volume_ratio,
                 'auction_price_impact': auction_price_impact,
                 'auction_conviction_index': auction_conviction_index,
-                # [代码新增结束]
             })
         if not daily_metrics:
             return pd.DataFrame()

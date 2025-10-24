@@ -147,11 +147,21 @@ class AdvancedChipMetricsService:
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        # 移除用于探针的 is_first_day_in_batch 标记
+        # [代码新增开始] 定义筹码计算所必需的日度原料字段
+        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
+        # [代码新增结束]
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
+            # [代码新增开始] 审计当日的筹码原料数据
             context_data = daily_full_df.iloc[0].to_dict()
+            missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             chip_data_for_calc = daily_full_df[['price', 'percent']]
+            if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
+                missing_keys.append('valid_chip_distribution')
+            if missing_keys:
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
+                continue
+            # [代码新增结束]
             if chip_data_for_calc.empty: continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
@@ -172,7 +182,6 @@ class AdvancedChipMetricsService:
                 'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
-            
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:

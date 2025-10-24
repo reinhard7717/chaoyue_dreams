@@ -238,7 +238,9 @@ class AdvancedFundFlowMetricsService:
         existing_sources = [col for col in source_cols if col in df.columns]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped)
+            # [代码修改开始] 将 stock_code 传递给成本计算函数
+            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
+            # [代码修改结束]
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
@@ -314,26 +316,36 @@ class AdvancedFundFlowMetricsService:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
         return result_df, attributed_minute_map
 
-    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict]:
         """
-        【V6.1 · 竞价隔离版】计算概率成本时，仅使用连续交易时段的数据。
+        【V6.2 · 原料审计版】计算概率成本时，增加对上游资金流数据的存在性校验。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index), {}
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
+        # [代码新增开始] 定义成本计算所必需的日度资金流字段
+        required_daily_fund_flow_cols = [
+            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
+            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
+        ]
+        # [代码新增结束]
         from scipy.spatial.distance import jensenshannon
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            # [代码修改开始] 仅使用连续交易时段的数据进行成本归因
+            # [代码新增开始] 审计当日的资金流原料数据
+            missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
+            if missing_cols:
+                logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，缺失资金流原料数据: {missing_cols}")
+                continue
+            # [代码新增结束]
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_continuous.empty:
                 continue
             minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_continuous, daily_data)
-            # [代码修改结束]
             day_results = {'trade_time': date}
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
@@ -355,20 +367,15 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-            # [代码修改开始] 确保 volume_profile_jsd_vs_uniform 仅使用连续交易时段的成交量
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            # [代码修改结束]
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
                               (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
-            # [代码修改开始] total_day_vol 应该使用全天成交量，但这里计算的是连续交易时段的成交量，需要修正
-            total_continuous_vol = minute_data_for_day['vol_shares'].sum()
             total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100 # 使用日线数据中的全天成交量
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
-            # [代码修改结束]
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
