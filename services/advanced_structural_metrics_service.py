@@ -61,7 +61,7 @@ class AdvancedStructuralMetricsService:
             if chunk_dates.empty:
                 continue
             minute_data_map = await self._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            # [代码新增开始] 审计分钟数据是否覆盖了区块内的所有日期
+            # 审计分钟数据是否覆盖了区块内的所有日期
             processed_dates_in_chunk = set(minute_data_map.keys())
             required_dates_in_chunk = set(chunk_dates.date)
             missing_dates = required_dates_in_chunk - processed_dates_in_chunk
@@ -71,10 +71,10 @@ class AdvancedStructuralMetricsService:
             if not minute_data_map:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何分钟数据，跳过整个区块。")
                 continue
-            # [代码新增结束]
-            # [代码修改开始] 将 stock_code 传递给锻造引擎
+            
+            # 将 stock_code 传递给锻造引擎
             chunk_new_metrics_df = self._forge_advanced_structural_metrics(minute_data_map, stock_code)
-            # [代码修改结束]
+            
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
@@ -133,13 +133,13 @@ class AdvancedStructuralMetricsService:
             return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
-            # [代码修改开始] 强制按交易时间升序排序
+            # 强制按交易时间升序排序
             qs = model.objects.filter(
                 stock_id=stock_pk,
                 trade_time__gte=start_dt,
                 trade_time__lt=end_dt
             ).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
-            # [代码修改结束]
+            
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
@@ -173,11 +173,11 @@ class AdvancedStructuralMetricsService:
         TOTAL_TRADING_SECONDS = 14400
         LUNCH_BREAK_SECONDS = 5400
         for date, group in minute_data_map.items():
-            # [代码修改开始] 增强对分钟数据的校验和日志记录
+            # 增强对分钟数据的校验和日志记录
             if group.empty or len(group) < 10:
                 logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟数据不足 (记录数: {len(group)})。")
                 continue
-            # [代码修改结束]
+            
             group = group.sort_values(by='trade_time', ascending=True).reset_index(drop=True)
             continuous_mask = group['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
             continuous_group = group[continuous_mask]
@@ -288,17 +288,17 @@ class AdvancedStructuralMetricsService:
                       跳过对布尔型等不适合计算导数的指标的处理，避免引入噪音和无效计算。
         """
         derivatives_df = pd.DataFrame(index=metrics_df.index)
-        # [代码修改开始] 引入模型的排除列表
+        # 引入模型的排除列表
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedStructuralMetrics.SLOPE_ACCEL_EXCLUSIONS
-        # [代码修改结束]
+        
         ACCEL_WINDOW = 2
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for col in CORE_METRICS_TO_DERIVE:
-            # [代码新增开始] 检查指标是否在排除列表中
+            # 检查指标是否在排除列表中
             if col in SLOPE_ACCEL_EXCLUSIONS:
                 continue
-            # [代码新增结束]
+            
             if col in metrics_df.columns:
                 source_series = pd.to_numeric(metrics_df[col], errors='coerce')
                 if source_series.isnull().all():
@@ -412,10 +412,10 @@ class AdvancedStructuralMetricsService:
             else:
                 low_idx -= 1
                 current_volume += vol_below
-        # [代码修改开始] 确保边界是价格区间的精确边界
+        # 确保边界是价格区间的精确边界
         val = vp_sorted_by_price.index[low_idx].left
         vah = vp_sorted_by_price.index[high_idx].right
-        # [代码修改结束]
+        
         return vah, val
 
     def _detect_intraday_divergence(self, group: pd.DataFrame) -> tuple:
@@ -432,9 +432,9 @@ class AdvancedStructuralMetricsService:
         is_bearish_divergence = False
         if len(group) < 30:
             return is_bullish_divergence, is_bearish_divergence
-        # [代码修改开始] 直接使用主函数计算好的 minute_vwap
+        # 直接使用主函数计算好的 minute_vwap
         price_series = group['minute_vwap']
-        # [代码修改结束]
+        
         rsi_series = ta.rsi(price_series, length=14).dropna()
         if rsi_series.empty:
             return is_bullish_divergence, is_bearish_divergence

@@ -11,6 +11,10 @@
         "enabled": true,
         "description": "加载高级筹码指标，为筹码情报引擎提供基础数据。"
       },
+      "advanced_structural_metrics": {
+        "enabled": true,
+        "description": "加载高级结构与行为指标，为行为情报引擎提供高保真微观结构信号。"
+      },
       "ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 34, 55, 89, 144, 233, 377] }] },
       "ema": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 8, 13, 21, 34, 55, 89, 144, 233, 377] }] },
       "vol_ma": { "enabled": true, "configs": [{ "apply_on": ["D", "W"], "periods": [5, 13, 21, 55, 89, 144, 233, 377] }] },

@@ -147,12 +147,12 @@ class AdvancedChipMetricsService:
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        # [代码新增开始] 定义筹码计算所必需的日度原料字段
+        # 定义筹码计算所必需的日度原料字段
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
-        # [代码新增结束]
+        
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # [代码新增开始] 审计当日的筹码原料数据
+            # 审计当日的筹码原料数据
             context_data = daily_full_df.iloc[0].to_dict()
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             chip_data_for_calc = daily_full_df[['price', 'percent']]
@@ -161,7 +161,7 @@ class AdvancedChipMetricsService:
             if missing_keys:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
                 continue
-            # [代码新增结束]
+            
             if chip_data_for_calc.empty: continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
@@ -213,11 +213,11 @@ class AdvancedChipMetricsService:
         """
         if minute_df.empty: return minute_df
         df = minute_df.copy()
-        # [代码新增开始] 过滤集合竞价时段
+        # 过滤集合竞价时段
         CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
         df = df[df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME].copy()
         if df.empty: return df
-        # [代码新增结束]
+        
         df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
         df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce')
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
@@ -233,21 +233,21 @@ class AdvancedChipMetricsService:
         if not MinuteModel: return {}
         @sync_to_async(thread_sensitive=True)
         def get_data(model, stock_pk, start_dt, end_dt):
-            # [代码修改开始] 强制按交易时间升序排序
+            # 强制按交易时间升序排序
             qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
-            # [代码修改结束]
+            
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
         minute_df = await get_data(MinuteModel, stock_info.pk, start_datetime, end_datetime)
         if minute_df.empty: return {}
         minute_df['trade_time'] = pd.to_datetime(minute_df['trade_time'])
-        # [代码新增开始] 强制将时间戳转换为北京时间
+        # 强制将时间戳转换为北京时间
         if minute_df['trade_time'].dt.tz is not None:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
         else:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-        # [代码新增结束]
+        
         minute_df['date'] = minute_df['trade_time'].dt.date
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 
@@ -274,9 +274,9 @@ class AdvancedChipMetricsService:
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedChipMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
-        # [代码新增开始] 为加速度定义一个独立的、符合数学定义的短窗口
+        # 为加速度定义一个独立的、符合数学定义的短窗口
         ACCEL_WINDOW = 2
-        # [代码新增结束]
+        
         for col in CORE_METRICS_TO_DERIVE:
             if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
                 source_series = pd.to_numeric(consensus_df[col], errors='coerce')

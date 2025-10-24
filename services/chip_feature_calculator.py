@@ -684,10 +684,10 @@ class ChipFeatureCalculator:
 
     def _probe_chip_calculation_readiness(self):
         """【V-Probe 2.1 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
-        # [代码新增开始] 增加条件判断，仅在最后一天执行
+        # 增加条件判断，仅在最后一天执行
         if not self.ctx.get('is_last_day_in_batch', False):
             return
-        # [代码新增结束]
+        
         print("\n" + "="*20 + " 筹码计算战备状态探针 " + "="*20)
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
@@ -728,10 +728,10 @@ class ChipFeatureCalculator:
 
     def _probe_final_metrics(self, metrics: dict):
         """【V2.1 · 静默行军版】根据上下文标记，实现条件性日志输出。"""
-        # [代码新增开始] 增加条件判断，仅在最后一天执行
+        # 增加条件判断，仅在最后一天执行
         if not self.ctx.get('is_last_day_in_batch', False):
             return
-        # [代码新增结束]
+        
         print("--- [最终指标审查探针] ---")
         critical_metrics = [
             'peak_cost', 'concentration_90pct', 'winner_avg_cost',

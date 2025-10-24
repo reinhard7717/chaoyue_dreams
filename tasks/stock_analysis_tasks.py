@@ -783,7 +783,7 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_structural_metrics_for_stock for {stock_code}: {e}", exc_info=True)
         # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
         raise
-    # [代码新增结束]
+    
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
@@ -793,7 +793,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
                   直至 StockDailyBasic 的最新日期。
     """
     try:
-        # [代码新增开始] 智能日期决策模块
+        # 智能日期决策模块
         if start_date_str is None and is_incremental:
             from datetime import timedelta
             from stock_models.advanced_metrics import (
@@ -831,7 +831,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
                     return {"status": "skipped", "reason": "All metrics are up to date."}
                 start_date_str = start_date_obj.strftime('%Y-%m-%d')
                 print(f"✅✅✅ [总调度器] 自动检测到增量计算起始日期为: {start_date_str}")
-        # [代码新增结束]
+        
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")

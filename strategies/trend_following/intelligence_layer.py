@@ -71,7 +71,7 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         
-        # [代码修改开始] 重新编排指挥链
+        # 重新编排指挥链
         # --- 阶段一: 基础层 & 专业层情报生成 ---
         print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
@@ -106,7 +106,7 @@ class IntelligenceLayer:
         self.strategy.playbook_states.update(playbook_states)
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
-        # [代码修改结束]
+        
         
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         return self.strategy.trigger_events

@@ -224,7 +224,7 @@ def get_advanced_structural_metrics_model_by_code(stock_code: str):
     else:
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板高级结构指标表")
         return AdvancedStructuralMetrics_SZ
-    # [代码新增结束]
+    
 
 def get_price_limit_percent(stock_code: str) -> float:
     """

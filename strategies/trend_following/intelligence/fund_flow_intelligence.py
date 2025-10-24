@@ -119,7 +119,7 @@ class FundFlowIntelligence:
         scores = {}
         for i, p in enumerate(periods):
             context_p = periods[i + 1] if i + 1 < len(periods) else p
-            # [代码修改开始] 实施“状态-动态分离”模型
+            # 实施“状态-动态分离”模型
             # --- 看涨证据（权力向主力转移） ---
             # --- 维度1: 状态 (State) - 事件本身 ---
             # 评估“散户投降”和“主力支撑”这两个关键事件是否发生。
@@ -144,7 +144,7 @@ class FundFlowIntelligence:
             profit_taking_accel = df.get(f'ACCEL_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index))
             bearish_slope = cost_disadvantage_slope + profit_taking_slope
             bearish_accel = cost_disadvantage_accel + profit_taking_accel
-            # [代码修改结束]
+            
             # --- 融合计算 ---
             # 战术层 (p)
             tactical_bullish_static = normalize_score(bullish_static, df.index, p, ascending=True)

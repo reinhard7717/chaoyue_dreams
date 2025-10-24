@@ -484,15 +484,15 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volume_weighted_time_index': '成交量加权时间指数',
         'is_intraday_bullish_divergence': '是否存在日内底部背离',
         'is_intraday_bearish_divergence': '是否存在日内顶部背离',
-        # [代码新增开始] 新增集合竞价分析指标
+        # 新增集合竞价分析指标
         'auction_volume_ratio': '集合竞价成交量占比',
         'auction_price_impact': '集合竞价价格冲击',
         'auction_conviction_index': '集合竞价强度指数',
-        # [代码新增结束]
+        
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = ['is_intraday_bullish_divergence', 'is_intraday_bearish_divergence']
-    # [代码修改开始] 将新的竞价指标加入排除列表，因为它们是事件驱动型指标，不适合求导
+    # 将新的竞价指标加入排除列表，因为它们是事件驱动型指标，不适合求导
     SLOPE_ACCEL_EXCLUSIONS = [
         'is_intraday_bullish_divergence',
         'is_intraday_bearish_divergence',
@@ -500,7 +500,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'auction_price_impact',
         'auction_conviction_index',
     ]
-    # [代码修改结束]
+    
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)

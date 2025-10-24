@@ -949,7 +949,7 @@ class CognitiveIntelligence:
         states = {}
         norm_window = 55
         p = 5
-        # [代码修改开始] 使用新的代理信号重构“近期派发强度”的计算逻辑
+        # 使用新的代理信号重构“近期派发强度”的计算逻辑
         # --- 步骤1: 量化“近期派发强度”证据 ---
         # “筹码流向主力”的证据：成本发散（主力成本更低）且 散户正在投降式卖出
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
@@ -957,7 +957,7 @@ class CognitiveIntelligence:
         # “筹码流向散户”的证据：成本收敛 且 获利盘正在紧急了结
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
                      normalize_score(df.get(f'SLOPE_{p}_profit_taking_urgency_D'), df.index, norm_window, ascending=True))**0.5
-        # [代码修改结束]
+        
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
         recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
         # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 ---

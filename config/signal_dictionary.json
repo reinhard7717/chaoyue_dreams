@@ -717,44 +717,44 @@
             "description": "【筹码公理版】对“全息看跌共振”信号进行关系元分析，捕捉其从无到有、从弱到强的“加速度”，是识别筹码层面风险拐点的核心信号。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
-        "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
-            "cn_name": "【行为终极】看涨共振",
+        "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE": {
+            "cn_name": "【结构行为】看涨共振",
             "category": "行为层-机会",
             "type": "dynamic",
             "score": 180,
-            "description": "【C级基础信号】价格、成交量、K线形态在所有周期上形成看涨共振。"
+            "description": "【高保真版】基于日内趋势效率、下影线成交量、收盘强度等高保真微观结构信号，在多周期上形成的看涨共振。"
         },
-        "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
-            "cn_name": "【行为终极风险】看跌共振",
+        "SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE": {
+            "cn_name": "【结构行为风险】看跌共振",
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】价格、成交量、K线形态在所有周期上形成看跌共振。"
+            "description": "【高保真版】基于日内趋势效率、上影线成交量、收盘强度等高保真微观结构信号，在多周期上形成的看跌共振。"
         },
-        "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【行为终极】底部反转",
+        "SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL": {
+            "cn_name": "【结构行为】底部反转",
             "category": "行为层-机会",
             "type": "positional",
             "score": 350,
             "context_role": "bottom_opportunity",
-            "description": "【阿瑞斯之矛协议】行为动态健康度在【价格底部区域】形成强力反转信号。"
+            "description": "【高保真版】基于日内反转强度、底部背离、成交量分布等微观结构信号，在价格底部区域形成的强力反转信号。"
         },
-        "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
-            "cn_name": "【行为终极】战术反转",
+        "SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL": {
+            "cn_name": "【结构行为】战术反转",
             "category": "行为层-机会",
             "type": "dynamic",
             "score": 300,
             "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由价量行为健康、短期回调创造的战术性买入点。"
+            "description": "【高保真版】在上升趋势中，捕捉由健康的日内结构（如缩量、趋势线性度良好）创造的战术性回调买入点。"
         },
-        "SCORE_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【行为终极风险】顶部反转",
+        "SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL": {
+            "cn_name": "【结构行为风险】顶部反转",
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -400,
             "context_role": "top_risk",
-            "description": "【C级共振信号】行为动态健康度在顶部形成强力反转风险。"
+            "description": "【高保真版】基于日内反转强度、顶部背离、成交量分布等微观结构信号，在价格顶部区域形成的强力反转风险。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
         "SCORE_FF_BULLISH_RESONANCE": {

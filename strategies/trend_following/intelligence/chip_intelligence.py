@@ -31,14 +31,14 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
         all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
-        # [代码修改开始] 修正方法调用，补全缺失的 df 参数
+        # 修正方法调用，补全缺失的 df 参数
         ultimate_signals = self._synthesize_ultimate_signals(
             df,
             concentration_scores,
             accumulation_scores,
             power_transfer_scores
         )
-        # [代码修改结束]
+        
         all_chip_states.update(ultimate_signals)
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
@@ -121,7 +121,7 @@ class ChipIntelligence:
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 使用 pd.Series 包装默认值，确保数据类型安全
+            # 使用 pd.Series 包装默认值，确保数据类型安全
             # --- 看涨证据 ---
             bullish_evidence_static = df.get('concentration_increase_by_support_D', pd.Series(0, index=df.index)) + df.get('concentration_increase_by_chasing_D', pd.Series(0, index=df.index))
             bullish_evidence_slope = df.get(f'SLOPE_{p}_concentration_increase_by_support_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_concentration_increase_by_chasing_D', pd.Series(0, index=df.index))
@@ -130,7 +130,7 @@ class ChipIntelligence:
             bearish_evidence_static = df.get('concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get('concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
             bearish_evidence_slope = df.get(f'SLOPE_{p}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
             bearish_evidence_accel = df.get(f'ACCEL_{p}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
-            # [代码修改结束]
+            
             # 战术层 (p)
             tactical_bullish_static_score = normalize_score(bullish_evidence_static, df.index, p, ascending=True)
             tactical_bullish_slope_score = normalize_score(bullish_evidence_slope, df.index, p, ascending=True)
@@ -173,7 +173,7 @@ class ChipIntelligence:
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 使用 pd.Series 包装默认值，确保数据类型安全
+            # 使用 pd.Series 包装默认值，确保数据类型安全
             # --- 吸筹证据 ---
             accumulation_static = df.get('main_force_suppressive_accumulation_D', pd.Series(0, index=df.index)) + df.get('main_force_chasing_accumulation_D', pd.Series(0, index=df.index))
             accumulation_slope = df.get(f'SLOPE_{p}_main_force_suppressive_accumulation_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_main_force_chasing_accumulation_D', pd.Series(0, index=df.index))
@@ -182,7 +182,7 @@ class ChipIntelligence:
             distribution_static = df.get('main_force_rally_distribution_D', pd.Series(0, index=df.index)) + df.get('main_force_capitulation_distribution_D', pd.Series(0, index=df.index))
             distribution_slope = df.get(f'SLOPE_{p}_main_force_rally_distribution_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_main_force_capitulation_distribution_D', pd.Series(0, index=df.index))
             distribution_accel = df.get(f'ACCEL_{p}_main_force_rally_distribution_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p}_main_force_capitulation_distribution_D', pd.Series(0, index=df.index))
-            # [代码修改结束]
+            
             # 战术层
             tactical_acc_static = normalize_score(accumulation_static, df.index, p, ascending=True)
             tactical_acc_slope = normalize_score(accumulation_slope, df.index, p, ascending=True)
@@ -222,7 +222,7 @@ class ChipIntelligence:
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 使用 pd.Series 包装默认值，确保数据类型安全
+            # 使用 pd.Series 包装默认值，确保数据类型安全
             # --- 向主力转移的证据 ---
             transfer_to_main_static = df.get('short_term_capitulation_ratio_D', pd.Series(0, index=df.index)) + df.get('long_term_despair_selling_ratio_D', pd.Series(0, index=df.index))
             transfer_to_main_slope = df.get(f'SLOPE_{p}_short_term_capitulation_ratio_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_despair_selling_ratio_D', pd.Series(0, index=df.index))
@@ -231,7 +231,7 @@ class ChipIntelligence:
             transfer_to_retail_static = df.get('short_term_profit_taking_ratio_D', pd.Series(0, index=df.index)) + df.get('long_term_chips_unlocked_ratio_D', pd.Series(0, index=df.index))
             transfer_to_retail_slope = df.get(f'SLOPE_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0, index=df.index))
             transfer_to_retail_accel = df.get(f'ACCEL_{p}_short_term_profit_taking_ratio_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0, index=df.index))
-            # [代码修改结束]
+            
             # 战术层
             tactical_main_static = normalize_score(transfer_to_main_static, df.index, p, ascending=True)
             tactical_main_slope = normalize_score(transfer_to_main_slope, df.index, p, ascending=True)
@@ -391,11 +391,11 @@ class ChipIntelligence:
             for p_tactical in periods:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 final_fused_score += rally_scores_by_period.get(p_tactical, 0.0) * weight
-        # [代码新增开始] 融合新的“真实吸筹”信号
+        # 融合新的“真实吸筹”信号
         suppressive_accumulation = normalize_score(df.get('main_force_suppressive_accumulation_D', 0), df.index, 55, ascending=True)
         true_accumulation_score = np.maximum(final_fused_score, suppressive_accumulation)
         states['SCORE_CHIP_TRUE_ACCUMULATION'] = true_accumulation_score.clip(0, 1).astype(np.float32)
-        # [代码新增结束]
+        
         states['SCORE_CHIP_PB_RALLY_ACCUMULATION'] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 

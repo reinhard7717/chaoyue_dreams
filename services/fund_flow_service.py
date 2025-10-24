@@ -238,9 +238,9 @@ class AdvancedFundFlowMetricsService:
         existing_sources = [col for col in source_cols if col in df.columns]
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # [代码修改开始] 将 stock_code 传递给成本计算函数
+            # 将 stock_code 传递给成本计算函数
             pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
-            # [代码修改结束]
+            
             result_df = result_df.join(pvwap_costs_df)
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
@@ -324,23 +324,23 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame(index=daily_df.index), {}
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        # [代码新增开始] 定义成本计算所必需的日度资金流字段
+        # 定义成本计算所必需的日度资金流字段
         required_daily_fund_flow_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
-        # [代码新增结束]
+        
         from scipy.spatial.distance import jensenshannon
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            # [代码新增开始] 审计当日的资金流原料数据
+            # 审计当日的资金流原料数据
             missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
             if missing_cols:
                 logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，缺失资金流原料数据: {missing_cols}")
                 continue
-            # [代码新增结束]
+            
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_continuous.empty:
@@ -440,9 +440,9 @@ class AdvancedFundFlowMetricsService:
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
-        # [代码新增开始] 为加速度定义一个独立的、符合数学定义的短窗口
+        # 为加速度定义一个独立的、符合数学定义的短窗口
         ACCEL_WINDOW = 2
-        # [代码新增结束]
+        
         sum_cols = [
             'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
             'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
@@ -586,9 +586,9 @@ class AdvancedFundFlowMetricsService:
         for date, daily_data in daily_df.iterrows():
             if date not in minute_df_attributed_grouped:
                 continue
-            # [代码修改开始] minute_data_for_day 已经是连续交易时段的数据
+            # minute_data_for_day 已经是连续交易时段的数据
             minute_data_for_day = minute_df_attributed_grouped[date]
-            # [代码修改结束]
+            
             day_results = {'trade_time': date}
             minute_data_for_day['main_force_buy_vol'] = minute_data_for_day.get('lg_buy_vol_attr', 0) + minute_data_for_day.get('elg_buy_vol_attr', 0)
             minute_data_for_day['main_force_sell_vol'] = minute_data_for_day.get('lg_sell_vol_attr', 0) + minute_data_for_day.get('elg_sell_vol_attr', 0)
@@ -644,12 +644,12 @@ class AdvancedFundFlowMetricsService:
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            # [代码修改开始] 过滤出连续交易时段的数据
+            # 过滤出连续交易时段的数据
             minute_data_full = minute_df_grouped.loc[[date_key]]
             minute_data_for_day = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_for_day.empty:
                 continue
-            # [代码修改结束]
+            
             day_results = {'trade_time': date}
             minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
             day_results['intraday_volatility'] = minute_returns.std() if not minute_returns.empty else 0
@@ -658,9 +658,9 @@ class AdvancedFundFlowMetricsService:
             close_price = daily_data.get('close')
             price_range = intraday_high - intraday_low
             if pd.notna(close_price) and price_range > 0:
-                # [代码修改开始] 修正：使用全天收盘价与连续交易时段的极值计算强度
+                # 修正：使用全天收盘价与连续交易时段的极值计算强度
                 day_results['closing_strength_index'] = (close_price - intraday_low) / price_range
-                # [代码修改结束]
+                
             else:
                 day_results['closing_strength_index'] = np.nan
             daily_vwap = daily_data.get('daily_vwap')
@@ -668,7 +668,7 @@ class AdvancedFundFlowMetricsService:
                 day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
             else:
                 day_results['close_vs_vwap_ratio'] = np.nan
-            # [代码修改开始] final_hour_momentum 应该使用全天数据，但这里计算的是连续交易时段的最后部分
+            # final_hour_momentum 应该使用全天数据，但这里计算的是连续交易时段的最后部分
             # 重新定义 final_hour_momentum 为连续交易时段的最后半小时（14:00-14:57）
             trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
             final_hour_mask = trade_time_local.dt.hour >= 14
@@ -680,7 +680,7 @@ class AdvancedFundFlowMetricsService:
                 day_results['final_hour_momentum'] = final_hour_vol / total_day_vol
             else:
                 day_results['final_hour_momentum'] = np.nan
-            # [代码修改结束]
+            
             results[date] = day_results
         if not results:
             return pd.DataFrame()
@@ -773,12 +773,12 @@ class AdvancedFundFlowMetricsService:
         df = minute_df.copy()
         df.sort_values('trade_time', inplace=True)
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # [代码新增开始] 强制转换为北京时间，以便进行时间过滤
+        # 强制转换为北京时间，以便进行时间过滤
         if df['trade_time'].dt.tz is None:
             df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
         else:
             df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        # [代码新增结束]
+        
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
@@ -786,10 +786,10 @@ class AdvancedFundFlowMetricsService:
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        # [代码新增开始] 标记集合竞价时段
+        # 标记集合竞价时段
         CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
         df['is_continuous_trading'] = df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
-        # [代码新增结束]
+        
         return df.set_index('date')
 
     async def _load_historical_metrics(self, model, stock_info, end_date):

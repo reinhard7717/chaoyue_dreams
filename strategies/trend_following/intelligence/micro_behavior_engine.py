@@ -93,7 +93,7 @@ class MicroBehaviorEngine:
                 return (tactical_score * context_score)**0.5
             disguise_score = get_fused_pillar_score(f'trade_granularity_impact_D', ascending=False, period_t=p_tactical, period_c=p_context)
             
-            # [代码修改开始] 对“筹码归集”支柱进行三位一体升维
+            # 对“筹码归集”支柱进行三位一体升维
             chip_metric = 'concentration_90pct_D'
             chip_static = df.get(chip_metric, 0)
             chip_slope = df.get(f'SLOPE_{p_tactical}_{chip_metric}', 0)
@@ -109,7 +109,7 @@ class MicroBehaviorEngine:
             context_chip_accel = normalize_score(chip_accel, df.index, p_context, ascending=True)
             context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
             accumulation_score = (tactical_chip_quality * context_chip_quality)**0.5
-            # [代码修改结束]
+            
 
             vpa_inefficiency = get_fused_pillar_score('VPA_EFFICIENCY_D', ascending=False, period_t=p_tactical, period_c=p_context)
             price_stagnation = 1.0 - get_fused_pillar_score(df.get(f'SLOPE_{p_tactical}_close_D', pd.Series(0, index=df.index)).abs(), ascending=True, period_t=p_tactical, period_c=p_context)
@@ -139,7 +139,7 @@ class MicroBehaviorEngine:
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
             # --- 证据1: 表象矛盾 (分层计算) ---
-            # [代码修改开始] 使用四维质量评估主力资金流出
+            # 使用四维质量评估主力资金流出
             # 主力资金流出质量 (MFNF, ascending=False)
             main_force_outflow_quality = self._calculate_4d_metric_quality(
                 df, 'main_force_net_flow_consensus', p, context_p, ascending=False
@@ -152,7 +152,7 @@ class MicroBehaviorEngine:
             fused_source_divergence = (np.maximum(tactical_div_ts_ths, tactical_div_ts_dc) * np.maximum(context_div_ts_ths, context_div_ts_dc))**0.5
             # 融合：高质量的流出表象 * 高质量的分歧
             contradiction_flow_score = (main_force_outflow_quality * fused_source_divergence)**0.5
-            # [代码修改结束]
+            
             # --- 证据2: 价量矛盾 (分层计算) ---
             tactical_volume_spike = normalize_score(df['volume_D'], df.index, window=p, ascending=True)
             tactical_price_stagnation = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, window=p, ascending=True)
@@ -233,7 +233,7 @@ class MicroBehaviorEngine:
             context_alluring_rally = np.maximum(context_high_level_dist, context_limit_up_deception)
             alluring_rally_evidence = (tactical_alluring_rally * context_alluring_rally)**0.5
             # --- 证据链 2: 矛盾的博弈 (分层计算) ---
-            # [代码修改开始] 使用四维质量评估资金流
+            # 使用四维质量评估资金流
             # 主力日内获利 (状态)
             tactical_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)
             context_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_context, ascending=True)
@@ -248,7 +248,7 @@ class MicroBehaviorEngine:
             )
             # 融合：日内获利 * 高质量流出 * 高质量追涨
             contradiction_evidence = (fused_profit * outflow_quality * fomo_quality)**(1/3)
-            # [代码修改结束]
+            
             # --- 证据链 4: 恶化的结构 (筹码集中度衰减，已在筹码升维中修改) ---
             chip_metric = 'concentration_90pct'
             chip_static = df.get(f'{chip_metric}_D', 0)
