@@ -89,6 +89,54 @@
             "type": "context",
             "description": "【盖亚基石】动态计算出的、位于当前价格下方的最强MA支撑位。它是所有多头战术的最后防线和止损基准。"
         },
+        "SCORE_VOL_PRICE_IGNITION_STATE": {
+            "cn_name": "【内部】量价点火状态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子信号】量价齐升的静态得分。"
+        },
+        "SCORE_VOL_PRICE_IGNITION_DYNAMIC": {
+            "cn_name": "【内部】量价点火动态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子信号】量价齐升的动态趋势分。"
+        },
+        "SCORE_VOL_PRICE_PANIC_RISK_STATE": {
+            "cn_name": "【内部】恐慌抛售状态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子风险】量价齐跌的静态风险分。"
+        },
+        "SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC": {
+            "cn_name": "【内部】恐慌抛售动态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子风险】量价齐跌的动态趋势风险分。"
+        },
+        "SCORE_VOL_COMPRESSION_STATE": {
+            "cn_name": "【内部】波动率压缩状态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子信号】波动率压缩的静态得分。"
+        },
+        "SCORE_VOL_COMPRESSION_DYNAMIC": {
+            "cn_name": "【内部】波动率压缩动态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子信号】波动率压缩的动态趋势分。"
+        },
+        "SCORE_VOL_EXPANSION_RISK_STATE": {
+            "cn_name": "【内部】波动率扩张风险状态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子风险】波动率扩张的静态风险分。"
+        },
+        "SCORE_VOL_EXPANSION_RISK_DYNAMIC": {
+            "cn_name": "【内部】波动率扩张风险动态",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子风险】波动率扩张的动态趋势风险分。"
+        },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
             "cn_name": "【预测风险】高潮衰竭",
@@ -103,6 +151,93 @@
             "category": "预测层-机会",
             "type": "predictive",
             "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
+        },
+        "说明_atomic_and_tactical": "--- 原子与战术信号 ---",
+        "SCORE_CHIP_HADES_TRAP": {
+            "cn_name": "【筹码】哈迪斯陷阱",
+            "category": "筹码层-风险",
+            "type": "risk",
+            "penalty_weight": -100,
+            "description": "【战术风险】在潜在的底部反转区域，如果同时出现强烈的派发迹象，则构成“哈迪斯陷阱”，是诱多风险信号。"
+        },
+        "SCORE_CHIP_PB_RALLY_ACCUMULATION": {
+            "cn_name": "【筹码】拉升吸筹剧本",
+            "category": "筹码层-机会",
+            "type": "context",
+            "description": "【战术信号】识别在上升趋势中，筹码依然在集中，且获利盘惜售的行为。"
+        },
+        "SCORE_GAP_SUPPORT_ACTIVE": {
+            "cn_name": "【行为】缺口支撑",
+            "category": "行为层-机会",
+            "type": "context",
+            "description": "【原子信号】量化未回补的向上跳空缺口作为支撑的强度和有效性。"
+        },
+        "SCORE_KLINE_SHARP_DROP": {
+            "cn_name": "【行为风险】K线急跌",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -50,
+            "description": "【原子风险】对急跌行为的动态风险评估，融合了状态、速度和加速度。"
+        },
+        "SCORE_PRICE_POSITION_IN_RANGE": {
+            "cn_name": "【行为】收盘价位置",
+            "category": "行为层-环境",
+            "type": "context",
+            "description": "【原子信号】量化收盘价在当日K线振幅中的相对位置，[0, 1] 区间，越高代表收盘越强势。"
+        },
+        "SCORE_BOARD_EARTH_HEAVEN": {
+            "cn_name": "【行为】地天板",
+            "category": "行为层-机会",
+            "type": "context",
+            "description": "【原子信号】识别“地天板”模式的强度。"
+        },
+        "SCORE_BOARD_HEAVEN_EARTH": {
+            "cn_name": "【行为风险】天地板",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -500,
+            "description": "【原子风险】识别“天地板”模式的风险强度。"
+        },
+        "SCORE_RISK_UPTHRUST_DISTRIBUTION": {
+            "cn_name": "【行为风险】上冲派发",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -300,
+            "description": "【原子风险】识别高位放量但收盘疲弱的上冲派发行为。"
+        },
+        "SCORE_RISK_VPA_STAGNATION": {
+            "cn_name": "【行为风险】VPA滞涨",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -250,
+            "description": "【原子风险】识别成交量巨大但价格停滞不前的风险，通常是多空分歧加剧或派发的信号。"
+        },
+        "SCORE_VOL_WEAKENING_DROP": {
+            "cn_name": "【行为】缩量下跌",
+            "category": "行为层-机会",
+            "type": "context",
+            "description": "【原子信号】识别下跌过程中成交量萎缩的现象，是卖盘动能衰竭的潜在信号。"
+        },
+        "SCORE_RISK_LIQUIDITY_DRAIN": {
+            "cn_name": "【行为风险】流动性枯竭",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -200,
+            "description": "【原子风险】对持续缩量下跌可能引发流动性风险的动态评估。"
+        },
+        "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
+            "cn_name": "【行为】卖盘衰竭反转",
+            "category": "行为层-机会",
+            "type": "positional",
+            "score": 320,
+            "description": "【原子信号】融合了成交量枯竭、底部支撑、看涨背离和竞价强度，是识别卖盘力量耗尽后反转的复合信号。"
+        },
+        "SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT": {
+            "cn_name": "【基础】筹码断层突破",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【战术信号】基于筹码断层的强度和真空范围，评估潜在的突破机会。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {

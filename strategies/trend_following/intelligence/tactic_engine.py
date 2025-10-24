@@ -42,13 +42,13 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 资金流恐慌支柱版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 引入全新的“资金流恐慌”支柱，融合“散户投降分”与“主力吸筹行为”，
-                      从行为层面直接诊断恐慌抛售的真实性。
+        【V5.1 · 周期感知版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 引入全新的“周期波谷”支柱。一个发生在周期底部的恐慌抛售，其反转的确定性远高于其他位置，
+                      因此给予显著的权重加成，极大提升了信号的质量。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
-        p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
+        p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {})
         pillar_weights = get_param_value(p_panic.get('pillar_weights'), {})
         min_price_drop_pct = get_param_value(p_panic.get('min_price_drop_pct'), -0.025)
         intraday_low_pct_change = ((df['low_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)).clip(upper=0)
@@ -82,10 +82,13 @@ class TacticEngine:
         chip_integrity_score = 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BEARISH_RESONANCE')
         despair_context_score = self._calculate_despair_context_score(df, p_panic)
         structural_test_score = self.calculate_structural_test_score(df, p_panic)
-        # 引入全新的“资金流恐慌”支柱
         retail_capitulation = normalize_score(df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         main_force_absorption = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         fund_flow_panic_score = (retail_capitulation * main_force_absorption)**0.5
+        # [代码新增开始] 引入全新的“周期波谷”支柱
+        # 将相位[-1, 1]映射为分数[0, 1]，-1(波谷)对应1分，+1(波峰)对应0分
+        cyclical_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE')) / 2.0
+        # [代码新增结束]
         
         snapshot_panic = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
@@ -94,7 +97,8 @@ class TacticEngine:
             despair_context_score * pillar_weights.get('despair_context', 0) +
             structural_test_score * pillar_weights.get('structural_test', 0) +
             ma_health_score * pillar_weights.get('ma_structure', 0) +
-            fund_flow_panic_score * pillar_weights.get('fund_flow_panic', 0) # [代码修改] 将新支柱加入融合
+            fund_flow_panic_score * pillar_weights.get('fund_flow_panic', 0) +
+            cyclical_trough_score * pillar_weights.get('cyclical_trough', 0) # [代码修改] 将新支柱加入融合
         ).astype(np.float32)
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)

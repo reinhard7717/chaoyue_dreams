@@ -66,10 +66,12 @@ class PlaybookEngine:
 
     def define_trigger_events(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.1 · 信号净化版】战术触发事件定义中心
+        【V9.2 · 周期感知版】战术触发事件定义中心
+        - 核心升级: 为剧本触发器注入“周期意识”。
+          - [增强] 均值回归剧本：增加“强周期市”和“临近波谷”作为前置条件，极大提升其在震荡市中的胜率。
+          - [抑制] V型反转剧本：增加“非强周期市”作为抑制条件，避免在震荡行情中被假突破消耗。
         - 核心修复: 全面净化了所有触发器的定义，使其消费和生产的都是净化后的信号名。
         """
-        # print("      -> [战术触发事件定义中心 V9.1 · 信号净化版] 启动...") # 更新版本号
         triggers = {}
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -80,47 +82,44 @@ class PlaybookEngine:
         today_body_size = (df['close_D'] - df['open_D']).clip(lower=0)
         yesterday_body_size = (df['open_D'].shift(1) - df['close_D'].shift(1)).clip(lower=0)
         recovery_score = (today_body_size / yesterday_body_size.replace(0, np.nan)).clip(0, 2).fillna(0) / 2.0
-        
         lookback = get_param_value(p_dominant.get('position_lookback_days'), 60)
         rolling_high = df['high_D'].rolling(lookback).max()
         rolling_low = df['low_D'].rolling(lookback).min()
         price_range = (rolling_high - rolling_low).replace(0, 1e-9)
         price_position = ((df['close_D'] - rolling_low) / price_range).clip(0, 1).fillna(0.5)
         position_score = 1.0 - price_position
-        
-        # 消费净化后的信号名
         candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', default_score)
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score > get_param_value(p_dominant.get('trigger_threshold'), 0.4)
 
-        # --- 2. 定义剧本触发器 ---
-        # V型反转王牌剧本
-        # 消费净化后的信号名
+        # --- 2. 定义剧本触发器 (注入周期意识) ---
+        # [代码修改开始] 引入周期环境判断
+        p_cyclical = p_triggers.get('cyclical_bottom_fishing', {})
+        is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > get_param_value(p_cyclical.get('cyclical_regime_threshold'), 0.3)
+        is_near_trough = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE').fillna(0) < get_param_value(p_cyclical.get('phase_threshold'), -0.8)
+        is_not_strong_cyclical = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') < get_param_value(p_cyclical.get('strong_cyclical_suppression_threshold'), 0.7)
+        # [代码修改结束]
+
+        # V型反转王牌剧本 (趋势型，应在非周期市触发)
         setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING')
         was_setup_yesterday = setup_score.shift(1).fillna(0.0) > get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4)
-        # 生产净化后的信号名
-        triggers['TRIGGER_V_REVERSAL_ACE'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL']
+        # [代码修改] 增加周期抑制条件
+        triggers['TRIGGER_V_REVERSAL_ACE'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL'] & is_not_strong_cyclical
 
-        # 均值回归剧本
-        # 消费净化后的信号名
+        # 均值回归剧本 (周期型，应在周期市的波谷触发)
         mean_reversion_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY')
-        # 生产净化后的信号名
-        triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)
+        # [代码修改] 增加周期前置条件
+        triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = (mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)) & is_cyclical_regime & is_near_trough
 
-        # 周期底捞剧本 (新增)
-        p_cyclical = p_triggers.get('cyclical_bottom_fishing', {})
-        is_in_trough = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE').fillna(0) < get_param_value(p_cyclical.get('phase_threshold'), -0.8)
-        is_cyclical_regime = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') > get_param_value(p_cyclical.get('cyclical_regime_threshold'), 0.3)
-        # 生产净化后的信号名
+        # 周期底捞剧本 (周期型，逻辑已包含周期判断，保持不变)
         triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_in_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
         
-        # 定义新的“恐慌投降反转”剧本触发器
+        # 恐慌投降反转剧本
         p_capitulation = p_triggers.get('capitulation_reversal', {'trigger_threshold': 0.4})
         capitulation_reversal_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_CAPITULATION_REVERSAL')
         triggers['TRIGGER_CAPITULATION_REVERSAL'] = capitulation_reversal_score > get_param_value(p_capitulation.get('trigger_threshold'), 0.4)
 
-        # --- 3. 填充其他剧本的布尔状态 (这些剧本的逻辑已在TacticEngine中计算) ---
-        # 全面净化信号名
+        # --- 3. 填充其他剧本的布尔状态 ---
         playbook_signals = [
             'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION',
             'PLAYBOOK_BREAKOUT_EVE',
@@ -135,13 +134,7 @@ class PlaybookEngine:
         for signal_name in playbook_signals:
             triggers[signal_name] = self._get_atomic_score(df, signal_name, default=False).astype(bool)
 
-        # --- 4. 填充旧的、兼容性的触发器 (废弃) ---
-        # 废弃所有旧的、带后缀的触发器，以保持系统纯净
-        # ignition_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE')
-        # is_in_main_uptrend = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.5
-        # triggers['TRIGGER_UPTREND_IGNITION_RESONANCE'] = is_in_main_uptrend & (ignition_score > get_param_value(p_triggers.get('ignition_s_threshold'), 0.5))
-
-        # 确保所有触发器都是布尔类型
+        # --- 4. 确保所有触发器都是布尔类型 ---
         for key in list(triggers.keys()):
             if key in triggers and isinstance(triggers[key], pd.Series):
                  triggers[key] = triggers[key].fillna(False).astype(bool)
