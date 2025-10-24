@@ -32,6 +32,13 @@
             "type": "context",
             "description": "【筹码公理四】多时间级别(MTF)的筹码峰健康度动态分。这是一个字典，key为周期，value为该周期的动态分。评估核心筹码阵地的稳固性、控制力及攻防状态。"
         },
+        "SCORE_BEHAVIOR_SMART_INTRADAY_TRADING": {
+            "cn_name": "【行为】日内聪明钱交易",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【B级战术信号】融合了日内执行Alpha、收盘强度、午后动能和趋势效率，高精度识别由专业交易者主导的、具有持续性的上涨行为。"
+        },
         "SCORE_ATOMIC_STORM_BORN_POWER": {
             "cn_name": "【内部】风暴降生之力",
             "category": "内部计分-过程",

@@ -80,10 +80,13 @@ class BehavioralIntelligence:
     # 以下为新增的原子信号中心和降级的原子诊断引擎
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """【V1.4 · 升维兼容版】原子信号中心，负责生产所有基础行为信号。"""
+        """
+        【V1.5 · 火力升级与接口修复版】原子信号中心
+        - 核心修复: 修正了对 `_diagnose_volume_price_dynamics` 的调用，补全了缺失的 `params` 参数。
+        - 火力升级: 新增调用 `_diagnose_smart_intraday_trading` 引擎，引入“日内聪明钱”情报。
+        """
         atomic_signals = {}
         params = self.strategy.params
-        # 兼容升维后的原子信号（它们现在返回字典）
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
         continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
@@ -96,10 +99,14 @@ class BehavioralIntelligence:
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
-        atomic_signals.update(self._diagnose_volume_price_dynamics(df))
+        # [代码修改开始] 补全缺失的 params 参数
+        atomic_signals.update(self._diagnose_volume_price_dynamics(df, params))
+        # [代码修改结束]
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params)
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
-
+        # [代码新增开始] 新增调用“日内聪明钱”诊断引擎
+        atomic_signals.update(self._diagnose_smart_intraday_trading(df))
+        # [代码新增结束]
         return atomic_signals
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
@@ -527,6 +534,37 @@ class BehavioralIntelligence:
             snapshot_score=snapshot_score,
             signal_name='SCORE_ATOMIC_CONTINUATION_REVERSAL'
         )
+
+    def _diagnose_smart_intraday_trading(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“日内聪明钱”诊断引擎
+        - 核心逻辑: 融合四大日内行为指标，高精度识别由专业交易者主导的、具有持续性的上涨行为。
+                      1. 高执行Alpha: 低买高卖的能力。
+                      2. 强劲收盘: 巩固日内战果。
+                      3. 下午盘强于上午盘: 持续的买入意愿。
+                      4. 高效趋势: 流畅的攻击效率。
+        """
+        # [代码新增开始]
+        states = {}
+        signal_name = 'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING'
+        norm_window = 55
+        # 证据1: 高执行Alpha
+        execution_alpha = normalize_score(df.get('intraday_execution_alpha_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据2: 强劲收盘
+        closing_strength = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据3: 下午盘强于上午盘
+        afternoon_power = normalize_score(df.get('am_pm_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据4: 高效趋势
+        trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window, ascending=True)
+        # 融合四大证据，生成瞬时快照分
+        snapshot_score = (
+            execution_alpha * closing_strength * afternoon_power * trend_efficiency
+        )**(1/4)
+        # 对快照分进行关系元分析，得到最终的动态信号
+        final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
+        states.update(final_signal_dict)
+        return states
+        # [代码新增结束]
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """

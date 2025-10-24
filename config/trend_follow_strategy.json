@@ -85,7 +85,9 @@
         "profit_realization_premium_D": [1, 5, 13, 21, 55],
         "intraday_volume_gini_D": [1, 5, 13, 21, 55],
         "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
-        "retail_capitulation_distribution_D": [5, 13, 21, 55]
+        "retail_capitulation_distribution_D": [5, 13, 21, 55],
+        "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
+        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55]
       }
     },
     "accel_params": {
@@ -106,7 +108,9 @@
         "profit_realization_premium_D": [1, 5, 13, 21, 55],
         "intraday_volume_gini_D": [1, 5, 13, 21, 55],
         "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
-        "retail_capitulation_distribution_D": [5, 13, 21, 55]
+        "retail_capitulation_distribution_D": [5, 13, 21, 55],
+        "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
+        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55]
       }
     }
   },
