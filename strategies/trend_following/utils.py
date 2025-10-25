@@ -431,10 +431,10 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.4 · 罗塞塔石碑版】终极信号中央合成引擎
-    - 核心修复: 签署“罗塞塔石碑”协议。新增一个 `period_map`，用于将配置中抽象的权重键
-                  (如 'short', 'medium') 翻译为具体的周期数字 (如 5, 21)，解决了因键不匹配
-                  导致融合结果恒为零的致命BUG。
+    【V5.5 · 忒弥斯审判版】终极信号中央合成引擎
+    - 核心革命: 签署“忒弥斯审判”协议，修复了引擎只看s_bull而忽略s_bear的“单边失明”BUG。
+    - 升级逻辑: 在融合前，通过 s_bull - s_bear 计算出每个周期真正的【净双极性健康分】，
+                  确保后续的融合与转换操作基于市场的完整多空信息。
     """
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
@@ -465,8 +465,6 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
-    # 植入“罗塞塔石碑”
-    # 定义一个从抽象时间框架到具体周期数字的翻译地图
     period_map = {
         'short': 5,
         'medium': 21,
@@ -477,16 +475,25 @@ def transmute_health_to_ultimate_signals(
         total_weight = sum(weights.values())
         if total_weight > 0:
             for tf_name, weight in weights.items():
-                # 使用 period_map 进行翻译，获取正确的周期数字
                 period_key = period_map.get(tf_name)
-                if period_key is None: continue # 如果找不到映射，则跳过
-                # 使用翻译后的周期数字作为键来查找分数
+                if period_key is None: continue
                 final_score += health_dict.get(period_key, default_series) * (weight / total_weight)
         return final_score.clip(-1, 1)
-    
-    bipolar_health = overall_health['s_bull']
+    # [代码修改开始] 实施“忒弥斯的审判”
+    # 1. 构建一个真正包含净双极性健康分的字典
+    bipolar_health = {}
+    s_bull_dict = overall_health.get('s_bull', {})
+    s_bear_dict = overall_health.get('s_bear', {})
+    # 确保 periods 列表是可用的
+    available_periods = s_bull_dict.keys() | s_bear_dict.keys()
+    for p in available_periods:
+        s_bull = s_bull_dict.get(p, default_series)
+        s_bear = s_bear_dict.get(p, default_series)
+        bipolar_health[p] = s_bull - s_bear
+    # 2. 将正确的双极性健康分字典传递给融合函数
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
+    # [代码修改结束]
     final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, neutral_zone_threshold)
     final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, neutral_zone_threshold)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
