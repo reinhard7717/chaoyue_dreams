@@ -110,17 +110,24 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.5 · 宙斯雷霆敕令 I】结构与行为健康度计算核心引擎
-        - 核心革命: 遵循“先融合，后审判”的最高原则。本方法不再应用“壁炉协议”。
-                      它现在只负责计算并返回原始的、未经审判的、范围在[-1, 1]的“最终动态双极性健康分”。
-                      最终的审判权已上交至 `transmute_health_to_ultimate_signals`。
+        【V3.6 · 阿波罗的竖琴版】结构与行为健康度计算核心引擎
+        - 核心革命: 签署“阿波罗的竖琴”协议，废除旧的、复杂的、不稳定的健康度融合公式。
+                      1. [统一归一化] 对“状态、速度、加速度”全部使用 `normalize_to_bipolar`。
+                      2. [和谐融合] 使用与元分析相同的“加权算术平均”模型融合三维时空。
+                      3. [民主决策] 使用算术平均融合战术层与上下文层，废除符号独裁。
+        - 收益: 彻底解决了因融合逻辑脆弱而导致的信号意外归零问题，使健康度计算稳定可靠。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
+        # [代码新增开始] 从元分析配置中获取和谐的融合权重
+        p_meta = get_param_value(params.get('relational_meta_analysis_params'), {})
+        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        # [代码新增结束]
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # --- 步骤1: 构建原始的看涨/看跌复合状态信号 ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
         reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
@@ -135,39 +142,42 @@ class BehavioralIntelligence:
         auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         trend_inefficiency = 1 - trend_efficiency
         bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
-        # [代码修改开始] 遵循“宙斯雷霆敕令”
-        # --- 步骤2: 计算统一的“双极性复合状态分” ---
         bipolar_composite_state = (bullish_composite_state - bearish_composite_state).clip(-1, 1)
-        # --- 步骤3: 计算统一动态强度 ---
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
-        # --- 步骤4: 动态注入，形成“动态双极性复合状态分” ---
         dynamic_bipolar_composite = bipolar_composite_state * unified_d_intensity
-        # --- 步骤5: 对唯一的“动态双极性复合状态分”进行三维时空分析 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            static_norm_unipolar = normalize_score(dynamic_bipolar_composite, df.index, p, ascending=True)
-            static_norm_bipolar = (static_norm_unipolar * 2 - 1).clip(-1, 1)
+            # [代码修改开始] 实施“阿波罗的竖琴”协议
+            # 1. 统一归一化
+            state_norm_tactical = normalize_to_bipolar(dynamic_bipolar_composite, df.index, p)
             slope_raw = dynamic_bipolar_composite.diff(p).fillna(0)
-            slope_norm_bipolar = normalize_to_bipolar(slope_raw, df.index, p)
+            slope_norm_tactical = normalize_to_bipolar(slope_raw, df.index, p)
             accel_raw = slope_raw.diff(1).fillna(0)
-            accel_norm_bipolar = normalize_to_bipolar(accel_raw, df.index, p)
-            tactical_health_bipolar = (static_norm_bipolar.abs() * slope_norm_bipolar.abs() * accel_norm_bipolar.abs())**(1/3) * np.sign(static_norm_bipolar)
-            context_static_norm_unipolar = normalize_score(dynamic_bipolar_composite, df.index, context_p, ascending=True)
-            context_static_norm_bipolar = (context_static_norm_unipolar * 2 - 1).clip(-1, 1)
-            context_slope_norm_bipolar = normalize_to_bipolar(slope_raw, df.index, context_p)
-            context_accel_norm_bipolar = normalize_to_bipolar(accel_raw, df.index, context_p)
-            context_health_bipolar = (context_static_norm_bipolar.abs() * context_slope_norm_bipolar.abs() * context_accel_norm_bipolar.abs())**(1/3) * np.sign(context_static_norm_bipolar)
-            # --- 步骤6: 直接返回原始的、未经审判的最终动态双极性健康分 ---
-            final_dynamic_bipolar_health = (tactical_health_bipolar.abs() * context_health_bipolar.abs())**0.5 * np.sign(tactical_health_bipolar)
-            # s_bull 现在存储的是双极性分数，s_bear 只是一个占位符
+            accel_norm_tactical = normalize_to_bipolar(accel_raw, df.index, p)
+            # 2. 和谐融合 (战术层)
+            tactical_health_bipolar = (
+                state_norm_tactical * w_state +
+                slope_norm_tactical * w_velocity +
+                accel_norm_tactical * w_acceleration
+            ).clip(-1, 1)
+            # 为上下文层重复和谐融合过程
+            state_norm_context = normalize_to_bipolar(dynamic_bipolar_composite, df.index, context_p)
+            slope_norm_context = normalize_to_bipolar(slope_raw, df.index, context_p)
+            accel_norm_context = normalize_to_bipolar(accel_raw, df.index, context_p)
+            context_health_bipolar = (
+                state_norm_context * w_state +
+                slope_norm_context * w_velocity +
+                accel_norm_context * w_acceleration
+            ).clip(-1, 1)
+            # 3. 民主决策
+            final_dynamic_bipolar_health = (tactical_health_bipolar + context_health_bipolar) / 2.0
+            # [代码修改结束]
             s_bull[p] = final_dynamic_bipolar_health.astype(np.float32)
-            s_bear[p] = pd.Series(0.0, index=df.index, dtype=np.float32) # s_bear 将在上层被重新计算
-        # --- 步骤7: 将 d_intensity 降级为无意义的占位符 ---
+            s_bear[p] = pd.Series(0.0, index=df.index, dtype=np.float32)
         for p in periods:
             d_intensity[p] = pd.Series(1.0, index=df.index, dtype=np.float32)
-        # [代码修改结束]
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # 以下方法被降级为私有，作为原子信号的生产者
