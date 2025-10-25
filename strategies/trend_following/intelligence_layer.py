@@ -110,11 +110,11 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.5 · 行为探针激活版】法医探针调度中心
-        - 核心升级: 新增对“普罗米修斯火炬”行为探针的调度支持。
+        【V2.7 · 宙斯之雷版】法医探针调度中心
+        - 核心升级: 部署新的“宙斯之雷”探针，并移除旧的原子风险探针。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
-        if not debug_params.get('enabled', False):
+        if not debug_params.get('enabled', {}).get('value', False):
             return
         probe_dates_list = debug_params.get('probe_dates')
         if not probe_dates_list:
@@ -123,7 +123,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.5] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.7] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -143,10 +143,10 @@ class IntelligenceLayer:
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             if debug_params.get('enable_behavioral_probe', False):
                 self.probes._deploy_prometheus_torch_probe(probe_date)
-            if debug_params.get('enable_atomic_risk_probe', False):
-                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_KLINE_SHARP_DROP')
-                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_RISK_UPTHRUST_DISTRIBUTION')
-                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_RISK_VPA_STAGNATION')
+            # [代码修改开始] 部署新的上影线抛压探针
+            if debug_params.get('enable_selling_pressure_probe', False):
+                self.probes._deploy_selling_pressure_probe(probe_date)
+            # [代码修改结束]
             if debug_params.get('enable_chip_probe', False):
                 self.probes._deploy_hephaestus_forge_probe(probe_date)
             if debug_params.get('enable_dynamic_mechanics_probe', False):

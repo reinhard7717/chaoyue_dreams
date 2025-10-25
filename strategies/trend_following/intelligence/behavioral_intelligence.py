@@ -81,16 +81,14 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.7 · 赫尔墨斯敕令版】原子信号中心
-        - 核心重构: 在方法开始时，统一调用 `_calculate_day_quality_score` 计算K线质量分。
-        - 统一分发: 将计算出的 `day_quality_score` 作为统一的K线裁决标准，
-                      传递给所有需要判断K线看跌特征的风险信号诊断方法。
+        【V1.8 · 雅典娜敕令版】原子信号中心
+        - 核心重构: 统一计算K线质量分并传递给下游方法。
         """
         atomic_signals = {}
         params = self.strategy.params
-        # [代码新增开始] 统一计算K线质量分
+        # [代码修改开始] 统一计算K线质量分
         day_quality_score = self._calculate_day_quality_score(df)
-        # [代码新增结束]
+        # [代码修改结束]
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
         continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
@@ -99,7 +97,7 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # [代码修改开始] 将 day_quality_score 传递给下游方法
+        # [代码修改开始] 传递 day_quality_score
         atomic_signals.update(self._diagnose_kline_patterns(df, day_quality_score))
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
@@ -211,10 +209,10 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 雅典娜敕令版】诊断K线原子形态
-        - 核心修复: 贯彻“雅典娜敕令”，在风险驱动因子（drop_magnitude）计算的源头，
-                      就使用K线质量分进行过滤。确保只有在K线质量为负的日子里，
-                      “急跌”风险才会被纳入计算，实现逻辑的源头纯粹性。
+        【V3.5 · 宙斯之雷版】诊断K线原子形态
+        - 核心重构: 签署“宙斯之雷”协议，彻底废除并重写“K线急跌”信号。
+                      1. 信号更名: `SCORE_KLINE_SHARP_DROP` -> `SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`。
+                      2. 逻辑重铸: 采用全新的、基于“上影线比例”和“成交量”的高精度算法，精确量化日内抛压风险。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -230,30 +228,39 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-        p_atomic = p.get('atomic_behavior_params', {})
-        if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
-            periods = [1, 5, 13, 21, 55]
+        # [代码修改开始] 实施“宙斯之雷”协议，重铸信号
+        p_pressure = p.get('selling_pressure_params', {})
+        signal_name = 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'
+        if get_param_value(p_pressure.get('enabled'), True):
+            periods = get_param_value(p_pressure.get('periods'), [5, 13, 21, 55])
             sorted_periods = sorted(periods)
-            sharp_drop_scores = {}
-            # [代码修改开始] 实施“雅典娜敕令”，在源头过滤风险驱动因子
-            is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
-            # 只有在K线质量为负的日子里，才计算下跌幅度
-            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs() * is_bearish_quality_day_mask
-            # [代码修改结束]
+            pressure_scores = {}
+            # 1. 计算核心驱动因子：上影线比例
+            kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+            upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+            upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
             for i, p_tactical in enumerate(sorted_periods):
                 p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-                tactical_score = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
-                context_score = normalize_score(drop_magnitude, df.index, p_context, ascending=True)
-                sharp_drop_scores[p_tactical] = (tactical_score * context_score)**0.5
-            tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
+                # 2. 归一化驱动因子和确认因子
+                tactical_pressure = normalize_score(upper_shadow_ratio, df.index, p_tactical, ascending=True)
+                tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
+                context_pressure = normalize_score(upper_shadow_ratio, df.index, p_context, ascending=True)
+                context_volume = normalize_score(df['volume_D'], df.index, p_context, ascending=True)
+                # 3. 融合得到单周期快照分
+                fused_pressure = (tactical_pressure * context_pressure)**0.5
+                fused_volume = (tactical_volume * context_volume)**0.5
+                pressure_scores[p_tactical] = (fused_pressure * fused_volume)**0.5
+            # 4. 多周期融合得到最终信号
+            tf_weights = get_param_value(p_pressure.get('tf_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
             numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
             total_weight = sum(numeric_tf_weights.values())
             if total_weight > 0:
                 for p_tactical in periods:
                     weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
-                    final_fused_snapshot_score += sharp_drop_scores.get(p_tactical, 0.0) * weight
-            states['SCORE_KLINE_SHARP_DROP'] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
+                    final_fused_snapshot_score += pressure_scores.get(p_tactical, 0.0) * weight
+            states[signal_name] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
