@@ -37,10 +37,9 @@ class IntelligenceLayer:
         self.strategy = strategy_instance
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
-        # 实例化所有子模块，注入依赖
         self.foundation_intel = FoundationIntelligence(self.strategy)
-        self.structural_intel = StructuralIntelligence(self.strategy, {}) # dynamic_thresholds 已废弃
-        self.chip_intel = ChipIntelligence(self.strategy, {}) # dynamic_thresholds 已废弃
+        self.structural_intel = StructuralIntelligence(self.strategy, {})
+        self.chip_intel = ChipIntelligence(self.strategy, {})
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
@@ -50,9 +49,7 @@ class IntelligenceLayer:
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
-        # 实例化先知引擎
         self.predictive_intel = PredictiveIntelligence(self.strategy)
-        # 实例化法医探针集合
         self.probes = ForensicProbes(self)
 
     def run_all_diagnostics(self) -> Dict:
@@ -154,6 +151,8 @@ class IntelligenceLayer:
                 self.probes._deploy_apollos_lyre_probe(probe_date)
             if debug_params.get('enable_fund_flow_probe', False):
                 self.probes._deploy_poseidons_trident_probe(probe_date)
+            if debug_params.get('enable_process_probe', False):
+                self.probes._deploy_themis_scales_probe(probe_date, 'PROCESS_META_PD_DIVERGENCE_CONFIRM')
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

@@ -27,6 +27,7 @@ class ForensicProbes:
         self.mechanics_engine = intelligence_layer_instance.mechanics_engine
         # 为新的基础探针获取 foundation_intel 引用
         self.foundation_intel = intelligence_layer_instance.foundation_intel
+        self.process_intel = intelligence_layer_instance.process_intel
         # [代码新增结束]
 
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
@@ -849,7 +850,74 @@ class ForensicProbes:
         print(f"  [趋势调节后] 最终看涨共振: {final_bull_res:.4f} | 最终看跌共振: {final_bear_res:.4f}")
         print("\n--- “波塞冬的三叉戟”探针解剖完毕 ---")
 
-
+    def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
+        """
+        【V1.0 · 新增】“忒弥斯的天平”探针 - 过程情报引擎深度解剖
+        - 核心使命: 对指定的过程信号进行外科手术式解剖，完全透明化从原始指标到最终信号的全链路计算过程。
+        """
+        print("\n" + "="*35 + f" [过程探针] 正在启用 ⚖️【忒弥斯的天平 · 过程引擎解剖 V1.0】⚖️ " + "="*35)
+        print(f"  [目标信号]: {signal_to_probe}")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.process_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        # 从引擎配置中找到目标信号的配置
+        target_config = next((c for c in engine.diagnostics_config if c.get('name') == signal_to_probe), None)
+        if not target_config:
+            print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
+            return
+        print("\n  [链路层 1] 最终判决 (Final Verdict)")
+        final_score_actual = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
+        print(f"    - 【最终得分】: {final_score_actual:.4f}")
+        print("\n  [链路层 2] 法庭裁决 (Court's Ruling)")
+        diagnosis_mode = target_config.get('diagnosis_mode', 'meta_analysis')
+        print(f"    - [诊断模式]: {diagnosis_mode}")
+        if diagnosis_mode != 'direct_confirmation':
+            print("    - [警告] 此信号未使用'direct_confirmation'模式，其最终得分经过了趋势和加速度的元分析，可能与瞬时关系分不同。")
+        print("\n  [链路层 3] 天平本身 (The Scales Themselves) - 瞬时关系分解")
+        signal_a_name = target_config.get('signal_A')
+        signal_b_name = target_config.get('signal_B')
+        k = target_config.get('signal_b_factor_k', 1.0)
+        print(f"    - [公式]: relationship_score = (k * thrust_b - momentum_a) / (k + 1)")
+        print(f"    - [参数]: k = {k}")
+        # 3.1 原始输入
+        raw_a = get_val(df.get(signal_a_name), probe_date)
+        raw_b = get_val(df.get(signal_b_name), probe_date)
+        print("    - [原始输入 Raw Inputs]:")
+        print(f"      - Signal A ({signal_a_name}): {raw_a:.4f}")
+        print(f"      - Signal B ({signal_b_name}): {raw_b:.4f}")
+        # 3.2 一阶变化
+        change_a = ta.percent_return(df.get(signal_a_name), length=1).fillna(0)
+        change_b = ta.percent_return(df.get(signal_b_name), length=1).fillna(0)
+        change_a_val = get_val(change_a, probe_date)
+        change_b_val = get_val(change_b, probe_date)
+        print("    - [一阶变化 Percent Change]:")
+        print(f"      - Change A: {change_a_val:.4f}")
+        print(f"      - Change B: {change_b_val:.4f}")
+        # 3.3 动量归一
+        momentum_a = normalize_to_bipolar(change_a, df.index, engine.std_window, engine.bipolar_sensitivity)
+        thrust_b = normalize_to_bipolar(change_b, df.index, engine.std_window, engine.bipolar_sensitivity)
+        momentum_a_val = get_val(momentum_a, probe_date)
+        thrust_b_val = get_val(thrust_b, probe_date)
+        print("    - [动量归一 Bipolar Momentum]:")
+        print(f"      - momentum_a (A的动量): {momentum_a_val:.4f}")
+        print(f"      - thrust_b (B的动量):   {thrust_b_val:.4f}")
+        # 3.4 公式演算
+        recalc_score_unclipped = (k * thrust_b_val - momentum_a_val) / (k + 1)
+        recalc_score_clipped = np.clip(recalc_score_unclipped, -1, 1)
+        print("    - [公式演算 Formula Calculation]:")
+        print(f"      - 计算过程: ({k:.2f} * {thrust_b_val:.4f} - {momentum_a_val:.4f}) / ({k:.2f} + 1) = {recalc_score_unclipped:.4f}")
+        print(f"      - Clip前得分: {recalc_score_unclipped:.4f}")
+        print(f"      - Clip后得分: {recalc_score_clipped:.4f}")
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
+        # 因为是 direct_confirmation 模式，瞬时关系分就是最终分
+        final_score_recalc = recalc_score_clipped
+        print(f"    - [探针重算]: {final_score_recalc:.4f}")
+        print(f"    - [对比]: 实际值 {final_score_actual:.4f} vs 重算值 {final_score_recalc:.4f} -> {'✅ 一致' if np.isclose(final_score_actual, final_score_recalc) else '❌ 不一致'}")
+        print("\n--- “忒弥斯的天平”探针解剖完毕 ---")
 
 
 
