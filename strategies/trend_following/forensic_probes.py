@@ -933,6 +933,84 @@ class ForensicProbes:
         print(f"    - [对比]: 实际值 {final_score_actual:.4f} vs 重算值 {final_score_recalc:.4f} -> {'✅ 一致' if np.isclose(final_score_actual, final_score_recalc) else '❌ 不一致'}")
         print("\n--- “忒弥斯的天平”探针解剖完毕 ---")
 
+    def _deploy_zeus_edict_probe(self, probe_date: pd.Timestamp, signal_name: str):
+        """
+        【V1.0 · 新增】“宙斯敕令 · 真理之镜”探针
+        - 核心使命: 专门用于解剖那些本应只返回“事件状态”快照分的原子风险信号。
+        - 验证逻辑: 严格按照“宙斯敕令”协议，只计算并验证多周期融合的快照分，
+                      以此来揭示主系统是否仍在错误地运行包含动态分析的“幽灵代码”。
+        """
+        print("\n" + "="*35 + f" [原子风险探针] 正在启用 🔍【真理之镜 · {signal_name} 解剖】🔍 " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.strategy.intelligence_layer.behavioral_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        print("\n  [链路层 1] 实际值 (Actual Value from System)")
+        actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【系统实际输出】: {actual_score:.4f}")
+        print("\n  [链路层 2] 快照分重算 (Snapshot Recalculation via Zeus's Edict)")
+        recalc_snapshot_score = 0.0
+        periods = [5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        snapshot_scores_by_period = {}
+        if signal_name == 'SCORE_KLINE_SHARP_DROP':
+            print("    - [诊断目标]: K线急跌")
+            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+            for i, p_tactical in enumerate(sorted_periods):
+                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+                tactical_score = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
+                context_score = normalize_score(drop_magnitude, df.index, p_context, ascending=True)
+                snapshot_scores_by_period[p_tactical] = (tactical_score * context_score)**0.5
+        elif signal_name == 'SCORE_RISK_UPTHRUST_DISTRIBUTION':
+            print("    - [诊断目标]: 上冲派发")
+            p_upthrust = get_params_block(self.strategy, 'upthrust_distribution_params', {})
+            overextension_ma_period = get_param_value(p_upthrust.get('overextension_ma_period'), 55)
+            ma_col = f'EMA_{overextension_ma_period}_D'
+            weak_close_score = 1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)
+            overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
+            for i, p_tactical in enumerate(sorted_periods):
+                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+                tactical_overextension = normalize_score(overextension_ratio, df.index, p_tactical, ascending=True)
+                tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
+                context_overextension = normalize_score(overextension_ratio, df.index, p_context, ascending=True)
+                context_volume = normalize_score(df['volume_D'], df.index, p_context, ascending=True)
+                fused_overextension = (tactical_overextension * context_overextension)**0.5
+                fused_volume = (tactical_volume * context_volume)**0.5
+                snapshot_scores_by_period[p_tactical] = (fused_overextension * fused_volume * weak_close_score)
+        elif signal_name == 'SCORE_RISK_VPA_STAGNATION':
+            print("    - [诊断目标]: VPA滞涨")
+            for i, p_tactical in enumerate(sorted_periods):
+                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
+                tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
+                tactical_huge_volume = normalize_score(tactical_volume_ratio, df.index, p_tactical, ascending=True)
+                tactical_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_tactical, ascending=True)
+                tactical_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_tactical, ascending=True)
+                tactical_price_stagnant = (tactical_low_efficiency * tactical_high_volatility)**0.5
+                context_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_context}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_context}_D' in df else pd.Series(1.0, index=df.index)
+                context_huge_volume = normalize_score(context_volume_ratio, df.index, p_context, ascending=True)
+                context_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_context, ascending=True)
+                context_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_context, ascending=True)
+                context_price_stagnant = (context_low_efficiency * context_high_volatility)**0.5
+                fused_huge_volume = (tactical_huge_volume * context_huge_volume)**0.5
+                fused_price_stagnant = (tactical_price_stagnant * context_price_stagnant)**0.5
+                snapshot_scores_by_period[p_tactical] = (fused_huge_volume * fused_price_stagnant)
+        if total_weight > 0:
+            for p_tactical in periods:
+                weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
+                recalc_snapshot_score += get_val(snapshot_scores_by_period.get(p_tactical, pd.Series(0.0, index=df.index)), probe_date, 0.0) * weight
+        recalc_snapshot_score = np.clip(recalc_snapshot_score, 0, 1)
+        print(f"    - 【探针重算快照分】: {recalc_snapshot_score:.4f}")
+        print("\n  [链路层 3] 最终对质 (Final Verdict)")
+        print(f"    - [对比]: 系统实际值 {actual_score:.4f} vs. 探针正确值 {recalc_snapshot_score:.4f} -> {'❓ 存在幽灵代码' if not np.isclose(actual_score, recalc_snapshot_score) else '✅ 代码同步'}")
+        if not np.isclose(actual_score, recalc_snapshot_score):
+            print("    - [诊断结论]: 系统输出与正确逻辑不符！极有可能是系统正在运行一个旧版本的、包含错误动态分析的'幽灵代码'。请立即用最新代码覆盖！")
+        print("\n--- “真理之镜”探针解剖完毕 ---")
 
 
 

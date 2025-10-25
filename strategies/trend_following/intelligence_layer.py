@@ -143,6 +143,10 @@ class IntelligenceLayer:
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             if debug_params.get('enable_behavioral_probe', False):
                 self.probes._deploy_prometheus_torch_probe(probe_date)
+            if debug_params.get('enable_atomic_risk_probe', False):
+                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_KLINE_SHARP_DROP')
+                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_RISK_UPTHRUST_DISTRIBUTION')
+                self.probes._deploy_zeus_edict_probe(probe_date, 'SCORE_RISK_VPA_STAGNATION')
             if debug_params.get('enable_chip_probe', False):
                 self.probes._deploy_hephaestus_forge_probe(probe_date)
             if debug_params.get('enable_dynamic_mechanics_probe', False):
