@@ -496,11 +496,13 @@ class ForensicProbes:
 
     def _deploy_apollos_lyre_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“阿波罗的七弦琴”探针 - 基础情报引擎全要素解剖
-        - 核心功能: 逐层解剖基础情报引擎的计算过程，从四大支柱的健康度，到最终信号的合成，确保逻辑透明。
-                      并深入解剖其中一个支柱（RSI）的元分析过程。
+        【V1.1 · 阿波罗审判同步版】“阿波罗的七弦琴”探针
+        - 核心重构: 与基础引擎V15.0“阿波罗审判”协议完全同步。
+                      1. [逻辑对齐] 探针现在正确地处理支柱函数返回的单一双极性快照分。
+                      2. [流程再现] 精确再现了“快照融合 -> 元分析 -> 健康度派生”的新流程。
+                      3. [深度解剖升级] 元分析的深度解剖现在作用于“融合后”的快照分，更具实战意义。
         """
-        print("\n" + "="*35 + f" [基础探针] 正在奏响 🎵【阿波罗的七弦琴 · 基础引擎解剖 V1.0】🎵 " + "="*35)
+        print("\n" + "="*35 + f" [基础探针] 正在奏响 🎵【阿波罗的七弦琴 · 基础引擎解剖 V1.1】🎵 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.foundation_intel
@@ -521,12 +523,8 @@ class ForensicProbes:
         print(f"    - 【看跌共振】: {bear_res_actual:.4f}")
         print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
         print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
-        print("\n  [链路层 2] 四大支柱健康度 (Pillar Health) - 七弦琴的四根主弦")
-        overall_health = atomic.get('__FOUNDATION_overall_health', {})
-        if not overall_health:
-            print("    - [错误] 无法在 atomic_states 中找到 '__FOUNDATION_overall_health'，无法进行解剖。")
-            return
-        pillar_health_scores = {}
+        # [代码修改开始] 探针逻辑与引擎V15.0完全同步
+        print("\n  [链路层 2] 四大支柱快照分 (Pillar Snapshots) - 七弦琴的四根主弦")
         ma_context_score = engine._calculate_ma_trend_context(df, [5, 13, 21, 55])
         calculators = {
             'ema': lambda: engine._calculate_ema_health(df, norm_window, periods),
@@ -534,30 +532,34 @@ class ForensicProbes:
             'macd': lambda: engine._calculate_macd_health(df, norm_window, periods, ma_context_score),
             'cmf': lambda: engine._calculate_cmf_health(df, norm_window, periods, ma_context_score)
         }
+        pillar_snapshots = {}
         for name, calculator in calculators.items():
-            s_bull, s_bear, _ = calculator()
-            pillar_health_scores[name] = {
-                's_bull': get_val(s_bull.get(5), probe_date, 0.5), # 以p=5为例
-                's_bear': get_val(s_bear.get(5), probe_date, 0.5)
-            }
-            print(f"    - [支柱: {name.upper()}] 看涨健康度: {pillar_health_scores[name]['s_bull']:.4f}, 看跌健康度: {pillar_health_scores[name]['s_bear']:.4f}")
-        print("\n  [链路层 3] 支柱融合 (Pillar Fusion)")
+            snapshot_series = calculator() # 修正：现在接收单一的Series
+            pillar_snapshots[name] = snapshot_series
+            print(f"    - [支柱: {name.upper()}] 双极性快照分: {get_val(snapshot_series, probe_date):.4f}")
+        print("\n  [链路层 3] 快照融合 (Snapshot Fusion)")
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         print(f"    - [支柱权重]: {json.dumps(pillar_weights)}")
-        s_bull_p5_actual = get_val(overall_health.get('s_bull', {}).get(5), probe_date)
-        s_bear_p5_actual = get_val(overall_health.get('s_bear', {}).get(5), probe_date)
-        print(f"    - [融合结果 p=5] 实际看涨健康度: {s_bull_p5_actual:.4f}, 实际看跌健康度: {s_bear_p5_actual:.4f}")
-        print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (以 RSI 支柱为例)")
+        weight_keys = list(pillar_snapshots.keys())
+        weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
+        weights_array /= weights_array.sum()
+        stacked_snapshots = np.stack([s.fillna(0.0).values for s in pillar_snapshots.values()], axis=0)
+        fused_bipolar_snapshot_series = pd.Series(
+            np.sum(stacked_snapshots * weights_array[:, np.newaxis], axis=0),
+            index=df.index, dtype=np.float32
+        ).clip(-1, 1)
+        fused_snapshot_val = get_val(fused_bipolar_snapshot_series, probe_date)
+        print(f"    - [融合结果] 融合后双极性快照分: {fused_snapshot_val:.4f}")
+        print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (作用于融合快照)")
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         meta_window = 5
         bipolar_sensitivity = 1.0
-        rsi_series = df.get('RSI_13_D')
-        snapshot_series = normalize_score(rsi_series, df.index, norm_window, ascending=True)
+        snapshot_series = fused_bipolar_snapshot_series
         snapshot_val = get_val(snapshot_series, probe_date)
-        print(f"    - [输入 Input]: RSI快照分(State) = {snapshot_val:.4f}, 权重(W_s, W_v, W_a) = ({w_state}, {w_velocity}, {w_acceleration})")
+        print(f"    - [输入 Input]: 融合快照分(State) = {snapshot_val:.4f}, 权重(W_s, W_v, W_a) = ({w_state}, {w_velocity}, {w_acceleration})")
         relationship_trend = snapshot_series.diff(meta_window).fillna(0)
         velocity_score_series = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
         velocity_val = get_val(velocity_score_series, probe_date)
@@ -566,15 +568,29 @@ class ForensicProbes:
         acceleration_score_series = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
         acceleration_val = get_val(acceleration_score_series, probe_date)
         print(f"    - [加速度维度 Acceleration]: 加速度分 = {acceleration_val:.4f}")
-        # 模拟引擎内的计算
-        recalc_health = (snapshot_val * w_state + velocity_val * w_velocity + acceleration_val * w_acceleration).clip(0, 1)
-        recalc_s_bull = recalc_health
-        recalc_s_bear = 0.0 # 因为旧逻辑永远不会产生负分
-        print(f"    - [旧协议裁决]: (s:{snapshot_val:.2f}*w:{w_state}) + (v:{velocity_val:.2f}*w:{w_velocity}) + (a:{acceleration_val:.2f}*w:{w_acceleration}) = {recalc_health:.4f}")
-        print(f"      - 最终健康分 (探针重算): {recalc_health:.4f} -> s_bull: {recalc_s_bull:.4f}, s_bear: {recalc_s_bear:.4f}")
-        rsi_health = pillar_health_scores.get('rsi', {})
-        print(f"    - [内部验证]: 实际值 (s_bull:{rsi_health.get('s_bull'):.4f}, s_bear:{rsi_health.get('s_bear'):.4f}) vs. 探针重算 (s_bull:{recalc_s_bull:.4f}, s_bear:{recalc_s_bear:.4f}) -> {'✅ 一致' if np.isclose(rsi_health.get('s_bull'), recalc_s_bull) and np.isclose(rsi_health.get('s_bear'), recalc_s_bear) else '❌ 不一致'}")
+        bullish_state = max(0, snapshot_val)
+        bullish_velocity = max(0, velocity_val)
+        bullish_acceleration = max(0, acceleration_val)
+        total_bullish_force = (bullish_state * w_state + bullish_velocity * w_velocity + bullish_acceleration * w_acceleration)
+        bearish_state = max(0, -snapshot_val)
+        bearish_velocity = max(0, -velocity_val)
+        bearish_acceleration = max(0, -acceleration_val)
+        total_bearish_force = (bearish_state * w_state + bearish_velocity * w_velocity + bearish_acceleration * w_acceleration)
+        recalc_health = np.clip(total_bullish_force - total_bearish_force, -1, 1)
+        print(f"    - [双子座裁决 Gemini Adjudication]:")
+        print(f"      - 看涨力量: (s:{bullish_state:.2f}*w:{w_state}) + (v:{bullish_velocity:.2f}*w:{w_velocity}) + (a:{bullish_acceleration:.2f}*w:{w_acceleration}) = {total_bullish_force:.4f}")
+        print(f"      - 看跌力量: (s:{bearish_state:.2f}*w:{w_state}) + (v:{bearish_velocity:.2f}*w:{w_velocity}) + (a:{bearish_acceleration:.2f}*w:{w_acceleration}) = {total_bearish_force:.4f}")
+        print(f"      - 最终健康分 (探针重算): {recalc_health:.4f}")
+        overall_health = atomic.get('__FOUNDATION_overall_health', {})
+        s_bull_actual = get_val(overall_health.get('s_bull', {}).get(5), probe_date, 0.0)
+        s_bear_actual = get_val(overall_health.get('s_bear', {}).get(5), probe_date, 0.0)
+        actual_health = s_bull_actual - s_bear_actual
+        print(f"    - [内部验证]: 实际值 {actual_health:.4f} vs. 探针重算 {recalc_health:.4f} -> {'✅ 一致' if np.isclose(actual_health, recalc_health) else '❌ 不一致'}")
+        # [代码修改结束]
         print("\n  [链路层 4] 终极信号融合 (Ultimate Signal Fusion)")
+        if not overall_health:
+            print("    - [错误] 无法在 atomic_states 中找到 '__FOUNDATION_overall_health'，无法进行重算。")
+            return
         recalc_signals = transmute_health_to_ultimate_signals(df, atomic, overall_health, p_synthesis, "FOUNDATION")
         bull_res_recalc = get_val(recalc_signals.get('SCORE_FOUNDATION_BULLISH_RESONANCE'), probe_date)
         bear_res_recalc = get_val(recalc_signals.get('SCORE_FOUNDATION_BEARISH_RESONANCE'), probe_date)
