@@ -115,10 +115,11 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.2.0 · 法典统一版】对“关系分”进行元分析，输出分数。
-        - 核心修复: 不再从计算配置中错误地读取 scoring_mode，而是从唯一的、权威的
-                      self.score_type_map (信号法典) 中获取，确保语义正确。
-        - 收益: 彻底修复了因错误惩罚“隐秘吸筹”等单极性事件而导致在关键拐点分数过低的致命BUG。
+        【V2.3.0 · 雅典娜裁决版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 签署“雅典娜的裁决”协议，引入 "diagnosis_mode" 概念。
+                      - "meta_analysis" (默认): 执行完整的趋势与加速度元分析。
+                      - "direct_confirmation": 直接使用“瞬时关系分”作为最终结果，用于状态确认型信号。
+        - 收益: 解决了对“主力散户背离”等状态确认型信号因“增长放缓”而被错误惩罚的致命BUG。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -128,26 +129,34 @@ class ProcessIntelligence:
             return {}
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
-        relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-        relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-        # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
-        bipolar_trend_strength = normalize_to_bipolar(
-            series=relationship_trend,
-            target_index=df_index,
-            window=self.norm_window,
-            sensitivity=self.bipolar_sensitivity
-        )
-        bipolar_accel_strength = normalize_to_bipolar(
-            series=relationship_accel,
-            target_index=df_index,
-            window=self.norm_window,
-            sensitivity=self.bipolar_sensitivity
-        )
-        # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
-        trend_weight = self.meta_score_weights[0]
-        accel_weight = self.meta_score_weights[1]
-        meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        # [代码修改开始] 实施“雅典娜的裁决”协议
+        diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
+        if diagnosis_mode == 'direct_confirmation':
+            # 直接确认模式：瞬时关系分就是最终得分
+            meta_score = relationship_score
+        else:
+            # 默认元分析模式：分析趋势和加速度
+            # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
+            relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
+            relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
+            # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
+            bipolar_trend_strength = normalize_to_bipolar(
+                series=relationship_trend,
+                target_index=df_index,
+                window=self.norm_window,
+                sensitivity=self.bipolar_sensitivity
+            )
+            bipolar_accel_strength = normalize_to_bipolar(
+                series=relationship_accel,
+                target_index=df_index,
+                window=self.norm_window,
+                sensitivity=self.bipolar_sensitivity
+            )
+            # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
+            trend_weight = self.meta_score_weights[0]
+            accel_weight = self.meta_score_weights[1]
+            meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        # [代码修改结束]
         # 从权威的 self.score_type_map 获取信号元数据和计分模式
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
