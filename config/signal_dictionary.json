@@ -1367,6 +1367,12 @@
             "score_weight": 500,
             "description": "【V1.0 · 新增】由'炼金术'协议创造的强力买入机会信号。当市场出现恐慌抛售，且主力吸收强度超过'审判阈值'时触发。分数越高，代表坑越深、黄金越多。"
         },
+        "SCORE_PANIC_ABSORPTION": {
+            "cn_name": "【基础战术】恐慌吸收动态分",
+            "category": "基础层-环境",
+            "type": "context",
+            "description": "【V2.0 · 动态灵魂版】量化主力在恐慌中吸收筹码的动态健康度。不仅评估当前的吸收强度（状态），更评估其变化趋势（速度和加速度）。一个高且正在增长的分数，代表主力吸收意愿极其坚决且在不断增强。"
+        },
         "SCORE_RISK_VPA_EFFICIENCY_DECLINING": {
             "cn_name": "【VPA风险】效率下降",
             "category": "基础层-风险",

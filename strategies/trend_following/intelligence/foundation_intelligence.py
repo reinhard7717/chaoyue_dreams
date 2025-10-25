@@ -90,18 +90,14 @@ class FoundationIntelligence:
 
     def diagnose_tactical_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 炼金术协议版】战术终极信号合成引擎
+        【V1.2.1 · 类型归正版】战术终极信号合成引擎
+        - 核心修复: 将 `np.where` 输出的 numpy.ndarray 强制转换回 pandas.Series，修复下游模块因类型不匹配而导致的 `AttributeError`。
         - 核心革命: 签署“炼金术”协议，实现风险到机会的嬗变。
-                      1. 引入“审判阈值”，用于判断主力吸收强度是否足以构成“黄金坑”。
-                      2. 当吸收强度达标时，将恐慌风险强制归零，并创造一个全新的机会信号 `SCORE_OPPORTUNITY_GOLDEN_PIT`。
-                      3. 当吸收强度不足时，维持“风险调光器”逻辑。
         """
         states = {}
-        # [代码修改开始] 引入新的参数块
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         p_absorb = get_params_block(p_conf, 'panic_absorption_params', {})
         judgment_threshold = get_param_value(p_absorb.get('judgment_threshold'), 0.7)
-        # [代码修改结束]
         compression_state = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_STATE', pd.Series(0.5, index=df.index))
         compression_dynamic = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_VOL_COMPRESSION_OPP'] = (compression_state * compression_dynamic).astype(np.float32)
@@ -111,27 +107,25 @@ class FoundationIntelligence:
         ignition_state = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_STATE', pd.Series(0.5, index=df.index))
         ignition_dynamic = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_IGNITION_CONFIRMATION'] = (ignition_state * ignition_dynamic).astype(np.float32)
-        # [代码修改开始] 实施“炼金术”协议
         panic_risk_state = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_STATE', pd.Series(0.0, index=df.index))
         panic_risk_dynamic = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_DYNAMIC', pd.Series(0.0, index=df.index))
         raw_panic_risk = (panic_risk_state * panic_risk_dynamic).astype(np.float32)
         panic_absorption_score = self._diagnose_panic_absorption(df)
         self.strategy.atomic_states['SCORE_PANIC_ABSORPTION'] = panic_absorption_score
-        # 审判日：判断是否构成“黄金坑”
         is_golden_pit = panic_absorption_score >= judgment_threshold
-        # 根据审判结果，执行不同的逻辑
-        # 1. 计算最终恐慌风险
-        final_panic_risk = np.where(
+        final_panic_risk_array = np.where(
             is_golden_pit,
-            0.0, # 构成黄金坑，风险强制归零
-            (raw_panic_risk * (1 - panic_absorption_score)) # 未构成，则按原逻辑衰减风险
+            0.0,
+            (raw_panic_risk * (1 - panic_absorption_score))
         )
-        # 2. 计算黄金坑机会分
-        golden_pit_score = np.where(
+        golden_pit_score_array = np.where(
             is_golden_pit,
-            raw_panic_risk * panic_absorption_score, # 机会分 = 原始恐慌程度 * 吸收强度
-            0.0 # 未构成黄金坑，则无机会
+            raw_panic_risk * panic_absorption_score,
+            0.0
         )
+        # [代码修改开始] 将 numpy.ndarray 转换为 pandas.Series
+        final_panic_risk = pd.Series(final_panic_risk_array, index=df.index)
+        golden_pit_score = pd.Series(golden_pit_score_array, index=df.index)
         states['SCORE_FOUNDATION_PANIC_SELLING_RISK'] = final_panic_risk.clip(0, 1).astype(np.float32)
         states['SCORE_OPPORTUNITY_GOLDEN_PIT'] = golden_pit_score.clip(0, 1).astype(np.float32)
         # [代码修改结束]
@@ -372,27 +366,44 @@ class FoundationIntelligence:
         ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
         return ma_context_score.astype(np.float32)
 
-    def _diagnose_panic_absorption(self, df: pd.DataFrame) -> pd.Series:
+    def _calculate_panic_absorption_snapshot(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】恐慌吸收诊断引擎
-        - 核心使命: 量化主力在市场恐慌时，逆势吸收筹码的强度。
+        【V1.0 · 新增内部方法】计算恐慌吸收的静态快照分
+        - 核心使命: 量化主力在市场恐慌时，逆势吸收筹码的静态强度。
         - 诊断逻辑: 融合“主力净流向”、“主力vs散户背离”、“主力成本代价”三维核心证据。
         """
-        norm_window = 55 # 使用一个标准化的长周期窗口
-        # 证据A: 主力净流向 (绝对意图)
+        norm_window = 55
         main_force_flow_score = normalize_to_bipolar(df.get('main_force_net_flow_consensus_D', 0), df.index, norm_window)
-        # 证据B: 主力vs散户背离 (相对行为)
         flow_divergence_score = normalize_to_bipolar(df.get('flow_divergence_mf_vs_retail_D', 0), df.index, norm_window)
-        # 证据C: 主力成本代价 (信念强度)
         profit_profile_score = normalize_to_bipolar(-df.get('main_force_intraday_profit_D', 0), df.index, norm_window)
-        # 融合三大证据，看涨权重更高
-        # 我们相信“净流向”和“背离”比“盈亏”更重要
-        absorption_score = (
+        absorption_snapshot = (
             main_force_flow_score * 0.4 +
             flow_divergence_score * 0.4 +
             profit_profile_score * 0.2
-        ).clip(0, 1) # 吸收分只取正值，因为我们只关心吸收行为，不关心其反面
-        return absorption_score.astype(np.float32)
+        )
+        # 注意：这里不再 clip(0,1)，因为元分析需要完整的[-1,1]双极性输入来判断趋势
+        return absorption_snapshot.clip(-1, 1).astype(np.float32)
+
+    def _diagnose_panic_absorption(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V2.0 · 动态灵魂版】恐慌吸收动态诊断引擎
+        - 核心升级: 采纳指挥官指令，引入“静态+导数”分析框架。
+                      1. 调用 `_calculate_panic_absorption_snapshot` 获取静态快照分。
+                      2. 将快照分送入元分析引擎，融合其“状态”、“速度”和“加速度”，输出最终的动态健康分。
+        """
+        # [代码修改开始] 实施动态化改造
+        # 步骤1: 计算静态快照分
+        absorption_snapshot = self._calculate_panic_absorption_snapshot(df)
+        # 步骤2: 对快照分进行动态元分析 (使用一个标准的中期窗口，如13)
+        meta_window = 13
+        final_dynamic_score = self._perform_foundation_relational_meta_analysis(
+            df=df,
+            snapshot_score=absorption_snapshot,
+            meta_window=meta_window
+        )
+        # 步骤3: 输出最终的动态分，并裁剪到[0,1]区间，因为我们只关心正向的吸收行为
+        return final_dynamic_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块
