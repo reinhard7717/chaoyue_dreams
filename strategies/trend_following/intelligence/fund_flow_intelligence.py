@@ -190,21 +190,24 @@ class FundFlowIntelligence:
 
     def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], internal_structure: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 波塞冬裁决版】基于物理公理的终极信号合成器
-        - 核心升级: 调用“波塞冬的三叉戟”引擎计算趋势健康度，并用其对最终的资金流信号进行调节，
-                      使其具备趋势感知能力，能有效过滤牛市陷阱和熊市陷阱。
+        【V3.3 · 健壮性加固版】基于物理公理的终极信号合成器
+        - 核心修复: 在处理周期权重(tf_weights)时，增加对非数字类型值的过滤，
+                      防止因配置中混入'description'等字符串导致的TypeError。
         """
         states = {}
         axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.4, 'power_transfer': 0.4, 'internal_structure': 0.2})
         tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
-        total_tf_weight = sum(tf_weights.values())
-        # 调用“波塞冬的三叉戟”引擎，获取趋势上下文
+        # [代码修改开始] 过滤掉tf_weights中的非数字值，计算总权重
+        numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        total_tf_weight = sum(numeric_weights.values())
+        # [代码修改结束]
         trend_health_score = self._calculate_trend_context_ff(df, params)
-        
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         if total_tf_weight > 0:
-            for p, weight in tf_weights.items():
+            # [代码修改开始] 遍历过滤后的 numeric_weights 而不是原始的 tf_weights
+            for p_str, weight in numeric_weights.items():
+                p = int(p_str)
                 conc_score = concentration.get(p, 0.0)
                 trans_score = power_transfer.get(p, 0.0)
                 struct_score = internal_structure.get(p, 0.0)
@@ -220,10 +223,9 @@ class FundFlowIntelligence:
                 )
                 bullish_resonance += period_bullish * (weight / total_tf_weight)
                 bearish_resonance += period_bearish * (weight / total_tf_weight)
-        # 使用趋势健康度对资金流信号进行调节
+            # [代码修改结束]
         bullish_resonance = bullish_resonance * trend_health_score
         bearish_resonance = bearish_resonance * (1 - trend_health_score)
-
         bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)
         top_reversal = self._perform_fund_flow_relational_meta_analysis(df, bearish_resonance)
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
