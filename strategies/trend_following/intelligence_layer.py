@@ -145,7 +145,7 @@ class IntelligenceLayer:
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             if debug_params.get('enable_behavioral_probe', False):
-                self.probes._deploy_prometheus_torch_probe(probe_date)
+                self.probes._deploy_hephaestus_forge_probe(probe_date)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

@@ -218,6 +218,109 @@ class ForensicProbes:
         print(f"      - 【顶部反转】: 实际值 {top_rev_actual:.4f} vs. 探针重算(trigger) {top_rev_recalc.iloc[0]:.4f} -> (仅供参考，未计入上下文)")
         print("\n--- “普罗米修斯火炬”探针解剖完毕 ---")
 
+    def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“赫菲斯托斯熔炉”探针 - 筹码情报全要素解剖
+        - 核心功能: 逐层解剖筹码情报引擎的计算过程，从四大公理到终极信号合成，确保逻辑的透明与正确。
+        """
+        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.0】🔥 " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        chip_intel = self.chip_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        print("\n  [链路层 1] 最终输出 (Final Output)")
+        bull_res_actual = get_val(atomic.get('SCORE_CHIP_BULLISH_RESONANCE'), probe_date, 0.0)
+        bear_res_actual = get_val(atomic.get('SCORE_CHIP_BEARISH_RESONANCE'), probe_date, 0.0)
+        bottom_rev_actual = get_val(atomic.get('SCORE_CHIP_BOTTOM_REVERSAL'), probe_date, 0.0)
+        top_rev_actual = get_val(atomic.get('SCORE_CHIP_TOP_REVERSAL'), probe_date, 0.0)
+        print(f"    - 【看涨共振】: {bull_res_actual:.4f}")
+        print(f"    - 【看跌共振】: {bear_res_actual:.4f}")
+        print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
+        print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
+        print("\n  [链路层 2] 四大公理诊断 (Axiom Diagnostics)")
+        periods = [1, 5, 13, 21, 55]
+        concentration_scores = chip_intel._diagnose_concentration_dynamics(df, periods)
+        accumulation_scores = chip_intel._diagnose_main_force_action(df, periods)
+        power_transfer_scores = chip_intel._diagnose_power_transfer(df, periods)
+        peak_integrity_scores = chip_intel._diagnose_peak_integrity_dynamics(df, periods)
+        axiom_scores_by_period = {}
+        for p in periods:
+            axiom_scores_by_period[p] = {
+                'concentration': get_val(concentration_scores.get(p), probe_date, 0.0),
+                'accumulation': get_val(accumulation_scores.get(p), probe_date, 0.0),
+                'power_transfer': get_val(power_transfer_scores.get(p), probe_date, 0.0),
+                'peak_integrity': get_val(peak_integrity_scores.get(p), probe_date, 0.0),
+            }
+            print(f"    - [周期 {p:2d}] 公理得分: 聚散({axiom_scores_by_period[p]['concentration']:.2f}), 吸派({axiom_scores_by_period[p]['accumulation']:.2f}), 转移({axiom_scores_by_period[p]['power_transfer']:.2f}), 峰健康({axiom_scores_by_period[p]['peak_integrity']:.2f})")
+        print("\n  [链路层 3] 双极性健康分合成 (Bipolar Health Synthesis)")
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
+        print(f"    - [公理权重 Axiom Weights]: " + json.dumps(axiom_weights))
+        bipolar_health_recalc = {}
+        for p in periods:
+            scores = axiom_scores_by_period[p]
+            health = (
+                scores['concentration'] * axiom_weights.get('concentration', 0.3) +
+                scores['accumulation'] * axiom_weights.get('accumulation', 0.3) +
+                scores['power_transfer'] * axiom_weights.get('power_transfer', 0.25) +
+                scores['peak_integrity'] * axiom_weights.get('peak_integrity', 0.15)
+            )
+            bipolar_health_recalc[p] = np.clip(health, -1, 1)
+            print(f"    - [周期 {p:2d}] 双极性健康分: {bipolar_health_recalc[p]:.4f}")
+        print("\n  [链路层 4] 终极信号融合 (Ultimate Signal Fusion)")
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {})
+        print(f"    - [周期权重 TF Weights]: " + json.dumps(tf_weights))
+        bullish_scores_recalc = {p: max(0, score) for p, score in bipolar_health_recalc.items()}
+        bearish_scores_recalc = {p: max(0, -score) for p, score in bipolar_health_recalc.items()}
+        bull_res_recalc, bear_res_recalc = 0.0, 0.0
+        total_weight = sum(tf_weights.values())
+        bull_calc_str, bear_calc_str = [], []
+        if total_weight > 0:
+            for p in periods:
+                weight = tf_weights.get(p, 0) / total_weight
+                bull_res_recalc += bullish_scores_recalc.get(p, 0.0) * weight
+                bear_res_recalc += bearish_scores_recalc.get(p, 0.0) * weight
+                bull_calc_str.append(f"({bullish_scores_recalc.get(p, 0.0):.2f}*{weight:.2f})")
+                bear_calc_str.append(f"({bearish_scores_recalc.get(p, 0.0):.2f}*{weight:.2f})")
+        print(f"\n    - [融合计算 - 看涨共振]: {' + '.join(bull_calc_str)} = {bull_res_recalc:.4f}")
+        print(f"    - [融合计算 - 看跌共振]: {' + '.join(bear_calc_str)} = {bear_res_recalc:.4f}")
+        bipolar_health_series = {}
+        for p in periods:
+            conc_s = concentration_scores.get(p, pd.Series(0.0, index=df.index))
+            acc_s = accumulation_scores.get(p, pd.Series(0.0, index=df.index))
+            pow_s = power_transfer_scores.get(p, pd.Series(0.0, index=df.index))
+            peak_s = peak_integrity_scores.get(p, pd.Series(0.0, index=df.index))
+            bipolar_health_series[p] = (conc_s * axiom_weights.get('concentration', 0.3) + acc_s * axiom_weights.get('accumulation', 0.3) + pow_s * axiom_weights.get('power_transfer', 0.25) + peak_s * axiom_weights.get('peak_integrity', 0.15)).clip(-1, 1)
+        bullish_series = {p: s.clip(0, 1) for p, s in bipolar_health_series.items()}
+        bearish_series = {p: (s.clip(-1, 0) * -1) for p, s in bipolar_health_series.items()}
+        bottom_rev_scores, top_rev_scores = {}, {}
+        norm_window = 55
+        for p in periods:
+            context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+            bottom_rev_scores[p] = chip_intel._calculate_holographic_divergence(bullish_series.get(p), p, context_p, norm_window)
+            top_rev_scores[p] = chip_intel._calculate_holographic_divergence(bearish_series.get(p), p, context_p, norm_window)
+        bottom_rev_recalc, top_rev_recalc = 0.0, 0.0
+        bottom_calc_str, top_calc_str = [], []
+        if total_weight > 0:
+            for p in periods:
+                weight = tf_weights.get(p, 0) / total_weight
+                bottom_rev_val = get_val(bottom_rev_scores.get(p), probe_date, 0.0)
+                top_rev_val = get_val(top_rev_scores.get(p), probe_date, 0.0)
+                bottom_rev_recalc += bottom_rev_val * weight
+                top_rev_recalc += top_rev_val * weight
+                bottom_calc_str.append(f"({bottom_rev_val:.2f}*{weight:.2f})")
+                top_calc_str.append(f"({top_rev_val:.2f}*{weight:.2f})")
+        print(f"    - [融合计算 - 底部反转]: {' + '.join(bottom_calc_str)} = {bottom_rev_recalc:.4f}")
+        print(f"    - [融合计算 - 顶部反转]: {' + '.join(top_calc_str)} = {top_rev_recalc:.4f}")
+        print("\n  [链路层 5] 终极对质 (Final Verdict)")
+        print(f"      - 【看涨共振】: 实际值 {bull_res_actual:.4f} vs. 探针重算 {bull_res_recalc:.4f} -> {'✅ 一致' if np.isclose(bull_res_actual, bull_res_recalc) else '❌ 不一致'}")
+        print(f"      - 【看跌共振】: 实际值 {bear_res_actual:.4f} vs. 探针重算 {bear_res_recalc:.4f} -> {'✅ 一致' if np.isclose(bear_res_actual, bear_res_recalc) else '❌ 不一致'}")
+        print(f"      - 【底部反转】: 实际值 {bottom_rev_actual:.4f} vs. 探针重算 {bottom_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(bottom_rev_actual, bottom_rev_recalc) else '❌ 不一致'}")
+        print(f"      - 【顶部反转】: 实际值 {top_rev_actual:.4f} vs. 探针重算 {top_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(top_rev_actual, top_rev_recalc) else '❌ 不一致'}")
+        print("\n--- “赫菲斯托斯熔炉”探针解剖完毕 ---")
 
 
 
