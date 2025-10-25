@@ -110,12 +110,12 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.9 · 阿瑞斯之矛V2-三叉戟版】结构与行为健康度计算核心引擎
-        - 核心革命: 签署“阿瑞斯之矛 V2 - 三叉戟”协议，将日内博弈（上下影线）与日间结果（涨跌幅）融合。
-                      1. [信念因子] 引入“看涨/看跌信念因子”，通过比较影线与涨跌幅的比率，量化当日K线的内在强度。
-                      2. [净有效强度] 使用“信念因子”调制原始的涨跌强度，得到“净有效强度”。
-                      3. [注入] 将“净有效强度”作为核心驱动力，注入复合状态计算。
-        - 收益: 能精准区分“强劲的上涨”与“虚弱的上涨”，“无抵抗的下跌”与“有支撑的下跌”。
+        【V4.2 · 阿波罗战车版】结构与行为健康度计算核心引擎
+        - 核心革命: 签署“阿波罗战车”协议，引入“日内四象限博弈”分析。
+                      1. [轨迹四象限] 根据“跳空方向”和“实体方向”，将日内走势划分为四象限，并赋予“轨迹得分”。
+                      2. [日内质量分] 融合“轨迹得分”和“影线修正分”，得到对K线质量的最终审判。
+                      3. [终极强度融合] 使用“日内质量分”来调制“日间总涨跌幅”，计算出最终的“净有效强度”。
+        - 收益: 能够精准解读“高开高走”、“低开高走”等不同日内轨迹的战术含义，评估结果更符合市场博弈的真实情况。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
@@ -126,28 +126,36 @@ class BehavioralIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # [代码修改开始] 实施“阿瑞斯之矛 V2 - 三叉戟”协议
-        # --- 步骤1: 计算“信念因子” ---
-        # 使用昨日收盘价作为基准计算影线（日间影线协议）
-        gain = (df['close_D'] - df['pre_close_D']).clip(lower=0)
-        loss = (df['pre_close_D'] - df['close_D']).clip(lower=0)
-        upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])).clip(lower=0)
-        lower_shadow = (np.minimum(df['close_D'], df['pre_close_D']) - df['low_D']).clip(lower=0)
-        # 计算上影线压力比，并转换为看涨信念因子
-        upper_shadow_pressure_ratio = (upper_shadow / gain.replace(0, np.nan)).fillna(0)
-        bullish_conviction_factor = (1 - upper_shadow_pressure_ratio).clip(0, 1)
-        # 计算下影线支撑比，并转换为看跌信念因子
-        lower_shadow_support_ratio = (lower_shadow / loss.replace(0, np.nan)).fillna(0)
-        bearish_conviction_factor = (1 - lower_shadow_support_ratio).clip(0, 1)
-        # --- 步骤2: 计算“净有效强度” ---
+        # [代码修改开始] 实施“阿波罗战车”协议
+        # --- 步骤1: 计算日内质量分 (Intraday Quality Score) ---
+        gap_up = df['open_D'] > df['pre_close_D']
+        gap_down = df['open_D'] < df['pre_close_D']
+        body_up = df['close_D'] > df['open_D']
+        body_down = df['close_D'] < df['open_D']
+        # 1.1 轨迹得分 (Trajectory Score)
+        trajectory_score = pd.Series(0.0, index=df.index)
+        trajectory_score.loc[gap_up & body_up] = 1.0    # 高开高走
+        trajectory_score.loc[gap_down & body_up] = 0.8   # 低开高走
+        trajectory_score.loc[gap_up & body_down] = -0.8  # 高开低走
+        trajectory_score.loc[gap_down & body_down] = -1.0  # 低开低走
+        # 1.2 影线修正分 (Shadow Modifier)
+        kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
+        shadow_modifier = ((lower_shadow - upper_shadow) / kline_range).fillna(0)
+        # 1.3 融合得到日内质量分
+        day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
+        # --- 步骤2: 计算净有效强度 ---
+        quality_adjustment_factor = (1 + day_quality_score) / 2 # 将[-1, 1]映射到[0, 1]
         positive_day_strength_raw = df['pct_change_D'].clip(0)
-        net_effective_bullish_strength = positive_day_strength_raw * bullish_conviction_factor
         negative_day_strength_raw = df['pct_change_D'].clip(upper=0).abs()
-        net_effective_bearish_strength = negative_day_strength_raw * bearish_conviction_factor
-        # --- 步骤3: 归一化“净有效强度”，作为核心驱动力 ---
-        positive_day_strength = normalize_score(net_effective_bullish_strength, df.index, norm_window)
-        negative_day_strength = normalize_score(net_effective_bearish_strength, df.index, norm_window)
-        # 后续逻辑使用新的、更智能的 `positive_day_strength` 和 `negative_day_strength`
+        # 结果(50%) + 过程(50%)
+        net_effective_bullish_strength = (positive_day_strength_raw * 0.5) + (positive_day_strength_raw * quality_adjustment_factor * 0.5)
+        net_effective_bearish_strength = (negative_day_strength_raw * 0.5) + (negative_day_strength_raw * (1 - quality_adjustment_factor) * 0.5)
+        # --- 步骤3: 应用“宙斯之雷”协议，归一化“净有效强度” ---
+        positive_day_strength = normalize_score(net_effective_bullish_strength, df.index, norm_window) * (net_effective_bullish_strength > 0)
+        negative_day_strength = normalize_score(net_effective_bearish_strength, df.index, norm_window) * (net_effective_bearish_strength > 0)
+        # [代码修改结束]
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         bullish_d_intensity = ((efficiency_holo_bull + gini_holo_bull) / 2.0).astype(np.float32)
@@ -190,7 +198,6 @@ class BehavioralIntelligence:
                 accel_norm_context * w_acceleration
             ).clip(-1, 1)
             final_dynamic_bipolar_health = (tactical_health_bipolar + context_health_bipolar) / 2.0
-            # [代码修改结束]
             s_bull[p] = final_dynamic_bipolar_health.astype(np.float32)
             s_bear[p] = pd.Series(0.0, index=df.index, dtype=np.float32)
         for p in periods:

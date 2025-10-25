@@ -83,12 +83,11 @@ class ForensicProbes:
 
     def _deploy_prometheus_torch_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.3 · 赫淮斯托斯重铸同步版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
-        - 核心升级: 与主引擎 `_calculate_structural_behavior_health` V3.7 版完全同步。
-                      在“链路层2”中，精确复刻了将“动态强度”作为第六种核心原料注入复合状态计算的逻辑，
-                      并将开方数从 1/5 修正为 1/6。
+        【V2.6 · 阿波罗战车同步版】“普罗米修斯火炬”探针
+        - 核心升级: 与主引擎 `_calculate_structural_behavior_health` V4.2 版完全同步。
+                      在“链路层2”中，精确复刻了“阿波罗战车”协议，引入“日内质量分”来计算“净有效强度”。
         """
-        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.3】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.6】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -109,42 +108,68 @@ class ForensicProbes:
         print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
         print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
         print("\n  [链路层 2] 复合状态构建 (来自 _calculate_structural_behavior_health)")
+        # [代码修改开始] 同步 V4.2 阿波罗战车协议
+        # 2.1 原材料
         raw_ingredients = {
+            'pre_close_D': get_val(df.get('pre_close_D'), probe_date),
+            'open_D': get_val(df.get('open_D'), probe_date),
+            'high_D': get_val(df.get('high_D'), probe_date),
+            'low_D': get_val(df.get('low_D'), probe_date),
+            'close_D': get_val(df.get('close_D'), probe_date),
+            'pct_change_D': get_val(df.get('pct_change_D'), probe_date),
             'closing_strength_index_D': get_val(df.get('closing_strength_index_D'), probe_date, 0.5),
-            'close_vs_vwap_ratio_D': get_val(df.get('close_vs_vwap_ratio_D'), probe_date, 1.0),
             'flow_divergence_mf_vs_retail_D': get_val(df.get('flow_divergence_mf_vs_retail_D'), probe_date, 0.0),
             'final_hour_momentum_D': get_val(df.get('final_hour_momentum_D'), probe_date, 0.0),
             'intraday_trend_efficiency_D': get_val(df.get('intraday_trend_efficiency_D'), probe_date, 0.5),
-            # [代码新增开始] 增加动态强度所需的新原料
             'intraday_volume_gini_D': get_val(df.get('intraday_volume_gini_D'), probe_date, 0.5)
-            # [代码新增结束]
         }
         print("    - [原材料 Raw Ingredients]:")
         for name, val in raw_ingredients.items():
             print(f"      - {name}: {val:.4f}")
+        # 2.2 阿波罗战车协议计算
+        gap_up = df['open_D'] > df['pre_close_D']
+        body_up = df['close_D'] > df['open_D']
+        trajectory_score = pd.Series(0.0, index=df.index)
+        trajectory_score.loc[gap_up & body_up] = 1.0
+        kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
+        shadow_modifier = ((lower_shadow - upper_shadow) / kline_range).fillna(0)
+        day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
+        quality_adjustment_factor = (1 + day_quality_score) / 2
+        positive_day_strength_raw = df['pct_change_D'].clip(0)
+        net_effective_bullish_strength = (positive_day_strength_raw * 0.5) + (positive_day_strength_raw * quality_adjustment_factor * 0.5)
+        positive_day_strength = normalize_score(net_effective_bullish_strength, df.index, norm_window) * (net_effective_bullish_strength > 0)
+        print("\n    - [阿波罗战车协议计算]:")
+        print(f"      - 轨迹得分: {get_val(trajectory_score, probe_date):.4f} (高开高走=1.0)")
+        print(f"      - 影线修正分: {get_val(shadow_modifier, probe_date):.4f} ((下影-上影)/振幅)")
+        print(f"      - 日内质量分: {get_val(day_quality_score, probe_date):.4f} (轨迹*0.7+影线*0.3)")
+        print(f"      - 质量调整因子: {get_val(quality_adjustment_factor, probe_date):.4f} (->[0,1])")
+        print(f"      - 净有效看涨强度(原始): {get_val(net_effective_bullish_strength, probe_date):.4f}")
+        # 2.3 中间件
         csi_score = get_val(normalize_score(df.get('closing_strength_index_D'), df.index, norm_window), probe_date)
-        vwap_score = get_val(normalize_score(df.get('close_vs_vwap_ratio_D'), df.index, norm_window), probe_date)
         bull_div_score = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(0), df.index, norm_window), probe_date)
         auction_power_score = get_val(normalize_score(df.get('final_hour_momentum_D').clip(0), df.index, norm_window), probe_date)
         trend_eff_score = get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window), probe_date)
-        # [代码修改开始] 同步“赫淮斯托斯重铸”协议的逻辑
-        # 计算具备方向性的动态强度
         efficiency_holo_bull, _ = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, _ = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         eff_holo_bull_val = get_val(efficiency_holo_bull, probe_date)
         gini_holo_bull_val = get_val(gini_holo_bull, probe_date)
         bullish_d_intensity = (eff_holo_bull_val + gini_holo_bull_val) / 2.0
         print("\n    - [中间件 Normalized Ingredients]:")
-        print(f"      - csi_score: {csi_score:.4f}, vwap_score: {vwap_score:.4f}, bull_div_score: {bull_div_score:.4f}")
+        print(f"      - 净有效看涨强度(归一化): {get_val(positive_day_strength, probe_date):.4f}")
+        print(f"      - csi_score: {csi_score:.4f}, bull_div_score: {bull_div_score:.4f}")
         print(f"      - auction_power_score: {auction_power_score:.4f}, trend_eff_score: {trend_eff_score:.4f}")
-        print(f"      - bullish_d_intensity: {bullish_d_intensity:.4f} (来自 eff_holo: {eff_holo_bull_val:.2f}, gini_holo: {gini_holo_bull_val:.2f})")
-        reversal_strength = (csi_score * vwap_score)**0.5
-        # 将动态强度作为第六种原料注入，开方数改为 1/6
-        bullish_composite_state = (reversal_strength * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score * bullish_d_intensity)**(1/6)
+        print(f"      - bullish_d_intensity: {bullish_d_intensity:.4f}")
+        # 2.4 复合状态计算
+        bullish_composite_state = (
+            get_val(positive_day_strength, probe_date) * csi_score * (1 + bull_div_score) *
+            auction_power_score * trend_eff_score * bullish_d_intensity
+        )**(1/6)
+        bearish_composite_state = 0.0
         print("\n    - [复合状态计算 Composite State Calculation]:")
         print(f"      - 看涨复合状态 (Bullish Composite): {bullish_composite_state:.4f}")
-        print(f"        - [公式]: (反转强度 * 下影线力量 * (1+主力背离) * 尾盘动能 * 趋势效率 * 看涨动态强度)^(1/6)")
-        print(f"        - [计算]: ({reversal_strength:.2f} * {csi_score:.2f} * (1+{bull_div_score:.2f}) * {auction_power_score:.2f} * {trend_eff_score:.2f} * {bullish_d_intensity:.2f})^(1/6) = {bullish_composite_state:.4f}")
+        print(f"      - 看跌复合状态 (Bearish Composite): {bearish_composite_state:.4f} (因上涨日，净有效看跌强度为0)")
         # [代码修改结束]
         print("\n  [链路层 3.5] 健康度全景 (Full Health Panorama)")
         overall_health = atomic.get('__BEHAVIOR_overall_health', {})
