@@ -138,12 +138,12 @@
       "debug_params": {
         "enabled": { "value": true },
         "probe_dates": ["2025-10-17", "2025-10-20"],
-        "enable_behavioral_probe": false,
+        "enable_behavioral_probe": true,
         "enable_chip_probe": false,
         "enable_dynamic_mechanics_probe": false,
         "enable_foundation_probe": false,
         "enable_fund_flow_probe": false,
-        "enable_process_probe": true
+        "enable_process_probe": false
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
