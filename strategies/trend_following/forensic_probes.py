@@ -373,10 +373,13 @@ class ForensicProbes:
 
     def _deploy_ares_chariot_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“阿瑞斯的战车”探针 - 动态力学引擎全要素解剖
-        - 核心功能: 逐层解剖动态力学引擎的计算过程，从五大支柱的快照分，到最终信号的合成，确保逻辑透明。
+        【V1.1 · 引擎核心解剖版】“阿瑞斯的战车”探针
+        - 核心升级: 签署“引擎核心解剖”协议，深入解剖动态力学引擎的元分析过程。
+                      - [维度级解剖] 新增 [链路层 3.1]，以 p=5 周期为例，对元分析引擎进行深度解剖。
+                      - [全链路追溯] 展示从快照分到速度、加速度，再到最终健康分的全计算过程。
+                      - [内部验证] 对解剖的健康分进行重算和验证，确保探针逻辑与引擎完全一致。
         """
-        print("\n" + "="*35 + f" [力学探针] 正在启动 🏎️【阿瑞斯的战车 · 力学引擎解剖 V1.0】🏎️ " + "="*35)
+        print("\n" + "="*35 + f" [力学探针] 正在启动 🏎️【阿瑞斯的战车 · 力学引擎解剖 V1.1】🏎️ " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.mechanics_engine
@@ -397,40 +400,83 @@ class ForensicProbes:
         print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
         print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
         print("\n  [链路层 2] 五大支柱快照分 (Pillar Snapshots) - 战车的五匹神马")
-        vol_bull = (get_val(normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False), probe_date) * get_val(normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False), probe_date))**0.5
-        eff_bull = (get_val(normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=True), probe_date) * get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=True), probe_date))**0.5
-        mom_bull = (get_val(normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=True), probe_date) * get_val(normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True), probe_date))**0.5
-        adx_s = get_val(normalize_score(df.get('ADX_14_D'), df.index, norm_window), probe_date)
-        adx_d = 1.0 if get_val(df.get('PDI_14_D'), probe_date, 0) > get_val(df.get('NDI_14_D'), probe_date, 0) else 0.0
-        hurst_s = get_val(normalize_score(df.get('hurst_120d_D'), df.index, norm_window), probe_date)
-        ine_bull = (adx_s * adx_d * hurst_s)**(1/3)
-        energy_bull = get_val(normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True), probe_date)
-        print(f"    - [看涨快照] 波动性(Vol):{vol_bull:.2f}, 效率(Eff):{eff_bull:.2f}, 动量(Mom):{mom_bull:.2f}, 惯性(Ine):{ine_bull:.2f}, 能量(Energy):{energy_bull:.2f}")
-        vol_bear = (get_val(normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True), probe_date) * get_val(normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=True), probe_date))**0.5
-        eff_bear = (get_val(normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False), probe_date) * get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=False), probe_date))**0.5
-        mom_bear = (get_val(normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=False), probe_date) * get_val(normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False), probe_date))**0.5
-        ine_bear = (get_val(normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False), probe_date) * get_val(normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False), probe_date))**0.5
-        energy_bear = get_val(normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False), probe_date)
-        print(f"    - [看跌快照] 波动性(Vol):{vol_bear:.2f}, 效率(Eff):{eff_bear:.2f}, 动量(Mom):{mom_bear:.2f}, 惯性(Ine):{ine_bear:.2f}, 能量(Energy):{energy_bear:.2f}")
-        print("\n  [链路层 3] 快照融合与调节 (Snapshot Fusion & Modulation)")
+        vol_bull_snapshot = (normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False))**0.5
+        eff_bull_snapshot = (normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=True))**0.5
+        mom_bull_snapshot = (normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True))**0.5
+        adx_strength = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
+        adx_direction = (df.get('PDI_14_D', pd.Series(0, index=df.index)) > df.get('NDI_14_D', pd.Series(0, index=df.index))).astype(float)
+        hurst_strength = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
+        ine_bull_snapshot = (adx_strength * adx_direction * hurst_strength)**(1/3)
+        energy_bull_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
+        vol_bear_snapshot = (normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=True))**0.5
+        eff_bear_snapshot = (normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=False))**0.5
+        mom_bear_snapshot = (normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False))**0.5
+        ine_bear_snapshot = (normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False))**0.5
+        energy_bear_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         weight_keys = list(pillar_weights.keys())
         weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
         weights_array /= weights_array.sum()
-        bull_snapshots = [vol_bull, eff_bull, mom_bull, ine_bull, energy_bull]
-        bear_snapshots = [vol_bear, eff_bear, mom_bear, ine_bear, energy_bear]
-        fused_bull_snapshot = np.prod(np.power(bull_snapshots, weights_array))
-        fused_bear_snapshot = np.prod(np.power(bear_snapshots, weights_array))
-        bipolar_mechanics_snapshot = fused_bull_snapshot - fused_bear_snapshot
-        ma_health_score = get_val(engine._calculate_ma_health(df, p_conf, norm_window), probe_date)
-        modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
+        bull_snapshots_series = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot, energy_bull_snapshot]
+        bear_snapshots_series = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot, energy_bear_snapshot]
+        stacked_bull = np.stack([s.fillna(0.5).values for s in bull_snapshots_series], axis=0)
+        stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots_series], axis=0)
+        fused_bull_snapshot_series = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
+        fused_bear_snapshot_series = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
+        bipolar_mechanics_snapshot_series = (fused_bull_snapshot_series - fused_bear_snapshot_series).clip(-1, 1)
+        ma_health_score_series = engine._calculate_ma_health(df, p_conf, norm_window)
+        modulated_bipolar_snapshot_series = bipolar_mechanics_snapshot_series * ma_health_score_series
+        print(f"    - [看涨快照] 波动性(Vol):{get_val(vol_bull_snapshot, probe_date):.2f}, 效率(Eff):{get_val(eff_bull_snapshot, probe_date):.2f}, 动量(Mom):{get_val(mom_bull_snapshot, probe_date):.2f}, 惯性(Ine):{get_val(ine_bull_snapshot, probe_date):.2f}, 能量(Energy):{get_val(energy_bull_snapshot, probe_date):.2f}")
+        print(f"    - [看跌快照] 波动性(Vol):{get_val(vol_bear_snapshot, probe_date):.2f}, 效率(Eff):{get_val(eff_bear_snapshot, probe_date):.2f}, 动量(Mom):{get_val(mom_bear_snapshot, probe_date):.2f}, 惯性(Ine):{get_val(ine_bear_snapshot, probe_date):.2f}, 能量(Energy):{get_val(energy_bear_snapshot, probe_date):.2f}")
+        print("\n  [链路层 3] 快照融合与调节 (Snapshot Fusion & Modulation)")
         print(f"    - [支柱权重]: {json.dumps(pillar_weights)}")
-        print(f"    - 融合看涨快照: {fused_bull_snapshot:.4f}, 融合看跌快照: {fused_bear_snapshot:.4f}")
-        print(f"    - 双极性力学快照: {bipolar_mechanics_snapshot:.4f}")
-        print(f"    - 均线健康分 (调节器): {ma_health_score:.4f}")
-        print(f"    - 调节后双极性快照: {modulated_bipolar_snapshot:.4f}")
-        print("\n  [链路层 4] 终极信号融合 (Ultimate Signal Fusion)")
+        print(f"    - 融合看涨快照: {get_val(fused_bull_snapshot_series, probe_date):.4f}, 融合看跌快照: {get_val(fused_bear_snapshot_series, probe_date):.4f}")
+        print(f"    - 双极性力学快照: {get_val(bipolar_mechanics_snapshot_series, probe_date):.4f}")
+        print(f"    - 均线健康分 (调节器): {get_val(ma_health_score_series, probe_date):.4f}")
+        print(f"    - 调节后双极性快照: {get_val(modulated_bipolar_snapshot_series, probe_date):.4f}")
+        # [代码新增开始] 实施“引擎核心解剖”协议
+        print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (p=5 周期为例)")
+        p_probe = 5
+        p_context = 13
+        p_meta = p_conf.get('relational_meta_analysis_params', {})
+        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        bipolar_sensitivity = 1.0
+        snapshot_val = get_val(modulated_bipolar_snapshot_series, probe_date)
+        print(f"    - [输入 Input]: 快照分(State) = {snapshot_val:.4f}, 权重(W_s, W_v, W_a) = ({w_state}, {w_velocity}, {w_acceleration})")
+        tactical_trend = modulated_bipolar_snapshot_series.diff(p_probe).fillna(0)
+        tactical_velocity_series = normalize_to_bipolar(tactical_trend, df.index, norm_window, bipolar_sensitivity)
+        context_trend = modulated_bipolar_snapshot_series.diff(p_context).fillna(0)
+        context_velocity_series = normalize_to_bipolar(context_trend, df.index, norm_window, bipolar_sensitivity)
+        velocity_score_series = (tactical_velocity_series.abs() * context_velocity_series.abs())**0.5 * np.sign(tactical_velocity_series)
+        velocity_val = get_val(velocity_score_series, probe_date)
+        print(f"    - [速度维度 Velocity]: 战术(p={p_probe}) {get_val(tactical_velocity_series, probe_date):.2f}, 上下文(p={p_context}) {get_val(context_velocity_series, probe_date):.2f} -> 融合速度分 = {velocity_val:.4f}")
+        tactical_accel_series = normalize_to_bipolar(tactical_trend.diff(p_probe).fillna(0), df.index, norm_window, bipolar_sensitivity)
+        context_accel_series = normalize_to_bipolar(context_trend.diff(p_context).fillna(0), df.index, norm_window, bipolar_sensitivity)
+        acceleration_score_series = (tactical_accel_series.abs() * context_accel_series.abs())**0.5 * np.sign(tactical_accel_series)
+        acceleration_val = get_val(acceleration_score_series, probe_date)
+        print(f"    - [加速度维度 Acceleration]: 战术(p={p_probe}) {get_val(tactical_accel_series, probe_date):.2f}, 上下文(p={p_context}) {get_val(context_accel_series, probe_date):.2f} -> 融合加速度分 = {acceleration_val:.4f}")
+        bullish_state = max(0, snapshot_val)
+        bullish_velocity = max(0, velocity_val)
+        bullish_acceleration = max(0, acceleration_val)
+        total_bullish_force = (bullish_state * w_state + bullish_velocity * w_velocity + bullish_acceleration * w_acceleration)
+        bearish_state = max(0, -snapshot_val)
+        bearish_velocity = max(0, -velocity_val)
+        bearish_acceleration = max(0, -acceleration_val)
+        total_bearish_force = (bearish_state * w_state + bearish_velocity * w_velocity + bearish_acceleration * w_acceleration)
+        recalc_health = np.clip(total_bullish_force - total_bearish_force, -1, 1)
+        print(f"    - [双子座裁决 Gemini Adjudication]:")
+        print(f"      - 看涨力量: (s:{bullish_state:.2f}*w:{w_state}) + (v:{bullish_velocity:.2f}*w:{w_velocity}) + (a:{bullish_acceleration:.2f}*w:{w_acceleration}) = {total_bullish_force:.4f}")
+        print(f"      - 看跌力量: (s:{bearish_state:.2f}*w:{w_state}) + (v:{bearish_velocity:.2f}*w:{w_velocity}) + (a:{bearish_acceleration:.2f}*w:{w_acceleration}) = {total_bearish_force:.4f}")
+        print(f"      - 最终健康分 (探针重算): {recalc_health:.4f}")
         overall_health = atomic.get('__DYN_overall_health', {})
+        s_bull_actual = get_val(overall_health.get('s_bull', {}).get(p_probe), probe_date, 0.0)
+        s_bear_actual = get_val(overall_health.get('s_bear', {}).get(p_probe), probe_date, 0.0)
+        actual_health = s_bull_actual - s_bear_actual
+        print(f"    - [内部验证]: 实际值 {actual_health:.4f} vs. 探针重算 {recalc_health:.4f} -> {'✅ 一致' if np.isclose(actual_health, recalc_health) else '❌ 不一致'}")
+        # [代码新增结束]
+        print("\n  [链路层 4] 终极信号融合 (Ultimate Signal Fusion)")
         if not overall_health:
             print("    - [错误] 无法在 atomic_states 中找到 '__DYN_overall_health'，无法进行重算。")
             return
@@ -444,7 +490,7 @@ class ForensicProbes:
         print(f"      - 【看跌共振】: 实际值 {bear_res_actual:.4f} vs. 探针重算 {bear_res_recalc:.4f} -> {'✅ 一致' if np.isclose(bear_res_actual, bear_res_recalc) else '❌ 不一致'}")
         print(f"      - 【底部反转】: 实际值 {bottom_rev_actual:.4f} vs. 探针重算 {bottom_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(bottom_rev_actual, bottom_rev_recalc) else '❌ 不一致'}")
         print(f"      - 【顶部反转】: 实际值 {top_rev_actual:.4f} vs. 探针重算 {top_rev_recalc:.4f} -> {'✅ 一致' if np.isclose(top_rev_actual, top_rev_recalc) else '❌ 不一致'}")
-        print("\n--- “阿瑞斯的战车”探针框架部署完毕 ---")
+        print("\n--- “阿瑞斯的战车”探针解剖完毕 ---")
 
 
 
