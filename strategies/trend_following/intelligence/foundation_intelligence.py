@@ -37,8 +37,11 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V14.1 · 权重激活版】
-        - 核心修复: 激活 pillar_weights 配置，使用加权几何平均数融合各支柱健康度，确保配置生效。
+        【V15.0 · 阿波罗审判版】
+        - 核心革命: 签署“阿波罗审判”协议，对基础情报引擎进行司法级重构。
+                      1. [权力上移] 元分析的职责从支柱函数上移至本函数。
+                      2. [分周期审判] 对每个周期独立执行元分析，修复了周期健康度计算错误。
+                      3. [双极性统一] 所有支柱现在输出统一的[-1, 1]双极性快照分。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -48,40 +51,47 @@ class FoundationIntelligence:
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         
-        # 读取支柱权重配置
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         
-        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] } 
-        calculators = {
-            'ema': lambda: self._calculate_ema_health(df, norm_window, periods),
-            'rsi': lambda: self._calculate_rsi_health(df, norm_window, periods, ma_context_score),
-            'macd': lambda: self._calculate_macd_health(df, norm_window, periods, ma_context_score),
-            'cmf': lambda: self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
+        # [代码修改开始] 实施“阿波罗审判”协议
+        # 1. 各支柱计算并返回双极性快照分
+        ema_snapshot = self._calculate_ema_health(df, norm_window, periods)
+        rsi_snapshot = self._calculate_rsi_health(df, norm_window, periods, ma_context_score)
+        macd_snapshot = self._calculate_macd_health(df, norm_window, periods, ma_context_score)
+        cmf_snapshot = self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
+        
+        snapshots = {
+            'ema': ema_snapshot,
+            'rsi': rsi_snapshot,
+            'macd': macd_snapshot,
+            'cmf': cmf_snapshot
         }
         
-        # 提前构建权重数组
-        weight_keys = list(calculators.keys())
-        weights_array = np.array([pillar_weights.get(name, 0.25) for name in weight_keys])
-        weights_array /= weights_array.sum() # 权重归一化
+        weight_keys = list(snapshots.keys())
+        weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
+        weights_array /= weights_array.sum()
 
-        for name, calculator in calculators.items():
-            s_bull, s_bear, d_intensity = calculator()
-            health_data['s_bull'].append(s_bull) 
-            health_data['s_bear'].append(s_bear) 
-            health_data['d_intensity'].append(d_intensity)
+        # 2. 融合各支柱的双极性快照分
+        stacked_snapshots = np.stack([s.fillna(0.0).values for s in snapshots.values()], axis=0)
+        
+        # 使用加权算术平均融合双极性分数
+        fused_bipolar_snapshot = pd.Series(
+            np.sum(stacked_snapshots * weights_array[:, np.newaxis], axis=0),
+            index=df.index, dtype=np.float32
+        ).clip(-1, 1)
 
-        overall_health = {}
-        for health_type, health_sources in health_data.items():
-            overall_health[health_type] = {}
-            for p in periods:
-                components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
-                if components_for_period:
-                    stacked_values = np.stack(components_for_period, axis=0)
-                    # 使用加权几何平均数进行融合，确保权重配置生效
-                    fused_values = np.prod(stacked_values ** weights_array[:, np.newaxis], axis=0)
-                    overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-                else:
-                    overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
+        overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
+        
+        # 3. 对每个周期独立执行元分析
+        for p in periods:
+            # 注意：基础情报的元分析不区分周期，因此对所有周期应用相同的元分析结果
+            # 这是其简化模型的特点，我们保持这个逻辑
+            final_bipolar_health = self._perform_foundation_relational_meta_analysis(df, fused_bipolar_snapshot)
+            
+            overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
+            overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
+            overall_health['d_intensity'][p] = pd.Series(1.0, index=df.index, dtype=np.float32) # 保持占位符
+        # [代码修改结束]
         
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
         
@@ -211,173 +221,97 @@ class FoundationIntelligence:
     # ==============================================================================
     # 以下为重构后的健康度组件计算器，现在返回四维健康度
     # ==============================================================================
-    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> pd.Series:
         """
-        【V6.2 · 赫利俄斯敕令版】计算EMA维度的健康度
-        - 核心革命: 签署“赫利俄斯敕令”，废除分裂的评估模型。
-                      首先合成一个统一的、蕴含了五维信息的双极性快照分，然后对其进行关系元分析，
-                      得到最终的动态健康分，再从中派生出互斥的s_bull和s_bear。
+        【V7.0 · 阿波罗审判版】计算EMA维度的双极性快照分
+        - 核心重构: 废除“赫利俄斯敕令”，不再执行元分析。
+                      回归本源，仅负责计算并返回一个蕴含五维信息的、范围在[-1, 1]的双极性快照分。
         """
-        s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         fusion_weights = p_conf.get('ma_health_fusion_weights', {
             'alignment': 0.15, 'slope': 0.15, 'accel': 0.2, 'relational': 0.25, 'meta_dynamics': 0.25
         })
         ma_periods = [5, 13, 21, 55]
-        required_slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
-        required_accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
-        required_cols = [f'EMA_{p}_D' for p in ma_periods] + required_slope_cols + required_accel_cols
+        required_cols = [f'EMA_{p}_D' for p in ma_periods] + [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods] + [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return s_bull, s_bear, d_intensity
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        
         bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
-        slope_health_scores = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in required_slope_cols]
-        accel_health_scores = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in required_accel_cols]
-        relational_health_scores = []
+        
+        slope_scores = [normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D'], df.index, norm_window).values for p in ma_periods]
+        accel_scores = [normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D'], df.index, norm_window).values for p in ma_periods]
+        
+        relational_scores = []
         for short_p, long_p in [(5, 21), (13, 55)]:
             spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
-            relational_health_scores.append(((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0).values)
+            relational_scores.append(normalize_to_bipolar(spread_accel, df.index, norm_window).values)
+            
         meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
-        if valid_meta_cols:
-            meta_values = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in valid_meta_cols]
-            avg_meta_dynamics_health = np.mean(meta_values, axis=0)
-        else:
-            avg_meta_dynamics_health = np.full(len(df.index), 0.5)
-        avg_slope_health = np.mean(slope_health_scores, axis=0) if slope_health_scores else np.full(len(df.index), 0.5)
-        avg_accel_health = np.mean(accel_health_scores, axis=0) if accel_health_scores else np.full(len(df.index), 0.5)
-        avg_relational_health = np.mean(relational_health_scores, axis=0) if relational_health_scores else np.full(len(df.index), 0.5)
-        static_bull_score_values = (
-            alignment_score * fusion_weights.get('alignment', 0.15) +
-            avg_slope_health * fusion_weights.get('slope', 0.15) +
-            avg_accel_health * fusion_weights.get('accel', 0.2) +
-            avg_relational_health * fusion_weights.get('relational', 0.25) +
-            avg_meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
+        meta_scores = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in valid_meta_cols] if valid_meta_cols else [np.full(len(df.index), 0.0)]
+
+        # 将所有维度转换为[-1, 1]的双极性分数
+        alignment_bipolar = (pd.Series(alignment_score, index=df.index) - 0.5) * 2
+        avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df.index)
+        avg_accel_bipolar = pd.Series(np.mean(accel_scores, axis=0), index=df.index)
+        avg_relational_bipolar = pd.Series(np.mean(relational_scores, axis=0), index=df.index)
+        avg_meta_bipolar = pd.Series(np.mean(meta_scores, axis=0), index=df.index)
+
+        # 使用加法模型融合双极性分数
+        bipolar_snapshot = (
+            alignment_bipolar * fusion_weights.get('alignment', 0.15) +
+            avg_slope_bipolar * fusion_weights.get('slope', 0.15) +
+            avg_accel_bipolar * fusion_weights.get('accel', 0.2) +
+            avg_relational_bipolar * fusion_weights.get('relational', 0.25) +
+            avg_meta_bipolar * fusion_weights.get('meta_dynamics', 0.25)
         )
-        bull_snapshot_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
-        # 遵循“赫利俄斯敕令”
-        # 1. 首先对看涨快照分执行关系元分析，得到最终的动态健康分
-        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, bull_snapshot_score)
-        # 2. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1)
-        # 3. 将 d_intensity 降级为无意义的占位符
-        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
-        for p in periods:
-            s_bull[p] = final_bull_score
-            s_bear[p] = final_bear_score
-            d_intensity[p] = unified_d_intensity
-        
-        return s_bull, s_bear, d_intensity
+        return bipolar_snapshot.clip(-1, 1).astype(np.float32)
 
-    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> pd.Series:
         """
-        【V6.2 · 赫利俄斯敕令版】计算RSI维度的健康度
-        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
+        【V7.0 · 阿波罗审判版】计算RSI维度的双极性快照分
+        - 核心重构: 仅返回一个[-1, 1]的双极性快照分。
         """
-        s_bull, s_bear, d_intensity = {}, {}, {}
         if 'RSI_13_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return s_bull, s_bear, d_intensity
-        # 遵循“赫利俄斯敕令”
-        # 1. 计算静态快照分
-        indicator_static_bull = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
-        # 2. 对快照分执行关系元分析，得到最终的动态健康分
-        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
-        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
-        # 4. 将 d_intensity 降级为无意义的占位符
-        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
-        for p in periods:
-            s_bull[p] = final_bull_score
-            s_bear[p] = final_bear_score
-            d_intensity[p] = unified_d_intensity
-        
-        return s_bull, s_bear, d_intensity
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        return normalize_to_bipolar(df['RSI_13_D'], df.index, norm_window)
 
-    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> pd.Series:
         """
-        【V6.2 · 赫利俄斯敕令版】计算MACD维度的健康度
-        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
+        【V7.0 · 阿波罗审判版】计算MACD维度的双极性快照分
+        - 核心重构: 仅返回一个[-1, 1]的双极性快照分。
         """
-        s_bull, s_bear, d_intensity = {}, {}, {}
         if 'MACDh_13_34_8_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return s_bull, s_bear, d_intensity
-        # 遵循“赫利俄斯敕令”
-        # 1. 计算静态快照分
-        indicator_static_bull = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
-        # 2. 对快照分执行关系元分析，得到最终的动态健康分
-        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
-        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
-        # 4. 将 d_intensity 降级为无意义的占位符
-        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
-        for p in periods:
-            s_bull[p] = final_bull_score
-            s_bear[p] = final_bear_score
-            d_intensity[p] = unified_d_intensity
-        
-        return s_bull, s_bear, d_intensity
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        return normalize_to_bipolar(df['MACDh_13_34_8_D'], df.index, norm_window)
 
-    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> pd.Series:
         """
-        【V6.2 · 赫利俄斯敕令版】计算CMF维度的健康度
-        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
+        【V7.0 · 阿波罗审判版】计算CMF维度的双极性快照分
+        - 核心重构: 仅返回一个[-1, 1]的双极性快照分。
         """
-        s_bull, s_bear, d_intensity = {}, {}, {}
         if 'CMF_21_D' not in df.columns:
-            default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-            for p in periods:
-                s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return s_bull, s_bear, d_intensity
-        # 遵循“赫利俄斯敕令”
-        # 1. 计算静态快照分
-        indicator_static_bull = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
-        # 2. 对快照分执行关系元分析，得到最终的动态健康分
-        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
-        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
-        # 4. 将 d_intensity 降级为无意义的占位符
-        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
-        for p in periods:
-            s_bull[p] = final_bull_score
-            s_bear[p] = final_bear_score
-            d_intensity[p] = unified_d_intensity
-        
-        return s_bull, s_bear, d_intensity
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        return normalize_to_bipolar(df['CMF_21_D'], df.index, norm_window)
 
     def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 阿瑞斯之怒协议版】基础情报专用的关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V2.1 · 双子座协议版】基础情报专用的关系元分析核心引擎
+        - 核心革命: 签署“双子座”协议，引入成熟的双极性评估逻辑。
+                      1. [一体两面] 分别计算看涨力量(Bullish Force)和看跌力量(Bearish Force)。
+                      2. [净值裁决] 最终得分 = 看涨力量 - 看跌力量，输出一个[-1, 1]的双极性净值分数。
+        - 升级意义: 修复了引擎“单极性失明”的致命BUG，使其能正确评估负面动态。
         """
-        # 引入新的权重体系和加法融合模型
-        # 从配置中获取新的加法模型权重
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
-        # 核心参数
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
-        state_score = snapshot_score.clip(0, 1)
+        # [代码修改开始] 实施“双子座”协议
         # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
@@ -390,14 +324,27 @@ class FoundationIntelligence:
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 终极融合：从乘法调制升级为加法赋权
-        # 旧的乘法模型: final_score = (state_score * (1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration))).clip(0, 1)
-        # 新的加法模型:
-        final_score = (
-            state_score * w_state +
-            velocity_score * w_velocity +
-            acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
+        # --- 看涨力量评估 (Bullish Force) ---
+        bullish_state = snapshot_score.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration
+        )
+        # --- 看跌力量评估 (Bearish Force) ---
+        bearish_state = (snapshot_score.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration
+        )
+        # --- 净值裁决 (Net Value Adjudication) ---
+        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # [代码修改结束]
         return final_score.astype(np.float32)
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
