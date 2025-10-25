@@ -110,24 +110,29 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.6 · 阿波罗的竖琴版】结构与行为健康度计算核心引擎
-        - 核心革命: 签署“阿波罗的竖琴”协议，废除旧的、复杂的、不稳定的健康度融合公式。
-                      1. [统一归一化] 对“状态、速度、加速度”全部使用 `normalize_to_bipolar`。
-                      2. [和谐融合] 使用与元分析相同的“加权算术平均”模型融合三维时空。
-                      3. [民主决策] 使用算术平均融合战术层与上下文层，废除符号独裁。
-        - 收益: 彻底解决了因融合逻辑脆弱而导致的信号意外归零问题，使健康度计算稳定可靠。
+        【V3.7 · 赫淮斯托斯重铸版】结构与行为健康度计算核心引擎
+        - 核心革命: 签署“赫淮斯托斯重铸”协议，重构状态与动态的融合逻辑。
+                      1. [解构] 将无方向的`unified_d_intensity`分解为`bullish_d_intensity`和`bearish_d_intensity`。
+                      2. [注入] 将动态强度作为核心原料，直接注入各自的复合状态计算中，废除外部调制。
+                      3. [分析] 对包含了所有信息的、新生成的纯粹`bipolar_composite_state`进行三维时空分析。
+        - 收益: 彻底解决了因“过程质量”错误否决“状态”而导致的逻辑矛盾。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        # [代码新增开始] 从元分析配置中获取和谐的融合权重
         p_meta = get_param_value(params.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-        # [代码新增结束]
         s_bull, s_bear, d_intensity = {}, {}, {}
+        # [代码修改开始] 实施“赫淮斯托斯重铸”协议
+        # --- 步骤1: 解构动态强度，使其具备方向性 ---
+        efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
+        gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
+        bullish_d_intensity = ((efficiency_holo_bull + gini_holo_bull) / 2.0).astype(np.float32)
+        bearish_d_intensity = ((efficiency_holo_bear + gini_holo_bear) / 2.0).astype(np.float32)
+        # --- 步骤2: 将动态强度作为核心原料注入复合状态计算 ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
         reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
@@ -136,34 +141,31 @@ class BehavioralIntelligence:
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
-        bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * trend_efficiency)**(1/5)
+        # 将 bullish_d_intensity 作为第六种原料注入，并将开方数从 5 改为 6
+        bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * trend_efficiency * bullish_d_intensity)**(1/6)
         upper_shadow_pressure = 1.0 - closing_strength_score
         bearish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         trend_inefficiency = 1 - trend_efficiency
-        bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
+        # 将 bearish_d_intensity 作为第六种原料注入，并将开方数从 5 改为 6
+        bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency * bearish_d_intensity)**(1/6)
+        # --- 步骤3: 计算纯粹的、已包含所有信息的双极性复合状态分 ---
         bipolar_composite_state = (bullish_composite_state - bearish_composite_state).clip(-1, 1)
-        efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
-        gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
-        unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
-        dynamic_bipolar_composite = bipolar_composite_state * unified_d_intensity
+        # --- 步骤4: 对纯粹状态进行三维时空分析 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改开始] 实施“阿波罗的竖琴”协议
-            # 1. 统一归一化
-            state_norm_tactical = normalize_to_bipolar(dynamic_bipolar_composite, df.index, p)
-            slope_raw = dynamic_bipolar_composite.diff(p).fillna(0)
+            # 直接对纯粹的 bipolar_composite_state 进行分析
+            state_norm_tactical = normalize_to_bipolar(bipolar_composite_state, df.index, p)
+            slope_raw = bipolar_composite_state.diff(p).fillna(0)
             slope_norm_tactical = normalize_to_bipolar(slope_raw, df.index, p)
             accel_raw = slope_raw.diff(1).fillna(0)
             accel_norm_tactical = normalize_to_bipolar(accel_raw, df.index, p)
-            # 2. 和谐融合 (战术层)
             tactical_health_bipolar = (
                 state_norm_tactical * w_state +
                 slope_norm_tactical * w_velocity +
                 accel_norm_tactical * w_acceleration
             ).clip(-1, 1)
-            # 为上下文层重复和谐融合过程
-            state_norm_context = normalize_to_bipolar(dynamic_bipolar_composite, df.index, context_p)
+            state_norm_context = normalize_to_bipolar(bipolar_composite_state, df.index, context_p)
             slope_norm_context = normalize_to_bipolar(slope_raw, df.index, context_p)
             accel_norm_context = normalize_to_bipolar(accel_raw, df.index, context_p)
             context_health_bipolar = (
@@ -171,7 +173,6 @@ class BehavioralIntelligence:
                 slope_norm_context * w_velocity +
                 accel_norm_context * w_acceleration
             ).clip(-1, 1)
-            # 3. 民主决策
             final_dynamic_bipolar_health = (tactical_health_bipolar + context_health_bipolar) / 2.0
             # [代码修改结束]
             s_bull[p] = final_dynamic_bipolar_health.astype(np.float32)

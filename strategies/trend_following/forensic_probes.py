@@ -83,12 +83,12 @@ class ForensicProbes:
 
     def _deploy_prometheus_torch_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.2 · 融合尸检版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
-        - 核心升级: 新增“链路层 3.5 健康度全景”和“链路层 4 融合过程尸检”，
-                      彻底解剖 `transmute_health_to_ultimate_signals` 内部的融合逻辑，
-                      使其能够精准定位因键名不匹配等原因导致的融合失败问题。
+        【V2.3 · 赫淮斯托斯重铸同步版】“普罗米修斯火炬”探针 - 行为智能引擎全要素解剖
+        - 核心升级: 与主引擎 `_calculate_structural_behavior_health` V3.7 版完全同步。
+                      在“链路层2”中，精确复刻了将“动态强度”作为第六种核心原料注入复合状态计算的逻辑，
+                      并将开方数从 1/5 修正为 1/6。
         """
-        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.2】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [行为探针] 正在点燃 🔥【普罗米修斯火炬 · 行为引擎解剖 V2.3】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -114,7 +114,10 @@ class ForensicProbes:
             'close_vs_vwap_ratio_D': get_val(df.get('close_vs_vwap_ratio_D'), probe_date, 1.0),
             'flow_divergence_mf_vs_retail_D': get_val(df.get('flow_divergence_mf_vs_retail_D'), probe_date, 0.0),
             'final_hour_momentum_D': get_val(df.get('final_hour_momentum_D'), probe_date, 0.0),
-            'intraday_trend_efficiency_D': get_val(df.get('intraday_trend_efficiency_D'), probe_date, 0.5)
+            'intraday_trend_efficiency_D': get_val(df.get('intraday_trend_efficiency_D'), probe_date, 0.5),
+            # [代码新增开始] 增加动态强度所需的新原料
+            'intraday_volume_gini_D': get_val(df.get('intraday_volume_gini_D'), probe_date, 0.5)
+            # [代码新增结束]
         }
         print("    - [原材料 Raw Ingredients]:")
         for name, val in raw_ingredients.items():
@@ -124,16 +127,25 @@ class ForensicProbes:
         bull_div_score = get_val(normalize_score(df.get('flow_divergence_mf_vs_retail_D').clip(0), df.index, norm_window), probe_date)
         auction_power_score = get_val(normalize_score(df.get('final_hour_momentum_D').clip(0), df.index, norm_window), probe_date)
         trend_eff_score = get_val(normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window), probe_date)
+        # [代码修改开始] 同步“赫淮斯托斯重铸”协议的逻辑
+        # 计算具备方向性的动态强度
+        efficiency_holo_bull, _ = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
+        gini_holo_bull, _ = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
+        eff_holo_bull_val = get_val(efficiency_holo_bull, probe_date)
+        gini_holo_bull_val = get_val(gini_holo_bull, probe_date)
+        bullish_d_intensity = (eff_holo_bull_val + gini_holo_bull_val) / 2.0
         print("\n    - [中间件 Normalized Ingredients]:")
         print(f"      - csi_score: {csi_score:.4f}, vwap_score: {vwap_score:.4f}, bull_div_score: {bull_div_score:.4f}")
         print(f"      - auction_power_score: {auction_power_score:.4f}, trend_eff_score: {trend_eff_score:.4f}")
+        print(f"      - bullish_d_intensity: {bullish_d_intensity:.4f} (来自 eff_holo: {eff_holo_bull_val:.2f}, gini_holo: {gini_holo_bull_val:.2f})")
         reversal_strength = (csi_score * vwap_score)**0.5
-        bullish_composite_state = (reversal_strength * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score)**(1/5)
+        # 将动态强度作为第六种原料注入，开方数改为 1/6
+        bullish_composite_state = (reversal_strength * csi_score * (1 + bull_div_score) * auction_power_score * trend_eff_score * bullish_d_intensity)**(1/6)
         print("\n    - [复合状态计算 Composite State Calculation]:")
         print(f"      - 看涨复合状态 (Bullish Composite): {bullish_composite_state:.4f}")
-        print(f"        - [公式]: (反转强度 * 下影线力量 * (1+主力背离) * 尾盘动能 * 趋势效率)^(1/5)")
-        print(f"        - [计算]: ({reversal_strength:.2f} * {csi_score:.2f} * (1+{bull_div_score:.2f}) * {auction_power_score:.2f} * {trend_eff_score:.2f})^(1/5) = {bullish_composite_state:.4f}")
-        # [代码修改开始] 新增链路层 3.5 和 4 的详细解剖
+        print(f"        - [公式]: (反转强度 * 下影线力量 * (1+主力背离) * 尾盘动能 * 趋势效率 * 看涨动态强度)^(1/6)")
+        print(f"        - [计算]: ({reversal_strength:.2f} * {csi_score:.2f} * (1+{bull_div_score:.2f}) * {auction_power_score:.2f} * {trend_eff_score:.2f} * {bullish_d_intensity:.2f})^(1/6) = {bullish_composite_state:.4f}")
+        # [代码修改结束]
         print("\n  [链路层 3.5] 健康度全景 (Full Health Panorama)")
         overall_health = atomic.get('__BEHAVIOR_overall_health', {})
         bipolar_health = overall_health.get('s_bull', {})
@@ -177,10 +189,8 @@ class ForensicProbes:
         print("\n    - [终极对质 Final Verdict]:")
         print(f"      - 【看涨共振】: 实际值 {bull_res_actual:.4f} vs. 探针重算 {bull_res_recalc.iloc[0]:.4f} -> {'✅ 一致' if np.isclose(bull_res_actual, bull_res_recalc.iloc[0]) else '❌ 不一致'}")
         print(f"      - 【看跌共振】: 实际值 {bear_res_actual:.4f} vs. 探针重算 {bear_res_recalc.iloc[0]:.4f} -> {'✅ 一致' if np.isclose(bear_res_actual, bear_res_recalc.iloc[0]) else '❌ 不一致'}")
-        # 底部反转和顶部反转需要考虑上下文，这里只验证trigger部分
         print(f"      - 【底部反转】: 实际值 {bottom_rev_actual:.4f} vs. 探针重算(trigger) {bottom_rev_recalc.iloc[0]:.4f} -> (仅供参考，未计入上下文)")
         print(f"      - 【顶部反转】: 实际值 {top_rev_actual:.4f} vs. 探针重算(trigger) {top_rev_recalc.iloc[0]:.4f} -> (仅供参考，未计入上下文)")
-        # [代码修改结束]
         print("\n--- “普罗米修斯火炬”探针解剖完毕 ---")
 
 
