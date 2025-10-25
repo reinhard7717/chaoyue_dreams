@@ -207,10 +207,10 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 关系元分析升维版】诊断K线原子形态
-        - 核心升级: 对“急跌信号”(`SCORE_KLINE_SHARP_DROP`)应用关系元分析。
-                      不再返回简单的快照分，而是输出包含“状态-速度-加速度”的动态风险信号。
-        - 保持不变: “缺口支撑”是结构性状态信号，保持其事件驱动逻辑不变。
+        【V3.1 · 宙斯敕令版】诊断K线原子形态
+        - 核心革命: 签署“宙斯敕令”，修复“K线急跌”信号的逻辑。
+                      对于“急跌”这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎。
+                      直接使用其多周期融合的“快照分”作为最终信号，确保逻辑的纯粹与稳定。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -227,10 +227,9 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-        # --- 急跌信号计算 (应用关系元分析升维) ---
+        # --- 急跌信号计算 (应用“宙斯敕令”) ---
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
-            # 将原逻辑作为快照分计算，然后进行元分析
             periods = [1, 5, 13, 21, 55]
             sorted_periods = sorted(periods)
             sharp_drop_scores = {}
@@ -242,18 +241,15 @@ class BehavioralIntelligence:
                 sharp_drop_scores[p_tactical] = (tactical_score * context_score)**0.5
             tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
-            total_weight = sum(tf_weights.get(p, 0) for p in periods)
+            # [代码修改开始] 修正权重获取逻辑，确保能处理数字和字符串key
+            numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+            total_weight = sum(numeric_tf_weights.values())
             if total_weight > 0:
                 for p_tactical in periods:
-                    weight = tf_weights.get(p_tactical, 0) / total_weight
+                    weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                     final_fused_snapshot_score += sharp_drop_scores.get(p_tactical, 0.0) * weight
-            # 对最终的“急跌关系快照分”进行关系元分析
-            sharp_drop_signal_dict = self._perform_relational_meta_analysis(
-                df=df,
-                snapshot_score=final_fused_snapshot_score,
-                signal_name='SCORE_KLINE_SHARP_DROP'
-            )
-            states.update(sharp_drop_signal_dict)
+            states['SCORE_KLINE_SHARP_DROP'] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
+            # [代码修改结束]
     
         return states
 
@@ -314,9 +310,10 @@ class BehavioralIntelligence:
 
     def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
-        【V7.0 · 高保真升维版】上冲派发风险诊断引擎
-        - 核心升级: 使用 `1 - closing_strength_index_D` 作为“收盘疲弱”的核心量化指标，
-                      替换了原有的、基于上影线和反转强度的间接推断，使信号更精准。
+        【V7.1 · 宙斯敕令版】上冲派发风险诊断引擎
+        - 核心修复: 贯彻“宙斯敕令”，对于“上冲派发”这类“事件状态”型风险信号，
+                      废除使用复杂的“关系元分析”引擎。直接使用其多周期融合的“快照分”
+                      作为最终信号，确保逻辑的纯粹与稳定。
         """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         signal_name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
@@ -330,10 +327,7 @@ class BehavioralIntelligence:
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         upthrust_scores_by_period = {}
-        # 使用 closing_strength_index_D 升级“收盘疲弱”的定义
-        # 直接使用收盘强度指数的倒数来量化收盘疲弱程度
         weak_close_score = 1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)
-
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
@@ -346,24 +340,34 @@ class BehavioralIntelligence:
             upthrust_scores_by_period[p_tactical] = (fused_overextension * fused_volume * weak_close_score).astype(np.float32)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         final_snapshot_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
         if total_weight > 0:
             for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
+                weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                 final_snapshot_score += upthrust_scores_by_period.get(p_tactical, 0.0) * weight
-        final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=final_snapshot_score, signal_name=signal_name)
-        return final_signal_dict.get(signal_name, default_series)
+        # [代码修改开始] 签署“宙斯敕令”：废除对快照分进行不当的元分析
+        # 旧的错误逻辑:
+        # final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=final_snapshot_score, signal_name=signal_name)
+        # return final_signal_dict.get(signal_name, default_series)
+        # 新的正确逻辑: 直接返回融合后的快照分
+        final_snapshot_score.name = signal_name
+        return final_snapshot_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
 
     def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 高保真升维版】VPA动态诊断引擎
-        - 核心升级: 引入 `intraday_volatility_D` 指标，将“价格滞涨”的定义升级为
-                      “低趋势效率”与“高日内波动”的结合，更精确地刻画了多空争夺的滞涨状态。
+        【V6.1 · 宙斯敕令版】VPA动态诊断引擎
+        - 核心修复: 贯彻“宙斯敕令”，修复“VPA滞涨”信号的逻辑。
+                      对于“滞涨”这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎。
+                      直接使用其多周期融合的“快照分”作为最终信号，确保逻辑的纯粹与稳定。
         """
         states = {}
         signal_name = 'SCORE_RISK_VPA_STAGNATION'
         required_cols = ['volume_D', 'VOL_MA_21_D', 'pct_change_D', 'intraday_trend_efficiency_D']
-        if any(col not in df.columns for col in required_cols): return states
+        if any(col not in df.columns for col in required_cols): 
+            states[signal_name] = pd.Series(0.0, index=df.index)
+            return states
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         stagnation_scores_by_period = {}
@@ -371,8 +375,6 @@ class BehavioralIntelligence:
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
             tactical_huge_volume = normalize_score(tactical_volume_ratio, df.index, p_tactical, ascending=True)
-            # 升级“价格滞涨”的定义
-            # 价格滞涨 = 低趋势效率 * 高日内波动
             tactical_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_tactical, ascending=True)
             tactical_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_tactical, ascending=True)
             tactical_price_stagnant = (tactical_low_efficiency * tactical_high_volatility)**0.5
@@ -387,19 +389,23 @@ class BehavioralIntelligence:
             stagnation_scores_by_period[p_tactical] = (fused_huge_volume * fused_price_stagnant).astype(np.float32)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         final_snapshot_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        # [代码修改开始] 修正权重获取逻辑，确保能处理数字和字符串key
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
         if total_weight > 0:
             for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
+                weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                 final_snapshot_score += stagnation_scores_by_period.get(p_tactical, 0.0) * weight
-        final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=final_snapshot_score, signal_name=signal_name)
-        states[signal_name] = final_signal_dict.get(signal_name, pd.Series(0.0, index=df.index))
+        states[signal_name] = final_snapshot_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.1 · 前线换装版】量价原子信号诊断引擎
-        - 核心升级: 彻底清除对所有“幽灵信号”的依赖，使用新式高保真指标重铸“卖盘衰竭反转”信号。
+        【V12.2 · 宙斯敕令版】量价原子信号诊断引擎
+        - 核心修复: 贯彻“宙斯敕令”，修复“流动性枯竭风险”信号的逻辑。
+                      对于这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎，
+                      直接使用其多周期融合的“快照分”作为最终信号。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -407,7 +413,6 @@ class BehavioralIntelligence:
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        # --- 信号一: 缩量下跌 (逻辑不变) ---
         if 'pct_change_D' in df.columns:
             weakening_drop_scores = {}
             drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
@@ -421,12 +426,12 @@ class BehavioralIntelligence:
                 fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
                 weakening_drop_scores[p_tactical] = (fused_price_drop * fused_vol_shrink)
             final_weakening_drop = pd.Series(0.0, index=df.index)
-            total_weight = sum(tf_weights.get(p, 0) for p in periods)
-            if total_weight > 0:
+            numeric_tf_weights_weak = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+            total_weight_weak = sum(numeric_tf_weights_weak.values())
+            if total_weight_weak > 0:
                 for p_tactical in periods:
-                    final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight)
+                    final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (numeric_tf_weights_weak.get(p_tactical, 0) / total_weight_weak)
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
-        # --- 信号二: 流动性枯竭风险 (逻辑不变) ---
         drain_scores_by_period = {}
         price_drop_magnitude = df['pct_change_D'].clip(upper=0).abs()
         for i, p_tactical in enumerate(sorted_periods):
@@ -439,29 +444,28 @@ class BehavioralIntelligence:
             fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
             drain_scores_by_period[p_tactical] = (fused_price_drop * fused_vol_shrink).astype(np.float32)
         final_drain_snapshot = pd.Series(0.0, index=df.index)
-        total_weight_drain = sum(tf_weights.get(p, 0) for p in periods)
+        numeric_tf_weights_drain = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight_drain = sum(numeric_tf_weights_drain.values())
         if total_weight_drain > 0:
             for p_tactical in periods:
-                final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (tf_weights.get(p_tactical, 0) / total_weight_drain)
-        drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
-        states.update(drain_signal_dict)
-        # 使用新式武器重铸“卖盘衰竭反转”信号
-        # --- 信号三: 卖盘衰竭反转 (SCORE_BULLISH_EXHAUSTION_REVERSAL) ---
+                final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (numeric_tf_weights_drain.get(p_tactical, 0) / total_weight_drain)
+        # [代码修改开始] 签署“宙斯敕令”：废除对“流动性枯竭风险”快照分进行不当的元分析
+        # 旧的错误逻辑:
+        # drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
+        # states.update(drain_signal_dict)
+        # 新的正确逻辑:
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = final_drain_snapshot.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         norm_window = 55
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        # 新武器：用收盘强度代表底部支撑
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
-        # 新武器：用主力散户行为背离代表看涨背离
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
-        # 新武器：用尾盘动能代表竞价强度
         auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
-        # 融合所有看涨证据
         exhaustion_snapshot = (
             vol_dry_up * bottom_support_power * auction_power * (1 + bullish_divergence)
         ).clip(0, 1).astype(np.float32)
         exhaustion_signal_dict = self._perform_relational_meta_analysis(df, exhaustion_snapshot, "SCORE_BULLISH_EXHAUSTION_REVERSAL")
         states.update(exhaustion_signal_dict)
-
         return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
