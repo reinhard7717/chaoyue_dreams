@@ -372,6 +372,28 @@ class FoundationIntelligence:
         ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
         return ma_context_score.astype(np.float32)
 
+    def _diagnose_panic_absorption(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】恐慌吸收诊断引擎
+        - 核心使命: 量化主力在市场恐慌时，逆势吸收筹码的强度。
+        - 诊断逻辑: 融合“主力净流向”、“主力vs散户背离”、“主力成本代价”三维核心证据。
+        """
+        norm_window = 55 # 使用一个标准化的长周期窗口
+        # 证据A: 主力净流向 (绝对意图)
+        main_force_flow_score = normalize_to_bipolar(df.get('main_force_net_flow_consensus_D', 0), df.index, norm_window)
+        # 证据B: 主力vs散户背离 (相对行为)
+        flow_divergence_score = normalize_to_bipolar(df.get('flow_divergence_mf_vs_retail_D', 0), df.index, norm_window)
+        # 证据C: 主力成本代价 (信念强度)
+        profit_profile_score = normalize_to_bipolar(-df.get('main_force_intraday_profit_D', 0), df.index, norm_window)
+        # 融合三大证据，看涨权重更高
+        # 我们相信“净流向”和“背离”比“盈亏”更重要
+        absorption_score = (
+            main_force_flow_score * 0.4 +
+            flow_divergence_score * 0.4 +
+            profit_profile_score * 0.2
+        ).clip(0, 1) # 吸收分只取正值，因为我们只关心吸收行为，不关心其反面
+        return absorption_score.astype(np.float32)
+
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块
     # ==============================================================================
