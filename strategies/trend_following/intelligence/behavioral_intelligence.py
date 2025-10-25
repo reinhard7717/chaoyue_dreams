@@ -81,14 +81,14 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.8 · 雅典娜敕令版】原子信号中心
-        - 核心重构: 统一计算K线质量分并传递给下游方法。
+        【V2.0 · 风险调光器版】原子信号中心
+        - 核心升级: 实施“风险调光器”协议。
+                      1. 分别调用方法生成`PROVISIONAL_RISK_UPPER_SHADOW`和`SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS`。
+                      2. 调用新的融合器`_fuse_upper_shadow_signals`生成最终的、经过调制的风险信号。
         """
         atomic_signals = {}
         params = self.strategy.params
-        # [代码修改开始] 统一计算K线质量分
         day_quality_score = self._calculate_day_quality_score(df)
-        # [代码修改结束]
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
         continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
@@ -97,14 +97,24 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # [代码修改开始] 传递 day_quality_score
-        atomic_signals.update(self._diagnose_kline_patterns(df, day_quality_score))
+        # [代码修改开始] 实施“风险调光器”协议
+        # 步骤1: 生成临时的原始信号
+        provisional_kline_signals = self._diagnose_kline_patterns(df, day_quality_score)
+        provisional_risk = provisional_kline_signals.get('PROVISIONAL_RISK_UPPER_SHADOW', pd.Series(0.0, index=df.index))
+        atomic_signals.update(provisional_kline_signals) # 将其他kline信号(如缺口)加入
+        # 步骤2: 生成意图诊断信号
+        intent_signals = self._diagnose_upper_shadow_intent(df)
+        intent_diagnosis = intent_signals.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS', pd.Series(0.0, index=df.index))
+        atomic_signals.update(intent_signals)
+        # 步骤3: 调用融合器生成最终风险信号
+        fused_signals = self._fuse_upper_shadow_signals(provisional_risk, intent_diagnosis)
+        atomic_signals.update(fused_signals)
+        # [代码修改结束]
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
         atomic_signals.update(self._diagnose_volume_price_dynamics(df, params, day_quality_score))
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params, day_quality_score)
-        # [代码修改结束]
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
         atomic_signals.update(self._diagnose_structural_fault_breakthrough(df))
@@ -209,11 +219,10 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.6 · 赫菲斯托斯重铸版】诊断K线原子形态
-        - 核心重铸: 修复了`SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`信号的计算BUG。
-                      废除了在单周期内融合“战术分”与“上下文分”的复杂逻辑，
-                      并修正了错误的“二次开方”问题。现在，单周期分数被正确地定义为
-                      该周期内“抛压分”与“成交量分”的直接几何平均值。
+        【V3.7 · 职责分离版】诊断K线原子形态
+        - 核心重构: 此方法不再输出最终的`SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`。
+                      根据“风险调光器”协议，它现在只负责计算并输出一个临时的、未经上下文调制的
+                      原始抛压分 `PROVISIONAL_RISK_UPPER_SHADOW`，供下游融合器使用。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -230,7 +239,9 @@ class BehavioralIntelligence:
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
         p_pressure = p.get('selling_pressure_params', {})
-        signal_name = 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'
+        # [代码修改开始] 信号名称变更为临时信号
+        signal_name = 'PROVISIONAL_RISK_UPPER_SHADOW'
+        # [代码修改结束]
         if get_param_value(p_pressure.get('enabled'), True):
             periods = get_param_value(p_pressure.get('periods'), [5, 13, 21, 55])
             sorted_periods = sorted(periods)
@@ -238,14 +249,10 @@ class BehavioralIntelligence:
             kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
             upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
             upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
-            # [代码修改开始] 简化单周期分数的计算逻辑
             for p_tactical in sorted_periods:
-                # 1. 归一化当前周期的驱动因子和确认因子
                 tactical_pressure = normalize_score(upper_shadow_ratio, df.index, p_tactical, ascending=True)
                 tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
-                # 2. 直接计算几何平均值作为单周期快照分，移除冗余的上下文融合和二次开方
                 pressure_scores[p_tactical] = (tactical_pressure * tactical_volume)**0.5
-            # [代码修改结束]
             tf_weights = get_param_value(p_pressure.get('tf_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
             numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
@@ -632,6 +639,50 @@ class BehavioralIntelligence:
         states.update(final_signal_dict)
         return states
 
+    def _diagnose_upper_shadow_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】上影线意图诊断引擎
+        - 核心使命: 揭示长上影线背后的真实意图——是主力派发（散户站岗），还是主力洗盘吸筹。
+        - 诊断逻辑: 融合“资金流向”、“筹码结果”、“成本代价”三维证据，输出一个[-1, 1]的双极性分数。
+                      正分代表看涨意图（吸筹），负分代表看跌意图（派发）。
+        """
+        states = {}
+        signal_name = 'SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'
+        p_parent = get_params_block(self.strategy, 'kline_pattern_params', {})
+        p = get_params_block(p_parent, 'upper_shadow_intent_params', {})
+        if not get_param_value(p.get('enabled'), True):
+            states[signal_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            return states
+        norm_window = get_param_value(p.get('norm_window'), 55)
+        weights = get_param_value(p.get('fusion_weights'), {})
+        w_flow = get_param_value(weights.get('flow_divergence'), 0.5)
+        w_conc = get_param_value(weights.get('concentration_change'), 0.3)
+        w_profit = get_param_value(weights.get('profit_profile'), 0.2)
+        # 1. 计算上影线比例，作为触发条件
+        kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
+        # 仅在有显著上影线的日子进行诊断
+        trigger_mask = upper_shadow_ratio > get_param_value(p.get('min_upper_shadow_ratio'), 0.4)
+        # 2. 归一化三维证据
+        # 证据A: 资金流向 (主力vs散户)
+        flow_divergence_score = normalize_to_bipolar(df.get('flow_divergence_mf_vs_retail_D', 0), df.index, norm_window)
+        # 证据B: 筹码结果 (集中度变化)
+        concentration_change = df.get('concentration_90pct_D', pd.Series(0.0, index=df.index)).diff().fillna(0)
+        concentration_change_score = normalize_to_bipolar(concentration_change, df.index, norm_window)
+        # 证据C: 成本代价 (主力日内盈亏，注意取反)
+        # 主力亏钱买入是看涨信号，所以对原始利润取反
+        profit_profile_score = normalize_to_bipolar(-df.get('main_force_intraday_profit_D', 0), df.index, norm_window)
+        # 3. 加权融合
+        final_intent_score = (
+            flow_divergence_score * w_flow +
+            concentration_change_score * w_conc +
+            profit_profile_score * w_profit
+        ).clip(-1, 1)
+        # 4. 应用触发条件
+        states[signal_name] = (final_intent_score * trigger_mask).astype(np.float32)
+        return states
+
     def _calculate_trend_health_score(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 新增】“阿波罗的战车”四维趋势健康度评估引擎
@@ -835,6 +886,19 @@ class BehavioralIntelligence:
         day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
         return day_quality_score
 
+    def _fuse_upper_shadow_signals(self, provisional_risk: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】上影线信号融合器（风险调光器）
+        - 核心使命: 应用“风险调光器”协议，融合原始抛压风险和意图诊断分。
+        - 核心公式: 最终风险分 = 原始抛压风险分 * (1 - 上影线意图诊断分)
+        - 产出: 生成最终的、经过上下文调制的 `SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW` 信号。
+        """
+        states = {}
+        final_risk_score = (provisional_risk * (1 - intent_diagnosis)).clip(0, 2) # 允许风险翻倍
+        # 为了计分系统的兼容性，最终输出到计分系统时可以再clip(0,1)
+        # 但这里保留原始计算值，以便未来更精细的风险模型使用
+        states['SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'] = final_risk_score.astype(np.float32)
+        return states
 
 
 

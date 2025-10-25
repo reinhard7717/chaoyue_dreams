@@ -172,12 +172,18 @@
             "type": "context",
             "description": "【原子信号】量化未回补的向上跳空缺口作为支撑的强度和有效性。"
         },
-        "SCORE_KLINE_SHARP_DROP": {
-            "cn_name": "【行为风险】K线急跌",
+        "SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW": {
+            "cn_name": "【行为风险】上影线抛压风险",
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -200,
-            "description": "【原子风险】对急跌行为的动态风险评估，融合了状态、速度和加速度。"
+            "description": "【逻辑重铸】精确量化由'长上影线'和'放量'共同构成的日内抛压风险。上影线越长、成交量越大，风险分越高，是衡量日内多空博弈中卖方力量的精准指标。"
+        },
+        "SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS": {
+            "cn_name": "【行为】上影线意图诊断",
+            "category": "行为层-环境",
+            "type": "context",
+            "description": "【V1.0 · 新增】诊断长上影线背后的真实意图。这是一个[-1, 1]的双极性分数：正分代表看涨意图（主力洗盘吸筹），负分代表看跌意图（主力派发，散户站岗）。融合了资金流向、筹码变化和主力盈亏三大证据。"
         },
         "SCORE_PRICE_POSITION_IN_RANGE": {
             "cn_name": "【行为】收盘价位置",
