@@ -220,10 +220,10 @@ class ForensicProbes:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.1 · 忒弥斯天平版】“赫菲斯托斯熔炉”探针 - 筹码情报全要素解剖
-        - 核心修复: 签署“忒弥斯的正义天平”协议，在对权重字典求和前，增加类型检查，过滤掉 "description" 等非数字值，彻底修复因配置污染导致的 TypeError。
+        【V1.2 · 商神杖同步版】“赫菲斯托斯熔炉”探针
+        - 核心升级: 与主引擎 V4.5 完全同步，精确复刻“赫尔墨斯的商神杖”协议，对背离信号进行“阴阳分离”，确保反转信号计算的纯净性。
         """
-        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.1】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.2】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         chip_intel = self.chip_intel
@@ -276,16 +276,12 @@ class ForensicProbes:
         bullish_scores_recalc = {p: max(0, score) for p, score in bipolar_health_recalc.items()}
         bearish_scores_recalc = {p: max(0, -score) for p, score in bipolar_health_recalc.items()}
         bull_res_recalc, bear_res_recalc = 0.0, 0.0
-        # [代码修改开始] 增加类型检查，过滤掉 "description" 等非数字值，修复TypeError
         numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
         total_weight = sum(numeric_weights.values())
-        # [代码修改结束]
         bull_calc_str, bear_calc_str = [], []
         if total_weight > 0:
             for p in periods:
-                # [代码修改开始] 使用净化后的 numeric_weights
-                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
-                # [代码修改结束]
+                weight = numeric_weights.get(str(p), 0) / total_weight
                 bull_res_recalc += bullish_scores_recalc.get(p, 0.0) * weight
                 bear_res_recalc += bearish_scores_recalc.get(p, 0.0) * weight
                 bull_calc_str.append(f"({bullish_scores_recalc.get(p, 0.0):.2f}*{weight:.2f})")
@@ -301,25 +297,23 @@ class ForensicProbes:
             bipolar_health_series[p] = (conc_s * axiom_weights.get('concentration', 0.3) + acc_s * axiom_weights.get('accumulation', 0.3) + pow_s * axiom_weights.get('power_transfer', 0.25) + peak_s * axiom_weights.get('peak_integrity', 0.15)).clip(-1, 1)
         bullish_series = {p: s.clip(0, 1) for p, s in bipolar_health_series.items()}
         bearish_series = {p: (s.clip(-1, 0) * -1) for p, s in bipolar_health_series.items()}
-        bottom_rev_scores, top_rev_scores = {}, {}
-        norm_window = 55
-        for p in periods:
-            context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-            bottom_rev_scores[p] = chip_intel._calculate_holographic_divergence(bullish_series.get(p), 1, p, context_p) # 修正背离计算周期
-            top_rev_scores[p] = chip_intel._calculate_holographic_divergence(bearish_series.get(p), 1, p, context_p) # 修正背离计算周期
         bottom_rev_recalc, top_rev_recalc = 0.0, 0.0
         bottom_calc_str, top_calc_str = [], []
         if total_weight > 0:
             for p in periods:
-                # [代码修改开始] 使用净化后的 numeric_weights
-                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                weight = numeric_weights.get(str(p), 0) / total_weight
+                context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+                # [代码修改开始] 复刻“赫尔墨斯的商神杖”协议
+                holographic_bull_divergence = chip_intel._calculate_holographic_divergence(bullish_series.get(p), 1, p, context_p)
+                holographic_bear_divergence = chip_intel._calculate_holographic_divergence(bearish_series.get(p), 1, p, context_p)
+                bull_divergence_val = get_val(holographic_bull_divergence, probe_date, 0.0)
+                bear_divergence_val = get_val(holographic_bear_divergence, probe_date, 0.0)
+                # 阴阳分离
+                bottom_rev_recalc += max(0, bull_divergence_val) * weight
+                top_rev_recalc += max(0, bear_divergence_val) * weight
+                bottom_calc_str.append(f"({max(0, bull_divergence_val):.2f}*{weight:.2f})")
+                top_calc_str.append(f"({max(0, bear_divergence_val):.2f}*{weight:.2f})")
                 # [代码修改结束]
-                bottom_rev_val = get_val(bottom_rev_scores.get(p), probe_date, 0.0)
-                top_rev_val = get_val(top_rev_scores.get(p), probe_date, 0.0)
-                bottom_rev_recalc += bottom_rev_val * weight
-                top_rev_recalc += top_rev_val * weight
-                bottom_calc_str.append(f"({bottom_rev_val:.2f}*{weight:.2f})")
-                top_calc_str.append(f"({top_rev_val:.2f}*{weight:.2f})")
         print(f"    - [融合计算 - 底部反转]: {' + '.join(bottom_calc_str)} = {bottom_rev_recalc:.4f}")
         print(f"    - [融合计算 - 顶部反转]: {' + '.join(top_calc_str)} = {top_rev_recalc:.4f}")
         print("\n  [链路层 5] 终极对质 (Final Verdict)")

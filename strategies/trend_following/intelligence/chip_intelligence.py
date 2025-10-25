@@ -48,8 +48,10 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.4 · 忒弥斯天平版】终极信号合成器
-        - 核心修复: 签署“忒弥斯的正义天平”协议，在对权重字典求和前，增加类型检查，过滤掉 "description" 等非数字值，彻底修复因配置污染导致的潜在 TypeError。
+        【V4.5 · 赫尔墨斯商神杖版】终极信号合成器
+        - 核心革命: 签署“赫尔墨斯的商神杖”协议，修复反转信号的“阴阳混淆”逻辑。
+                      1. [阴阳分离] 对全息背离引擎输出的双极性分数进行分离，得到纯净的“看涨背离”和“看跌背离”部分。
+                      2. [各归其位] 将“看涨背离”路由给底部反转信号，将“看跌背离”路由给顶部反转信号，杜绝信号污染。
         """
         states = {}
         periods = sorted(concentration.keys())
@@ -73,34 +75,29 @@ class ChipIntelligence:
         bearish_scores_by_period = {p: (score.clip(-1, 0) * -1) for p, score in bipolar_health_by_period.items()}
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
-        # [代码修改开始] 增加类型检查，过滤掉 "description" 等非数字值
         numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
         total_weight = sum(numeric_weights.values())
-        # [代码修改结束]
         if total_weight > 0:
             for p in periods:
-                # [代码修改开始] 使用净化后的 numeric_weights
-                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
-                # [代码修改结束]
+                weight = numeric_weights.get(str(p), 0) / total_weight
                 bullish_resonance += bullish_scores_by_period.get(p, 0.0) * weight
                 bearish_resonance += bearish_scores_by_period.get(p, 0.0) * weight
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        bottom_reversal_scores = {}
-        top_reversal_scores = {}
-        for p in periods:
-            context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p) # 修正背离计算周期
-            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p) # 修正背离计算周期
         bottom_reversal_divergence = pd.Series(0.0, index=df.index)
         top_reversal_divergence = pd.Series(0.0, index=df.index)
         if total_weight > 0:
             for p in periods:
-                # [代码修改开始] 使用净化后的 numeric_weights
-                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                weight = numeric_weights.get(str(p), 0) / total_weight
+                context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+                # [代码修改开始] 实施“赫尔墨斯的商神杖”协议
+                # 分别计算基于看涨健康分和看跌健康分的背离
+                holographic_bull_divergence = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
+                holographic_bear_divergence = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
+                # 阴阳分离，各归其位
+                bottom_reversal_divergence += holographic_bull_divergence.clip(0, 1) * weight # 看涨背离 -> 底部反转
+                top_reversal_divergence += holographic_bear_divergence.clip(0, 1) * weight # 看跌背离 -> 顶部反转
                 # [代码修改结束]
-                bottom_reversal_divergence += bottom_reversal_scores.get(p, 0.0) * weight
-                top_reversal_divergence += top_reversal_scores.get(p, 0.0) * weight
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
