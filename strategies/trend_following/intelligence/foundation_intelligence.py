@@ -37,64 +37,47 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V15.0 · 阿波罗审判版】
-        - 核心革命: 签署“阿波罗审判”协议，对基础情报引擎进行司法级重构。
-                      1. [权力上移] 元分析的职责从支柱函数上移至本函数。
-                      2. [分周期审判] 对每个周期独立执行元分析，修复了周期健康度计算错误。
-                      3. [双极性统一] 所有支柱现在输出统一的[-1, 1]双极性快照分。
+        【V15.1 · 哥白尼革命版】
+        - 核心革命: 彻底执行“哥白尼革命”，为每个周期 p 调用具有相应 meta_window 的元分析。
+        - 升级意义: 确保每个周期的健康度都是独立计算的动态结果，修复了最终信号归零的致命BUG。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
-        
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        
-        # [代码修改开始] 实施“阿波罗审判”协议
-        # 1. 各支柱计算并返回双极性快照分
         ema_snapshot = self._calculate_ema_health(df, norm_window, periods)
         rsi_snapshot = self._calculate_rsi_health(df, norm_window, periods, ma_context_score)
         macd_snapshot = self._calculate_macd_health(df, norm_window, periods, ma_context_score)
         cmf_snapshot = self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
-        
         snapshots = {
             'ema': ema_snapshot,
             'rsi': rsi_snapshot,
             'macd': macd_snapshot,
             'cmf': cmf_snapshot
         }
-        
         weight_keys = list(snapshots.keys())
         weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
         weights_array /= weights_array.sum()
-
-        # 2. 融合各支柱的双极性快照分
         stacked_snapshots = np.stack([s.fillna(0.0).values for s in snapshots.values()], axis=0)
-        
-        # 使用加权算术平均融合双极性分数
         fused_bipolar_snapshot = pd.Series(
             np.sum(stacked_snapshots * weights_array[:, np.newaxis], axis=0),
             index=df.index, dtype=np.float32
         ).clip(-1, 1)
-
         overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
-        
-        # 3. 对每个周期独立执行元分析
+        # [代码修改开始] 实施“哥白尼革命”
+        # 3. 对每个周期独立执行元分析，并传入周期 p 作为 meta_window
         for p in periods:
-            # 注意：基础情报的元分析不区分周期，因此对所有周期应用相同的元分析结果
-            # 这是其简化模型的特点，我们保持这个逻辑
-            final_bipolar_health = self._perform_foundation_relational_meta_analysis(df, fused_bipolar_snapshot)
-            
+            # 确保 meta_window 至少为1
+            current_meta_window = max(1, p)
+            final_bipolar_health = self._perform_foundation_relational_meta_analysis(df, fused_bipolar_snapshot, meta_window=current_meta_window)
             overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
             overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
-            overall_health['d_intensity'][p] = pd.Series(1.0, index=df.index, dtype=np.float32) # 保持占位符
+            overall_health['d_intensity'][p] = pd.Series(1.0, index=df.index, dtype=np.float32)
         # [代码修改结束]
-        
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
-        
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -295,13 +278,12 @@ class FoundationIntelligence:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         return normalize_to_bipolar(df['CMF_21_D'], df.index, norm_window)
 
-    def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+    def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int) -> pd.Series:
         """
-        【V2.1 · 双子座协议版】基础情报专用的关系元分析核心引擎
-        - 核心革命: 签署“双子座”协议，引入成熟的双极性评估逻辑。
-                      1. [一体两面] 分别计算看涨力量(Bullish Force)和看跌力量(Bearish Force)。
-                      2. [净值裁决] 最终得分 = 看涨力量 - 看跌力量，输出一个[-1, 1]的双极性净值分数。
-        - 升级意义: 修复了引擎“单极性失明”的致命BUG，使其能正确评估负面动态。
+        【V2.2 · 哥白尼革命版】基础情报专用的关系元分析核心引擎
+        - 核心革命: 签署“哥白尼革命”协议，确立“周期中心论”。
+                      - [参数化改造] 新增 meta_window 参数，允许调用者为不同周期指定不同的动态分析窗口。
+                      - [废除异端] 废除了内部固定的 meta_window=5，将动态分析的决定权交还给调用方。
         """
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -309,9 +291,9 @@ class FoundationIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
-        meta_window = 5
+        # [代码修改开始] 废除固定的 meta_window
+        # meta_window = 5 # 异端教条已被废除
         bipolar_sensitivity = 1.0
-        # [代码修改开始] 实施“双子座”协议
         # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
@@ -324,6 +306,7 @@ class FoundationIntelligence:
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
+        # [代码修改结束]
         # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
@@ -344,7 +327,6 @@ class FoundationIntelligence:
         )
         # --- 净值裁决 (Net Value Adjudication) ---
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # [代码修改结束]
         return final_score.astype(np.float32)
 
     def _calculate_ma_trend_context(self, df: pd.DataFrame, periods: list) -> pd.Series:
@@ -380,40 +362,39 @@ class FoundationIntelligence:
 
     def diagnose_volatility_intelligence(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 分层印证版】波动率统一情报中心
-        - 核心升级: 引入“分层动态印证”框架。对“波动率压缩/扩张”的瞬时关系快照分的构建进行多时间维度的分层验证。
+        【V8.1 · 哥白尼革命同步版】波动率统一情报中心
+        - 核心升级: 同步“哥白尼革命”，在调用元分析时传入正确的周期参数 p_tactical。
         """
         states = {}
         if 'BBW_21_2.0_D' not in df.columns or 'hurst_120d_D' not in df.columns:
             return {}
-        # 引入分层印证框架
         periods = [1, 5, 13, 21, 55]
         sorted_periods = sorted(periods)
         tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
-        # --- 容器初始化 ---
         compression_state_scores = {}
         compression_dynamic_scores = {}
         expansion_risk_state_scores = {}
         expansion_risk_dynamic_scores = {}
         bbw_series = df['BBW_21_2.0_D']
-        # --- 分层计算每个周期的状态分和动态分 ---
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # 波动率压缩
             tactical_comp = normalize_score(bbw_series, df.index, p_tactical, ascending=False)
             context_comp = normalize_score(bbw_series, df.index, p_context, ascending=False)
             fused_compression = (tactical_comp * context_comp)**0.5
             state_score_p = (fused_compression * ma_context_score).astype(np.float32)
             compression_state_scores[p_tactical] = state_score_p
-            compression_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, state_score_p)
-            # 波动率扩张风险
+            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            current_meta_window = max(1, p_tactical)
+            compression_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, state_score_p, meta_window=current_meta_window)
+            # [代码修改结束]
             tactical_exp = normalize_score(bbw_series, df.index, p_tactical, ascending=True)
             context_exp = normalize_score(bbw_series, df.index, p_context, ascending=True)
             fused_expansion = (tactical_exp * context_exp)**0.5
             risk_state_score_p = (fused_expansion * (1 - ma_context_score)).astype(np.float32)
             expansion_risk_state_scores[p_tactical] = risk_state_score_p
-            expansion_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, risk_state_score_p)
-        # --- 跨周期融合，生成最终的原子信号 ---
+            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            expansion_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, risk_state_score_p, meta_window=current_meta_window)
+            # [代码修改结束]
         def fuse_across_periods(scores_dict):
             final_score = pd.Series(0.0, index=df.index)
             total_weight = sum(tf_weights.values())
@@ -425,16 +406,14 @@ class FoundationIntelligence:
         states['SCORE_VOL_COMPRESSION_DYNAMIC'] = fuse_across_periods(compression_dynamic_scores)
         states['SCORE_VOL_EXPANSION_RISK_STATE'] = fuse_across_periods(expansion_risk_state_scores)
         states['SCORE_VOL_EXPANSION_RISK_DYNAMIC'] = fuse_across_periods(expansion_risk_dynamic_scores)
-        # Hurst指数保持不变
         hurst_score = normalize_score(df['hurst_120d_D'], df.index, 120)
         states['SCORE_TRENDING_REGIME'] = hurst_score
-        
         return states
 
     def diagnose_classic_indicators_atomics(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 分层印证版】经典指标原子信号诊断
-        - 核心升级: 引入“分层动态印证”框架。对“量价点火”和“恐慌抛售”的证据链进行多时间维度的分层验证。
+        【V3.1 · 哥白尼革命同步版】经典指标原子信号诊断
+        - 核心升级: 同步“哥白尼革命”，在调用元分析时传入正确的周期参数 p_tactical。
         """
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
@@ -442,28 +421,23 @@ class FoundationIntelligence:
         required_cols = ['close_D', 'open_D']
         if not all(col in df.columns for col in required_cols):
             return {}
-        # 引入分层印证框架
         periods = [1, 5, 13, 21, 55]
         sorted_periods = sorted(periods)
         tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
-        # --- 容器初始化 ---
         ignition_state_scores = {}
         ignition_dynamic_scores = {}
         panic_risk_state_scores = {}
         panic_risk_dynamic_scores = {}
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
-        # --- 分层计算每个周期的状态分和动态分 ---
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # 证据1: 价格强度 (分层)
             tactical_price_up = normalize_score(candle_body_up, df.index, p_tactical)
             context_price_up = normalize_score(candle_body_up, df.index, p_context)
             fused_price_up = (tactical_price_up * context_price_up)**0.5
             tactical_price_down = normalize_score(candle_body_down, df.index, p_tactical)
             context_price_down = normalize_score(candle_body_down, df.index, p_context)
             fused_price_down = (tactical_price_down * context_price_down)**0.5
-            # 证据2: 成交量点火 (分层)
             vol_slope_series = df.get(f'SLOPE_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             vol_accel_series = df.get(f'ACCEL_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             tactical_vol_slope = normalize_score(vol_slope_series, df.index, p_tactical)
@@ -473,15 +447,17 @@ class FoundationIntelligence:
             fused_vol_slope = (tactical_vol_slope * context_vol_slope)**0.5
             fused_vol_accel = (tactical_vol_accel * context_vol_accel)**0.5
             fused_volume_igniting = fused_vol_slope * fused_vol_accel
-            # --- 量价点火信号 ---
             ignition_snapshot = (fused_price_up * fused_volume_igniting * ma_context_score).astype(np.float32)
             ignition_state_scores[p_tactical] = ignition_snapshot
-            ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot)
-            # --- 恐慌抛售风险 ---
+            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            current_meta_window = max(1, p_tactical)
+            ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot, meta_window=current_meta_window)
+            # [代码修改结束]
             panic_snapshot = (fused_price_down * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
             panic_risk_state_scores[p_tactical] = panic_snapshot
-            panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot)
-        # --- 跨周期融合，生成最终的原子信号 ---
+            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot, meta_window=current_meta_window)
+            # [代码修改结束]
         def fuse_across_periods(scores_dict):
             final_score = pd.Series(0.0, index=df.index)
             total_weight = sum(tf_weights.values())
@@ -493,7 +469,6 @@ class FoundationIntelligence:
         states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = fuse_across_periods(ignition_dynamic_scores)
         states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = fuse_across_periods(panic_risk_state_scores)
         states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = fuse_across_periods(panic_risk_dynamic_scores)
-        
         return states
 
 
