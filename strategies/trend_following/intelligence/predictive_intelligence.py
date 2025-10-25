@@ -48,9 +48,9 @@ class PredictiveIntelligence:
         vol_lookback = get_param_value(p_conf.get('exhaustion_vol_lookback'), 20)
         volume_score = normalize_score(df['volume_D'], df.index, window=vol_lookback, ascending=True)
         high_low_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        # [代码修改开始] 实施“日间影线”协议
+        # 实施“日间影线”协议
         upper_shadow = df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])
-        # [代码修改结束]
+        
         upper_shadow_ratio = (upper_shadow / high_low_range).fillna(0)
         close_position_in_range = ((df['close_D'] - df['low_D']) / high_low_range).fillna(0.5)
         upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1)

@@ -65,12 +65,12 @@ class DynamicMechanicsEngine:
         stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots], axis=0)
         fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
         fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
-        # [代码修改开始] 引入双极性健康分计算
+        # 引入双极性健康分计算
         # 首先，计算一个统一的、双极性的力学快照分
         bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
         # 然后，将这个双极性快照分与均线趋势上下文（一个[0,1]的看涨确认分）相乘，进行调节
         modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
-        # [代码修改结束]
+        
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
             # [代码修改] 对调节后的双极性分数进行元分析，得到最终的动态健康分

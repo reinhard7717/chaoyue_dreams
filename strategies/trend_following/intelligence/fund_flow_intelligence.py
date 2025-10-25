@@ -374,7 +374,7 @@ class FundFlowIntelligence:
                 market_cap_in_yuan = df[market_cap_col] * 10000
                 market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
                 static_series = (static_series * 10000 / market_cap_in_yuan).fillna(0)
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
             slope_col_name = f"SLOPE_{p}_{base_col_name}_D"
@@ -410,7 +410,7 @@ class FundFlowIntelligence:
             s_bear[p] = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
             # 4. 将 d_intensity 降级为无意义的占位符
             d_intensity[p] = pd.Series(1.0, index=df.index, dtype=np.float32)
-        # [代码修改结束]
+        
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # ==============================================================================

@@ -99,10 +99,10 @@ class TacticEngine:
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         rebound_strength_score = ((df['close_D'] - df['low_D']) / day_range).fillna(0.5).clip(0, 1)
-        # [代码修改开始] 实施“日间影线”协议
+        # 实施“日间影线”协议
         upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])).clip(lower=0)
         lower_shadow = (np.minimum(df['close_D'], df['pre_close_D']) - df['low_D']).clip(lower=0)
-        # [代码修改结束]
+        
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
         base_score = snapshot_panic * final_calmness_score * rebound_strength_score

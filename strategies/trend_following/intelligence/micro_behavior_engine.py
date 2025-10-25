@@ -500,9 +500,9 @@ class MicroBehaviorEngine:
             volume_spike_score = (tactical_vol_spike * context_vol_spike)**0.5
             volatility_score = (tactical_volatility * context_volatility)**0.5
             total_range = (df['high_D'] - df['low_D']).replace(0, epsilon)
-            # [代码修改开始] 实施“日间影线”协议
+            # 实施“日间影线”协议
             upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D']))
-            # [代码修改结束]
+            
             upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()

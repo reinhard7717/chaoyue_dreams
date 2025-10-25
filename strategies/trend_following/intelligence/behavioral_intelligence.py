@@ -126,7 +126,7 @@ class BehavioralIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # [代码修改开始] 实施“阿波罗战车”协议
+        # 实施“阿波罗战车”协议
         # --- 步骤1: 计算日内质量分 (Intraday Quality Score) ---
         gap_up = df['open_D'] > df['pre_close_D']
         gap_down = df['open_D'] < df['pre_close_D']
@@ -155,7 +155,7 @@ class BehavioralIntelligence:
         # --- 步骤3: 应用“宙斯之雷”协议，归一化“净有效强度” ---
         positive_day_strength = normalize_score(net_effective_bullish_strength, df.index, norm_window) * (net_effective_bullish_strength > 0)
         negative_day_strength = normalize_score(net_effective_bearish_strength, df.index, norm_window) * (net_effective_bearish_strength > 0)
-        # [代码修改结束]
+        
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         bullish_d_intensity = ((efficiency_holo_bull + gini_holo_bull) / 2.0).astype(np.float32)

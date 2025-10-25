@@ -129,7 +129,7 @@ class ProcessIntelligence:
             return {}
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-        # [代码修改开始] 实施“雅典娜的裁决”协议
+        # 实施“雅典娜的裁决”协议
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
         if diagnosis_mode == 'direct_confirmation':
             # 直接确认模式：瞬时关系分就是最终得分
@@ -156,7 +156,7 @@ class ProcessIntelligence:
             trend_weight = self.meta_score_weights[0]
             accel_weight = self.meta_score_weights[1]
             meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        # [代码修改结束]
+        
         # 从权威的 self.score_type_map 获取信号元数据和计分模式
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')

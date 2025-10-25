@@ -137,10 +137,10 @@ class StructuralIntelligence:
         bear_snapshot_score = pd.Series(bear_alignment, index=df.index, dtype=np.float32)
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # [代码修改开始] 部署“赫斯提亚的壁炉”协议
+        # 部署“赫斯提亚的壁炉”协议
         # 不再使用简单的clip，而是调用新的协议执行器
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
-        # [代码修改结束]
+        
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
@@ -168,7 +168,7 @@ class StructuralIntelligence:
             weekly_bull_health = pd.Series(weekly_bull_health_values, index=df.index, dtype=np.float32)
         daily_bull_health = daily_health.get(norm_window, pd.Series(0.5, index=df.index))
         bull_snapshot_score = (daily_bull_health * weekly_bull_health)**0.5
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算双极性快照分 (使用阿瑞斯之盾逻辑)
         bear_snapshot_score = 1.0 - bull_snapshot_score
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
@@ -183,7 +183,7 @@ class StructuralIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
@@ -199,7 +199,7 @@ class StructuralIntelligence:
         energy_expansion_score = (normalize_score(bbw_slope.clip(lower=0), df.index, norm_window) * normalize_score(atr_slope.clip(lower=0), df.index, norm_window))**0.5
         bull_snapshot_score = (score_breakout * energy_expansion_score).astype(np.float32)
         bear_snapshot_score = (score_breakdown * energy_expansion_score).astype(np.float32)
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算双极性快照分
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
         # 2. 对双极性快照分执行关系元分析，得到最终的动态健康分
@@ -213,7 +213,7 @@ class StructuralIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _calculate_pattern_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
@@ -228,7 +228,7 @@ class StructuralIntelligence:
         top_reversal = self.strategy.atomic_states.get('SCORE_PATTERN_TOP_REVERSAL', pd.Series(0.5, index=df.index))
         bull_snapshot_score = np.maximum(bullish_resonance, bottom_reversal)
         bear_snapshot_score = np.maximum(bearish_resonance, top_reversal)
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算双极性快照分
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
         # 2. 对双极性快照分执行关系元分析，得到最终的动态健康分
@@ -242,7 +242,7 @@ class StructuralIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _perform_structural_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

@@ -43,7 +43,7 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        # [代码修改开始] 实施“盖亚的最终裁决”
+        # 实施“盖亚的最终裁决”
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
         is_aegis_shield_active = (gaia_bedrock_score > 0.1)
         # 捕获原始的、未经神盾过滤的战术离场信号
@@ -55,7 +55,7 @@ class JudgmentLayer:
         # tactical_exit_mask = raw_tactical_exit_mask & ~is_aegis_shield_active
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
         # df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场' # 此行被彻底废除
-        # [代码修改结束]
+        
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         self._finalize_signals()

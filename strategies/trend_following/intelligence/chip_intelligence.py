@@ -90,14 +90,14 @@ class ChipIntelligence:
             for p in periods:
                 weight = numeric_weights.get(str(p), 0) / total_weight
                 context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-                # [代码修改开始] 实施“赫尔墨斯的商神杖”协议
+                # 实施“赫尔墨斯的商神杖”协议
                 # 分别计算基于看涨健康分和看跌健康分的背离
                 holographic_bull_divergence = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
                 holographic_bear_divergence = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
                 # 阴阳分离，各归其位
                 bottom_reversal_divergence += holographic_bull_divergence.clip(0, 1) * weight # 看涨背离 -> 底部反转
                 top_reversal_divergence += holographic_bear_divergence.clip(0, 1) * weight # 看跌背离 -> 顶部反转
-                # [代码修改结束]
+                
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
         tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
@@ -288,7 +288,6 @@ class ChipIntelligence:
             )
             scores[p] = dynamic_peak_score
         return scores
-        
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """

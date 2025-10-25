@@ -108,7 +108,7 @@ class ForensicProbes:
         print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
         print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
         print("\n  [链路层 2] 复合状态构建 (来自 _calculate_structural_behavior_health)")
-        # [代码修改开始] 同步 V4.2 阿波罗战车协议
+        # 同步 V4.2 阿波罗战车协议
         # 2.1 原材料
         raw_ingredients = {
             'pre_close_D': get_val(df.get('pre_close_D'), probe_date),
@@ -170,7 +170,7 @@ class ForensicProbes:
         print("\n    - [复合状态计算 Composite State Calculation]:")
         print(f"      - 看涨复合状态 (Bullish Composite): {bullish_composite_state:.4f}")
         print(f"      - 看跌复合状态 (Bearish Composite): {bearish_composite_state:.4f} (因上涨日，净有效看跌强度为0)")
-        # [代码修改结束]
+        
         print("\n  [链路层 3.5] 健康度全景 (Full Health Panorama)")
         overall_health = atomic.get('__BEHAVIOR_overall_health', {})
         bipolar_health = overall_health.get('s_bull', {})
@@ -303,7 +303,7 @@ class ForensicProbes:
             for p in periods:
                 weight = numeric_weights.get(str(p), 0) / total_weight
                 context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-                # [代码修改开始] 复刻“赫尔墨斯的商神杖”协议
+                # 复刻“赫尔墨斯的商神杖”协议
                 holographic_bull_divergence = chip_intel._calculate_holographic_divergence(bullish_series.get(p), 1, p, context_p)
                 holographic_bear_divergence = chip_intel._calculate_holographic_divergence(bearish_series.get(p), 1, p, context_p)
                 bull_divergence_val = get_val(holographic_bull_divergence, probe_date, 0.0)
@@ -313,7 +313,7 @@ class ForensicProbes:
                 top_rev_recalc += max(0, bear_divergence_val) * weight
                 bottom_calc_str.append(f"({max(0, bull_divergence_val):.2f}*{weight:.2f})")
                 top_calc_str.append(f"({max(0, bear_divergence_val):.2f}*{weight:.2f})")
-                # [代码修改结束]
+                
         print(f"    - [融合计算 - 底部反转]: {' + '.join(bottom_calc_str)} = {bottom_rev_recalc:.4f}")
         print(f"    - [融合计算 - 顶部反转]: {' + '.join(top_calc_str)} = {top_rev_recalc:.4f}")
         print("\n  [链路层 5] 终极对质 (Final Verdict)")

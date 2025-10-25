@@ -41,7 +41,7 @@ class ReportingLayer:
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
         min_entry_score_for_db = get_param_value(trend_follow_strategy_info.get('min_entry_score_for_db'), 50)
-        # [代码修改开始] 移除已废弃的信号类型
+        # 移除已废弃的信号类型
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
@@ -52,7 +52,7 @@ class ReportingLayer:
             '神盾防御': TradingSignal.SignalType.WARN,
             '先知离场': TradingSignal.SignalType.SELL,
         }
-        # [代码修改结束]
+        
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():

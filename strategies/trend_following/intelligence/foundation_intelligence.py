@@ -258,7 +258,7 @@ class FoundationIntelligence:
             avg_meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
         )
         bull_snapshot_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 首先对看涨快照分执行关系元分析，得到最终的动态健康分
         final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, bull_snapshot_score)
         # 2. 从最终动态分中互斥地派生出 s_bull 和 s_bear
@@ -270,7 +270,7 @@ class FoundationIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
@@ -284,7 +284,7 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
         # 2. 对快照分执行关系元分析，得到最终的动态健康分
@@ -298,7 +298,7 @@ class FoundationIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
@@ -312,7 +312,7 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
         # 2. 对快照分执行关系元分析，得到最终的动态健康分
@@ -326,7 +326,7 @@ class FoundationIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
@@ -340,7 +340,7 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 遵循“赫利俄斯敕令”
         # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
         # 2. 对快照分执行关系元分析，得到最终的动态健康分
@@ -354,7 +354,7 @@ class FoundationIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
+        
         return s_bull, s_bear, d_intensity
 
     def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

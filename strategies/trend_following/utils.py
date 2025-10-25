@@ -465,7 +465,7 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
-    # [代码修改开始] 植入“罗塞塔石碑”
+    # 植入“罗塞塔石碑”
     # 定义一个从抽象时间框架到具体周期数字的翻译地图
     period_map = {
         'short': 5,
@@ -483,7 +483,7 @@ def transmute_health_to_ultimate_signals(
                 # 使用翻译后的周期数字作为键来查找分数
                 final_score += health_dict.get(period_key, default_series) * (weight / total_weight)
         return final_score.clip(-1, 1)
-    # [代码修改结束]
+    
     bipolar_health = overall_health['s_bull']
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
