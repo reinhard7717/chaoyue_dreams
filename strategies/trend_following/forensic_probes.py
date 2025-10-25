@@ -736,11 +736,10 @@ class ForensicProbes:
 
     def _deploy_poseidons_trident_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“波塞冬的三叉戟”探针 - 资金流情报引擎深度解剖
-        - 核心使命: 响应指挥官指令，对资金流引擎的三大核心公理进行外科手术式解剖，
-                      完全透明化从原始指标到最终信号的全链路计算过程。
+        【V1.1 · 健壮性加固版】“波塞冬的三叉戟”探针 - 资金流情报引擎深度解剖
+        - 核心升级: 增加对周期权重(tf_weights)缺失的检测和警告，防止因配置错误导致引擎静默失效。
         """
-        print("\n" + "="*35 + f" [资金流探针] 正在挥舞 🔱【波塞冬的三叉戟 · 资金流引擎解剖 V1.0】🔱 " + "="*35)
+        print("\n" + "="*35 + f" [资金流探针] 正在挥舞 🔱【波塞冬的三叉戟 · 资金流引擎解剖 V1.1】🔱 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.fund_flow_intel
@@ -750,10 +749,9 @@ class ForensicProbes:
             return default if pd.isna(val) else val
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
-        p_probe = 5 # 我们以 p=5 周期为例进行深度解剖
-        context_p = 13 # p=5 的上下文周期是 13
+        p_probe = 5
+        context_p = 13
         print("\n  [链路层 1] 最终输出 (Final Output)")
-        # 注意：资金流引擎的最终输出是 S+/S/A/B 四级信号，这里我们展示其原子形式
         concentration_score = get_val(atomic.get('SCORE_FF_AXIOM_CONCENTRATION', {}).get(p_probe), probe_date, 0.0)
         power_transfer_score = get_val(atomic.get('SCORE_FF_AXIOM_POWER_TRANSFER', {}).get(p_probe), probe_date, 0.0)
         internal_structure_score = get_val(atomic.get('SCORE_FF_AXIOM_INTERNAL_STRUCTURE', {}).get(p_probe), probe_date, 0.0)
@@ -761,7 +759,6 @@ class ForensicProbes:
         print(f"    - 【公理二: 转移】(p={p_probe}): {power_transfer_score:.4f}")
         print(f"    - 【公理三: 结构】(p={p_probe}): {internal_structure_score:.4f}")
         print("\n" + "="*20 + f" 深度解剖公理一: 资金“聚散” (p={p_probe}) " + "="*20)
-        # --- 解剖公理一 ---
         bullish_static_raw = df.get('main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
         bullish_slope_raw = df.get(f'SLOPE_{p_probe}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p_probe}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
         bullish_accel_raw = df.get(f'ACCEL_{p_probe}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p_probe}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
@@ -804,14 +801,19 @@ class ForensicProbes:
         print(f"  [公理一裁决] 探针重算: {recalc_concentration_score:.4f} vs. 引擎实际: {concentration_score:.4f} -> {'✅ 一致' if np.isclose(recalc_concentration_score, concentration_score) else '❌ 不一致'}")
         print("\n" + "="*20 + f" 最终信号合成 " + "="*20)
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
+        # [代码修改开始] 增加对 tf_weights 的健壮性检查
         tf_weights = get_param_value(p_conf.get('tf_weights'), {})
-        total_tf_weight = sum(tf_weights.values())
+        if not tf_weights or not any(isinstance(v, (int, float)) for v in tf_weights.values()):
+            print("  [致命错误] 周期权重 'tf_weights' 在配置中缺失或无效！资金流引擎无法合成最终信号！")
+            tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05} # 使用默认值进行探针计算
+            print(f"  [探针措施] 已临时采用默认权重进行后续计算: {json.dumps(tf_weights)}")
+        # [代码修改结束]
+        total_tf_weight = sum(v for v in tf_weights.values() if isinstance(v, (int, float)))
         trend_health_score = engine._calculate_trend_context_ff(df, p_conf)
         trend_health_val = get_val(trend_health_score, probe_date)
         print(f"  [步骤1: 融合公理] 公理权重: {json.dumps(axiom_weights)}")
         print(f"  [步骤2: 融合周期] 周期权重: {json.dumps(tf_weights)}")
         print(f"  [步骤3: 趋势调节] 当日趋势健康分: {trend_health_val:.4f}")
-        # 重新计算最终信号
         concentration_scores_all = engine._diagnose_concentration_dynamics_ff(df, p_conf)
         power_transfer_scores_all = engine._diagnose_power_transfer_ff(df, p_conf)
         internal_structure_scores_all = engine._diagnose_internal_flow_structure_ff(df, p_conf)
@@ -819,19 +821,21 @@ class ForensicProbes:
         bearish_resonance_recalc = 0.0
         bull_calc_str, bear_calc_str = [], []
         if total_tf_weight > 0:
-            for p, weight in tf_weights.items():
+            for p_str, weight in tf_weights.items():
+                if not isinstance(p_str, (int, str)) or not isinstance(weight, (int, float)): continue
+                p = int(p_str)
                 conc_s = get_val(concentration_scores_all.get(p), probe_date, 0.0)
                 trans_s = get_val(power_transfer_scores_all.get(p), probe_date, 0.0)
                 struct_s = get_val(internal_structure_scores_all.get(p), probe_date, 0.0)
                 period_bullish = (
-                    max(0, conc_s) * axiom_weights['concentration'] +
-                    max(0, trans_s) * axiom_weights['power_transfer'] +
-                    max(0, struct_s) * axiom_weights['internal_structure']
+                    max(0, conc_s) * axiom_weights.get('concentration', 0) +
+                    max(0, trans_s) * axiom_weights.get('power_transfer', 0) +
+                    max(0, struct_s) * axiom_weights.get('internal_structure', 0)
                 )
                 period_bearish = (
-                    max(0, -conc_s) * axiom_weights['concentration'] +
-                    max(0, -trans_s) * axiom_weights['power_transfer'] +
-                    max(0, -struct_s) * axiom_weights['internal_structure']
+                    max(0, -conc_s) * axiom_weights.get('concentration', 0) +
+                    max(0, -trans_s) * axiom_weights.get('power_transfer', 0) +
+                    max(0, -struct_s) * axiom_weights.get('internal_structure', 0)
                 )
                 bullish_resonance_recalc += period_bullish * (weight / total_tf_weight)
                 bearish_resonance_recalc += period_bearish * (weight / total_tf_weight)

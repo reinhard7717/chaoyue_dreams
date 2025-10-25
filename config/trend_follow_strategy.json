@@ -788,6 +788,20 @@
           "description": "上下文感知模块，用于增强或抑制资金流信号。",
           "bottom_context_factor": 0.5,
           "top_context_factor": 0.5
+        },
+        "ma_trend_context_weights": {
+            "description": "【波塞冬的三叉戟】为资金流引擎专用的三维趋势上下文评估提供权重。",
+            "alignment": 0.4,
+            "velocity": 0.3,
+            "meta_dynamics": 0.3
+        },
+        "tf_weights": {
+          "description": "【新增】在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
+          "1": 0.1,
+          "5": 0.4,
+          "13": 0.3,
+          "21": 0.15,
+          "55": 0.05
         }
       },
       "micro_behavior_params": {
