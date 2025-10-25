@@ -48,27 +48,35 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.2 · 四公理版】终极信号合成器
-        - 核心升级: 将新增的“公理四：筹码峰健康度”纳入融合计算，形成更稳固的四足鼎立结构。
+        【V4.3 · 阿瑞斯之盾版】终极信号合成器
+        - 核心革命: 签署“阿瑞斯之盾”协议，废除 s_bear = 1 - s_bull 的致命错误逻辑。
+                      现在，我们首先合成一个[-1, 1]的双极性健康分，然后从中互斥地派生出 s_bull 和 s_bear。
         """
-        # 接收并处理第四公理
         states = {}
         periods = sorted(concentration.keys())
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'accumulation': 0.3, 'power_transfer': 0.25, 'peak_integrity': 0.15})
         norm_window = 55
-        bullish_scores_by_period = {}
-        bearish_scores_by_period = {}
+        # [代码修改开始] 引入双极性健康分计算
+        bipolar_health_by_period = {}
         for p in periods:
-            bullish_scores_by_period[p] = (
-                concentration.get(p, 0.0) * axiom_weights.get('concentration', 0.3) +
-                accumulation.get(p, 0.0) * axiom_weights.get('accumulation', 0.3) +
-                power_transfer.get(p, 0.0) * axiom_weights.get('power_transfer', 0.25) +
-                peak_integrity.get(p, 0.0) * axiom_weights.get('peak_integrity', 0.15)
-            )
-            bearish_scores_by_period[p] = 1.0 - bullish_scores_by_period[p]
-
+            # concentration, accumulation等公理分数本身就是[-1, 1]的双极性分数
+            conc_score = concentration.get(p, pd.Series(0.0, index=df.index))
+            acc_score = accumulation.get(p, pd.Series(0.0, index=df.index))
+            pow_score = power_transfer.get(p, pd.Series(0.0, index=df.index))
+            peak_score = peak_integrity.get(p, pd.Series(0.0, index=df.index))
+            # 直接对双极性分数进行加权平均，得到周期的双极性净健康分
+            bipolar_health_by_period[p] = (
+                conc_score * axiom_weights.get('concentration', 0.3) +
+                acc_score * axiom_weights.get('accumulation', 0.3) +
+                pow_score * axiom_weights.get('power_transfer', 0.25) +
+                peak_score * axiom_weights.get('peak_integrity', 0.15)
+            ).clip(-1, 1) # 确保最终结果在[-1, 1]区间
+        # 从双极性分中派生出互斥的 s_bull 和 s_bear
+        bullish_scores_by_period = {p: score.clip(0, 1) for p, score in bipolar_health_by_period.items()}
+        bearish_scores_by_period = {p: (score.clip(-1, 0) * -1) for p, score in bipolar_health_by_period.items()}
+        # [代码修改结束]
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
@@ -83,6 +91,7 @@ class ChipIntelligence:
         top_reversal_scores = {}
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+            # [代码修改] 使用正确的 bullish_scores_by_period 和 bearish_scores_by_period
             bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
             top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
         bottom_reversal_divergence = pd.Series(0.0, index=df.index)

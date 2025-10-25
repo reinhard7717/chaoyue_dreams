@@ -442,12 +442,13 @@ class TacticEngine:
             acceleration_score * w_acceleration
         ).clip(0, 1) # clip确保分数在[0, 1]范围内
         return final_score.astype(np.float32)
-        
+
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】“赫尔墨斯的商神杖”四维均线健康度评估引擎
-        - 核心职责: 严格按照 ma_health_fusion_weights 配置，计算并融合均线健康度的四大维度。
+        【V1.1 · 双极性输出版】“赫尔墨斯的商神杖”四维均线健康度评估引擎
+        - 核心升级: 遵循统一范式，输出一个[-1, 1]的双极性健康分。
+                      +1 代表极度看涨，-1 代表极度看跌，0 代表中性。
         """
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
@@ -459,29 +460,39 @@ class TacticEngine:
         ma_periods = [5, 13, 21, 55]
         ma_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.5, index=df.index, dtype=np.float32)
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        alignment_bools = ma_values[:-1] > ma_values[1:]
-        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
+        # 1. 排列健康度 (Alignment Health)
+        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
+        bear_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
+        bull_alignment_health = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
+        bear_alignment_health = np.mean(bear_alignment_scores, axis=0) if bear_alignment_scores else np.full(len(df.index), 0.5)
+        bipolar_alignment = bull_alignment_health - bear_alignment_health
+        # 2. 速度健康度 (Slope Health)
         slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
         if all(col in df.columns for col in slope_cols):
-            slope_values = np.stack([df[col].values for col in slope_cols], axis=0)
-            slope_health = np.mean(normalize_score(pd.Series(slope_values.flatten()), df.index, norm_window).values.reshape(slope_values.shape), axis=0)
+            normalized_slopes = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in slope_cols]
+            slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
         else:
-            slope_health = np.full(len(df.index), 0.5)
+            slope_health = np.full(len(df.index), 0.0)
+        # 3. 加速度健康度 (Accel Health)
         accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
         if all(col in df.columns for col in accel_cols):
-            accel_values = np.stack([df[col].values for col in accel_cols], axis=0)
-            accel_health = np.mean(normalize_score(pd.Series(accel_values.flatten()), df.index, norm_window).values.reshape(accel_values.shape), axis=0)
+            normalized_accels = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in accel_cols]
+            accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
         else:
-            accel_health = np.full(len(df.index), 0.5)
+            accel_health = np.full(len(df.index), 0.0)
+        # 4. 关系健康度 (Relational Health)
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
-        scores = np.stack([alignment_health, slope_health, accel_health, relational_health], axis=0)
+        relational_health_raw = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
+        relational_health = (relational_health_raw * 2 - 1).clip(-1, 1)
+        # 5. 融合
+        scores = np.stack([bipolar_alignment, slope_health, accel_health, relational_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
-        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
-        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+        # [代码修改] 使用加权算术平均进行融合
+        final_score_values = np.sum(scores * weights_array[:, np.newaxis], axis=0)
+        return pd.Series(final_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
 
 
 

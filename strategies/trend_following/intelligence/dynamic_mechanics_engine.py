@@ -29,8 +29,9 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.1 · 五大支柱版】动态力学终极信号诊断引擎
-        - 火力升级: 新增“能量跃迁”作为第五大支柱，用于捕捉市场从盘整到趋势的“相变”时刻。
+        【V16.2 · 阿瑞斯之盾版】动态力学终极信号诊断引擎
+        - 核心革命: 签署“阿瑞斯之盾”协议，废除 s_bear 对 (1 - ma_health_score) 的错误依赖。
+                      现在，我们首先合成一个[-1, 1]的双极性力学快照分，然后从中互斥地派生出 s_bull 和 s_bear。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -42,60 +43,43 @@ class DynamicMechanicsEngine:
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         ma_health_score = self._calculate_ma_health(df, p_conf, norm_window)
         overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
-        vol_bull_snapshot = (
-            normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) *
-            normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False)
-        )**0.5
-        vol_bear_snapshot = (
-            normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True) *
-            normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=True)
-        )**0.5
-        eff_bull_snapshot = (
-            normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=True) *
-            normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=True)
-        )**0.5
-        eff_bear_snapshot = (
-            normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) *
-            normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=False)
-        )**0.5
-        mom_bull_snapshot = (
-            normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=True) *
-            normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True)
-        )**0.5
-        mom_bear_snapshot = (
-            normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=False) *
-            normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False)
-        )**0.5
+        vol_bull_snapshot = (normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=False))**0.5
+        vol_bear_snapshot = (normalize_score(df.get('BBW_21_2.0_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('ATR_14_D'), df.index, norm_window, ascending=True))**0.5
+        eff_bull_snapshot = (normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=True))**0.5
+        eff_bear_snapshot = (normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('intraday_trend_efficiency_D'), df.index, norm_window, ascending=False))**0.5
+        mom_bull_snapshot = (normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=True) * normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=True))**0.5
+        mom_bear_snapshot = (normalize_score(df.get('ROC_12_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('MACDh_13_34_8_D'), df.index, norm_window, ascending=False))**0.5
         adx_strength = normalize_score(df.get('ADX_14_D'), df.index, norm_window)
         adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
         hurst_strength = normalize_score(df.get('hurst_120d_D'), df.index, norm_window)
         ine_bull_snapshot = (adx_strength * adx_direction * hurst_strength)**(1/3)
-        ine_bear_snapshot = (
-            normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) *
-            normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False)
-        )**0.5
-        # 新增第五支柱：能量跃迁
+        ine_bear_snapshot = (normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False))**0.5
         energy_bull_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         energy_bear_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
-        
         weight_keys = list(pillar_weights.keys())
         weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
         weights_array /= weights_array.sum()
-        # 将新支柱加入融合列表
         bull_snapshots = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot, energy_bull_snapshot]
         bear_snapshots = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot, energy_bear_snapshot]
-
         stacked_bull = np.stack([s.fillna(0.5).values for s in bull_snapshots], axis=0)
         stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots], axis=0)
         fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
         fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
+        # [代码修改开始] 引入双极性健康分计算
+        # 首先，计算一个统一的、双极性的力学快照分
+        bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
+        # 然后，将这个双极性快照分与均线趋势上下文（一个[0,1]的看涨确认分）相乘，进行调节
+        modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
+        # [代码修改结束]
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            final_bull_health = self._perform_dynamic_relational_meta_analysis(df, fused_bull_snapshot, p, context_p)
-            overall_health['s_bull'][p] = (final_bull_health * ma_health_score).astype(np.float32)
-            final_bear_health = self._perform_dynamic_relational_meta_analysis(df, fused_bear_snapshot, p, context_p)
-            overall_health['s_bear'][p] = (final_bear_health * (1 - ma_health_score)).astype(np.float32)
-            overall_health['d_intensity'][p] = final_bull_health.astype(np.float32)
+            # [代码修改] 对调节后的双极性分数进行元分析，得到最终的动态健康分
+            final_bipolar_health = self._perform_dynamic_relational_meta_analysis(df, modulated_bipolar_snapshot, p, context_p)
+            # 从最终的双极性健康分中，互斥地派生出 s_bull 和 s_bear
+            overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
+            overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
+            # d_intensity 现在是 s_bull 的一个内在维度，但为保持接口兼容性，可以返回一个占位符
+            overall_health['d_intensity'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,

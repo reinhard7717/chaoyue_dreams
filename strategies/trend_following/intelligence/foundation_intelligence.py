@@ -213,8 +213,10 @@ class FoundationIntelligence:
     # ==============================================================================
     def _calculate_ema_health(self, df: pd.DataFrame, norm_window: int, periods: list) -> Tuple[Dict, Dict, Dict]:
         """
-        【V6.1 · 极性归一版】计算EMA维度的五维健康度
-        - 核心升级: 废除独立的看涨/看跌分计算，统一生成一个[-1, 1]的双极性快照分，再从中派生出互斥的s_bull和s_bear。
+        【V6.2 · 赫利俄斯敕令版】计算EMA维度的健康度
+        - 核心革命: 签署“赫利俄斯敕令”，废除分裂的评估模型。
+                      首先合成一个统一的、蕴含了五维信息的双极性快照分，然后对其进行关系元分析，
+                      得到最终的动态健康分，再从中派生出互斥的s_bull和s_bear。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -238,9 +240,7 @@ class FoundationIntelligence:
         for short_p, long_p in [(5, 21), (13, 55)]:
             spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
             relational_health_scores.append(((normalize_to_bipolar(spread_accel, df.index, norm_window) + 1) / 2.0).values)
-        meta_dynamics_cols = [
-            'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
-        ]
+        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
         if valid_meta_cols:
             meta_values = [((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in valid_meta_cols]
@@ -258,22 +258,25 @@ class FoundationIntelligence:
             avg_meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
         )
         bull_snapshot_score = pd.Series(static_bull_score_values, index=df.index, dtype=np.float32)
-        # 引入双极快照分，并派生出互斥的s_bull和s_bear
-        bipolar_snapshot_score = (bull_snapshot_score * 2 - 1).clip(-1, 1)
-        final_bull_score = bipolar_snapshot_score.clip(0, 1)
-        final_bear_score = (bipolar_snapshot_score.clip(-1, 0) * -1)
-        unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, final_bull_score) # 使用看涨部分计算动态强度
+        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 1. 首先对看涨快照分执行关系元分析，得到最终的动态健康分
+        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, bull_snapshot_score)
+        # 2. 从最终动态分中互斥地派生出 s_bull 和 s_bear
+        final_bull_score = final_dynamic_score.clip(0, 1)
+        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1)
+        # 3. 将 d_intensity 降级为无意义的占位符
+        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        
+        # [代码修改结束]
         return s_bull, s_bear, d_intensity
 
     def _calculate_rsi_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V6.1 · 极性归一版】计算RSI维度的三维健康度
-        - 核心升级: 废除独立的看涨/看跌分计算，统一生成一个[-1, 1]的双极性快照分，再从中派生出互斥的s_bull和s_bear。
+        【V6.2 · 赫利俄斯敕令版】计算RSI维度的健康度
+        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         if 'RSI_13_D' not in df.columns:
@@ -281,23 +284,27 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # 引入双极快照分，并派生出互斥的s_bull和s_bear
+        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['RSI_13_D'], df.index, norm_window, ascending=True)
-        bipolar_snapshot_score = (indicator_static_bull * 2 - 1).clip(-1, 1)
-        final_bull_score = bipolar_snapshot_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (bipolar_snapshot_score.clip(-1, 0) * -1).astype(np.float32)
-        unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, final_bull_score) # 使用看涨部分计算动态强度
+        # 2. 对快照分执行关系元分析，得到最终的动态健康分
+        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
+        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
+        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
+        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
+        # 4. 将 d_intensity 降级为无意义的占位符
+        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        
+        # [代码修改结束]
         return s_bull, s_bear, d_intensity
 
     def _calculate_macd_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V6.1 · 极性归一版】计算MACD维度的三维健康度
-        - 核心升级: 废除独立的看涨/看跌分计算，统一生成一个[-1, 1]的双极性快照分，再从中派生出互斥的s_bull和s_bear。
+        【V6.2 · 赫利俄斯敕令版】计算MACD维度的健康度
+        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         if 'MACDh_13_34_8_D' not in df.columns:
@@ -305,23 +312,27 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # 引入双极快照分，并派生出互斥的s_bull和s_bear
+        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['MACDh_13_34_8_D'], df.index, norm_window, ascending=True)
-        bipolar_snapshot_score = (indicator_static_bull * 2 - 1).clip(-1, 1)
-        final_bull_score = bipolar_snapshot_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (bipolar_snapshot_score.clip(-1, 0) * -1).astype(np.float32)
-        unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, final_bull_score) # 使用看涨部分计算动态强度
+        # 2. 对快照分执行关系元分析，得到最终的动态健康分
+        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
+        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
+        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
+        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
+        # 4. 将 d_intensity 降级为无意义的占位符
+        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        
+        # [代码修改结束]
         return s_bull, s_bear, d_intensity
 
     def _calculate_cmf_health(self, df: pd.DataFrame, norm_window: int, periods: list, ma_context_score: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V6.1 · 极性归一版】计算CMF维度的三维健康度
-        - 核心升级: 废除独立的看涨/看跌分计算，统一生成一个[-1, 1]的双极性快照分，再从中派生出互斥的s_bull和s_bear。
+        【V6.2 · 赫利俄斯敕令版】计算CMF维度的健康度
+        - 核心革命: 签署“赫利俄斯敕令”，对静态快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         if 'CMF_21_D' not in df.columns:
@@ -329,17 +340,21 @@ class FoundationIntelligence:
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
-        # 引入双极快照分，并派生出互斥的s_bull和s_bear
+        # [代码修改开始] 遵循“赫利俄斯敕令”
+        # 1. 计算静态快照分
         indicator_static_bull = normalize_score(df['CMF_21_D'], df.index, norm_window, ascending=True)
-        bipolar_snapshot_score = (indicator_static_bull * 2 - 1).clip(-1, 1)
-        final_bull_score = bipolar_snapshot_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (bipolar_snapshot_score.clip(-1, 0) * -1).astype(np.float32)
-        unified_d_intensity = self._perform_foundation_relational_meta_analysis(df, final_bull_score) # 使用看涨部分计算动态强度
+        # 2. 对快照分执行关系元分析，得到最终的动态健康分
+        final_dynamic_score = self._perform_foundation_relational_meta_analysis(df, indicator_static_bull)
+        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
+        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
+        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
+        # 4. 将 d_intensity 降级为无意义的占位符
+        unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        
+        # [代码修改结束]
         return s_bull, s_bear, d_intensity
 
     def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:

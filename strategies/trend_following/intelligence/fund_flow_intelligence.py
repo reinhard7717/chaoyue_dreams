@@ -354,9 +354,8 @@ class FundFlowIntelligence:
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:
         """
-        【V10.0 · 四维时空版】计算单个资金流支柱的四维健康度
-        - 核心升级: 引入“四维时空”分析范式，融合“状态”、“速度(斜率)”、“加速度”和“势(上下文)”。
-        - 坐标修正: 全面使用数据层提供的真实列名（如 `SLOPE_5_...` 和 `ACCEL_5_...`）。
+        【V10.1 · 赫利俄斯敕令版】计算单个资金流支柱的健康度
+        - 核心革命: 签署“赫利俄斯敕令”，对双极性快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         base_col_name = config['base']
@@ -375,7 +374,7 @@ class FundFlowIntelligence:
                 market_cap_in_yuan = df[market_cap_col] * 10000
                 market_cap_in_yuan = market_cap_in_yuan.replace(0, np.nan)
                 static_series = (static_series * 10000 / market_cap_in_yuan).fillna(0)
-        # 引入状态、速度、加速度、上下文的四维融合
+        # [代码修改开始] 遵循“赫利俄斯敕令”
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
             slope_col_name = f"SLOPE_{p}_{base_col_name}_D"
@@ -383,34 +382,35 @@ class FundFlowIntelligence:
             slope_series = df.get(slope_col_name, pd.Series(0.0, index=df.index))
             accel_series = df.get(accel_col_name, pd.Series(0.0, index=df.index))
             # --- 看涨证据 ---
-            # 战术层
             tactical_static_bull = normalize_score(static_series, df.index, p, ascending=(polarity == 1))
             tactical_slope_bull = normalize_score(slope_series, df.index, p, ascending=True)
             tactical_accel_bull = normalize_score(accel_series, df.index, p, ascending=True)
             tactical_bullish_quality = (tactical_static_bull * tactical_slope_bull * tactical_accel_bull)**(1/3)
-            # 上下文层
             context_static_bull = normalize_score(static_series, df.index, context_p, ascending=(polarity == 1))
             context_slope_bull = normalize_score(slope_series, df.index, context_p, ascending=True)
             context_accel_bull = normalize_score(accel_series, df.index, context_p, ascending=True)
             context_bullish_quality = (context_static_bull * context_slope_bull * context_accel_bull)**(1/3)
             bullish_snapshot_score = (tactical_bullish_quality * context_bullish_quality)**0.5
             # --- 看跌证据 ---
-            # 战术层
             tactical_static_bear = normalize_score(static_series, df.index, p, ascending=(polarity == -1))
             tactical_slope_bear = normalize_score(slope_series, df.index, p, ascending=False)
             tactical_accel_bear = normalize_score(accel_series, df.index, p, ascending=False)
             tactical_bearish_quality = (tactical_static_bear * tactical_slope_bear * tactical_accel_bear)**(1/3)
-            # 上下文层
             context_static_bear = normalize_score(static_series, df.index, context_p, ascending=(polarity == -1))
             context_slope_bear = normalize_score(slope_series, df.index, context_p, ascending=False)
             context_accel_bear = normalize_score(accel_series, df.index, context_p, ascending=False)
             context_bearish_quality = (context_static_bear * context_slope_bear * context_accel_bear)**(1/3)
             bearish_snapshot_score = (tactical_bearish_quality * context_bearish_quality)**0.5
-            
-            unified_d_intensity = self._perform_fund_flow_relational_meta_analysis(df, bullish_snapshot_score)
-            s_bull[p] = bullish_snapshot_score.astype(np.float32)
-            s_bear[p] = bearish_snapshot_score.astype(np.float32)
-            d_intensity[p] = unified_d_intensity
+            # 1. 计算双极性快照分
+            bipolar_snapshot = (bullish_snapshot_score - bearish_snapshot_score).clip(-1, 1)
+            # 2. 对双极性快照分执行关系元分析，得到最终的动态健康分
+            final_dynamic_score = self._perform_fund_flow_relational_meta_analysis(df, bipolar_snapshot)
+            # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
+            s_bull[p] = final_dynamic_score.clip(0, 1).astype(np.float32)
+            s_bear[p] = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
+            # 4. 将 d_intensity 降级为无意义的占位符
+            d_intensity[p] = pd.Series(1.0, index=df.index, dtype=np.float32)
+        # [代码修改结束]
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # ==============================================================================

@@ -431,10 +431,9 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.1 · 阿瑞斯之怒协议激活版】终极信号中央合成引擎
-    - 核心革命: 签署“赫尔墨斯之靴协议”，建立“战略反转”与“战术反转”的双轨制。
-    - 本次修改: 激活“阿瑞斯之怒协议”，将 d_intensity (动态强度分) 纳入反转信号的计算，
-                    使其能真正捕捉“拐点动能”。
+    【V5.2 · 宙斯敕令版】终极信号中央合成引擎
+    - 核心革命: 签署“宙斯敕令”，彻底废除对 d_intensity 的重复乘法操作。
+                  确认 s_bull/s_bear 是已包含动态评估的最终健康度，本函数只负责融合与上下文增强。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -457,10 +456,8 @@ def transmute_health_to_ultimate_signals(
     memory_retention_factor = 1.0 - new_high_context_score
     recent_reversal_context_modulated = recent_reversal_context * memory_retention_factor
     trend_confirmation_params = get_param_value(params.get('trend_confirmation_context_params'), {})
-    # 调用公共函数
     trend_confirmation_context = calculate_trend_confirmation_context(df, trend_confirmation_params, norm_window)
     atomic_states['CONTEXT_TREND_CONFIRMED'] = trend_confirmation_context
-    # 为“赫尔墨斯之靴”计算专属上下文
     tactical_params = get_param_value(params.get('tactical_reversal_params'), {})
     macro_window = get_param_value(tactical_params.get('macro_trend_window'), 3)
     macro_trend_permit_context = trend_confirmation_context.rolling(window=macro_window, min_periods=1).mean()
@@ -469,35 +466,31 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
     # --- 3. 信号计算 ---
+    # [代码修改开始] 签署“宙斯敕令”，废除对 d_intensity 的重复乘法
     # 战略底部反转 (Strategic Bottom Reversal)
-    # 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
-    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
-    # 修改结束
+    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) for p in periods}
+    # 看涨共振 (Bullish Resonance)
+    bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) for p in periods}
+    # 看跌共振 (Bearish Resonance)
+    bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) for p in periods}
+    # 顶部反转 (Top Reversal)
+    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
+    # [代码修改结束]
     bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
     bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
     bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
     overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
     raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
-    # 战略反转只在趋势未确认时最强，与战术反转形成互补
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
-    # 战术回调反转 (Tactical Pullback Reversal)
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
-    # 看涨共振 (Bullish Resonance)
-    bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) * overall_health['d_intensity'].get(p, default_series) for p in periods}
     bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
     bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
     bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
     overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
-    # 看跌共振 (Bearish Resonance)
-    bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['d_intensity'].get(p, default_series)) for p in periods}
     bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
     bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
     bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
     overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
-    # 顶部反转 (Top Reversal)
-    # 将 d_intensity 纳入反转信号计算，激活“阿瑞斯之怒”
-    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) * overall_health['d_intensity'].get(p, default_series) for p in periods}
-    # 修改结束
     bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
     bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
     bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
