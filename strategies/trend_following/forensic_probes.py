@@ -220,10 +220,10 @@ class ForensicProbes:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“赫菲斯托斯熔炉”探针 - 筹码情报全要素解剖
-        - 核心功能: 逐层解剖筹码情报引擎的计算过程，从四大公理到终极信号合成，确保逻辑的透明与正确。
+        【V1.1 · 忒弥斯天平版】“赫菲斯托斯熔炉”探针 - 筹码情报全要素解剖
+        - 核心修复: 签署“忒弥斯的正义天平”协议，在对权重字典求和前，增加类型检查，过滤掉 "description" 等非数字值，彻底修复因配置污染导致的 TypeError。
         """
-        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.0】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.1】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         chip_intel = self.chip_intel
@@ -276,11 +276,16 @@ class ForensicProbes:
         bullish_scores_recalc = {p: max(0, score) for p, score in bipolar_health_recalc.items()}
         bearish_scores_recalc = {p: max(0, -score) for p, score in bipolar_health_recalc.items()}
         bull_res_recalc, bear_res_recalc = 0.0, 0.0
-        total_weight = sum(tf_weights.values())
+        # [代码修改开始] 增加类型检查，过滤掉 "description" 等非数字值，修复TypeError
+        numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        total_weight = sum(numeric_weights.values())
+        # [代码修改结束]
         bull_calc_str, bear_calc_str = [], []
         if total_weight > 0:
             for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
+                # [代码修改开始] 使用净化后的 numeric_weights
+                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                # [代码修改结束]
                 bull_res_recalc += bullish_scores_recalc.get(p, 0.0) * weight
                 bear_res_recalc += bearish_scores_recalc.get(p, 0.0) * weight
                 bull_calc_str.append(f"({bullish_scores_recalc.get(p, 0.0):.2f}*{weight:.2f})")
@@ -300,13 +305,15 @@ class ForensicProbes:
         norm_window = 55
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-            bottom_rev_scores[p] = chip_intel._calculate_holographic_divergence(bullish_series.get(p), p, context_p, norm_window)
-            top_rev_scores[p] = chip_intel._calculate_holographic_divergence(bearish_series.get(p), p, context_p, norm_window)
+            bottom_rev_scores[p] = chip_intel._calculate_holographic_divergence(bullish_series.get(p), 1, p, context_p) # 修正背离计算周期
+            top_rev_scores[p] = chip_intel._calculate_holographic_divergence(bearish_series.get(p), 1, p, context_p) # 修正背离计算周期
         bottom_rev_recalc, top_rev_recalc = 0.0, 0.0
         bottom_calc_str, top_calc_str = [], []
         if total_weight > 0:
             for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
+                # [代码修改开始] 使用净化后的 numeric_weights
+                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                # [代码修改结束]
                 bottom_rev_val = get_val(bottom_rev_scores.get(p), probe_date, 0.0)
                 top_rev_val = get_val(top_rev_scores.get(p), probe_date, 0.0)
                 bottom_rev_recalc += bottom_rev_val * weight

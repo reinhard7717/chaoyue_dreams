@@ -48,9 +48,8 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.3 · 阿瑞斯之盾版】终极信号合成器
-        - 核心革命: 签署“阿瑞斯之盾”协议，废除 s_bear = 1 - s_bull 的致命错误逻辑。
-                      现在，我们首先合成一个[-1, 1]的双极性健康分，然后从中互斥地派生出 s_bull 和 s_bear。
+        【V4.4 · 忒弥斯天平版】终极信号合成器
+        - 核心修复: 签署“忒弥斯的正义天平”协议，在对权重字典求和前，增加类型检查，过滤掉 "description" 等非数字值，彻底修复因配置污染导致的潜在 TypeError。
         """
         states = {}
         periods = sorted(concentration.keys())
@@ -58,31 +57,31 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'accumulation': 0.3, 'power_transfer': 0.25, 'peak_integrity': 0.15})
         norm_window = 55
-        # [代码修改开始] 引入双极性健康分计算
         bipolar_health_by_period = {}
         for p in periods:
-            # concentration, accumulation等公理分数本身就是[-1, 1]的双极性分数
             conc_score = concentration.get(p, pd.Series(0.0, index=df.index))
             acc_score = accumulation.get(p, pd.Series(0.0, index=df.index))
             pow_score = power_transfer.get(p, pd.Series(0.0, index=df.index))
             peak_score = peak_integrity.get(p, pd.Series(0.0, index=df.index))
-            # 直接对双极性分数进行加权平均，得到周期的双极性净健康分
             bipolar_health_by_period[p] = (
                 conc_score * axiom_weights.get('concentration', 0.3) +
                 acc_score * axiom_weights.get('accumulation', 0.3) +
                 pow_score * axiom_weights.get('power_transfer', 0.25) +
                 peak_score * axiom_weights.get('peak_integrity', 0.15)
-            ).clip(-1, 1) # 确保最终结果在[-1, 1]区间
-        # 从双极性分中派生出互斥的 s_bull 和 s_bear
+            ).clip(-1, 1)
         bullish_scores_by_period = {p: score.clip(0, 1) for p, score in bipolar_health_by_period.items()}
         bearish_scores_by_period = {p: (score.clip(-1, 0) * -1) for p, score in bipolar_health_by_period.items()}
-        # [代码修改结束]
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
+        # [代码修改开始] 增加类型检查，过滤掉 "description" 等非数字值
+        numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        total_weight = sum(numeric_weights.values())
+        # [代码修改结束]
         if total_weight > 0:
             for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
+                # [代码修改开始] 使用净化后的 numeric_weights
+                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                # [代码修改结束]
                 bullish_resonance += bullish_scores_by_period.get(p, 0.0) * weight
                 bearish_resonance += bearish_scores_by_period.get(p, 0.0) * weight
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
@@ -91,14 +90,15 @@ class ChipIntelligence:
         top_reversal_scores = {}
         for p in periods:
             context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-            # [代码修改] 使用正确的 bullish_scores_by_period 和 bearish_scores_by_period
-            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
-            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), p, context_p, norm_window)
+            bottom_reversal_scores[p] = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p) # 修正背离计算周期
+            top_reversal_scores[p] = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p) # 修正背离计算周期
         bottom_reversal_divergence = pd.Series(0.0, index=df.index)
         top_reversal_divergence = pd.Series(0.0, index=df.index)
         if total_weight > 0:
             for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
+                # [代码修改开始] 使用净化后的 numeric_weights
+                weight = numeric_weights.get(str(p), 0) / total_weight # 确保使用字符串键
+                # [代码修改结束]
                 bottom_reversal_divergence += bottom_reversal_scores.get(p, 0.0) * weight
                 top_reversal_divergence += top_reversal_scores.get(p, 0.0) * weight
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
