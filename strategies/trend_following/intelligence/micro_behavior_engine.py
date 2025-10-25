@@ -640,7 +640,7 @@ class MicroBehaviorEngine:
         ma_periods = [5, 13, 21, 55]
         ma_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.0, index=df.index, dtype=np.float32) # [代码修改] 默认返回0.0 (中性)
+            return pd.Series(0.0, index=df.index, dtype=np.float32) # 默认返回0.0 (中性)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
         # 1. 排列健康度 (Alignment Health)
         bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
@@ -666,12 +666,12 @@ class MicroBehaviorEngine:
         relational_health_raw = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
         relational_health = (relational_health_raw * 2 - 1).clip(-1, 1) # 转换为双极性
         # 5. 融合：排列分单独计算，其余为双极性
-        # [代码修改] 融合逻辑：将排列分转换为双极性，然后进行加权平均
+        # 融合逻辑：将排列分转换为双极性，然后进行加权平均
         bipolar_alignment = bull_alignment_health - bear_alignment_health
         scores = np.stack([bipolar_alignment, slope_health, accel_health, relational_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
-        # [代码修改] 使用加权算术平均进行融合
+        # 使用加权算术平均进行融合
         final_score_values = np.sum(scores * weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
 

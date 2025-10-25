@@ -488,7 +488,7 @@ class TacticEngine:
         scores = np.stack([bipolar_alignment, slope_health, accel_health, relational_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
-        # [代码修改] 使用加权算术平均进行融合
+        # 使用加权算术平均进行融合
         final_score_values = np.sum(scores * weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
 

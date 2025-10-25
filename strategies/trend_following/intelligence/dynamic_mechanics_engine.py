@@ -73,7 +73,7 @@ class DynamicMechanicsEngine:
         
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # [代码修改] 对调节后的双极性分数进行元分析，得到最终的动态健康分
+            # 对调节后的双极性分数进行元分析，得到最终的动态健康分
             final_bipolar_health = self._perform_dynamic_relational_meta_analysis(df, modulated_bipolar_snapshot, p, context_p)
             # 从最终的双极性健康分中，互斥地派生出 s_bull 和 s_bear
             overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)

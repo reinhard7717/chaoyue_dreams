@@ -103,12 +103,12 @@ class PlaybookEngine:
         # V型反转王牌剧本 (趋势型，应在非周期市触发)
         setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING')
         was_setup_yesterday = setup_score.shift(1).fillna(0.0) > get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4)
-        # [代码修改] 增加周期抑制条件
+        # 增加周期抑制条件
         triggers['TRIGGER_V_REVERSAL_ACE'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL'] & is_not_strong_cyclical
 
         # 均值回归剧本 (周期型，应在周期市的波谷触发)
         mean_reversion_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY')
-        # [代码修改] 增加周期前置条件
+        # 增加周期前置条件
         triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = (mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)) & is_cyclical_regime & is_near_trough
 
         # 周期底捞剧本 (周期型，逻辑已包含周期判断，保持不变)

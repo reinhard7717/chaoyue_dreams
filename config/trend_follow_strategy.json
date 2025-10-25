@@ -139,7 +139,9 @@
         "enabled": { "value": true },
         "probe_dates": ["2025-10-17", "2025-10-20"],
         "enable_behavioral_probe": false,
-        "enable_chip_probe": true
+        "enable_chip_probe": false,
+        "enable_dynamic_mechanics_probe": true,
+        "enable_fund_flow_probe": false
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
