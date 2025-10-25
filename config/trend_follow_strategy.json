@@ -554,16 +554,15 @@
         },
         "upper_shadow_intent_params": {
           "enabled": true,
-          "description": "【V1.0 · 新增】上影线意图诊断引擎参数，用于区分派发与吸筹。",
+          "description": "【V2.0 · 主力审判协议版】上影线意图诊断引擎参数。诊断逻辑完全聚焦于主力的绝对意图。",
           "norm_window": 55,
           "min_upper_shadow_ratio": 0.4,
           "fusion_weights": {
-            "flow_divergence": 0.5,
-            "concentration_change": 0.3,
+            "main_force_flow": 0.6,
+            "concentration_change": 0.2,
             "profit_profile": 0.2
           }
         }
-
       },
       "advanced_atomic_params": {
         "enabled": true,

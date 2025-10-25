@@ -935,16 +935,15 @@ class ForensicProbes:
 
     def _deploy_selling_pressure_probe(self, probe_date: pd.Timestamp):
         """
-        【V2.0 · 风险调光器版】上影线风险探针
-        - 核心升级: 完全同步主引擎的“风险调光器”协议，对上影线风险信号进行三阶段深度解剖。
-                      1. [原始风险]: 重算未经调制的原始抛压风险分 `PROVISIONAL_RISK_UPPER_SHADOW`。
-                      2. [意图诊断]: 重算用于判断主力意图的双极性分数 `SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS`。
-                      3. [最终融合]: 应用 `最终风险 = 原始风险 * (1 - 意图诊断分)` 公式，验证最终输出。
+        【V2.1 · 主力审判协议版】上影线风险探针
+        - 核心升级: 完全同步主引擎的“主力审判”协议。
+                      - [证据切换]: 核心证据从“主力vs散户背离”切换为更纯粹的“主力净资金流”。
+                      - [逻辑同步]: 严格按照新的三维证据链（主力净流向、筹码归宿、主力成本）重算意图诊断分。
         """
         final_signal_name = 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'
         provisional_signal_name = 'PROVISIONAL_RISK_UPPER_SHADOW'
         intent_signal_name = 'SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'
-        print("\n" + "="*35 + f" [原子风险探针] 正在启用 ⚡️【上影线风险解剖 V2.0 · 风险调光器】⚡️ " + "="*35)
+        print("\n" + "="*35 + f" [原子风险探针] 正在启用 ⚡️【上影线风险解剖 V2.1 · 主力审判协议】⚡️ " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         p_parent = get_params_block(self.strategy, 'kline_pattern_params', {})
@@ -954,11 +953,9 @@ class ForensicProbes:
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
-        # --- 链路层 1: 最终系统输出 ---
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_final_score = get_val(atomic.get(final_signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
-        # --- 链路层 2: 原始抛压风险重算 (Provisional Risk Recalculation) ---
         print("\n  [链路层 2] 原始抛压风险重算 (Provisional Risk)")
         actual_provisional_risk = get_val(atomic.get(provisional_signal_name), probe_date, 0.0)
         high = get_val(df['high_D'], probe_date)
@@ -988,40 +985,41 @@ class ForensicProbes:
                 recalc_provisional_risk += period_score * weight
         print(f"    - 【探针重算原始风险】: {recalc_provisional_risk:.4f}")
         print(f"    - [内部验证]: 系统原始风险 {actual_provisional_risk:.4f} vs. 探针重算 {recalc_provisional_risk:.4f} -> {'✅ 一致' if np.isclose(actual_provisional_risk, recalc_provisional_risk) else '❌ 不一致'}")
-        # --- 链路层 3: 上影线意图诊断重算 (Intent Diagnosis Recalculation) ---
-        print("\n  [链路层 3] 上影线意图诊断重算 (Intent Diagnosis)")
+        print("\n  [链路层 3] 上影线意图诊断重算 (主力审判协议)")
         actual_intent_diagnosis = get_val(atomic.get(intent_signal_name), probe_date, 0.0)
         norm_window = get_param_value(p_intent.get('norm_window'), 55)
         weights = get_param_value(p_intent.get('fusion_weights'), {})
-        w_flow = get_param_value(weights.get('flow_divergence'), 0.5)
-        w_conc = get_param_value(weights.get('concentration_change'), 0.3)
+        # [代码修改开始] 同步“主力审判”协议的权重和证据
+        w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
+        w_conc = get_param_value(weights.get('concentration_change'), 0.2)
         w_profit = get_param_value(weights.get('profit_profile'), 0.2)
         min_upper_shadow_ratio = get_param_value(p_intent.get('min_upper_shadow_ratio'), 0.4)
-        flow_div_s = df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index))
-        flow_div_score = get_val(normalize_to_bipolar(flow_div_s, df.index, norm_window), probe_date)
+        main_force_flow_s = df.get('main_force_net_flow_consensus_D', pd.Series(0.0, index=df.index))
+        main_force_flow_score = get_val(normalize_to_bipolar(main_force_flow_s, df.index, norm_window), probe_date)
+        # [代码修改结束]
         conc_change_s = df.get('concentration_90pct_D', pd.Series(0.0, index=df.index)).diff().fillna(0)
         conc_change_score = get_val(normalize_to_bipolar(conc_change_s, df.index, norm_window), probe_date)
         profit_s = -df.get('main_force_intraday_profit_D', pd.Series(0.0, index=df.index))
         profit_profile_score = get_val(normalize_to_bipolar(profit_s, df.index, norm_window), probe_date)
         print(f"    - [证据链重算]:")
-        print(f"      - 资金流向分 (flow_divergence): {flow_div_score:.4f} (权重: {w_flow})")
+        # [代码修改开始] 更新打印输出以反映新证据
+        print(f"      - 主力净流向分 (main_force_flow): {main_force_flow_score:.4f} (权重: {w_flow})")
         print(f"      - 筹码结果分 (concentration_change): {conc_change_score:.4f} (权重: {w_conc})")
         print(f"      - 成本代价分 (profit_profile): {profit_profile_score:.4f} (权重: {w_profit})")
-        recalc_intent_untriggered = (flow_div_score * w_flow + conc_change_score * w_conc + profit_profile_score * w_profit)
+        recalc_intent_untriggered = (main_force_flow_score * w_flow + conc_change_score * w_conc + profit_profile_score * w_profit)
+        # [代码修改结束]
         trigger = upper_shadow_ratio > min_upper_shadow_ratio
         recalc_intent_diagnosis = recalc_intent_untriggered * trigger
         print(f"    - 融合后意图分 (未触发): {recalc_intent_untriggered:.4f}")
         print(f"    - 触发条件: 上影线比例 {upper_shadow_ratio:.4f} > {min_upper_shadow_ratio} -> {'✅ 触发' if trigger else '❌ 未触发'}")
         print(f"    - 【探针重算意图诊断】: {recalc_intent_diagnosis:.4f}")
         print(f"    - [内部验证]: 系统意图诊断 {actual_intent_diagnosis:.4f} vs. 探针重算 {recalc_intent_diagnosis:.4f} -> {'✅ 一致' if np.isclose(actual_intent_diagnosis, recalc_intent_diagnosis) else '❌ 不一致'}")
-        # --- 链路层 4: 最终融合 (Final Fusion - Dimmer Switch) ---
         print("\n  [链路层 4] 最终融合 (风险调光器)")
         recalc_final_score = (recalc_provisional_risk * (1 - recalc_intent_diagnosis))
         recalc_final_score_clipped = np.clip(recalc_final_score, 0, 2)
         print(f"    - [核心公式]: 最终风险 = 原始风险 * (1 - 意图诊断分)")
         print(f"    - [计算过程]: {recalc_provisional_risk:.4f} * (1 - {recalc_intent_diagnosis:.4f}) = {recalc_final_score:.4f}")
         print(f"    - 【探针重算最终风险】(Clip后): {recalc_final_score_clipped:.4f}")
-        # --- 链路层 5: 最终对质 ---
         print("\n  [链路层 5] 最终对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score_clipped:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score_clipped) else '❌ 不一致'}")
         print("\n--- 上影线风险探针解剖完毕 ---")
