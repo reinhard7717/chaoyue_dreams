@@ -852,10 +852,11 @@ class ForensicProbes:
 
     def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
         """
-        【V1.0 · 新增】“忒弥斯的天平”探针 - 过程情报引擎深度解剖
-        - 核心使命: 对指定的过程信号进行外科手术式解剖，完全透明化从原始指标到最终信号的全链路计算过程。
+        【V1.1 · 动态同步版】“忒弥斯的天平”探针 - 过程情报引擎深度解剖
+        - 核心升级: 探针不再硬编码变化类型(pct_change)，而是从信号配置中动态读取 `change_type_A` 和 `change_type_B`。
+                      这确保了探针的计算逻辑与引擎的实际逻辑（特别是 `diff` vs `pct` 的选择）完全同步。
         """
-        print("\n" + "="*35 + f" [过程探针] 正在启用 ⚖️【忒弥斯的天平 · 过程引擎解剖 V1.0】⚖️ " + "="*35)
+        print("\n" + "="*35 + f" [过程探针] 正在启用 ⚖️【忒弥斯的天平 · 过程引擎解剖 V1.1】⚖️ " + "="*35)
         print(f"  [目标信号]: {signal_to_probe}")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -864,11 +865,14 @@ class ForensicProbes:
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
-        # 从引擎配置中找到目标信号的配置
         target_config = next((c for c in engine.diagnostics_config if c.get('name') == signal_to_probe), None)
         if not target_config:
             print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
             return
+        # [代码修改开始] 动态读取变化类型，与引擎逻辑同步
+        change_type_a = target_config.get('change_type_A', 'pct')
+        change_type_b = target_config.get('change_type_B', 'pct')
+        # [代码修改结束]
         print("\n  [链路层 1] 最终判决 (Final Verdict)")
         final_score_actual = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
         print(f"    - 【最终得分】: {final_score_actual:.4f}")
@@ -889,14 +893,25 @@ class ForensicProbes:
         print("    - [原始输入 Raw Inputs]:")
         print(f"      - Signal A ({signal_a_name}): {raw_a:.4f}")
         print(f"      - Signal B ({signal_b_name}): {raw_b:.4f}")
-        # 3.2 一阶变化
-        change_a = ta.percent_return(df.get(signal_a_name), length=1).fillna(0)
-        change_b = ta.percent_return(df.get(signal_b_name), length=1).fillna(0)
+        # [代码修改开始] 复制引擎中的 get_change_series 逻辑，实现动态计算
+        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
+            if series is None: return pd.Series(dtype=float)
+            if change_type == 'diff':
+                return series.diff(1).fillna(0)
+            # 默认使用 pct
+            return ta.percent_return(series, length=1).fillna(0)
+        signal_a_series = df.get(signal_a_name)
+        signal_b_series = df.get(signal_b_name)
+        change_a = get_change_series(signal_a_series, change_type_a)
+        change_b = get_change_series(signal_b_series, change_type_b)
+        # [代码修改结束]
         change_a_val = get_val(change_a, probe_date)
         change_b_val = get_val(change_b, probe_date)
-        print("    - [一阶变化 Percent Change]:")
-        print(f"      - Change A: {change_a_val:.4f}")
-        print(f"      - Change B: {change_b_val:.4f}")
+        # [代码修改开始] 在输出中明确显示所使用的变化类型
+        print(f"    - [一阶变化 First Order Change]:")
+        print(f"      - Change A (Type: {change_type_a}): {change_a_val:.4f}")
+        print(f"      - Change B (Type: {change_type_b}): {change_b_val:.4f}")
+        # [代码修改结束]
         # 3.3 动量归一
         momentum_a = normalize_to_bipolar(change_a, df.index, engine.std_window, engine.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df.index, engine.std_window, engine.bipolar_sensitivity)
@@ -913,7 +928,6 @@ class ForensicProbes:
         print(f"      - Clip前得分: {recalc_score_unclipped:.4f}")
         print(f"      - Clip后得分: {recalc_score_clipped:.4f}")
         print("\n  [链路层 4] 终极对质 (Final Verdict)")
-        # 因为是 direct_confirmation 模式，瞬时关系分就是最终分
         final_score_recalc = recalc_score_clipped
         print(f"    - [探针重算]: {final_score_recalc:.4f}")
         print(f"    - [对比]: 实际值 {final_score_actual:.4f} vs 重算值 {final_score_recalc:.4f} -> {'✅ 一致' if np.isclose(final_score_actual, final_score_recalc) else '❌ 不一致'}")
