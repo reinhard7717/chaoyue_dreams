@@ -110,12 +110,12 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.7 · 赫淮斯托斯重铸版】结构与行为健康度计算核心引擎
-        - 核心革命: 签署“赫淮斯托斯重铸”协议，重构状态与动态的融合逻辑。
-                      1. [解构] 将无方向的`unified_d_intensity`分解为`bullish_d_intensity`和`bearish_d_intensity`。
-                      2. [注入] 将动态强度作为核心原料，直接注入各自的复合状态计算中，废除外部调制。
-                      3. [分析] 对包含了所有信息的、新生成的纯粹`bipolar_composite_state`进行三维时空分析。
-        - 收益: 彻底解决了因“过程质量”错误否决“状态”而导致的逻辑矛盾。
+        【V3.9 · 阿瑞斯之矛V2-三叉戟版】结构与行为健康度计算核心引擎
+        - 核心革命: 签署“阿瑞斯之矛 V2 - 三叉戟”协议，将日内博弈（上下影线）与日间结果（涨跌幅）融合。
+                      1. [信念因子] 引入“看涨/看跌信念因子”，通过比较影线与涨跌幅的比率，量化当日K线的内在强度。
+                      2. [净有效强度] 使用“信念因子”调制原始的涨跌强度，得到“净有效强度”。
+                      3. [注入] 将“净有效强度”作为核心驱动力，注入复合状态计算。
+        - 收益: 能精准区分“强劲的上涨”与“虚弱的上涨”，“无抵抗的下跌”与“有支撑的下跌”。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
@@ -126,35 +126,51 @@ class BehavioralIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # [代码修改开始] 实施“赫淮斯托斯重铸”协议
-        # --- 步骤1: 解构动态强度，使其具备方向性 ---
+        # [代码修改开始] 实施“阿瑞斯之矛 V2 - 三叉戟”协议
+        # --- 步骤1: 计算“信念因子” ---
+        # 使用昨日收盘价作为基准计算影线（日间影线协议）
+        gain = (df['close_D'] - df['pre_close_D']).clip(lower=0)
+        loss = (df['pre_close_D'] - df['close_D']).clip(lower=0)
+        upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['close_D'], df['pre_close_D']) - df['low_D']).clip(lower=0)
+        # 计算上影线压力比，并转换为看涨信念因子
+        upper_shadow_pressure_ratio = (upper_shadow / gain.replace(0, np.nan)).fillna(0)
+        bullish_conviction_factor = (1 - upper_shadow_pressure_ratio).clip(0, 1)
+        # 计算下影线支撑比，并转换为看跌信念因子
+        lower_shadow_support_ratio = (lower_shadow / loss.replace(0, np.nan)).fillna(0)
+        bearish_conviction_factor = (1 - lower_shadow_support_ratio).clip(0, 1)
+        # --- 步骤2: 计算“净有效强度” ---
+        positive_day_strength_raw = df['pct_change_D'].clip(0)
+        net_effective_bullish_strength = positive_day_strength_raw * bullish_conviction_factor
+        negative_day_strength_raw = df['pct_change_D'].clip(upper=0).abs()
+        net_effective_bearish_strength = negative_day_strength_raw * bearish_conviction_factor
+        # --- 步骤3: 归一化“净有效强度”，作为核心驱动力 ---
+        positive_day_strength = normalize_score(net_effective_bullish_strength, df.index, norm_window)
+        negative_day_strength = normalize_score(net_effective_bearish_strength, df.index, norm_window)
+        # 后续逻辑使用新的、更智能的 `positive_day_strength` 和 `negative_day_strength`
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         bullish_d_intensity = ((efficiency_holo_bull + gini_holo_bull) / 2.0).astype(np.float32)
         bearish_d_intensity = ((efficiency_holo_bear + gini_holo_bear) / 2.0).astype(np.float32)
-        # --- 步骤2: 将动态强度作为核心原料注入复合状态计算 ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
-        vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
-        reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
-        reversal_weakness = ((1.0 - closing_strength_score) * (1.0 - vwap_dominance_score))**0.5
-        lower_shadow_power = closing_strength_score
+        closing_weakness_score = 1.0 - closing_strength_score
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
         trend_efficiency = normalize_score(df.get('intraday_trend_efficiency_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
-        # 将 bullish_d_intensity 作为第六种原料注入，并将开方数从 5 改为 6
-        bullish_composite_state = (reversal_strength * lower_shadow_power * (1 + bullish_divergence) * auction_power * trend_efficiency * bullish_d_intensity)**(1/6)
-        upper_shadow_pressure = 1.0 - closing_strength_score
         bearish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         trend_inefficiency = 1 - trend_efficiency
-        # 将 bearish_d_intensity 作为第六种原料注入，并将开方数从 5 改为 6
-        bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency * bearish_d_intensity)**(1/6)
-        # --- 步骤3: 计算纯粹的、已包含所有信息的双极性复合状态分 ---
+        bullish_composite_state = (
+            positive_day_strength * closing_strength_score * (1 + bullish_divergence) *
+            auction_power * trend_efficiency * bullish_d_intensity
+        )**(1/6)
+        bearish_composite_state = (
+            negative_day_strength * closing_weakness_score * (1 + bearish_divergence) *
+            auction_weakness * trend_inefficiency * bearish_d_intensity
+        )**(1/6)
         bipolar_composite_state = (bullish_composite_state - bearish_composite_state).clip(-1, 1)
-        # --- 步骤4: 对纯粹状态进行三维时空分析 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # 直接对纯粹的 bipolar_composite_state 进行分析
             state_norm_tactical = normalize_to_bipolar(bipolar_composite_state, df.index, p)
             slope_raw = bipolar_composite_state.diff(p).fillna(0)
             slope_norm_tactical = normalize_to_bipolar(slope_raw, df.index, p)
