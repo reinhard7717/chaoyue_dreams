@@ -31,9 +31,8 @@ class ReportingLayer:
 
     async def prepare_db_records(self, stock_code: str, result_df: pd.DataFrame, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame, params: dict, result_timeframe: str) -> Tuple[List, List, List, List, List]:
         """
-        【V532.0 · 神盾战报版】
-        - 核心适配: 在信号类型枚举中，增加对“神盾防御”信号的识别和处理。
-        - 收益: 确保“神盾防御”这一关键的战术防御行为，能够被正确记录到数据库中，供后续复盘分析。
+        【V533.0 · 盖亚裁决适配版】
+        - 核心适配: 响应“盖亚的最终裁决”，从信号枚举中彻底移除已废弃的“趋势破位离场”信号类型。
         """
         await self._ensure_playbooks_cached()
         signals_to_create, signal_details_to_create, daily_scores_to_create, score_components_to_create, daily_states_to_create = [], [], [], [], []
@@ -42,18 +41,18 @@ class ReportingLayer:
         save_daily_states = get_param_value(trend_follow_strategy_info.get('save_daily_states'), False)
         trend_follow_name = get_param_value(trend_follow_strategy_info.get('name'), 'TrendFollow')
         min_entry_score_for_db = get_param_value(trend_follow_strategy_info.get('min_entry_score_for_db'), 50)
-        # 在信号枚举中增加对“神盾防御”的识别
+        # [代码修改开始] 移除已废弃的信号类型
         signal_type_map_enum = {
             '买入信号': TradingSignal.SignalType.BUY,
             '卖出信号': TradingSignal.SignalType.SELL,
             '风险预警': TradingSignal.SignalType.WARN,
-            '趋势破位离场': TradingSignal.SignalType.SELL,
+            # '趋势破位离场': TradingSignal.SignalType.SELL, # 此行被彻底废除
             '战略失效离场': TradingSignal.SignalType.SELL,
             '风险否决': TradingSignal.SignalType.WARN,
-            '神盾防御': TradingSignal.SignalType.WARN, # 将“神盾防御”归类为一种值得关注的警告/观察信号
+            '神盾防御': TradingSignal.SignalType.WARN,
             '先知离场': TradingSignal.SignalType.SELL,
         }
-
+        # [代码修改结束]
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():

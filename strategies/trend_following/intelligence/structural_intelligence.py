@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar
+from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class StructuralIntelligence:
     def __init__(self, strategy_instance, dynamic_thresholds: Dict):
@@ -98,11 +98,14 @@ class StructuralIntelligence:
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V1.1 · 赫利俄斯敕令版】支柱一：趋势完整性 (赫尔墨斯的商神杖)
-        - 核心革命: 遵循“赫利俄斯敕令”，对双极性快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
+        【V1.2 · 壁炉协议版】支柱一：趋势完整性 (赫尔墨斯的商神杖)
+        - 核心革命: 引入“赫斯提亚的壁炉”协议，建立稳定的中性区，避免在平衡点附近产生神经质信号。
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        # [代码新增开始] 获取壁炉阈值
+        neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
+        # [代码新增结束]
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
@@ -132,21 +135,17 @@ class StructuralIntelligence:
         )
         bull_snapshot_score = pd.Series(bull_score_values, index=df.index, dtype=np.float32)
         bear_snapshot_score = pd.Series(bear_alignment, index=df.index, dtype=np.float32)
-        # [代码修改开始] 遵循“赫利俄斯敕令”
-        # 1. 计算双极性快照分
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
-        # 2. 对双极性快照分执行关系元分析，得到最终的动态健康分
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
-        # 4. 将 d_intensity 降级为无意义的占位符
+        # [代码修改开始] 部署“赫斯提亚的壁炉”协议
+        # 不再使用简单的clip，而是调用新的协议执行器
+        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
+        # [代码修改结束]
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        # [代码修改结束]
         return s_bull, s_bear, d_intensity
 
     def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_health: Dict) -> Tuple[Dict, Dict, Dict]:

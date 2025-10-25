@@ -654,6 +654,10 @@
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+        },
         "supreme_fusion_params": {
           "description": "【宙斯之雷】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
           "fusion_weights": {
@@ -696,6 +700,10 @@
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+        },
         "context_modulation_params": {
           "description": "【新增】上下文感知模块，用于增强或抑制筹码信号。",
           "bottom_context_factor": 0.5,
@@ -720,6 +728,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "foundation_ultimate_params": {
@@ -741,6 +753,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "fund_flow_ultimate_params": {
@@ -758,6 +774,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "context_modulation_params": {
           "description": "上下文感知模块，用于增强或抑制资金流信号。",
@@ -790,6 +810,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "structural_ultimate_params": {
@@ -814,6 +838,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "cognitive_intelligence_params": {
@@ -830,6 +858,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "reversal_reliability_bonus_factor": 0.5,
         "capitulation_potential_bonus_factor": 0.5,
@@ -896,6 +928,10 @@
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
+        },
+        "neutral_zone_threshold": {
+          "value": 0.1,
+          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "four_layer_scoring_params": {

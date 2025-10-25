@@ -11,11 +11,12 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V536.0 · 神盾战报版】
-        - 核心升级: 为被“神盾协议”否决的离场信号，赋予专属的“神盾防御”信号类型。
-        - 收益: 将“被动不离场”的隐性行为，转化为“主动防御成功”的显性战报，为报告层提供关键情报。
+        【V537.0 · 盖亚的最终裁决版】
+        - 核心革命: 彻底废除“趋势破位离场”的逻辑。所有战术离场信号现在都必须接受“神盾协议”的裁决。
+                      只有在“神盾”未激活时，离场信号才会被考虑（当前逻辑下，战术离场被完全压制）。
+        - 收益: 实现了从“基于规则的被动离场”到“基于状态的主动防御”的哲学飞跃。
         """
-        print("    --- [最高作战指挥部 V536.0 · 神盾战报版] 启动...")
+        print("    --- [最高作战指挥部 V537.0 · 盖亚的最终裁决版] 启动...")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -42,7 +43,7 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        # --- 神盾协议 (Aegis Protocol) 升级开始 ---
+        # [代码修改开始] 实施“盖亚的最终裁决”
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
         is_aegis_shield_active = (gaia_bedrock_score > 0.1)
         # 捕获原始的、未经神盾过滤的战术离场信号
@@ -50,12 +51,11 @@ class JudgmentLayer:
         # 定义被神盾否决的离场条件，并赋予新的信号类型
         aegis_defense_condition = raw_tactical_exit_mask & is_aegis_shield_active
         df.loc[aegis_defense_condition, 'signal_type'] = '神盾防御'
-
-        # 最终的战术离场信号，是原始信号中未被神盾防御的部分
-        tactical_exit_mask = raw_tactical_exit_mask & ~is_aegis_shield_active
-        # --- 神盾协议 (Aegis Protocol) 升级结束 ---
+        # 彻底废除“趋势破位离场”信号
+        # tactical_exit_mask = raw_tactical_exit_mask & ~is_aegis_shield_active
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
-        df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场'
+        # df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场' # 此行被彻底废除
+        # [代码修改结束]
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         self._finalize_signals()
