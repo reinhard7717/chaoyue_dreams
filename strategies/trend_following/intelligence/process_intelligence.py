@@ -74,14 +74,17 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.3.0 · 宙斯天平协议版】
-        - 核心革命: 签署“宙斯的天平”协议，废除用于“共识确认”的乘法模型。
-                      引入全新的、基于动量差值的减法模型 `(k*B - A)/(k+1)`，
-                      专门用于精确诊断“背离”关系，彻底修复了逻辑反转的致命BUG。
+        【V2.4.0 · 赫拉敕令版】
+        - 核心革命: 签署“赫拉的敕令”，废除单一计算模型。引入 `relationship_type` 配置，
+                      为 "consensus" (共识) 和 "divergence" (背离) 两种关系类型提供专属的、
+                      不可混淆的计算公式，彻底解决了公式错配的根本性问题。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
+        # [代码修改开始] 新增 relationship_type 的读取
+        relationship_type = config.get('relationship_type', 'consensus') # 默认为共识
+        # [代码修改结束]
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
                 return self.strategy.atomic_states.get(signal_name)
@@ -100,11 +103,14 @@ class ProcessIntelligence:
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        # 应用“宙斯的天平”协议，使用减法模型诊断背离
-        # 旧的错误公式: relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
-        # 新的正确公式: 背离是动量的差值
-        relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
-        
+        # [代码修改开始] 根据关系类型执行不同的计算法则
+        if relationship_type == 'divergence':
+            # 背离法则：衡量B动量在多大程度上“战胜”了A动量
+            relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
+        else: # 默认为 'consensus'
+            # 共识法则：计算A和B动量的加权平均值
+            relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
+        # [代码修改结束]
         relationship_score = relationship_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b

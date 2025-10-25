@@ -365,115 +365,128 @@
             "name": "PROCESS_META_PV_REL_BULLISH_TURN",
             "type": "meta_analysis",
             "task_type": "base",
+            "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "volume_D", "source_B": "df", "change_type_B": "pct",
+            "signal_B": "volume_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【基础元分析-量价】诊断'价格-成交量'关系是否出现看涨拐点。"
+            "comment": "【基础元分析-价量】【修复】明确为'共识'关系，并使用'diff'计算成交量变化。"
           },
           {
             "name": "PROCESS_META_PF_REL_BULLISH_TURN",
             "type": "meta_analysis",
             "task_type": "base",
+            "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.5,
-            "comment": "【基础元分析-价资】【修复】将资金流变化类型从'pct'改为'diff'，防止因穿越零轴导致数学不稳定。"
+            "comment": "【基础元分析-价资】【修复】明确为'共识'关系。"
           },
           {
             "name": "PROCESS_META_PC_REL_BULLISH_TURN",
             "type": "meta_analysis",
             "task_type": "base",
+            "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "concentration_90pct_D", "source_B": "df", "change_type_B": "pct",
+            "signal_B": "concentration_increase_by_support_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 2.0,
-            "comment": "【基础元分析-价筹】诊断'价格-筹码集中度'关系是否出现看涨拐点。"
+            "comment": "【基础元分析-价筹】【修复】明确为'共识'关系，并使用'diff'计算筹码变化。"
           },
           {
             "name": "PROCESS_META_PRICE_VS_RETAIL_CAPITULATION",
             "type": "meta_analysis",
             "task_type": "base",
+            "relationship_type": "divergence",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "retail_capitulation_distribution_D", "source_B": "df", "change_type_B": "pct",
-            "signal_b_factor_k": -1.5,
-            "comment": "【逻辑升级】诊断'价格下跌'与'散户投降式派发行为加剧'的背离。正分代表恐慌盘被吸收，是看涨的底部特征。"
+            "signal_B": "retail_capitulation_distribution_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.5,
+            "comment": "【逻辑修复】1.明确为'背离'关系。2.废除k=-1.5的黑魔法，改为正值。3.使用'diff'计算变化。正分代表价格跌而散户加速投降，是看涨信号。"
           },
           {
             "name": "PROCESS_META_PE_EFFICIENCY_TURN",
             "type": "meta_analysis",
             "task_type": "base",
+            "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
-            "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "pct",
+            "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【基础元分析-VPA效率】诊断'价格-VPA效率'关系是否出现看涨拐点。"
+            "comment": "【逻辑修复】1.明确为'共识'关系。2.使用'diff'计算VPA效率变化。正分代表价涨且效率提升。"
           },
           {
             "name": "PROCESS_META_PD_DIVERGENCE_CONFIRM",
             "type": "meta_analysis",
             "task_type": "base",
             "diagnosis_mode": "direct_confirmation",
+            "relationship_type": "divergence",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "flow_divergence_mf_vs_retail_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 2.5,
-            "comment": "【基础元分析-博弈】【修复】将背离度变化类型从'pct'改为'diff'，防止因穿越零轴导致数学不稳定。"
+            "comment": "【基础元分析-博弈】【修复】明确为'背离'关系。"
           },
           {
             "name": "PROCESS_STRATEGY_CHIP_VS_BEHAVIOR_SYNC",
             "type": "strategy_sync",
             "task_type": "strategy",
+            "relationship_type": "consensus",
             "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【战略元分析】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。高分代表行为正在快速追赶或超越筹码，是强确认信号。"
+            "comment": "【逻辑修复】明确为'共识'关系。高分代表行为与筹码同步改善。"
           },
           {
             "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
             "type": "strategy_sync",
             "task_type": "strategy",
-            "signal_A": "SCORE_FF_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_STRUCTURE_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "comment": "【战略元分析】诊断'资金流'是否领先于'结构'。高分代表资金已大幅领先于结构改善，预示结构可能即将突破。k=-1.0用于捕捉领先关系。"
+            "relationship_type": "divergence",
+            "signal_A": "SCORE_STRUCTURE_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_FF_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "comment": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金流变化-结构变化)，正分代表资金领先结构。"
           },
           {
             "name": "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY",
             "type": "strategy_sync",
             "task_type": "strategy",
+            "relationship_type": "consensus",
             "signal_A": "SCORE_DYN_BEARISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
             "signal_B": "SCORE_CHIP_BEARISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【战略元分析-风险】诊断'力学看跌'与'筹码看跌'的共振过程。高分代表风险正在从一个领域向另一个领域快速传导和放大。"
+            "comment": "【逻辑修复】明确为'共识'关系。高分代表力学风险与筹码风险同步恶化。"
           },
           {
             "name": "PROCESS_META_POWER_TRANSFER",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "main_force_net_flow_consensus_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "retail_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "权力转移：主力从散户手中夺取控制权的过程。"
+            "relationship_type": "divergence",
+            "signal_A": "retail_net_flow_consensus_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0的危险设置。3.交换A/B信号，新逻辑为(主力流量变化-散户流量变化)，完美诠释权力转移。"
           },
           {
             "name": "PROCESS_META_STEALTH_ACCUMULATION",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "concentration_90pct_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "pct_change_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -0.5,
-            "description": "隐秘吸筹：主力在不拉高价格的情况下悄悄收集筹码的过程。"
+            "relationship_type": "divergence",
+            "signal_A": "pct_change_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "concentration_90pct_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.5,
+            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-0.5。3.交换A/B信号，新逻辑为(筹码集中变化-价格变化)，正分代表价平/跌而筹码集中。"
           },
           {
             "name": "PROCESS_META_WINNER_CONVICTION",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "winner_profit_margin_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "profit_taking_urgency_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "赢家信念：获利盘安全垫增加，但获利了结紧迫度并未同步增加，代表赢家惜售，信念坚定。"
+            "relationship_type": "divergence",
+            "signal_A": "profit_taking_urgency_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "winner_profit_margin_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(利润垫变化-紧迫度变化)，正分代表利润增加但紧迫度下降。"
           },
           {
             "name": "PROCESS_META_LOSER_CAPITULATION",
             "type": "meta_analysis", "task_type": "base",
+            "relationship_type": "consensus",
             "signal_A": "retail_capitulation_distribution_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "total_loser_rate_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "description": "投降仪式：总套牢盘比例增加的同时，散户投降式派发行为也在增加，代表套牢盘正在加速割肉。"
+            "description": "【逻辑修复】1.明确为'共识'。2.使用'diff'计算变化。正分代表套牢盘和投降行为同步增加。"
           },
           {
             "name": "PROCESS_META_COST_VS_PRICE",
@@ -486,26 +499,29 @@
           {
             "name": "PROCESS_META_MAIN_FORCE_URGENCY",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "close_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【新增】主力紧迫度: 诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
+            "relationship_type": "divergence",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "avg_cost_main_buy_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.5,
+            "description": "【逻辑修复与精简】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(主力成本变化-价格变化)，正分代表成本增速超越价格增速，即追高买入。"
           },
           {
             "name": "PROCESS_META_SMART_MONEY_COST_ADVANTAGE",
             "type": "meta_analysis", "task_type": "base",
-            "signal_A": "avg_cost_main_buy_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "avg_cost_retail_sell_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【新增】聪明钱成本优势: 诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
+            "relationship_type": "divergence",
+            "signal_A": "avg_cost_retail_sell_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "avg_cost_main_buy_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(主力买入成本变化-散户卖出成本变化)，正分代表主力加速吸收廉价筹码。"
           },
           {
             "name": "PROCESS_META_PROFIT_VS_FLOW",
             "type": "meta_analysis", "task_type": "base",
+            "relationship_type": "divergence",
             "signal_A": "main_force_intraday_profit_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【新增】主力盈亏vs流量: 诊断主力日内盈亏与资金净流量的背离。正分代表'亏钱买入'的看涨行为，负分代表'赚钱卖出'的看跌行为。"
+            "signal_b_factor_k": 1.0,
+            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金净流入变化-日内盈亏变化)，正分代表流量为正而盈亏为负，即'亏钱买入'。"
           }
         ]
       },
