@@ -496,13 +496,12 @@ class ForensicProbes:
 
     def _deploy_apollos_lyre_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.1 · 阿波罗审判同步版】“阿波罗的七弦琴”探针
-        - 核心重构: 与基础引擎V15.0“阿波罗审判”协议完全同步。
-                      1. [逻辑对齐] 探针现在正确地处理支柱函数返回的单一双极性快照分。
-                      2. [流程再现] 精确再现了“快照融合 -> 元分析 -> 健康度派生”的新流程。
-                      3. [深度解剖升级] 元分析的深度解剖现在作用于“融合后”的快照分，更具实战意义。
+        【V1.2 · 哥白尼革命同步版】“阿波罗的七弦琴”探针
+        - 核心升级: 与基础引擎V15.1“哥白尼革命”协议完全同步。
+                      - [周期中心论] 探针的元分析解剖现在显式地使用周期p作为meta_window，消除了硬编码。
+                      - [逻辑透明] 明确展示了被测周期p与元分析窗口meta_window之间的直接关系。
         """
-        print("\n" + "="*35 + f" [基础探针] 正在奏响 🎵【阿波罗的七弦琴 · 基础引擎解剖 V1.1】🎵 " + "="*35)
+        print("\n" + "="*35 + f" [基础探针] 正在奏响 🎵【阿波罗的七弦琴 · 基础引擎解剖 V1.2】🎵 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.foundation_intel
@@ -523,7 +522,6 @@ class ForensicProbes:
         print(f"    - 【看跌共振】: {bear_res_actual:.4f}")
         print(f"    - 【底部反转】: {bottom_rev_actual:.4f}")
         print(f"    - 【顶部反转】: {top_rev_actual:.4f}")
-        # [代码修改开始] 探针逻辑与引擎V15.0完全同步
         print("\n  [链路层 2] 四大支柱快照分 (Pillar Snapshots) - 七弦琴的四根主弦")
         ma_context_score = engine._calculate_ma_trend_context(df, [5, 13, 21, 55])
         calculators = {
@@ -534,7 +532,7 @@ class ForensicProbes:
         }
         pillar_snapshots = {}
         for name, calculator in calculators.items():
-            snapshot_series = calculator() # 修正：现在接收单一的Series
+            snapshot_series = calculator()
             pillar_snapshots[name] = snapshot_series
             print(f"    - [支柱: {name.upper()}] 双极性快照分: {get_val(snapshot_series, probe_date):.4f}")
         print("\n  [链路层 3] 快照融合 (Snapshot Fusion)")
@@ -550,16 +548,19 @@ class ForensicProbes:
         ).clip(-1, 1)
         fused_snapshot_val = get_val(fused_bipolar_snapshot_series, probe_date)
         print(f"    - [融合结果] 融合后双极性快照分: {fused_snapshot_val:.4f}")
-        print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (作用于融合快照)")
+        # [代码修改开始] 同步“哥白尼革命”
+        print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (以 p=5 周期为例)")
+        p_probe = 5 # 显式声明我们正在探测的周期
+        meta_window = max(1, p_probe) # 核心修正：meta_window 由被探测的周期 p_probe 决定
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-        meta_window = 5
         bipolar_sensitivity = 1.0
         snapshot_series = fused_bipolar_snapshot_series
         snapshot_val = get_val(snapshot_series, probe_date)
         print(f"    - [输入 Input]: 融合快照分(State) = {snapshot_val:.4f}, 权重(W_s, W_v, W_a) = ({w_state}, {w_velocity}, {w_acceleration})")
+        print(f"    - [周期中心论]: 探测周期 p={p_probe} -> 使用元分析窗口 meta_window={meta_window}")
         relationship_trend = snapshot_series.diff(meta_window).fillna(0)
         velocity_score_series = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
         velocity_val = get_val(velocity_score_series, probe_date)
@@ -582,8 +583,8 @@ class ForensicProbes:
         print(f"      - 看跌力量: (s:{bearish_state:.2f}*w:{w_state}) + (v:{bearish_velocity:.2f}*w:{w_velocity}) + (a:{bearish_acceleration:.2f}*w:{w_acceleration}) = {total_bearish_force:.4f}")
         print(f"      - 最终健康分 (探针重算): {recalc_health:.4f}")
         overall_health = atomic.get('__FOUNDATION_overall_health', {})
-        s_bull_actual = get_val(overall_health.get('s_bull', {}).get(5), probe_date, 0.0)
-        s_bear_actual = get_val(overall_health.get('s_bear', {}).get(5), probe_date, 0.0)
+        s_bull_actual = get_val(overall_health.get('s_bull', {}).get(p_probe), probe_date, 0.0)
+        s_bear_actual = get_val(overall_health.get('s_bear', {}).get(p_probe), probe_date, 0.0)
         actual_health = s_bull_actual - s_bear_actual
         print(f"    - [内部验证]: 实际值 {actual_health:.4f} vs. 探针重算 {recalc_health:.4f} -> {'✅ 一致' if np.isclose(actual_health, recalc_health) else '❌ 不一致'}")
         # [代码修改结束]
