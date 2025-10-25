@@ -170,7 +170,7 @@ class DynamicMechanicsEngine:
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # [代码修改开始] 实施“双子座的回响”协议
+        # 实施“双子座的回响”协议
         # 维度二：速度分 (Velocity Score) - 双层印证
         tactical_trend = snapshot_score.diff(tactical_p).fillna(0)
         tactical_velocity = normalize_to_bipolar(tactical_trend, df.index, norm_window, bipolar_sensitivity)
@@ -203,7 +203,7 @@ class DynamicMechanicsEngine:
         )
         # --- 净值裁决 (Net Value Adjudication) ---
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # [代码修改结束]
+        
         return final_score.astype(np.float32)
         
 

@@ -146,7 +146,7 @@ class ChipIntelligence:
             context_bullish_quality = (context_bullish_static_score * context_bullish_slope_score * context_bullish_accel_score)**(1/3)
             # 融合
             final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
-            # [代码修改开始] 修复看跌证据的评估逻辑，使其与看涨证据对称
+            # 修复看跌证据的评估逻辑，使其与看涨证据对称
             # 战术层 (p)
             tactical_bearish_static_score = normalize_score(bearish_evidence_static, df.index, p, ascending=True)
             tactical_bearish_slope_score = normalize_score(bearish_evidence_slope, df.index, p, ascending=True)
@@ -159,7 +159,7 @@ class ChipIntelligence:
             context_bearish_quality = (context_bearish_static_score * context_bearish_slope_score * context_bearish_accel_score)**(1/3)
             # 融合
             final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
-            # [代码修改结束]
+            
             # 生成双极快照分
             concentration_quality_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
             holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, p * 2)
@@ -306,7 +306,7 @@ class ChipIntelligence:
         w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.2)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # [代码修改开始] 实施“双子座”协议
+        # 实施“双子座”协议
         # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
@@ -339,7 +339,7 @@ class ChipIntelligence:
         )
         # --- 净值裁决 (Net Value Adjudication) ---
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # [代码修改结束]
+        
         return final_score.astype(np.float32)
 
     def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:

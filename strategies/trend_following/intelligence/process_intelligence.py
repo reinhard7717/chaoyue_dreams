@@ -74,41 +74,38 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.2.0 · 范围约束版】
-        - 核心修复: 对最终的 relationship_score 增加 .clip(-1, 1) 约束，彻底杜绝范围溢出问题。
+        【V2.3.0 · 宙斯天平协议版】
+        - 核心革命: 签署“宙斯的天平”协议，废除用于“共识确认”的乘法模型。
+                      引入全新的、基于动量差值的减法模型 `(k*B - A)/(k+1)`，
+                      专门用于精确诊断“背离”关系，彻底修复了逻辑反转的致命BUG。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
-
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
                 return self.strategy.atomic_states.get(signal_name)
             return df.get(signal_name)
-
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
-        
         if signal_a is None or signal_b is None:
             print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
-
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if change_type == 'diff':
                 return series.diff(1).fillna(0)
             return ta.percent_return(series, length=1).fillna(0)
-
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
-        
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        # 应用“宙斯的天平”协议，使用减法模型诊断背离
+        # 旧的错误公式: relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
+        # 新的正确公式: 背离是动量的差值
+        relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
         
-        # 增加范围约束，防止数学溢出
         relationship_score = relationship_score.clip(-1, 1)
-
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score

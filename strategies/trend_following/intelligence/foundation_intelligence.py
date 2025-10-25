@@ -67,7 +67,7 @@ class FoundationIntelligence:
             index=df.index, dtype=np.float32
         ).clip(-1, 1)
         overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
-        # [代码修改开始] 实施“哥白尼革命”
+        # 实施“哥白尼革命”
         # 3. 对每个周期独立执行元分析，并传入周期 p 作为 meta_window
         for p in periods:
             # 确保 meta_window 至少为1
@@ -76,7 +76,7 @@ class FoundationIntelligence:
             overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
             overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
             overall_health['d_intensity'][p] = pd.Series(1.0, index=df.index, dtype=np.float32)
-        # [代码修改结束]
+        
         self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
@@ -291,7 +291,7 @@ class FoundationIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
-        # [代码修改开始] 废除固定的 meta_window
+        # 废除固定的 meta_window
         # meta_window = 5 # 异端教条已被废除
         bipolar_sensitivity = 1.0
         # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
@@ -306,7 +306,7 @@ class FoundationIntelligence:
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # [代码修改结束]
+        
         # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
@@ -383,18 +383,18 @@ class FoundationIntelligence:
             fused_compression = (tactical_comp * context_comp)**0.5
             state_score_p = (fused_compression * ma_context_score).astype(np.float32)
             compression_state_scores[p_tactical] = state_score_p
-            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            # 同步“哥白尼革命”，传入 meta_window
             current_meta_window = max(1, p_tactical)
             compression_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, state_score_p, meta_window=current_meta_window)
-            # [代码修改结束]
+            
             tactical_exp = normalize_score(bbw_series, df.index, p_tactical, ascending=True)
             context_exp = normalize_score(bbw_series, df.index, p_context, ascending=True)
             fused_expansion = (tactical_exp * context_exp)**0.5
             risk_state_score_p = (fused_expansion * (1 - ma_context_score)).astype(np.float32)
             expansion_risk_state_scores[p_tactical] = risk_state_score_p
-            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            # 同步“哥白尼革命”，传入 meta_window
             expansion_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, risk_state_score_p, meta_window=current_meta_window)
-            # [代码修改结束]
+            
         def fuse_across_periods(scores_dict):
             final_score = pd.Series(0.0, index=df.index)
             total_weight = sum(tf_weights.values())
@@ -449,15 +449,15 @@ class FoundationIntelligence:
             fused_volume_igniting = fused_vol_slope * fused_vol_accel
             ignition_snapshot = (fused_price_up * fused_volume_igniting * ma_context_score).astype(np.float32)
             ignition_state_scores[p_tactical] = ignition_snapshot
-            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            # 同步“哥白尼革命”，传入 meta_window
             current_meta_window = max(1, p_tactical)
             ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot, meta_window=current_meta_window)
-            # [代码修改结束]
+            
             panic_snapshot = (fused_price_down * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
             panic_risk_state_scores[p_tactical] = panic_snapshot
-            # [代码修改开始] 同步“哥白尼革命”，传入 meta_window
+            # 同步“哥白尼革命”，传入 meta_window
             panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot, meta_window=current_meta_window)
-            # [代码修改结束]
+            
         def fuse_across_periods(scores_dict):
             final_score = pd.Series(0.0, index=df.index)
             total_weight = sum(tf_weights.values())

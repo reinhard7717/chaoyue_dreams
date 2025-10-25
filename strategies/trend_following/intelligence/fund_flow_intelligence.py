@@ -197,15 +197,15 @@ class FundFlowIntelligence:
         states = {}
         axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.4, 'power_transfer': 0.4, 'internal_structure': 0.2})
         tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
-        # [代码修改开始] 过滤掉tf_weights中的非数字值，计算总权重
+        # 过滤掉tf_weights中的非数字值，计算总权重
         numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
         total_tf_weight = sum(numeric_weights.values())
-        # [代码修改结束]
+        
         trend_health_score = self._calculate_trend_context_ff(df, params)
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         if total_tf_weight > 0:
-            # [代码修改开始] 遍历过滤后的 numeric_weights 而不是原始的 tf_weights
+            # 遍历过滤后的 numeric_weights 而不是原始的 tf_weights
             for p_str, weight in numeric_weights.items():
                 p = int(p_str)
                 conc_score = concentration.get(p, 0.0)
@@ -223,7 +223,7 @@ class FundFlowIntelligence:
                 )
                 bullish_resonance += period_bullish * (weight / total_tf_weight)
                 bearish_resonance += period_bearish * (weight / total_tf_weight)
-            # [代码修改结束]
+            
         bullish_resonance = bullish_resonance * trend_health_score
         bearish_resonance = bearish_resonance * (1 - trend_health_score)
         bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)

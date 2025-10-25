@@ -265,7 +265,7 @@ class ForensicProbes:
                 'peak_integrity': get_val(peak_integrity_scores.get(p), probe_date, 0.0),
             }
             print(f"    - [周期 {p:2d}] 公理得分: 聚散({axiom_scores_by_period[p]['concentration']:.2f}), 吸派({axiom_scores_by_period[p]['accumulation']:.2f}), 转移({axiom_scores_by_period[p]['power_transfer']:.2f}), 峰健康({axiom_scores_by_period[p]['peak_integrity']:.2f})")
-        # [代码修改开始] 实施“代达罗斯迷宫 V2”协议，深度解剖公理四
+        # 实施“代达罗斯迷宫 V2”协议，深度解剖公理四
         print("\n  [链路层 2.1] 深度解剖 · 公理四: 筹码峰“健康度” (p=5 周期为例)")
         p_probe = 5
         # 2.1.1 原材料
@@ -307,7 +307,7 @@ class ForensicProbes:
         print(f"      - 全息背离分 (Holographic Divergence): {holographic_divergence_val:.4f}")
         print(f"      - 最终公理得分 (探针重算): {recalc_axiom_score_val:.4f}")
         print(f"    - [内部验证]: 实际值 {axiom_scores_by_period[p_probe]['peak_integrity']:.4f} vs. 探针重算 {recalc_axiom_score_val:.4f} -> {'✅ 一致' if np.isclose(axiom_scores_by_period[p_probe]['peak_integrity'], recalc_axiom_score_val) else '❌ 不一致'}")
-        # [代码修改结束]
+        
         print("\n  [链路层 3] 双极性健康分合成 (Bipolar Health Synthesis)")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
@@ -529,25 +529,25 @@ class ForensicProbes:
             'macd': lambda: engine._calculate_macd_health(df, norm_window, periods, ma_context_score),
             'cmf': lambda: engine._calculate_cmf_health(df, norm_window, periods, ma_context_score)
         }
-        # [代码修改开始] 增加指标原始列的映射
+        # 增加指标原始列的映射
         pillar_source_cols = {
             'rsi': 'RSI_13_D',
             'macd': 'MACDh_13_34_8_D',
             'cmf': 'CMF_21_D'
         }
-        # [代码修改结束]
+        
         pillar_snapshots = {}
         for name, calculator in calculators.items():
             snapshot_series = calculator()
             pillar_snapshots[name] = snapshot_series
             snapshot_val = get_val(snapshot_series, probe_date)
             print(f"    - [支柱: {name.upper()}] 双极性快照分: {snapshot_val:.4f}")
-            # [代码修改开始] 通用化调用“商神杖”子探针
+            # 通用化调用“商神杖”子探针
             if name == 'ema':
                 self._deploy_caduceus_probe_for_ema(probe_date)
             elif name in pillar_source_cols:
                 self._deploy_caduceus_probe_for_indicator(name, pillar_source_cols[name], probe_date)
-            # [代码修改结束]
+            
         print("\n  [链路层 3] 快照融合 (Snapshot Fusion)")
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         print(f"    - [支柱权重]: {json.dumps(pillar_weights)}")
@@ -666,9 +666,9 @@ class ForensicProbes:
             meta_val * fusion_weights.get('meta_dynamics', 0.25)
         )
         recalc_snapshot = np.clip(recalc_snapshot, -1, 1)
-        # [代码修改开始] 修正调用参数，将 norm_window (整数) 正确传递给第二个参数
+        # 修正调用参数，将 norm_window (整数) 正确传递给第二个参数
         actual_snapshot_series = engine._calculate_ema_health(df, norm_window, [])
-        # [代码修改结束]
+        
         actual_val = get_val(actual_snapshot_series, probe_date)
         print(f"      - [最终融合] 探针重算: {recalc_snapshot:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_snapshot, actual_val) else '❌ 不一致'}")
         print("-"*(32+38) + "\n")
@@ -801,13 +801,13 @@ class ForensicProbes:
         print(f"  [公理一裁决] 探针重算: {recalc_concentration_score:.4f} vs. 引擎实际: {concentration_score:.4f} -> {'✅ 一致' if np.isclose(recalc_concentration_score, concentration_score) else '❌ 不一致'}")
         print("\n" + "="*20 + f" 最终信号合成 " + "="*20)
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
-        # [代码修改开始] 增加对 tf_weights 的健壮性检查
+        # 增加对 tf_weights 的健壮性检查
         tf_weights = get_param_value(p_conf.get('tf_weights'), {})
         if not tf_weights or not any(isinstance(v, (int, float)) for v in tf_weights.values()):
             print("  [致命错误] 周期权重 'tf_weights' 在配置中缺失或无效！资金流引擎无法合成最终信号！")
             tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05} # 使用默认值进行探针计算
             print(f"  [探针措施] 已临时采用默认权重进行后续计算: {json.dumps(tf_weights)}")
-        # [代码修改结束]
+        
         total_tf_weight = sum(v for v in tf_weights.values() if isinstance(v, (int, float)))
         trend_health_score = engine._calculate_trend_context_ff(df, p_conf)
         trend_health_val = get_val(trend_health_score, probe_date)

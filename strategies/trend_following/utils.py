@@ -479,7 +479,7 @@ def transmute_health_to_ultimate_signals(
                 if period_key is None: continue
                 final_score += health_dict.get(period_key, default_series) * (weight / total_weight)
         return final_score.clip(-1, 1)
-    # [代码修改开始] 实施“忒弥斯的审判”
+    # 实施“忒弥斯的审判”
     # 1. 构建一个真正包含净双极性健康分的字典
     bipolar_health = {}
     s_bull_dict = overall_health.get('s_bull', {})
@@ -493,7 +493,7 @@ def transmute_health_to_ultimate_signals(
     # 2. 将正确的双极性健康分字典传递给融合函数
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
-    # [代码修改结束]
+    
     final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, neutral_zone_threshold)
     final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, neutral_zone_threshold)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
