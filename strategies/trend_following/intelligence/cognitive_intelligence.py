@@ -742,21 +742,32 @@ class CognitiveIntelligence:
 
     def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 幽灵信号斩断版】“天使长”顶部反转诊断引擎
-        - 核心修复: 不再重复调用 calculate_context_scores，而是直接从 atomic_states 中消费
-                      已经计算好的、最权威的 top_context_score，彻底解决信号黑洞问题。
+        【V4.0 · 赫利俄斯之眼版】“天使长”顶部反转诊断引擎
+        - 核心革命: 签署“赫利俄斯之眼”协议，聚焦于“当下”的顶部风险，斩断“昨日幽灵”的纠缠。
+                      1. [斩断] 彻底移除对 `COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN` 的依赖。
+                      2. [聚焦] 引入两个更即时的、更能反映主力派发意图的风险信号：
+                         - `COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT` (散户追高，主力撤退)
+                         - `COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION` (长期筹码高位派发)
+        - 收益: “天使长”的判断不再受过时信号的干扰，能更精准地在派发行为发生的当天发出警报。
         """
         states = {}
-        # 不再重复计算，而是直接从状态库中消费最权威的信号
         top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
         upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
         heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
-        post_peak_risk = self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN', 0.0)
+        # [代码新增开始] 引入新的、更即时的风险证据
+        fomo_retreat_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0)
+        ltp_dist_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0)
+        # [代码新增结束]
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
-            post_peak_risk.values,
-            top_context_score.values
+            # [代码删除] 移除过时的 `post_peak_risk`
+            # post_peak_risk.values,
+            top_context_score.values,
+            # [代码新增开始] 将新证据加入风险矩阵
+            fomo_retreat_risk.values,
+            ltp_dist_risk.values
+            # [代码新增结束]
         ], axis=0)
         archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
         archangel_score = np.clip(archangel_score_values, 0, 1)
