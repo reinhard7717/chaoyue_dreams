@@ -5,7 +5,7 @@ import numpy as np
 import pandas_ta as ta
 import json
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, transmute_health_to_ultimate_signals, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
+from strategies.trend_following.utils import get_params_block, calculate_holographic_dynamics, transmute_health_to_ultimate_signals, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
 
 class ForensicProbes:
     """
