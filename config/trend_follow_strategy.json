@@ -769,10 +769,10 @@
         "description": "【V4.1 · 三公理版】资金流引擎已与筹码引擎哲学对齐，基于“聚散”、“转移”和“内部结构”三大物理公理。",
         "periods": [1, 5, 13, 21, 55],
         "axiom_weights": {
-          "description": "融合三大物理公理时的权重。",
-          "concentration": 0.4,
-          "power_transfer": 0.4,
-          "internal_structure": 0.2
+          "description": "【权重调整】提升'内部结构'(聪明钱)的权重，使其成为决策核心。",
+          "concentration": 0.3,
+          "power_transfer": 0.3,
+          "internal_structure": 0.4
         },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
