@@ -81,12 +81,16 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 结构火力升级版】原子信号中心
-        - 核心修复: 修正了对 `_diagnose_volume_price_dynamics` 的调用，补全了缺失的 `params` 参数。
-        - 火力升级: 新增调用 `_diagnose_structural_fault_breakthrough` 引擎，引入“结构性断层突破”情报。
+        【V1.7 · 赫尔墨斯敕令版】原子信号中心
+        - 核心重构: 在方法开始时，统一调用 `_calculate_day_quality_score` 计算K线质量分。
+        - 统一分发: 将计算出的 `day_quality_score` 作为统一的K线裁决标准，
+                      传递给所有需要判断K线看跌特征的风险信号诊断方法。
         """
         atomic_signals = {}
         params = self.strategy.params
+        # [代码新增开始] 统一计算K线质量分
+        day_quality_score = self._calculate_day_quality_score(df)
+        # [代码新增结束]
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
         continuation_reversal_states = self._diagnose_atomic_continuation_reversal(df)
@@ -95,17 +99,17 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        atomic_signals.update(self._diagnose_kline_patterns(df))
+        # [代码修改开始] 将 day_quality_score 传递给下游方法
+        atomic_signals.update(self._diagnose_kline_patterns(df, day_quality_score))
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
-        atomic_signals.update(self._diagnose_volume_price_dynamics(df, params))
-        upthrust_score_series = self._diagnose_upthrust_distribution(df, params)
+        atomic_signals.update(self._diagnose_volume_price_dynamics(df, params, day_quality_score))
+        upthrust_score_series = self._diagnose_upthrust_distribution(df, params, day_quality_score)
+        # [代码修改结束]
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
-        # 新增调用“结构性断层突破”诊断引擎
         atomic_signals.update(self._diagnose_structural_fault_breakthrough(df))
-        
         return atomic_signals
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
@@ -205,17 +209,16 @@ class BehavioralIntelligence:
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
     # 以下方法被降级为私有，作为原子信号的生产者
-    def _diagnose_kline_patterns(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_kline_patterns(self, df: pd.DataFrame, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 宙斯敕令版】诊断K线原子形态
-        - 核心革命: 签署“宙斯敕令”，修复“K线急跌”信号的逻辑。
-                      对于“急跌”这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎。
-                      直接使用其多周期融合的“快照分”作为最终信号，确保逻辑的纯粹与稳定。
+        【V3.4 · 雅典娜敕令版】诊断K线原子形态
+        - 核心修复: 贯彻“雅典娜敕令”，在风险驱动因子（drop_magnitude）计算的源头，
+                      就使用K线质量分进行过滤。确保只有在K线质量为负的日子里，
+                      “急跌”风险才会被纳入计算，实现逻辑的源头纯粹性。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
         if not get_param_value(p.get('enabled'), False): return states
-        # --- 缺口支撑信号计算 (逻辑不变) ---
         p_gap = p.get('gap_support_params', {})
         if get_param_value(p_gap.get('enabled'), True):
             persistence_days = get_param_value(p_gap.get('persistence_days'), 10)
@@ -227,13 +230,16 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-        # --- 急跌信号计算 (应用“宙斯敕令”) ---
         p_atomic = p.get('atomic_behavior_params', {})
         if get_param_value(p_atomic.get('enabled'), True) and 'pct_change_D' in df.columns:
             periods = [1, 5, 13, 21, 55]
             sorted_periods = sorted(periods)
             sharp_drop_scores = {}
-            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+            # [代码修改开始] 实施“雅典娜敕令”，在源头过滤风险驱动因子
+            is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
+            # 只有在K线质量为负的日子里，才计算下跌幅度
+            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs() * is_bearish_quality_day_mask
+            # [代码修改结束]
             for i, p_tactical in enumerate(sorted_periods):
                 p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
                 tactical_score = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
@@ -241,7 +247,6 @@ class BehavioralIntelligence:
                 sharp_drop_scores[p_tactical] = (tactical_score * context_score)**0.5
             tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
-            # [代码修改开始] 修正权重获取逻辑，确保能处理数字和字符串key
             numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
             total_weight = sum(numeric_tf_weights.values())
             if total_weight > 0:
@@ -249,8 +254,6 @@ class BehavioralIntelligence:
                     weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                     final_fused_snapshot_score += sharp_drop_scores.get(p_tactical, 0.0) * weight
             states['SCORE_KLINE_SHARP_DROP'] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
-            # [代码修改结束]
-    
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -308,12 +311,12 @@ class BehavioralIntelligence:
         states['SCORE_BOARD_HEAVEN_EARTH'] = (strength_score * high_near_limit_up_score * close_near_limit_down_score * (1 + auction_bearish_confirmation)).clip(0, 1).astype(np.float32)
         return states
 
-    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict) -> pd.Series:
+    def _diagnose_upthrust_distribution(self, df: pd.DataFrame, params: dict, day_quality_score: pd.Series) -> pd.Series:
         """
-        【V7.1 · 宙斯敕令版】上冲派发风险诊断引擎
-        - 核心修复: 贯彻“宙斯敕令”，对于“上冲派发”这类“事件状态”型风险信号，
-                      废除使用复杂的“关系元分析”引擎。直接使用其多周期融合的“快照分”
-                      作为最终信号，确保逻辑的纯粹与稳定。
+        【V7.4 · 雅典娜敕令版】上冲派发风险诊断引擎
+        - 核心修复: 贯彻“雅典娜敕令”，在风险驱动因子（weak_close_score）计算的源头，
+                      就使用K线质量分进行过滤。确保只有在K线质量为负的日子里，
+                      “上冲派发”风险才会被纳入计算，实现逻辑的源头纯粹性。
         """
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         signal_name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
@@ -327,7 +330,11 @@ class BehavioralIntelligence:
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         upthrust_scores_by_period = {}
-        weak_close_score = 1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)
+        # [代码修改开始] 实施“雅典娜敕令”，在源头过滤风险驱动因子
+        is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
+        # 只有在K线质量为负的日子里，才计算收盘疲弱分
+        weak_close_score = (1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)) * is_bearish_quality_day_mask
+        # [代码修改结束]
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
@@ -346,50 +353,51 @@ class BehavioralIntelligence:
             for p_tactical in periods:
                 weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                 final_snapshot_score += upthrust_scores_by_period.get(p_tactical, 0.0) * weight
-        # [代码修改开始] 签署“宙斯敕令”：废除对快照分进行不当的元分析
-        # 旧的错误逻辑:
-        # final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=final_snapshot_score, signal_name=signal_name)
-        # return final_signal_dict.get(signal_name, default_series)
-        # 新的正确逻辑: 直接返回融合后的快照分
         final_snapshot_score.name = signal_name
         return final_snapshot_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
 
-    def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
+    def _diagnose_volume_price_dynamics(self, df: pd.DataFrame, params: dict, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 宙斯敕令版】VPA动态诊断引擎
-        - 核心修复: 贯彻“宙斯敕令”，修复“VPA滞涨”信号的逻辑。
-                      对于“滞涨”这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎。
-                      直接使用其多周期融合的“快照分”作为最终信号，确保逻辑的纯粹与稳定。
+        【V6.4 · 雅典娜敕令版】VPA动态诊断引擎
+        - 核心修复: 贯彻“雅典娜敕令”，在风险驱动因子（tactical_price_stagnant）计算的源头，
+                      就使用K线质量分进行过滤。确保只有在K线质量为负的日子里，
+                      “VPA滞涨”风险才会被纳入计算，实现逻辑的源头纯粹性。
         """
         states = {}
         signal_name = 'SCORE_RISK_VPA_STAGNATION'
         required_cols = ['volume_D', 'VOL_MA_21_D', 'pct_change_D', 'intraday_trend_efficiency_D']
-        if any(col not in df.columns for col in required_cols): 
+        if any(col not in df.columns for col in required_cols):
             states[signal_name] = pd.Series(0.0, index=df.index)
             return states
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         stagnation_scores_by_period = {}
+        # [代码新增开始] 实施“雅典娜敕令”
+        is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
+        # [代码新增结束]
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
             tactical_huge_volume = normalize_score(tactical_volume_ratio, df.index, p_tactical, ascending=True)
+            # [代码修改开始] 在源头过滤风险驱动因子
             tactical_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_tactical, ascending=True)
             tactical_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_tactical, ascending=True)
-            tactical_price_stagnant = (tactical_low_efficiency * tactical_high_volatility)**0.5
+            # 只有在K线质量为负的日子里，才计算价格滞涨分
+            tactical_price_stagnant = ((tactical_low_efficiency * tactical_high_volatility)**0.5) * is_bearish_quality_day_mask
+            # [代码修改结束]
             context_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_context}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_context}_D' in df else pd.Series(1.0, index=df.index)
             context_huge_volume = normalize_score(context_volume_ratio, df.index, p_context, ascending=True)
+            # [代码修改开始] 在源头过滤风险驱动因子
             context_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_context, ascending=True)
             context_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_context, ascending=True)
-            context_price_stagnant = (context_low_efficiency * context_high_volatility)**0.5
-    
+            # 只有在K线质量为负的日子里，才计算价格滞涨分
+            context_price_stagnant = ((context_low_efficiency * context_high_volatility)**0.5) * is_bearish_quality_day_mask
+            # [代码修改结束]
             fused_huge_volume = (tactical_huge_volume * context_huge_volume)**0.5
             fused_price_stagnant = (tactical_price_stagnant * context_price_stagnant)**0.5
             stagnation_scores_by_period[p_tactical] = (fused_huge_volume * fused_price_stagnant).astype(np.float32)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         final_snapshot_score = pd.Series(0.0, index=df.index)
-        # [代码修改开始] 修正权重获取逻辑，确保能处理数字和字符串key
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
         if total_weight > 0:
@@ -397,7 +405,6 @@ class BehavioralIntelligence:
                 weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                 final_snapshot_score += stagnation_scores_by_period.get(p_tactical, 0.0) * weight
         states[signal_name] = final_snapshot_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -596,7 +603,6 @@ class BehavioralIntelligence:
         final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
         states.update(final_signal_dict)
         return states
-        
 
     def _diagnose_structural_fault_breakthrough(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -624,7 +630,6 @@ class BehavioralIntelligence:
         final_signal_dict = self._perform_relational_meta_analysis(df=df, snapshot_score=snapshot_score, signal_name=signal_name)
         states.update(final_signal_dict)
         return states
-        
 
     def _calculate_trend_health_score(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -675,7 +680,6 @@ class BehavioralIntelligence:
         weights_array /= weights_array.sum()
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
-        
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
         """
@@ -807,6 +811,28 @@ class BehavioralIntelligence:
         final_score = (base_fusion_score * (1 + synergy_bonus)).clip(0, 1)
         return pd.Series(final_score, index=df.index, dtype=np.float32)
 
+    def _calculate_day_quality_score(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】“赫尔墨斯敕令”核心裁决者
+        - 核心职责: 提炼出的独立方法，专门用于计算单日K线的“质量分”。
+                      该分数综合了“轨迹四象限”和“影线博弈”，是判断K线内在看涨/看跌属性的统一标准。
+        - 返回值: 一个在[-1, 1]区间的Series，正值代表看涨质量，负值代表看跌质量。
+        """
+        gap_up = df['open_D'] > df['pre_close_D']
+        gap_down = df['open_D'] < df['pre_close_D']
+        body_up = df['close_D'] > df['open_D']
+        body_down = df['close_D'] < df['open_D']
+        trajectory_score = pd.Series(0.0, index=df.index)
+        trajectory_score.loc[gap_up & body_up] = 1.0
+        trajectory_score.loc[gap_down & body_up] = 0.8
+        trajectory_score.loc[gap_up & body_down] = -0.8
+        trajectory_score.loc[gap_down & body_down] = -1.0
+        kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
+        shadow_modifier = ((lower_shadow - upper_shadow) / kline_range).fillna(0)
+        day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
+        return day_quality_score
 
 
 
