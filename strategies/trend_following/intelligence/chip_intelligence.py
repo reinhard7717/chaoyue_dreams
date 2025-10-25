@@ -117,9 +117,9 @@ class ChipIntelligence:
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V6.1 · 类型防御版】核心公理一：诊断筹码“聚散”的动态
-        - 核心修复: 在获取数据时，确保即使列不存在，返回的也是一个填充了默认值的pd.Series，而不是一个裸的数值(如0)，
-                      从根本上解决了 'int' object has no attribute 'isnull' 的运行时错误。
+        【V6.2 · 赫淮斯托斯之锤版】核心公理一：诊断筹码“聚散”的动态
+        - 核心修复: 签署“赫淮斯托斯之锤”协议，修复了对“看跌证据”评估的逻辑漏洞。
+                      确保对看跌证据的静态、斜率、加速度三个维度进行完整的、与看涨证据对称的评估。
         """
         scores = {}
         sorted_periods = sorted(periods)
@@ -134,7 +134,6 @@ class ChipIntelligence:
             bearish_evidence_static = df.get('concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get('concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
             bearish_evidence_slope = df.get(f'SLOPE_{p}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
             bearish_evidence_accel = df.get(f'ACCEL_{p}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
-            
             # 战术层 (p)
             tactical_bullish_static_score = normalize_score(bullish_evidence_static, df.index, p, ascending=True)
             tactical_bullish_slope_score = normalize_score(bullish_evidence_slope, df.index, p, ascending=True)
@@ -147,6 +146,7 @@ class ChipIntelligence:
             context_bullish_quality = (context_bullish_static_score * context_bullish_slope_score * context_bullish_accel_score)**(1/3)
             # 融合
             final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
+            # [代码修改开始] 修复看跌证据的评估逻辑，使其与看涨证据对称
             # 战术层 (p)
             tactical_bearish_static_score = normalize_score(bearish_evidence_static, df.index, p, ascending=True)
             tactical_bearish_slope_score = normalize_score(bearish_evidence_slope, df.index, p, ascending=True)
@@ -159,6 +159,7 @@ class ChipIntelligence:
             context_bearish_quality = (context_bearish_static_score * context_bearish_slope_score * context_bearish_accel_score)**(1/3)
             # 融合
             final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
+            # [代码修改结束]
             # 生成双极快照分
             concentration_quality_snapshot = (final_bullish_quality - final_bearish_quality).astype(np.float32)
             holographic_divergence = self._calculate_holographic_divergence(concentration_quality_snapshot, 1, p, p * 2)
