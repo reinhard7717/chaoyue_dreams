@@ -1357,8 +1357,15 @@
             "cn_name": "【基础战术风险】恐慌抛售风险",
             "category": "基础层-风险",
             "type": "risk",
-            "penalty_weight": -600,
-            "description": "【战术信号】融合了恐慌抛售的“状态”与“动态”，是强烈的下跌风险信号。"
+            "penalty_weight": -400,
+            "description": "【V2.1 · 炼金术版】经过主力行为审判后的最终恐慌抛售风险。当主力吸收强度超过'审判阈值'时，此风险将被强制归零，并嬗变为'黄金坑'机会。"
+        },
+        "SCORE_OPPORTUNITY_GOLDEN_PIT": {
+            "cn_name": "【基础战术机会】黄金坑",
+            "category": "基础层-机会",
+            "type": "opportunity",
+            "score_weight": 500,
+            "description": "【V1.0 · 新增】由'炼金术'协议创造的强力买入机会信号。当市场出现恐慌抛售，且主力吸收强度超过'审判阈值'时触发。分数越高，代表坑越深、黄金越多。"
         },
         "SCORE_RISK_VPA_EFFICIENCY_DECLINING": {
             "cn_name": "【VPA风险】效率下降",

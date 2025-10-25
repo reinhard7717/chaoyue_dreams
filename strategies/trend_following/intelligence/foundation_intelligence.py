@@ -90,35 +90,51 @@ class FoundationIntelligence:
 
     def diagnose_tactical_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】战术终极信号合成引擎
-        - 核心逻辑: 将来自特殊战术模块的“状态分”和“动态分”原子信号，融合成可直接决策的战术终极信号。
+        【V1.2 · 炼金术协议版】战术终极信号合成引擎
+        - 核心革命: 签署“炼金术”协议，实现风险到机会的嬗变。
+                      1. 引入“审判阈值”，用于判断主力吸收强度是否足以构成“黄金坑”。
+                      2. 当吸收强度达标时，将恐慌风险强制归零，并创造一个全新的机会信号 `SCORE_OPPORTUNITY_GOLDEN_PIT`。
+                      3. 当吸收强度不足时，维持“风险调光器”逻辑。
         """
         states = {}
-        
-        # 1. 波动率压缩机会信号 (Volatility Compression Opportunity)
-        # 核心关系：一个好的“压缩状态”，如果其“压缩动态”也在增强，则构成一个强烈的突破前夕机会信号。
+        # [代码修改开始] 引入新的参数块
+        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
+        p_absorb = get_params_block(p_conf, 'panic_absorption_params', {})
+        judgment_threshold = get_param_value(p_absorb.get('judgment_threshold'), 0.7)
+        # [代码修改结束]
         compression_state = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_STATE', pd.Series(0.5, index=df.index))
         compression_dynamic = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_VOL_COMPRESSION_OPP'] = (compression_state * compression_dynamic).astype(np.float32)
-
-        # 2. 波动率扩张风险信号 (Volatility Expansion Risk)
-        # 核心关系：一个危险的“扩张风险状态”，如果其“风险动态”还在恶化，则构成一个强烈的顶部或破位风险信号。
         expansion_risk_state = self.strategy.atomic_states.get('SCORE_VOL_EXPANSION_RISK_STATE', pd.Series(0.5, index=df.index))
         expansion_risk_dynamic = self.strategy.atomic_states.get('SCORE_VOL_EXPANSION_RISK_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_VOL_EXPANSION_RISK'] = (expansion_risk_state * expansion_risk_dynamic).astype(np.float32)
-
-        # 3. 量价点火确认信号 (Volume-Price Ignition Confirmation)
-        # 核心关系：一个良好的“量价点火状态”，如果其“点火动态”也在增强，则构成一个强烈的上涨确认信号。
         ignition_state = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_STATE', pd.Series(0.5, index=df.index))
         ignition_dynamic = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_IGNITION_CONFIRMATION'] = (ignition_state * ignition_dynamic).astype(np.float32)
-
-        # 4. 恐慌抛售风险信号 (Panic Selling Risk)
-        # 核心关系：一个危险的“恐慌抛售状态”，如果其“恐慌动态”还在恶化，则构成一个强烈的下跌风险信号。
-        panic_risk_state = self.strategy.atomic_states.get('SCORE_VOL_PRICE_PANIC_RISK_STATE', pd.Series(0.5, index=df.index))
-        panic_risk_dynamic = self.strategy.atomic_states.get('SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC', pd.Series(0.5, index=df.index))
-        states['SCORE_FOUNDATION_PANIC_SELLING_RISK'] = (panic_risk_state * panic_risk_dynamic).astype(np.float32)
-
+        # [代码修改开始] 实施“炼金术”协议
+        panic_risk_state = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_STATE', pd.Series(0.0, index=df.index))
+        panic_risk_dynamic = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_DYNAMIC', pd.Series(0.0, index=df.index))
+        raw_panic_risk = (panic_risk_state * panic_risk_dynamic).astype(np.float32)
+        panic_absorption_score = self._diagnose_panic_absorption(df)
+        self.strategy.atomic_states['SCORE_PANIC_ABSORPTION'] = panic_absorption_score
+        # 审判日：判断是否构成“黄金坑”
+        is_golden_pit = panic_absorption_score >= judgment_threshold
+        # 根据审判结果，执行不同的逻辑
+        # 1. 计算最终恐慌风险
+        final_panic_risk = np.where(
+            is_golden_pit,
+            0.0, # 构成黄金坑，风险强制归零
+            (raw_panic_risk * (1 - panic_absorption_score)) # 未构成，则按原逻辑衰减风险
+        )
+        # 2. 计算黄金坑机会分
+        golden_pit_score = np.where(
+            is_golden_pit,
+            raw_panic_risk * panic_absorption_score, # 机会分 = 原始恐慌程度 * 吸收强度
+            0.0 # 未构成黄金坑，则无机会
+        )
+        states['SCORE_FOUNDATION_PANIC_SELLING_RISK'] = final_panic_risk.clip(0, 1).astype(np.float32)
+        states['SCORE_OPPORTUNITY_GOLDEN_PIT'] = golden_pit_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     def diagnose_vpa_risks(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

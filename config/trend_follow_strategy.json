@@ -788,6 +788,11 @@
           "relational": 0.25,
           "meta_dynamics": 0.25
         },
+        "panic_absorption_params": {
+          "enabled": true,
+          "description": "【V1.0 · 炼金术版】恐慌吸收协议的专属配置，用于将恐慌抛售风险嬗变为黄金坑机会。",
+          "judgment_threshold": 0.7
+        },
         "relational_meta_analysis_params": {
           "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
