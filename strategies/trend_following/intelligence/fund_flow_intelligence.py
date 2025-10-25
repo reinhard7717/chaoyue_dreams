@@ -187,7 +187,6 @@ class FundFlowIntelligence:
             internal_structure_snapshot = (bullish_divergence - bearish_divergence).astype(np.float32)
             scores[p] = internal_structure_snapshot.clip(-1, 1)
         return scores
-        
 
     def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], internal_structure: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
         """

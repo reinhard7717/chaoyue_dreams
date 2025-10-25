@@ -152,6 +152,8 @@ class IntelligenceLayer:
                 self.probes._deploy_ares_chariot_probe(probe_date)
             if debug_params.get('enable_foundation_probe', False):
                 self.probes._deploy_apollos_lyre_probe(probe_date)
+            if debug_params.get('enable_fund_flow_probe', False):
+                self.probes._deploy_poseidons_trident_probe(probe_date)
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

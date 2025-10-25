@@ -734,3 +734,124 @@ class ForensicProbes:
         print(f"      - [最终验证] 探针重算(State): {recalc_val:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_val, actual_val) else '❌ 不一致'}")
         print("-"*(32+38) + "\n")
 
+    def _deploy_poseidons_trident_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】“波塞冬的三叉戟”探针 - 资金流情报引擎深度解剖
+        - 核心使命: 响应指挥官指令，对资金流引擎的三大核心公理进行外科手术式解剖，
+                      完全透明化从原始指标到最终信号的全链路计算过程。
+        """
+        print("\n" + "="*35 + f" [资金流探针] 正在挥舞 🔱【波塞冬的三叉戟 · 资金流引擎解剖 V1.0】🔱 " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.fund_flow_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
+        periods = get_param_value(p_conf.get('periods'), [1, 5, 13, 21, 55])
+        p_probe = 5 # 我们以 p=5 周期为例进行深度解剖
+        context_p = 13 # p=5 的上下文周期是 13
+        print("\n  [链路层 1] 最终输出 (Final Output)")
+        # 注意：资金流引擎的最终输出是 S+/S/A/B 四级信号，这里我们展示其原子形式
+        concentration_score = get_val(atomic.get('SCORE_FF_AXIOM_CONCENTRATION', {}).get(p_probe), probe_date, 0.0)
+        power_transfer_score = get_val(atomic.get('SCORE_FF_AXIOM_POWER_TRANSFER', {}).get(p_probe), probe_date, 0.0)
+        internal_structure_score = get_val(atomic.get('SCORE_FF_AXIOM_INTERNAL_STRUCTURE', {}).get(p_probe), probe_date, 0.0)
+        print(f"    - 【公理一: 聚散】(p={p_probe}): {concentration_score:.4f}")
+        print(f"    - 【公理二: 转移】(p={p_probe}): {power_transfer_score:.4f}")
+        print(f"    - 【公理三: 结构】(p={p_probe}): {internal_structure_score:.4f}")
+        print("\n" + "="*20 + f" 深度解剖公理一: 资金“聚散” (p={p_probe}) " + "="*20)
+        # --- 解剖公理一 ---
+        bullish_static_raw = df.get('main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+        bullish_slope_raw = df.get(f'SLOPE_{p_probe}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p_probe}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+        bullish_accel_raw = df.get(f'ACCEL_{p_probe}_main_force_flow_impact_ratio_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p_probe}_main_force_conviction_ratio_D', pd.Series(0.0, index=df.index))
+        bearish_static_raw = df.get('retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get('main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+        bearish_slope_raw = df.get(f'SLOPE_{p_probe}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'SLOPE_{p_probe}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+        bearish_accel_raw = df.get(f'ACCEL_{p_probe}_retail_net_flow_consensus_D', pd.Series(0.0, index=df.index)).abs() + df.get(f'ACCEL_{p_probe}_main_force_vs_xl_divergence_D', pd.Series(0.0, index=df.index))
+        print("  [看涨证据链: 主力集中度]")
+        print(f"    - 静态(Static)原始值: {get_val(bullish_static_raw, probe_date):.4f}")
+        print(f"    - 斜率(Slope)原始值:  {get_val(bullish_slope_raw, probe_date):.4f}")
+        print(f"    - 加速(Accel)原始值:  {get_val(bullish_accel_raw, probe_date):.4f}")
+        tactical_bullish_static = normalize_score(bullish_static_raw, df.index, p_probe, ascending=True)
+        tactical_bullish_slope = normalize_score(bullish_slope_raw, df.index, p_probe, ascending=True)
+        tactical_bullish_accel = normalize_score(bullish_accel_raw, df.index, p_probe, ascending=True)
+        context_bullish_static = normalize_score(bullish_static_raw, df.index, context_p, ascending=True)
+        context_bullish_slope = normalize_score(bullish_slope_raw, df.index, context_p, ascending=True)
+        context_bullish_accel = normalize_score(bullish_accel_raw, df.index, context_p, ascending=True)
+        print(f"    - 战术(p={p_probe})归一化分 (S/V/A): {get_val(tactical_bullish_static, probe_date):.2f}, {get_val(tactical_bullish_slope, probe_date):.2f}, {get_val(tactical_bullish_accel, probe_date):.2f}")
+        print(f"    - 上下文(p={context_p})归一化分 (S/V/A): {get_val(context_bullish_static, probe_date):.2f}, {get_val(context_bullish_slope, probe_date):.2f}, {get_val(context_bullish_accel, probe_date):.2f}")
+        tactical_bullish_quality = (get_val(tactical_bullish_static, probe_date) * get_val(tactical_bullish_slope, probe_date) * get_val(tactical_bullish_accel, probe_date))**(1/3)
+        context_bullish_quality = (get_val(context_bullish_static, probe_date) * get_val(context_bullish_slope, probe_date) * get_val(context_bullish_accel, probe_date))**(1/3)
+        final_bullish_quality = (tactical_bullish_quality * context_bullish_quality)**0.5
+        print(f"    - 最终看涨质量分: {final_bullish_quality:.4f}")
+        print("  [看跌证据链: 散户共识度]")
+        print(f"    - 静态(Static)原始值: {get_val(bearish_static_raw, probe_date):.4f}")
+        print(f"    - 斜率(Slope)原始值:  {get_val(bearish_slope_raw, probe_date):.4f}")
+        print(f"    - 加速(Accel)原始值:  {get_val(bearish_accel_raw, probe_date):.4f}")
+        tactical_bearish_static = normalize_score(bearish_static_raw, df.index, p_probe, ascending=True)
+        tactical_bearish_slope = normalize_score(bearish_slope_raw, df.index, p_probe, ascending=True)
+        tactical_bearish_accel = normalize_score(bearish_accel_raw, df.index, p_probe, ascending=True)
+        context_bearish_static = normalize_score(bearish_static_raw, df.index, context_p, ascending=True)
+        context_bearish_slope = normalize_score(bearish_slope_raw, df.index, context_p, ascending=True)
+        context_bearish_accel = normalize_score(bearish_accel_raw, df.index, context_p, ascending=True)
+        print(f"    - 战术(p={p_probe})归一化分 (S/V/A): {get_val(tactical_bearish_static, probe_date):.2f}, {get_val(tactical_bearish_slope, probe_date):.2f}, {get_val(tactical_bearish_accel, probe_date):.2f}")
+        print(f"    - 上下文(p={context_p})归一化分 (S/V/A): {get_val(context_bearish_static, probe_date):.2f}, {get_val(context_bearish_slope, probe_date):.2f}, {get_val(context_bearish_accel, probe_date):.2f}")
+        tactical_bearish_quality = (get_val(tactical_bearish_static, probe_date) * get_val(tactical_bearish_slope, probe_date) * get_val(tactical_bearish_accel, probe_date))**(1/3)
+        context_bearish_quality = (get_val(context_bearish_static, probe_date) * get_val(context_bearish_slope, probe_date) * get_val(context_bearish_accel, probe_date))**(1/3)
+        final_bearish_quality = (tactical_bearish_quality * context_bearish_quality)**0.5
+        print(f"    - 最终看跌质量分: {final_bearish_quality:.4f}")
+        recalc_concentration_score = np.clip(final_bullish_quality - final_bearish_quality, -1, 1)
+        print(f"  [公理一裁决] 探针重算: {recalc_concentration_score:.4f} vs. 引擎实际: {concentration_score:.4f} -> {'✅ 一致' if np.isclose(recalc_concentration_score, concentration_score) else '❌ 不一致'}")
+        print("\n" + "="*20 + f" 最终信号合成 " + "="*20)
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
+        tf_weights = get_param_value(p_conf.get('tf_weights'), {})
+        total_tf_weight = sum(tf_weights.values())
+        trend_health_score = engine._calculate_trend_context_ff(df, p_conf)
+        trend_health_val = get_val(trend_health_score, probe_date)
+        print(f"  [步骤1: 融合公理] 公理权重: {json.dumps(axiom_weights)}")
+        print(f"  [步骤2: 融合周期] 周期权重: {json.dumps(tf_weights)}")
+        print(f"  [步骤3: 趋势调节] 当日趋势健康分: {trend_health_val:.4f}")
+        # 重新计算最终信号
+        concentration_scores_all = engine._diagnose_concentration_dynamics_ff(df, p_conf)
+        power_transfer_scores_all = engine._diagnose_power_transfer_ff(df, p_conf)
+        internal_structure_scores_all = engine._diagnose_internal_flow_structure_ff(df, p_conf)
+        bullish_resonance_recalc = 0.0
+        bearish_resonance_recalc = 0.0
+        bull_calc_str, bear_calc_str = [], []
+        if total_tf_weight > 0:
+            for p, weight in tf_weights.items():
+                conc_s = get_val(concentration_scores_all.get(p), probe_date, 0.0)
+                trans_s = get_val(power_transfer_scores_all.get(p), probe_date, 0.0)
+                struct_s = get_val(internal_structure_scores_all.get(p), probe_date, 0.0)
+                period_bullish = (
+                    max(0, conc_s) * axiom_weights['concentration'] +
+                    max(0, trans_s) * axiom_weights['power_transfer'] +
+                    max(0, struct_s) * axiom_weights['internal_structure']
+                )
+                period_bearish = (
+                    max(0, -conc_s) * axiom_weights['concentration'] +
+                    max(0, -trans_s) * axiom_weights['power_transfer'] +
+                    max(0, -struct_s) * axiom_weights['internal_structure']
+                )
+                bullish_resonance_recalc += period_bullish * (weight / total_tf_weight)
+                bearish_resonance_recalc += period_bearish * (weight / total_tf_weight)
+                if p == p_probe:
+                    bull_calc_str.append(f"({period_bullish:.2f}*{weight/total_tf_weight:.2f})")
+                    bear_calc_str.append(f"({period_bearish:.2f}*{weight/total_tf_weight:.2f})")
+        print(f"  [融合计算 - 看涨共振(p={p_probe}部分)]: ... + {' + '.join(bull_calc_str)} + ... = {bullish_resonance_recalc:.4f}")
+        print(f"  [融合计算 - 看跌共振(p={p_probe}部分)]: ... + {' + '.join(bear_calc_str)} + ... = {bearish_resonance_recalc:.4f}")
+        final_bull_res = bullish_resonance_recalc * trend_health_val
+        final_bear_res = bearish_resonance_recalc * (1 - trend_health_val)
+        print(f"  [趋势调节后] 最终看涨共振: {final_bull_res:.4f} | 最终看跌共振: {final_bear_res:.4f}")
+        print("\n--- “波塞冬的三叉戟”探针解剖完毕 ---")
+
+
+
+
+
+
+
+
+
+
+
