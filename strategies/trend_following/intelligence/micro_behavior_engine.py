@@ -471,41 +471,38 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 分层印证版】亢奋加速风险诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。对构成亢奋风险的各项原子指标（乖离、成交量、波动率等）进行多时间维度的分层验证。
+        【V4.1 · 日间影线版】亢奋加速风险诊断引擎
+        - 核心升级: 签署“日间影线”协议。上影线的计算基准从当日开盘价改为昨日收盘价，
+                      以更精确地衡量价格从高点回落对日间涨幅的侵蚀程度。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True): return states
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         epsilon = 1e-9
-        # 引入分层印证框架
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         euphoric_scores_by_period = {}
         ma_health_score = self._calculate_ma_health(df, p_conf, 55)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 亢奋风险因子 (分层计算) ---
-            # 战术层
             tactical_bias = normalize_score(df[f'BIAS_{p_tactical}_D'].abs(), df.index, window=p_tactical, ascending=True) if f'BIAS_{p_tactical}_D' in df else pd.Series(0.5, index=df.index)
             tactical_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_tactical}_D', df['volume_D']) + epsilon)).fillna(1.0)
             tactical_vol_spike = normalize_score(tactical_vol_ratio, df.index, window=p_tactical, ascending=True)
             tactical_atr_ratio = (df['ATR_14_D'] / (df['close_D'] + epsilon)).fillna(0.0)
             tactical_volatility = normalize_score(tactical_atr_ratio, df.index, window=p_tactical, ascending=True)
-            # 上下文层
             context_bias = normalize_score(df[f'BIAS_{p_context}_D'].abs(), df.index, window=p_context, ascending=True) if f'BIAS_{p_context}_D' in df else pd.Series(0.5, index=df.index)
             context_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_context}_D', df['volume_D']) + epsilon)).fillna(1.0)
             context_vol_spike = normalize_score(context_vol_ratio, df.index, window=p_context, ascending=True)
             context_atr_ratio = (df['ATR_14_D'] / (df['close_D'] + epsilon)).fillna(0.0)
             context_volatility = normalize_score(context_atr_ratio, df.index, window=p_context, ascending=True)
-            # 融合
             bias_score = (tactical_bias * context_bias)**0.5
             volume_spike_score = (tactical_vol_spike * context_vol_spike)**0.5
             volatility_score = (tactical_volatility * context_volatility)**0.5
-            # --- 静态因子 (无需分层) ---
             total_range = (df['high_D'] - df['low_D']).replace(0, epsilon)
-            upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D']))
+            # [代码修改开始] 实施“日间影线”协议
+            upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D']))
+            # [代码修改结束]
             upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -517,13 +514,11 @@ class MicroBehaviorEngine:
             bbw_d = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
             volatility_was_low = (bbw_d.shift(1) < bbw_d.rolling(60).quantile(0.3)).astype(float)
             safe_launch_context_score = (ma55_is_rising * price_is_near_ma55 * volatility_was_low)
-            # --- 重新组装 ---
             raw_risk_factors = (bias_score * volume_spike_score * volatility_score * upthrust_score)**(1/4)
             raw_euphoric_risk_score = (raw_risk_factors * stretch_from_ma55_score * (1 - safe_launch_context_score))
             snapshot_score = raw_euphoric_risk_score * ma_health_score
             period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
             euphoric_scores_by_period[p_tactical] = period_score
-        # --- 跨周期融合 ---
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
         final_fused_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
@@ -532,7 +527,6 @@ class MicroBehaviorEngine:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 final_fused_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_fused_score.clip(0, 1).astype(np.float32)
-        
         return states
 
     def synthesize_post_peak_downturn_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

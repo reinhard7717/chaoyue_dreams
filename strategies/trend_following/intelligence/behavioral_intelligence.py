@@ -110,20 +110,17 @@ class BehavioralIntelligence:
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
-        【V3.4 · 海格力斯之剑版】结构与行为健康度计算核心引擎
-        - 核心革命: 签署“海格力斯之剑”协议，彻底斩断分裂的 s_bull/s_bear 计算逻辑。
-                      1. 计算统一的、[-1, 1] 的“双极性复合状态分”。
-                      2. 对此统一序列进行动态注入和三维时空分析，得到“最终动态双极性健康分”。
-                      3. 调用“赫斯提亚的壁炉”协议，从最终动态分中派生出绝对互斥的 s_bull 和 s_bear。
+        【V3.5 · 宙斯雷霆敕令 I】结构与行为健康度计算核心引擎
+        - 核心革命: 遵循“先融合，后审判”的最高原则。本方法不再应用“壁炉协议”。
+                      它现在只负责计算并返回原始的、未经审判的、范围在[-1, 1]的“最终动态双极性健康分”。
+                      最终的审判权已上交至 `transmute_health_to_ultimate_signals`。
         """
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         sorted_periods = sorted(periods)
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-        # [代码新增] 获取壁炉阈值
-        neutral_zone_threshold = get_param_value(p_synthesis.get('neutral_zone_threshold'), 0.1)
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # --- 步骤1: 构建原始的看涨/看跌复合状态信号 (逻辑不变) ---
+        # --- 步骤1: 构建原始的看涨/看跌复合状态信号 ---
         closing_strength_score = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         vwap_dominance_score = normalize_score(df.get('close_vs_vwap_ratio_D', pd.Series(1.0, index=df.index)), df.index, norm_window)
         reversal_strength = (closing_strength_score * vwap_dominance_score)**0.5
@@ -138,10 +135,10 @@ class BehavioralIntelligence:
         auction_weakness = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window)
         trend_inefficiency = 1 - trend_efficiency
         bearish_composite_state = (reversal_weakness * upper_shadow_pressure * (1 + bearish_divergence) * auction_weakness * trend_inefficiency)**(1/5)
-        # [代码修改开始] 核心重构：计算统一的双极性状态，并对其进行统一分析
-        # --- 步骤2: 计算统一的“双极性复合状态分” (Bipolar Composite State) ---
+        # [代码修改开始] 遵循“宙斯雷霆敕令”
+        # --- 步骤2: 计算统一的“双极性复合状态分” ---
         bipolar_composite_state = (bullish_composite_state - bearish_composite_state).clip(-1, 1)
-        # --- 步骤3: 计算统一动态强度 (Unified Dynamic Intensity) ---
+        # --- 步骤3: 计算统一动态强度 ---
         efficiency_holo_bull, efficiency_holo_bear = calculate_holographic_dynamics(df, 'intraday_trend_efficiency_D', norm_window)
         gini_holo_bull, gini_holo_bear = calculate_holographic_dynamics(df, 'intraday_volume_gini_D', norm_window)
         unified_d_intensity = ((efficiency_holo_bull + efficiency_holo_bear + gini_holo_bull + gini_holo_bear) / 4.0).astype(np.float32)
@@ -150,25 +147,23 @@ class BehavioralIntelligence:
         # --- 步骤5: 对唯一的“动态双极性复合状态分”进行三维时空分析 ---
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # 将双极性分数映射到[0, 1]进行归一化，再转换回双极性
             static_norm_unipolar = normalize_score(dynamic_bipolar_composite, df.index, p, ascending=True)
             static_norm_bipolar = (static_norm_unipolar * 2 - 1).clip(-1, 1)
             slope_raw = dynamic_bipolar_composite.diff(p).fillna(0)
             slope_norm_bipolar = normalize_to_bipolar(slope_raw, df.index, p)
             accel_raw = slope_raw.diff(1).fillna(0)
             accel_norm_bipolar = normalize_to_bipolar(accel_raw, df.index, p)
-            # 战术层
             tactical_health_bipolar = (static_norm_bipolar.abs() * slope_norm_bipolar.abs() * accel_norm_bipolar.abs())**(1/3) * np.sign(static_norm_bipolar)
-            # 上下文层
             context_static_norm_unipolar = normalize_score(dynamic_bipolar_composite, df.index, context_p, ascending=True)
             context_static_norm_bipolar = (context_static_norm_unipolar * 2 - 1).clip(-1, 1)
             context_slope_norm_bipolar = normalize_to_bipolar(slope_raw, df.index, context_p)
             context_accel_norm_bipolar = normalize_to_bipolar(accel_raw, df.index, context_p)
             context_health_bipolar = (context_static_norm_bipolar.abs() * context_slope_norm_bipolar.abs() * context_accel_norm_bipolar.abs())**(1/3) * np.sign(context_static_norm_bipolar)
-            # 融合得到最终的动态双极性健康分
+            # --- 步骤6: 直接返回原始的、未经审判的最终动态双极性健康分 ---
             final_dynamic_bipolar_health = (tactical_health_bipolar.abs() * context_health_bipolar.abs())**0.5 * np.sign(tactical_health_bipolar)
-            # --- 步骤6: 调用“赫斯提亚的壁炉”协议，派生出互斥的 s_bull 和 s_bear ---
-            s_bull[p], s_bear[p] = bipolar_to_exclusive_unipolar(final_dynamic_bipolar_health, neutral_zone_threshold)
+            # s_bull 现在存储的是双极性分数，s_bear 只是一个占位符
+            s_bull[p] = final_dynamic_bipolar_health.astype(np.float32)
+            s_bear[p] = pd.Series(0.0, index=df.index, dtype=np.float32) # s_bear 将在上层被重新计算
         # --- 步骤7: 将 d_intensity 降级为无意义的占位符 ---
         for p in periods:
             d_intensity[p] = pd.Series(1.0, index=df.index, dtype=np.float32)

@@ -431,9 +431,10 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.2 · 宙斯敕令版】终极信号中央合成引擎
-    - 核心革命: 签署“宙斯敕令”，彻底废除对 d_intensity 的重复乘法操作。
-                  确认 s_bull/s_bear 是已包含动态评估的最终健康度，本函数只负责融合与上下文增强。
+    【V5.3 · 宙斯雷霆敕令 II】终极信号中央合成引擎
+    - 核心革命: 遵循“先融合，后审判”原则。接收原始的[-1, 1]双极性健康分，
+                  使用加权算术平均进行融合，得到最终双极性分后，
+                  才调用“赫斯提亚的壁炉”协议进行最终审判。
     """
     states = {}
     # --- 1. 获取通用参数和上下文信号 ---
@@ -443,13 +444,15 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
+    # [代码新增] 获取壁炉阈值
+    neutral_zone_threshold = get_param_value(params.get('neutral_zone_threshold'), 0.1)
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
         del atomic_states['strategy_instance_ref']
     recent_reversal_context = atomic_states.get('SCORE_CONTEXT_RECENT_REVERSAL', pd.Series(0.0, index=df.index))
-    default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
-    # --- 2. 上下文计算 ---
+    default_series = pd.Series(0.0, index=df.index, dtype=np.float32) # 默认值现在是0.0
+    # --- 2. 上下文计算 (逻辑不变) ---
     new_high_params = get_param_value(params.get('new_high_context_params'), {})
     new_high_context_score = _calculate_new_high_context(df, new_high_params)
     atomic_states['CONTEXT_NEW_HIGH_STRENGTH'] = new_high_context_score
@@ -465,43 +468,42 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
-    # --- 3. 信号计算 ---
-    # [代码修改开始] 签署“宙斯敕令”，废除对 d_intensity 的重复乘法
-    # 战略底部反转 (Strategic Bottom Reversal)
-    bullish_reversal_health = {p: overall_health['s_bull'].get(p, default_series) * (1 - overall_health['s_bear'].get(p, default_series)) for p in periods}
-    # 看涨共振 (Bullish Resonance)
-    bullish_resonance_health = {p: overall_health['s_bull'].get(p, default_series) for p in periods}
-    # 看跌共振 (Bearish Resonance)
-    bearish_resonance_health = {p: overall_health['s_bear'].get(p, default_series) for p in periods}
-    # 顶部反转 (Top Reversal)
-    bearish_reversal_health = {p: overall_health['s_bear'].get(p, default_series) * (1 - overall_health['s_bull'].get(p, default_series)) for p in periods}
-    # [代码修改结束]
-    bullish_short_force_rev = (bullish_reversal_health.get(1, default_series) * bullish_reversal_health.get(5, default_series))**0.5
-    bullish_medium_trend_rev = (bullish_reversal_health.get(13, default_series) * bullish_reversal_health.get(21, default_series))**0.5
-    bullish_long_inertia_rev = bullish_reversal_health.get(55, default_series)
-    overall_bullish_reversal_trigger = ((bullish_short_force_rev ** reversal_tf_weights['short']) * (bullish_medium_trend_rev ** reversal_tf_weights['medium']) * (bullish_long_inertia_rev ** reversal_tf_weights['long']))
-    raw_bottom_reversal_score = (overall_bullish_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
+    # --- 3. 信号计算 (核心重构) ---
+    # [代码修改开始] 接收双极性分数，先融合，后审判
+    # 3.1 融合得到最终双极性分数
+    def fuse_bipolar_health(health_dict: Dict, weights: Dict) -> pd.Series:
+        final_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        total_weight = sum(weights.values())
+        if total_weight > 0:
+            for p, weight in weights.items():
+                final_score += health_dict.get(p, default_series) * (weight / total_weight)
+        return final_score.clip(-1, 1)
+
+    # 接收原始双极性健康分 (现在存储在 s_bull 中)
+    bipolar_health = overall_health['s_bull']
+    # 融合生成最终的共振和反转双极性分数
+    final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
+    final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
+    # 3.2 应用“赫斯提亚的壁炉”协议进行最终审判
+    # 看涨/看跌共振
+    final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, neutral_zone_threshold)
+    # 底部/顶部反转
+    final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, neutral_zone_threshold)
+    # 3.3 应用上下文增强
+    # 底部反转
+    raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
+    # 顶部反转
+    final_top_reversal_score = (final_top_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
+    # 战术反转 (逻辑不变，但其内部消费的 d_intensity 也应被修正)
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
-    bullish_short_force_res = (bullish_resonance_health.get(1, default_series) * bullish_resonance_health.get(5, default_series))**0.5
-    bullish_medium_trend_res = (bullish_resonance_health.get(13, default_series) * bullish_resonance_health.get(21, default_series))**0.5
-    bullish_long_inertia_res = bullish_resonance_health.get(55, default_series)
-    overall_bullish_resonance = ((bullish_short_force_res ** resonance_tf_weights['short']) * (bullish_medium_trend_res ** resonance_tf_weights['medium']) * (bullish_long_inertia_res ** resonance_tf_weights['long']))
-    bearish_short_force_res = (bearish_resonance_health.get(1, default_series) * bearish_resonance_health.get(5, default_series))**0.5
-    bearish_medium_trend_res = (bearish_resonance_health.get(13, default_series) * bearish_resonance_health.get(21, default_series))**0.5
-    bearish_long_inertia_res = bearish_resonance_health.get(55, default_series)
-    overall_bearish_resonance = ((bearish_short_force_res ** resonance_tf_weights['short']) * (bearish_medium_trend_res ** resonance_tf_weights['medium']) * (bearish_long_inertia_res ** resonance_tf_weights['long']))
-    bearish_short_force_rev = (bearish_reversal_health.get(1, default_series) * bearish_reversal_health.get(5, default_series))**0.5
-    bearish_medium_trend_rev = (bearish_reversal_health.get(13, default_series) * bearish_reversal_health.get(21, default_series))**0.5
-    bearish_long_inertia_rev = bearish_reversal_health.get(55, default_series)
-    overall_bearish_reversal_trigger = ((bearish_short_force_rev ** reversal_tf_weights['short']) * (bearish_medium_trend_rev ** reversal_tf_weights['medium']) * (bearish_long_inertia_rev ** reversal_tf_weights['long']))
-    final_top_reversal_score = (overall_bearish_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
+    # [代码修改结束]
     # --- 4. 组装并返回最终信号字典 ---
     final_signal_map = {
-        f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (overall_bullish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (final_bullish_resonance ** exponent),
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
         f'SCORE_{domain_prefix}_TACTICAL_REVERSAL': (final_tactical_reversal_score ** exponent),
-        f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (overall_bearish_resonance ** exponent),
+        f'SCORE_{domain_prefix}_BEARISH_RESONANCE': (final_bearish_resonance ** exponent),
         f'SCORE_{domain_prefix}_TOP_REVERSAL': (final_top_reversal_score ** exponent)
     }
     for signal_name, score in final_signal_map.items():

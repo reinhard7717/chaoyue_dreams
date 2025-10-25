@@ -42,9 +42,9 @@ class TacticEngine:
 
     def synthesize_panic_selling_setup(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 周期感知版】恐慌抛售战备(Setup)信号生成模块
-        - 核心升级: 引入全新的“周期波谷”支柱。一个发生在周期底部的恐慌抛售，其反转的确定性远高于其他位置，
-                      因此给予显著的权重加成，极大提升了信号的质量。
+        【V5.2 · 日间影线版】恐慌抛售战备(Setup)信号生成模块
+        - 核心升级: 签署“日间影线”协议。上下影线的计算基准从当日开盘价改为昨日收盘价，
+                      以更精确地衡量价格从极值点反弹/回落的真实力度。
         """
         states = {}
         p_panic = get_params_block(self.strategy, 'panic_selling_setup_params', {})
@@ -85,11 +85,7 @@ class TacticEngine:
         retail_capitulation = normalize_score(df.get('retail_capitulation_score_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         main_force_absorption = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0, index=df.index)), df.index, window=60, ascending=True)
         fund_flow_panic_score = (retail_capitulation * main_force_absorption)**0.5
-        # [代码新增开始] 引入全新的“周期波谷”支柱
-        # 将相位[-1, 1]映射为分数[0, 1]，-1(波谷)对应1分，+1(波峰)对应0分
         cyclical_trough_score = (1 - self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE')) / 2.0
-        # [代码新增结束]
-        
         snapshot_panic = (
             price_drop_score * pillar_weights.get('price_drop', 0) +
             volume_spike_score * pillar_weights.get('volume_spike', 0) +
@@ -98,13 +94,15 @@ class TacticEngine:
             structural_test_score * pillar_weights.get('structural_test', 0) +
             ma_health_score * pillar_weights.get('ma_structure', 0) +
             fund_flow_panic_score * pillar_weights.get('fund_flow_panic', 0) +
-            cyclical_trough_score * pillar_weights.get('cyclical_trough', 0) # [代码修改] 将新支柱加入融合
+            cyclical_trough_score * pillar_weights.get('cyclical_trough', 0)
         ).astype(np.float32)
         is_significant_drop = intraday_low_pct_change < min_price_drop_pct
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         rebound_strength_score = ((df['close_D'] - df['low_D']) / day_range).fillna(0.5).clip(0, 1)
-        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
-        lower_shadow = (np.minimum(df['open_D'], df['close_D']) - df['low_D']).clip(lower=0)
+        # [代码修改开始] 实施“日间影线”协议
+        upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])).clip(lower=0)
+        lower_shadow = (np.minimum(df['close_D'], df['pre_close_D']) - df['low_D']).clip(lower=0)
+        # [代码修改结束]
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
         base_score = snapshot_panic * final_calmness_score * rebound_strength_score
