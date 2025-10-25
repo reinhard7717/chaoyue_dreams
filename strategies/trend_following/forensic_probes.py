@@ -617,60 +617,6 @@ class ForensicProbes:
 
     def _deploy_caduceus_probe_for_ema(self, probe_date: pd.Timestamp):
         """
-        【V1.0】“赫尔墨斯的商神杖”深度诊断单元 (EMA专用)
-        """
-        print("\n" + "-"*15 + f" [子探针] 正在挥舞 ⚕️【商神杖 · EMA健康度解剖】 ⚕️ " + "-"*15)
-        df = self.strategy.df_indicators
-        engine = self.foundation_intel
-        def get_val(series, date, default=np.nan):
-            val = series.get(date)
-            return default if pd.isna(val) else val
-        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        fusion_weights = p_conf.get('ma_health_fusion_weights', {})
-        norm_window = 55
-        ma_periods = [5, 13, 21, 55]
-        print(f"      - [融合权重]: {json.dumps(fusion_weights)}")
-        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
-        alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
-        alignment_bipolar_series = (pd.Series(alignment_score, index=df.index) - 0.5) * 2
-        alignment_val = get_val(alignment_bipolar_series, probe_date)
-        print(f"      - [维度1: 排列 Alignment]     双极性分: {alignment_val:.4f} (权重: {fusion_weights.get('alignment'):.2f})")
-        slope_scores = [normalize_to_bipolar(df[f'SLOPE_{p}_EMA_{p}_D'], df.index, norm_window).values for p in ma_periods]
-        avg_slope_bipolar_series = pd.Series(np.mean(slope_scores, axis=0), index=df.index)
-        slope_val = get_val(avg_slope_bipolar_series, probe_date)
-        print(f"      - [维度2: 斜率 Slope]         双极性分: {slope_val:.4f} (权重: {fusion_weights.get('slope'):.2f})")
-        accel_scores = [normalize_to_bipolar(df[f'ACCEL_{p}_EMA_{p}_D'], df.index, norm_window).values for p in ma_periods]
-        avg_accel_bipolar_series = pd.Series(np.mean(accel_scores, axis=0), index=df.index)
-        accel_val = get_val(avg_accel_bipolar_series, probe_date)
-        print(f"      - [维度3: 加速度 Accel]       双极性分: {accel_val:.4f} (权重: {fusion_weights.get('accel'):.2f})")
-        relational_scores = []
-        for short_p, long_p in [(5, 21), (13, 55)]:
-            spread_accel = (df[f'EMA_{short_p}_D'] - df[f'EMA_{long_p}_D']).diff(3).diff(3).fillna(0)
-            relational_scores.append(normalize_to_bipolar(spread_accel, df.index, norm_window).values)
-        avg_relational_bipolar_series = pd.Series(np.mean(relational_scores, axis=0), index=df.index)
-        relational_val = get_val(avg_relational_bipolar_series, probe_date)
-        print(f"      - [维度4: 关系 Relational]    双极性分: {relational_val:.4f} (权重: {fusion_weights.get('relational'):.2f})")
-        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
-        valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
-        meta_scores = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in valid_meta_cols] if valid_meta_cols else [np.full(len(df.index), 0.0)]
-        avg_meta_bipolar_series = pd.Series(np.mean(meta_scores, axis=0), index=df.index)
-        meta_val = get_val(avg_meta_bipolar_series, probe_date)
-        print(f"      - [维度5: 元动态 Meta]        双极性分: {meta_val:.4f} (权重: {fusion_weights.get('meta_dynamics'):.2f})")
-        recalc_snapshot = (
-            alignment_val * fusion_weights.get('alignment', 0.15) +
-            slope_val * fusion_weights.get('slope', 0.15) +
-            accel_val * fusion_weights.get('accel', 0.2) +
-            relational_val * fusion_weights.get('relational', 0.25) +
-            meta_val * fusion_weights.get('meta_dynamics', 0.25)
-        )
-        recalc_snapshot = np.clip(recalc_snapshot, -1, 1)
-        actual_snapshot_series = engine._calculate_ema_health(df, [], [])
-        actual_val = get_val(actual_snapshot_series, probe_date)
-        print(f"      - [最终融合] 探针重算: {recalc_snapshot:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_snapshot, actual_val) else '❌ 不一致'}")
-        print("-"*(32+38) + "\n")
-
-    def _deploy_caduceus_probe_for_ema(self, probe_date: pd.Timestamp):
-        """
         【V1.1 · 修复版】“赫尔墨斯的商神杖”深度诊断单元 (EMA专用)
         - 核心修复: 修正了调用 `_calculate_ema_health` 时传递的参数，将 `norm_window` 的值正确传入，
                       修复了因参数错位导致的 `TypeError`。
@@ -725,5 +671,66 @@ class ForensicProbes:
         # [代码修改结束]
         actual_val = get_val(actual_snapshot_series, probe_date)
         print(f"      - [最终融合] 探针重算: {recalc_snapshot:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_snapshot, actual_val) else '❌ 不一致'}")
+        print("-"*(32+38) + "\n")
+
+    def _deploy_caduceus_probe_for_indicator(self, indicator_name: str, source_col: str, probe_date: pd.Timestamp):
+        """
+        【V2.0 · 三叉戟协议版】通用指标深度诊断单元
+        - 核心使命: 对RSI, MACD, CMF等单一指标进行“状态-速度-加速度”三维动态解剖。
+        - 升级意义: 响应指挥官指令，将探针的穿透力扩展到所有基础支柱。
+        """
+        print("\n" + "-"*15 + f" [子探针] 正在挥舞 ⚕️【商神杖 · {indicator_name.upper()}健康度解剖】 ⚕️ " + "-"*15)
+        df = self.strategy.df_indicators
+        engine = self.foundation_intel
+        def get_val(series, date, default=np.nan):
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        
+        norm_window = 55
+        meta_window = 5 # 使用一个通用的短周期窗口来评估动态
+        bipolar_sensitivity = 1.0
+        
+        if source_col not in df.columns:
+            print(f"      - [错误] 找不到源数据列: {source_col}，无法进行解剖。")
+            print("-"*(32+38) + "\n")
+            return
+            
+        original_series = df[source_col]
+        original_val = get_val(original_series, probe_date)
+        print(f"      - [原始数据] {source_col} at {probe_date.date()}: {original_val:.4f}")
+
+        # 1. 状态分 (State) - 这是引擎实际使用的分数
+        state_score_series = normalize_to_bipolar(original_series, df.index, norm_window, bipolar_sensitivity)
+        state_val = get_val(state_score_series, probe_date)
+        print(f"      - [维度1: 状态 State]        双极性分: {state_val:.4f} (基于{norm_window}日滚动Z-score)")
+
+        # 2. 速度分 (Velocity) - 额外诊断信息
+        velocity_series = original_series.diff(meta_window).fillna(0)
+        velocity_score_series = normalize_to_bipolar(velocity_series, df.index, norm_window, bipolar_sensitivity)
+        velocity_val = get_val(velocity_score_series, probe_date)
+        print(f"      - [维度2: 速度 Velocity]      双极性分: {velocity_val:.4f} (基于{meta_window}日变化)")
+
+        # 3. 加速度分 (Acceleration) - 额外诊断信息
+        acceleration_series = velocity_series.diff(meta_window).fillna(0)
+        acceleration_score_series = normalize_to_bipolar(acceleration_series, df.index, norm_window, bipolar_sensitivity)
+        acceleration_val = get_val(acceleration_score_series, probe_date)
+        print(f"      - [维度3: 加速度 Accel]       双极性分: {acceleration_val:.4f} (基于速度的{meta_window}日变化)")
+
+        # 最终验证
+        # 获取引擎的实际计算结果
+        if indicator_name == 'rsi':
+            actual_series = engine._calculate_rsi_health(df, norm_window, [], None)
+        elif indicator_name == 'macd':
+            actual_series = engine._calculate_macd_health(df, norm_window, [], None)
+        elif indicator_name == 'cmf':
+            actual_series = engine._calculate_cmf_health(df, norm_window, [], None)
+        else:
+            actual_series = pd.Series(np.nan, index=df.index)
+            
+        actual_val = get_val(actual_series, probe_date)
+        
+        # 对于这些简单指标，引擎只用了状态分，所以我们只用状态分来验证
+        recalc_val = state_val
+        print(f"      - [最终验证] 探针重算(State): {recalc_val:.4f} vs. 引擎实际: {actual_val:.4f} -> {'✅ 一致' if np.isclose(recalc_val, actual_val) else '❌ 不一致'}")
         print("-"*(32+38) + "\n")
 
