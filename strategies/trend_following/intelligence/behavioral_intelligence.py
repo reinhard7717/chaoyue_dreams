@@ -209,10 +209,11 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 宙斯之雷版】诊断K线原子形态
-        - 核心重构: 签署“宙斯之雷”协议，彻底废除并重写“K线急跌”信号。
-                      1. 信号更名: `SCORE_KLINE_SHARP_DROP` -> `SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`。
-                      2. 逻辑重铸: 采用全新的、基于“上影线比例”和“成交量”的高精度算法，精确量化日内抛压风险。
+        【V3.6 · 赫菲斯托斯重铸版】诊断K线原子形态
+        - 核心重铸: 修复了`SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`信号的计算BUG。
+                      废除了在单周期内融合“战术分”与“上下文分”的复杂逻辑，
+                      并修正了错误的“二次开方”问题。现在，单周期分数被正确地定义为
+                      该周期内“抛压分”与“成交量分”的直接几何平均值。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -228,29 +229,23 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
-        # [代码修改开始] 实施“宙斯之雷”协议，重铸信号
         p_pressure = p.get('selling_pressure_params', {})
         signal_name = 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'
         if get_param_value(p_pressure.get('enabled'), True):
             periods = get_param_value(p_pressure.get('periods'), [5, 13, 21, 55])
             sorted_periods = sorted(periods)
             pressure_scores = {}
-            # 1. 计算核心驱动因子：上影线比例
             kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
             upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
             upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
-            for i, p_tactical in enumerate(sorted_periods):
-                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-                # 2. 归一化驱动因子和确认因子
+            # [代码修改开始] 简化单周期分数的计算逻辑
+            for p_tactical in sorted_periods:
+                # 1. 归一化当前周期的驱动因子和确认因子
                 tactical_pressure = normalize_score(upper_shadow_ratio, df.index, p_tactical, ascending=True)
                 tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
-                context_pressure = normalize_score(upper_shadow_ratio, df.index, p_context, ascending=True)
-                context_volume = normalize_score(df['volume_D'], df.index, p_context, ascending=True)
-                # 3. 融合得到单周期快照分
-                fused_pressure = (tactical_pressure * context_pressure)**0.5
-                fused_volume = (tactical_volume * context_volume)**0.5
-                pressure_scores[p_tactical] = (fused_pressure * fused_volume)**0.5
-            # 4. 多周期融合得到最终信号
+                # 2. 直接计算几何平均值作为单周期快照分，移除冗余的上下文融合和二次开方
+                pressure_scores[p_tactical] = (tactical_pressure * tactical_volume)**0.5
+            # [代码修改结束]
             tf_weights = get_param_value(p_pressure.get('tf_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
             numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
@@ -260,7 +255,6 @@ class BehavioralIntelligence:
                     weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                     final_fused_snapshot_score += pressure_scores.get(p_tactical, 0.0) * weight
             states[signal_name] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
