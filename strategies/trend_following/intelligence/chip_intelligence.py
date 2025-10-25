@@ -291,24 +291,21 @@ class ChipIntelligence:
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
-        【V6.0 · 阿瑞斯之怒协议版】筹码专用的关系元分析核心引擎
-        - 核心革命: 废除“冥王之眼”乘法模型，全面升级为与微观行为引擎一致的“阿瑞斯之怒”加法模型。
-                      最终得分 = (状态*权重) + (速度*权重) + (加速度*权重) + (背离*权重)
-        - 升级意义: 新模型更侧重于动态变化，即使状态分较低，只要速度、加速度或背离足够强，也能产生高分，
-                      从而更敏锐地捕捉到趋势的“拐点”。
+        【V6.1 · 双子座协议版】筹码专用的关系元分析核心引擎
+        - 核心革命: 签署“双子座”协议，重铸“阿瑞斯之怒”引擎。
+                      1. [一体两面] 分别计算看涨力量(Bullish Force)和看跌力量(Bearish Force)。
+                      2. [净值裁决] 最终得分 = 看涨力量 - 看跌力量，输出一个[-1, 1]的双极性净值分数。
+        - 升级意义: 能够同时评估市场的进攻和防守意图，解决了原模型只看涨、忽略看跌信号的致命缺陷。
         """
-        # 全面升级为“阿瑞斯之怒”加法模型
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的加法模型权重
-        w_state = get_param_value(p_meta.get('state_weight'), 0.2) # 降低状态权重
+        w_state = get_param_value(p_meta.get('state_weight'), 0.2)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.3)
-        w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.2) # 将背离分作为第四维度
+        w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.2)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # 维度一：状态分 (State Score) - 范围 [0, 1]
-        state_score = snapshot_score.clip(0, 1)
+        # [代码修改开始] 实施“双子座”协议
         # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
@@ -316,16 +313,32 @@ class ChipIntelligence:
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
         # 维度四：全息背离分 (Holographic Divergence Score) - 范围 [-1, 1]
-        # 确保背离分也是双极性的
         holographic_score = holographic_divergence_score.clip(-1, 1)
-        # 终极融合：从乘法调制升级为四维加法赋权
-        final_score = (
-            state_score * w_state +
-            velocity_score.clip(0, 1) * w_velocity + # 看涨信号只取正向速度
-            acceleration_score.clip(0, 1) * w_acceleration + # 看涨信号只取正向加速度
-            holographic_score.clip(0, 1) * w_holographic # 看涨信号只取正向背离
-        ).clip(0, 1)
-        
+        # --- 看涨力量评估 (Bullish Force) ---
+        bullish_state = snapshot_score.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        bullish_holographic = holographic_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration +
+            bullish_holographic * w_holographic
+        )
+        # --- 看跌力量评估 (Bearish Force) ---
+        bearish_state = (snapshot_score.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        bearish_holographic = (holographic_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration +
+            bearish_holographic * w_holographic
+        )
+        # --- 净值裁决 (Net Value Adjudication) ---
+        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # [代码修改结束]
         return final_score.astype(np.float32)
 
     def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
