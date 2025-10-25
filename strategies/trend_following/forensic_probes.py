@@ -220,12 +220,12 @@ class ForensicProbes:
 
     def _deploy_hephaestus_forge_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.4 · 逻辑镜像同步版】“赫菲斯托斯熔炉”探针
-        - 核心升级: 与主引擎的“赫淮斯托斯之锤”协议完全同步。
-                      - [对称评估] 修复了探针内部对“看跌质量”的计算逻辑，使其与看涨质量的评估完全对称。
-                      - [镜像重算] 确保用于最终验证的快照分(snapshot_series)重算逻辑与主引擎完全一致。
+        【V1.5 · 焦点转移版】“赫菲斯托斯熔炉”探针
+        - 核心升级: 将“代达罗斯迷宫”的解剖焦点从“公理一”转移至“公理四：筹码峰健康度”。
+                      - [公理级解剖] [链路层 2.1] 现在深度解剖“公理四”的计算逻辑。
+                      - [全链路追溯] 展示从原始指标(peak_control_ratio等)到最终公理得分的全过程。
         """
-        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.4】🔥 " + "="*35)
+        print("\n" + "="*35 + f" [筹码探针] 正在点燃 🔥【赫菲斯托斯熔炉 · 筹码引擎解剖 V1.5】🔥 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         chip_intel = self.chip_intel
@@ -257,63 +257,49 @@ class ForensicProbes:
                 'peak_integrity': get_val(peak_integrity_scores.get(p), probe_date, 0.0),
             }
             print(f"    - [周期 {p:2d}] 公理得分: 聚散({axiom_scores_by_period[p]['concentration']:.2f}), 吸派({axiom_scores_by_period[p]['accumulation']:.2f}), 转移({axiom_scores_by_period[p]['power_transfer']:.2f}), 峰健康({axiom_scores_by_period[p]['peak_integrity']:.2f})")
-        print("\n  [链路层 2.1] 深度解剖 · 公理一: 筹码“聚散”动态 (p=5 周期为例)")
+        # [代码修改开始] 实施“代达罗斯迷宫 V2”协议，深度解剖公理四
+        print("\n  [链路层 2.1] 深度解剖 · 公理四: 筹码峰“健康度” (p=5 周期为例)")
         p_probe = 5
-        p_context = 13
         # 2.1.1 原材料
-        bullish_evidence_static = df.get('concentration_increase_by_support_D', pd.Series(0, index=df.index)) + df.get('concentration_increase_by_chasing_D', pd.Series(0, index=df.index))
-        bullish_evidence_slope = df.get(f'SLOPE_{p_probe}_concentration_increase_by_support_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p_probe}_concentration_increase_by_chasing_D', pd.Series(0, index=df.index))
-        bullish_evidence_accel = df.get(f'ACCEL_{p_probe}_concentration_increase_by_support_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p_probe}_concentration_increase_by_chasing_D', pd.Series(0, index=df.index))
-        bearish_evidence_static = df.get('concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get('concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
-        bearish_evidence_slope = df.get(f'SLOPE_{p_probe}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'SLOPE_{p_probe}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
-        bearish_evidence_accel = df.get(f'ACCEL_{p_probe}_concentration_decrease_by_distribution_D', pd.Series(0, index=df.index)) + df.get(f'ACCEL_{p_probe}_concentration_decrease_by_capitulation_D', pd.Series(0, index=df.index))
-        print("    - [看涨证据原材料 (Bullish Evidence Raw)]:")
-        print(f"      - 静态(Static): {get_val(bullish_evidence_static, probe_date):.4f}, 斜率(Slope): {get_val(bullish_evidence_slope, probe_date):.4f}, 加速度(Accel): {get_val(bullish_evidence_accel, probe_date):.4f}")
-        print(f"    - [看跌证据原材料 (Bearish Evidence Raw)]:")
-        print(f"      - 静态(Static): {get_val(bearish_evidence_static, probe_date):.4f}, 斜率(Slope): {get_val(bearish_evidence_slope, probe_date):.4f}, 加速度(Accel): {get_val(bearish_evidence_accel, probe_date):.4f}")
-        # 2.1.2 质量计算
-        tactical_bull_static = get_val(normalize_score(bullish_evidence_static, df.index, p_probe), probe_date)
-        tactical_bull_slope = get_val(normalize_score(bullish_evidence_slope, df.index, p_probe), probe_date)
-        tactical_bull_accel = get_val(normalize_score(bullish_evidence_accel, df.index, p_probe), probe_date)
-        tactical_bull_quality = (tactical_bull_static * tactical_bull_slope * tactical_bull_accel)**(1/3)
-        context_bull_static = get_val(normalize_score(bullish_evidence_static, df.index, p_context), probe_date)
-        context_bull_slope = get_val(normalize_score(bullish_evidence_slope, df.index, p_context), probe_date)
-        context_bull_accel = get_val(normalize_score(bullish_evidence_accel, df.index, p_context), probe_date)
-        context_bull_quality = (context_bull_static * context_bull_slope * context_bull_accel)**(1/3)
-        final_bullish_quality = (tactical_bull_quality * context_bull_quality)**0.5
-        print("    - [看涨质量计算 (Bullish Quality Calc)]:")
-        print(f"      - 战术层(p={p_probe}): static({tactical_bull_static:.2f})*slope({tactical_bull_slope:.2f})*accel({tactical_bull_accel:.2f}) -> quality({tactical_bull_quality:.2f})")
-        print(f"      - 上下文(p={p_context}): static({context_bull_static:.2f})*slope({context_bull_slope:.2f})*accel({context_bull_accel:.2f}) -> quality({context_bull_quality:.2f})")
-        print(f"      - 最终看涨质量 (Final Bullish Quality): {final_bullish_quality:.4f}")
-        # [代码修改开始] 修复看跌质量计算，使其与主引擎对称
-        tactical_bear_static = get_val(normalize_score(bearish_evidence_static, df.index, p_probe), probe_date)
-        tactical_bear_slope = get_val(normalize_score(bearish_evidence_slope, df.index, p_probe), probe_date)
-        tactical_bear_accel = get_val(normalize_score(bearish_evidence_accel, df.index, p_probe), probe_date)
-        tactical_bear_quality = (tactical_bear_static * tactical_bear_slope * tactical_bear_accel)**(1/3)
-        context_bear_static = get_val(normalize_score(bearish_evidence_static, df.index, p_context), probe_date)
-        context_bear_slope = get_val(normalize_score(bearish_evidence_slope, df.index, p_context), probe_date)
-        context_bear_accel = get_val(normalize_score(bearish_evidence_accel, df.index, p_context), probe_date)
-        context_bear_quality = (context_bear_static * context_bear_slope * context_bear_accel)**(1/3)
-        final_bearish_quality = (tactical_bear_quality * context_bear_quality)**0.5
-        print("    - [看跌质量计算 (Bearish Quality Calc)]:")
-        print(f"      - 战术层(p={p_probe}): static({tactical_bear_static:.2f})*slope({tactical_bear_slope:.2f})*accel({tactical_bear_accel:.2f}) -> quality({tactical_bear_quality:.2f})")
-        print(f"      - 上下文(p={p_context}): static({context_bear_static:.2f})*slope({context_bear_slope:.2f})*accel({context_bear_accel:.2f}) -> quality({context_bear_quality:.2f})")
-        print(f"      - 最终看跌质量 (Final Bearish Quality): {final_bearish_quality:.4f}")
+        control_raw = get_val(df.get('peak_control_ratio_D'), probe_date, 0)
+        stability_raw = get_val(df.get('peak_stability_D'), probe_date, 0)
+        defense_raw = get_val(df.get('peak_defense_intensity_D'), probe_date, 0)
+        proximity_raw = get_val(df.get('price_to_peak_ratio_D'), probe_date, 1.0)
+        print("    - [原材料 (Raw Ingredients)]:")
+        print(f"      - 控制力(Control): {control_raw:.4f}, 稳定性(Stability): {stability_raw:.4f}")
+        print(f"      - 防御强度(Defense): {defense_raw:.4f}, 接近度(Proximity): {proximity_raw:.4f}")
+        # 2.1.2 归一化
+        control_score = get_val(normalize_score(df.get('peak_control_ratio_D'), df.index, p_probe, ascending=True), probe_date)
+        stability_score = get_val(normalize_score(df.get('peak_stability_D'), df.index, p_probe, ascending=True), probe_date)
+        defense_score = get_val(normalize_score(df.get('peak_defense_intensity_D'), df.index, p_probe, ascending=True), probe_date)
+        proximity_score = get_val(normalize_score(df.get('price_to_peak_ratio_D'), df.index, p_probe, ascending=False), probe_date)
+        print("    - [归一化得分 (Normalized Scores)]:")
+        print(f"      - 控制力: {control_score:.4f}, 稳定性: {stability_score:.4f}")
+        print(f"      - 防御强度: {defense_score:.4f}, 接近度: {proximity_score:.4f}")
         # 2.1.3 快照分与元分析
-        snapshot_score_val = final_bullish_quality - final_bearish_quality
-        final_bullish_quality_series = ((normalize_score(bullish_evidence_static, df.index, p_probe) * normalize_score(bullish_evidence_slope, df.index, p_probe) * normalize_score(bullish_evidence_accel, df.index, p_probe))**(1/3) * (normalize_score(bullish_evidence_static, df.index, p_context) * normalize_score(bullish_evidence_slope, df.index, p_context) * normalize_score(bullish_evidence_accel, df.index, p_context))**(1/3))**0.5
-        final_bearish_quality_series = ((normalize_score(bearish_evidence_static, df.index, p_probe) * normalize_score(bearish_evidence_slope, df.index, p_probe) * normalize_score(bearish_evidence_accel, df.index, p_probe))**(1/3) * (normalize_score(bearish_evidence_static, df.index, p_context) * normalize_score(bearish_evidence_slope, df.index, p_context) * normalize_score(bearish_evidence_accel, df.index, p_context))**(1/3))**0.5
-        snapshot_series = (final_bullish_quality_series - final_bearish_quality_series).astype(np.float32)
-        # [代码修改结束]
+        bullish_evidence = (control_score * stability_score * defense_score * proximity_score)**(1/4)
+        bearish_evidence = 1.0 - bullish_evidence
+        snapshot_score_val = bullish_evidence - bearish_evidence
+        # 重算Series
+        control_series = normalize_score(df.get('peak_control_ratio_D', pd.Series(0.0, index=df.index)), df.index, p_probe, ascending=True)
+        stability_series = normalize_score(df.get('peak_stability_D', pd.Series(0.0, index=df.index)), df.index, p_probe, ascending=True)
+        defense_series = normalize_score(df.get('peak_defense_intensity_D', pd.Series(0.0, index=df.index)), df.index, p_probe, ascending=True)
+        proximity_series = normalize_score(df.get('price_to_peak_ratio_D', pd.Series(1.0, index=df.index)), df.index, p_probe, ascending=False)
+        bullish_evidence_series = (control_series * stability_series * defense_series * proximity_series)**(1/4)
+        bearish_evidence_series = 1.0 - bullish_evidence_series
+        snapshot_series = (bullish_evidence_series - bearish_evidence_series).astype(np.float32)
         holographic_divergence = chip_intel._calculate_holographic_divergence(snapshot_series, 1, p_probe, p_probe * 2)
         holographic_divergence_val = get_val(holographic_divergence, probe_date)
         recalc_axiom_score = chip_intel._perform_chip_relational_meta_analysis(df, snapshot_series, p_probe, holographic_divergence)
         recalc_axiom_score_val = get_val(recalc_axiom_score, probe_date)
         print("    - [快照分与元分析 (Snapshot & Meta-Analysis)]:")
-        print(f"      - 聚散快照分 (Concentration Snapshot): {snapshot_score_val:.4f}")
+        print(f"      - 看涨证据 (Bullish Evidence): {bullish_evidence:.4f}")
+        print(f"      - 看跌证据 (Bearish Evidence): {bearish_evidence:.4f}")
+        print(f"      - 峰健康快照分 (Peak Integrity Snapshot): {snapshot_score_val:.4f}")
         print(f"      - 全息背离分 (Holographic Divergence): {holographic_divergence_val:.4f}")
         print(f"      - 最终公理得分 (探针重算): {recalc_axiom_score_val:.4f}")
-        print(f"    - [内部验证]: 实际值 {axiom_scores_by_period[p_probe]['concentration']:.4f} vs. 探针重算 {recalc_axiom_score_val:.4f} -> {'✅ 一致' if np.isclose(axiom_scores_by_period[p_probe]['concentration'], recalc_axiom_score_val) else '❌ 不一致'}")
+        print(f"    - [内部验证]: 实际值 {axiom_scores_by_period[p_probe]['peak_integrity']:.4f} vs. 探针重算 {recalc_axiom_score_val:.4f} -> {'✅ 一致' if np.isclose(axiom_scores_by_period[p_probe]['peak_integrity'], recalc_axiom_score_val) else '❌ 不一致'}")
+        # [代码修改结束]
         print("\n  [链路层 3] 双极性健康分合成 (Bipolar Health Synthesis)")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
