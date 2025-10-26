@@ -31,8 +31,8 @@ class IntelligenceLayer:
     """
     def __init__(self, strategy_instance):
         """
-        【V407.1 · 探针模块化版】
-        - 核心升级: 初始化情报层总指挥官，并加载模块化的探针。
+        【V407.2 · 探针调度器修复版】
+        - 核心修复: 补上了对主探针调度器 ForensicProbes 的导入，解决了 NameError 启动错误。
         """
         # [代码修改开始]
         self.strategy = strategy_instance
@@ -51,8 +51,11 @@ class IntelligenceLayer:
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
+        # 导入主探针调度器
+        from .forensic_probes import ForensicProbes
         # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
+        # [代码修改结束]
 
     def run_all_diagnostics(self) -> Dict:
         """

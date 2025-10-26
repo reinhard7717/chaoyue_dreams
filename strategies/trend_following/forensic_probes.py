@@ -12,8 +12,11 @@ class ForensicProbes:
     - 收益: 实现了探针的完全模块化，结构清晰，易于维护和扩展。
     """
     def __init__(self, intelligence_layer_instance):
+        """
+        【V2.1 · 路径修正版】法医探针调度中心
+        """
         # [代码修改开始]
-        # 1. 导入所有分类探针模块
+        # 1. 导入所有分类探针模块 (使用正确的路径)
         from .probes.behavioral_probes import BehavioralProbes
         from .probes.chip_probes import ChipProbes
         from .probes.cognitive_probes import CognitiveProbes
