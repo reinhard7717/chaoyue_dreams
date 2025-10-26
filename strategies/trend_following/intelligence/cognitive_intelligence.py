@@ -1199,9 +1199,12 @@ class CognitiveIntelligence:
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V1.0 · 新增】认知层专用的关系元分析核心引擎 (普罗米修斯之火)
-        - 核心逻辑: 对“领域间共识”的快照分进行动态调制，分析共识形成的速度与加速度。
+        【V2.0 · 动态模型修正版】认知层专用的关系元分析核心引擎
+        - 核心修正: 与微观行为引擎同步，修正了动态融合模型的逻辑缺陷。
+                      现在，只有当速度和加速度为正（代表趋势增长）时，它们才会对最终分数做出贡献。
+                      这避免了因趋势减弱（负值）而错误地抵消当前状态分的问题，确保了风险/机会信号只在累积和增长时才被激活。
         """
+        # [代码修改开始]
         # 从认知层专属配置中获取权重
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -1217,23 +1220,27 @@ class CognitiveIntelligence:
         state_score = snapshot_score.clip(0, 1)
         # 第二维度：速度分 (Velocity Score) - “共识”的变化速度
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
-        velocity_score = normalize_to_bipolar(
+        velocity_score_bipolar = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
         # 第三维度：加速度分 (Acceleration Score) - “共识”的变化加速度
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-        acceleration_score = normalize_to_bipolar(
+        acceleration_score_bipolar = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
+        # 修正核心：只取速度和加速度的看涨部分（正值）参与评分
+        velocity_score_unipolar = velocity_score_bipolar.clip(0, 1)
+        acceleration_score_unipolar = acceleration_score_bipolar.clip(0, 1)
         # 终极融合：加法赋权
         final_score = (
             state_score * w_state +
-            velocity_score * w_velocity +
-            acceleration_score * w_acceleration
+            velocity_score_unipolar * w_velocity +
+            acceleration_score_unipolar * w_acceleration
         ).clip(0, 1)
         return final_score.astype(np.float32)
+        # [代码修改结束]
 
     def _calculate_aegis_shield_context(self, df: pd.DataFrame) -> pd.Series:
         """
