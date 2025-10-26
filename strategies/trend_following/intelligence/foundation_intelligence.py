@@ -457,15 +457,14 @@ class FoundationIntelligence:
 
     def diagnose_classic_indicators_atomics(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 广义抛压版】经典指标原子信号诊断
-        - 核心升级: 扩大了“恐慌”的定义，现在不仅包括“价跌”，还包括“长上影线”，形成“广义抛压”概念。
-                      这使得在上涨日出现长上影线时，也能触发后续的吸收分析。
-        - 信号更名: 输出的临时信号更名为 PROVISIONAL_SELLING_PRESSURE_STATE/DYNAMIC。
+        【V3.4 · 趋势上下文解耦版】经典指标原子信号诊断
+        - 核心修复: 在计算原始抛压快照分时，移除了 `(1 - ma_context_score)` 的乘数。
+                      这修复了在上涨趋势中，长上影线带来的抛压信号被错误归零的致命BUG。
         """
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
-        required_cols = ['close_D', 'open_D', 'high_D', 'low_D'] # [代码修改] 增加 high, low
+        required_cols = ['close_D', 'open_D', 'high_D', 'low_D']
         if not all(col in df.columns for col in required_cols):
             return {}
         periods = [1, 5, 13, 21, 55]
@@ -477,11 +476,9 @@ class FoundationIntelligence:
         panic_risk_dynamic_scores = {}
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
-        # [代码新增开始] 计算上影线比例，作为广义抛压的一部分
         kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
-        # [代码新增结束]
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_price_up = normalize_score(candle_body_up, df.index, p_tactical)
@@ -490,11 +487,9 @@ class FoundationIntelligence:
             tactical_price_down = normalize_score(candle_body_down, df.index, p_tactical)
             context_price_down = normalize_score(candle_body_down, df.index, p_context)
             fused_price_down = (tactical_price_down * context_price_down)**0.5
-            # [代码新增开始] 对上影线比例进行分层归一化
             tactical_shadow = normalize_score(upper_shadow_ratio, df.index, p_tactical)
             context_shadow = normalize_score(upper_shadow_ratio, df.index, p_context)
             fused_shadow_pressure = (tactical_shadow * context_shadow)**0.5
-            # [代码新增结束]
             vol_slope_series = df.get(f'SLOPE_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             vol_accel_series = df.get(f'ACCEL_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             tactical_vol_slope = normalize_score(vol_slope_series, df.index, p_tactical)
@@ -508,9 +503,9 @@ class FoundationIntelligence:
             ignition_state_scores[p_tactical] = ignition_snapshot
             current_meta_window = max(1, p_tactical)
             ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot, meta_window=current_meta_window)
-            # [代码修改开始] 融合“价跌”和“长上影”作为广义抛压
             selling_pressure_component = np.maximum(fused_price_down, fused_shadow_pressure)
-            panic_snapshot = (selling_pressure_component * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
+            # [代码修改开始] 移除错误的趋势上下文过滤器 `* (1 - ma_context_score)`
+            panic_snapshot = (selling_pressure_component * fused_volume_igniting).astype(np.float32)
             # [代码修改结束]
             panic_risk_state_scores[p_tactical] = panic_snapshot
             panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot, meta_window=current_meta_window)
@@ -523,10 +518,8 @@ class FoundationIntelligence:
             return final_score.clip(0, 1)
         states['SCORE_VOL_PRICE_IGNITION_STATE'] = fuse_across_periods(ignition_state_scores)
         states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = fuse_across_periods(ignition_dynamic_scores)
-        # [代码修改开始] 输出更名后的临时信号
         states['PROVISIONAL_SELLING_PRESSURE_STATE'] = fuse_across_periods(panic_risk_state_scores)
         states['PROVISIONAL_SELLING_PRESSURE_DYNAMIC'] = fuse_across_periods(panic_risk_dynamic_scores)
-        # [代码修改结束]
         return states
 
 
