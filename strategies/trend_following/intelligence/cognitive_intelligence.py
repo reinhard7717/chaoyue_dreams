@@ -902,15 +902,12 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 全息诊断版】认知扩展信号统一合成引擎
-        - 核心升级: 引入多时间维度(MTF)分析，对每个信号的每个证据进行全息诊断。
-                      1. [MTF循环]: 对每个证据，在[1, 5, 13, 21, 55]等多个周期上进行归一化。
-                      2. [加权融合]: 将MTF归一化后的分数，根据可配置的周期权重进行加权融合，得到更鲁棒的证据分。
-                      3. [动态升维]: 对最终融合的信号快照分，继续执行关系元分析，确保前瞻性。
-        - 收益: 信号质量大幅提升，兼具战略稳定性和战术响应速度。
+        【V2.1 · 变换逻辑修正版】认知扩展信号统一合成引擎
+        - 核心修复: 修正了 'transform' 的处理逻辑。现在，变换操作（如 neg_clip）会在归一化之前执行，
+                      并确保只有在满足条件时（如主力净流出为负）才产生非零值。
+                      这彻底解决了因归一化一个大部分为零的序列而产生随机、错误分数的问题。
         """
         states = {}
-        # [代码修改开始] 引入MTF参数
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {
@@ -918,7 +915,6 @@ class CognitiveIntelligence:
         })
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
-        # [代码修改结束]
         expansion_signal_configs = {
             'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE': {
                 'components': [
@@ -1144,7 +1140,7 @@ class CognitiveIntelligence:
             fused_component_scores = []
             gate_scores = []
             for comp in config['components']:
-                # [代码修改开始] 引入MTF融合逻辑
+                # [代码修改开始] 修正变换逻辑
                 mtf_normalized_scores = {}
                 source_series_raw = None
                 if comp['source'] == 'df':
@@ -1153,32 +1149,37 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
+                # 将变换逻辑提前，在归一化之前完成
+                transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
                 if transform == 'inverse':
-                    source_series_raw = 1.0 - source_series_raw
+                    transformed_series = 1.0 - transformed_series
                 elif transform == 'inverse_proximity':
-                    source_series_raw = 1.0 - (1.0 - source_series_raw).clip(0, 1)
+                    transformed_series = 1.0 - (1.0 - transformed_series).clip(0, 1)
                 elif transform == 'neg_clip':
-                    source_series_raw = -source_series_raw.clip(upper=0)
+                    # 核心修复：只对负值部分取反，正值和零保持为零
+                    transformed_series = -transformed_series.clip(upper=0)
                 elif transform == 'pos_clip':
-                    source_series_raw = source_series_raw.clip(lower=0)
+                    transformed_series = transformed_series.clip(lower=0)
                 elif transform == 'neg_clip_abs':
-                    source_series_raw = source_series_raw.clip(upper=0).abs()
+                    transformed_series = transformed_series.clip(upper=0).abs()
                 elif transform == 'is_positive':
-                    source_series_raw = (source_series_raw > 0).astype(float)
+                    transformed_series = (transformed_series > 0).astype(float)
                 elif transform == 'shift':
-                    source_series_raw = source_series_raw.shift(params[0]).fillna(0)
+                    transformed_series = transformed_series.shift(params[0]).fillna(0)
                 elif transform == 'shift_lt':
-                    source_series_raw = source_series_raw.shift(params[0]).fillna(params[1]) < params[1]
+                    transformed_series = transformed_series.shift(params[0]).fillna(params[1]) < params[1]
                 fused_component_series = pd.Series(0.0, index=df.index)
                 if total_weight > 0:
                     for p in periods:
                         weight = numeric_tf_weights.get(p, 0) / total_weight
-                        normalized_series = normalize_score(source_series_raw, df.index, p)
+                        # 对变换后的序列进行归一化
+                        normalized_series = normalize_score(transformed_series, df.index, p)
                         fused_component_series += normalized_series * weight
                 else:
-                    fused_component_series = normalize_score(source_series_raw, df.index, 55)
+                    fused_component_series = normalize_score(transformed_series, df.index, 55)
+                # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
@@ -1194,7 +1195,6 @@ class CognitiveIntelligence:
             snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
             final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
             states[signal_name] = final_dynamic_score
-            # [代码修改结束]
         return states
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
