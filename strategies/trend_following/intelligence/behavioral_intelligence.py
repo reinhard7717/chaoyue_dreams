@@ -648,11 +648,11 @@ class BehavioralIntelligence:
 
     def _diagnose_upper_shadow_intent(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 主力审判协议版】上影线意图诊断引擎
-        - 核心升级: 签署“主力审判”协议，诊断逻辑完全聚焦于主力的绝对意图，剔除散户行为的干扰。
-                      1. [证据升级]: 核心证据从“主力vs散户背离”升级为更纯粹的“主力净资金流”。
-                      2. [权重调整]: 提升“主力净资金流”的权重，确立其在决策中的核心地位。
-        - 产出: 一个更纯粹、更具决定性的[-1, 1]双极性分数。
+        【V2.1 · 阿瑞斯之矛版】上影线意图诊断引擎
+        - 核心升级: 签署“阿瑞斯之矛”协议，聚焦核心意图，剔除次要证据的干扰。
+                      1. [精简证据]: 移除“筹码结果分(concentration_change)”这一噪声较大的证据。
+                      2. [聚焦核心]: 诊断逻辑完全聚焦于“主力净流向”和“主力成本代价”两大核心意图指标。
+                      3. [重配权重]: 将权重集中于两大核心证据，使诊断更果断、更精准。
         """
         states = {}
         signal_name = 'SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'
@@ -663,30 +663,25 @@ class BehavioralIntelligence:
             return states
         norm_window = get_param_value(p.get('norm_window'), 55)
         weights = get_param_value(p.get('fusion_weights'), {})
-        # 更新权重变量名以匹配新的证据
+        # [代码修改开始] 实施“阿瑞斯之矛”协议，更新权重和证据
         w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
-        w_conc = get_param_value(weights.get('concentration_change'), 0.2)
-        w_profit = get_param_value(weights.get('profit_profile'), 0.2)
-        
+        w_profit = get_param_value(weights.get('profit_profile'), 0.4)
+        # [代码修改结束]
         kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
         trigger_mask = upper_shadow_ratio > get_param_value(p.get('min_upper_shadow_ratio'), 0.4)
-        # 实施“主力审判”协议，更换核心证据
+        # [代码修改开始] 实施“阿瑞斯之矛”协议，精简证据链
         # 证据A: 主力净流向 (绝对意图)
         main_force_flow_score = normalize_to_bipolar(df.get('main_force_net_flow_consensus_D', 0), df.index, norm_window)
-        # 证据B: 筹码结果 (最终归宿)
-        concentration_change = df.get('concentration_90pct_D', pd.Series(0.0, index=df.index)).diff().fillna(0)
-        concentration_change_score = normalize_to_bipolar(concentration_change, df.index, norm_window)
-        # 证据C: 成本代价 (信念强度)
+        # 证据B: 成本代价 (信念强度)
         profit_profile_score = normalize_to_bipolar(-df.get('main_force_intraday_profit_D', 0), df.index, norm_window)
         # 加权融合
         final_intent_score = (
             main_force_flow_score * w_flow +
-            concentration_change_score * w_conc +
             profit_profile_score * w_profit
         ).clip(-1, 1)
-        
+        # [代码修改结束]
         states[signal_name] = (final_intent_score * trigger_mask).astype(np.float32)
         return states
 

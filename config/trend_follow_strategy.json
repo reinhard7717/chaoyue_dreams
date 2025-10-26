@@ -555,13 +555,12 @@
         },
         "upper_shadow_intent_params": {
           "enabled": true,
-          "description": "【V2.0 · 主力审判协议版】上影线意图诊断引擎参数。诊断逻辑完全聚焦于主力的绝对意图。",
+          "description": "【V2.1 · 阿瑞斯之矛版】上影线意图诊断引擎参数。聚焦于主力净流向和成本代价两大核心证据。",
           "norm_window": 55,
           "min_upper_shadow_ratio": 0.4,
           "fusion_weights": {
             "main_force_flow": 0.6,
-            "concentration_change": 0.2,
-            "profit_profile": 0.2
+            "profit_profile": 0.4
           }
         },
         "absorption_reversal_params": {
