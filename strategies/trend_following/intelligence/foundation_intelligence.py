@@ -90,14 +90,16 @@ class FoundationIntelligence:
 
     def diagnose_tactical_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.2.1 · 类型归正版】战术终极信号合成引擎
-        - 核心修复: 将 `np.where` 输出的 numpy.ndarray 强制转换回 pandas.Series，修复下游模块因类型不匹配而导致的 `AttributeError`。
-        - 核心革命: 签署“炼金术”协议，实现风险到机会的嬗变。
+        【V1.3 · 广义抛压分析版】战术终极信号合成引擎
+        - 核心升级: 全面适配广义抛压分析流程，并对信号进行规范化重命名。
+                      - 消费 `PROVISIONAL_SELLING_PRESSURE_STATE/DYNAMIC` 作为输入。
+                      - 输出 `SCORE_RISK_PANIC_SELLING` 和 `SCORE_OPPORTUNITY_ABSORPTION_REVERSAL`。
         """
         states = {}
+        # [代码修改开始] 更新参数块名称和信号名称
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        p_absorb = get_params_block(p_conf, 'panic_absorption_params', {})
-        judgment_threshold = get_param_value(p_absorb.get('judgment_threshold'), 0.7)
+        p_analysis = get_params_block(p_conf, 'selling_pressure_analysis_params', {})
+        judgment_threshold = get_param_value(p_analysis.get('judgment_threshold'), 0.7)
         compression_state = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_STATE', pd.Series(0.5, index=df.index))
         compression_dynamic = self.strategy.atomic_states.get('SCORE_VOL_COMPRESSION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_VOL_COMPRESSION_OPP'] = (compression_state * compression_dynamic).astype(np.float32)
@@ -107,27 +109,26 @@ class FoundationIntelligence:
         ignition_state = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_STATE', pd.Series(0.5, index=df.index))
         ignition_dynamic = self.strategy.atomic_states.get('SCORE_VOL_PRICE_IGNITION_DYNAMIC', pd.Series(0.5, index=df.index))
         states['SCORE_FOUNDATION_IGNITION_CONFIRMATION'] = (ignition_state * ignition_dynamic).astype(np.float32)
-        panic_risk_state = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_STATE', pd.Series(0.0, index=df.index))
-        panic_risk_dynamic = self.strategy.atomic_states.get('PROVISIONAL_PANIC_RISK_DYNAMIC', pd.Series(0.0, index=df.index))
-        raw_panic_risk = (panic_risk_state * panic_risk_dynamic).astype(np.float32)
-        panic_absorption_score = self._diagnose_panic_absorption(df)
-        self.strategy.atomic_states['SCORE_PANIC_ABSORPTION'] = panic_absorption_score
-        is_golden_pit = panic_absorption_score >= judgment_threshold
-        final_panic_risk_array = np.where(
-            is_golden_pit,
+        pressure_state = self.strategy.atomic_states.get('PROVISIONAL_SELLING_PRESSURE_STATE', pd.Series(0.0, index=df.index))
+        pressure_dynamic = self.strategy.atomic_states.get('PROVISIONAL_SELLING_PRESSURE_DYNAMIC', pd.Series(0.0, index=df.index))
+        raw_selling_pressure = (pressure_state * pressure_dynamic).astype(np.float32)
+        absorption_score = self._diagnose_main_force_absorption(df)
+        self.strategy.atomic_states['SCORE_MAIN_FORCE_ABSORPTION_DYNAMIC'] = absorption_score
+        is_absorption_reversal = absorption_score >= judgment_threshold
+        final_risk_array = np.where(
+            is_absorption_reversal,
             0.0,
-            (raw_panic_risk * (1 - panic_absorption_score))
+            (raw_selling_pressure * (1 - absorption_score))
         )
-        golden_pit_score_array = np.where(
-            is_golden_pit,
-            raw_panic_risk * panic_absorption_score,
+        opportunity_score_array = np.where(
+            is_absorption_reversal,
+            raw_selling_pressure * absorption_score,
             0.0
         )
-        # [代码修改开始] 将 numpy.ndarray 转换为 pandas.Series
-        final_panic_risk = pd.Series(final_panic_risk_array, index=df.index)
-        golden_pit_score = pd.Series(golden_pit_score_array, index=df.index)
-        states['SCORE_FOUNDATION_PANIC_SELLING_RISK'] = final_panic_risk.clip(0, 1).astype(np.float32)
-        states['SCORE_OPPORTUNITY_GOLDEN_PIT'] = golden_pit_score.clip(0, 1).astype(np.float32)
+        final_risk = pd.Series(final_risk_array, index=df.index)
+        opportunity_score = pd.Series(opportunity_score_array, index=df.index)
+        states['SCORE_RISK_PANIC_SELLING'] = final_risk.clip(0, 1).astype(np.float32)
+        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = opportunity_score.clip(0, 1).astype(np.float32)
         # [代码修改结束]
         return states
 
@@ -366,10 +367,10 @@ class FoundationIntelligence:
         ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
         return ma_context_score.astype(np.float32)
 
-    def _calculate_panic_absorption_snapshot(self, df: pd.DataFrame) -> pd.Series:
+    def _calculate_main_force_absorption_snapshot(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增内部方法】计算恐慌吸收的静态快照分
-        - 核心使命: 量化主力在市场恐慌时，逆势吸收筹码的静态强度。
+        【V1.1 · 名称规范化】计算主力吸收行为的静态快照分
+        - 核心使命: 量化主力逆势吸收筹码的静态强度。
         - 诊断逻辑: 融合“主力净流向”、“主力vs散户背离”、“主力成本代价”三维核心证据。
         """
         norm_window = 55
@@ -381,29 +382,24 @@ class FoundationIntelligence:
             flow_divergence_score * 0.4 +
             profit_profile_score * 0.2
         )
-        # 注意：这里不再 clip(0,1)，因为元分析需要完整的[-1,1]双极性输入来判断趋势
         return absorption_snapshot.clip(-1, 1).astype(np.float32)
 
-    def _diagnose_panic_absorption(self, df: pd.DataFrame) -> pd.Series:
+    def _diagnose_main_force_absorption(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 动态灵魂版】恐慌吸收动态诊断引擎
-        - 核心升级: 采纳指挥官指令，引入“静态+导数”分析框架。
-                      1. 调用 `_calculate_panic_absorption_snapshot` 获取静态快照分。
+        【V2.1 · 名称规范化】主力吸收行为动态诊断引擎
+        - 核心升级: 引入“静态+导数”分析框架。
+                      1. 调用 `_calculate_main_force_absorption_snapshot` 获取静态快照分。
                       2. 将快照分送入元分析引擎，融合其“状态”、“速度”和“加速度”，输出最终的动态健康分。
         """
-        # [代码修改开始] 实施动态化改造
-        # 步骤1: 计算静态快照分
-        absorption_snapshot = self._calculate_panic_absorption_snapshot(df)
-        # 步骤2: 对快照分进行动态元分析 (使用一个标准的中期窗口，如13)
+        # [代码修改] 调用更名后的快照计算方法
+        absorption_snapshot = self._calculate_main_force_absorption_snapshot(df)
         meta_window = 13
         final_dynamic_score = self._perform_foundation_relational_meta_analysis(
             df=df,
             snapshot_score=absorption_snapshot,
             meta_window=meta_window
         )
-        # 步骤3: 输出最终的动态分，并裁剪到[0,1]区间，因为我们只关心正向的吸收行为
         return final_dynamic_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块
@@ -461,13 +457,15 @@ class FoundationIntelligence:
 
     def diagnose_classic_indicators_atomics(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 哥白尼革命同步版】经典指标原子信号诊断
-        - 核心升级: 同步“哥白尼革命”，在调用元分析时传入正确的周期参数 p_tactical。
+        【V3.3 · 广义抛压版】经典指标原子信号诊断
+        - 核心升级: 扩大了“恐慌”的定义，现在不仅包括“价跌”，还包括“长上影线”，形成“广义抛压”概念。
+                      这使得在上涨日出现长上影线时，也能触发后续的吸收分析。
+        - 信号更名: 输出的临时信号更名为 PROVISIONAL_SELLING_PRESSURE_STATE/DYNAMIC。
         """
         states = {}
         p = get_params_block(self.strategy, 'classic_indicator_params')
         if not get_param_value(p.get('enabled'), True): return states
-        required_cols = ['close_D', 'open_D']
+        required_cols = ['close_D', 'open_D', 'high_D', 'low_D'] # [代码修改] 增加 high, low
         if not all(col in df.columns for col in required_cols):
             return {}
         periods = [1, 5, 13, 21, 55]
@@ -479,6 +477,11 @@ class FoundationIntelligence:
         panic_risk_dynamic_scores = {}
         candle_body_up = (df['close_D'] - df['open_D']).clip(lower=0)
         candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
+        # [代码新增开始] 计算上影线比例，作为广义抛压的一部分
+        kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+        upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
+        upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
+        # [代码新增结束]
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_price_up = normalize_score(candle_body_up, df.index, p_tactical)
@@ -487,6 +490,11 @@ class FoundationIntelligence:
             tactical_price_down = normalize_score(candle_body_down, df.index, p_tactical)
             context_price_down = normalize_score(candle_body_down, df.index, p_context)
             fused_price_down = (tactical_price_down * context_price_down)**0.5
+            # [代码新增开始] 对上影线比例进行分层归一化
+            tactical_shadow = normalize_score(upper_shadow_ratio, df.index, p_tactical)
+            context_shadow = normalize_score(upper_shadow_ratio, df.index, p_context)
+            fused_shadow_pressure = (tactical_shadow * context_shadow)**0.5
+            # [代码新增结束]
             vol_slope_series = df.get(f'SLOPE_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             vol_accel_series = df.get(f'ACCEL_{p_tactical}_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
             tactical_vol_slope = normalize_score(vol_slope_series, df.index, p_tactical)
@@ -498,15 +506,14 @@ class FoundationIntelligence:
             fused_volume_igniting = fused_vol_slope * fused_vol_accel
             ignition_snapshot = (fused_price_up * fused_volume_igniting * ma_context_score).astype(np.float32)
             ignition_state_scores[p_tactical] = ignition_snapshot
-            # 同步“哥白尼革命”，传入 meta_window
             current_meta_window = max(1, p_tactical)
             ignition_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, ignition_snapshot, meta_window=current_meta_window)
-            
-            panic_snapshot = (fused_price_down * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
+            # [代码修改开始] 融合“价跌”和“长上影”作为广义抛压
+            selling_pressure_component = np.maximum(fused_price_down, fused_shadow_pressure)
+            panic_snapshot = (selling_pressure_component * fused_volume_igniting * (1 - ma_context_score)).astype(np.float32)
+            # [代码修改结束]
             panic_risk_state_scores[p_tactical] = panic_snapshot
-            # 同步“哥白尼革命”，传入 meta_window
             panic_risk_dynamic_scores[p_tactical] = self._perform_foundation_relational_meta_analysis(df, panic_snapshot, meta_window=current_meta_window)
-            
         def fuse_across_periods(scores_dict):
             final_score = pd.Series(0.0, index=df.index)
             total_weight = sum(tf_weights.values())
@@ -516,8 +523,10 @@ class FoundationIntelligence:
             return final_score.clip(0, 1)
         states['SCORE_VOL_PRICE_IGNITION_STATE'] = fuse_across_periods(ignition_state_scores)
         states['SCORE_VOL_PRICE_IGNITION_DYNAMIC'] = fuse_across_periods(ignition_dynamic_scores)
-        states['SCORE_VOL_PRICE_PANIC_RISK_STATE'] = fuse_across_periods(panic_risk_state_scores)
-        states['SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC'] = fuse_across_periods(panic_risk_dynamic_scores)
+        # [代码修改开始] 输出更名后的临时信号
+        states['PROVISIONAL_SELLING_PRESSURE_STATE'] = fuse_across_periods(panic_risk_state_scores)
+        states['PROVISIONAL_SELLING_PRESSURE_DYNAMIC'] = fuse_across_periods(panic_risk_dynamic_scores)
+        # [代码修改结束]
         return states
 
 

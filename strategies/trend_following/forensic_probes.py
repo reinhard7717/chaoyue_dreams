@@ -1024,73 +1024,74 @@ class ForensicProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score_clipped:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score_clipped) else '❌ 不一致'}")
         print("\n--- 上影线风险探针解剖完毕 ---")
 
-    def _deploy_alchemical_transmutation_probe(self, probe_date: pd.Timestamp):
+    def _deploy_selling_pressure_analysis_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】“真理之镜”探针 - 炼金术协议全链路解剖
-        - 核心使命: 深度解剖“炼金术”协议，验证从“恐慌抛售”到“黄金坑”的嬗变全过程。
-        - 解剖链路: 1. 原始恐慌风险 -> 2. 恐慌吸收动态分 -> 3. 审判阈值 -> 4. 最终风险/机会。
+        【V1.1 · 广义抛压版】抛压分析探针
+        - 核心使命: 深度解剖广义抛压分析流程，验证从“抛压”到“吸收反转机会”的嬗变全过程。
+        - 解剖链路: 1. 原始抛压风险 -> 2. 主力吸收动态分 -> 3. 审判阈值 -> 4. 最终风险/机会。
         """
-        print("\n" + "="*35 + f" [战术探针] 正在启用 💎【真理之镜 · 炼金术协议解剖 V1.0】💎 " + "="*35)
+        print("\n" + "="*35 + f" [战术探针] 正在启用 💎【抛压分析探针 V1.1】💎 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.foundation_intel
         def get_val(series, date, default=np.nan):
             if series is None or not isinstance(series, (pd.Series, np.ndarray)): return default
-            # 兼容 Series 和 ndarray
             if isinstance(series, np.ndarray):
                 idx_loc = df.index.get_loc(date, method='nearest')
                 return series[idx_loc] if idx_loc < len(series) else default
             val = series.get(date)
             return default if pd.isna(val) else val
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        p_absorb = get_params_block(p_conf, 'panic_absorption_params', {})
-        judgment_threshold = get_param_value(p_absorb.get('judgment_threshold'), 0.7)
+        # [代码修改] 更新参数块名称
+        p_analysis = get_params_block(p_conf, 'selling_pressure_analysis_params', {})
+        judgment_threshold = get_param_value(p_analysis.get('judgment_threshold'), 0.7)
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        actual_risk = get_val(atomic.get('SCORE_FOUNDATION_PANIC_SELLING_RISK'), probe_date, 0.0)
-        actual_opp = get_val(atomic.get('SCORE_OPPORTUNITY_GOLDEN_PIT'), probe_date, 0.0)
-        actual_absorption = get_val(atomic.get('SCORE_PANIC_ABSORPTION'), probe_date, 0.0)
+        # [代码修改] 更新信号名称
+        actual_risk = get_val(atomic.get('SCORE_RISK_PANIC_SELLING'), probe_date, 0.0)
+        actual_opp = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'), probe_date, 0.0)
+        actual_absorption = get_val(atomic.get('SCORE_MAIN_FORCE_ABSORPTION_DYNAMIC'), probe_date, 0.0)
         print(f"    - 【最终恐慌风险】: {actual_risk:.4f}")
-        print(f"    - 【黄金坑机会分】: {actual_opp:.4f}")
-        print(f"    - 【恐慌吸收动态分】: {actual_absorption:.4f}")
-        print("\n  [链路层 2] 原始恐慌风险重算 (Raw Panic Risk)")
-        state = get_val(atomic.get('PROVISIONAL_PANIC_RISK_STATE'), probe_date, 0.0)
-        dynamic = get_val(atomic.get('PROVISIONAL_PANIC_RISK_DYNAMIC'), probe_date, 0.0)
+        print(f"    - 【吸收反转机会分】: {actual_opp:.4f}")
+        print(f"    - 【主力吸收动态分】: {actual_absorption:.4f}")
+        print("\n  [链路层 2] 原始抛压风险重算 (Raw Selling Pressure)")
+        # [代码修改] 更新信号名称
+        state = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_STATE'), probe_date, 0.0)
+        dynamic = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_DYNAMIC'), probe_date, 0.0)
         recalc_raw_risk = state * dynamic
         print(f"    - [原材料]: 状态分 {state:.4f} * 动态分 {dynamic:.4f}")
-        print(f"    - 【探针重算原始恐慌风险】: {recalc_raw_risk:.4f}")
-        print("\n  [链路层 3] 恐慌吸收动态分重算 (The Catalyst)")
-        # 步骤3.1: 重算静态快照分
-        snapshot_series = engine._calculate_panic_absorption_snapshot(df)
+        print(f"    - 【探针重算原始抛压风险】: {recalc_raw_risk:.4f}")
+        print("\n  [链路层 3] 主力吸收动态分重算 (The Catalyst)")
+        # [代码修改] 更新方法名称
+        snapshot_series = engine._calculate_main_force_absorption_snapshot(df)
         snapshot_val = get_val(snapshot_series, probe_date)
         print(f"    - [静态快照分]: {snapshot_val:.4f}")
-        # 步骤3.2: 重算动态元分析
-        meta_window = 13 # 与主引擎保持一致
+        meta_window = 13
         recalc_dynamic_series = engine._perform_foundation_relational_meta_analysis(df, snapshot_series, meta_window)
         recalc_dynamic_unclipped = get_val(recalc_dynamic_series, probe_date)
         recalc_absorption_score = np.clip(recalc_dynamic_unclipped, 0, 1)
         print(f"    - [动态元分析结果(Clip前)]: {recalc_dynamic_unclipped:.4f}")
-        print(f"    - 【探针重算恐慌吸收分】: {recalc_absorption_score:.4f}")
+        print(f"    - 【探针重算主力吸收分】: {recalc_absorption_score:.4f}")
         print(f"    - [内部验证]: 系统值 {actual_absorption:.4f} vs. 探针重算 {recalc_absorption_score:.4f} -> {'✅ 一致' if np.isclose(actual_absorption, recalc_absorption_score) else '❌ 不一致'}")
-        print("\n  [链路层 4] 炼金术嬗变 (Alchemical Transmutation)")
-        is_golden_pit = recalc_absorption_score >= judgment_threshold
+        print("\n  [链路层 4] 抛压分析与机会嬗变 (Pressure Analysis & Opportunity Transmutation)")
+        is_absorption_reversal = recalc_absorption_score >= judgment_threshold
         print(f"    - [审判阈值]: {judgment_threshold:.2f}")
-        print(f"    - [审判结果]: 吸收分 {recalc_absorption_score:.4f} >= {judgment_threshold:.2f} -> {'✅ 构成黄金坑' if is_golden_pit else '❌ 未构成黄金坑'}")
-        if is_golden_pit:
+        print(f"    - [审判结果]: 吸收分 {recalc_absorption_score:.4f} >= {judgment_threshold:.2f} -> {'✅ 构成吸收反转' if is_absorption_reversal else '❌ 未构成吸收反转'}")
+        if is_absorption_reversal:
             print("    - [执行逻辑]: 风险归零，创造机会！")
             recalc_final_risk = 0.0
-            recalc_golden_pit = recalc_raw_risk * recalc_absorption_score
+            recalc_opportunity = recalc_raw_risk * recalc_absorption_score
         else:
             print("    - [执行逻辑]: 按比例衰减风险。")
             recalc_final_risk = recalc_raw_risk * (1 - recalc_absorption_score)
-            recalc_golden_pit = 0.0
+            recalc_opportunity = 0.0
         recalc_final_risk = np.clip(recalc_final_risk, 0, 1)
-        recalc_golden_pit = np.clip(recalc_golden_pit, 0, 1)
+        recalc_opportunity = np.clip(recalc_opportunity, 0, 1)
         print(f"    - 【探针重算最终风险】: {recalc_final_risk:.4f}")
-        print(f"    - 【探针重算黄金坑分】: {recalc_golden_pit:.4f}")
+        print(f"    - 【探针重算机会分】: {recalc_opportunity:.4f}")
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [风险对比]: 系统最终值 {actual_risk:.4f} vs. 探针正确值 {recalc_final_risk:.4f} -> {'✅ 一致' if np.isclose(actual_risk, recalc_final_risk) else '❌ 不一致'}")
-        print(f"    - [机会对比]: 系统最终值 {actual_opp:.4f} vs. 探针正确值 {recalc_golden_pit:.4f} -> {'✅ 一致' if np.isclose(actual_opp, recalc_golden_pit) else '❌ 不一致'}")
-        print("\n--- “真理之镜”探针解剖完毕 ---")
+        print(f"    - [机会对比]: 系统最终值 {actual_opp:.4f} vs. 探针正确值 {recalc_opportunity:.4f} -> {'✅ 一致' if np.isclose(actual_opp, recalc_opportunity) else '❌ 不一致'}")
+        print("\n--- “抛压分析探针”解剖完毕 ---")
 
 
 

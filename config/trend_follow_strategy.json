@@ -777,7 +777,7 @@
       },
       "foundation_ultimate_params": {
         "enabled": true,
-        "description": "【V14.1 · 阿瑞斯之怒版】此模块现在只定义特定于基础领域的支柱权重。",
+        "description": "【V14.2 · 广义抛压分析版】此模块现在只定义特定于基础领域的支柱权重。",
         "pillar_weights": {
           "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
         },
@@ -789,20 +789,20 @@
           "relational": 0.25,
           "meta_dynamics": 0.25
         },
-        "panic_absorption_params": {
+        "selling_pressure_analysis_params": {
           "enabled": true,
-          "description": "【V1.0 · 炼金术版】恐慌吸收协议的专属配置，用于将恐慌抛售风险嬗变为黄金坑机会。",
+          "description": "【V1.1 · 名称规范化】抛压分析协议的专属配置，用于将抛压风险嬗变为吸收反转机会。",
           "judgment_threshold": 0.7
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【V2.1 · 名称规范化】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "fund_flow_ultimate_params": {
