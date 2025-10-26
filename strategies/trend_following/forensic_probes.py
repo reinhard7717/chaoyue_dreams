@@ -14,6 +14,12 @@ class ForensicProbes:
     - 架构意义: 建立了清晰的依赖关系，探针集合现在是情报层的直接附属，可以访问其所有子模块。
     """
     def __init__(self, intelligence_layer_instance):
+        """
+        【V1.2 · 探针模块化集成版】
+        - 核心升级: 导入并实例化 ProcessProbes 模块，将其探针方法动态委托给 ForensicProbes 实例。
+        - 收益: 实现了探针的完全模块化，为主探针调度中心添加新功能变得即插即用。
+        """
+        # [代码修改开始]
         # 接收 intelligence_layer_instance 而非 strategy_instance
         self.strategy = intelligence_layer_instance.strategy
         # 探针可能需要访问认知引擎等子模块，通过 intelligence_layer_instance 传递
@@ -22,13 +28,18 @@ class ForensicProbes:
         self.chip_intel = intelligence_layer_instance.chip_intel
         # 为资金流探针获取 fund_flow_intel 引用
         self.fund_flow_intel = intelligence_layer_instance.fund_flow_intel
-        # [代码新增开始]
         # 为新的动态力学探针获取 mechanics_engine 引用
         self.mechanics_engine = intelligence_layer_instance.mechanics_engine
         # 为新的基础探针获取 foundation_intel 引用
         self.foundation_intel = intelligence_layer_instance.foundation_intel
         self.process_intel = intelligence_layer_instance.process_intel
         self.behavioral_intel = intelligence_layer_instance.behavioral_intel
+        # 1. 导入并实例化新的过程探针模块
+        from .forensic_probes.process_probes import ProcessProbes
+        self.process_probes = ProcessProbes(intelligence_layer_instance)
+        # 2. 将过程探针模块中的方法委托给主探针实例
+        self._deploy_cost_advantage_probe = self.process_probes._deploy_cost_advantage_probe
+        # [代码修改结束]
 
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
         """
