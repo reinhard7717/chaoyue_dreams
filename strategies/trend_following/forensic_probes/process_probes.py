@@ -73,7 +73,81 @@ class ProcessProbes:
         print(f"  - 最终原子状态分 ({signal_name}): {final_score:.4f}")
         print(f"--- 探针结束: '{signal_name}' 解剖完毕 ---\n")
 
+    def _deploy_themis_scales_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
+        """
+        【V1.1 · 动态同步版】“忒弥斯的天平”探针 - 过程情报引擎深度解剖
+        - 核心升级: 探针不再硬编码变化类型，而是从信号配置中动态读取。
+        """
+        print("\n" + "="*35 + f" [过程探针] 正在启用 ⚖️【过程引擎解剖 V1.1】⚖️ " + "="*35)
+        print(f"  [目标信号]: {signal_to_probe}")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.process_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        target_config = next((c for c in engine.diagnostics_config if c.get('name') == signal_to_probe), None)
+        if not target_config:
+            print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
+            return
+        change_type_a = target_config.get('change_type_A', 'pct')
+        change_type_b = target_config.get('change_type_B', 'pct')
+        final_score_actual = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
+        print(f"    - 【最终得分】: {final_score_actual:.4f}")
+        signal_a_name = target_config.get('signal_A')
+        signal_b_name = target_config.get('signal_B')
+        k = target_config.get('signal_b_factor_k', 1.0)
+        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
+            if series is None: return pd.Series(dtype=float)
+            if change_type == 'diff':
+                return series.diff(1).fillna(0)
+            return ta.percent_return(series, length=1).fillna(0)
+        signal_a_series = df.get(signal_a_name)
+        signal_b_series = df.get(signal_b_name)
+        change_a = get_change_series(signal_a_series, change_type_a)
+        change_b = get_change_series(signal_b_series, change_type_b)
+        momentum_a = normalize_to_bipolar(change_a, df.index, engine.std_window, engine.bipolar_sensitivity)
+        thrust_b = normalize_to_bipolar(change_b, df.index, engine.std_window, engine.bipolar_sensitivity)
+        momentum_a_val = get_val(momentum_a, probe_date)
+        thrust_b_val = get_val(thrust_b, probe_date)
+        recalc_score_unclipped = (k * thrust_b_val - momentum_a_val) / (k + 1)
+        recalc_score_clipped = np.clip(recalc_score_unclipped, -1, 1)
+        print(f"    - [探针重算]: {recalc_score_clipped:.4f}")
+        print("\n--- “过程引擎探针”解剖完毕 ---")
 
+    def _deploy_process_sync_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
+        """
+        【V1.0】过程同步探针
+        - 核心使命: 深度解剖 'strategy_sync' 类型的过程信号。
+        """
+        print("\n" + "="*35 + f" [过程探针] 正在启用 🔗【过程同步探针 V1.0】🔗 " + "="*35)
+        print(f"  [目标信号]: {signal_to_probe}")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.process_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        target_config = next((c for c in engine.diagnostics_config if c.get('name') == signal_to_probe), None)
+        if not target_config:
+            print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
+            return
+        actual_final_score = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
+        print(f"    - 【最终同步分】: {actual_final_score:.4f}")
+        relationship_series = engine._calculate_strategy_sync_relationship(df, target_config)
+        relationship_trend = ta.linreg(relationship_series, length=engine.meta_window).fillna(0)
+        relationship_accel = ta.linreg(relationship_trend, length=engine.meta_window).fillna(0)
+        bipolar_trend_strength = normalize_to_bipolar(relationship_trend, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        trend_weight, accel_weight = engine.meta_score_weights
+        recalc_meta_score = (get_val(bipolar_trend_strength, probe_date) * trend_weight + get_val(bipolar_accel_strength, probe_date) * accel_weight)
+        recalc_meta_score = np.clip(recalc_meta_score, -1, 1)
+        # 根据信号分裂逻辑重算
+        recalc_final_score = max(0, -recalc_meta_score) # DECAY信号取负值部分
+        print(f"    - [元分析得分]: {recalc_meta_score:.4f} -> [最终风险分]: {recalc_final_score:.4f}")
+        print("\n--- “过程同步探针”解剖完毕 ---")
 
 
 
