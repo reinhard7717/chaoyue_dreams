@@ -666,15 +666,17 @@ class MicroBehaviorEngine:
 
     def _calculate_4d_metric_quality(self, df: pd.DataFrame, metric_name: str, p: int, context_p: int, ascending: bool) -> pd.Series:
         """
-        【V1.0 · 新增】计算原子指标的四维质量分 (状态+速度+加速度+内部上下文)。
-        - 核心逻辑: 融合战术层(p)和战略层(context_p)的质量，实现内部上下文印证。
+        【V1.1 · 路径修正版】计算原子指标的四维质量分 (状态+速度+加速度+内部上下文)。
+        - 核心修正: 修正了内部构建列名时，错误地重复添加 '_D' 后缀的问题，解决了因列名不存在而返回默认值导致的 AttributeError。
         """
+        # [代码修改开始]
         # 状态
-        static = df.get(f'{metric_name}_D', 0)
+        static = df.get(metric_name, 0) # 修正: 直接使用 metric_name，不再拼接 '_D'
         # 速度 (战术层)
-        slope = df.get(f'SLOPE_{p}_{metric_name}_D', 0)
+        slope = df.get(f'SLOPE_{p}_{metric_name}', 0) # 修正: 直接使用 metric_name
         # 加速度 (战术层)
-        accel = df.get(f'ACCEL_{p}_{metric_name}_D', 0)
+        accel = df.get(f'ACCEL_{p}_{metric_name}', 0) # 修正: 直接使用 metric_name
+        # [代码修改结束]
         # 战术层 (p)
         tactical_static = normalize_score(static, df.index, p, ascending=ascending)
         tactical_slope = normalize_score(slope, df.index, p, ascending=ascending)
@@ -682,8 +684,10 @@ class MicroBehaviorEngine:
         tactical_quality = (tactical_static * tactical_slope * tactical_accel)**(1/3)
         # 战略/上下文层 (context_p)
         context_static = normalize_score(static, df.index, context_p, ascending=ascending)
-        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{metric_name}_D', 0), df.index, context_p, ascending=ascending)
-        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{metric_name}_D', 0), df.index, context_p, ascending=ascending)
+        # [代码修改开始]
+        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{metric_name}', 0), df.index, context_p, ascending=ascending) # 修正: 直接使用 metric_name
+        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{metric_name}', 0), df.index, context_p, ascending=ascending) # 修正: 直接使用 metric_name
+        # [代码修改结束]
         context_quality = (context_static * context_slope * context_accel)**(1/3)
         # 最终融合 (战术 * 战略)
         return (tactical_quality * context_quality)**0.5
