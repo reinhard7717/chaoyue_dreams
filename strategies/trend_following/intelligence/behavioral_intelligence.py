@@ -81,9 +81,8 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 逻辑集权化版】原子信号中心
-        - 核心重构: 将“抛压-诊断-嬗变”的全链路逻辑收归本模块。
-                      现在由 `_transmute_pressure_into_opportunity` 统一完成最终的风险和机会信号生成。
+        【V2.2 · 终极净化版】原子信号中心
+        - 核心重构: 彻底移除了对已被废弃的 `_fuse_upper_shadow_signals` 的调用，消除了逻辑冗余。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -96,7 +95,7 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # 实施全链路逻辑集权
+        # [代码修改开始] 实施全链路逻辑集权，并移除冗余调用
         # 步骤1: 生成临时的广义抛压信号
         provisional_kline_signals = self._diagnose_kline_patterns(df, day_quality_score)
         provisional_pressure = provisional_kline_signals.get('PROVISIONAL_GENERAL_PRESSURE_RISK', pd.Series(0.0, index=df.index))
@@ -108,7 +107,7 @@ class BehavioralIntelligence:
         # 步骤3: 调用嬗变引擎，生成最终的风险和机会信号
         final_pressure_signals = self._transmute_pressure_into_opportunity(provisional_pressure, intent_diagnosis)
         atomic_signals.update(final_pressure_signals)
-        
+        # [代码修改结束]
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
@@ -888,19 +887,6 @@ class BehavioralIntelligence:
         day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
         return day_quality_score
 
-    def _fuse_upper_shadow_signals(self, provisional_risk: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 新增】上影线信号融合器（风险调光器）
-        - 核心使命: 应用“风险调光器”协议，融合原始抛压风险和意图诊断分。
-        - 核心公式: 最终风险分 = 原始抛压风险分 * (1 - 上影线意图诊断分)
-        - 产出: 生成最终的、经过上下文调制的 `SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW` 信号。
-        """
-        states = {}
-        final_risk_score = (provisional_risk * (1 - intent_diagnosis)).clip(0, 2) # 允许风险翻倍
-        # 为了计分系统的兼容性，最终输出到计分系统时可以再clip(0,1)
-        # 但这里保留原始计算值，以便未来更精细的风险模型使用
-        states['SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'] = final_risk_score.astype(np.float32)
-        return states
 
     def _transmute_pressure_into_opportunity(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
