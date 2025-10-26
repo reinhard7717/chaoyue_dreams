@@ -13,10 +13,8 @@ class ForensicProbes:
     """
     def __init__(self, intelligence_layer_instance):
         """
-        【V2.1 · 路径修正版】法医探针调度中心
+        【V2.2 · 终极风险探针版】法医探针调度中心
         """
-        # [代码修改开始]
-        # 1. 导入所有分类探针模块 (使用正确的路径)
         from .probes.behavioral_probes import BehavioralProbes
         from .probes.chip_probes import ChipProbes
         from .probes.cognitive_probes import CognitiveProbes
@@ -24,7 +22,6 @@ class ForensicProbes:
         from .probes.foundation_probes import FoundationProbes
         from .probes.fund_flow_probes import FundFlowProbes
         from .probes.process_probes import ProcessProbes
-        # 2. 实例化所有分类探针模块
         self.behavioral_probes = BehavioralProbes(intelligence_layer_instance)
         self.chip_probes = ChipProbes(intelligence_layer_instance)
         self.cognitive_probes = CognitiveProbes(intelligence_layer_instance)
@@ -32,25 +29,26 @@ class ForensicProbes:
         self.foundation_probes = FoundationProbes(intelligence_layer_instance)
         self.fund_flow_probes = FundFlowProbes(intelligence_layer_instance)
         self.process_probes = ProcessProbes(intelligence_layer_instance)
-        # 3. 方法委托，确保对上层调用透明
-        # 行为探针
         self._deploy_prometheus_torch_probe = self.behavioral_probes._deploy_prometheus_torch_probe
         self._deploy_pressure_transmutation_probe = self.behavioral_probes._deploy_pressure_transmutation_probe
-        # 筹码探针
         self._deploy_hephaestus_forge_probe = self.chip_probes._deploy_hephaestus_forge_probe
         self._deploy_chip_resonance_probe = self.chip_probes._deploy_chip_resonance_probe
-        # 认知探针
         self._deploy_thanatos_scythe_probe = self.cognitive_probes._deploy_thanatos_scythe_probe
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
         self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
-        # 力学探针
+        # [代码新增开始]
+        self._deploy_ultimate_top_reversal_probe = self.cognitive_probes._deploy_ultimate_top_reversal_probe
+        # [代码新增结束]
         self._deploy_ares_chariot_probe = self.dynamic_mechanics_probes._deploy_ares_chariot_probe
-        # 基础探针
         self._deploy_apollos_lyre_probe = self.foundation_probes._deploy_apollos_lyre_probe
-        # 资金流探针
         self._deploy_poseidons_trident_probe = self.fund_flow_probes._deploy_poseidons_trident_probe
-        # 过程探针
         self._deploy_cost_advantage_probe = self.process_probes._deploy_cost_advantage_probe
         self._deploy_themis_scales_probe = self.process_probes._deploy_themis_scales_probe
         self._deploy_process_sync_probe = self.process_probes._deploy_process_sync_probe
-        # [代码修改结束]
+
+
+
+
+
+
+

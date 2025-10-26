@@ -148,7 +148,8 @@
         "enable_fund_flow_probe": false,
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
-        "enable_profit_taking_pressure_probe": true
+        "enable_profit_taking_pressure_probe": false,
+        "enable_ultimate_top_reversal_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
@@ -188,9 +189,9 @@
       },
       "judgment_day_params": {
         "enabled": true,
-        "description": "【V2.0 · 先知版】审判日引擎参数，增加了对先知信号的阈值定义。",
+        "description": "【V2.1 · 终极风险版】审判日引擎参数，增加了对终极顶部反转信号的阈值定义。",
         "prophet_alert_threshold": 0.7,
-        "archangel_alert_threshold": 0.7,
+        "ultimate_top_reversal_alert_threshold": 0.7,
         "top_reversal_alert_threshold": 0.8,
         "bearish_resonance_alert_threshold": 0.7,
         "euphoria_alert_threshold": 0.75,
@@ -730,7 +731,7 @@
           "55": 0.05
         },
         "axiom_weights": {
-          "description": "【新增】融合四大物理公理时的权重。",
+          "description": "融合四大物理公理时的权重。",
           "concentration": 0.3,
           "accumulation": 0.3,
           "power_transfer": 0.25,
@@ -754,7 +755,7 @@
           "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "context_modulation_params": {
-          "description": "【新增】上下文感知模块，用于增强或抑制筹码信号。",
+          "description": "上下文感知模块，用于增强或抑制筹码信号。",
           "bottom_context_factor": 0.5,
           "top_context_factor": 0.5
         }
@@ -840,7 +841,7 @@
             "meta_dynamics": 0.3
         },
         "tf_weights": {
-          "description": "【新增】在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
+          "description": "在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
           "1": 0.1,
           "5": 0.4,
           "13": 0.3,
@@ -962,7 +963,7 @@
         },
         "expansion_engine_periods": [1, 5, 13, 21, 55],
         "expansion_engine_tf_weights": {
-          "description": "【新增】认知扩展引擎中，用于MTF融合的周期权重。",
+          "description": "认知扩展引擎中，用于MTF融合的周期权重。",
           "1": 0.05,
           "5": 0.2,
           "13": 0.3,
@@ -1078,28 +1079,28 @@
             "SCORE_RISK_VPA_EFFICIENCY_DECLINING": { "weight": 1.0 },
             "SCORE_RISK_VPA_VOLUME_ACCELERATING": { "weight": 1.0 }
           },
-          "cognitive_risk": {
-            "SCORE_ARCHANGEL_TOP_REVERSAL": { "weight": 2.5 },
-            "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
-            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
-            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
-            "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": { "weight": 1.5, "inverse": false },
-            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 },
-            "SCORE_RISK_ICARUS_FALL": { "weight": 2.2, "description": "【新增】伊卡洛斯之坠风险，识别主力背叛趋势、高位诱多派发的行为，权重极高。" }
-         },
+        "cognitive_risk": {
+          "说明": "【V2.0 · 终极风险版】将所有认知层风险的裁决权统一上交给新的终极顶部风险信号。",
+          "COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL": { "weight": 2.5 },
+          "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
+          "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
+          "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
+          "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 },
+          "SCORE_RISK_ICARUS_FALL": { "weight": 2.2, "description": "伊卡洛斯之坠风险，识别主力背叛趋势、高位诱多派发的行为，权重极高。" }
+        },
          "cyclical_risk": {
-            "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "【新增】周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }
+            "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }
          },
          "cognitive_expansion_risk": {
-            "COGNITIVE_RISK_OLD_GUARD_RETREAT": { "weight": 1.5, "description": "【新增】旧神的黄昏风险，识别长期获利盘的派发迹象。" },
-            "COGNITIVE_RISK_HECATE_CROSSROADS": { "weight": 2.0, "description": "【新增】赫卡忒的十字路口风险，量化市场的不可预测性。" },
-            "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": { "weight": 2.0, "description": "【新增】散户狂热与主力撤退风险，识别经典的牛市陷阱。" },
-            "COGNITIVE_RISK_HARVEST_CONFIRMATION": { "weight": 1.8, "description": "【新增】收割确认风险，确认上冲派发是否伴随真实利润兑现。" },
-            "COGNITIVE_RISK_SIREN_SONG": { "weight": 2.2, "description": "【新增】塞壬之歌风险，识别筹码派发背景下的诱多收割行为。" },
-            "COGNITIVE_RISK_LIQUIDITY_TRAP": { "weight": 1.2, "description": "【新增】流动性陷阱风险，资金流出与流动性枯竭的共振。" },
-            "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": { "weight": 1.0, "description": "【新增】T+0套利压力风险，主力短期派发行为。" },
-            "COGNITIVE_RISK_DAM_BREACH": { "weight": 2.5, "description": "【新增】堤坝溃决风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
-            "COGNITIVE_RISK_OLYMPUS_CRUMBLING": { "weight": 2.4, "description": "【新增】奥林匹斯之崩风险，结构顶部与主力派发、散户接盘的共振。" }
+            "COGNITIVE_RISK_OLD_GUARD_RETREAT": { "weight": 1.5, "description": "旧神的黄昏风险，识别长期获利盘的派发迹象。" },
+            "COGNITIVE_RISK_HECATE_CROSSROADS": { "weight": 2.0, "description": "赫卡忒的十字路口风险，量化市场的不可预测性。" },
+            "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": { "weight": 2.0, "description": "散户狂热与主力撤退风险，识别经典的牛市陷阱。" },
+            "COGNITIVE_RISK_HARVEST_CONFIRMATION": { "weight": 1.8, "description": "收割确认风险，确认上冲派发是否伴随真实利润兑现。" },
+            "COGNITIVE_RISK_SIREN_SONG": { "weight": 2.2, "description": "塞壬之歌风险，识别筹码派发背景下的诱多收割行为。" },
+            "COGNITIVE_RISK_LIQUIDITY_TRAP": { "weight": 1.2, "description": "流动性陷阱风险，资金流出与流动性枯竭的共振。" },
+            "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": { "weight": 1.0, "description": "T+0套利压力风险，主力短期派发行为。" },
+            "COGNITIVE_RISK_DAM_BREACH": { "weight": 2.5, "description": "堤坝溃决风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
+            "COGNITIVE_RISK_OLYMPUS_CRUMBLING": { "weight": 2.4, "description": "奥林匹斯之崩风险，结构顶部与主力派发、散户接盘的共振。" }
          }
         },
         "resonance_penalty_params": {

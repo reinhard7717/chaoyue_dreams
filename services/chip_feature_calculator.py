@@ -346,7 +346,7 @@ class ChipFeatureCalculator:
         return {'turnover_at_peak_ratio': turnover_at_peak_ratio}
 
     def _calculate_concentration_dynamics(self, context: dict) -> dict:
-        """【新增】计算筹码集中度四象限动态归因指标"""
+        """计算筹码集中度四象限动态归因指标"""
         today_conc = context.get('concentration_90pct')
         prev_conc = self.ctx.get('prev_concentration_90pct')
         vol_above_ratio = self.ctx.get('volume_above_vwap_ratio')
@@ -627,7 +627,7 @@ class ChipFeatureCalculator:
         return results
 
     def _calculate_cost_divergence(self, context: dict) -> dict:
-        """【新增】计算成本乖离率"""
+        """计算成本乖离率"""
         avg_cost_short = context.get('avg_cost_short_term')
         avg_cost_long = context.get('avg_cost_long_term')
         if avg_cost_short is None or avg_cost_long is None or avg_cost_long == 0:
@@ -636,7 +636,7 @@ class ChipFeatureCalculator:
         return {'cost_divergence': divergence}
 
     def _calculate_health_score(self, context: dict) -> dict:
-        """【新增】计算筹码健康分"""
+        """计算筹码健康分"""
         # 定义健康分构成要素及其权重
         # 权重为负表示该指标值越小越健康
         components = {

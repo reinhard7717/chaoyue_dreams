@@ -39,10 +39,13 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V14.0 · 万象归一版】顶层认知总分合成模块
+        【V14.1 · 终极风险重构版】顶层认知总分合成模块
         - 核心升级:
           1. [架构重构] 废除所有零散的 _synthesize_* 扩展信号方法，统一由全新的 `_synthesize_cognitive_expansion_engine` 引擎生成。
           2. [分析升维] 所有扩展信号现在都将经过“关系元分析”，具备“状态-速度-加速度”的动态洞察力。
+        - 本次修改:
+          - [名称净化] 将 `_diagnose_archangel_top_reversal` 重命名为 `_diagnose_ultimate_top_reversal`。
+          - [逻辑加固] 新的终极顶部风险引擎将融合更多高优先级风险信号。
         """        
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
@@ -60,18 +63,17 @@ class CognitiveIntelligence:
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
         cyclical_risk_states = self._calculate_cyclical_top_risk(df)
         self.strategy.atomic_states.update(cyclical_risk_states)
-        # 使用全新的统一引擎替换所有零散的 _synthesize_* 方法
-        # 旧的、冗长的方法调用链已被移除
         self.strategy.atomic_states.update(self._synthesize_cognitive_expansion_engine(df))
-        
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
-        archangel_states = self._diagnose_archangel_top_reversal(df)
-        self.strategy.atomic_states.update(archangel_states)
-        # 动态构建有效的看涨信号列表，并加入新的高价值信号
+        # [代码修改开始]
+        # 调用重构后的终极顶部风险诊断引擎
+        ultimate_top_risk_states = self._diagnose_ultimate_top_reversal(df)
+        self.strategy.atomic_states.update(ultimate_top_risk_states)
+        # [代码修改结束]
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
             'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE',
@@ -90,7 +92,6 @@ class CognitiveIntelligence:
             'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT',
             'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT',
             'SCORE_MICRO_HERMES_GAMBIT',
-            # 以下为通过新引擎生成的信号
             'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE',
             'COGNITIVE_SCORE_INDUSTRY_RECESSION_INDIVIDUAL_STRENGTH',
             'COGNITIVE_SCORE_SENTIMENT_TECH_RESONANCE',
@@ -111,7 +112,6 @@ class CognitiveIntelligence:
             'COGNITIVE_SCORE_BOTTOM_POWER_TRANSFER',
             'COGNITIVE_SCORE_BREAKOUT_VALIDATION_CONFIRM',
         ]
-        
         valid_bullish_scores = []
         for signal_name in bullish_signal_names:
             signal_series = self._get_atomic_score(df, signal_name)
@@ -740,34 +740,67 @@ class CognitiveIntelligence:
         
         self.strategy.atomic_states.update(states)
 
-    def _diagnose_archangel_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_ultimate_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 赫利俄斯之眼版】“天使长”顶部反转诊断引擎
-        - 核心革命: 签署“赫利俄斯之眼”协议，聚焦于“当下”的顶部风险，斩断“昨日幽灵”的纠缠。
-                      1. [斩断] 彻底移除对 `COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN` 的依赖。
-                      2. [聚焦] 引入两个更即时的、更能反映主力派发意图的风险信号：
-                         - `COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT` (散户追高，主力撤退)
-                         - `COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION` (长期筹码高位派发)
-        - 收益: “天使长”的判断不再受过时信号的干扰，能更精准地在派发行为发生的当天发出警报。
+        【V5.0 · 终极裁决版】终极顶部反转诊断引擎
+        - 核心重构: 重命名并大幅加固。融合了来自各个情报维度的、所有最高优先级的顶部风险信号，
+                      成为名副其实的“终极顶部风险”裁决者。
+        - 新增证据:
+          - SCORE_RISK_ICARUS_FALL (微观行为)
+          - COGNITIVE_RISK_TRUE_RETREAT_RISK (认知层)
+          - COGNITIVE_RISK_EUPHORIC_ACCELERATION (认知层)
+          - COGNITIVE_RISK_SIREN_SONG (认知扩展)
+          - COGNITIVE_RISK_OLYMPUS_CRUMBLING (认知扩展)
+          - COGNITIVE_RISK_CYCLICAL_TOP (周期层)
+        - 新增功能: 内置“探针”逻辑，可在调试模式下打印触发当日的核心风险源。
         """
+        # [代码修改开始]
         states = {}
-        top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
-        upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
-        heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
-        # 引入新的、更即时的风险证据
-        fomo_retreat_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0)
-        ltp_dist_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0)
-        risk_matrix = np.stack([
-            upthrust_risk.values,
-            heaven_earth_risk.values,
-            top_context_score.values,
-            fomo_retreat_risk.values,
-            ltp_dist_risk.values
-        ], axis=0)
-        archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
-        archangel_score = np.clip(archangel_score_values, 0, 1)
-        states['SCORE_ARCHANGEL_TOP_REVERSAL'] = pd.Series(archangel_score, index=df.index, dtype=np.float32)
+        signal_name = 'COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL'
+        # 定义所有最高优先级的顶部风险信号
+        risk_signals = {
+            # 现有信号
+            'CONTEXT_TOP_SCORE': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
+            'SCORE_RISK_UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
+            'SCORE_BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
+            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
+            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': self._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0),
+            # 新增的高价值风险信号
+            'SCORE_RISK_ICARUS_FALL': self._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            'COGNITIVE_RISK_TRUE_RETREAT_RISK': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
+            'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
+            'COGNITIVE_RISK_SIREN_SONG': self._get_atomic_score(df, 'COGNITIVE_RISK_SIREN_SONG', 0.0),
+            'COGNITIVE_RISK_OLYMPUS_CRUMBLING': self._get_atomic_score(df, 'COGNITIVE_RISK_OLYMPUS_CRUMBLING', 0.0),
+            'COGNITIVE_RISK_CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0)
+        }
+        risk_matrix = np.stack([s.values for s in risk_signals.values()], axis=0)
+        # 使用 maximum.reduce 确保任何一个风险信号触发，都会反映到最终分数上
+        ultimate_risk_values = np.maximum.reduce(risk_matrix, axis=0)
+        ultimate_risk_score = pd.Series(np.clip(ultimate_risk_values, 0, 1), index=df.index, dtype=np.float32)
+        states[signal_name] = ultimate_risk_score
+        # --- 探针逻辑 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        if debug_params.get('enabled', {}).get('value', False):
+            probe_dates = debug_params.get('probe_dates', [])
+            for probe_date_str in probe_dates:
+                probe_date = pd.to_datetime(probe_date_str)
+                if probe_date in df.index:
+                    final_score_on_date = ultimate_risk_score.loc[probe_date]
+                    if final_score_on_date > 0.1: # 仅在有显著风险时打印
+                        print(f"\n--- [探针] 正在解剖 {signal_name} 于 {probe_date_str} ---")
+                        component_scores = {name: series.loc[probe_date] for name, series in risk_signals.items()}
+                        # 找出贡献最大的信号
+                        max_contributor = max(component_scores, key=component_scores.get)
+                        max_score = component_scores[max_contributor]
+                        print(f"  - 最终风险分: {final_score_on_date:.4f}")
+                        print(f"  - 核心风险源: 【{max_contributor}】 (分值: {max_score:.4f})")
+                        print("  - 各分项得分:")
+                        for name, score in sorted(component_scores.items(), key=lambda item: item[1], reverse=True):
+                            if score > 0.01: # 只打印有意义的分数
+                                print(f"    - {name}: {score:.4f}")
+                        print(f"--- 解剖完毕 ---\n")
         return states
+        # [代码修改结束]
 
     def synthesize_tactical_reversal_resonance(self, df: pd.DataFrame) -> pd.DataFrame:
         """

@@ -43,7 +43,7 @@ class AdvancedFundFlowMetricsService:
 
     def _get_numeric_series_with_nan(self, df: pd.DataFrame, col_name: str) -> pd.Series:
         """
-        【新增】安全地获取一个列作为数值型Series，并保留NaN。
+        安全地获取一个列作为数值型Series，并保留NaN。
         对单行DataFrame具有鲁棒性。
         """
         if col_name not in df.columns:

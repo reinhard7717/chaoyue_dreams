@@ -51,13 +51,19 @@
             "type": "context",
             "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
         },
-        "SCORE_ARCHANGEL_TOP_REVERSAL": {
-            "cn_name": "【认知风险】天使长顶部反转",
+        "COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL": {
+            "cn_name": "【认知风险】终极顶部反转",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -2500,
+            "penalty_weight": -3500,
             "context_role": "top_risk",
-            "description": "【启示录四骑士】融合了上冲派发、天地板、高位回落和结构性压力（乌拉诺斯穹顶）的终极顶部风险裁决信号，具有最高优先级的否决权。"
+            "description": "【V5.0 终极裁决版】融合了全系统最高优先级的顶部风险信号，包括但不限于：伊卡洛斯之坠、真实撤退、亢奋加速、周期顶、结构顶、天地板等。是系统风险体系的最终裁决者，具有最高否决权。"
+        },
+        "PROBE_ULTIMATE_TOP_REVERSAL": {
+            "cn_name": "【探针】终极顶部反转",
+            "category": "调试-探针",
+            "type": "debug",
+            "description": "一个概念上的探针，用于在调试模式下解剖“终极顶部反转”信号的构成，追溯其核心风险源。"
         },
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
@@ -693,7 +699,7 @@
             "type": "risk",
             "penalty_weight": -500,
             "context_role": "top_risk",
-            "description": "【新增】融合了主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。"
+            "description": "融合了主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。"
         },
         "COGNITIVE_SCORE_TRUE_RETREAT_RISK": {
             "cn_name": "【认知风险】真实撤退",
@@ -852,7 +858,7 @@
             "type": "risk",
             "penalty_weight": -1200,
             "context_role": "top_risk",
-            "description": "【新增】融合了主力“战术性T+0获利了结”和“战略性持仓派发”两大证据链，是量化主力兑现利润意愿的专属风险信号。"
+            "description": "融合了主力“战术性T+0获利了结”和“战略性持仓派发”两大证据链，是量化主力兑现利润意愿的专属风险信号。"
         },
         "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": {
             "cn_name": "【微观风险】高位回落",
