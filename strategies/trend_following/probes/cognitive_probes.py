@@ -263,77 +263,58 @@ class CognitiveProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_score) else '❌ 不一致'}")
         print("\n--- “终极顶部反转探针”解剖完毕 ---")
 
-    def _deploy_ltp_high_distribution_probe(self, probe_date: pd.Timestamp):
+    def _deploy_main_force_intent_duel_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.0 · 风险逻辑重构版】长期获利盘高位派发风险探针
-        - 核心重构: 同步主引擎的风险逻辑重构，解剖全新的、基于“主力派发给散户”的证据链。
+        【探针 V4.0 · 全息意图对决版】主力意图对决风险探针
+        - 核心重构: 同步主引擎的MTF分析逻辑，解剖从“分周期对决”到“全息融合”的完整链路。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 📉【长期获利盘高位派发风险探针 V2.0】📉 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 ⚔️【主力意图对决风险探针 V4.0】⚔️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
-        def get_val(series, date, default=np.nan):
-            if series is None: return default
-            val = series.get(date)
-            return default if pd.isna(val) else val
-        signal_name = 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION'
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
-        print("\n  [链路层 2] 核心证据全息诊断 (Holographic Diagnosis of Core Evidence)")
-        # 更新为新的证据链
-        components = [
-            {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE', 'cn_name': '顶部上下文'},
-            {'source': 'df', 'name': 'main_force_rally_distribution_D', 'cn_name': '主力拉高出货'},
-            {'source': 'df', 'name': 'retail_chasing_accumulation_D', 'cn_name': '散户追涨抬轿'},
-            {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip', 'cn_name': '主力净流出'},
-        ]
-        fused_evidence_scores = {}
-        component_details = []
-        for comp in components:
-            source_series_raw = None
-            if comp['source'] == 'df':
-                source_series_raw = df.get(comp['name'], pd.Series(0.0, index=df.index))
-            elif comp['source'] == 'atomic':
-                source_series_raw = engine._get_atomic_score(df, comp['name'], 0.0)
-            
-            transformed_series = source_series_raw.copy()
-            if comp.get('transform') == 'neg_clip':
-                transformed_series = -transformed_series.clip(upper=0)
-            
-            fused_component_series = pd.Series(0.0, index=df.index)
-            if total_weight > 0:
-                for p in periods:
-                    weight = numeric_tf_weights.get(p, 0) / total_weight
-                    normalized_series = normalize_score(transformed_series, df.index, p)
-                    fused_component_series += normalized_series * weight
-            else:
-                fused_component_series = normalize_score(transformed_series, df.index, 55)
-            fused_evidence_scores[comp['name']] = fused_component_series
-            raw_val = get_val(source_series_raw, probe_date, 0.0)
-            fused_val = get_val(fused_component_series, probe_date, 0.0)
-            component_details.append(f"    - [{comp['cn_name']}] 原始值: {raw_val:.4f} -> 全息诊断分: {fused_val:.4f}")
-        print('\n'.join(component_details))
-        print("\n  [链路层 3] 快照分融合 (Snapshot Score Fusion)")
-        snapshot_components = list(fused_evidence_scores.values())
-        snapshot_series = pd.Series(np.prod(np.stack([s.values for s in snapshot_components], axis=0), axis=0) ** (1.0 / len(snapshot_components)), index=df.index)
-        recalc_snapshot_score = get_val(snapshot_series, probe_date, 0.0)
-        print(f"    - [融合公式]: (证据1 * 证据2 * ...)^(1/N)")
-        print(f"    - 【探针重算快照分】: {recalc_snapshot_score:.4f}")
-        print("\n  [链路层 4] 动态元分析 (Dynamic Meta-Analysis)")
-        recalc_final_series = engine._perform_cognitive_relational_meta_analysis(df, snapshot_series)
-        recalc_final_score = get_val(recalc_final_series, probe_date, 0.0)
+        print("\n  [链路层 2] 分周期意图对决 (Per-Period Intent Duel)")
+        bipolar_intent_by_period = {}
+        urgency_score_raw_series = engine._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_URGENCY', 0.0)
+        distribution_score_raw_series = df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
+        for p in periods:
+            urgency_norm = get_val(normalize_score(urgency_score_raw_series, df.index, p), probe_date, 0.0)
+            distribution_norm = get_val(normalize_score(distribution_score_raw_series, df.index, p), probe_date, 0.0)
+            bipolar_intent = urgency_norm - distribution_norm
+            bipolar_intent_by_period[p] = bipolar_intent
+            print(f"    - [周期 {p}d]: 决心分 {urgency_norm:.2f} - 背叛分 {distribution_norm:.2f} = 净意图 {bipolar_intent:.4f}")
+        print("\n  [链路层 3] 全息意图融合 (Holographic Intent Fusion)")
+        recalc_final_bipolar_intent = 0.0
+        calc_str_list = []
+        if total_weight > 0:
+            for p in periods:
+                weight = numeric_tf_weights.get(p, 0) / total_weight
+                intent_score = bipolar_intent_by_period.get(p, 0.0)
+                recalc_final_bipolar_intent += intent_score * weight
+                calc_str_list.append(f"({intent_score:.2f}*{weight:.2f})")
+        print(f"    - [融合公式]: Σ (净意图_p * 权重_p)")
+        print(f"    - [计算过程]: {' + '.join(calc_str_list)} = {recalc_final_bipolar_intent:.4f}")
+        print("\n  [链路层 4] 风险转化 (Risk Transformation)")
+        recalc_final_score = -min(0, recalc_final_bipolar_intent)
+        print(f"    - [风险公式]: -min(0, 综合净意图)")
         print(f"    - 【探针重算最终风险分】: {recalc_final_score:.4f}")
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
-        print("\n--- “长期获利盘高位派发风险探针”解剖完毕 ---")
-        # [代码修改结束]
+        print("\n--- “主力意图对决风险探针”解剖完毕 ---")
+
 
 
 

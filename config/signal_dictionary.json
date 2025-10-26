@@ -59,13 +59,13 @@
             "context_role": "top_risk",
             "description": "【V5.0 终极裁决版】融合了全系统最高优先级的顶部风险信号，包括但不限于：伊卡洛斯之坠、真实撤退、亢奋加速、周期顶、结构顶、天地板等。是系统风险体系的最终裁决者，具有最高否决权。"
         },
-        "COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION": {
-            "cn_name": "【认知风险】长期获利盘高位派发",
+        "COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION": {
+            "cn_name": "【认知风险】主力高成本追涨 vs 高位派发",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -1800,
+            "penalty_weight": -2000,
             "context_role": "top_risk",
-            "description": "【新增】识别在价格高位时，长期获利盘（旧神）开始悄然解锁并派发的迹象，是比资金净流出更领先的顶部信号。"
+            "description": "【V1.0 主力意图对决版】通过对决“主力追高买入的决心”与“主力拉高派发的背叛”，来判断顶部风险。只有当派发意图强于追高意图时，才会产生风险信号。"
         },
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",

@@ -43,7 +43,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'main_force_t0_arbitrage': '主力高抛低吸占比(%)',
         'retail_t0_arbitrage': '散户高抛低吸占比(%)',
         'short_term_profit_taking_ratio': '短期获利盘兑现占比(%)',
-        'long_term_chips_unlocked_ratio': '长期锁定盘解锁占比(%)',
         'short_term_capitulation_ratio': '短期套牢盘割肉占比(%)',
         'long_term_despair_selling_ratio': '长期套牢盘绝望占比(%)',
         'total_winner_rate': '总获利盘(%)',
@@ -92,8 +91,7 @@ class BaseAdvancedChipMetrics(models.Model):
         'main_force_capitulation_distribution', 'retail_capitulation_distribution',
         'main_force_chasing_accumulation', 'retail_chasing_accumulation',
         # 跨日筹码迁徙类
-        'short_term_profit_taking_ratio', 'long_term_chips_unlocked_ratio',
-        'short_term_capitulation_ratio', 'long_term_despair_selling_ratio',
+        'short_term_profit_taking_ratio', 'short_term_capitulation_ratio', 'long_term_despair_selling_ratio',
         # 事件驱动及高波动类
         'fault_breakthrough_intensity', 'intraday_trend_efficiency', 'am_pm_vwap_ratio',
         # 静态参考值

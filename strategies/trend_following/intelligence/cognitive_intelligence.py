@@ -902,11 +902,10 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 风险逻辑重构版】认知扩展信号统一合成引擎
-        - 核心重构: 彻底重构了 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION 信号的逻辑。
-                      废弃了模糊的 'long_term_chips_unlocked_ratio'，
-                      改为融合 'main_force_rally_distribution' 和 'retail_chasing_accumulation'，
-                      精确捕捉“主力拉高派发给散户”的核心风险场景。
+        【V2.3 · 零值隔离 & 战略重构版】认知扩展信号统一合成引擎
+        - 核心修复 (零值隔离): 在MTF融合后，强制将任何原始值为0的指标在当天的诊断分清零，彻底杜绝“零值污染”BUG。
+        - 战略重构 (主力意图对决): 废除 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION，其功能由全新的、在外部独立计算的
+                                COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION 信号取代。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -1063,17 +1062,6 @@ class CognitiveIntelligence:
                     {'source': 'df', 'name': 'flow_divergence_mf_vs_retail_D', 'transform': 'pos_clip'},
                 ]
             },
-            # [代码修改开始]
-            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': {
-                'description': '【V2.2 · 风险逻辑重构版】精确捕捉“主力拉高派发给散户”的核心风险场景。',
-                'components': [
-                    {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE'},
-                    {'source': 'df', 'name': 'main_force_rally_distribution_D'},
-                    {'source': 'df', 'name': 'retail_chasing_accumulation_D'},
-                    {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip'},
-                ]
-            },
-            # [代码修改结束]
             'COGNITIVE_RISK_MULTI_SOURCE_SIGNAL_CONFLICT': {
                 'components': [
                     {'source': 'atomic', 'name': 'COGNITIVE_SCORE_CHIMERA_CONFLICT'},
@@ -1152,6 +1140,9 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
+                # [代码修改开始] 零值隔离协议
+                zero_mask = np.isclose(source_series_raw, 0)
+                # [代码修改结束]
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
@@ -1179,6 +1170,9 @@ class CognitiveIntelligence:
                         fused_component_series += normalized_series * weight
                 else:
                     fused_component_series = normalize_score(transformed_series, df.index, 55)
+                # [代码修改开始] 零值隔离协议执行
+                fused_component_series[zero_mask] = 0.0
+                # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
@@ -1194,6 +1188,9 @@ class CognitiveIntelligence:
             snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
             final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
             states[signal_name] = final_dynamic_score
+        # [代码新增开始] 独立计算新的“主力意图对决”风险信号
+        states.update(self._diagnose_main_force_high_cost_vs_distribution(df))
+        # [代码新增结束]
         return states
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
@@ -1430,6 +1427,43 @@ class CognitiveIntelligence:
         
         states['COGNITIVE_RISK_CYCLICAL_TOP'] = cyclical_top_risk.astype(np.float32)
         print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
+        return states
+
+    def _diagnose_main_force_high_cost_vs_distribution(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 全息意图对决版】主力意图对决风险诊断引擎
+        - 核心升级: 采纳MTF（多时间框架）分析，在每个周期上独立进行“决心 vs 背叛”的对决，
+                      然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
+                      这解决了单一维度判断的战略短视和信号脆弱问题。
+        """
+        # [代码修改开始]
+        states = {}
+        signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
+        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        bipolar_intent_by_period = {}
+        # 1. 在每个时间框架上独立进行意图对决
+        for p in periods:
+            # 获取看涨证据：主力追高买入的决心
+            urgency_score_raw = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_URGENCY', 0.0)
+            urgency_score_norm = normalize_score(urgency_score_raw, df.index, p)
+            # 获取看跌证据：主力拉高派发的背叛
+            distribution_score_raw = df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
+            distribution_score_norm = normalize_score(distribution_score_raw, df.index, p)
+            # 计算该周期的“净意图分”
+            bipolar_intent_by_period[p] = urgency_score_norm - distribution_score_norm
+        # 2. 加权融合所有周期的“净意图分”
+        final_bipolar_intent = pd.Series(0.0, index=df.index)
+        if total_weight > 0:
+            for p in periods:
+                weight = numeric_tf_weights.get(p, 0) / total_weight
+                final_bipolar_intent += bipolar_intent_by_period.get(p, 0.0) * weight
+        # 3. 风险裁决：只取“背叛 > 决心”的部分作为风险
+        risk_score = -(final_bipolar_intent.clip(upper=0))
+        states[signal_name] = risk_score.astype(np.float32)
         return states
 
 

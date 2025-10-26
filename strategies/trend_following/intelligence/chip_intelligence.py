@@ -220,22 +220,23 @@ class ChipIntelligence:
 
     def _diagnose_power_transfer(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
         """
-        【V5.2 · 前线换装与健壮性修复版】核心公理三：诊断筹码“转移方向”
-        - 核心修复: 1. 废弃已失效的 `short_term_..._ratio_D` 指标，换装为新式高保真指标。
-                      2. 全面将 df.get(..., 0) 的默认值升级为 pd.Series(0.0, index=df.index)，实现“装甲加固”。
+        【V5.3 · 指标根除版】核心公理三：诊断筹码“转移方向”
+        - 核心重构: 彻底废弃并移除了对 'long_term_chips_unlocked_ratio_D' 的所有依赖。
+                      “筹码向散户转移”的证据链现在由 'profit_taking_urgency_D' 和 'main_force_rally_distribution_D' 构成，
+                      逻辑更清晰，因果关系更强。
         """
         scores = {}
         sorted_periods = sorted(periods)
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # 全面加固 df.get() 调用并换装新指标
+            # 证据一：筹码从散户/套牢盘 -> 主力
             transfer_to_main_static = df.get('retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get('long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_main_slope = df.get(f'SLOPE_{p}_retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
             transfer_to_main_accel = df.get(f'ACCEL_{p}_retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_long_term_despair_selling_ratio_D', pd.Series(0.0, index=df.index))
-            transfer_to_retail_static = df.get('profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get('long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
-            transfer_to_retail_slope = df.get(f'SLOPE_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
-            transfer_to_retail_accel = df.get(f'ACCEL_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_long_term_chips_unlocked_ratio_D', pd.Series(0.0, index=df.index))
-    
+            # 证据二：筹码从主力/获利盘 -> 散户 (逻辑重构)
+            transfer_to_retail_static = df.get('profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
+            transfer_to_retail_slope = df.get(f'SLOPE_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'SLOPE_{p}_main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
+            transfer_to_retail_accel = df.get(f'ACCEL_{p}_profit_taking_urgency_D', pd.Series(0.0, index=df.index)) + df.get(f'ACCEL_{p}_main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
             tactical_main_static = normalize_score(transfer_to_main_static, df.index, p, ascending=True)
             tactical_main_slope = normalize_score(transfer_to_main_slope, df.index, p, ascending=True)
             tactical_main_accel = normalize_score(transfer_to_main_accel, df.index, p, ascending=True)

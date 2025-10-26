@@ -38,7 +38,7 @@ class ForensicProbes:
         self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
         self._deploy_ultimate_top_reversal_probe = self.cognitive_probes._deploy_ultimate_top_reversal_probe
         # [代码新增开始]
-        self._deploy_ltp_high_distribution_probe = self.cognitive_probes._deploy_ltp_high_distribution_probe
+        self._deploy_main_force_intent_duel_probe = self.cognitive_probes._deploy_main_force_intent_duel_probe
         # [代码新增结束]
         self._deploy_ares_chariot_probe = self.dynamic_mechanics_probes._deploy_ares_chariot_probe
         self._deploy_apollos_lyre_probe = self.foundation_probes._deploy_apollos_lyre_probe

@@ -173,11 +173,11 @@ class IntelligenceLayer:
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_ultimate_top_reversal_probe' 未找到。")
             # [代码新增开始]
-            if debug_params.get('enable_ltp_high_distribution_probe', False):
-                if hasattr(self.probes, '_deploy_ltp_high_distribution_probe'):
-                    self.probes._deploy_ltp_high_distribution_probe(probe_date)
+            if debug_params.get('enable_main_force_intent_duel_probe', False):
+                if hasattr(self.probes, '_deploy_main_force_intent_duel_probe'):
+                    self.probes._deploy_main_force_intent_duel_probe(probe_date)
                 else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_ltp_high_distribution_probe' 未找到。")
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_main_force_intent_duel_probe' 未找到。")
             # [代码新增结束]
             if debug_params.get('enable_process_sync_probe', False):
                 self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')

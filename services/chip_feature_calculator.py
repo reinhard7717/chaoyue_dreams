@@ -589,7 +589,6 @@ class ChipFeatureCalculator:
         """【V2.2 · 终极变量引用修正版】计算跨日筹码迁徙"""
         results = {
             'short_term_profit_taking_ratio': None,
-            'long_term_chips_unlocked_ratio': None,
             'short_term_capitulation_ratio': None,
             'long_term_despair_selling_ratio': None,
         }
@@ -615,13 +614,11 @@ class ChipFeatureCalculator:
         prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
         prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
         st_winners_pct = prev_winners[prev_winners['price'] >= prev_20d_close]['percent'].sum()
-        lt_winners_pct = prev_winners[prev_winners['price'] < prev_20d_close]['percent'].sum()
         st_losers_pct = prev_losers[prev_losers['price'] >= prev_20d_close]['percent'].sum()
         # 修正变量引用错误，将 losers_df 修正为 prev_losers
         lt_losers_pct = prev_losers[prev_losers['price'] < prev_20d_close]['percent'].sum()
         
         results['short_term_profit_taking_ratio'] = st_winners_pct
-        results['long_term_chips_unlocked_ratio'] = lt_winners_pct
         results['short_term_capitulation_ratio'] = st_losers_pct
         results['long_term_despair_selling_ratio'] = lt_losers_pct
         return results
