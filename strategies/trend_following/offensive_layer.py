@@ -11,10 +11,15 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V516.0 · 作战状态恢复版】
-        - 核心升级: 移除所有为调查“724分事件”而部署的调试探针，恢复代码至纯净、高效的作战状态。
-        - 收益: 代码清晰度、执行效率达到最佳。
+        【V517.0 · 直觉计分版】
+        - 核心革命: 彻底重构计分逻辑，确保“利好”永远是加分，“风险”永远是扣分。
+        - 修正逻辑:
+          1. 对双极性(bipolar)信号，将其正负部分拆分。
+          2. 正向部分乘以 score (必须为正)，产生加分。
+          3. 负向部分(取绝对值)乘以 penalty_weight (必须为正)，产生扣分。
+          4. 彻底解决了利好信号因乘以负权重而导致扣分的严重逻辑错误。
         """
+        # [代码修改开始]
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         score_map = get_params_block(self.strategy, 'score_type_map', {})
@@ -26,34 +31,61 @@ class OffensiveLayer:
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
-            score_value = meta.get('score', 0)
-            if score_value == 0:
-                score_value = meta.get('penalty_weight', 0)
-            if score_value != 0:
-                signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
-                if signal_series is not None and not signal_series.empty:
-                    processed_signal_series = signal_series.astype(float)
-                    context_role = meta.get('context_role', 'neutral')
-                    
-                    # 修正风险信号的压制逻辑
-                    if context_role == 'top_risk' and score_value < 0:
+            signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
+            if signal_series is None or signal_series.empty:
+                continue
+            processed_signal_series = signal_series.astype(float)
+            scoring_mode = meta.get('scoring_mode', 'unipolar') # 默认改为unipolar更安全
+            context_role = meta.get('context_role', 'neutral')
+            # 获取分数和惩罚权重，确保它们是正数
+            positive_score = abs(meta.get('score', 0))
+            penalty_weight = abs(meta.get('penalty_weight', 0))
+            # 如果 penalty_weight 未定义，则使用 score 作为惩罚权重
+            if penalty_weight == 0 and positive_score > 0:
+                penalty_weight = positive_score
+            # 如果 score 未定义，则使用 penalty_weight 作为分数
+            if positive_score == 0 and penalty_weight > 0:
+                positive_score = penalty_weight
+            if positive_score == 0 and penalty_weight == 0:
+                continue
+            bonus_amount = pd.Series(0.0, index=df.index)
+            if scoring_mode == 'bipolar':
+                # --- 双极性信号处理 ---
+                # 1. 处理正向部分（机会）
+                opportunity_part = processed_signal_series.clip(lower=0)
+                if context_role == 'bottom_opportunity':
+                    suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
+                    damper = 1.0 - suppression_factor
+                    opportunity_part *= damper
+                bonus_amount += opportunity_part * positive_score
+                # 2. 处理负向部分（风险）
+                risk_part = processed_signal_series.clip(upper=0).abs()
+                if context_role == 'top_risk':
+                    suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
+                    damper = 1.0 - suppression_factor
+                    risk_part *= damper
+                bonus_amount -= risk_part * penalty_weight # 永远是减分
+            else: # unipolar
+                # --- 单极性信号处理 ---
+                unipolar_series = processed_signal_series.clip(lower=0)
+                # 判断是机会还是风险
+                if meta.get('type') == 'risk': # 风险信号
+                    if context_role == 'top_risk':
                         suppression_factor = bottom_context_score.where(bottom_context_score >= bottom_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
-                        processed_signal_series *= damper
-                    elif context_role == 'bottom_opportunity' and score_value > 0:
+                        unipolar_series *= damper
+                    bonus_amount -= unipolar_series * penalty_weight # 永远是减分
+                else: # 机会信号
+                    if context_role == 'bottom_opportunity':
                         suppression_factor = top_context_score.where(top_context_score >= top_context_threshold, 0.0)
                         damper = 1.0 - suppression_factor
-                        processed_signal_series *= damper
-                        
-                    scoring_mode = meta.get('scoring_mode', 'bipolar')
-                    if scoring_mode == 'unipolar':
-                        processed_signal_series = processed_signal_series.clip(lower=0)
-                        
-                    bonus_amount = processed_signal_series * score_value
-                    total_score += bonus_amount
-                    score_details_df[signal_name] = bonus_amount
+                        unipolar_series *= damper
+                    bonus_amount += unipolar_series * positive_score # 永远是加分
+            total_score += bonus_amount
+            score_details_df[signal_name] = bonus_amount
         # 保持浮点数以便观察，最终的取整在 judgment_layer 中完成
         return total_score.fillna(0), score_details_df.fillna(0)
+        # [代码修改结束]
 
 
 
