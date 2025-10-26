@@ -13,7 +13,7 @@ class ForensicProbes:
     """
     def __init__(self, intelligence_layer_instance):
         """
-        【V2.2 · 终极风险探针版】法医探针调度中心
+        【V2.3 · 长期获利盘派发探针版】法医探针调度中心
         """
         from .probes.behavioral_probes import BehavioralProbes
         from .probes.chip_probes import ChipProbes
@@ -36,8 +36,9 @@ class ForensicProbes:
         self._deploy_thanatos_scythe_probe = self.cognitive_probes._deploy_thanatos_scythe_probe
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
         self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
-        # [代码新增开始]
         self._deploy_ultimate_top_reversal_probe = self.cognitive_probes._deploy_ultimate_top_reversal_probe
+        # [代码新增开始]
+        self._deploy_ltp_high_distribution_probe = self.cognitive_probes._deploy_ltp_high_distribution_probe
         # [代码新增结束]
         self._deploy_ares_chariot_probe = self.dynamic_mechanics_probes._deploy_ares_chariot_probe
         self._deploy_apollos_lyre_probe = self.foundation_probes._deploy_apollos_lyre_probe

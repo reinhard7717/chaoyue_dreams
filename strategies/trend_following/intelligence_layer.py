@@ -115,8 +115,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.14 · 终极风险探针版】法医探针调度中心
-        - 核心扩展: 新增对终极顶部反转探针的调用。
+        【V2.15 · 长期获利盘派发探针版】法医探针调度中心
+        - 核心扩展: 新增对长期获利盘高位派发风险探针的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -128,7 +128,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.14] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.15] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -167,12 +167,17 @@ class IntelligenceLayer:
                     self.probes._deploy_profit_taking_pressure_probe(probe_date)
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_profit_taking_pressure_probe' 未找到。")
-            # [代码新增开始]
             if debug_params.get('enable_ultimate_top_reversal_probe', False):
                 if hasattr(self.probes, '_deploy_ultimate_top_reversal_probe'):
                     self.probes._deploy_ultimate_top_reversal_probe(probe_date)
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_ultimate_top_reversal_probe' 未找到。")
+            # [代码新增开始]
+            if debug_params.get('enable_ltp_high_distribution_probe', False):
+                if hasattr(self.probes, '_deploy_ltp_high_distribution_probe'):
+                    self.probes._deploy_ltp_high_distribution_probe(probe_date)
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_ltp_high_distribution_probe' 未找到。")
             # [代码新增结束]
             if debug_params.get('enable_process_sync_probe', False):
                 self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')

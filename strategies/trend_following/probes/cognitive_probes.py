@@ -214,7 +214,122 @@ class CognitiveProbes:
         print("\n--- “终极顶部反转探针”解剖完毕 ---")
         # [代码新增结束]
 
+    def _deploy_ultimate_top_reversal_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0】终极顶部反转探针
+        - 核心使命: 解剖 COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL 信号，追溯其核心风险源。
+        """
+        print("\n" + "="*35 + f" [认知探针] 正在启用 🛡️【终极顶部反转探针 V1.0】🛡️ " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.cognitive_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        signal_name = 'COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL'
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
+        print("\n  [链路层 2] 核心风险源分析 (Component Analysis)")
+        risk_signals = {
+            'CONTEXT_TOP_SCORE': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
+            'SCORE_RISK_UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
+            'SCORE_BOARD_HEAVEN_EARTH': engine._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
+            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': engine._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
+            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': engine._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0),
+            'SCORE_RISK_ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            'COGNITIVE_RISK_TRUE_RETREAT_RISK': engine._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
+            'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
+            'COGNITIVE_RISK_SIREN_SONG': engine._get_atomic_score(df, 'COGNITIVE_RISK_SIREN_SONG', 0.0),
+            'COGNITIVE_RISK_OLYMPUS_CRUMBLING': engine._get_atomic_score(df, 'COGNITIVE_RISK_OLYMPUS_CRUMBLING', 0.0),
+            'COGNITIVE_RISK_CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0)
+        }
+        component_scores_on_date = {name: get_val(series, probe_date, 0.0) for name, series in risk_signals.items()}
+        if not any(component_scores_on_date.values()):
+            print("    - 未找到任何风险分项。")
+            return
+        max_contributor = max(component_scores_on_date, key=component_scores_on_date.get)
+        max_score = component_scores_on_date[max_contributor]
+        print(f"    - 主要风险源: 【{max_contributor}】 (分值: {max_score:.4f})")
+        print("    - 各分项得分详情:")
+        for name, score in sorted(component_scores_on_date.items(), key=lambda item: item[1], reverse=True):
+            if score > 0.01:
+                print(f"      - {name}: {score:.4f}")
+        print("\n  [链路层 3] 探针重算与对质 (Recalculation & Verdict)")
+        recalc_score = max(component_scores_on_date.values())
+        print(f"    - [融合公式]: max(各分项得分)")
+        print(f"    - 【探针重算风险分】: {recalc_score:.4f}")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_score) else '❌ 不一致'}")
+        print("\n--- “终极顶部反转探针”解剖完毕 ---")
 
+    def _deploy_ltp_high_distribution_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0 · 新增】长期获利盘高位派发风险探针
+        - 核心使命: 深度解剖 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION 信号的完整生成链路。
+        """
+        # [代码新增开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 📉【长期获利盘高位派发风险探针 V1.0】📉 " + "="*25)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.cognitive_intel
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
+        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        signal_name = 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION'
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
+        print("\n  [链路层 2] 核心证据全息诊断 (Holographic Diagnosis of Core Evidence)")
+        components = [
+            {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE', 'cn_name': '顶部上下文'},
+            {'source': 'df', 'name': 'long_term_chips_unlocked_ratio_D', 'cn_name': '长期筹码解锁率'},
+            {'source': 'df', 'name': 'SLOPE_5_long_term_chips_unlocked_ratio_D', 'cn_name': '解锁率斜率'},
+            {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip', 'cn_name': '主力净流出'},
+        ]
+        fused_evidence_scores = {}
+        component_details = []
+        for comp in components:
+            source_series_raw = None
+            if comp['source'] == 'df':
+                source_series_raw = df.get(comp['name'], pd.Series(0.0, index=df.index))
+            elif comp['source'] == 'atomic':
+                source_series_raw = engine._get_atomic_score(df, comp['name'], 0.0)
+            if comp.get('transform') == 'neg_clip':
+                source_series_raw = -source_series_raw.clip(upper=0)
+            fused_component_series = pd.Series(0.0, index=df.index)
+            if total_weight > 0:
+                for p in periods:
+                    weight = numeric_tf_weights.get(p, 0) / total_weight
+                    normalized_series = normalize_score(source_series_raw, df.index, p)
+                    fused_component_series += normalized_series * weight
+            else:
+                fused_component_series = normalize_score(source_series_raw, df.index, 55)
+            fused_evidence_scores[comp['name']] = fused_component_series
+            raw_val = get_val(source_series_raw, probe_date, 0.0)
+            fused_val = get_val(fused_component_series, probe_date, 0.0)
+            component_details.append(f"    - [{comp['cn_name']}] 原始值: {raw_val:.4f} -> 全息诊断分: {fused_val:.4f}")
+        print('\n'.join(component_details))
+        print("\n  [链路层 3] 快照分融合 (Snapshot Score Fusion)")
+        snapshot_components = list(fused_evidence_scores.values())
+        snapshot_series = pd.Series(np.prod(np.stack([s.values for s in snapshot_components], axis=0), axis=0) ** (1.0 / len(snapshot_components)), index=df.index)
+        recalc_snapshot_score = get_val(snapshot_series, probe_date, 0.0)
+        print(f"    - [融合公式]: (证据1 * 证据2 * ...)^(1/N)")
+        print(f"    - 【探针重算快照分】: {recalc_snapshot_score:.4f}")
+        print("\n  [链路层 4] 动态元分析 (Dynamic Meta-Analysis)")
+        recalc_final_series = engine._perform_cognitive_relational_meta_analysis(df, snapshot_series)
+        recalc_final_score = get_val(recalc_final_series, probe_date, 0.0)
+        print(f"    - 【探针重算最终风险分】: {recalc_final_score:.4f}")
+        print("\n  [链路层 5] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
+        print("\n--- “长期获利盘高位派发风险探针”解剖完毕 ---")
+        # [代码新增结束]
 
 
 
