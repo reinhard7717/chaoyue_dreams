@@ -103,9 +103,9 @@ class StructuralIntelligence:
         """
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # [代码新增开始] 获取壁炉阈值
+        # 获取壁炉阈值
         neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
-        # [代码新增结束]
+        
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]

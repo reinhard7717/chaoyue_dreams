@@ -260,9 +260,9 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
         return empty_series, empty_series
     strategy_instance_ref = atomic_states.get('strategy_instance_ref') or getattr(df, 'strategy', None)
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
-    # [代码新增开始] 修复NameError: 从参数块中获取 norm_window 的值
+    # 修复NameError: 从参数块中获取 norm_window 的值
     norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-    # [代码新增结束]
+    
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('MA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -896,7 +896,7 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series, threshold: float) ->
     # 看跌分数：只取原始分数为负且重标定后也为正的部分
     s_bear = rescaled_abs_score.where(bipolar_score < -threshold, 0).clip(0, 1)
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
-    # [代码新增结束]
+    
 
 
 

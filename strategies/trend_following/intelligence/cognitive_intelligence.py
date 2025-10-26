@@ -754,20 +754,15 @@ class CognitiveIntelligence:
         top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
         upthrust_risk = self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0)
         heaven_earth_risk = self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0)
-        # [代码新增开始] 引入新的、更即时的风险证据
+        # 引入新的、更即时的风险证据
         fomo_retreat_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0)
         ltp_dist_risk = self._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0)
-        # [代码新增结束]
         risk_matrix = np.stack([
             upthrust_risk.values,
             heaven_earth_risk.values,
-            # [代码删除] 移除过时的 `post_peak_risk`
-            # post_peak_risk.values,
             top_context_score.values,
-            # [代码新增开始] 将新证据加入风险矩阵
             fomo_retreat_risk.values,
             ltp_dist_risk.values
-            # [代码新增结束]
         ], axis=0)
         archangel_score_values = np.maximum.reduce(risk_matrix, axis=0)
         archangel_score = np.clip(archangel_score_values, 0, 1)

@@ -29,7 +29,7 @@ class ForensicProbes:
         self.foundation_intel = intelligence_layer_instance.foundation_intel
         self.process_intel = intelligence_layer_instance.process_intel
         self.behavioral_intel = intelligence_layer_instance.behavioral_intel
-        # [代码新增结束]
+        
 
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
         """
@@ -438,7 +438,7 @@ class ForensicProbes:
         print(f"    - 双极性力学快照: {get_val(bipolar_mechanics_snapshot_series, probe_date):.4f}")
         print(f"    - 均线健康分 (调节器): {get_val(ma_health_score_series, probe_date):.4f}")
         print(f"    - 调节后双极性快照: {get_val(modulated_bipolar_snapshot_series, probe_date):.4f}")
-        # [代码新增开始] 实施“引擎核心解剖”协议
+        # 实施“引擎核心解剖”协议
         print("\n  [链路层 3.1] 深度解剖 · 元分析引擎 (p=5 周期为例)")
         p_probe = 5
         p_context = 13
@@ -479,7 +479,7 @@ class ForensicProbes:
         s_bear_actual = get_val(overall_health.get('s_bear', {}).get(p_probe), probe_date, 0.0)
         actual_health = s_bull_actual - s_bear_actual
         print(f"    - [内部验证]: 实际值 {actual_health:.4f} vs. 探针重算 {recalc_health:.4f} -> {'✅ 一致' if np.isclose(actual_health, recalc_health) else '❌ 不一致'}")
-        # [代码新增结束]
+        
         print("\n  [链路层 4] 终极信号融合 (Ultimate Signal Fusion)")
         if not overall_health:
             print("    - [错误] 无法在 atomic_states 中找到 '__DYN_overall_health'，无法进行重算。")

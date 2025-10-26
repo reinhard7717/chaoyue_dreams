@@ -386,9 +386,9 @@ class BehavioralIntelligence:
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         stagnation_scores_by_period = {}
-        # [代码新增开始] 实施“雅典娜敕令”
+        # 实施“雅典娜敕令”
         is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
-        # [代码新增结束]
+        
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
