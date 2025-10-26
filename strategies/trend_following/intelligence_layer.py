@@ -32,8 +32,10 @@ class IntelligenceLayer:
     """
     def __init__(self, strategy_instance):
         """
-        初始化情报层总指挥官。
+        【V407.1 · 探针模块化版】
+        - 核心升级: 初始化情报层总指挥官，并加载模块化的探针。
         """
+        # [代码修改开始]
         self.strategy = strategy_instance
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)
@@ -50,6 +52,7 @@ class IntelligenceLayer:
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
+        # ForensicProbes 现在会内部加载和管理所有专业探针模块
         self.probes = ForensicProbes(self)
 
     def run_all_diagnostics(self) -> Dict:
@@ -110,9 +113,10 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.12 · 过程同步探针版】法医探针调度中心
-        - 核心扩展: 新增对“过程同步探针”的调用。
+        【V2.13 · 过程元分析探针版】法医探针调度中心
+        - 核心扩展: 新增对过程元分析探针的调用，如成本优势探针。
         """
+        # [代码修改开始]
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
             return
@@ -123,7 +127,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.12] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.13] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -157,13 +161,17 @@ class IntelligenceLayer:
                 self.probes._deploy_apollos_lyre_probe(probe_date)
             if debug_params.get('enable_fund_flow_probe', False):
                 self.probes._deploy_poseidons_trident_probe(probe_date)
-            if debug_params.get('enable_process_probe', False):
-                self.probes._deploy_themis_scales_probe(probe_date, 'PROCESS_META_PD_DIVERGENCE_CONFIRM')
-            # [代码新增开始] 部署新的过程同步探针
             if debug_params.get('enable_process_sync_probe', False):
                 self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')
-            # [代码新增结束]
+            # 新增对过程元分析探针的调用
+            if debug_params.get('enable_process_meta_probe', False):
+                # 假设 ForensicProbes 类已经加载了 ProcessProbes 并暴露了其方法
+                if hasattr(self.probes, '_deploy_cost_advantage_probe'):
+                    self.probes._deploy_cost_advantage_probe(probe_date, 'PROCESS_META_COST_ADVANTAGE_TREND')
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_cost_advantage_probe' 未找到。")
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
+        # [代码修改结束]
 
     def _ignite_relational_dynamics_engine(self):
         """

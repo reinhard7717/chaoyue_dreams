@@ -344,13 +344,13 @@
             "scoring_mode": "bipolar",
             "description": "诊断主力买入成本的变化动态是否领先于价格本身的变化动态。正分代表主力正在不计成本地、加速追高买入，是极强的看涨信号。"
         },
-        "PROCESS_META_SMART_MONEY_COST_ADVANTAGE": {
-            "cn_name": "【过程】聪明钱成本优势",
+        "PROCESS_META_COST_ADVANTAGE_TREND": {
+            "cn_name": "【过程】成本优势趋势",
             "category": "过程层-基础",
             "type": "process",
             "score": 280,
             "scoring_mode": "bipolar",
-            "description": "诊断主力买入成本的动态，是否显著优于（领先于）散户卖出成本的动态。正分代表主力正在加速吸收散户抛出的廉价筹码。"
+            "description": "【V2.0 重构】诊断'价格'与'主力成本优势'的共识趋势。正分代表价格上涨的同时主力成本优势扩大，是极强的看涨信号。"
         },
         "PROCESS_META_PROFIT_VS_FLOW": {
             "cn_name": "【过程】主力盈亏vs流量",
