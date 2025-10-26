@@ -1026,11 +1026,10 @@ class ForensicProbes:
 
     def _deploy_selling_pressure_analysis_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.1 · 广义抛压版】抛压分析探针
-        - 核心使命: 深度解剖广义抛压分析流程，验证从“抛压”到“吸收反转机会”的嬗变全过程。
-        - 解剖链路: 1. 原始抛压风险 -> 2. 主力吸收动态分 -> 3. 审判阈值 -> 4. 最终风险/机会。
+        【V1.3 · 战术窗口加速版】抛压分析探针
+        - 核心升级: 同步主引擎，将动态确认的 meta_window 从 13 缩短至 3。
         """
-        print("\n" + "="*35 + f" [战术探针] 正在启用 💎【抛压分析探针 V1.1】💎 " + "="*35)
+        print("\n" + "="*35 + f" [战术探针] 正在启用 💎【抛压分析探针 V1.3】💎 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.foundation_intel
@@ -1042,11 +1041,12 @@ class ForensicProbes:
             val = series.get(date)
             return default if pd.isna(val) else val
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        # [代码修改] 更新参数块名称
         p_analysis = get_params_block(p_conf, 'selling_pressure_analysis_params', {})
         judgment_threshold = get_param_value(p_analysis.get('judgment_threshold'), 0.7)
+        fusion_weights = get_param_value(p_analysis.get('absorption_fusion_weights'), {'static': 0.7, 'dynamic': 0.3})
+        static_weight = fusion_weights.get('static', 0.7)
+        dynamic_weight = fusion_weights.get('dynamic', 0.3)
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        # [代码修改] 更新信号名称
         actual_risk = get_val(atomic.get('SCORE_RISK_PANIC_SELLING'), probe_date, 0.0)
         actual_opp = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'), probe_date, 0.0)
         actual_absorption = get_val(atomic.get('SCORE_MAIN_FORCE_ABSORPTION_DYNAMIC'), probe_date, 0.0)
@@ -1054,22 +1054,27 @@ class ForensicProbes:
         print(f"    - 【吸收反转机会分】: {actual_opp:.4f}")
         print(f"    - 【主力吸收动态分】: {actual_absorption:.4f}")
         print("\n  [链路层 2] 原始抛压风险重算 (Raw Selling Pressure)")
-        # [代码修改] 更新信号名称
         state = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_STATE'), probe_date, 0.0)
         dynamic = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_DYNAMIC'), probe_date, 0.0)
         recalc_raw_risk = state * dynamic
         print(f"    - [原材料]: 状态分 {state:.4f} * 动态分 {dynamic:.4f}")
         print(f"    - 【探针重算原始抛压风险】: {recalc_raw_risk:.4f}")
-        print("\n  [链路层 3] 主力吸收动态分重算 (The Catalyst)")
-        # [代码修改] 更新方法名称
-        snapshot_series = engine._calculate_main_force_absorption_snapshot(df)
-        snapshot_val = get_val(snapshot_series, probe_date)
-        print(f"    - [静态快照分]: {snapshot_val:.4f}")
-        meta_window = 13
-        recalc_dynamic_series = engine._perform_foundation_relational_meta_analysis(df, snapshot_series, meta_window)
-        recalc_dynamic_unclipped = get_val(recalc_dynamic_series, probe_date)
-        recalc_absorption_score = np.clip(recalc_dynamic_unclipped, 0, 1)
-        print(f"    - [动态元分析结果(Clip前)]: {recalc_dynamic_unclipped:.4f}")
+        print("\n  [链路层 3] 主力吸收动态分重算 (事件-确认模型)")
+        static_absorption_score_series = engine._calculate_main_force_absorption_snapshot(df).clip(0, 1)
+        static_absorption_score = get_val(static_absorption_score_series, probe_date)
+        print(f"    - [事件分 Event]: 静态吸收快照分 = {static_absorption_score:.4f} (权重: {static_weight})")
+        # [代码修改] 将元分析窗口同步修改为3
+        meta_window = 3
+        print(f"    - [确认分 Confirmation]: 使用战术窗口 meta_window = {meta_window} 进行动态趋势质量分析...")
+        dynamic_absorption_quality_series = engine._perform_foundation_relational_meta_analysis(
+            df=df,
+            snapshot_score=engine._calculate_main_force_absorption_snapshot(df),
+            meta_window=meta_window
+        ).clip(0, 1)
+        dynamic_absorption_quality = get_val(dynamic_absorption_quality_series, probe_date)
+        print(f"    - [确认分 Confirmation]: 动态趋势质量分 = {dynamic_absorption_quality:.4f} (权重: {dynamic_weight})")
+        recalc_absorption_score = (static_absorption_score * static_weight + dynamic_absorption_quality * dynamic_weight)
+        print(f"    - [融合计算]: ({static_absorption_score:.4f} * {static_weight}) + ({dynamic_absorption_quality:.4f} * {dynamic_weight}) = {recalc_absorption_score:.4f}")
         print(f"    - 【探针重算主力吸收分】: {recalc_absorption_score:.4f}")
         print(f"    - [内部验证]: 系统值 {actual_absorption:.4f} vs. 探针重算 {recalc_absorption_score:.4f} -> {'✅ 一致' if np.isclose(actual_absorption, recalc_absorption_score) else '❌ 不一致'}")
         print("\n  [链路层 4] 抛压分析与机会嬗变 (Pressure Analysis & Opportunity Transmutation)")

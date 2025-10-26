@@ -386,20 +386,28 @@ class FoundationIntelligence:
 
     def _diagnose_main_force_absorption(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.1 · 名称规范化】主力吸收行为动态诊断引擎
-        - 核心升级: 引入“静态+导数”分析框架。
-                      1. 调用 `_calculate_main_force_absorption_snapshot` 获取静态快照分。
-                      2. 将快照分送入元分析引擎，融合其“状态”、“速度”和“加速度”，输出最终的动态健康分。
+        【V3.1 · 战术窗口加速版】主力吸收行为动态诊断引擎
+        - 核心升级: 采纳指挥官指令，将动态确认的 meta_window 从 13 缩短至 3。
+                      这使得动态确认分能更快速、更灵敏地响应单日爆发的吸收事件，解决了模型反应迟钝的问题。
         """
-        # [代码修改] 调用更名后的快照计算方法
-        absorption_snapshot = self._calculate_main_force_absorption_snapshot(df)
-        meta_window = 13
-        final_dynamic_score = self._perform_foundation_relational_meta_analysis(
+        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
+        p_analysis = get_params_block(p_conf, 'selling_pressure_analysis_params', {})
+        fusion_weights = get_param_value(p_analysis.get('absorption_fusion_weights'), {'static': 0.7, 'dynamic': 0.3})
+        static_weight = fusion_weights.get('static', 0.7)
+        dynamic_weight = fusion_weights.get('dynamic', 0.3)
+        static_absorption_score = self._calculate_main_force_absorption_snapshot(df).clip(0, 1)
+        # [代码修改] 将元分析窗口从13日大幅缩短至3日，以实现战术级别的快速确认
+        meta_window = 3
+        dynamic_absorption_quality = self._perform_foundation_relational_meta_analysis(
             df=df,
-            snapshot_score=absorption_snapshot,
+            snapshot_score=self._calculate_main_force_absorption_snapshot(df),
             meta_window=meta_window
+        ).clip(0, 1)
+        final_absorption_score = (
+            static_absorption_score * static_weight +
+            dynamic_absorption_quality * dynamic_weight
         )
-        return final_dynamic_score.clip(0, 1).astype(np.float32)
+        return final_absorption_score.clip(0, 1).astype(np.float32)
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块

@@ -791,8 +791,13 @@
         },
         "selling_pressure_analysis_params": {
           "enabled": true,
-          "description": "【V1.1 · 名称规范化】抛压分析协议的专属配置，用于将抛压风险嬗变为吸收反转机会。",
-          "judgment_threshold": 0.7
+          "description": "【V1.2 · 事件-确认模型版】抛压分析协议的专属配置。",
+          "judgment_threshold": 0.7,
+          "absorption_fusion_weights": {
+            "description": "【新增】“事件-确认”双轨融合模型的权重。'static'代表静态事件强度，'dynamic'代表动态趋势确认。",
+            "static": 0.7,
+            "dynamic": 0.3
+          }
         },
         "relational_meta_analysis_params": {
           "description": "【V2.1 · 名称规范化】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
