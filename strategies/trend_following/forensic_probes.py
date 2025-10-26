@@ -29,7 +29,6 @@ class ForensicProbes:
         self.foundation_intel = intelligence_layer_instance.foundation_intel
         self.process_intel = intelligence_layer_instance.process_intel
         self.behavioral_intel = intelligence_layer_instance.behavioral_intel
-        
 
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
         """
@@ -1066,6 +1065,148 @@ class ForensicProbes:
         print("\n--- “流动性陷阱风险探针”解剖完毕 ---")
         # [代码修改结束]
 
+    def _deploy_chip_resonance_probe(self, probe_date: pd.Timestamp):
+        """
+        【V1.0 · 新增】筹码共振探针
+        - 核心使命: 深度解剖 SCORE_CHIP_BULLISH_RESONANCE 和 SCORE_CHIP_BEARISH_RESONANCE 的全链路计算过程。
+        - 解剖链路: 1. 最终共振分 -> 2. 多周期健康分 -> 3. 四大公理融合 -> 4. 最终融合重算与验证。
+        """
+        # [代码新增开始]
+        print("\n" + "="*35 + f" [筹码探针] 正在启用 🏛️【筹码共振探针 V1.0】🏛️ " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.chip_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        periods = sorted(p_conf.get('tf_fusion_weights', {}).keys(), key=int)
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
+        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {})
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_tf_weight = sum(numeric_tf_weights.values())
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_bull_res = get_val(atomic.get('SCORE_CHIP_BULLISH_RESONANCE'), probe_date, 0.0)
+        actual_bear_res = get_val(atomic.get('SCORE_CHIP_BEARISH_RESONANCE'), probe_date, 0.0)
+        print(f"    - 【看涨共振分】: {actual_bull_res:.4f}")
+        print(f"    - 【看跌共振分】: {actual_bear_res:.4f}")
+        print("\n  [链路层 2] 多周期健康分 (MTF Health Scores)")
+        bipolar_health_by_period = {}
+        bullish_scores_by_period = {}
+        bearish_scores_by_period = {}
+        # 重新计算 bipolar_health_by_period 以确保探针独立性
+        concentration_scores = engine._diagnose_concentration_dynamics(df, periods)
+        accumulation_scores = engine._diagnose_main_force_action(df, periods)
+        power_transfer_scores = engine._diagnose_power_transfer(df, periods)
+        peak_integrity_scores = engine._diagnose_peak_integrity_dynamics(df, periods)
+        for p_str in periods:
+            p = int(p_str)
+            conc_score = get_val(concentration_scores.get(p), probe_date, 0.0)
+            acc_score = get_val(accumulation_scores.get(p), probe_date, 0.0)
+            pow_score = get_val(power_transfer_scores.get(p), probe_date, 0.0)
+            peak_score = get_val(peak_integrity_scores.get(p), probe_date, 0.0)
+            health = (
+                conc_score * axiom_weights.get('concentration', 0) +
+                acc_score * axiom_weights.get('accumulation', 0) +
+                pow_score * axiom_weights.get('power_transfer', 0) +
+                peak_score * axiom_weights.get('peak_integrity', 0)
+            )
+            bipolar_health_by_period[p] = np.clip(health, -1, 1)
+            bullish_scores_by_period[p] = max(0, bipolar_health_by_period[p])
+            bearish_scores_by_period[p] = max(0, -bipolar_health_by_period[p])
+            print(f"    - [周期 {p:2d}] 双极性健康分: {bipolar_health_by_period[p]:.4f} -> 看涨: {bullish_scores_by_period[p]:.4f}, 看跌: {bearish_scores_by_period[p]:.4f}")
+        print("\n  [链路层 3] 健康分融合解剖 (Health Fusion Autopsy) - 以 p=5 为例")
+        p_probe = 5
+        conc_s = get_val(concentration_scores.get(p_probe), probe_date, 0.0)
+        acc_s = get_val(accumulation_scores.get(p_probe), probe_date, 0.0)
+        pow_s = get_val(power_transfer_scores.get(p_probe), probe_date, 0.0)
+        peak_s = get_val(peak_integrity_scores.get(p_probe), probe_date, 0.0)
+        w_conc = axiom_weights.get('concentration', 0)
+        w_acc = axiom_weights.get('accumulation', 0)
+        w_pow = axiom_weights.get('power_transfer', 0)
+        w_peak = axiom_weights.get('peak_integrity', 0)
+        print(f"    - [公理权重]: 聚散({w_conc}), 吸派({w_acc}), 转移({w_pow}), 峰健康({w_peak})")
+        print(f"    - [公理得分]: 聚散({conc_s:.2f}), 吸派({acc_s:.2f}), 转移({pow_s:.2f}), 峰健康({peak_s:.2f})")
+        recalc_health_p5 = (conc_s * w_conc + acc_s * w_acc + pow_s * w_pow + peak_s * w_peak)
+        print(f"    - [融合计算]: ({conc_s:.2f}*{w_conc}) + ({acc_s:.2f}*{w_acc}) + ({pow_s:.2f}*{w_pow}) + ({peak_s:.2f}*{w_peak}) = {recalc_health_p5:.4f}")
+        print(f"    - [内部验证]: 探针重算 {recalc_health_p5:.4f} vs. 实际值 {bipolar_health_by_period[p_probe]:.4f} -> {'✅ 一致' if np.isclose(recalc_health_p5, bipolar_health_by_period[p_probe]) else '❌ 不一致'}")
+        print("\n  [链路层 4] 终极共振分重算 (Final Resonance Recalculation)")
+        recalc_bull_res = 0.0
+        recalc_bear_res = 0.0
+        bull_calc_str, bear_calc_str = [], []
+        if total_tf_weight > 0:
+            for p_str in periods:
+                p = int(p_str)
+                weight = numeric_tf_weights.get(p, 0) / total_tf_weight
+                recalc_bull_res += bullish_scores_by_period.get(p, 0.0) * weight
+                recalc_bear_res += bearish_scores_by_period.get(p, 0.0) * weight
+                bull_calc_str.append(f"({bullish_scores_by_period.get(p, 0.0):.2f}*{weight:.2f})")
+                bear_calc_str.append(f"({bearish_scores_by_period.get(p, 0.0):.2f}*{weight:.2f})")
+        print(f"    - [周期权重]: {json.dumps(tf_weights)}")
+        print(f"    - [看涨共振计算]: {' + '.join(bull_calc_str)} = {recalc_bull_res:.4f}")
+        print(f"    - [看跌共振计算]: {' + '.join(bear_calc_str)} = {recalc_bear_res:.4f}")
+        print("\n  [链路层 5] 终极对质 (Final Verdict)")
+        print(f"    - [看涨共振对比]: 系统最终值 {actual_bull_res:.4f} vs. 探针正确值 {recalc_bull_res:.4f} -> {'✅ 一致' if np.isclose(actual_bull_res, recalc_bull_res) else '❌ 不一致'}")
+        print(f"    - [看跌共振对比]: 系统最终值 {actual_bear_res:.4f} vs. 探针正确值 {recalc_bear_res:.4f} -> {'✅ 一致' if np.isclose(actual_bear_res, recalc_bear_res) else '❌ 不一致'}")
+        print("\n--- “筹码共振探针”解剖完毕 ---")
+        # [代码新增结束]
 
+    def _deploy_process_sync_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
+        """
+        【V1.0 · 新增】过程同步探针
+        - 核心使命: 深度解剖 'strategy_sync' 类型的过程信号，如 PROCESS_STRATEGY_DYN_VS_CHIP_DECAY。
+        - 解剖链路: 1. 最终同步分 -> 2. 动态元分析 -> 3. 瞬时关系分 -> 4. 原始终极信号动量转换。
+        """
+        # [代码新增开始]
+        print("\n" + "="*35 + f" [过程探针] 正在启用 🔗【过程同步探针 V1.0】🔗 " + "="*35)
+        print(f"  [目标信号]: {signal_to_probe}")
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.process_intel
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        target_config = next((c for c in engine.diagnostics_config if c.get('name') == signal_to_probe), None)
+        if not target_config:
+            print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
+            return
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
+        print(f"    - 【最终同步分】: {actual_final_score:.4f}")
+        print("\n  [链路层 2] 瞬时关系分重算 (Instantaneous Relationship Score)")
+        signal_a_name = target_config.get('signal_A')
+        signal_b_name = target_config.get('signal_B')
+        k = target_config.get('signal_b_factor_k', 1.0)
+        signal_a_raw = get_val(atomic.get(signal_a_name), probe_date)
+        signal_b_raw = get_val(atomic.get(signal_b_name), probe_date)
+        print(f"    - [原始输入] {signal_a_name}: {signal_a_raw:.4f}, {signal_b_name}: {signal_b_raw:.4f}")
+        momentum_a = (signal_a_raw - 0.5) * 2
+        thrust_b = (signal_b_raw - 0.5) * 2
+        print(f"    - [动量转换] momentum_a: ({signal_a_raw:.4f} - 0.5) * 2 = {momentum_a:.4f}")
+        print(f"    - [动量转换] thrust_b:   ({signal_b_raw:.4f} - 0.5) * 2 = {thrust_b:.4f}")
+        recalc_relationship_score = momentum_a * (1 + k * thrust_b)
+        recalc_relationship_score = np.clip(recalc_relationship_score, -1, 1)
+        print(f"    - [关系公式] momentum_a * (1 + k * thrust_b)")
+        print(f"    - [计算过程] {momentum_a:.4f} * (1 + {k:.2f} * {thrust_b:.4f}) = {recalc_relationship_score:.4f}")
+        actual_relationship_score = get_val(atomic.get(f"PROCESS_ATOMIC_REL_SCORE_{signal_a_name}_VS_{signal_b_name}"), probe_date)
+        print(f"    - [内部验证]: 探针重算 {recalc_relationship_score:.4f} vs. 引擎实际 {actual_relationship_score:.4f} -> {'✅ 一致' if np.isclose(recalc_relationship_score, actual_relationship_score) else '❌ 不一致'}")
+        print("\n  [链路层 3] 动态元分析重算 (Meta-Analysis Recalculation)")
+        relationship_series = engine._calculate_strategy_sync_relationship(df, target_config)
+        relationship_trend = ta.linreg(relationship_series, length=engine.meta_window).fillna(0)
+        relationship_accel = ta.linreg(relationship_trend, length=engine.meta_window).fillna(0)
+        bipolar_trend_strength = normalize_to_bipolar(relationship_trend, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        trend_weight, accel_weight = engine.meta_score_weights
+        recalc_final_score = (get_val(bipolar_trend_strength, probe_date) * trend_weight + get_val(bipolar_accel_strength, probe_date) * accel_weight)
+        recalc_final_score = np.clip(recalc_final_score, -1, 1)
+        print(f"    - [趋势分]: {get_val(bipolar_trend_strength, probe_date):.4f}, [加速度分]: {get_val(bipolar_accel_strength, probe_date):.4f}")
+        print(f"    - [融合权重]: 趋势({trend_weight}), 加速度({accel_weight})")
+        print(f"    - [最终计算]: ({get_val(bipolar_trend_strength, probe_date):.4f} * {trend_weight}) + ({get_val(bipolar_accel_strength, probe_date):.4f} * {accel_weight}) = {recalc_final_score:.4f}")
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
+        print("\n--- “过程同步探针”解剖完毕 ---")
+        # [代码新增结束]
 
 

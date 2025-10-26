@@ -110,8 +110,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.10 · 探针扩展版】法医探针调度中心
-        - 核心扩展: 新增对“流动性陷阱风险探针”的调用。
+        【V2.12 · 过程同步探针版】法医探针调度中心
+        - 核心扩展: 新增对“过程同步探针”的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -123,7 +123,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.10] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.12] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -145,12 +145,12 @@ class IntelligenceLayer:
                 self.probes._deploy_prometheus_torch_probe(probe_date)
             if debug_params.get('enable_pressure_transmutation_probe', False):
                 self.probes._deploy_pressure_transmutation_probe(probe_date)
-            # [代码新增开始] 部署新的流动性陷阱风险探针
             if debug_params.get('enable_liquidity_trap_probe', False):
                 self.probes._deploy_liquidity_trap_probe(probe_date)
-            # [代码新增结束]
             if debug_params.get('enable_chip_probe', False):
                 self.probes._deploy_hephaestus_forge_probe(probe_date)
+            if debug_params.get('enable_chip_resonance_probe', False):
+                self.probes._deploy_chip_resonance_probe(probe_date)
             if debug_params.get('enable_dynamic_mechanics_probe', False):
                 self.probes._deploy_ares_chariot_probe(probe_date)
             if debug_params.get('enable_foundation_probe', False):
@@ -159,6 +159,10 @@ class IntelligenceLayer:
                 self.probes._deploy_poseidons_trident_probe(probe_date)
             if debug_params.get('enable_process_probe', False):
                 self.probes._deploy_themis_scales_probe(probe_date, 'PROCESS_META_PD_DIVERGENCE_CONFIRM')
+            # [代码新增开始] 部署新的过程同步探针
+            if debug_params.get('enable_process_sync_probe', False):
+                self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')
+            # [代码新增结束]
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

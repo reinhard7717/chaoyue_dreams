@@ -140,12 +140,14 @@
         "probe_dates": ["2025-10-17", "2025-10-20"],
         "enable_behavioral_probe": false,
         "enable_pressure_transmutation_probe": false,
-        "enable_liquidity_trap_probe": true,
+        "enable_liquidity_trap_probe": false,
         "enable_chip_probe": false,
+        "enable_chip_resonance_probe": false,
         "enable_dynamic_mechanics_probe": false,
         "enable_foundation_probe": false,
         "enable_fund_flow_probe": false,
-        "enable_process_probe": false
+        "enable_process_probe": false,
+        "enable_process_sync_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
