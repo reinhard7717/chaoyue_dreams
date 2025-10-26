@@ -146,6 +146,8 @@ class IntelligenceLayer:
             # [代码修改开始] 部署新的上影线抛压探针
             if debug_params.get('enable_selling_pressure_probe', False):
                 self.probes._deploy_selling_pressure_probe(probe_date)
+            if debug_params.get('enable_panic_absorption_probe', False):
+                self.probes._deploy_alchemical_transmutation_probe(probe_date)
             # [代码修改结束]
             if debug_params.get('enable_chip_probe', False):
                 self.probes._deploy_hephaestus_forge_probe(probe_date)
