@@ -265,11 +265,11 @@ class CognitiveProbes:
 
     def _deploy_ltp_high_distribution_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 新增】长期获利盘高位派发风险探针
-        - 核心使命: 深度解剖 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION 信号的完整生成链路。
+        【探针 V2.0 · 风险逻辑重构版】长期获利盘高位派发风险探针
+        - 核心重构: 同步主引擎的风险逻辑重构，解剖全新的、基于“主力派发给散户”的证据链。
         """
-        # [代码新增开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 📉【长期获利盘高位派发风险探针 V1.0】📉 " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 📉【长期获利盘高位派发风险探针 V2.0】📉 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel
@@ -287,10 +287,11 @@ class CognitiveProbes:
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
         print("\n  [链路层 2] 核心证据全息诊断 (Holographic Diagnosis of Core Evidence)")
+        # 更新为新的证据链
         components = [
             {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE', 'cn_name': '顶部上下文'},
-            {'source': 'df', 'name': 'long_term_chips_unlocked_ratio_D', 'cn_name': '长期筹码解锁率'},
-            {'source': 'df', 'name': 'SLOPE_5_long_term_chips_unlocked_ratio_D', 'cn_name': '解锁率斜率'},
+            {'source': 'df', 'name': 'main_force_rally_distribution_D', 'cn_name': '主力拉高出货'},
+            {'source': 'df', 'name': 'retail_chasing_accumulation_D', 'cn_name': '散户追涨抬轿'},
             {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip', 'cn_name': '主力净流出'},
         ]
         fused_evidence_scores = {}
@@ -301,16 +302,19 @@ class CognitiveProbes:
                 source_series_raw = df.get(comp['name'], pd.Series(0.0, index=df.index))
             elif comp['source'] == 'atomic':
                 source_series_raw = engine._get_atomic_score(df, comp['name'], 0.0)
+            
+            transformed_series = source_series_raw.copy()
             if comp.get('transform') == 'neg_clip':
-                source_series_raw = -source_series_raw.clip(upper=0)
+                transformed_series = -transformed_series.clip(upper=0)
+            
             fused_component_series = pd.Series(0.0, index=df.index)
             if total_weight > 0:
                 for p in periods:
                     weight = numeric_tf_weights.get(p, 0) / total_weight
-                    normalized_series = normalize_score(source_series_raw, df.index, p)
+                    normalized_series = normalize_score(transformed_series, df.index, p)
                     fused_component_series += normalized_series * weight
             else:
-                fused_component_series = normalize_score(source_series_raw, df.index, 55)
+                fused_component_series = normalize_score(transformed_series, df.index, 55)
             fused_evidence_scores[comp['name']] = fused_component_series
             raw_val = get_val(source_series_raw, probe_date, 0.0)
             fused_val = get_val(fused_component_series, probe_date, 0.0)
@@ -329,7 +333,7 @@ class CognitiveProbes:
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
         print("\n--- “长期获利盘高位派发风险探针”解剖完毕 ---")
-        # [代码新增结束]
+        # [代码修改结束]
 
 
 

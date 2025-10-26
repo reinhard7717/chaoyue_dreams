@@ -902,10 +902,11 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 变换逻辑修正版】认知扩展信号统一合成引擎
-        - 核心修复: 修正了 'transform' 的处理逻辑。现在，变换操作（如 neg_clip）会在归一化之前执行，
-                      并确保只有在满足条件时（如主力净流出为负）才产生非零值。
-                      这彻底解决了因归一化一个大部分为零的序列而产生随机、错误分数的问题。
+        【V2.2 · 风险逻辑重构版】认知扩展信号统一合成引擎
+        - 核心重构: 彻底重构了 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION 信号的逻辑。
+                      废弃了模糊的 'long_term_chips_unlocked_ratio'，
+                      改为融合 'main_force_rally_distribution' 和 'retail_chasing_accumulation'，
+                      精确捕捉“主力拉高派发给散户”的核心风险场景。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -1062,14 +1063,17 @@ class CognitiveIntelligence:
                     {'source': 'df', 'name': 'flow_divergence_mf_vs_retail_D', 'transform': 'pos_clip'},
                 ]
             },
+            # [代码修改开始]
             'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': {
+                'description': '【V2.2 · 风险逻辑重构版】精确捕捉“主力拉高派发给散户”的核心风险场景。',
                 'components': [
                     {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE'},
-                    {'source': 'df', 'name': 'long_term_chips_unlocked_ratio_D'},
-                    {'source': 'df', 'name': 'SLOPE_5_long_term_chips_unlocked_ratio_D'},
+                    {'source': 'df', 'name': 'main_force_rally_distribution_D'},
+                    {'source': 'df', 'name': 'retail_chasing_accumulation_D'},
                     {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'neg_clip'},
                 ]
             },
+            # [代码修改结束]
             'COGNITIVE_RISK_MULTI_SOURCE_SIGNAL_CONFLICT': {
                 'components': [
                     {'source': 'atomic', 'name': 'COGNITIVE_SCORE_CHIMERA_CONFLICT'},
@@ -1140,7 +1144,6 @@ class CognitiveIntelligence:
             fused_component_scores = []
             gate_scores = []
             for comp in config['components']:
-                # [代码修改开始] 修正变换逻辑
                 mtf_normalized_scores = {}
                 source_series_raw = None
                 if comp['source'] == 'df':
@@ -1149,7 +1152,6 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
-                # 将变换逻辑提前，在归一化之前完成
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
@@ -1158,7 +1160,6 @@ class CognitiveIntelligence:
                 elif transform == 'inverse_proximity':
                     transformed_series = 1.0 - (1.0 - transformed_series).clip(0, 1)
                 elif transform == 'neg_clip':
-                    # 核心修复：只对负值部分取反，正值和零保持为零
                     transformed_series = -transformed_series.clip(upper=0)
                 elif transform == 'pos_clip':
                     transformed_series = transformed_series.clip(lower=0)
@@ -1174,12 +1175,10 @@ class CognitiveIntelligence:
                 if total_weight > 0:
                     for p in periods:
                         weight = numeric_tf_weights.get(p, 0) / total_weight
-                        # 对变换后的序列进行归一化
                         normalized_series = normalize_score(transformed_series, df.index, p)
                         fused_component_series += normalized_series * weight
                 else:
                     fused_component_series = normalize_score(transformed_series, df.index, 55)
-                # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
