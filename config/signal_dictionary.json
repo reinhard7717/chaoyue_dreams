@@ -323,12 +323,18 @@
             "description": "【事件型】套牢盘最终放弃希望，不计成本卖出的过程。只应有加分。"
         },
         "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY": {
-            "cn_name": "【过程风险】力学筹码共振看跌",
-            "category": "过程层-战略",
-            "type": "process",
-            "score": -200,
-            "scoring_mode": "unipolar",
-            "description": "诊断'力学看跌'与'筹码看跌'的共振过程。基础分已为负，只在事件发生时（原始分>0）计入惩罚。"
+        "cn_name": "【过程风险】力学筹码共振看跌",
+        "type": "risk",
+        "scoring_mode": "unipolar",
+        "penalty_weight": 200,
+        "description": "衡量力学与筹码两大战略维度【看跌风险】的同步形成趋势。分值越高，风险越大。"
+        },
+        "PROCESS_STRATEGY_DYN_VS_CHIP_DECAY_RISE": {
+        "cn_name": "【过程机会】力学筹码共振看涨",
+        "type": "positional",
+        "scoring_mode": "unipolar",
+        "score": 200,
+        "description": "衡量力学与筹码两大战略维度【看跌风险】的同步消散趋势。分值越高，机会越大。"
         },
         "PROCESS_META_MAIN_FORCE_URGENCY": {
             "cn_name": "【过程】主力紧迫度",

@@ -168,43 +168,44 @@ class ProcessIntelligence:
         meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险
         return {signal_name: meta_score}
 
-    def _diagnose_strategy_sync(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+    def _diagnose_strategy_sync(self, df: pd.DataFrame, config: dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】诊断高阶战略信号之间的同步性。
-        - 核心逻辑: 直接将 [0, 1] 的分数映射为 [-1, 1] 的动量，分析其关系。
+        【V2.0 · 信号分裂版】战略同步诊断器
+        - 核心革命: 不再输出单一的双极性信号，而是将其在源头分裂为两个互斥的单极性信号：
+                      - <signal_name>: 只包含负向部分(风险)，代表趋势形成。
+                      - <signal_name>_RISE: 只包含正向部分(机会)，代表趋势消散。
+        - 收益: 彻底解决了下游计分和报告的逻辑混乱问题。
         """
+        atomic_states = {}
         signal_name = config.get('name')
-        df_index = df.index
-
-        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
-        relationship_score = self._calculate_strategy_sync_relationship(df, config)
-        if relationship_score.empty:
-            return {}
         
-        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
-        self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-
-        # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
-        relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
+        # 步骤1: 计算瞬时关系分 (逻辑不变)
+        relationship_series = self._calculate_strategy_sync_relationship(df, config)
+        
+        # 步骤2: 对关系分进行动态元分析 (逻辑不变)
+        relationship_trend = ta.linreg(relationship_series, length=self.meta_window).fillna(0)
         relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-
-        # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
-        bipolar_trend_strength = normalize_to_bipolar(
-            series=relationship_trend, target_index=df_index,
-            window=self.norm_window, sensitivity=self.bipolar_sensitivity
-        )
-        bipolar_accel_strength = normalize_to_bipolar(
-            series=relationship_accel, target_index=df_index,
-            window=self.norm_window, sensitivity=self.bipolar_sensitivity
-        )
-
-        # --- 步骤4: 使用加权平均法融合 ---
-        trend_weight = self.meta_score_weights[0]
-        accel_weight = self.meta_score_weights[1]
+        
+        # 步骤3: 归一化为双极性强度分 (逻辑不变)
+        bipolar_trend_strength = normalize_to_bipolar(relationship_trend, df.index, self.norm_window, self.bipolar_sensitivity)
+        bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, self.norm_window, self.bipolar_sensitivity)
+        
+        # 步骤4: 使用加权平均法融合 (逻辑不变)
+        trend_weight, accel_weight = self.meta_score_weights
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        meta_score = meta_score.clip(-1, 1).astype(np.float32)
-
-        return {signal_name: meta_score}
+        meta_score = np.clip(meta_score, -1, 1)
+        
+        # [代码修改开始] 信号分裂：将一个双极性信号拆分为两个单极性信号
+        # 风险信号 (DECAY): 只取负向部分，并转为正值，代表风险强度。
+        risk_part = meta_score.clip(upper=0).abs()
+        atomic_states[signal_name] = risk_part.astype(np.float32)
+        
+        # 机会信号 (RISE): 只取正向部分，代表机会强度。
+        opportunity_part = meta_score.clip(lower=0)
+        atomic_states[f"{signal_name}_RISE"] = opportunity_part.astype(np.float32)
+        # [代码修改结束]
+        
+        return atomic_states
 
     def _calculate_strategy_sync_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
