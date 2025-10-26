@@ -1367,10 +1367,10 @@
             "description": "【V2.2 · 广义抛压版】经过主力行为审判后的最终抛售风险。当主力吸收强度超过'审判阈值'时，此风险将被强制归零，并嬗变为'吸收反转机会'。"
         },
         "SCORE_OPPORTUNITY_ABSORPTION_REVERSAL": {
-            "cn_name": "【基础战术机会】吸收反转",
-            "category": "基础层-机会",
-            "type": "opportunity",
-            "score_weight": 500,
+            "cn_name": "【行为战术】吸收反转",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 500,
             "description": "【V1.1 · 名称规范化】由抛压分析协议创造的强力买入机会信号。当市场出现广义抛压（价跌或长上影），且主力吸收强度超过'审判阈值'时触发。分数越高，代表抛压越大、吸收越坚决。"
         },
         "SCORE_RISK_VPA_EFFICIENCY_DECLINING": {

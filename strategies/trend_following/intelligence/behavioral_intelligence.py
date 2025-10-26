@@ -887,7 +887,6 @@ class BehavioralIntelligence:
         day_quality_score = (trajectory_score * 0.7 + shadow_modifier * 0.3).clip(-1, 1)
         return day_quality_score
 
-
     def _transmute_pressure_into_opportunity(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
         【V1.0 · 新增】抛压嬗变引擎
