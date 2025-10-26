@@ -41,10 +41,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V28.0 · 结构升维版】行为终极信号诊断引擎
-        - 核心升级: 废除旧的、基于OHLCV的价、量、K线三支柱健康度计算。
-                      全面转向调用全新的`_calculate_structural_behavior_health`方法，
-                      该方法直接消费由`AdvancedStructuralMetricsService`提供的高保真微观结构指标。
+        【V28.1 · 状态隔离版】行为终极信号诊断引擎
+        - 核心修复: 将复杂的 overall_health 字典存入一个内部专用的键名，防止其污染通用的 atomic_states 存储空间，
+                      从而解决了下游模块因数据类型不匹配而崩溃的问题。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -63,7 +62,9 @@ class BehavioralIntelligence:
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
         # 步骤三：【核心重构】调用全新的、基于高保真结构指标的健康度计算引擎
         overall_health = self._calculate_structural_behavior_health(df, p_conf)
-        self.strategy.atomic_states['__BEHAVIOR_overall_health'] = overall_health
+        # [代码修改开始] 将复杂的字典存入一个内部专用的键，避免污染
+        self.strategy.atomic_states['_internal_behavior_health_dict'] = overall_health
+        # [代码修改结束]
         # 步骤四：调用终极信号合成引擎 (逻辑保留，但消费的是更高质量的健康度数据)
         # 注意：我们将 domain_prefix 修改为 "STRUCT_BEHAVIOR" 以匹配新的信号字典定义
         ultimate_signals = transmute_health_to_ultimate_signals(
@@ -74,8 +75,8 @@ class BehavioralIntelligence:
             domain_prefix="STRUCT_BEHAVIOR"
         )
         states.update(ultimate_signals)
-        
         return states
+
     # ==============================================================================
     # 以下为新增的原子信号中心和降级的原子诊断引擎
     # ==============================================================================

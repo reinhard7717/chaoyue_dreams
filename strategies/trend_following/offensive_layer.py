@@ -11,15 +11,10 @@ class OffensiveLayer:
 
     def calculate_entry_score(self, trigger_events: Dict, bottom_context_score: pd.Series, top_context_score: pd.Series) -> Tuple[pd.Series, pd.DataFrame]:
         """
-        【V517.0 · 直觉计分版】
-        - 核心革命: 彻底重构计分逻辑，确保“利好”永远是加分，“风险”永远是扣分。
-        - 修正逻辑:
-          1. 对双极性(bipolar)信号，将其正负部分拆分。
-          2. 正向部分乘以 score (必须为正)，产生加分。
-          3. 负向部分(取绝对值)乘以 penalty_weight (必须为正)，产生扣分。
-          4. 彻底解决了利好信号因乘以负权重而导致扣分的严重逻辑错误。
+        【V517.1 · 健壮性增强版】
+        - 核心修复: 在处理信号前增加 isinstance(signal_series, pd.Series) 检查，
+                      从根本上防止因 atomic_states 中存在非序列化数据（如字典）而导致的崩溃。
         """
-        # [代码修改开始]
         df = self.strategy.df_indicators
         score_details_df = pd.DataFrame(index=df.index)
         score_map = get_params_block(self.strategy, 'score_type_map', {})
@@ -32,8 +27,10 @@ class OffensiveLayer:
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
-            if signal_series is None or signal_series.empty:
+            # [代码修改开始] 增加对 signal_series 类型的严格检查
+            if signal_series is None or not isinstance(signal_series, pd.Series):
                 continue
+            # [代码修改结束]
             processed_signal_series = signal_series.astype(float)
             scoring_mode = meta.get('scoring_mode', 'unipolar') # 默认改为unipolar更安全
             context_role = meta.get('context_role', 'neutral')
@@ -85,7 +82,6 @@ class OffensiveLayer:
             score_details_df[signal_name] = bonus_amount
         # 保持浮点数以便观察，最终的取整在 judgment_layer 中完成
         return total_score.fillna(0), score_details_df.fillna(0)
-        # [代码修改结束]
 
 
 
