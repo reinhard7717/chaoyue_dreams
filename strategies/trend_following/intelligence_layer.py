@@ -110,8 +110,9 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.7 · 宙斯之雷版】法医探针调度中心
-        - 核心升级: 部署新的“宙斯之雷”探针，并移除旧的原子风险探针。
+        【V2.8 · 架构同步版】法医探针调度中心
+        - 核心升级: 废除旧的、跨模块的`selling_pressure_analysis_probe`。
+                      部署全新的、逻辑内聚的`pressure_transmutation_probe`。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -123,7 +124,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.7] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.8] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -143,12 +144,12 @@ class IntelligenceLayer:
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
             if debug_params.get('enable_behavioral_probe', False):
                 self.probes._deploy_prometheus_torch_probe(probe_date)
-            # [代码修改开始] 部署新的上影线抛压探针
             if debug_params.get('enable_selling_pressure_probe', False):
                 self.probes._deploy_selling_pressure_probe(probe_date)
-            if debug_params.get('enable_selling_pressure_analysis_probe', False):
-                self.probes._deploy_selling_pressure_analysis_probe(probe_date)
-            # [代码修改结束]
+            # 废除旧探针，部署新探针
+            if debug_params.get('enable_pressure_transmutation_probe', False):
+                self.probes._deploy_pressure_transmutation_probe(probe_date)
+            
             if debug_params.get('enable_chip_probe', False):
                 self.probes._deploy_hephaestus_forge_probe(probe_date)
             if debug_params.get('enable_dynamic_mechanics_probe', False):

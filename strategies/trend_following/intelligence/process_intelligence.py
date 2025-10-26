@@ -82,9 +82,9 @@ class ProcessIntelligence:
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
-        # [代码修改开始] 新增 relationship_type 的读取
+        # 新增 relationship_type 的读取
         relationship_type = config.get('relationship_type', 'consensus') # 默认为共识
-        # [代码修改结束]
+        
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
                 return self.strategy.atomic_states.get(signal_name)
@@ -103,14 +103,14 @@ class ProcessIntelligence:
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        # [代码修改开始] 根据关系类型执行不同的计算法则
+        # 根据关系类型执行不同的计算法则
         if relationship_type == 'divergence':
             # 背离法则：衡量B动量在多大程度上“战胜”了A动量
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
         else: # 默认为 'consensus'
             # 共识法则：计算A和B动量的加权平均值
             relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
-        # [代码修改结束]
+        
         relationship_score = relationship_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b

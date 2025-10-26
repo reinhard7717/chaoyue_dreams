@@ -81,10 +81,9 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 风险调光器版】原子信号中心
-        - 核心升级: 实施“风险调光器”协议。
-                      1. 分别调用方法生成`PROVISIONAL_RISK_UPPER_SHADOW`和`SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS`。
-                      2. 调用新的融合器`_fuse_upper_shadow_signals`生成最终的、经过调制的风险信号。
+        【V2.1 · 逻辑集权化版】原子信号中心
+        - 核心重构: 将“抛压-诊断-嬗变”的全链路逻辑收归本模块。
+                      现在由 `_transmute_pressure_into_opportunity` 统一完成最终的风险和机会信号生成。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -97,19 +96,19 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # [代码修改开始] 实施“风险调光器”协议
-        # 步骤1: 生成临时的原始信号
+        # 实施全链路逻辑集权
+        # 步骤1: 生成临时的广义抛压信号
         provisional_kline_signals = self._diagnose_kline_patterns(df, day_quality_score)
-        provisional_risk = provisional_kline_signals.get('PROVISIONAL_RISK_UPPER_SHADOW', pd.Series(0.0, index=df.index))
-        atomic_signals.update(provisional_kline_signals) # 将其他kline信号(如缺口)加入
+        provisional_pressure = provisional_kline_signals.get('PROVISIONAL_GENERAL_PRESSURE_RISK', pd.Series(0.0, index=df.index))
+        atomic_signals.update(provisional_kline_signals)
         # 步骤2: 生成意图诊断信号
         intent_signals = self._diagnose_upper_shadow_intent(df)
         intent_diagnosis = intent_signals.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS', pd.Series(0.0, index=df.index))
         atomic_signals.update(intent_signals)
-        # 步骤3: 调用融合器生成最终风险信号
-        fused_signals = self._fuse_upper_shadow_signals(provisional_risk, intent_diagnosis)
-        atomic_signals.update(fused_signals)
-        # [代码修改结束]
+        # 步骤3: 调用嬗变引擎，生成最终的风险和机会信号
+        final_pressure_signals = self._transmute_pressure_into_opportunity(provisional_pressure, intent_diagnosis)
+        atomic_signals.update(final_pressure_signals)
+        
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
@@ -219,10 +218,9 @@ class BehavioralIntelligence:
     # 以下方法被降级为私有，作为原子信号的生产者
     def _diagnose_kline_patterns(self, df: pd.DataFrame, day_quality_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.7 · 职责分离版】诊断K线原子形态
-        - 核心重构: 此方法不再输出最终的`SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW`。
-                      根据“风险调光器”协议，它现在只负责计算并输出一个临时的、未经上下文调制的
-                      原始抛压分 `PROVISIONAL_RISK_UPPER_SHADOW`，供下游融合器使用。
+        【V3.8 · 广义抛压版】诊断K线原子形态
+        - 核心升级: 从 foundation_intelligence 模块接管了“广义抛压”的计算逻辑。
+                      现在负责生成一个更全面的 `PROVISIONAL_GENERAL_PRESSURE_RISK` 临时信号。
         """
         states = {}
         p = get_params_block(self.strategy, 'kline_pattern_params')
@@ -238,21 +236,29 @@ class BehavioralIntelligence:
             normalization_base = (df['close_D'] * 0.1).replace(0, np.nan)
             support_strength_score = (support_distance / normalization_base).clip(0, 1).fillna(0)
             states['SCORE_GAP_SUPPORT_ACTIVE'] = (support_strength_score * gap_support_state).astype(np.float32)
+        # 实施广义抛压计算逻辑
         p_pressure = p.get('selling_pressure_params', {})
-        # [代码修改开始] 信号名称变更为临时信号
-        signal_name = 'PROVISIONAL_RISK_UPPER_SHADOW'
-        # [代码修改结束]
+        signal_name = 'PROVISIONAL_GENERAL_PRESSURE_RISK'
         if get_param_value(p_pressure.get('enabled'), True):
             periods = get_param_value(p_pressure.get('periods'), [5, 13, 21, 55])
             sorted_periods = sorted(periods)
             pressure_scores = {}
+            # 广义抛压证据1: 上影线
             kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
             upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
             upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
+            # 广义抛压证据2: 价跌
+            candle_body_down = (df['open_D'] - df['close_D']).clip(lower=0)
             for p_tactical in sorted_periods:
-                tactical_pressure = normalize_score(upper_shadow_ratio, df.index, p_tactical, ascending=True)
+                # 归一化上影线和价跌
+                tactical_shadow = normalize_score(upper_shadow_ratio, df.index, p_tactical, ascending=True)
+                tactical_price_down = normalize_score(candle_body_down, df.index, p_tactical, ascending=True)
+                # 融合价跌和上影线作为抛压组件
+                selling_pressure_component = np.maximum(tactical_shadow, tactical_price_down)
+                # 归一化成交量
                 tactical_volume = normalize_score(df['volume_D'], df.index, p_tactical, ascending=True)
-                pressure_scores[p_tactical] = (tactical_pressure * tactical_volume)**0.5
+                # 融合抛压和成交量
+                pressure_scores[p_tactical] = (selling_pressure_component * tactical_volume)**0.5
             tf_weights = get_param_value(p_pressure.get('tf_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
             final_fused_snapshot_score = pd.Series(0.0, index=df.index)
             numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
@@ -262,6 +268,7 @@ class BehavioralIntelligence:
                     weight = numeric_tf_weights.get(p_tactical, 0) / total_weight
                     final_fused_snapshot_score += pressure_scores.get(p_tactical, 0.0) * weight
             states[signal_name] = final_fused_snapshot_score.clip(0, 1).astype(np.float32)
+        
         return states
 
     def _diagnose_advanced_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -338,11 +345,11 @@ class BehavioralIntelligence:
         periods = [5, 13, 21, 55]
         sorted_periods = sorted(periods)
         upthrust_scores_by_period = {}
-        # [代码修改开始] 实施“雅典娜敕令”，在源头过滤风险驱动因子
+        # 实施“雅典娜敕令”，在源头过滤风险驱动因子
         is_bearish_quality_day_mask = (day_quality_score <= 0).astype(int)
         # 只有在K线质量为负的日子里，才计算收盘疲弱分
         weak_close_score = (1.0 - normalize_score(df.get('closing_strength_index_D', 0.5), df.index, 55)) * is_bearish_quality_day_mask
-        # [代码修改结束]
+        
         overextension_ratio = (df['close_D'] / df[ma_col] - 1).clip(0)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
@@ -387,20 +394,20 @@ class BehavioralIntelligence:
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_tactical}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_tactical}_D' in df else pd.Series(1.0, index=df.index)
             tactical_huge_volume = normalize_score(tactical_volume_ratio, df.index, p_tactical, ascending=True)
-            # [代码修改开始] 在源头过滤风险驱动因子
+            # 在源头过滤风险驱动因子
             tactical_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_tactical, ascending=True)
             tactical_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_tactical, ascending=True)
             # 只有在K线质量为负的日子里，才计算价格滞涨分
             tactical_price_stagnant = ((tactical_low_efficiency * tactical_high_volatility)**0.5) * is_bearish_quality_day_mask
-            # [代码修改结束]
+            
             context_volume_ratio = (df['volume_D'] / df[f'VOL_MA_{p_context}_D'].replace(0, np.nan)).fillna(1.0) if f'VOL_MA_{p_context}_D' in df else pd.Series(1.0, index=df.index)
             context_huge_volume = normalize_score(context_volume_ratio, df.index, p_context, ascending=True)
-            # [代码修改开始] 在源头过滤风险驱动因子
+            # 在源头过滤风险驱动因子
             context_low_efficiency = 1 - normalize_score(df.get('intraday_trend_efficiency_D', 0.5), df.index, p_context, ascending=True)
             context_high_volatility = normalize_score(df.get('intraday_volatility_D', 0.0), df.index, p_context, ascending=True)
             # 只有在K线质量为负的日子里，才计算价格滞涨分
             context_price_stagnant = ((context_low_efficiency * context_high_volatility)**0.5) * is_bearish_quality_day_mask
-            # [代码修改结束]
+            
             fused_huge_volume = (tactical_huge_volume * context_huge_volume)**0.5
             fused_price_stagnant = (tactical_price_stagnant * context_price_stagnant)**0.5
             stagnation_scores_by_period[p_tactical] = (fused_huge_volume * fused_price_stagnant).astype(np.float32)
@@ -464,13 +471,13 @@ class BehavioralIntelligence:
         if total_weight_drain > 0:
             for p_tactical in periods:
                 final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (numeric_tf_weights_drain.get(p_tactical, 0) / total_weight_drain)
-        # [代码修改开始] 签署“宙斯敕令”：废除对“流动性枯竭风险”快照分进行不当的元分析
+        # 签署“宙斯敕令”：废除对“流动性枯竭风险”快照分进行不当的元分析
         # 旧的错误逻辑:
         # drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
         # states.update(drain_signal_dict)
         # 新的正确逻辑:
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = final_drain_snapshot.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         norm_window = 55
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
@@ -656,16 +663,16 @@ class BehavioralIntelligence:
             return states
         norm_window = get_param_value(p.get('norm_window'), 55)
         weights = get_param_value(p.get('fusion_weights'), {})
-        # [代码修改开始] 更新权重变量名以匹配新的证据
+        # 更新权重变量名以匹配新的证据
         w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
         w_conc = get_param_value(weights.get('concentration_change'), 0.2)
         w_profit = get_param_value(weights.get('profit_profile'), 0.2)
-        # [代码修改结束]
+        
         kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
         trigger_mask = upper_shadow_ratio > get_param_value(p.get('min_upper_shadow_ratio'), 0.4)
-        # [代码修改开始] 实施“主力审判”协议，更换核心证据
+        # 实施“主力审判”协议，更换核心证据
         # 证据A: 主力净流向 (绝对意图)
         main_force_flow_score = normalize_to_bipolar(df.get('main_force_net_flow_consensus_D', 0), df.index, norm_window)
         # 证据B: 筹码结果 (最终归宿)
@@ -679,7 +686,7 @@ class BehavioralIntelligence:
             concentration_change_score * w_conc +
             profit_profile_score * w_profit
         ).clip(-1, 1)
-        # [代码修改结束]
+        
         states[signal_name] = (final_intent_score * trigger_mask).astype(np.float32)
         return states
 
@@ -900,6 +907,35 @@ class BehavioralIntelligence:
         states['SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'] = final_risk_score.astype(np.float32)
         return states
 
+    def _transmute_pressure_into_opportunity(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】抛压嬗变引擎
+        - 核心使命: 融合临时的广义抛压分和权威的主力意图诊断分，完成从风险到机会的最终嬗变。
+        - 核心公式: 1. 若意图分 > 阈值，则风险归零，创造机会分。
+                      2. 否则，风险 = 原始抛压 * (1 - 意图分)。
+        - 产出: 生成最终的 `SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW` 和 `SCORE_OPPORTUNITY_ABSORPTION_REVERSAL`。
+        """
+        states = {}
+        p_parent = get_params_block(self.strategy, 'kline_pattern_params', {})
+        p_reversal = get_params_block(p_parent, 'absorption_reversal_params', {})
+        judgment_threshold = get_param_value(p_reversal.get('judgment_threshold'), 0.7)
+        is_absorption_reversal = intent_diagnosis >= judgment_threshold
+        # 计算最终风险
+        final_risk_array = np.where(
+            is_absorption_reversal,
+            0.0,
+            (provisional_pressure * (1 - intent_diagnosis))
+        )
+        # 计算机会分
+        opportunity_score_array = np.where(
+            is_absorption_reversal,
+            provisional_pressure * intent_diagnosis,
+            0.0
+        )
+        # 统一命名最终的抛压风险信号
+        states['SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'] = pd.Series(final_risk_array, index=provisional_pressure.index).clip(0, 1).astype(np.float32)
+        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = pd.Series(opportunity_score_array, index=provisional_pressure.index).clip(0, 1).astype(np.float32)
+        return states
 
 
 

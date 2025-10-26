@@ -28,6 +28,7 @@ class ForensicProbes:
         # 为新的基础探针获取 foundation_intel 引用
         self.foundation_intel = intelligence_layer_instance.foundation_intel
         self.process_intel = intelligence_layer_instance.process_intel
+        self.behavioral_intel = intelligence_layer_instance.behavioral_intel
         # [代码新增结束]
 
     def _deploy_thanatos_scythe_probe(self, probe_date: pd.Timestamp):
@@ -869,10 +870,10 @@ class ForensicProbes:
         if not target_config:
             print(f"  [错误] 在过程引擎配置中未找到信号 '{signal_to_probe}' 的定义。")
             return
-        # [代码修改开始] 动态读取变化类型，与引擎逻辑同步
+        # 动态读取变化类型，与引擎逻辑同步
         change_type_a = target_config.get('change_type_A', 'pct')
         change_type_b = target_config.get('change_type_B', 'pct')
-        # [代码修改结束]
+        
         print("\n  [链路层 1] 最终判决 (Final Verdict)")
         final_score_actual = get_val(atomic.get(signal_to_probe), probe_date, 0.0)
         print(f"    - 【最终得分】: {final_score_actual:.4f}")
@@ -893,7 +894,7 @@ class ForensicProbes:
         print("    - [原始输入 Raw Inputs]:")
         print(f"      - Signal A ({signal_a_name}): {raw_a:.4f}")
         print(f"      - Signal B ({signal_b_name}): {raw_b:.4f}")
-        # [代码修改开始] 复制引擎中的 get_change_series 逻辑，实现动态计算
+        # 复制引擎中的 get_change_series 逻辑，实现动态计算
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if series is None: return pd.Series(dtype=float)
             if change_type == 'diff':
@@ -904,14 +905,14 @@ class ForensicProbes:
         signal_b_series = df.get(signal_b_name)
         change_a = get_change_series(signal_a_series, change_type_a)
         change_b = get_change_series(signal_b_series, change_type_b)
-        # [代码修改结束]
+        
         change_a_val = get_val(change_a, probe_date)
         change_b_val = get_val(change_b, probe_date)
-        # [代码修改开始] 在输出中明确显示所使用的变化类型
+        # 在输出中明确显示所使用的变化类型
         print(f"    - [一阶变化 First Order Change]:")
         print(f"      - Change A (Type: {change_type_a}): {change_a_val:.4f}")
         print(f"      - Change B (Type: {change_type_b}): {change_b_val:.4f}")
-        # [代码修改结束]
+        
         # 3.3 动量归一
         momentum_a = normalize_to_bipolar(change_a, df.index, engine.std_window, engine.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df.index, engine.std_window, engine.bipolar_sensitivity)
@@ -989,25 +990,25 @@ class ForensicProbes:
         actual_intent_diagnosis = get_val(atomic.get(intent_signal_name), probe_date, 0.0)
         norm_window = get_param_value(p_intent.get('norm_window'), 55)
         weights = get_param_value(p_intent.get('fusion_weights'), {})
-        # [代码修改开始] 同步“主力审判”协议的权重和证据
+        # 同步“主力审判”协议的权重和证据
         w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
         w_conc = get_param_value(weights.get('concentration_change'), 0.2)
         w_profit = get_param_value(weights.get('profit_profile'), 0.2)
         min_upper_shadow_ratio = get_param_value(p_intent.get('min_upper_shadow_ratio'), 0.4)
         main_force_flow_s = df.get('main_force_net_flow_consensus_D', pd.Series(0.0, index=df.index))
         main_force_flow_score = get_val(normalize_to_bipolar(main_force_flow_s, df.index, norm_window), probe_date)
-        # [代码修改结束]
+        
         conc_change_s = df.get('concentration_90pct_D', pd.Series(0.0, index=df.index)).diff().fillna(0)
         conc_change_score = get_val(normalize_to_bipolar(conc_change_s, df.index, norm_window), probe_date)
         profit_s = -df.get('main_force_intraday_profit_D', pd.Series(0.0, index=df.index))
         profit_profile_score = get_val(normalize_to_bipolar(profit_s, df.index, norm_window), probe_date)
         print(f"    - [证据链重算]:")
-        # [代码修改开始] 更新打印输出以反映新证据
+        # 更新打印输出以反映新证据
         print(f"      - 主力净流向分 (main_force_flow): {main_force_flow_score:.4f} (权重: {w_flow})")
         print(f"      - 筹码结果分 (concentration_change): {conc_change_score:.4f} (权重: {w_conc})")
         print(f"      - 成本代价分 (profit_profile): {profit_profile_score:.4f} (权重: {w_profit})")
         recalc_intent_untriggered = (main_force_flow_score * w_flow + conc_change_score * w_conc + profit_profile_score * w_profit)
-        # [代码修改结束]
+        
         trigger = upper_shadow_ratio > min_upper_shadow_ratio
         recalc_intent_diagnosis = recalc_intent_untriggered * trigger
         print(f"    - 融合后意图分 (未触发): {recalc_intent_untriggered:.4f}")
@@ -1024,15 +1025,16 @@ class ForensicProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score_clipped:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score_clipped) else '❌ 不一致'}")
         print("\n--- 上影线风险探针解剖完毕 ---")
 
-    def _deploy_selling_pressure_analysis_probe(self, probe_date: pd.Timestamp):
+    def _deploy_pressure_transmutation_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.3 · 战术窗口加速版】抛压分析探针
-        - 核心升级: 同步主引擎，将动态确认的 meta_window 从 13 缩短至 3。
+        【V1.0 · 新增】广义抛压嬗变探针
+        - 核心使命: 深度解剖`behavioral_intelligence`模块内部从“识别广义抛压”到“嬗变为吸收反转机会”的全链路逻辑。
+        - 解剖链路: 1. 原始广义抛压 -> 2. 主力意图诊断 -> 3. 审判与嬗变 -> 4. 最终风险/机会。
         """
-        print("\n" + "="*35 + f" [战术探针] 正在启用 💎【抛压分析探针 V1.3】💎 " + "="*35)
+        print("\n" + "="*35 + f" [行为探针] 正在启用 💎【广义抛压嬗变探针 V1.0】💎 " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        engine = self.foundation_intel
+        engine = self.behavioral_intel
         def get_val(series, date, default=np.nan):
             if series is None or not isinstance(series, (pd.Series, np.ndarray)): return default
             if isinstance(series, np.ndarray):
@@ -1040,54 +1042,38 @@ class ForensicProbes:
                 return series[idx_loc] if idx_loc < len(series) else default
             val = series.get(date)
             return default if pd.isna(val) else val
-        p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
-        p_analysis = get_params_block(p_conf, 'selling_pressure_analysis_params', {})
-        judgment_threshold = get_param_value(p_analysis.get('judgment_threshold'), 0.7)
-        fusion_weights = get_param_value(p_analysis.get('absorption_fusion_weights'), {'static': 0.7, 'dynamic': 0.3})
-        static_weight = fusion_weights.get('static', 0.7)
-        dynamic_weight = fusion_weights.get('dynamic', 0.3)
+        p_parent = get_params_block(self.strategy, 'kline_pattern_params', {})
+        p_reversal = get_params_block(p_parent, 'absorption_reversal_params', {})
+        judgment_threshold = get_param_value(p_reversal.get('judgment_threshold'), 0.7)
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        actual_risk = get_val(atomic.get('SCORE_RISK_PANIC_SELLING'), probe_date, 0.0)
+        actual_risk = get_val(atomic.get('SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW'), probe_date, 0.0)
         actual_opp = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'), probe_date, 0.0)
-        actual_absorption = get_val(atomic.get('SCORE_MAIN_FORCE_ABSORPTION_DYNAMIC'), probe_date, 0.0)
-        print(f"    - 【最终恐慌风险】: {actual_risk:.4f}")
+        print(f"    - 【最终抛压风险】: {actual_risk:.4f}")
         print(f"    - 【吸收反转机会分】: {actual_opp:.4f}")
-        print(f"    - 【主力吸收动态分】: {actual_absorption:.4f}")
-        print("\n  [链路层 2] 原始抛压风险重算 (Raw Selling Pressure)")
-        state = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_STATE'), probe_date, 0.0)
-        dynamic = get_val(atomic.get('PROVISIONAL_SELLING_PRESSURE_DYNAMIC'), probe_date, 0.0)
-        recalc_raw_risk = state * dynamic
-        print(f"    - [原材料]: 状态分 {state:.4f} * 动态分 {dynamic:.4f}")
-        print(f"    - 【探针重算原始抛压风险】: {recalc_raw_risk:.4f}")
-        print("\n  [链路层 3] 主力吸收动态分重算 (事件-确认模型)")
-        static_absorption_score_series = engine._calculate_main_force_absorption_snapshot(df).clip(0, 1)
-        static_absorption_score = get_val(static_absorption_score_series, probe_date)
-        print(f"    - [事件分 Event]: 静态吸收快照分 = {static_absorption_score:.4f} (权重: {static_weight})")
-        # [代码修改] 将元分析窗口同步修改为3
-        meta_window = 3
-        print(f"    - [确认分 Confirmation]: 使用战术窗口 meta_window = {meta_window} 进行动态趋势质量分析...")
-        dynamic_absorption_quality_series = engine._perform_foundation_relational_meta_analysis(
-            df=df,
-            snapshot_score=engine._calculate_main_force_absorption_snapshot(df),
-            meta_window=meta_window
-        ).clip(0, 1)
-        dynamic_absorption_quality = get_val(dynamic_absorption_quality_series, probe_date)
-        print(f"    - [确认分 Confirmation]: 动态趋势质量分 = {dynamic_absorption_quality:.4f} (权重: {dynamic_weight})")
-        recalc_absorption_score = (static_absorption_score * static_weight + dynamic_absorption_quality * dynamic_weight)
-        print(f"    - [融合计算]: ({static_absorption_score:.4f} * {static_weight}) + ({dynamic_absorption_quality:.4f} * {dynamic_weight}) = {recalc_absorption_score:.4f}")
-        print(f"    - 【探针重算主力吸收分】: {recalc_absorption_score:.4f}")
-        print(f"    - [内部验证]: 系统值 {actual_absorption:.4f} vs. 探针重算 {recalc_absorption_score:.4f} -> {'✅ 一致' if np.isclose(actual_absorption, recalc_absorption_score) else '❌ 不一致'}")
+        print("\n  [链路层 2] 原始广义抛压风险重算 (Raw General Pressure)")
+        day_quality_score = engine._calculate_day_quality_score(df)
+        recalc_provisional_signals = engine._diagnose_kline_patterns(df, day_quality_score)
+        recalc_provisional_pressure = get_val(recalc_provisional_signals.get('PROVISIONAL_GENERAL_PRESSURE_RISK'), probe_date, 0.0)
+        actual_provisional_pressure = get_val(atomic.get('PROVISIONAL_GENERAL_PRESSURE_RISK'), probe_date, 0.0)
+        print(f"    - 【探针重算原始抛压】: {recalc_provisional_pressure:.4f}")
+        print(f"    - [内部验证]: 系统值 {actual_provisional_pressure:.4f} vs. 探针重算 {recalc_provisional_pressure:.4f} -> {'✅ 一致' if np.isclose(actual_provisional_pressure, recalc_provisional_pressure) else '❌ 不一致'}")
+        print("\n  [链路层 3] 主力意图诊断重算 (Main Force Intent)")
+        recalc_intent_signals = engine._diagnose_upper_shadow_intent(df)
+        recalc_intent_diagnosis = get_val(recalc_intent_signals.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'), probe_date, 0.0)
+        actual_intent_diagnosis = get_val(atomic.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'), probe_date, 0.0)
+        print(f"    - 【探针重算意图诊断】: {recalc_intent_diagnosis:.4f}")
+        print(f"    - [内部验证]: 系统值 {actual_intent_diagnosis:.4f} vs. 探针重算 {recalc_intent_diagnosis:.4f} -> {'✅ 一致' if np.isclose(actual_intent_diagnosis, recalc_intent_diagnosis) else '❌ 不一致'}")
         print("\n  [链路层 4] 抛压分析与机会嬗变 (Pressure Analysis & Opportunity Transmutation)")
-        is_absorption_reversal = recalc_absorption_score >= judgment_threshold
+        is_absorption_reversal = recalc_intent_diagnosis >= judgment_threshold
         print(f"    - [审判阈值]: {judgment_threshold:.2f}")
-        print(f"    - [审判结果]: 吸收分 {recalc_absorption_score:.4f} >= {judgment_threshold:.2f} -> {'✅ 构成吸收反转' if is_absorption_reversal else '❌ 未构成吸收反转'}")
+        print(f"    - [审判结果]: 意图分 {recalc_intent_diagnosis:.4f} >= {judgment_threshold:.2f} -> {'✅ 构成吸收反转' if is_absorption_reversal else '❌ 未构成吸收反转'}")
         if is_absorption_reversal:
             print("    - [执行逻辑]: 风险归零，创造机会！")
             recalc_final_risk = 0.0
-            recalc_opportunity = recalc_raw_risk * recalc_absorption_score
+            recalc_opportunity = recalc_provisional_pressure * recalc_intent_diagnosis
         else:
             print("    - [执行逻辑]: 按比例衰减风险。")
-            recalc_final_risk = recalc_raw_risk * (1 - recalc_absorption_score)
+            recalc_final_risk = recalc_provisional_pressure * (1 - recalc_intent_diagnosis)
             recalc_opportunity = 0.0
         recalc_final_risk = np.clip(recalc_final_risk, 0, 1)
         recalc_opportunity = np.clip(recalc_opportunity, 0, 1)
@@ -1096,8 +1082,7 @@ class ForensicProbes:
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [风险对比]: 系统最终值 {actual_risk:.4f} vs. 探针正确值 {recalc_final_risk:.4f} -> {'✅ 一致' if np.isclose(actual_risk, recalc_final_risk) else '❌ 不一致'}")
         print(f"    - [机会对比]: 系统最终值 {actual_opp:.4f} vs. 探针正确值 {recalc_opportunity:.4f} -> {'✅ 一致' if np.isclose(actual_opp, recalc_opportunity) else '❌ 不一致'}")
-        print("\n--- “抛压分析探针”解剖完毕 ---")
-
+        print("\n--- “广义抛压嬗变探针”解剖完毕 ---")
 
 
 
