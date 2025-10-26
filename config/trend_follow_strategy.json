@@ -138,9 +138,9 @@
       "debug_params": {
         "enabled": { "value": true },
         "probe_dates": ["2025-10-17", "2025-10-20"],
-        "enable_behavioral_probe": true,
-        "enable_selling_pressure_probe": true,
-        "enable_pressure_transmutation_probe": true,
+        "enable_behavioral_probe": false,
+        "enable_pressure_transmutation_probe": false,
+        "enable_liquidity_trap_probe": true,
         "enable_chip_probe": false,
         "enable_dynamic_mechanics_probe": false,
         "enable_foundation_probe": false,
@@ -905,28 +905,28 @@
       },
       "cognitive_intelligence_params": {
         "enabled": true,
-        "description": "【V2.1 · 战术感知版】顶层认知引擎的专属参数块。",
+        "description": "【V2.2 · 全息诊断版】顶层认知引擎的专属参数块。",
         "cognitive_fusion_weights": {
-            "description": "【雅典娜的均衡天平】废除对行为层的过度依赖，实现基础、结构、行为三大领域的权重均等，相信“众神殿的共识”。",
+            "description": "融合基础、结构、行为三大领域的权重。",
             "foundation": 0.33,
             "structure": 0.33,
             "behavior": 0.34
         },
         "relational_meta_analysis_params": {
-          "description": "【普罗米修斯之火协议】对“众神殿共识”进行关系元分析，分析共识形成的速度与加速度。",
+          "description": "对“领域共识”进行关系元分析，分析共识形成的速度与加速度。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "reversal_reliability_bonus_factor": 0.5,
         "capitulation_potential_bonus_factor": 0.5,
         "comment_bonus_factor": "在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
         "cascade_fusion_weights": {
-          "description": "【赫拉的织布机】在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
+          "description": "在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
           "accel": 0.7
         },
@@ -942,19 +942,28 @@
             "chip_price_lag_playbook": 0.5
         },
         "chimera_conflict_params": {
-          "description": "【V3.0 · 战神阿瑞斯版】奇美拉冲突诊断引擎参数，用于融合信号冲突与资金流分歧。",
+          "description": "奇美拉冲突诊断引擎参数，用于融合信号冲突与资金流分歧。",
           "fusion_weights": {
             "signal_conflict": 0.6,
             "flow_divergence": 0.4
           }
         },
         "trend_health_fusion_weights": {
-          "description": "【V1.0 · 宙斯鹰眼版】为认知层专属的五维趋势健康度评估引擎提供权重。",
+          "description": "为认知层专属的五维趋势健康度评估引擎提供权重。",
           "alignment": 0.2,
           "velocity": 0.15,
           "acceleration": 0.15,
           "relational": 0.2,
           "meta_dynamics": 0.3
+        },
+        "expansion_engine_periods": [1, 5, 13, 21, 55],
+        "expansion_engine_tf_weights": {
+          "description": "【新增】认知扩展引擎中，用于MTF融合的周期权重。",
+          "1": 0.05,
+          "5": 0.2,
+          "13": 0.3,
+          "21": 0.3,
+          "55": 0.15
         }
       },
       "intraday_behavior_engine_params": {

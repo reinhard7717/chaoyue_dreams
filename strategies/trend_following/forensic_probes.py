@@ -993,6 +993,78 @@ class ForensicProbes:
         print(f"    - [机会对比]: 系统最终值 {actual_opp:.4f} vs. 探针正确值 {recalc_opportunity:.4f} -> {'✅ 一致' if np.isclose(actual_opp, recalc_opportunity) else '❌ 不一致'}")
         print("\n--- “广义抛压嬗变探针”解剖完毕 ---")
 
+    def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
+        """
+        【V2.0 · 全息诊断版】流动性陷阱风险探针
+        - 核心升级: 同步主引擎的全息诊断逻辑，对每个证据进行多时间维度(MTF)的融合计算。
+        """
+        print("\n" + "="*35 + f" [认知探针] 正在启用 🌊【流动性陷阱风险探针 V2.0】🌊 " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.cognitive_intel
+        # [代码修改开始] 引入MTF参数
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
+        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {
+            "1": 0.05, "5": 0.2, "13": 0.3, "21": 0.3, "55": 0.15
+        })
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        # [代码修改结束]
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get('COGNITIVE_RISK_LIQUIDITY_TRAP'), probe_date, 0.0)
+        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
+        # [代码修改开始] 重构证据链计算以匹配MTF逻辑
+        print("\n  [链路层 2] 全息证据链 (Holographic Evidence Chain)")
+        evidence_sources = {
+            '卖压背景': atomic.get('SCORE_FF_BEARISH_RESONANCE'),
+            '流动性枯竭': atomic.get('SCORE_RISK_LIQUIDITY_DRAIN'),
+            '市场脆弱性': df.get('intraday_volatility_D'),
+        }
+        fused_evidence_scores = {}
+        for name, series in evidence_sources.items():
+            print(f"    --- 正在融合证据: {name} ---")
+            fused_score_val = 0.0
+            if series is not None and total_weight > 0:
+                calc_str = []
+                for p in periods:
+                    weight = numeric_tf_weights.get(p, 0) / total_weight
+                    norm_val = get_val(normalize_score(series, df.index, p), probe_date)
+                    fused_score_val += norm_val * weight
+                    calc_str.append(f"({norm_val:.2f}*{weight:.2f})")
+                print(f"      - MTF融合计算: {' + '.join(calc_str)} = {fused_score_val:.4f}")
+            fused_evidence_scores[name] = fused_score_val
+        print("\n  [链路层 3] 快照分重算 (Snapshot Score Recalculation)")
+        evidence1_norm = fused_evidence_scores['卖压背景']
+        evidence2_norm = fused_evidence_scores['流动性枯竭']
+        evidence3_norm = fused_evidence_scores['市场脆弱性']
+        recalc_snapshot_score = (evidence1_norm * evidence2_norm * evidence3_norm)**(1/3)
+        print(f"    - [融合公式]: (证1 * 证2 * 证3)^(1/3)")
+        print(f"    - 【探针重算快照分】: ({evidence1_norm:.2f} * {evidence2_norm:.2f} * {evidence3_norm:.2f})^(1/3) = {recalc_snapshot_score:.4f}")
+        print("\n  [链路层 4] 动态元分析重算 (Meta-Analysis Recalculation)")
+        fused_evidence_series = {}
+        for name, series in evidence_sources.items():
+            fused_series = pd.Series(0.0, index=df.index)
+            if series is not None and total_weight > 0:
+                for p in periods:
+                    weight = numeric_tf_weights.get(p, 0) / total_weight
+                    fused_series += normalize_score(series, df.index, p) * weight
+            fused_evidence_series[name] = fused_series
+        snapshot_series = (
+            fused_evidence_series['卖压背景'] *
+            fused_evidence_series['流动性枯竭'] *
+            fused_evidence_series['市场脆弱性']
+        )**(1/3)
+        recalc_final_score = get_val(engine._perform_cognitive_relational_meta_analysis(df, snapshot_series), probe_date)
+        print(f"    - 【探针重算最终风险分】: {recalc_final_score:.4f}")
+        print("\n  [链路层 5] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
+        print("\n--- “流动性陷阱风险探针”解剖完毕 ---")
+        # [代码修改结束]
 
 
 

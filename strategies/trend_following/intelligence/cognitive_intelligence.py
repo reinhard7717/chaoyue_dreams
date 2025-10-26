@@ -869,21 +869,24 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增 · 万象归一】认知扩展信号统一合成引擎
-        - 核心逻辑:
-          1. 使用一个声明式的配置字典 `expansion_signal_configs` 来定义所有扩展信号的合成逻辑。
-          2. 引擎根据配置动态获取数据源、进行转换和归一化。
-          3. 对每个信号的初步融合结果（快照分），强制调用 `_perform_cognitive_relational_meta_analysis`
-             进行“状态-速度-加速度”三维动态分析，确保所有信号都具备前瞻性。
-        - 收益: 极大地简化了主流程，提高了代码的可维护性和可扩展性。新增信号只需修改配置，无需修改引擎代码。
+        【V2.0 · 全息诊断版】认知扩展信号统一合成引擎
+        - 核心升级: 引入多时间维度(MTF)分析，对每个信号的每个证据进行全息诊断。
+                      1. [MTF循环]: 对每个证据，在[1, 5, 13, 21, 55]等多个周期上进行归一化。
+                      2. [加权融合]: 将MTF归一化后的分数，根据可配置的周期权重进行加权融合，得到更鲁棒的证据分。
+                      3. [动态升维]: 对最终融合的信号快照分，继续执行关系元分析，确保前瞻性。
+        - 收益: 信号质量大幅提升，兼具战略稳定性和战术响应速度。
         """
         states = {}
-        norm_window = 55  # 统一的归一化窗口
-
-        # --- 声明式配置字典 ---
-        # 定义所有认知扩展信号的合成逻辑
+        # [代码修改开始] 引入MTF参数
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
+        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {
+            "1": 0.05, "5": 0.2, "13": 0.3, "21": 0.3, "55": 0.15
+        })
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        # [代码修改结束]
         expansion_signal_configs = {
-            # --- 机会信号 ---
             'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE': {
                 'components': [
                     {'source': 'df', 'name': 'is_market_leader_D', 'is_gate': True},
@@ -910,15 +913,15 @@ class CognitiveIntelligence:
             'COGNITIVE_SCORE_LEADER_BREAKOUT_AWAKENING': {
                 'components': [
                     {'source': 'df', 'name': 'is_market_leader_D', 'is_gate': True},
-                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY', 'transform': 'shift_lt', 'params': (1, 0.4)}, # was_dormant
-                    {'source': 'df', 'name': 'is_limit_up', 'is_gate': True}, # is_limit_up 需要预计算
-                    {'source': 'df', 'name': 'volume_spike', 'is_gate': True}, # volume_spike 需要预计算
+                    {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY', 'transform': 'shift_lt', 'params': (1, 0.4)},
+                    {'source': 'df', 'name': 'is_limit_up', 'is_gate': True},
+                    {'source': 'df', 'name': 'volume_spike', 'is_gate': True},
                     {'source': 'atomic', 'name': 'COGNITIVE_SCORE_TREND_QUALITY'},
                 ]
             },
             'COGNITIVE_SCORE_POLICY_DRIVEN_BREAKOUT': {
                 'components': [
-                    {'source': 'df', 'name': 'significant_gap_up', 'is_gate': True}, # significant_gap_up 需要预计算
+                    {'source': 'df', 'name': 'significant_gap_up', 'is_gate': True},
                     {'source': 'df', 'name': 'gap_not_filled', 'is_gate': True},
                     {'source': 'df', 'name': 'closing_strength_index_D'},
                     {'source': 'df', 'name': 'main_force_net_flow_consensus_D', 'transform': 'pos_clip'},
@@ -927,7 +930,7 @@ class CognitiveIntelligence:
             },
             'COGNITIVE_SCORE_LIMIT_DOWN_REVERSAL': {
                 'components': [
-                    {'source': 'df', 'name': 'touched_limit_down', 'is_gate': True}, # touched_limit_down 需要预计算
+                    {'source': 'df', 'name': 'touched_limit_down', 'is_gate': True},
                     {'source': 'df', 'name': 'main_force_support_strength_D'},
                     {'source': 'df', 'name': 'retail_capitulation_score_D'},
                     {'source': 'df', 'name': 'closing_strength_index_D'},
@@ -1030,7 +1033,6 @@ class CognitiveIntelligence:
                     {'source': 'df', 'name': 'flow_divergence_mf_vs_retail_D', 'transform': 'pos_clip'},
                 ]
             },
-            # --- 风险信号 ---
             'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': {
                 'components': [
                     {'source': 'atomic', 'name': 'CONTEXT_TOP_SCORE'},
@@ -1070,10 +1072,11 @@ class CognitiveIntelligence:
                 ]
             },
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
+                'description': '【V2.0 · 病因诊断版】融合了“资金流出”、“流动性枯竭”和“市场脆弱性”三大核心证据。',
                 'components': [
-                    {'source': 'atomic', 'name': 'SCORE_FF_BEARISH_RESONANCE'},
-                    {'source': 'df', 'name': 'intraday_volume_gini_D'},
-                    {'source': 'df', 'name': 'vwap_tracking_error_D'},
+                    {'source': 'atomic', 'name': 'SCORE_FF_BEARISH_RESONANCE', 'description': '证据一：卖压背景'},
+                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_DRAIN', 'description': '证据二：流动性枯竭过程'},
+                    {'source': 'df', 'name': 'intraday_volatility_D', 'description': '证据三：市场脆弱性'},
                 ]
             },
             'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': {
@@ -1099,76 +1102,66 @@ class CognitiveIntelligence:
                 ]
             },
         }
-
-        # --- 预计算一些衍生列，避免在循环中重复计算 ---
         df['is_limit_up'] = df.get('close_D', 0) >= df.get('up_limit_D', np.inf) * 0.995
         df['volume_spike'] = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
         df['significant_gap_up'] = (df['open_D'] - df['pre_close_D']) / df['pre_close_D'].replace(0, np.nan)
         df['gap_not_filled'] = (df['low_D'] > df['pre_close_D'])
         df['touched_limit_down'] = (df['low_D'] <= df.get('down_limit_D', 0) * 1.005)
-
-        # --- 引擎主循环 ---
         for signal_name, config in expansion_signal_configs.items():
-            component_scores = []
+            fused_component_scores = []
             gate_scores = []
-
             for comp in config['components']:
-                # 1. 获取数据源
-                source_series = None
+                # [代码修改开始] 引入MTF融合逻辑
+                mtf_normalized_scores = {}
+                source_series_raw = None
                 if comp['source'] == 'df':
-                    source_series = df.get(comp['name'], pd.Series(0.0, index=df.index))
+                    source_series_raw = df.get(comp['name'], pd.Series(0.0, index=df.index))
                 elif comp['source'] == 'atomic':
-                    source_series = self._get_atomic_score(df, comp['name'], 0.0)
-
-                if source_series is None or source_series.empty:
-                    source_series = pd.Series(0.0, index=df.index)
-
-                # 2. 数据转换
+                    source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
+                if source_series_raw is None or source_series_raw.empty:
+                    source_series_raw = pd.Series(0.0, index=df.index)
                 transform = comp.get('transform')
                 params = comp.get('params', ())
                 if transform == 'inverse':
-                    source_series = 1.0 - source_series
-                elif transform == 'inverse_proximity': # 1 - (1-x) = x, for price_to_peak_ratio
-                    source_series = 1.0 - (1.0 - source_series).clip(0, 1)
+                    source_series_raw = 1.0 - source_series_raw
+                elif transform == 'inverse_proximity':
+                    source_series_raw = 1.0 - (1.0 - source_series_raw).clip(0, 1)
                 elif transform == 'neg_clip':
-                    source_series = -source_series.clip(upper=0)
+                    source_series_raw = -source_series_raw.clip(upper=0)
                 elif transform == 'pos_clip':
-                    source_series = source_series.clip(lower=0)
+                    source_series_raw = source_series_raw.clip(lower=0)
                 elif transform == 'neg_clip_abs':
-                    source_series = source_series.clip(upper=0).abs()
+                    source_series_raw = source_series_raw.clip(upper=0).abs()
                 elif transform == 'is_positive':
-                    source_series = (source_series > 0).astype(float)
+                    source_series_raw = (source_series_raw > 0).astype(float)
                 elif transform == 'shift':
-                    source_series = source_series.shift(params[0]).fillna(0)
-                elif transform == 'shift_lt': # shift and less than
-                    source_series = source_series.shift(params[0]).fillna(params[1]) < params[1]
-
-                # 3. 归一化
-                normalized_series = normalize_score(source_series, df.index, norm_window)
-
-                # 4. 分配到组件或门控
-                if comp.get('is_gate', False):
-                    gate_scores.append(normalized_series.values)
+                    source_series_raw = source_series_raw.shift(params[0]).fillna(0)
+                elif transform == 'shift_lt':
+                    source_series_raw = source_series_raw.shift(params[0]).fillna(params[1]) < params[1]
+                fused_component_series = pd.Series(0.0, index=df.index)
+                if total_weight > 0:
+                    for p in periods:
+                        weight = numeric_tf_weights.get(p, 0) / total_weight
+                        normalized_series = normalize_score(source_series_raw, df.index, p)
+                        fused_component_series += normalized_series * weight
                 else:
-                    component_scores.append(normalized_series.values)
-
-            # 5. 融合生成快照分
-            if not component_scores:
+                    fused_component_series = normalize_score(source_series_raw, df.index, 55)
+                if comp.get('is_gate', False):
+                    gate_scores.append(fused_component_series.values)
+                else:
+                    fused_component_scores.append(fused_component_series.values)
+            if not fused_component_scores:
                 snapshot_score_values = np.ones(len(df.index), dtype=np.float32)
             else:
-                stacked_scores = np.stack(component_scores, axis=0)
-                snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(component_scores))
-
+                stacked_scores = np.stack(fused_component_scores, axis=0)
+                snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(fused_component_scores))
             if gate_scores:
                 for gate in gate_scores:
                     snapshot_score_values *= gate
-            
             snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
-
-            # 6. 应用关系元分析，实现动态升维
             final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
             states[signal_name] = final_dynamic_score
-
+            # [代码修改结束]
         return states
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
