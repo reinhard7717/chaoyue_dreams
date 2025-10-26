@@ -142,7 +142,7 @@
         "enable_pressure_transmutation_probe": false,
         "enable_liquidity_trap_probe": false,
         "enable_chip_probe": false,
-        "enable_chip_resonance_probe": false,
+        "enable_chip_resonance_probe": true,
         "enable_dynamic_mechanics_probe": false,
         "enable_foundation_probe": false,
         "enable_fund_flow_probe": false,
