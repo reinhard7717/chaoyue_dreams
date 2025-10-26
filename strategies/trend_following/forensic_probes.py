@@ -1067,12 +1067,12 @@ class ForensicProbes:
 
     def _deploy_chip_resonance_probe(self, probe_date: pd.Timestamp):
         """
-        【V1.0 · 新增】筹码共振探针
-        - 核心使命: 深度解剖 SCORE_CHIP_BULLISH_RESONANCE 和 SCORE_CHIP_BEARISH_RESONANCE 的全链路计算过程。
-        - 解剖链路: 1. 最终共振分 -> 2. 多周期健康分 -> 3. 四大公理融合 -> 4. 最终融合重算与验证。
+        【V1.1 · 健壮性修复版】筹码共振探针
+        - 核心修复: 修复了对 tf_fusion_weights 键进行排序时，未过滤 'description' 键导致的 ValueError。
         """
-        # [代码新增开始]
-        print("\n" + "="*35 + f" [筹码探针] 正在启用 🏛️【筹码共振探针 V1.0】🏛️ " + "="*35)
+        # [代码修改开始]
+        import json # 确保json库已导入
+        print("\n" + "="*35 + f" [筹码探针] 正在启用 🏛️【筹码共振探针 V1.1】🏛️ " + "="*35)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.chip_intel
@@ -1081,11 +1081,16 @@ class ForensicProbes:
             val = series.get(date)
             return default if pd.isna(val) else val
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        periods = sorted(p_conf.get('tf_fusion_weights', {}).keys(), key=int)
+        tf_weights_raw = p_conf.get('tf_fusion_weights', {})
+        # 修复：过滤掉非数字键，只保留周期数字
+        periods_str = [k for k in tf_weights_raw.keys() if str(k).isdigit()]
+        periods = sorted([int(p) for p in periods_str])
+        
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {})
-        tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {})
-        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        tf_weights = {int(k): v for k, v in tf_weights_raw.items() if str(k).isdigit()}
+        numeric_tf_weights = tf_weights
         total_tf_weight = sum(numeric_tf_weights.values())
+        # [代码修改结束]
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_bull_res = get_val(atomic.get('SCORE_CHIP_BULLISH_RESONANCE'), probe_date, 0.0)
         actual_bear_res = get_val(atomic.get('SCORE_CHIP_BEARISH_RESONANCE'), probe_date, 0.0)
@@ -1100,8 +1105,7 @@ class ForensicProbes:
         accumulation_scores = engine._diagnose_main_force_action(df, periods)
         power_transfer_scores = engine._diagnose_power_transfer(df, periods)
         peak_integrity_scores = engine._diagnose_peak_integrity_dynamics(df, periods)
-        for p_str in periods:
-            p = int(p_str)
+        for p in periods:
             conc_score = get_val(concentration_scores.get(p), probe_date, 0.0)
             acc_score = get_val(accumulation_scores.get(p), probe_date, 0.0)
             pow_score = get_val(power_transfer_scores.get(p), probe_date, 0.0)
@@ -1136,21 +1140,19 @@ class ForensicProbes:
         recalc_bear_res = 0.0
         bull_calc_str, bear_calc_str = [], []
         if total_tf_weight > 0:
-            for p_str in periods:
-                p = int(p_str)
+            for p in periods:
                 weight = numeric_tf_weights.get(p, 0) / total_tf_weight
                 recalc_bull_res += bullish_scores_by_period.get(p, 0.0) * weight
                 recalc_bear_res += bearish_scores_by_period.get(p, 0.0) * weight
                 bull_calc_str.append(f"({bullish_scores_by_period.get(p, 0.0):.2f}*{weight:.2f})")
                 bear_calc_str.append(f"({bearish_scores_by_period.get(p, 0.0):.2f}*{weight:.2f})")
-        print(f"    - [周期权重]: {json.dumps(tf_weights)}")
+        print(f"    - [周期权重]: {json.dumps(tf_weights_raw)}")
         print(f"    - [看涨共振计算]: {' + '.join(bull_calc_str)} = {recalc_bull_res:.4f}")
         print(f"    - [看跌共振计算]: {' + '.join(bear_calc_str)} = {recalc_bear_res:.4f}")
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [看涨共振对比]: 系统最终值 {actual_bull_res:.4f} vs. 探针正确值 {recalc_bull_res:.4f} -> {'✅ 一致' if np.isclose(actual_bull_res, recalc_bull_res) else '❌ 不一致'}")
         print(f"    - [看跌共振对比]: 系统最终值 {actual_bear_res:.4f} vs. 探针正确值 {recalc_bear_res:.4f} -> {'✅ 一致' if np.isclose(actual_bear_res, recalc_bear_res) else '❌ 不一致'}")
         print("\n--- “筹码共振探针”解剖完毕 ---")
-        # [代码新增结束]
 
     def _deploy_process_sync_probe(self, probe_date: pd.Timestamp, signal_to_probe: str):
         """
