@@ -19,7 +19,6 @@ from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
-from strategies.trend_following.forensic_probes import ForensicProbes
 from strategies.trend_following.utils import get_params_block, calculate_holographic_dynamics, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
 
 class IntelligenceLayer:

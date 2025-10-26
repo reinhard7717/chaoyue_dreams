@@ -14,13 +14,13 @@ class ForensicProbes:
     def __init__(self, intelligence_layer_instance):
         # [代码修改开始]
         # 1. 导入所有分类探针模块
-        from .forensic_probes.behavioral_probes import BehavioralProbes
-        from .forensic_probes.chip_probes import ChipProbes
-        from .forensic_probes.cognitive_probes import CognitiveProbes
-        from .forensic_probes.dynamic_mechanics_probes import DynamicMechanicsProbes
-        from .forensic_probes.foundation_probes import FoundationProbes
-        from .forensic_probes.fund_flow_probes import FundFlowProbes
-        from .forensic_probes.process_probes import ProcessProbes
+        from .probes.behavioral_probes import BehavioralProbes
+        from .probes.chip_probes import ChipProbes
+        from .probes.cognitive_probes import CognitiveProbes
+        from .probes.dynamic_mechanics_probes import DynamicMechanicsProbes
+        from .probes.foundation_probes import FoundationProbes
+        from .probes.fund_flow_probes import FundFlowProbes
+        from .probes.process_probes import ProcessProbes
         # 2. 实例化所有分类探针模块
         self.behavioral_probes = BehavioralProbes(intelligence_layer_instance)
         self.chip_probes = ChipProbes(intelligence_layer_instance)
