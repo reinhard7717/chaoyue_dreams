@@ -421,51 +421,40 @@ class MicroBehaviorEngine:
 
     def _synthesize_profit_taking_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】“利润兑现压力”风险诊断引擎
-        - 核心逻辑: 融合“战术性T+0获利了结”和“战略性持仓派发”两大证据链，
-                      专门用于量化由主力兑现利润引发的短期或中期风险。
+        【V2.0 · 核心指标重构版】“利润兑现压力”风险诊断引擎
+        - 核心重构: 废弃旧的、基于间接推断的逻辑。
+                      改为直接消费专门设计的核心指标 'profit_taking_urgency_D' 和 'profit_realization_premium_D'。
+        - 核心逻辑: 对“了结紧迫度”和“兑现溢价”两大核心证据进行独立的三维动态分析，然后加权融合，
+                      最终生成一个高保真、高可信度的利润兑现风险信号。
         """
+        # [代码修改开始]
         states = {}
         signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
-        periods = [5, 13, 21, 55]
+        periods = [1, 5, 13, 21, 55]
         sorted_periods = sorted(periods)
         pressure_scores_by_period = {}
-
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-
-            # 证据维度一：战术性T+0获利了结
-            tactical_profit_distribute = normalize_score(df.get(f'SLOPE_{p_tactical}_main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)
-            tactical_cost_battle_loss = normalize_score(df.get(f'SLOPE_{p_tactical}_market_cost_battle_D'), df.index, window=p_tactical, ascending=False)
-            context_profit_distribute = normalize_score(df.get(f'SLOPE_{p_context}_main_force_intraday_profit_D'), df.index, window=p_context, ascending=True)
-            context_cost_battle_loss = normalize_score(df.get(f'SLOPE_{p_context}_market_cost_battle_D'), df.index, window=p_context, ascending=False)
-            fused_tactical_evidence = ((tactical_profit_distribute * context_profit_distribute)**0.5 * (tactical_cost_battle_loss * context_cost_battle_loss)**0.5)
-
-            # 证据维度二：战略性持仓派发
-            past_buy_cost = df.get('avg_cost_main_buy_D').shift(p_tactical)
-            profit_margin = (df['close_D'] - past_buy_cost) / past_buy_cost.replace(0, np.nan)
-            selling_action = -df.get('main_force_net_flow_consensus_D').clip(upper=0)
-            tactical_strategic_margin = normalize_score(profit_margin, df.index, window=p_tactical, ascending=True)
-            tactical_strategic_sell = normalize_score(selling_action, df.index, window=p_tactical, ascending=True)
-            past_buy_cost_context = df.get('avg_cost_main_buy_D').shift(p_context)
-            profit_margin_context = (df['close_D'] - past_buy_cost_context) / past_buy_cost_context.replace(0, np.nan)
-            context_strategic_margin = normalize_score(profit_margin_context, df.index, window=p_context, ascending=True)
-            context_strategic_sell = normalize_score(selling_action, df.index, window=p_context, ascending=True)
-            fused_strategic_evidence = ((tactical_strategic_margin * context_strategic_margin)**0.5 * (tactical_strategic_sell * context_strategic_sell)**0.5)
-
-            # 融合两大证据链
-            snapshot_score = (fused_tactical_evidence * fused_strategic_evidence)**0.5
+            # 证据维度一：获利盘了结紧迫度 (profit_taking_urgency_D)
+            urgency_quality = self._calculate_4d_metric_quality(
+                df, 'profit_taking_urgency_D', p_tactical, p_context, ascending=True
+            )
+            # 证据维度二：利润兑现溢价 (profit_realization_premium_D)
+            premium_quality = self._calculate_4d_metric_quality(
+                df, 'profit_realization_premium_D', p_tactical, p_context, ascending=True
+            )
+            # 融合两大核心证据，生成风险快照分
+            snapshot_score = (urgency_quality * premium_quality)**0.5
+            # 对快照分进行关系元分析，捕捉其动态变化
             pressure_scores_by_period[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-
         # 跨周期融合
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
         final_fused_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
                 final_fused_score += pressure_scores_by_period.get(p, 0.0) * weight
-        
         states[signal_name] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 

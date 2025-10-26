@@ -91,3 +91,84 @@ class CognitiveProbes:
         recalc_snapshot_score = (evidence1_norm * evidence2_norm * evidence3_norm)**(1/3)
         print(f"    - 【探针重算快照分】: {recalc_snapshot_score:.4f}")
         print("\n--- “流动性陷阱风险探针”解剖完毕 ---")
+
+    def _deploy_profit_taking_pressure_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0】利润兑现压力风险探针
+        - 核心使命: 深度解剖重构后的 COGNITIVE_RISK_PROFIT_TAKING_PRESSURE 信号。
+        - 解剖链路: 1. 最终风险分 -> 2. 跨周期融合 -> 3. 单周期元分析 -> 4. 核心证据快照分 -> 5. 四维质量评估。
+        """
+        print("\n" + "="*35 + f" [认知探针] 正在启用 💸【利润兑现压力风险探针 V1.0】💸 " + "="*35)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.cognitive_intel.micro_behavior_engine # 引擎实例现在位于微观行为引擎下
+        def get_val(series, date, default=np.nan):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
+        # 链路层 1: 最终输出
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
+        # 链路层 2: 核心证据四维质量评估 (以 p=5 周期为例)
+        print("\n  [链路层 2] 核心证据四维质量评估 (p=5 周期为例)")
+        p_tactical, p_context = 5, 13
+        # 证据一: 了结紧迫度
+        urgency_quality_series = engine._calculate_4d_metric_quality(df, 'profit_taking_urgency_D', p_tactical, p_context, ascending=True)
+        urgency_quality_val = get_val(urgency_quality_series, probe_date)
+        print(f"    - [证据一: 了结紧迫度] 质量分: {urgency_quality_val:.4f}")
+        # 证据二: 兑现溢价
+        premium_quality_series = engine._calculate_4d_metric_quality(df, 'profit_realization_premium_D', p_tactical, p_context, ascending=True)
+        premium_quality_val = get_val(premium_quality_series, probe_date)
+        print(f"    - [证据二: 兑现溢价] 质量分: {premium_quality_val:.4f}")
+        # 链路层 3: 快照分融合
+        print("\n  [链路层 3] 快照分融合 (p=5 周期)")
+        snapshot_score_val = (urgency_quality_val * premium_quality_val)**0.5
+        print(f"    - [融合公式]: (紧迫度质量 * 溢价质量) ** 0.5")
+        print(f"    - 【探针重算快照分】: ({urgency_quality_val:.4f} * {premium_quality_val:.4f})**0.5 = {snapshot_score_val:.4f}")
+        # 链路层 4: 关系元分析
+        print("\n  [链路层 4] 关系元分析 (p=5 周期)")
+        snapshot_series = (urgency_quality_series * premium_quality_series)**0.5
+        recalc_period_score_series = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_series)
+        recalc_period_score_val = get_val(recalc_period_score_series, probe_date)
+        print(f"    - 【探针重算周期风险分】: {recalc_period_score_val:.4f}")
+        # 链路层 5: 跨周期融合
+        print("\n  [链路层 5] 跨周期融合")
+        # 重新执行完整的计算以获得所有周期的分数
+        periods = [1, 5, 13, 21, 55]
+        sorted_periods = sorted(periods)
+        pressure_scores_by_period = {}
+        for i, p_tac in enumerate(sorted_periods):
+            p_con = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tac
+            urgency_q = engine._calculate_4d_metric_quality(df, 'profit_taking_urgency_D', p_tac, p_con, ascending=True)
+            premium_q = engine._calculate_4d_metric_quality(df, 'profit_realization_premium_D', p_tac, p_con, ascending=True)
+            snapshot_s = (urgency_q * premium_q)**0.5
+            pressure_scores_by_period[p_tac] = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_s)
+        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
+        recalc_final_score = pd.Series(0.0, index=df.index)
+        total_weight = sum(tf_weights.values())
+        calc_str = []
+        for p in periods:
+            weight = tf_weights.get(p, 0) / total_weight
+            score_val = get_val(pressure_scores_by_period.get(p), probe_date, 0.0)
+            recalc_final_score += score_val * weight
+            calc_str.append(f"({score_val:.2f}*{weight:.2f})")
+        print(f"    - [融合公式]: Σ (周期分 * 权重)")
+        print(f"    - [计算过程]: {' + '.join(calc_str)} = {recalc_final_score.get(probe_date):.4f}")
+        print("\n  [链路层 6] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score.get(probe_date):.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score.get(probe_date)) else '❌ 不一致'}")
+        print("\n--- “利润兑现压力风险探针”解剖完毕 ---")
+
+
+
+
+
+
+
+
+
+
+
+
+

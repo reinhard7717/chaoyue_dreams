@@ -146,8 +146,9 @@
         "enable_dynamic_mechanics_probe": false,
         "enable_foundation_probe": false,
         "enable_fund_flow_probe": false,
-        "enable_process_meta_probe": true,
-        "enable_process_sync_probe": false
+        "enable_process_meta_probe": false,
+        "enable_process_sync_probe": false,
+        "enable_profit_taking_pressure_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },

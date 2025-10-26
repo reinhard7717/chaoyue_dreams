@@ -42,6 +42,7 @@ class ForensicProbes:
         # 认知探针
         self._deploy_thanatos_scythe_probe = self.cognitive_probes._deploy_thanatos_scythe_probe
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
+        self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
         # 力学探针
         self._deploy_ares_chariot_probe = self.dynamic_mechanics_probes._deploy_ares_chariot_probe
         # 基础探针

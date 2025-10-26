@@ -163,6 +163,11 @@ class IntelligenceLayer:
                 self.probes._deploy_apollos_lyre_probe(probe_date)
             if debug_params.get('enable_fund_flow_probe', False):
                 self.probes._deploy_poseidons_trident_probe(probe_date)
+            if debug_params.get('enable_profit_taking_pressure_probe', False):
+                if hasattr(self.probes, '_deploy_profit_taking_pressure_probe'):
+                    self.probes._deploy_profit_taking_pressure_probe(probe_date)
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_profit_taking_pressure_probe' 未找到。")
             if debug_params.get('enable_process_sync_probe', False):
                 self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')
             # 新增对过程元分析探针的调用
