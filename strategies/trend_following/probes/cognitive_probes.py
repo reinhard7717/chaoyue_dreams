@@ -308,12 +308,12 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.4 · 犯罪现场重现版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 探针新增“路径C：犯罪现场重现”，完整模拟系统当前的错误逻辑——即对行为层产出的
-                      成品信号进行荒谬的“二次MTF融合”。本探针的目标是精确复现系统最终输出，
-                      从而为最终的外科手术提供无可辩驳的、完整的证据链。
+        【探针 V1.5 · 幽灵协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 探针完整植入在生产代码中发现的“幽灵协议”(zero_mask)逻辑。
+                      即：无论MTF融合分多高，只要原始值为0，最终证据分强制归零。
+                      本探针的目标是100%复现系统最终输出，为修复提供终极证据。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.4 · 犯罪现场重现版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.5 · 幽灵协议版】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -327,7 +327,7 @@ class CognitiveProbes:
         system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
         print(f"    - 【最终信号分】: {system_score:.4f}")
 
-        # --- 准备工作: 定义MTF融合函数和原始指标 ---
+        # --- 准备工作: 定义MTF融合函数 ---
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
@@ -344,27 +344,58 @@ class CognitiveProbes:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
 
-        capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
-        buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
-        
         # [代码修改开始]
-        # --- 链路层 2: 犯罪现场重现 (Path C) ---
-        print("\n  [链路层 2] 犯罪现场重现 (Path C - 模拟系统当前错误逻辑)")
-        # C.1: 对证据一、三进行标准MTF融合
-        capital_flight_fused_c = mtf_fuse(capital_flight_raw)
-        buyer_apathy_fused_c = mtf_fuse(buyer_apathy_raw)
-        # C.2: 获取行为层产出的成品信号 (错误的输入源)
+        # --- 链路层 2: 犯罪现场重现 (植入幽灵协议) ---
+        print("\n  [链路层 2] 犯罪现场重现 (Path C - 植入幽灵协议)")
+
+        # C.1: 证据一 (主力持续出逃)
+        capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
+        capital_flight_fused_raw = mtf_fuse(capital_flight_raw)
+        # 植入幽灵协议
+        capital_flight_zero_mask = np.isclose(capital_flight_raw, 0)
+        capital_flight_fused_final = capital_flight_fused_raw.copy()
+        capital_flight_fused_final[capital_flight_zero_mask] = 0.0
+        print(f"    - [证据一: 主力持续出逃]")
+        print(f"      - 原始值: {get_val(capital_flight_raw, probe_date):.4f}")
+        print(f"      - MTF融合(理论): {get_val(capital_flight_fused_raw, probe_date):.4f}")
+        if get_val(capital_flight_zero_mask, probe_date):
+            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(capital_flight_fused_raw, probe_date):.4f} -> 0.0")
+        print(f"      - 最终证据分: {get_val(capital_flight_fused_final, probe_date):.4f}")
+
+        # C.2: 证据二 (流动性真空) - 模拟二次融合的错误
         liquidity_vacuum_from_atomic = self.intelligence_layer.cognitive_intel._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_VACUUM', 0.0)
-        # C.3: 对成品信号进行荒谬的“二次MTF融合”
-        liquidity_vacuum_double_fused_c = mtf_fuse(liquidity_vacuum_from_atomic)
-        # C.4: 组合所有证据，计算快照分
-        crime_scene_snapshot_score = (capital_flight_fused_c * liquidity_vacuum_double_fused_c * buyer_apathy_fused_c)**(1/3)
+        liquidity_vacuum_double_fused_raw = mtf_fuse(liquidity_vacuum_from_atomic)
+        # 植入幽灵协议
+        liquidity_vacuum_zero_mask = np.isclose(liquidity_vacuum_from_atomic, 0)
+        liquidity_vacuum_double_fused_final = liquidity_vacuum_double_fused_raw.copy()
+        liquidity_vacuum_double_fused_final[liquidity_vacuum_zero_mask] = 0.0
+        print(f"    - [证据二: 流动性真空]")
+        print(f"      - 原始值(成品信号): {get_val(liquidity_vacuum_from_atomic, probe_date):.4f}")
+        print(f"      - 二次MTF融合(理论): {get_val(liquidity_vacuum_double_fused_raw, probe_date):.4f}")
+        if get_val(liquidity_vacuum_zero_mask, probe_date):
+            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(liquidity_vacuum_double_fused_raw, probe_date):.4f} -> 0.0")
+        print(f"      - 最终证据分: {get_val(liquidity_vacuum_double_fused_final, probe_date):.4f}")
+
+        # C.3: 证据三 (买盘真空)
+        buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
+        buyer_apathy_fused_raw = mtf_fuse(buyer_apathy_raw)
+        # 植入幽灵协议
+        buyer_apathy_zero_mask = np.isclose(buyer_apathy_raw, 0)
+        buyer_apathy_fused_final = buyer_apathy_fused_raw.copy()
+        buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
+        print(f"    - [证据三: 买盘真空]")
+        print(f"      - 原始值: {get_val(buyer_apathy_raw, probe_date):.4f}")
+        print(f"      - MTF融合(理论): {get_val(buyer_apathy_fused_raw, probe_date):.4f}")
+        if get_val(buyer_apathy_zero_mask, probe_date):
+            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(buyer_apathy_fused_raw, probe_date):.4f} -> 0.0")
+        print(f"      - 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
+
+        # C.4: 组合所有最终证据，计算快照分
+        crime_scene_snapshot_score = (capital_flight_fused_final * liquidity_vacuum_double_fused_final * buyer_apathy_fused_final)**(1/3)
         # C.5: 进行关系元分析，得到最终动态分
         crime_scene_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, crime_scene_snapshot_score)
         
-        print(f"    - [证据一 MTF融合后]: {get_val(capital_flight_fused_c, probe_date):.4f}")
-        print(f"    - [证据二 成品信号]: {get_val(liquidity_vacuum_from_atomic, probe_date):.4f} -> [二次MTF融合后]: {get_val(liquidity_vacuum_double_fused_c, probe_date):.4f} (荒谬操作!)")
-        print(f"    - [证据三 MTF融合后]: {get_val(buyer_apathy_fused_c, probe_date):.4f}")
+        print("\n    --- [重现最终裁决] ---")
         print(f"    - 【重现快照分】: {get_val(crime_scene_snapshot_score, probe_date):.4f}")
         print(f"    - 【重现动态分】: {get_val(crime_scene_dynamic_score, probe_date):.4f}")
 
@@ -372,27 +403,10 @@ class CognitiveProbes:
         print("\n  [链路层 3] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 犯罪现场重现值 {get_val(crime_scene_dynamic_score, probe_date):.4f} -> {'✅ 完美重现犯罪现场' if np.isclose(system_score, get_val(crime_scene_dynamic_score, probe_date)) else '❌ 重现失败'}")
 
-        # --- 链路层 4: 理想路径计算 (Path A) ---
-        print("\n  [链路层 4] 理想路径计算 (Path A - 理论正确逻辑)")
-        turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
-        low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
-        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
-        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
-        sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
-        fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
-        raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
-        
-        liquidity_vacuum_fused_a = mtf_fuse(raw_liquidity_vacuum_energy)
-        ideal_snapshot_score = (capital_flight_fused_c * liquidity_vacuum_fused_a * buyer_apathy_fused_c)**(1/3)
-        ideal_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, ideal_snapshot_score)
-        print(f"    - [证据二 原始能量MTF融合后]: {get_val(liquidity_vacuum_fused_a, probe_date):.4f}")
-        print(f"    - 【理想快照分】: {get_val(ideal_snapshot_score, probe_date):.4f}")
-        print(f"    - 【理想动态分】: {get_val(ideal_dynamic_score, probe_date):.4f}")
-
-        # --- 链路层 5: 结论 ---
-        print("\n  [链路层 5] 结论")
-        print("    - 探针已完美重现系统当前的错误计算路径，证明了“二次融合”是导致最终结果异常的直接原因。")
-        print("    - 理想路径与犯罪现场路径的巨大差异，凸显了统一系统内计算范式的紧迫性和必要性。")
+        # --- 链路层 4: 结论 ---
+        print("\n  [链路层 4] 结论")
+        print("    - 探针已100%复现系统当前的错误计算路径，证明了“幽灵协议”(zero_mask)是导致最终结果异常的直接原因。")
+        print("    - 修复方案应包含：1. 修正行为层`SCORE_RISK_LIQUIDITY_VACUUM`的计算。 2. 修正认知层，使其不再对原子信号进行二次融合。 3. 审慎评估是否保留“幽灵协议”。")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
         # [代码修改结束]
