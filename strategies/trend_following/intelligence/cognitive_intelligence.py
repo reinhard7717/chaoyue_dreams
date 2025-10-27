@@ -1447,12 +1447,11 @@ class CognitiveIntelligence:
 
     def _calculate_trend_resilience_shield(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】“趋势韧性神盾”计算引擎
-        - 核心职责: 评估当前上升趋势的健康度和强韧性，生成一个[0, 1]区间的“神盾分数”。
-                      分数越高，代表趋势越健康，对常规顶部风险信号的抑制能力越强。
-        - 核心逻辑: 融合四大支柱——趋势质量、结构健康度、资金流健康度、筹码健康度。
+        【V2.0 · 动态韧性版】“趋势韧性神盾”计算引擎
+        - 核心重构: 废除脆弱的“加权几何平均数”，换用更具韧性的“加权算术平均数”，避免因单点故障导致神盾完全失效。
+        - 战略升维: 引入关系元分析。最终神盾分数 = 静态韧性 * (1 + 动态韧性)，使其能感知趋势的“生命力”。
         """
-        # [代码新增开始]
+        # [代码修改开始]
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
         if not get_param_value(p_shield.get('enabled'), True):
@@ -1465,23 +1464,34 @@ class CognitiveIntelligence:
             'fund_flow_health': self._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE', 0.0),
             'chip_health': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE', 0.0)
         }
-        scores_to_fuse = []
-        weights_to_fuse = []
-        for name, score in pillars.items():
-            weight = weights.get(name, 0.25)
-            if weight > 0:
-                scores_to_fuse.append(score.values)
-                weights_to_fuse.append(weight)
-        if not scores_to_fuse:
-            return pd.Series(0.0, index=df.index, dtype=np.float32)
-        # 使用加权几何平均数进行融合，要求各方面都比较健康
-        weights_array = np.array(weights_to_fuse)
-        weights_array /= weights_array.sum()
-        stacked_scores = np.stack(scores_to_fuse, axis=0)
-        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免log(0)
-        shield_values = np.exp(np.sum(np.log(safe_scores) * weights_array[:, np.newaxis], axis=0))
-        return pd.Series(shield_values, index=df.index, dtype=np.float32).clip(0, 1)
-        # [代码新增结束]
+        # --- 阶段一：计算静态韧性分 (Static Resilience) ---
+        static_resilience_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        total_weight = sum(weights.get(name, 0) for name in pillars.keys())
+        if total_weight > 0:
+            for name, score in pillars.items():
+                weight = weights.get(name, 0.25)
+                static_resilience_score += score * (weight / total_weight)
+        # --- 阶段二：计算动态韧性分 (Dynamic Resilience) ---
+        # 对静态韧性分本身进行关系元分析，只取其看涨的动态部分
+        p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        norm_window = 55
+        meta_window = 5
+        relationship_trend = static_resilience_score.diff(meta_window).fillna(0)
+        velocity_score_bipolar = normalize_to_bipolar(relationship_trend, df.index, norm_window)
+        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        acceleration_score_bipolar = normalize_to_bipolar(relationship_accel, df.index, norm_window)
+        # 只取动态分的正向部分作为加成
+        dynamic_resilience_bonus = (
+            velocity_score_bipolar.clip(0, 1) * w_velocity +
+            acceleration_score_bipolar.clip(0, 1) * w_acceleration
+        )
+        # --- 阶段三：最终融合 ---
+        # 最终神盾分数 = 静态韧性 * (1 + 动态韧性加成)
+        final_shield_score = (static_resilience_score * (1 + dynamic_resilience_bonus)).clip(0, 1)
+        return final_shield_score.astype(np.float32)
+
 
 
 

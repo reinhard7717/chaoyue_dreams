@@ -162,11 +162,11 @@ class CognitiveProbes:
 
     def _deploy_comprehensive_top_risk_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.0 · 三柱-神盾架构版】综合顶部风险探针
-        - 核心重构: 完全同步主引擎的“三柱-神盾”架构，解剖从“三柱归类”到“神盾抑制”的完整裁决链路。
+        【探针 V2.1 · 神盾解剖版】综合顶部风险探针
+        - 核心升级: 增强对“趋势韧性神盾”的解剖能力，清晰展示其“静态韧性”和“动态韧性”的计算过程。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.0】🛡️ " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.1】🛡️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel
@@ -179,7 +179,6 @@ class CognitiveProbes:
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
         print("\n  [链路层 2] 三柱风险分析 (Tri-Pillar Risk Analysis)")
-        # 支柱一: 亢奋/高潮风险
         euphoric_signals = {
             'EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
             'ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
@@ -188,9 +187,6 @@ class CognitiveProbes:
         euphoric_scores = {name: get_val(s, probe_date) for name, s in euphoric_signals.items()}
         euphoric_risk_score = max(euphoric_scores.values()) if euphoric_scores else 0.0
         print(f"    - [支柱 I: 亢奋/高潮风险] -> 得分: {euphoric_risk_score:.4f}")
-        for name, score in euphoric_scores.items():
-            if score > 0.01: print(f"      - {name}: {score:.4f}")
-        # 支柱二: 派发/背叛风险
         distribution_signals = {
             'MAIN_FORCE_INTENT_DUEL': engine._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
             'UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
@@ -200,9 +196,6 @@ class CognitiveProbes:
         distribution_scores = {name: get_val(s, probe_date) for name, s in distribution_signals.items()}
         distribution_risk_score = max(distribution_scores.values()) if distribution_scores else 0.0
         print(f"    - [支柱 II: 派发/背叛风险] -> 得分: {distribution_risk_score:.4f}")
-        for name, score in distribution_scores.items():
-            if score > 0.01: print(f"      - {name}: {score:.4f}")
-        # 支柱三: 结构/周期风险
         structural_signals = {
             'CONTEXT_TOP': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
             'CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
@@ -210,23 +203,44 @@ class CognitiveProbes:
         structural_scores = {name: get_val(s, probe_date) for name, s in structural_signals.items()}
         structural_risk_score = max(structural_scores.values()) if structural_scores else 0.0
         print(f"    - [支柱 III: 结构/周期风险] -> 得分: {structural_risk_score:.4f}")
-        for name, score in structural_scores.items():
-            if score > 0.01: print(f"      - {name}: {score:.4f}")
         print("\n  [链路层 3] 原始风险融合 (Raw Risk Fusion)")
         recalc_raw_risk = max(euphoric_risk_score, distribution_risk_score, structural_risk_score)
-        print(f"    - [融合公式]: max(亢奋分, 派发分, 结构分)")
         print(f"    - 【探针重算原始风险】: max({euphoric_risk_score:.2f}, {distribution_risk_score:.2f}, {structural_risk_score:.2f}) = {recalc_raw_risk:.4f}")
-        print("\n  [链路层 4] 趋势韧性神盾 (Trend Resilience Shield)")
-        recalc_shield_score = get_val(engine._calculate_trend_resilience_shield(df), probe_date)
-        print(f"    - 【神盾分数】: {recalc_shield_score:.4f}")
+        print("\n  [链路层 4] 趋势韧性神盾解剖 (Aegis Shield Dissection)")
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
+        weights = get_param_value(p_shield.get('fusion_weights'), {})
+        pillars = {
+            'trend_quality': engine._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0),
+            'structural_health': engine._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE', 0.0),
+            'fund_flow_health': engine._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE', 0.0),
+            'chip_health': engine._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE', 0.0)
+        }
+        static_resilience_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        total_weight = sum(weights.get(name, 0) for name in pillars.keys())
+        if total_weight > 0:
+            for name, score_series in pillars.items():
+                weight = weights.get(name, 0.25)
+                static_resilience_series += score_series * (weight / total_weight)
+                print(f"    - [静态支柱: {name}] 得分: {get_val(score_series, probe_date):.4f}, 权重贡献: {(get_val(score_series, probe_date) * (weight / total_weight)):.4f}")
+        recalc_static_resilience = get_val(static_resilience_series, probe_date)
+        print(f"    - 【静态韧性分】: {recalc_static_resilience:.4f}")
+        p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        norm_window, meta_window = 55, 5
+        velocity_score = normalize_to_bipolar(static_resilience_series.diff(meta_window).fillna(0), df.index, norm_window)
+        acceleration_score = normalize_to_bipolar(static_resilience_series.diff(meta_window).fillna(0).diff(meta_window).fillna(0), df.index, norm_window)
+        recalc_dynamic_bonus = (get_val(velocity_score, probe_date, 0.0) * w_velocity + get_val(acceleration_score, probe_date, 0.0) * w_acceleration)
+        print(f"    - 【动态韧性加成】: {recalc_dynamic_bonus:.4f}")
+        recalc_shield_score = (recalc_static_resilience * (1 + recalc_dynamic_bonus)).clip(0, 1)
+        print(f"    - 【探针重算神盾总分】: {recalc_static_resilience:.4f} * (1 + {recalc_dynamic_bonus:.4f}) = {recalc_shield_score:.4f}")
         print("\n  [链路层 5] 最终风险裁决 (Final Risk Adjudication)")
         recalc_final_score = recalc_raw_risk * (1.0 - recalc_shield_score)
-        print(f"    - [裁决公式]: 原始风险 * (1 - 神盾分数)")
         print(f"    - 【探针重算最终风险】: {recalc_raw_risk:.4f} * (1.0 - {recalc_shield_score:.4f}) = {recalc_final_score:.4f}")
         print("\n  [链路层 6] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
         print("\n--- “综合顶部风险探针”解剖完毕 ---")
-        # [代码修改结束]
 
     def _deploy_main_force_intent_duel_probe(self, probe_date: pd.Timestamp):
         """
