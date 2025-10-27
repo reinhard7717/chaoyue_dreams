@@ -36,7 +36,7 @@ class ForensicProbes:
         self._deploy_thanatos_scythe_probe = self.cognitive_probes._deploy_thanatos_scythe_probe
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
         self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
-        self._deploy_ultimate_top_reversal_probe = self.cognitive_probes._deploy_ultimate_top_reversal_probe
+        self._deploy_comprehensive_top_risk_probe = self.cognitive_probes._deploy_comprehensive_top_risk_probe
         # [代码新增开始]
         self._deploy_main_force_intent_duel_probe = self.cognitive_probes._deploy_main_force_intent_duel_probe
         # [代码新增结束]

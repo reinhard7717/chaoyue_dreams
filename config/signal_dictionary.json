@@ -51,13 +51,13 @@
             "type": "context",
             "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
         },
-        "COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL": {
-            "cn_name": "【认知风险】终极顶部反转",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -3500,
-            "context_role": "top_risk",
-            "description": "【V5.0 终极裁决版】融合了全系统最高优先级的顶部风险信号，包括但不限于：伊卡洛斯之坠、真实撤退、亢奋加速、周期顶、结构顶、天地板等。是系统风险体系的最终裁决者，具有最高否决权。"
+        "COGNITIVE_RISK_COMPREHENSIVE_TOP": {
+        "cn_name": "【认知风险】综合顶部风险",
+        "category": "认知层-风险",
+        "type": "risk",
+        "penalty_weight": -3000,
+        "context_role": "top_risk",
+        "description": "【V6.0 三柱-神盾架构版】终极顶部风险裁决引擎。融合了“亢奋/高潮”、“派发/背叛”、“结构/周期”三大风险支柱，并引入“趋势韧性神盾”进行动态抑制。只有在趋势本身脆弱时，顶部风险信号才会被放大。"
         },
         "COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION": {
             "cn_name": "【认知风险】主力高成本追涨 vs 高位派发",

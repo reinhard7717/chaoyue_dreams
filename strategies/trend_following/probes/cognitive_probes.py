@@ -160,108 +160,73 @@ class CognitiveProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score.get(probe_date):.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score.get(probe_date)) else '❌ 不一致'}")
         print("\n--- “利润兑现压力风险探针”解剖完毕 ---")
 
-    def _deploy_ultimate_top_reversal_probe(self, probe_date: pd.Timestamp):
+    def _deploy_comprehensive_top_risk_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 新增】终极顶部反转探针
-        - 核心使命: 解剖 COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL 信号，追溯其核心风险源。
+        【探针 V2.0 · 三柱-神盾架构版】综合顶部风险探针
+        - 核心重构: 完全同步主引擎的“三柱-神盾”架构，解剖从“三柱归类”到“神盾抑制”的完整裁决链路。
         """
-        # [代码新增开始]
-        print("\n" + "="*35 + f" [认知探针] 正在启用 🛡️【终极顶部反转探针 V1.0】🛡️ " + "="*35)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.0】🛡️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel
-        def get_val(series, date, default=np.nan):
+        def get_val(series, date, default=0.0):
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
-        signal_name = 'COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL'
-        # 链路层 1: 最终输出
+        signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
-        # 链路层 2: 核心风险源分析
-        print("\n  [链路层 2] 核心风险源分析 (Component Analysis)")
-        risk_signals = {
-            'CONTEXT_TOP_SCORE': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
-            'SCORE_RISK_UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
-            'SCORE_BOARD_HEAVEN_EARTH': engine._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
-            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': engine._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
-            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': engine._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0),
-            'SCORE_RISK_ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
-            'COGNITIVE_RISK_TRUE_RETREAT_RISK': engine._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
-            'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            'COGNITIVE_RISK_SIREN_SONG': engine._get_atomic_score(df, 'COGNITIVE_RISK_SIREN_SONG', 0.0),
-            'COGNITIVE_RISK_OLYMPUS_CRUMBLING': engine._get_atomic_score(df, 'COGNITIVE_RISK_OLYMPUS_CRUMBLING', 0.0),
-            'COGNITIVE_RISK_CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0)
+        print("\n  [链路层 2] 三柱风险分析 (Tri-Pillar Risk Analysis)")
+        # 支柱一: 亢奋/高潮风险
+        euphoric_signals = {
+            'EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
+            'ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            'BOARD_HEAVEN_EARTH': engine._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }
-        component_scores_on_date = {name: get_val(series, probe_date, 0.0) for name, series in risk_signals.items()}
-        if not any(component_scores_on_date.values()):
-            print("    - 未找到任何风险分项。")
-            return
-        max_contributor = max(component_scores_on_date, key=component_scores_on_date.get)
-        max_score = component_scores_on_date[max_contributor]
-        print(f"    - 主要风险源: 【{max_contributor}】 (分值: {max_score:.4f})")
-        print("    - 各分项得分详情:")
-        for name, score in sorted(component_scores_on_date.items(), key=lambda item: item[1], reverse=True):
-            if score > 0.01:
-                print(f"      - {name}: {score:.4f}")
-        # 链路层 3: 重算与对质
-        print("\n  [链路层 3] 探针重算与对质 (Recalculation & Verdict)")
-        recalc_score = max(component_scores_on_date.values())
-        print(f"    - [融合公式]: max(各分项得分)")
-        print(f"    - 【探针重算风险分】: {recalc_score:.4f}")
-        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_score) else '❌ 不一致'}")
-        print("\n--- “终极顶部反转探针”解剖完毕 ---")
-        # [代码新增结束]
-
-    def _deploy_ultimate_top_reversal_probe(self, probe_date: pd.Timestamp):
-        """
-        【探针 V1.0】终极顶部反转探针
-        - 核心使命: 解剖 COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL 信号，追溯其核心风险源。
-        """
-        print("\n" + "="*35 + f" [认知探针] 正在启用 🛡️【终极顶部反转探针 V1.0】🛡️ " + "="*35)
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        engine = self.cognitive_intel
-        def get_val(series, date, default=np.nan):
-            if series is None: return default
-            val = series.get(date)
-            return default if pd.isna(val) else val
-        signal_name = 'COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL'
-        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
-        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
-        print("\n  [链路层 2] 核心风险源分析 (Component Analysis)")
-        risk_signals = {
-            'CONTEXT_TOP_SCORE': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
-            'SCORE_RISK_UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
-            'SCORE_BOARD_HEAVEN_EARTH': engine._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
-            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': engine._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
-            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': engine._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0),
-            'SCORE_RISK_ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
-            'COGNITIVE_RISK_TRUE_RETREAT_RISK': engine._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
-            'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            'COGNITIVE_RISK_SIREN_SONG': engine._get_atomic_score(df, 'COGNITIVE_RISK_SIREN_SONG', 0.0),
-            'COGNITIVE_RISK_OLYMPUS_CRUMBLING': engine._get_atomic_score(df, 'COGNITIVE_RISK_OLYMPUS_CRUMBLING', 0.0),
-            'COGNITIVE_RISK_CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0)
+        euphoric_scores = {name: get_val(s, probe_date) for name, s in euphoric_signals.items()}
+        euphoric_risk_score = max(euphoric_scores.values()) if euphoric_scores else 0.0
+        print(f"    - [支柱 I: 亢奋/高潮风险] -> 得分: {euphoric_risk_score:.4f}")
+        for name, score in euphoric_scores.items():
+            if score > 0.01: print(f"      - {name}: {score:.4f}")
+        # 支柱二: 派发/背叛风险
+        distribution_signals = {
+            'MAIN_FORCE_INTENT_DUEL': engine._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
+            'UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
+            'RETAIL_FOMO_RETREAT': engine._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
+            'TRUE_RETREAT': engine._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
         }
-        component_scores_on_date = {name: get_val(series, probe_date, 0.0) for name, series in risk_signals.items()}
-        if not any(component_scores_on_date.values()):
-            print("    - 未找到任何风险分项。")
-            return
-        max_contributor = max(component_scores_on_date, key=component_scores_on_date.get)
-        max_score = component_scores_on_date[max_contributor]
-        print(f"    - 主要风险源: 【{max_contributor}】 (分值: {max_score:.4f})")
-        print("    - 各分项得分详情:")
-        for name, score in sorted(component_scores_on_date.items(), key=lambda item: item[1], reverse=True):
-            if score > 0.01:
-                print(f"      - {name}: {score:.4f}")
-        print("\n  [链路层 3] 探针重算与对质 (Recalculation & Verdict)")
-        recalc_score = max(component_scores_on_date.values())
-        print(f"    - [融合公式]: max(各分项得分)")
-        print(f"    - 【探针重算风险分】: {recalc_score:.4f}")
-        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_score) else '❌ 不一致'}")
-        print("\n--- “终极顶部反转探针”解剖完毕 ---")
+        distribution_scores = {name: get_val(s, probe_date) for name, s in distribution_signals.items()}
+        distribution_risk_score = max(distribution_scores.values()) if distribution_scores else 0.0
+        print(f"    - [支柱 II: 派发/背叛风险] -> 得分: {distribution_risk_score:.4f}")
+        for name, score in distribution_scores.items():
+            if score > 0.01: print(f"      - {name}: {score:.4f}")
+        # 支柱三: 结构/周期风险
+        structural_signals = {
+            'CONTEXT_TOP': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
+            'CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
+        }
+        structural_scores = {name: get_val(s, probe_date) for name, s in structural_signals.items()}
+        structural_risk_score = max(structural_scores.values()) if structural_scores else 0.0
+        print(f"    - [支柱 III: 结构/周期风险] -> 得分: {structural_risk_score:.4f}")
+        for name, score in structural_scores.items():
+            if score > 0.01: print(f"      - {name}: {score:.4f}")
+        print("\n  [链路层 3] 原始风险融合 (Raw Risk Fusion)")
+        recalc_raw_risk = max(euphoric_risk_score, distribution_risk_score, structural_risk_score)
+        print(f"    - [融合公式]: max(亢奋分, 派发分, 结构分)")
+        print(f"    - 【探针重算原始风险】: max({euphoric_risk_score:.2f}, {distribution_risk_score:.2f}, {structural_risk_score:.2f}) = {recalc_raw_risk:.4f}")
+        print("\n  [链路层 4] 趋势韧性神盾 (Trend Resilience Shield)")
+        recalc_shield_score = get_val(engine._calculate_trend_resilience_shield(df), probe_date)
+        print(f"    - 【神盾分数】: {recalc_shield_score:.4f}")
+        print("\n  [链路层 5] 最终风险裁决 (Final Risk Adjudication)")
+        recalc_final_score = recalc_raw_risk * (1.0 - recalc_shield_score)
+        print(f"    - [裁决公式]: 原始风险 * (1 - 神盾分数)")
+        print(f"    - 【探针重算最终风险】: {recalc_raw_risk:.4f} * (1.0 - {recalc_shield_score:.4f}) = {recalc_final_score:.4f}")
+        print("\n  [链路层 6] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
+        print("\n--- “综合顶部风险探针”解剖完毕 ---")
+        # [代码修改结束]
 
     def _deploy_main_force_intent_duel_probe(self, probe_date: pd.Timestamp):
         """

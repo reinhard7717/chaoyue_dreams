@@ -149,7 +149,7 @@
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
         "enable_profit_taking_pressure_probe": false,
-        "enable_ultimate_top_reversal_probe": true,
+        "enable_comprehensive_top_risk_probe": true,
         "enable_main_force_intent_duel_probe": false
       },
       "strategy_info": {
@@ -917,6 +917,16 @@
             "foundation": 0.33,
             "structure": 0.33,
             "behavior": 0.34
+        },
+        "trend_resilience_shield_params": {
+          "description": "【新增】趋势韧性神盾参数",
+          "enabled": { "value": true },
+          "fusion_weights": {
+            "trend_quality": 0.4,
+            "structural_health": 0.2,
+            "fund_flow_health": 0.2,
+            "chip_health": 0.2
+          }
         },
         "relational_meta_analysis_params": {
           "description": "对“领域共识”进行关系元分析，分析共识形成的速度与加速度。",

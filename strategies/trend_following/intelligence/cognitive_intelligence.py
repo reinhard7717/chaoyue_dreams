@@ -39,14 +39,14 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V14.1 · 终极风险重构版】顶层认知总分合成模块
+        【V15.0 · 综合风险重构版】顶层认知总分合成模块
         - 核心升级:
           1. [架构重构] 废除所有零散的 _synthesize_* 扩展信号方法，统一由全新的 `_synthesize_cognitive_expansion_engine` 引擎生成。
           2. [分析升维] 所有扩展信号现在都将经过“关系元分析”，具备“状态-速度-加速度”的动态洞察力。
         - 本次修改:
-          - [名称净化] 将 `_diagnose_archangel_top_reversal` 重命名为 `_diagnose_ultimate_top_reversal`。
-          - [逻辑加固] 新的终极顶部风险引擎将融合更多高优先级风险信号。
-        """        
+          - [名称净化] 将 `_diagnose_ultimate_top_reversal` 重命名为 `_diagnose_comprehensive_top_risk`。
+          - [逻辑加固] 新的终极顶部风险引擎将采用“三柱-神盾”架构，融合更多高优先级风险信号，并引入趋势韧性抑制机制。
+        """
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
         df = self.synthesize_structural_fusion_scores(df)
@@ -70,9 +70,9 @@ class CognitiveIntelligence:
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
         # [代码修改开始]
-        # 调用重构后的终极顶部风险诊断引擎
-        ultimate_top_risk_states = self._diagnose_ultimate_top_reversal(df)
-        self.strategy.atomic_states.update(ultimate_top_risk_states)
+        # 调用重构后的综合顶部风险诊断引擎
+        comprehensive_top_risk_states = self._diagnose_comprehensive_top_risk(df)
+        self.strategy.atomic_states.update(comprehensive_top_risk_states)
         # [代码修改结束]
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
@@ -740,67 +740,46 @@ class CognitiveIntelligence:
         
         self.strategy.atomic_states.update(states)
 
-    def _diagnose_ultimate_top_reversal(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _diagnose_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 终极裁决版】终极顶部反转诊断引擎
-        - 核心重构: 重命名并大幅加固。融合了来自各个情报维度的、所有最高优先级的顶部风险信号，
-                      成为名副其实的“终极顶部风险”裁决者。
-        - 新增证据:
-          - SCORE_RISK_ICARUS_FALL (微观行为)
-          - COGNITIVE_RISK_TRUE_RETREAT_RISK (认知层)
-          - COGNITIVE_RISK_EUPHORIC_ACCELERATION (认知层)
-          - COGNITIVE_RISK_SIREN_SONG (认知扩展)
-          - COGNITIVE_RISK_OLYMPUS_CRUMBLING (认知扩展)
-          - COGNITIVE_RISK_CYCLICAL_TOP (周期层)
-        - 新增功能: 内置“探针”逻辑，可在调试模式下打印触发当日的核心风险源。
+        【V6.0 · 三柱-神盾架构版】综合顶部风险诊断引擎
+        - 核心重构: 废除旧的“霰弹枪”式融合，引入“三柱-神盾”架构。
+          1. [三柱归类]: 将风险信号归类为“亢奋/高潮”、“派发/背叛”、“结构/周期”三大支柱。
+          2. [神盾抑制]: 计算“趋势韧性神盾”分数，用于动态抑制原始风险。
+          3. [信号净化]: 彻底清除所有“幽灵信号”，并替换为最新的正确信号。
+        - 最终逻辑: 最终风险 = max(三柱风险) * (1 - 神盾分数)
         """
         # [代码修改开始]
         states = {}
-        signal_name = 'COGNITIVE_RISK_ULTIMATE_TOP_REVERSAL'
-        # 定义所有最高优先级的顶部风险信号
-        risk_signals = {
-            # 现有信号
-            'CONTEXT_TOP_SCORE': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
-            'SCORE_RISK_UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
-            'SCORE_BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
-            'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
-            'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION': self._get_atomic_score(df, 'COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION', 0.0),
-            # 新增的高价值风险信号
-            'SCORE_RISK_ICARUS_FALL': self._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
-            'COGNITIVE_RISK_TRUE_RETREAT_RISK': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
-            'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            'COGNITIVE_RISK_SIREN_SONG': self._get_atomic_score(df, 'COGNITIVE_RISK_SIREN_SONG', 0.0),
-            'COGNITIVE_RISK_OLYMPUS_CRUMBLING': self._get_atomic_score(df, 'COGNITIVE_RISK_OLYMPUS_CRUMBLING', 0.0),
-            'COGNITIVE_RISK_CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0)
+        signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
+        # --- 支柱一: 亢奋/高潮风险 (Euphoric/Climactic Risk) ---
+        euphoric_pillar_signals = {
+            'EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
+            'ICARUS_FALL': self._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }
-        risk_matrix = np.stack([s.values for s in risk_signals.values()], axis=0)
-        # 使用 maximum.reduce 确保任何一个风险信号触发，都会反映到最终分数上
-        ultimate_risk_values = np.maximum.reduce(risk_matrix, axis=0)
-        ultimate_risk_score = pd.Series(np.clip(ultimate_risk_values, 0, 1), index=df.index, dtype=np.float32)
-        states[signal_name] = ultimate_risk_score
-        # --- 探针逻辑 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        if debug_params.get('enabled', {}).get('value', False):
-            probe_dates = debug_params.get('probe_dates', [])
-            for probe_date_str in probe_dates:
-                probe_date = pd.to_datetime(probe_date_str)
-                if probe_date in df.index:
-                    final_score_on_date = ultimate_risk_score.loc[probe_date]
-                    if final_score_on_date > 0.1: # 仅在有显著风险时打印
-                        print(f"\n--- [探针] 正在解剖 {signal_name} 于 {probe_date_str} ---")
-                        component_scores = {name: series.loc[probe_date] for name, series in risk_signals.items()}
-                        # 找出贡献最大的信号
-                        max_contributor = max(component_scores, key=component_scores.get)
-                        max_score = component_scores[max_contributor]
-                        print(f"  - 最终风险分: {final_score_on_date:.4f}")
-                        print(f"  - 核心风险源: 【{max_contributor}】 (分值: {max_score:.4f})")
-                        print("  - 各分项得分:")
-                        for name, score in sorted(component_scores.items(), key=lambda item: item[1], reverse=True):
-                            if score > 0.01: # 只打印有意义的分数
-                                print(f"    - {name}: {score:.4f}")
-                        print(f"--- 解剖完毕 ---\n")
+        euphoric_risk_score = np.maximum.reduce([s.values for s in euphoric_pillar_signals.values()])
+        # --- 支柱二: 派发/背叛风险 (Distribution/Betrayal Risk) ---
+        distribution_pillar_signals = {
+            'MAIN_FORCE_INTENT_DUEL': self._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
+            'UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
+            'RETAIL_FOMO_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
+            'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0), # 修正拼写
+        }
+        distribution_risk_score = np.maximum.reduce([s.values for s in distribution_pillar_signals.values()])
+        # --- 支柱三: 结构/周期风险 (Structural/Cyclical Risk) ---
+        structural_pillar_signals = {
+            'CONTEXT_TOP': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
+            'CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
+        }
+        structural_risk_score = np.maximum.reduce([s.values for s in structural_pillar_signals.values()])
+        # --- 融合三柱风险 ---
+        raw_fused_risk = np.maximum.reduce([euphoric_risk_score, distribution_risk_score, structural_risk_score])
+        # --- 计算并应用“趋势韧性神盾” ---
+        shield_score = self._calculate_trend_resilience_shield(df)
+        final_risk_values = raw_fused_risk * (1.0 - shield_score.values)
+        states[signal_name] = pd.Series(np.clip(final_risk_values, 0, 1), index=df.index, dtype=np.float32)
         return states
-        # [代码修改结束]
 
     def synthesize_tactical_reversal_resonance(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1466,6 +1445,43 @@ class CognitiveIntelligence:
         states[signal_name] = risk_score.astype(np.float32)
         return states
 
+    def _calculate_trend_resilience_shield(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】“趋势韧性神盾”计算引擎
+        - 核心职责: 评估当前上升趋势的健康度和强韧性，生成一个[0, 1]区间的“神盾分数”。
+                      分数越高，代表趋势越健康，对常规顶部风险信号的抑制能力越强。
+        - 核心逻辑: 融合四大支柱——趋势质量、结构健康度、资金流健康度、筹码健康度。
+        """
+        # [代码新增开始]
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
+        if not get_param_value(p_shield.get('enabled'), True):
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        weights = get_param_value(p_shield.get('fusion_weights'), {})
+        # --- 神盾的四大支柱 ---
+        pillars = {
+            'trend_quality': self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0),
+            'structural_health': self._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE', 0.0),
+            'fund_flow_health': self._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE', 0.0),
+            'chip_health': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE', 0.0)
+        }
+        scores_to_fuse = []
+        weights_to_fuse = []
+        for name, score in pillars.items():
+            weight = weights.get(name, 0.25)
+            if weight > 0:
+                scores_to_fuse.append(score.values)
+                weights_to_fuse.append(weight)
+        if not scores_to_fuse:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 使用加权几何平均数进行融合，要求各方面都比较健康
+        weights_array = np.array(weights_to_fuse)
+        weights_array /= weights_array.sum()
+        stacked_scores = np.stack(scores_to_fuse, axis=0)
+        safe_scores = np.maximum(stacked_scores, 1e-9) # 避免log(0)
+        shield_values = np.exp(np.sum(np.log(safe_scores) * weights_array[:, np.newaxis], axis=0))
+        return pd.Series(shield_values, index=df.index, dtype=np.float32).clip(0, 1)
+        # [代码新增结束]
 
 
 
