@@ -298,7 +298,6 @@ class CognitiveProbes:
         - 核心修复: 同步主引擎的融合算法变更，将探针重算“领域共识分”的逻辑从
                       过时的几何平均改为与主引擎一致的加权算术平均。
         """
-        # [代码修改开始]
         print("\n" + "="*25 + f" [认知探针] 正在启用 📈【趋势质量探针 V1.1】📈 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states

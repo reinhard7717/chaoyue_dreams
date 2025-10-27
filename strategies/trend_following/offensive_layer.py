@@ -30,7 +30,6 @@ class OffensiveLayer:
             # 增加对 signal_series 类型的严格检查
             if signal_series is None or not isinstance(signal_series, pd.Series):
                 continue
-            # [代码修改结束]
             processed_signal_series = signal_series.astype(float)
             scoring_mode = meta.get('scoring_mode', 'unipolar') # 默认改为unipolar更安全
             context_role = meta.get('context_role', 'neutral')

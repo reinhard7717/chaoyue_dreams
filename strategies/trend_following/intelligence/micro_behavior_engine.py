@@ -711,8 +711,7 @@ class MicroBehaviorEngine:
         context_quality = (context_static * context_slope * context_accel)**(1/3)
         # 最终融合 (战术 * 战略)
         return (tactical_quality * context_quality)**0.5
-        # [代码修改结束]
-
+    
     def _diagnose_consolidation_breakout(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.0 · 新增】“结构性盘整突破”诊断引擎

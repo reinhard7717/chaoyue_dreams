@@ -26,7 +26,6 @@ class ProcessProbes:
         from strategies.trend_following.utils import get_params_block
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         config = next((c for c in process_params.get('diagnostics', []) if c.get('name') == signal_name), None)
-        # [代码修改结束]
         if not config:
             print(f"    [错误] 在配置中未找到信号 '{signal_name}' 的定义。")
             return
@@ -40,7 +39,6 @@ class ProcessProbes:
         meta_window = process_params.get('meta_window')
         norm_window = process_params.get('norm_window')
         trend_weight, accel_weight = process_params.get('meta_score_weights')
-        # [代码修改结束]
         signal_a = df.get(signal_a_name)
         signal_b = df.get(signal_b_name)
         if signal_a is None or signal_b is None:

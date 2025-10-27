@@ -431,11 +431,10 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.7 · 基因重组同步版】终极信号中央合成引擎
+    【V5.8 · 签名净化同步版】终极信号中央合成引擎
     - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了函数内部
                   关于 `neutral_zone_threshold` 的所有定义和使用。
     """
-    # [代码修改开始]
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
@@ -443,7 +442,6 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    # 彻底移除了 neutral_zone_threshold 的获取
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
@@ -491,7 +489,6 @@ def transmute_health_to_ultimate_signals(
         bipolar_health[p] = s_bull - s_bear
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
-    # 调用无参数的 bipolar_to_exclusive_unipolar 函数
     final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance)
     final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
@@ -873,17 +870,15 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
 
 def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, pd.Series]:
     """
-    【V3.0 · 基因重组版】将双极性分数转换为互斥的单极性分数。
+    【V3.0 · 签名净化版】将双极性分数转换为互斥的单极性分数。
     - 核心重构: 彻底从函数签名中移除了 `threshold` 参数。此修改强制性地在整个代码库中
                   废除了“中性区”概念，确保了该函数行为的唯一性和稳健性。
     """
-    # [代码修改开始]
     # 看涨分数：直接截取双极性分数中的正值部分。
     s_bull = bipolar_score.clip(0, 1)
     # 看跌分数：截取双极性分数中的负值部分，然后取其绝对值。
     s_bear = (bipolar_score.clip(-1, 0) * -1)
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
-    # [代码修改结束]
 
 
 

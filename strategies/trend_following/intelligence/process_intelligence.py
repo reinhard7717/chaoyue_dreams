@@ -203,8 +203,7 @@ class ProcessIntelligence:
         # 机会信号 (RISE): 只取正向部分，代表机会强度。
         opportunity_part = meta_score.clip(lower=0)
         atomic_states[f"{signal_name}_RISE"] = opportunity_part.astype(np.float32)
-        # [代码修改结束]
-        
+            
         return atomic_states
 
     def _calculate_strategy_sync_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:

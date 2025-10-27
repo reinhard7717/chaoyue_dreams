@@ -65,7 +65,6 @@ class StructuralIntelligence:
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
-                # [代码修改开始]
                 total_weight = sum(weights_in_order)
                 if total_weight > 0:
                     # 使用列表推导式创建一个包含所有加权分数的列表，此方法无状态，最稳健
@@ -79,8 +78,7 @@ class StructuralIntelligence:
                     components = [pillar_dict[p].fillna(0.5) for pillar_dict in health_sources if p in pillar_dict]
                     fused_score = sum(components) / len(components) if components else pd.Series(0.5, index=df.index)
                 overall_health[health_type][p] = fused_score.astype(np.float32)
-                # [代码修改结束]
-        self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
+                self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
@@ -93,14 +91,12 @@ class StructuralIntelligence:
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
         """
-        【V2.2 · 基因重组同步版】支柱一：趋势完整性
-        - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了
-                      关于 `neutral_zone_threshold` 的所有定义和使用。
+        【V2.3 · 阈值净化版】支柱一：趋势完整性
+        - 核心修复: 彻底移除了关于 `neutral_zone_threshold` 的所有定义和使用，
+                      同步 `bipolar_to_exclusive_unipolar` 的签名变更。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # 移除了 neutral_zone_threshold 的获取
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
@@ -142,7 +138,6 @@ class StructuralIntelligence:
         )
         bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # 调用无参数的 bipolar_to_exclusive_unipolar 函数
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -150,15 +145,13 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity, bipolar_snapshot
-        # [代码修改结束]
-
+    
     def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_bipolar_snapshot: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.2 · 基因重组同步版】支柱二：多时间框架协同
-        - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了
-                      关于 `neutral_zone_threshold` 的所有定义和使用。
+        【V2.3 · 阈值净化版】支柱二：多时间框架协同
+        - 核心修复: 彻底移除了关于 `neutral_zone_threshold` 的所有定义和使用，
+                      同步 `bipolar_to_exclusive_unipolar` 的签名变更。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         ma_periods_w = [5, 13, 21, 55]
         required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
@@ -175,8 +168,6 @@ class StructuralIntelligence:
             weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
         fused_bipolar_snapshot = (daily_bipolar_snapshot * 0.7 + weekly_bipolar_snapshot * 0.3)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, fused_bipolar_snapshot)
-        # 移除了 neutral_zone_threshold 的获取
-        # 调用无参数的 bipolar_to_exclusive_unipolar 函数
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -184,7 +175,7 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-
+    
     def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
         【V1.1 · 赫利俄斯敕令版】支柱三：结构突破潜力 (赫淮斯托斯的火山熔炉)

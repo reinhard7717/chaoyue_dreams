@@ -72,7 +72,6 @@ class CognitiveIntelligence:
         # 调用重构后的综合顶部风险诊断引擎
         comprehensive_top_risk_states = self._diagnose_comprehensive_top_risk(df)
         self.strategy.atomic_states.update(comprehensive_top_risk_states)
-        # [代码修改结束]
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
             'COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE',
@@ -186,8 +185,7 @@ class CognitiveIntelligence:
             'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
             'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME')
         }
-        # [代码修改开始]
-        # --- 使用加权算术平均数进行融合 ---
+            # --- 使用加权算术平均数进行融合 ---
         consensus_snapshot_score = pd.Series(0.0, index=df.index, dtype=np.float64)
         total_weight = 0.0
         valid_weights = {name: w for name, w in weights.items() if w > 0 and name in domain_scores_map}
@@ -199,8 +197,7 @@ class CognitiveIntelligence:
                     consensus_snapshot_score += score_series.fillna(0.5) * (weight / total_weight)
         else:
             consensus_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-        # [代码修改结束]
-        direct_trend_health_score = self._calculate_cognitive_trend_health(df)
+            direct_trend_health_score = self._calculate_cognitive_trend_health(df)
         trend_quality_snapshot_score = (direct_trend_health_score * consensus_snapshot_score)**0.5
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = final_trend_quality_score.astype(np.float32)
@@ -208,7 +205,7 @@ class CognitiveIntelligence:
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 赫淮斯托斯熔炉版】认知层回踩状态合成模块
+        【V3.1 · 动态分析版】认知层回踩状态合成模块
         - 核心升级: 引入关系元分析，对“健康回踩”和“压制性回踩”的快照分进行动态锻造。
         """
         states = {}
@@ -238,16 +235,14 @@ class CognitiveIntelligence:
         )
         final_suppressive_pullback_score = self._perform_cognitive_relational_meta_analysis(df, suppressive_pullback_snapshot_score)
         states['COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE'] = final_suppressive_pullback_score.astype(np.float32)
-        
         self.strategy.atomic_states.update(states)
         return df
 
     def synthesize_fused_risk_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 赫尔墨斯信使协议版】风险元融合模块
-        - 核心升级: 签署“赫尔墨斯信使协议”，将内部计算的“风险快照分”发布到原子状态库，
+        【V5.2 · 快照发布版】风险元融合模块
+        - 核心升级: 将内部计算的“风险快照分”发布到原子状态库，
                       命名为 COGNITIVE_INTERNAL_RISK_SNAPSHOT，确保系统的完全透明和可验证性。
-        - 收益: 解决了风险探针因无法获取中间变量而导致重算结果恒为0的致命BUG。
         """
         states = {}
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
@@ -309,69 +304,50 @@ class CognitiveIntelligence:
         states['COGNITIVE_CONTEXT_AEGIS_SHIELD_STRENGTH'] = aegis_shield_strength.astype(np.float32)
         suppression_factor = 1.0 - aegis_shield_strength
         risk_snapshot_score = (total_fused_risk_score * suppression_factor).clip(0, 2.0).astype(np.float32)
-        # 部署“赫尔墨斯信使协议”，发布内部快照分
         states['COGNITIVE_INTERNAL_RISK_SNAPSHOT'] = risk_snapshot_score
-
         final_dynamic_risk_score = self._perform_cognitive_relational_meta_analysis(df, risk_snapshot_score)
         states['COGNITIVE_FUSED_RISK_SCORE'] = final_dynamic_risk_score
         return states
 
     def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
         """
-        【V3.0 · 战神阿瑞斯版】奇美拉冲突诊断引擎
+        【V3.1 · 资金流分歧版】多维冲突诊断引擎
         - 核心升级: 引入“资金流分歧度”作为独立的冲突维度。
         - 新核心逻辑: 最终冲突分 = (信号冲突分 * 权重) + (资金流分歧冲突分 * 权重)。
-                      当市场的看涨/看跌信号本身就充满矛盾，同时资金流的多个信息源也互相矛盾时，
-                      系统将发出最高等级的“奇美拉冲突”警报。
         """
         states = {}
         p_chimera = get_params_block(self.strategy, 'chimera_conflict_params', {})
         weights = get_param_value(p_chimera.get('fusion_weights'), {'signal_conflict': 0.6, 'flow_divergence': 0.4})
-
-        # --- 维度一: 信号冲突分 (Signal-level Conflict) ---
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
         bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0).clip(0, 1)
         signal_conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized)
-        
-        # 引入资金流分歧度作为新的冲突维度
-        # --- 维度二: 资金流分歧冲突分 (Flow Divergence Conflict) ---
-        # 分歧度的绝对值越大，代表冲突越严重。我们对所有分歧度指标取绝对值，然后归一化，再取最大值。
         norm_window = 55
         div_ts_ths_abs = df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)).abs()
         div_ts_dc_abs = df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)).abs()
         div_ths_dc_abs = df.get('divergence_ths_dc_D', pd.Series(0, index=df.index)).abs()
-        
-        # 对每个分歧度的绝对值进行归一化
         div_ts_ths_score = normalize_score(div_ts_ths_abs, df.index, norm_window, ascending=True)
         div_ts_dc_score = normalize_score(div_ts_dc_abs, df.index, norm_window, ascending=True)
         div_ths_dc_score = normalize_score(div_ths_dc_abs, df.index, norm_window, ascending=True)
-        
-        # 取最强的分歧作为该维度的冲突分
         flow_divergence_conflict_score = np.maximum.reduce([
             div_ts_ths_score.values,
             div_ts_dc_score.values,
             div_ths_dc_score.values
         ])
         flow_divergence_conflict_score = pd.Series(flow_divergence_conflict_score, index=df.index)
-
-        # --- 最终融合: 加权融合两大冲突维度 ---
         final_conflict_score = (
             signal_conflict_score * weights.get('signal_conflict', 0.6) +
             flow_divergence_conflict_score * weights.get('flow_divergence', 0.4)
         )
-        
-        
         states['COGNITIVE_SCORE_CHIMERA_CONFLICT'] = final_conflict_score.clip(0, 1).astype(np.float32)
         self.strategy.atomic_states.update(states)
 
     def synthesize_structural_fusion_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V4.0 · 普罗米修斯之火协议版】结构化元信号融合模块
+        【V4.1 · 动态共识版】结构化元信号融合模块
         - 核心革命: 引入两阶段认知。第一阶段计算“共识快照分”，第二阶段对“共识”本身进行关系元分析。
-        - 新核心逻辑: final_score = MetaAnalysis(GeometricMean(foundation, structure, behavior))
-        - 收益: 最终信号不仅反映共识强度，更反映共识形成的速度与加速度，实现真正的认知前瞻。
+        - 新核心逻辑: 最终分数 = 动态分析(加权几何均值(基础, 结构, 行为))
+        - 收益: 最终信号不仅反映共识强度，更反映共识形成的速度与加速度，实现认知前瞻。
         """
-        # print("        -> [结构化元信号融合模块 V4.0 普罗米修斯之火协议版] 启动...") # 打印版本信息
         states = {}
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -394,7 +370,7 @@ class CognitiveIntelligence:
             'behavior': {
                 'bullish': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BULLISH_RESONANCE'),
                 'bearish': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BEARISH_RESONANCE'),
-                'bottom': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL'),
+                'bottom': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_RESONANCE'),
                 'top': get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_TOP_REVERSAL'),
             }
         }
@@ -405,9 +381,7 @@ class CognitiveIntelligence:
             'bottom': 'COGNITIVE_FUSION_BOTTOM_REVERSAL',
             'top': 'COGNITIVE_FUSION_TOP_REVERSAL'
         }
-        # 实现两阶段认知
         for f_type in fusion_types:
-            # --- 阶段一：计算“共识快照分” ---
             scores_to_fuse = []
             weights_to_fuse = []
             for domain, signals in signal_sources.items():
@@ -424,13 +398,9 @@ class CognitiveIntelligence:
             safe_scores = np.maximum(stacked_scores, 1e-9)
             log_signals = np.log(safe_scores)
             weighted_log_sum = np.sum(log_signals * weights_array[:, np.newaxis], axis=0)
-            # 这是“共识”在当前时刻的快照分
             consensus_snapshot_score = pd.Series(np.exp(weighted_log_sum), index=df.index, dtype=np.float32)
-            # --- 阶段二：对“共识”本身进行关系元分析 ---
-            # 调用认知层专属的元分析引擎
             final_fused_score = self._perform_cognitive_relational_meta_analysis(df, consensus_snapshot_score)
             states[output_names[f_type]] = final_fused_score
-        
         self.strategy.atomic_states.update(states)
         return df
 
@@ -656,53 +626,34 @@ class CognitiveIntelligence:
 
     def synthesize_trend_acceleration_cascade(self, df: pd.DataFrame) -> None:
         """
-        【V3.0 · 赫拉织布机版】趋势加速级联 (涡轮增压) 诊断引擎
-        - 核心革命: 借鉴ProcessIntelligence思想，引入二阶导数(加速度)和关系动态(协同性)分析。
+        【V3.1 · 动态级联版】趋势加速级联诊断引擎
+        - 核心革命: 引入二阶导数(加速度)和关系动态(协同性)分析。
         - 优化说明: 逻辑高度定制，通过Numpy向量化操作实现斜率、加速度计算及后续融合，保证了复杂逻辑下的执行效率。
         """
         states = {}
         norm_window = 55
-        slope_period = 3 
+        slope_period = 3
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         fusion_weights = p_cognitive.get('cascade_fusion_weights', {'slope': 0.6, 'accel': 0.4})
         w_slope = fusion_weights.get('slope', 0.6)
         w_accel = fusion_weights.get('accel', 0.4)
-
-        # 定义一个内联辅助函数，用于计算单个序列的“动态健康分”
-        # 该分数融合了信号的增长速度（斜率）和增长加速度
         def get_dynamic_health(series: pd.Series) -> pd.Series:
-            # 使用pandas内置的diff()高效计算斜率（一阶导数）和加速度（二阶导数）
             slope = series.diff(slope_period).fillna(0)
             accel = slope.diff(slope_period).fillna(0)
-            
-            # 归一化时，只考虑正向变化（增长和加速），体现“涡轮增压”的题意
             slope_score = normalize_score(slope.clip(lower=0), df.index, norm_window)
             accel_score = normalize_score(accel.clip(lower=0), df.index, norm_window)
-            
-            # 加权融合速度分和加速度分
             dynamic_health_score = (slope_score * w_slope + accel_score * w_accel)
             return dynamic_health_score
-
-        # --- 1. 时序级联诊断 (Temporal Cascade) ---
-        # 评估健康度信号在时间维度上的加速情况
         health_cache = self.strategy.atomic_states.get('__BEHAVIOR_overall_health', {})
         s_bull = health_cache.get('s_bull', {})
         d_intensity = health_cache.get('d_intensity', {})
         relational_power = self._get_atomic_score(df, 'SCORE_ATOMIC_RELATIONAL_DYNAMICS', 0.5)
-        # 融合短期和中期健康度信号
         short_term_health = np.maximum(s_bull.get(5, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(5, pd.Series(0.5, index=df.index))
         medium_term_health = np.maximum(s_bull.get(21, pd.Series(0.5, index=df.index)), relational_power) * d_intensity.get(21, pd.Series(0.5, index=df.index))
-        
-        # 计算短期和中期健康度的动态健康分
         short_term_dynamic_health = get_dynamic_health(short_term_health)
         medium_term_dynamic_health = get_dynamic_health(medium_term_health)
-        
-        # 融合时间维度上的加速信号，要求短中期趋势都在加速
         temporal_cascade_score = (short_term_dynamic_health * medium_term_dynamic_health)**0.5
         states['COGNITIVE_INTERNAL_TEMPORAL_CASCADE'] = temporal_cascade_score.astype(np.float32)
-
-        # --- 2. 领域级联诊断 (Domain Cascade) ---
-        # 评估不同分析维度（领域）之间的协同加速情况
         resonance_signals = {
             'behavior': self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE'),
             'chip': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
@@ -710,72 +661,49 @@ class CognitiveIntelligence:
             'structure': self._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE'),
             'dyn': self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
         }
-        
         domain_dynamic_health_scores = [get_dynamic_health(signal) for signal in resonance_signals.values()]
-        
         if domain_dynamic_health_scores:
-            # 将所有领域的动态健康分堆叠成Numpy数组，进行高效的跨领域分析
             stacked_health = np.stack([s.values for s in domain_dynamic_health_scores], axis=0)
-            
-            # 计算平均动态健康分，代表整体加速水平
             average_dynamic_health = pd.Series(np.mean(stacked_health, axis=0), index=df.index)
-            
-            # 计算标准差，代表各领域加速水平的分歧度
             std_dev_health = pd.Series(np.std(stacked_health, axis=0), index=df.index)
             normalized_std_dev = normalize_score(std_dev_health, df.index, norm_window, ascending=True)
-            
-            # 协同分 = 1 - 分歧度。分歧越小，协同性越高。
             relational_cohesion_score = 1.0 - normalized_std_dev
-            
-            # 最终领域级联分 = 整体加速水平 * 协同性。要求大家一起加速，而不是个别领域单兵突进。
             domain_cascade_score = (average_dynamic_health * relational_cohesion_score).clip(0, 1)
         else:
             domain_cascade_score = pd.Series(0.0, index=df.index)
-            
         states['COGNITIVE_INTERNAL_DOMAIN_CASCADE'] = domain_cascade_score.astype(np.float32)
-
-        # --- 3. 最终融合 ---
-        # 融合时间级联和领域级联，得到最终的趋势加速级联分数
         final_cascade_score = (temporal_cascade_score * domain_cascade_score).astype(np.float32)
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
-        
         self.strategy.atomic_states.update(states)
 
     def _diagnose_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 三柱-神盾架构版】综合顶部风险诊断引擎
-        - 核心重构: 废除旧的“霰弹枪”式融合，引入“三柱-神盾”架构。
-          1. [三柱归类]: 将风险信号归类为“亢奋/高潮”、“派发/背叛”、“结构/周期”三大支柱。
-          2. [神盾抑制]: 计算“趋势韧性神盾”分数，用于动态抑制原始风险。
-          3. [信号净化]: 彻底清除所有“幽灵信号”，并替换为最新的正确信号。
-        - 最终逻辑: 最终风险 = max(三柱风险) * (1 - 神盾分数)
+        【V6.0 · 三支柱风险架构版】综合顶部风险诊断引擎
+        - 核心重构: 引入“三支柱”架构，将风险信号归类为“亢奋/高潮”、“派发/背叛”、“结构/周期”。
+        - 抑制机制: 计算“趋势韧性”分数，用于动态抑制原始风险。
+        - 最终逻辑: 最终风险 = max(三支柱风险) * (1 - 趋势韧性分)
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
-        # --- 支柱一: 亢奋/高潮风险 (Euphoric/Climactic Risk) ---
         euphoric_pillar_signals = {
             'EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
             'ICARUS_FALL': self._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
             'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }
         euphoric_risk_score = np.maximum.reduce([s.values for s in euphoric_pillar_signals.values()])
-        # --- 支柱二: 派发/背叛风险 (Distribution/Betrayal Risk) ---
         distribution_pillar_signals = {
             'MAIN_FORCE_INTENT_DUEL': self._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
             'UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
             'RETAIL_FOMO_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
-            'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0), # 修正拼写
+            'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
         }
         distribution_risk_score = np.maximum.reduce([s.values for s in distribution_pillar_signals.values()])
-        # --- 支柱三: 结构/周期风险 (Structural/Cyclical Risk) ---
         structural_pillar_signals = {
             'CONTEXT_TOP': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
             'CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
         }
         structural_risk_score = np.maximum.reduce([s.values for s in structural_pillar_signals.values()])
-        # --- 融合三柱风险 ---
         raw_fused_risk = np.maximum.reduce([euphoric_risk_score, distribution_risk_score, structural_risk_score])
-        # --- 计算并应用“趋势韧性神盾” ---
         shield_score = self._calculate_trend_resilience_shield(df)
         final_risk_values = raw_fused_risk * (1.0 - shield_score.values)
         states[signal_name] = pd.Series(np.clip(final_risk_values, 0, 1), index=df.index, dtype=np.float32)
@@ -1121,7 +1049,6 @@ class CognitiveIntelligence:
                     source_series_raw = pd.Series(0.0, index=df.index)
                 # 零值隔离协议
                 zero_mask = np.isclose(source_series_raw, 0)
-                # [代码修改结束]
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
@@ -1151,7 +1078,6 @@ class CognitiveIntelligence:
                     fused_component_series = normalize_score(transformed_series, df.index, 55)
                 # 零值隔离协议执行
                 fused_component_series[zero_mask] = 0.0
-                # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
@@ -1174,10 +1100,9 @@ class CognitiveIntelligence:
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V3.0 · 阿瑞斯之怒协议版】认知层专用的关系元分析核心引擎
-        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
-                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
-                      并转换为[0, 1]的单极性分数以兼容上游，彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
+        【V3.1 · 双通道分析版】认知层专用的关系元分析核心引擎
+        - 核心革命: 引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
+                      并转换为[0, 1]的单极性分数以兼容上游，修复了因丢弃负向信息而导致信号失效的BUG。
         """
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -1187,21 +1112,17 @@ class CognitiveIntelligence:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 将输入的单极性快照分转换为双极性
         bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
-        # 维度二：速度分
         relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 维度三：加速度分
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # --- 看涨力量评估 ---
         bullish_state = bipolar_snapshot.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -1210,7 +1131,6 @@ class CognitiveIntelligence:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 ---
         bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -1219,7 +1139,6 @@ class CognitiveIntelligence:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决并转换为单极性输出 ---
         final_bipolar_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
         final_unipolar_score = (final_bipolar_score + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
@@ -1286,26 +1205,19 @@ class CognitiveIntelligence:
 
     def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 幽灵信号替代版】“真伪识别：打压 vs 撤退”诊断引擎
+        【V5.4 · 信号替代修复版】“真伪识别：打压 vs 撤退”诊断引擎
         - 核心修复: 使用 `retail_capitulation_distribution_D` 和 `profit_taking_urgency_D` 作为替代品，
-                      替换了原始代码中对不存在的 `turnover_from_losers_ratio_D` 和 `turnover_from_winners_ratio_D` 的依赖。
-                      这不仅修复了因信号缺失导致的计算错误，还使证据链的逻辑更加清晰和强大。
+                      修复了因信号缺失导致的计算错误，并使证据链逻辑更清晰。
         """
         states = {}
         norm_window = 55
         p = 5
-        # 使用新的代理信号重构“近期派发强度”的计算逻辑
-        # --- 步骤1: 量化“近期派发强度”证据 ---
-        # “筹码流向主力”的证据：成本发散（主力成本更低）且 散户正在投降式卖出
         to_main = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=True) *
                    normalize_score(df.get(f'SLOPE_{p}_retail_capitulation_distribution_D'), df.index, norm_window, ascending=True))**0.5
-        # “筹码流向散户”的证据：成本收敛 且 获利盘正在紧急了结
         to_retail = (normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D'), df.index, norm_window, ascending=False) *
                      normalize_score(df.get(f'SLOPE_{p}_profit_taking_urgency_D'), df.index, norm_window, ascending=True))**0.5
-        
         short_term_transfer_snapshot = (to_main - to_retail).astype(np.float32)
         recent_distribution_strength = (short_term_transfer_snapshot.rolling(3).mean().clip(-1, 0) * -1).astype(np.float32)
-        # --- 步骤2: 量化“当日反转强度”与“动态质量”证据 ---
         chip_reversal_raw = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_REVERSAL', 0.0)
         behavior_reversal_raw = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BOTTOM_REVERSAL', 0.0)
         dyn_reversal_raw = self._get_atomic_score(df, 'SCORE_DYN_BOTTOM_REVERSAL', 0.0)
@@ -1318,11 +1230,9 @@ class CognitiveIntelligence:
         dyn_bullish_resonance = self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE', 0.0)
         behavior_bullish_resonance = self._get_atomic_score(df, 'SCORE_BEHAVIOR_BULLISH_RESONANCE', 0.0)
         reversal_dynamic_quality = (dyn_bullish_resonance * behavior_bullish_resonance)**0.5
-        # --- 步骤3: 准备核心对立证据：“盈利盘信念” ---
         winner_conviction_0_1 = (self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0).clip(-1, 1) * 0.5 + 0.5)
         winner_belief_score = winner_conviction_0_1
         winner_capitulation_score = (1.0 - winner_conviction_0_1) ** 0.7
-        # --- 步骤4: 构建“战术性打压”的证据链 (看涨) ---
         trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0)
         panic_absorption_score = self._get_atomic_score(df, 'SCORE_MICRO_PANIC_ABSORPTION', 0.0)
         structural_support_score = self._get_atomic_score(df, 'SCORE_FOUNDATION_BOTTOM_CONFIRMED', 0.0)
@@ -1339,7 +1249,6 @@ class CognitiveIntelligence:
             absorption_evidence_chain
         ).clip(0, 1)
         states['COGNITIVE_SCORE_TACTICAL_SUPPRESSION'] = tactical_suppression_score.astype(np.float32)
-        # --- 步骤5: 构建“真实撤退/牛市陷阱”的证据链 (看跌) ---
         trend_decay_context = 1.0 - trend_quality_context
         no_absorption_score = 1.0 - panic_absorption_score
         bull_trap_evidence = 1.0 - reversal_dynamic_quality
@@ -1355,11 +1264,10 @@ class CognitiveIntelligence:
 
     def _calculate_cognitive_trend_health(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】“宙斯之鹰眼”五维趋势健康度评估引擎
+        【V1.0 · 新增】五维趋势健康度评估引擎
         - 核心逻辑: 作为认知层的专属趋势评估器，从“排列、速度、加速度、关系、元动力”
                       五个维度对趋势进行最全面、最权威的直接评估。
         """
-        #
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_health = get_param_value(p_cognitive.get('trend_health_fusion_weights'), {})
         weights = {
@@ -1375,29 +1283,23 @@ class CognitiveIntelligence:
         if len(ma_cols) < 2:
             return pd.Series(0.5, index=df.index, dtype=np.float32)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        # 维度1: 排列健康度 (Alignment)
         alignment_bools = ma_values[:-1] > ma_values[1:]
         alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-        # 维度2: 速度健康度 (Velocity)
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
         velocity_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in slope_cols], axis=0) if slope_cols else np.full(len(df.index), 0.5)
-        # 维度3: 加速度健康度 (Acceleration)
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
         acceleration_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in accel_cols], axis=0) if accel_cols else np.full(len(df.index), 0.5)
-        # 维度4: 关系健康度 (Relational)
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
         relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
-        # 维度5: 元动力健康度 (Meta-Dynamics)
         meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
         meta_dynamics_health = np.mean([normalize_score(df[col], df.index, norm_window) for col in valid_meta_cols], axis=0) if valid_meta_cols else np.full(len(df.index), 0.5)
-        # 最终融合
         scores = np.stack([alignment_health, velocity_health, acceleration_health, relational_health, meta_dynamics_health], axis=0)
         weights_array = np.array(list(weights.values()))
         weights_array /= weights_array.sum()
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
-        
+
     def _calculate_cyclical_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.0 · 新增】计算“周期顶”风险

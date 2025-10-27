@@ -56,8 +56,7 @@ class DynamicMechanicsEngine:
         ine_bear_snapshot = (normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False))**0.5
         energy_bull_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         energy_bear_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
-        # [代码修改开始]
-        # --- 使用加权算术平均数进行融合 ---
+            # --- 使用加权算术平均数进行融合 ---
         bull_snapshots = {
             'volatility': vol_bull_snapshot, 'efficiency': eff_bull_snapshot, 'momentum': mom_bull_snapshot,
             'inertia': ine_bull_snapshot, 'energy_transition': energy_bull_snapshot
@@ -76,8 +75,7 @@ class DynamicMechanicsEngine:
         else:
             fused_bull_snapshot = pd.Series(0.5, index=df.index)
             fused_bear_snapshot = pd.Series(0.5, index=df.index)
-        # [代码修改结束]
-        bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
+            bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
         modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
@@ -105,7 +103,6 @@ class DynamicMechanicsEngine:
         - 核心重构: 废除脆弱的“几何平均数(np.prod)”，换用更具韧性的“加权算术平均数(Σ(score*weight))”。
                       此修改确保了单个维度的暂时性疲软不会导致整个评估系统崩溃，彻底根除“零值传染病”的一个源头。
         """
-        # [代码修改开始]
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
             'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
@@ -147,8 +144,7 @@ class DynamicMechanicsEngine:
         else:
             final_score = pd.Series(0.5, index=df.index, dtype=np.float32)
         return final_score.astype(np.float32)
-        # [代码修改结束]
-
+    
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
         """
         【V3.1 · 双子座回响版】动态力学专用的关系元分析核心引擎

@@ -64,8 +64,7 @@ class BehavioralIntelligence:
         overall_health = self._calculate_structural_behavior_health(df, p_conf)
         # 将复杂的字典存入一个内部专用的键，避免污染
         self.strategy.atomic_states['_internal_behavior_health_dict'] = overall_health
-        # [代码修改结束]
-        # 步骤四：调用终极信号合成引擎 (逻辑保留，但消费的是更高质量的健康度数据)
+            # 步骤四：调用终极信号合成引擎 (逻辑保留，但消费的是更高质量的健康度数据)
         # 注意：我们将 domain_prefix 修改为 "STRUCT_BEHAVIOR" 以匹配新的信号字典定义
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
@@ -108,7 +107,6 @@ class BehavioralIntelligence:
         # 步骤3: 调用嬗变引擎，生成最终的风险和机会信号
         final_pressure_signals = self._transmute_pressure_into_opportunity(provisional_pressure, intent_diagnosis)
         atomic_signals.update(final_pressure_signals)
-        # [代码修改结束]
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_price_volume_atomics(df))
@@ -666,7 +664,6 @@ class BehavioralIntelligence:
         # 实施“阿瑞斯之矛”协议，更新权重和证据
         w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
         w_profit = get_param_value(weights.get('profit_profile'), 0.4)
-        # [代码修改结束]
         kline_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
@@ -681,7 +678,6 @@ class BehavioralIntelligence:
             main_force_flow_score * w_flow +
             profit_profile_score * w_profit
         ).clip(-1, 1)
-        # [代码修改结束]
         states[signal_name] = (final_intent_score * trigger_mask).astype(np.float32)
         return states
 
