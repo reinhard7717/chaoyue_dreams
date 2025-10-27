@@ -31,66 +31,78 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V19.0 · 结构势能重构版】
-        - 核心重构: 对四大支柱进行全面升级，引入筹码结构、波动性压缩、筹码断层等更高维度的分析。
-        - 支柱一/二: 将均线基准从 EMA 全面切换到 MA，以获取更稳定的结构信号。
-        - 支柱三: 升级为“多维突破势能引擎”，融合经典箱体、波动性压缩、筹码断层三大突破模式。
-        - 支柱四: 废除旧的“形态确认”，替换为全新的“结构稳定性”支柱，基于筹码峰的支撑与压力进行评估。
+        【V20.0 · 健康度定义修正版】结构情报的终极信号诊断与合成
+        - 核心重构: 彻底修正了 `overall_health` 的计算逻辑。不再对 s_bull 和 s_bear 分别进行加权平均，
+                      而是先计算每个支柱的双极性净值 (s_bull - s_bear)，然后对这些净值进行加权平均，
+                      得到一个最终的、唯一的双极性总分。最后再将此总分拆分为 s_bull 和 s_bear。
+        - 收益: 从根本上解决了“中性信号”被错误累加为“看跌信号”的问题，确保了看涨信号不被“噪音”淹没。
         """
+        # [代码修改开始]
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        if not get_param_value(p_conf.get('enabled'), True): return states
-        p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
-        norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
+        periods = get_param_value(get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('periods'), [1, 5, 13, 21, 55])
+        norm_window = get_param_value(p_conf.get('norm_window'), 55)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] }
-        # [代码修改开始]
-        # 更新支柱名称以匹配新的方法
-        pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'structural_stability']
-        # [代码修改结束]
-        weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
-        ti_s_bull, ti_s_bear, ti_d_intensity, daily_bipolar_snapshot = self._calculate_trend_integrity_health(df, periods, norm_window)
-        health_data['s_bull'].append(ti_s_bull)
-        health_data['s_bear'].append(ti_s_bear)
-        health_data['d_intensity'].append(ti_d_intensity)
-        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar_snapshot)
-        health_data['s_bull'].append(mtf_s_bull)
-        health_data['s_bear'].append(mtf_s_bear)
-        health_data['d_intensity'].append(mtf_d_intensity)
+        # 1. 计算每个支柱的健康度 (s_bull, s_bear, d_intensity)
+        ti_s_bull, ti_s_bear, ti_d_intensity, daily_bipolar = self._calculate_trend_integrity_health(df, periods, norm_window)
+        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar)
         bp_s_bull, bp_s_bear, bp_d_intensity = self._calculate_breakout_potential_health(df, periods, norm_window)
-        health_data['s_bull'].append(bp_s_bull)
-        health_data['s_bear'].append(bp_s_bear)
-        health_data['d_intensity'].append(bp_d_intensity)
-        # [代码修改开始]
-        # 调用新的“结构稳定性”支柱方法
         ss_s_bull, ss_s_bear, ss_d_intensity = self._calculate_structural_stability_health(df, periods, norm_window)
-        health_data['s_bull'].append(ss_s_bull)
-        health_data['s_bear'].append(ss_s_bear)
-        health_data['d_intensity'].append(ss_d_intensity)
-        # [代码修改结束]
-        overall_health = {}
-        for health_type, health_sources in health_data.items():
-            overall_health[health_type] = {}
+        # 2. 构建每个支柱的双极性净值字典
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+        pillar_bipolar_scores = {
+            'trend_integrity': {p: ti_s_bull.get(p, default_series) - ti_s_bear.get(p, default_series) for p in periods},
+            'mtf_cohesion': {p: mtf_s_bull.get(p, default_series) - mtf_s_bear.get(p, default_series) for p in periods},
+            'breakout_potential': {p: bp_s_bull.get(p, default_series) - bp_s_bear.get(p, default_series) for p in periods},
+            'structural_stability': {p: ss_s_bull.get(p, default_series) - ss_s_bear.get(p, default_series) for p in periods}
+        }
+        # 3. 对每个周期的支柱净值进行加权融合，得到最终的双极性总分
+        final_bipolar_by_period = {}
+        total_weight = sum(pillar_weights.values())
+        if total_weight > 0:
             for p in periods:
-                total_weight = sum(weights_in_order)
-                if total_weight > 0:
-                    weighted_scores = [
-                        pillar_dict[p].fillna(0.5) * (weights_in_order[i] / total_weight)
-                        for i, pillar_dict in enumerate(health_sources) if p in pillar_dict
-                    ]
-                    fused_score = sum(weighted_scores) if weighted_scores else pd.Series(0.5, index=df.index)
+                fused_bipolar_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+                for pillar_name, weight in pillar_weights.items():
+                    pillar_score_for_period = pillar_bipolar_scores.get(pillar_name, {}).get(p, default_series)
+                    fused_bipolar_score += pillar_score_for_period * (weight / total_weight)
+                final_bipolar_by_period[p] = fused_bipolar_score.clip(-1, 1)
+        else: # 如果没有权重，则简单平均
+            for p in periods:
+                scores_to_avg = [pillar_bipolar_scores.get(name, {}).get(p, default_series) for name in pillar_weights.keys()]
+                if scores_to_avg:
+                    final_bipolar_by_period[p] = (sum(scores_to_avg) / len(scores_to_avg)).clip(-1, 1)
                 else:
-                    components = [pillar_dict[p].fillna(0.5) for pillar_dict in health_sources if p in pillar_dict]
-                    fused_score = sum(components) / len(components) if components else pd.Series(0.5, index=df.index)
-                overall_health[health_type][p] = fused_score.astype(np.float32)
+                    final_bipolar_by_period[p] = default_series
+        # 4. 将最终的双极性总分拆分为 s_bull 和 s_bear
+        overall_s_bull = {}
+        overall_s_bear = {}
+        from .utils import bipolar_to_exclusive_unipolar
+        for p in periods:
+            s_bull, s_bear = bipolar_to_exclusive_unipolar(final_bipolar_by_period.get(p, default_series))
+            overall_s_bull[p] = s_bull
+            overall_s_bear[p] = s_bear
+        # 5. 构造 overall_health 和 d_intensity
+        overall_health = {'s_bull': overall_s_bull, 's_bear': overall_s_bear}
+        # d_intensity 的融合逻辑保持不变（简单平均）
+        overall_d_intensity = {}
+        for p in periods:
+            intensities = [
+                ti_d_intensity.get(p, default_series),
+                mtf_d_intensity.get(p, default_series),
+                bp_d_intensity.get(p, default_series),
+                ss_d_intensity.get(p, default_series)
+            ]
+            overall_d_intensity[p] = sum(intensities) / len(intensities)
+        overall_health['d_intensity'] = overall_d_intensity
+        # 存储中间结果以供探针使用
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
+        # 6. 调用中央合成引擎
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,
             atomic_states=self.strategy.atomic_states,
             overall_health=overall_health,
-            params=p_synthesis,
-            domain_prefix="STRUCTURE"
+            params=p_conf,
+            domain_prefix='STRUCTURE'
         )
         states.update(ultimate_signals)
         return states
