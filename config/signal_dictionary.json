@@ -862,12 +862,13 @@
             "context_role": "top_risk",
             "description": "融合了主力“战术性T+0获利了结”和“战略性持仓派发”两大证据链，是量化主力兑现利润意愿的专属风险信号。"
         },
-        "COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN": {
-            "cn_name": "【微观风险】高位回落",
-            "category": "微观行为-风险",
+        "COGNITIVE_RISK_PEAK_REJECTION": {
+            "cn_name": "【认知风险】高位遇阻风险",
+            "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -2800,
-            "description": "【重大风险】识别股价在经历上涨到达高位后，开始下跌的风险。此信号会施加严厉的惩罚。"
+            "context_role": "top_risk",
+            "description": "【V5.0 · 结构化重构版】识别股价在近期高位区域遭遇实质性抛压的风险。融合了'高位区域'的战略位置和'上影线抛压'的战术行为，并受整体趋势健康度调制。是比单纯的'高位回落'更精确、更稳健的顶部风险信号。"
         },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",

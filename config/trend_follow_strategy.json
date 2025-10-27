@@ -1200,11 +1200,9 @@
       },
       "post_peak_downturn_risk_params": {
         "enabled": true,
-        "description": "【V3.0 · 关系元分析版】高位回落风险诊断引擎参数。",
-        "norm_window": 55,
-        "high_position_threshold": 0.7,
-        "peak_echo_window": 5,
-        "comment": "定义何为'高位'。当股价相对MA55的伸展度超过70%时，即认为处于高位。"
+        "description": "【V5.0 · 结构化重构版】高位遇阻风险诊断引擎参数。",
+        "peak_proximity_threshold": 0.95,
+        "comment": "定义何为'高位区域'。当价格达到近期高点的95%以上时，即认为处于高危区域。"
       },
       "mean_reversion_grid_params": {
         "enabled": true,

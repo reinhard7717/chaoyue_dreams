@@ -38,7 +38,7 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df)) # 此方法已被重构
         update_states(self._synthesize_profit_taking_pressure_risk(df)) # 新增独立的风险引擎调用
         update_states(self.synthesize_euphoric_acceleration_risk(df))
-        update_states(self.synthesize_post_peak_downturn_risk(df))
+        update_states(self.synthesize_peak_rejection_risk(df))
         update_states(self.diagnose_hermes_gambit(df))
         # 调用全新的“伊卡洛斯之坠”诊断引擎
         update_states(self.diagnose_icarus_fall_risk(df))
@@ -517,67 +517,38 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 
-    def synthesize_post_peak_downturn_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_peak_rejection_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 分层印证版】高位回落风险 (Post-Peak Downturn Risk) 诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。对构成回落风险的严重性因子（下跌幅度、成交量、破位深度）进行多时间维度的分层验证。
+        【V5.0 · 结构化重构版】高位遇阻风险 (Peak Rejection Risk) 诊断引擎
+        - 核心重构: 废弃旧的、脆弱的“高位回落”逻辑，重构为更稳健、更精确的“高位遇阻”逻辑。
+        - 新核心逻辑: 风险 = (高位区域得分) * (当日抛压得分) * (趋势抑制因子)
+        - 优势: 1. 直接复用高质量的结构化指标和原子风险信号，逻辑更清晰、更稳健。
+                  2. 能够精确识别上涨日背后隐藏的“冲高回落”式派发风险，解决了旧逻辑的根本缺陷。
         """
         states = {}
+        # [代码修改开始]
+        # 信号名称更新，以更准确地反映其逻辑
+        signal_name = 'COGNITIVE_RISK_PEAK_REJECTION'
         p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
-        if not get_param_value(p_risk.get('enabled'), True): return states
+        if not get_param_value(p_risk.get('enabled'), True):
+            states[signal_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            return states
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        high_position_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
-        peak_echo_window = get_param_value(p_risk.get('peak_echo_window'), 5)
-        # 引入分层印证框架
-        periods = [5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        downturn_scores_by_period = {}
+        # 支柱一：战略位置 - 是否处于高危区域？
+        # 使用更直接的结构化指标 price_to_peak_ratio_D
+        peak_proximity_threshold = get_param_value(p_risk.get('peak_proximity_threshold'), 0.95)
+        is_near_peak_score = (df.get('price_to_peak_ratio_D', 0.0) > peak_proximity_threshold).astype(float)
+        # 支柱二：战术行为 - 当日是否遭遇了实质性抛压？
+        # 直接复用高质量的原子风险信号
+        rejection_quality_score = self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0)
+        # 安全阀：趋势健康度
         ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        # 静态因子
-        ma55 = df.get('EMA_55_D', df['close_D'])
-        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
-        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        is_at_high_position = (stretch_from_ma55_score > high_position_threshold)
-        recently_at_peak_context = is_at_high_position.rolling(window=peak_echo_window, min_periods=1).max().astype(float)
-        is_falling_today = (df['pct_change_D'] < 0).astype(float)
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 严重性评分 (分层计算) ---
-            fall_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-            # 战术层
-            tactical_fall_mag = normalize_score(fall_magnitude, df.index, window=p_tactical, ascending=True)
-            tactical_vol_ratio = (df['volume_D'] / df.get(f'VOL_MA_{p_tactical}_D', df['volume_D'])).fillna(1.0)
-            tactical_vol_spike = normalize_score(tactical_vol_ratio, df.index, window=p_tactical, ascending=True)
-            ema_tactical = df.get(f'EMA_{p_tactical}_D', df['close_D'])
-            tactical_breakdown_pct = ((ema_tactical - df['close_D']) / ema_tactical).clip(lower=0).fillna(0)
-            tactical_break_ema = normalize_score(tactical_breakdown_pct, df.index, window=p_tactical, ascending=True)
-            tactical_severity = (tactical_fall_mag * tactical_vol_spike * tactical_break_ema)**(1/3)
-            # 上下文层
-            context_fall_mag = normalize_score(fall_magnitude, df.index, window=p_context, ascending=True)
-            context_vol_ratio = (df['volume_D'] / df.get(f'VOL_MA_{p_context}_D', df['volume_D'])).fillna(1.0)
-            context_vol_spike = normalize_score(context_vol_ratio, df.index, window=p_context, ascending=True)
-            ema_context = df.get(f'EMA_{p_context}_D', df['close_D'])
-            context_breakdown_pct = ((ema_context - df['close_D']) / ema_context).clip(lower=0).fillna(0)
-            context_break_ema = normalize_score(context_breakdown_pct, df.index, window=p_context, ascending=True)
-            context_severity = (context_fall_mag * context_vol_spike * context_break_ema)**(1/3)
-            # 融合
-            severity_score = (tactical_severity * context_severity)**0.5
-            # --- 重新组装 ---
-            raw_downturn_risk_score = (recently_at_peak_context * is_falling_today * severity_score)
-            snapshot_score = raw_downturn_risk_score * (1 - ma_health_score)
-            period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-            downturn_scores_by_period[p_tactical] = period_score
-        # --- 跨周期融合 ---
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        final_fused_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                final_fused_score += downturn_scores_by_period.get(p_tactical, 0.0) * weight
-        states['COGNITIVE_SCORE_RISK_POST_PEAK_DOWNTURN'] = final_fused_score.clip(0, 1).astype(np.float32)
-        
+        trend_suppression_factor = (1 - ma_health_score.clip(0, 1))
+        # 融合生成风险快照分
+        snapshot_score = is_near_peak_score * rejection_quality_score * trend_suppression_factor
+        # 对快照分进行关系元分析，捕捉其动态变化
+        final_risk_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
+        states[signal_name] = final_risk_score.clip(0, 1).astype(np.float32)
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
