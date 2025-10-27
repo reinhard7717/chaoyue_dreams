@@ -431,11 +431,12 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.5 · 忒弥斯审判版】终极信号中央合成引擎
-    - 核心革命: 签署“忒弥斯审判”协议，修复了引擎只看s_bull而忽略s_bear的“单边失明”BUG。
-    - 升级逻辑: 在融合前，通过 s_bull - s_bear 计算出每个周期真正的【净双极性健康分】，
-                  确保后续的融合与转换操作基于市场的完整多空信息。
+    【V5.6 · 阈值根除版】终极信号中央合成引擎
+    - 核心重构: 彻底移除了函数内部关于 `neutral_zone_threshold` 的定义和使用。
+                  现在，单双极性转换完全依赖于已修复的、无阈值的 `bipolar_to_exclusive_unipolar` 函数，
+                  从根本上解决了弱信号被错误归零的问题。
     """
+    # [代码修改开始]
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
@@ -443,7 +444,7 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    neutral_zone_threshold = get_param_value(params.get('neutral_zone_threshold'), 0.1)
+    # 移除了 neutral_zone_threshold 的获取
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
@@ -465,37 +466,35 @@ def transmute_health_to_ultimate_signals(
     dynamic_reversal_params = get_param_value(params.get('dynamic_reversal_context_params'), {})
     dynamic_reversal_context = _calculate_dynamic_reversal_context(df, dynamic_reversal_params, norm_window)
     atomic_states['CONTEXT_DYNAMIC_REVERSAL'] = dynamic_reversal_context
-    period_map = {
-        'short': 5,
-        'medium': 21,
-        'long': 55
+    period_groups = {
+        'short': [p for p in periods if p <= 5],
+        'medium': [p for p in periods if 5 < p <= 21],
+        'long': [p for p in periods if p > 21]
     }
     def fuse_bipolar_health(health_dict: Dict, weights: Dict) -> pd.Series:
-        final_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+        final_score = pd.Series(0.0, index=df.index, dtype=np.float64)
         total_weight = sum(weights.values())
         if total_weight > 0:
             for tf_name, weight in weights.items():
-                period_key = period_map.get(tf_name)
-                if period_key is None: continue
-                final_score += health_dict.get(period_key, default_series) * (weight / total_weight)
-        return final_score.clip(-1, 1)
-    # 实施“忒弥斯的审判”
-    # 1. 构建一个真正包含净双极性健康分的字典
+                group_periods = period_groups.get(tf_name, [])
+                group_scores = [health_dict.get(p, default_series) for p in group_periods]
+                if group_scores:
+                    avg_group_score = sum(group_scores) / len(group_scores)
+                    final_score += avg_group_score * (weight / total_weight)
+        return final_score.clip(-1, 1).astype(np.float32)
     bipolar_health = {}
     s_bull_dict = overall_health.get('s_bull', {})
     s_bear_dict = overall_health.get('s_bear', {})
-    # 确保 periods 列表是可用的
     available_periods = s_bull_dict.keys() | s_bear_dict.keys()
     for p in available_periods:
         s_bull = s_bull_dict.get(p, default_series)
         s_bear = s_bear_dict.get(p, default_series)
         bipolar_health[p] = s_bull - s_bear
-    # 2. 将正确的双极性健康分字典传递给融合函数
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
-    
-    final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, neutral_zone_threshold)
-    final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, neutral_zone_threshold)
+    # 调用无阈值的 bipolar_to_exclusive_unipolar 函数
+    final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, threshold=0.0)
+    final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, threshold=0.0)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
     final_top_reversal_score = (final_top_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)

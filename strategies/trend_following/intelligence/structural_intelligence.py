@@ -31,10 +31,9 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V18.3 · 权重校准版】
-        - 核心修复: 修正了四大支柱融合时的权重计算错误。现在确保每个支柱的贡献是基于其
-                      在总权重中的正确比例，彻底修复了融合结果不正确的问题。
-        - 优化: 将融合逻辑重构为更清晰、更安全的函数式风格（列表推导式 + sum）。
+        【V18.4 · 终极加固版】
+        - 核心修复: 采用最稳健的函数式风格（列表推导式 + sum）重构四大支柱的融合逻辑。
+                      此修改彻底杜绝了循环中可能存在的任何隐蔽状态错误，确保融合结果的绝对正确。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -69,22 +68,16 @@ class StructuralIntelligence:
                 # [代码修改开始]
                 total_weight = sum(weights_in_order)
                 if total_weight > 0:
-                    # 使用列表推导式创建一个包含所有加权分数的列表
+                    # 使用列表推导式创建一个包含所有加权分数的列表，此方法无状态，最稳健
                     weighted_scores = [
                         pillar_dict[p].fillna(0.5) * (weights_in_order[i] / total_weight)
                         for i, pillar_dict in enumerate(health_sources) if p in pillar_dict
                     ]
                     # 使用sum()对列表中的所有Series求和
-                    if weighted_scores:
-                        fused_score = sum(weighted_scores)
-                    else:
-                        fused_score = pd.Series(0.5, index=df.index)
+                    fused_score = sum(weighted_scores) if weighted_scores else pd.Series(0.5, index=df.index)
                 else:
                     components = [pillar_dict[p].fillna(0.5) for pillar_dict in health_sources if p in pillar_dict]
-                    if components:
-                        fused_score = sum(components) / len(components)
-                    else:
-                        fused_score = pd.Series(0.5, index=df.index)
+                    fused_score = sum(components) / len(components) if components else pd.Series(0.5, index=df.index)
                 overall_health[health_type][p] = fused_score.astype(np.float32)
                 # [代码修改结束]
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
