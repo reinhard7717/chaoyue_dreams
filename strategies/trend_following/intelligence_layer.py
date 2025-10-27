@@ -201,8 +201,8 @@ class IntelligenceLayer:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_cost_advantage_probe' 未找到。")
             if debug_params.get('enable_structural_pillar_dissection_probe', False):
                 if hasattr(self.probes, '_deploy_structural_pillar_dissection_probe'):
-                    # 默认解剖 trend_integrity 支柱
-                    self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='trend_integrity')
+                    # 将解剖目标锁定为新的嫌疑犯 'structural_stability'
+                    self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_pillar_dissection_probe' 未找到。")
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")

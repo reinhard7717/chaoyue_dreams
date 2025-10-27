@@ -888,12 +888,12 @@
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V18.0 · 四支柱融合版】定义了基于“趋势完整性、MTF协同、结构突破、形态确认”四大核心支柱的新结构引擎参数。",
+        "description": "【V20.0 · 配置同步版】定义了基于“趋势完整性、MTF协同、结构突破、结构稳定性”四大核心支柱的新结构引擎参数。",
         "pillar_weights": {
           "trend_integrity": 0.4,
           "mtf_cohesion": 0.3,
           "breakout_potential": 0.15,
-          "pattern_confirmation": 0.15
+          "structural_stability": 0.15
         },
         "ma_health_fusion_weights": {
           "description": "【五维均线健康度】五维均线健康度加权融合权重。元动力和关系分是核心。",
@@ -904,10 +904,10 @@
           "meta_dynamics": 0.25
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
+          "description": "【V2.0 · 状态主导版】关系元分析。采用状态主导的权重。",
+          "state_weight": 0.6,
+          "velocity_weight": 0.2,
+          "acceleration_weight": 0.2
         },
         "neutral_zone_threshold": {
           "value": 0.1,
