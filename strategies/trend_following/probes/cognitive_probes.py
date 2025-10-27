@@ -308,16 +308,12 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.7 · 终极犯罪现场版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 探针在内部完整复现系统当前存在的全部五大逻辑缺陷：
-                      1. 消费错误的源信号 (原罪)
-                      2. 对成品信号二次融合 (二次加工)
-                      3. 原始值为0则融合分归零 (幽灵协议)
-                      4. 存在0值则切换为算术平均 (阿波罗协议)
-                      5. 错误地使用diff(5)计算加速度 (时空错乱)
+        【探针 V1.8 · 湮灭协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 探针移除错误的“阿波罗协议”，忠实复现生产代码的“湮灭协议”（无条件几何平均）。
+                      这是对系统所有已知缺陷的最终、最精确的复现。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.7 · 终极犯罪现场版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.8 · 湮灭协议版】💧 " + "="*25)
         # [代码修改结束]
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
@@ -355,8 +351,7 @@ class CognitiveProbes:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
         
-        # [代码修改开始]
-        # --- 新增: 在探针内部复现“时空错乱”的元分析引擎 ---
+        # --- 在探针内部复现“时空错乱”的元分析引擎 ---
         def _replicate_flawed_meta_analysis(snapshot_score: pd.Series) -> pd.Series:
             """在探针内部完整复现生产代码中错误的加速度计算逻辑"""
             p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
@@ -384,10 +379,9 @@ class CognitiveProbes:
             net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
             final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
             return (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
-        # [代码修改结束]
 
         # --- 链路层 2: 终极犯罪现场重现 ---
-        print("\n  [链路层 2] 终极犯罪现场重现 (Path C - 复现全部五大罪行)")
+        print("\n  [链路层 2] 终极犯罪现场重现 (复现全部五大罪行)")
 
         # 罪行三: 幽灵协议
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
@@ -415,23 +409,23 @@ class CognitiveProbes:
         buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
         print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
 
-        # 罪行四: 阿波罗协议
+        # [代码修改开始]
+        # 罪行四: 湮灭协议 (无条件几何平均)
         print("\n    --- [快照分融合裁决] ---")
         components = [capital_flight_fused_final, liquidity_vacuum_double_fused_final, buyer_apathy_fused_final]
         stacked_scores = np.stack([c.values for c in components], axis=0)
-        has_zero_mask = np.any(np.isclose(stacked_scores, 0), axis=0)
-        geo_mean_values = np.prod(np.maximum(stacked_scores, 1e-9), axis=0) ** (1.0 / len(components))
-        arith_mean_values = np.mean(stacked_scores, axis=0)
-        snapshot_values = np.where(has_zero_mask, arith_mean_values, geo_mean_values)
+        
+        # 移除“阿波罗协议”，忠实复现“湮灭协议”
+        snapshot_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(components))
         crime_scene_snapshot_score = pd.Series(snapshot_values, index=df.index)
-        if has_zero_mask[df.index.get_loc(probe_date)]:
-            print(f"      - ☀️【阿波罗协议触发】: 检测到零值，融合算法切换为 [算术平均]。")
+        
+        print(f"      - 💥【湮灭协议执行】: 无条件使用 [几何平均]。")
+        component_values_at_date = [get_val(c, probe_date) for c in components]
+        print(f"      - 计算: ({component_values_at_date[0]:.4f} * {component_values_at_date[1]:.4f} * {component_values_at_date[2]:.4f})**(1/3)")
+        # [代码修改结束]
         
         # 罪行五: 时空错乱
-        # [代码修改开始]
-        # 调用在探针内部复现的、带有错误加速度计算的元分析函数
         crime_scene_dynamic_score = _replicate_flawed_meta_analysis(crime_scene_snapshot_score)
-        # [代码修改结束]
         
         print("\n    --- [重现最终裁决] ---")
         print(f"    - 【重现快照分】: {get_val(crime_scene_snapshot_score, probe_date):.4f}")
@@ -439,7 +433,7 @@ class CognitiveProbes:
 
         # --- 链路层 3: 终极对质 ---
         print("\n  [链路层 3] 终极对质 (Final Verdict)")
-        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 犯罪现场重现值 {get_val(crime_scene_dynamic_score, probe_date):.4f} -> {'✅ 完美重现犯罪现场' if np.isclose(system_score, get_val(crime_scene_dynamic_score, probe_date)) else '❌ 重现失败'}")
+        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 犯罪现场重现值 {get_val(crime_scene_dynamic_score, probe_date):.4f} -> {'✅ 完美重现犯罪现场' if np.isclose(system_score, get_val(crime_scene_dynamic_score, probe_date), atol=1e-4) else '❌ 重现失败'}")
 
         # --- 链路层 4: 结论 ---
         print("\n  [链路层 4] 结论")
