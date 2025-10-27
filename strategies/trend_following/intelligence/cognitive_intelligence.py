@@ -1103,15 +1103,16 @@ class CognitiveIntelligence:
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V3.1 · 双通道分析版】认知层专用的关系元分析核心引擎
-        - 核心革命: 引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
-                      并转换为[0, 1]的单极性分数以兼容上游，修复了因丢弃负向信息而导致信号失效的BUG。
+        【V4.0 · 状态主导协议版】认知层专用的关系元分析核心引擎
+        - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
+        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
-        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        # 权重调整为状态主导
+        w_state = get_param_value(p_meta.get('state_weight'), 0.6)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
@@ -1142,9 +1143,12 @@ class CognitiveIntelligence:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        final_bipolar_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        final_unipolar_score = (final_bipolar_score + 1) / 2.0
+        net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # 植入“状态主导协议”护栏
+        final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
+        final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
+        # [代码修改结束]
 
     def _calculate_aegis_shield_context(self, df: pd.DataFrame) -> pd.Series:
         """

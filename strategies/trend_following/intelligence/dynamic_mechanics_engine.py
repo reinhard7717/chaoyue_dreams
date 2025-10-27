@@ -150,33 +150,28 @@ class DynamicMechanicsEngine:
     
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
         """
-        【V3.1 · 双子座回响版】动态力学专用的关系元分析核心引擎
-        - 核心革命: 签署“双子座的回响”协议，从筹码引擎引入成熟的双极性评估逻辑。
-                      1. [一体两面] 分别计算看涨力量(Bullish Force)和看跌力量(Bearish Force)。
-                      2. [净值裁决] 最终得分 = 看涨力量 - 看跌力量，输出一个[-1, 1]的双极性净值分数。
-        - 升级意义: 修复了引擎“单极性失明”的致命BUG，使其能正确评估负面动态。
+        【V4.0 · 状态主导协议版】动态力学专用的关系元分析核心引擎
+        - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
+        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         p_meta = p_conf.get('relational_meta_analysis_params', {})
-        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
-        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        # 权重调整为状态主导
+        w_state = get_param_value(p_meta.get('state_weight'), 0.6)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # 实施“双子座的回响”协议
-        # 维度二：速度分 (Velocity Score) - 双层印证
         tactical_trend = snapshot_score.diff(tactical_p).fillna(0)
         tactical_velocity = normalize_to_bipolar(tactical_trend, df.index, norm_window, bipolar_sensitivity)
         context_trend = snapshot_score.diff(context_p).fillna(0)
         context_velocity = normalize_to_bipolar(context_trend, df.index, norm_window, bipolar_sensitivity)
-        velocity_score = (tactical_velocity.abs() * context_velocity.abs())**0.5 * np.sign(tactical_velocity) # 融合后保留方向
-        # 维度三：加速度分 (Acceleration Score) - 双层印证
+        velocity_score = (tactical_velocity.abs() * context_velocity.abs())**0.5 * np.sign(tactical_velocity)
         tactical_accel = tactical_trend.diff(tactical_p).fillna(0)
         tactical_acceleration = normalize_to_bipolar(tactical_accel, df.index, norm_window, bipolar_sensitivity)
         context_accel = context_trend.diff(context_p).fillna(0)
         context_acceleration = normalize_to_bipolar(context_accel, df.index, norm_window, bipolar_sensitivity)
-        acceleration_score = (tactical_acceleration.abs() * context_acceleration.abs())**0.5 * np.sign(tactical_acceleration) # 融合后保留方向
-        # --- 看涨力量评估 (Bullish Force) ---
+        acceleration_score = (tactical_acceleration.abs() * context_acceleration.abs())**0.5 * np.sign(tactical_acceleration)
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -185,7 +180,6 @@ class DynamicMechanicsEngine:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 (Bearish Force) ---
         bearish_state = (snapshot_score.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -194,11 +188,12 @@ class DynamicMechanicsEngine:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决 (Net Value Adjudication) ---
-        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        
-        return final_score.astype(np.float32)
-        
+        net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # 植入“状态主导协议”护栏
+        final_score = np.where(snapshot_score >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
+        return pd.Series(final_score, index=df.index, dtype=np.float32)
+        # [代码修改结束]
+
 
 
 

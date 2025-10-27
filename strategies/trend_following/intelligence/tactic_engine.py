@@ -399,34 +399,30 @@ class TacticEngine:
 
     def _perform_tactic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V3.0 · 阿瑞斯之怒协议版】战术专用的关系元分析核心引擎
-        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
-                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
-                      并转换为[0, 1]的单极性分数以兼容上游，彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
+        【V4.0 · 状态主导协议版】战术专用的关系元分析核心引擎
+        - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
+        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'tactic_engine_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        w_state = get_param_value(p_meta.get('state_weight'), 0.3)
-        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
+        # 权重调整为状态主导
+        w_state = get_param_value(p_meta.get('state_weight'), 0.6)
+        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 将输入的单极性快照分转换为双极性
         bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
-        # 维度二：速度分
         relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 维度三：加速度分
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # --- 看涨力量评估 ---
         bullish_state = bipolar_snapshot.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -435,7 +431,6 @@ class TacticEngine:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 ---
         bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -444,10 +439,12 @@ class TacticEngine:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决并转换为单极性输出 ---
-        final_bipolar_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        final_unipolar_score = (final_bipolar_score + 1) / 2.0
+        net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # 植入“状态主导协议”护栏
+        final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
+        final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
+        # [代码修改结束]
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
