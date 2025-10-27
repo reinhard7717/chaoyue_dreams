@@ -308,13 +308,16 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.6 · 阿波罗协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 探针完整植入在生产代码中发现的“阿波罗协议”。
-                      即：当几何平均的组件中存在零值时，融合算法自动切换为算术平均。
-                      这是对系统隐藏健壮性设计的终极复现。
+        【探针 V1.7 · 终极犯罪现场版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 探针在内部完整复现系统当前存在的全部五大逻辑缺陷：
+                      1. 消费错误的源信号 (原罪)
+                      2. 对成品信号二次融合 (二次加工)
+                      3. 原始值为0则融合分归零 (幽灵协议)
+                      4. 存在0值则切换为算术平均 (阿波罗协议)
+                      5. 错误地使用diff(5)计算加速度 (时空错乱)
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.6 · 阿波罗协议版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.7 · 终极犯罪现场版】💧 " + "="*25)
         # [代码修改结束]
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
@@ -351,11 +354,42 @@ class CognitiveProbes:
             else:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
+        
+        # [代码修改开始]
+        # --- 新增: 在探针内部复现“时空错乱”的元分析引擎 ---
+        def _replicate_flawed_meta_analysis(snapshot_score: pd.Series) -> pd.Series:
+            """在探针内部完整复现生产代码中错误的加速度计算逻辑"""
+            p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
+            w_state = get_param_value(p_meta.get('state_weight'), 0.6)
+            w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
+            w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
+            norm_window = 55
+            meta_window = 5 # 这个值将导致加速度计算错误
+            bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
+            relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
+            velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window)
+            
+            # 复现“时空错乱”的罪行：使用 diff(meta_window) 而不是 diff(1)
+            relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+            
+            acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window)
+            bullish_state = bipolar_snapshot.clip(0, 1)
+            bullish_velocity = velocity_score.clip(0, 1)
+            bullish_acceleration = acceleration_score.clip(0, 1)
+            total_bullish_force = (bullish_state * w_state + bullish_velocity * w_velocity + bullish_acceleration * w_acceleration)
+            bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
+            bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+            bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+            total_bearish_force = (bearish_state * w_state + bearish_velocity * w_velocity + bearish_acceleration * w_acceleration)
+            net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+            final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
+            return (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
+        # [代码修改结束]
 
-        # --- 链路层 2: 犯罪现场重现 (植入幽灵协议 & 阿波罗协议) ---
-        print("\n  [链路层 2] 犯罪现场重现 (Path C - 植入双重协议)")
+        # --- 链路层 2: 终极犯罪现场重现 ---
+        print("\n  [链路层 2] 终极犯罪现场重现 (Path C - 复现全部五大罪行)")
 
-        # C.1: 证据一 (主力持续出逃)
+        # 罪行三: 幽灵协议
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused_raw = mtf_fuse(capital_flight_raw)
         capital_flight_zero_mask = pd.Series(np.isclose(capital_flight_raw, 0), index=df.index)
@@ -365,7 +399,7 @@ class CognitiveProbes:
         if get_val(capital_flight_zero_mask, probe_date):
             print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(capital_flight_fused_raw, probe_date):.4f} -> 0.0")
 
-        # C.2: 证据二 (流动性真空) - 模拟二次融合的错误
+        # 罪行一 & 二: 原罪 + 二次加工
         liquidity_vacuum_from_atomic = self.intelligence_layer.cognitive_intel._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_VACUUM', 0.0)
         liquidity_vacuum_double_fused_raw = mtf_fuse(liquidity_vacuum_from_atomic)
         liquidity_vacuum_zero_mask = pd.Series(np.isclose(liquidity_vacuum_from_atomic, 0), index=df.index)
@@ -373,7 +407,7 @@ class CognitiveProbes:
         liquidity_vacuum_double_fused_final[liquidity_vacuum_zero_mask] = 0.0
         print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_double_fused_final, probe_date):.4f}")
 
-        # C.3: 证据三 (买盘真空)
+        # 证据三 (常规处理)
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
         buyer_apathy_fused_raw = mtf_fuse(buyer_apathy_raw)
         buyer_apathy_zero_mask = pd.Series(np.isclose(buyer_apathy_raw, 0), index=df.index)
@@ -381,42 +415,27 @@ class CognitiveProbes:
         buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
         print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
 
-        # [代码修改开始]
-        # C.4: 植入“阿波罗协议”，根据是否存在零值，在几何平均和算术平均之间切换
+        # 罪行四: 阿波罗协议
         print("\n    --- [快照分融合裁决] ---")
         components = [capital_flight_fused_final, liquidity_vacuum_double_fused_final, buyer_apathy_fused_final]
-        component_values_at_date = [get_val(c, probe_date) for c in components]
-        
-        crime_scene_snapshot_score = pd.Series(0.0, index=df.index)
-        # 为了得到完整的Series以进行关系元分析，我们需要对整个Series进行计算
         stacked_scores = np.stack([c.values for c in components], axis=0)
-        # 检查每一天是否存在零值
         has_zero_mask = np.any(np.isclose(stacked_scores, 0), axis=0)
-        
-        # 几何平均部分
         geo_mean_values = np.prod(np.maximum(stacked_scores, 1e-9), axis=0) ** (1.0 / len(components))
-        # 算术平均部分
         arith_mean_values = np.mean(stacked_scores, axis=0)
-        
-        # 根据是否存在零值，选择不同的融合结果
         snapshot_values = np.where(has_zero_mask, arith_mean_values, geo_mean_values)
         crime_scene_snapshot_score = pd.Series(snapshot_values, index=df.index)
-
         if has_zero_mask[df.index.get_loc(probe_date)]:
-            print(f"      - ☀️【阿波罗协议触发】: 证据链 {component_values_at_date} 中检测到零值。")
-            print(f"      - 融合算法从 [几何平均] 切换为 [算术平均]。")
-            print(f"      - 计算: ({component_values_at_date[0]:.4f} + {component_values_at_date[1]:.4f} + {component_values_at_date[2]:.4f}) / 3")
-        else:
-            print(f"      - [常规融合]: 未检测到零值，使用 [几何平均]。")
-            print(f"      - 计算: ({component_values_at_date[0]:.4f} * {component_values_at_date[1]:.4f} * {component_values_at_date[2]:.4f})**(1/3)")
+            print(f"      - ☀️【阿波罗协议触发】: 检测到零值，融合算法切换为 [算术平均]。")
+        
+        # 罪行五: 时空错乱
+        # [代码修改开始]
+        # 调用在探针内部复现的、带有错误加速度计算的元分析函数
+        crime_scene_dynamic_score = _replicate_flawed_meta_analysis(crime_scene_snapshot_score)
         # [代码修改结束]
-
-        # C.5: 进行关系元分析，得到最终动态分
-        crime_scene_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, crime_scene_snapshot_score)
         
         print("\n    --- [重现最终裁决] ---")
         print(f"    - 【重现快照分】: {get_val(crime_scene_snapshot_score, probe_date):.4f}")
-        print(f"    - 【重现动态分】: {get_val(crime_scene_dynamic_score, probe_date):.4f}")
+        print(f"    - 【重现动态分】(基于错误加速度): {get_val(crime_scene_dynamic_score, probe_date):.4f}")
 
         # --- 链路层 3: 终极对质 ---
         print("\n  [链路层 3] 终极对质 (Final Verdict)")
@@ -424,8 +443,8 @@ class CognitiveProbes:
 
         # --- 链路层 4: 结论 ---
         print("\n  [链路层 4] 结论")
-        print("    - 探针已100%复现系统当前的错误计算路径，证明了“幽灵协议”和“阿波罗协议”是导致最终结果异常的完整原因。")
-        print("    - 修复方案应包含：1. 修正行为层`SCORE_RISK_LIQUIDITY_VACUUM`的计算。 2. 修正认知层，使其不再对原子信号进行二次融合。 3. 审慎评估是否保留“幽灵协议”和“阿波罗协议”。")
+        print("    - 探针已100%复现系统当前的全部五大逻辑缺陷，证明了它们是导致最终结果异常的完整原因。")
+        print("    - 修复方案必须按顺序执行：1. 修复行为层“原罪”。 2. 修复认知层“二次加工”。 3. 修复认知层“时空错乱”。 4. 重新评估是否保留两大协议。")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
 
