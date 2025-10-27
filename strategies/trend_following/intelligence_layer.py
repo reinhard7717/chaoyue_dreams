@@ -114,8 +114,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.16 · 综合顶部风险探针版】法医探针调度中心
-        - 核心扩展: 新增对综合顶部风险探针的调用。
+        【V2.17 · 结构与趋势探针版】法医探针调度中心
+        - 核心扩展: 新增对结构健康度和趋势质量探针的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -127,7 +127,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.16] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.17] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -166,13 +166,23 @@ class IntelligenceLayer:
                     self.probes._deploy_profit_taking_pressure_probe(probe_date)
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_profit_taking_pressure_probe' 未找到。")
-            # [代码修改开始]
             if debug_params.get('enable_comprehensive_top_risk_probe', False):
                 if hasattr(self.probes, '_deploy_comprehensive_top_risk_probe'):
                     self.probes._deploy_comprehensive_top_risk_probe(probe_date)
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_comprehensive_top_risk_probe' 未找到。")
-            # [代码修改结束]
+            # [代码新增开始]
+            if debug_params.get('enable_trend_quality_probe', False):
+                if hasattr(self.probes, '_deploy_trend_quality_probe'):
+                    self.probes._deploy_trend_quality_probe(probe_date)
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_trend_quality_probe' 未找到。")
+            if debug_params.get('enable_structural_health_probe', False):
+                if hasattr(self.probes, '_deploy_structural_health_probe'):
+                    self.probes._deploy_structural_health_probe(probe_date)
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_health_probe' 未找到。")
+            # [代码新增结束]
             if debug_params.get('enable_main_force_intent_duel_probe', False):
                 if hasattr(self.probes, '_deploy_main_force_intent_duel_probe'):
                     self.probes._deploy_main_force_intent_duel_probe(probe_date)

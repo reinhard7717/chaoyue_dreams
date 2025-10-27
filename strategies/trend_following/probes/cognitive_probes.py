@@ -294,6 +294,67 @@ class CognitiveProbes:
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, recalc_final_score) else '❌ 不一致'}")
         print("\n--- “主力意图对决风险探针”解剖完毕 ---")
 
+    def _deploy_trend_quality_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0】趋势质量探针
+        - 核心使命: 解剖 COGNITIVE_SCORE_TREND_QUALITY 信号，追溯其零分根源。
+        - 解剖链路: 1. 最终信号 -> 2. 关系元分析 -> 3. 快照分 -> 4. 两大核心组件 -> 5. 七大领域得分
+        """
+        # [代码新增开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 📈【趋势质量探针 V1.0】📈 " + "="*25)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.cognitive_intel
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        # 链路层 1: 最终输出
+        signal_name = 'COGNITIVE_SCORE_TREND_QUALITY'
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终信号分】: {actual_final_score:.4f}")
+        # 链路层 2 & 3: 重算快照分
+        print("\n  [链路层 2 & 3] 快照分重算 (Snapshot Recalculation)")
+        p = get_params_block(self.strategy, 'trend_quality_params', {})
+        weights = p.get('domain_weights', {})
+        # 组件 1: direct_trend_health_score
+        direct_trend_health_series = engine._calculate_cognitive_trend_health(df)
+        direct_trend_health_val = get_val(direct_trend_health_series, probe_date)
+        print(f"    - [组件 I: 直接趋势健康度] -> 得分: {direct_trend_health_val:.4f}")
+        # 组件 2: consensus_snapshot_score
+        domain_scores_map = {
+            'behavior': 1.0 - get_unified_score(atomic, df.index, 'STRUCT_BEHAVIOR_TOP_REVERSAL'),
+            'chip': get_unified_score(atomic, df.index, 'CHIP_BULLISH_RESONANCE'),
+            'fund_flow': get_unified_score(atomic, df.index, 'FF_BULLISH_RESONANCE'),
+            'structural': get_unified_score(atomic, df.index, 'STRUCTURE_BULLISH_RESONANCE'),
+            'mechanics': get_unified_score(atomic, df.index, 'DYN_BULLISH_RESONANCE'),
+            'regime': (engine._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * engine._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
+            'cyclical': 1.0 - engine._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME')
+        }
+        valid_scores = [s.values for name, s in domain_scores_map.items() if weights.get(name, 0) > 0]
+        valid_weights = [weights.get(name) for name in domain_scores_map if weights.get(name, 0) > 0]
+        if valid_scores:
+            weights_array = np.array(valid_weights) / sum(valid_weights)
+            stacked_scores = np.stack(valid_scores, axis=0)
+            consensus_snapshot_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
+            consensus_snapshot_series = pd.Series(consensus_snapshot_values, index=df.index)
+        else:
+            consensus_snapshot_series = pd.Series(0.5, index=df.index)
+        consensus_snapshot_val = get_val(consensus_snapshot_series, probe_date)
+        print(f"    - [组件 II: 领域共识分] -> 得分: {consensus_snapshot_val:.4f}")
+        # 融合快照分
+        recalc_snapshot_score = (direct_trend_health_val * consensus_snapshot_val)**0.5
+        print(f"    - 【探针重算快照总分】: ({direct_trend_health_val:.4f} * {consensus_snapshot_val:.4f})**0.5 = {recalc_snapshot_score:.4f}")
+        # 链路层 4: 领域共识分解剖
+        print("\n  [链路层 4] 领域共识分解剖 (Component Dissection)")
+        for name, series in domain_scores_map.items():
+            weight = weights.get(name, 0)
+            if weight > 0:
+                score = get_val(series, probe_date)
+                print(f"      - [领域: {name:<12}] 得分: {score:.4f}, 权重: {weight}")
+        print("\n--- “趋势质量探针”解剖完毕 ---")
+
 
 
 

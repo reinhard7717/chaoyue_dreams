@@ -137,7 +137,7 @@
       "说明": "【V83.4 · 全配置补完版】趋势跟踪策略核心模块。补全了所有情报引擎缺失的原子信号配置。",
       "debug_params": {
         "enabled": { "value": true },
-        "probe_dates": ["2025-10-17", "2025-10-20"],
+        "probe_dates": ["2025-10-20"],
         "enable_behavioral_probe": false,
         "enable_pressure_transmutation_probe": false,
         "enable_liquidity_trap_probe": false,
@@ -149,8 +149,10 @@
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
         "enable_profit_taking_pressure_probe": false,
-        "enable_comprehensive_top_risk_probe": true,
-        "enable_main_force_intent_duel_probe": false
+        "enable_comprehensive_top_risk_probe": false,
+        "enable_main_force_intent_duel_probe": false,
+        "enable_trend_quality_probe": true,
+        "enable_structural_health_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
