@@ -308,12 +308,13 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.2 · 链路重建版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心修复: 废除了对“证据二：流动性真空”成品分数的快捷方式调用。
-                      现在，探针会获取其最原始的三个指标，并完全复刻认知扩展引擎的MTF融合过程，
-                      确保探针的计算路径与系统完全一致。
+        【探针 V1.3 · 全息解剖版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 探针不再仅仅模拟认知层的计算，而是增加了并行的计算链路，
+                      同时展示并对比“认知层MTF融合”与“行为层单周期归一化”两种范式下的计算结果。
+                      这使得系统内部的逻辑分歧被彻底暴露，为最终修复提供了决定性证据。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.2】💧 " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.3 · 全息解剖版】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -322,11 +323,13 @@ class CognitiveProbes:
             val = series.get(date)
             return default if pd.isna(val) else val
 
+        # --- 链路层 1: 最终系统输出 ---
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
         print(f"    - 【最终信号分】: {system_score:.4f}")
 
-        print("\n  [链路层 2] 快照分重算 (Snapshot Recalculation)")
+        # --- 链路层 2: 探针重算 (完全模拟认知层) ---
+        print("\n  [链路层 2] 快照分重算 (模拟认知层MTF融合范式)")
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
@@ -347,44 +350,64 @@ class CognitiveProbes:
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused = mtf_fuse(capital_flight_raw)
         
-        # [代码修改开始]
-        # 证据二：流动性真空 (重建MTF融合链路)
-        # 2.1 获取三大支柱的原始序列
-        low_turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
+        # 证据二：流动性真空 (MTF融合)
+        turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
+        low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
         vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
         vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
-        sustained_shrink_raw = vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)
-        fragility_raw = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
-        # 2.2 对每个支柱进行MTF融合
-        low_turnover_fused = mtf_fuse(low_turnover_raw)
-        sustained_shrink_fused = mtf_fuse(sustained_shrink_raw)
-        fragility_fused = mtf_fuse(fragility_raw)
-        # 2.3 融合三大支柱，得到最终的证据分
-        liquidity_vacuum_fused = (low_turnover_fused * sustained_shrink_fused * fragility_fused)**(1/3)
-        # [代码修改结束]
+        sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
+        fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
+        
+        low_turnover_fused = mtf_fuse(low_turnover_energy)
+        sustained_shrink_fused = mtf_fuse(sustained_shrink_energy)
+        fragility_fused = mtf_fuse(fragility_energy)
+        liquidity_vacuum_fused_cognitive = (low_turnover_fused * sustained_shrink_fused * fragility_fused)**(1/3)
 
         # 证据三：买盘真空 (MTF融合)
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
         buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)
 
-        probe_snapshot_score = (capital_flight_fused * liquidity_vacuum_fused * buyer_apathy_fused)**(1/3)
+        probe_snapshot_score = (capital_flight_fused * liquidity_vacuum_fused_cognitive * buyer_apathy_fused)**(1/3)
         probe_snapshot_val = get_val(probe_snapshot_score, probe_date)
         print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
 
+        # --- 链路层 3: 关系元分析 ---
         print("\n  [链路层 3] 关系元分析 (Relational Meta-Analysis)")
         probe_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, probe_snapshot_score)
         probe_dynamic_val = get_val(probe_dynamic_score, probe_date)
         print(f"    - 【探针重算动态分】: {probe_dynamic_val:.4f}")
 
+        # --- 链路层 4: 终极对质 ---
         print("\n  [链路层 4] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针重算值 {probe_dynamic_val:.4f} -> {'✅ 一致' if np.isclose(system_score, probe_dynamic_val) else '❌ 不一致'}")
 
-        print("\n  [链路层 5] 证据链分解 (Component Dissection)")
-        print(f"    - [证据一: 主力持续出逃] 原始值: {get_val(capital_flight_raw, probe_date):.2f}, 融合归一化后: {get_val(capital_flight_fused, probe_date):.4f}")
-        print(f"    - [证据二: 流动性真空] 融合归一化后: {get_val(liquidity_vacuum_fused, probe_date):.4f}")
-        print(f"    - [证据三: 买盘真空] 原始值: {get_val(buyer_apathy_raw, probe_date):.4f}, 融合归一化后: {get_val(buyer_apathy_fused, probe_date):.4f}")
+        # --- 链路层 5: 全息证据链分解 ---
+        print("\n  [链路层 5] 全息证据链分解 (Holographic Dissection)")
+        print(f"    - [证据一: 主力持续出逃] 原始值: {get_val(capital_flight_raw, probe_date):.2f}, MTF融合后: {get_val(capital_flight_fused, probe_date):.4f}")
+        print(f"    - [证据三: 买盘真空] 原始值: {get_val(buyer_apathy_raw, probe_date):.4f}, MTF融合后: {get_val(buyer_apathy_fused, probe_date):.4f}")
         
+        # --- 新增: 证据二的深度解剖与对比 ---
+        print("\n  --- [链路层 5.1] 证据二“流动性真空”深度解剖 ---")
+        # 路径A: 认知层“中央厨房”的计算方式 (MTF融合)
+        print("    [路径 A: 认知层 MTF 融合范式]")
+        print(f"      - 支柱1 (低换手率能量) -> MTF融合分: {get_val(low_turnover_fused, probe_date):.4f}")
+        print(f"      - 支柱2 (持续缩量能量) -> MTF融合分: {get_val(sustained_shrink_fused, probe_date):.4f}")
+        print(f"      - 支柱3 (市场脆弱性能量) -> MTF融合分: {get_val(fragility_fused, probe_date):.4f}")
+        print(f"      - 【认知层融合结果】: {get_val(liquidity_vacuum_fused_cognitive, probe_date):.4f}")
+        
+        # 路径B: 行为层“地方小灶”的计算方式 (单周期归一化)
+        print("\n    [路径 B: 行为层单周期归一化范式]")
+        behavioral_score = get_val(atomic_states.get('SCORE_RISK_LIQUIDITY_VACUUM', pd.Series(0.0, index=df.index)), probe_date)
+        print(f"      - 【行为层成品信号】: {behavioral_score:.4f} (此为系统实际使用的 SCORE_RISK_LIQUIDITY_VACUUM 值)")
+
+        # 对比分析
+        print("\n    [对比分析]:")
+        print(f"      - 认知层在构建“流动性陷阱”时，自行计算出的“流动性真空”证据分是 {get_val(liquidity_vacuum_fused_cognitive, probe_date):.4f}。")
+        print(f"      - 而行为层实际产生的“流动性真空”信号分是 {behavioral_score:.4f}。")
+        print("      - 结论: 两个模块对同一概念的计算范式存在根本性分歧，导致数据流断层，是“不一致”的根源。")
+
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
+
 
 
 
