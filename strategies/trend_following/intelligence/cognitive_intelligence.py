@@ -175,7 +175,7 @@ class CognitiveIntelligence:
                       将其移出 if/else 结构，确保在所有逻辑路径下都能被正确计算和赋值，
                       解决了 UnboundLocalError 问题。
         """
-        # [代码修改开始]
+        
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
         domain_scores_map = {
@@ -204,7 +204,6 @@ class CognitiveIntelligence:
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = final_trend_quality_score.astype(np.float32)
         return df
-
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -812,10 +811,8 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 零值隔离 & 战略重构版】认知扩展信号统一合成引擎
-        - 核心修复 (零值隔离): 在MTF融合后，强制将任何原始值为0的指标在当天的诊断分清零，彻底杜绝“零值污染”BUG。
-        - 战略重构 (主力意图对决): 废除 COGNITIVE_RISK_LTP_HIGH_DISTRIBUTION，其功能由全新的、在外部独立计算的
-                                COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION 信号取代。
+        【V2.5 · 信号更名同步版】认知扩展信号统一合成引擎
+        - 核心同步: 更新了对 SCORE_RISK_LIQUIDITY_VACUUM 和 SCORE_FF_DISTRIBUTION_RESONANCE 的消费。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -1003,11 +1000,13 @@ class CognitiveIntelligence:
                 ]
             },
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
-                'description': '【V2.0 · 病因诊断版】融合了“资金流出”、“流动性枯竭”和“市场脆弱性”三大核心证据。',
+                'description': '【V2.0 · 流动性黑洞版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。',
                 'components': [
-                    {'source': 'atomic', 'name': 'SCORE_FF_BEARISH_RESONANCE', 'description': '证据一：卖压背景'},
-                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_DRAIN', 'description': '证据二：流动性枯竭过程'},
-                    {'source': 'df', 'name': 'intraday_volatility_D', 'description': '证据三：市场脆弱性'},
+                    
+                    {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'description': '证据一：主力持续出逃'},
+                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_VACUUM', 'description': '证据二：流动性真空 (V2.0版)'},
+                    {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'description': '证据三：买盘真空'},
+                    
                 ]
             },
             'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE': {
@@ -1041,7 +1040,7 @@ class CognitiveIntelligence:
         for signal_name, config in expansion_signal_configs.items():
             fused_component_scores = []
             gate_scores = []
-            for comp in config['components']:
+            for comp in config.get('components', []):
                 mtf_normalized_scores = {}
                 source_series_raw = None
                 if comp['source'] == 'df':
@@ -1050,7 +1049,6 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
-                # 零值隔离协议
                 zero_mask = np.isclose(source_series_raw, 0)
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
@@ -1079,7 +1077,6 @@ class CognitiveIntelligence:
                         fused_component_series += normalized_series * weight
                 else:
                     fused_component_series = normalize_score(transformed_series, df.index, 55)
-                # 零值隔离协议执行
                 fused_component_series[zero_mask] = 0.0
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
@@ -1096,9 +1093,7 @@ class CognitiveIntelligence:
             snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
             final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
             states[signal_name] = final_dynamic_score
-        # [代码新增开始] 独立计算新的“主力意图对决”风险信号
         states.update(self._diagnose_main_force_high_cost_vs_distribution(df))
-        # [代码新增结束]
         return states
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
@@ -1106,7 +1101,7 @@ class CognitiveIntelligence:
         【V4.0 · 状态主导协议版】认知层专用的关系元分析核心引擎
         - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
-        # [代码修改开始]
+        
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         # 权重调整为状态主导
@@ -1148,7 +1143,7 @@ class CognitiveIntelligence:
         final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
-        # [代码修改结束]
+        
 
     def _calculate_aegis_shield_context(self, df: pd.DataFrame) -> pd.Series:
         """

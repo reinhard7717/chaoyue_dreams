@@ -336,21 +336,23 @@ class FundFlowIntelligence:
 
     def _assign_graded_states(self, final_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.7 · 战术激活版】将最终信号赋值给状态字典。
-        - 核心修复: 增加对“战术反转”信号的处理。
+        【V2.8 · 信号更名版】将最终信号赋值给状态字典。
+        - 核心修复: 更新信号映射，使用 SCORE_FF_DISTRIBUTION_RESONANCE。
         """
         states = {}
         prefix_map = {
             'bullish_resonance': 'SCORE_FF_BULLISH_RESONANCE',
             'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
-            'bearish_resonance': 'SCORE_FF_BEARISH_RESONANCE',
+            
+            'bearish_resonance': 'SCORE_FF_DISTRIBUTION_RESONANCE',
+            
             'top_reversal': 'SCORE_FF_TOP_REVERSAL',
-            # 新增战术反转信号的映射
             'tactical_reversal': 'SCORE_FF_TACTICAL_REVERSAL',
         }
         for key, score in final_scores.items():
-            signal_name = prefix_map[key]
-            states[signal_name] = score.astype(np.float32)
+            signal_name = prefix_map.get(key) # 使用 .get 增加健壮性
+            if signal_name:
+                states[signal_name] = score.astype(np.float32)
         return states
 
     def _calculate_pillar_health(self, df: pd.DataFrame, config: Dict, norm_window: int, periods: list, ma_context_score: pd.Series) -> Dict:

@@ -18,7 +18,7 @@ class StructuralProbes:
                       包括 s_bull/s_bear 的净值计算、多时间框架融合、以及最终的单双极性转换，
                       从而实现对信号流的端到端穿透式解剖。
         """
-        # [代码修改开始]
+        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V2.0】🏛️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -70,7 +70,7 @@ class StructuralProbes:
         print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构健康度探针”解剖完毕 ---")
-        # [代码修改结束]
+        
 
     def _deploy_structural_pillar_fusion_probe(self, probe_date: pd.Timestamp, period: int = 13):
         """
@@ -81,7 +81,7 @@ class StructuralProbes:
           3. 将最终的融合净值通过 bipolar_to_exclusive_unipolar 转换为最终的看涨分进行对比。
         - 收益: 确保探针的重算逻辑与主引擎完全一致，消除因逻辑不同步导致的“假警报”。
         """
-        # [代码修改开始]
+        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🔬【结构支柱融合探针 V2.0 (p={period})】🔬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -140,7 +140,7 @@ class StructuralProbes:
         【探针 V1.4 · 堡垒完整度同步版】结构支柱穿透式解剖探针
         - 核心同步: 'structural_stability' 支柱的解剖逻辑已与主引擎 V2.0 的“堡垒完整度 vs 围城压力”模型完全同步。
         """
-        # [代码修改开始]
+        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.4 ({pillar_name})】🧬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states

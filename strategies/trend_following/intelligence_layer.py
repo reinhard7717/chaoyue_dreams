@@ -113,8 +113,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.18 · 结构支柱融合探针版】法医探针调度中心
-        - 核心扩展: 新增对结构支柱融合探针的调用。
+        【V2.20 · 垂直切片探针激活版】法医探针调度中心
+        - 核心扩展: 新增对流动性真空探针和派发共振探针的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -126,7 +126,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.18] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.20] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -144,67 +144,21 @@ class IntelligenceLayer:
                 print(f"    -> [法医探针] 警告: 探针日期 {probe_date_str} (校准后: {probe_date}) 不在数据索引中，跳过该日期。")
                 continue
             print("\n" + "="*25 + f" 正在解剖 {probe_date_str} " + "="*25)
-            if debug_params.get('enable_behavioral_probe', False):
-                self.probes._deploy_prometheus_torch_probe(probe_date)
-            if debug_params.get('enable_pressure_transmutation_probe', False):
-                self.probes._deploy_pressure_transmutation_probe(probe_date)
+            if debug_params.get('enable_trend_quality_probe', False):
+                self.probes._deploy_trend_quality_probe(probe_date)
             if debug_params.get('enable_liquidity_trap_probe', False):
                 self.probes._deploy_liquidity_trap_probe(probe_date)
-            if debug_params.get('enable_chip_probe', False):
-                self.probes._deploy_hephaestus_forge_probe(probe_date)
-            if debug_params.get('enable_chip_resonance_probe', False):
-                self.probes._deploy_chip_resonance_probe(probe_date)
-            if debug_params.get('enable_dynamic_mechanics_probe', False):
-                self.probes._deploy_ares_chariot_probe(probe_date)
-            if debug_params.get('enable_foundation_probe', False):
-                self.probes._deploy_apollos_lyre_probe(probe_date)
-            if debug_params.get('enable_fund_flow_probe', False):
-                self.probes._deploy_poseidons_trident_probe(probe_date)
-            if debug_params.get('enable_profit_taking_pressure_probe', False):
-                if hasattr(self.probes, '_deploy_profit_taking_pressure_probe'):
-                    self.probes._deploy_profit_taking_pressure_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_profit_taking_pressure_probe' 未找到。")
-            if debug_params.get('enable_comprehensive_top_risk_probe', False):
-                if hasattr(self.probes, '_deploy_comprehensive_top_risk_probe'):
-                    self.probes._deploy_comprehensive_top_risk_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_comprehensive_top_risk_probe' 未找到。")
-            if debug_params.get('enable_trend_quality_probe', False):
-                if hasattr(self.probes, '_deploy_trend_quality_probe'):
-                    self.probes._deploy_trend_quality_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_trend_quality_probe' 未找到。")
+            if debug_params.get('enable_liquidity_vacuum_probe', False):
+                self.probes._deploy_liquidity_vacuum_probe(probe_date)
+            if debug_params.get('enable_ff_distribution_resonance_probe', False):
+                self.probes._deploy_ff_distribution_resonance_probe(probe_date)
             if debug_params.get('enable_structural_health_probe', False):
-                if hasattr(self.probes, '_deploy_structural_health_probe'):
-                    self.probes._deploy_structural_health_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_health_probe' 未找到。")
-            # [代码新增开始]
+                self.probes._deploy_structural_health_probe(probe_date)
             if debug_params.get('enable_structural_pillar_fusion_probe', False):
-                if hasattr(self.probes, '_deploy_structural_pillar_fusion_probe'):
-                    self.probes._deploy_structural_pillar_fusion_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_pillar_fusion_probe' 未找到。")
-            # [代码新增结束]
-            if debug_params.get('enable_main_force_intent_duel_probe', False):
-                if hasattr(self.probes, '_deploy_main_force_intent_duel_probe'):
-                    self.probes._deploy_main_force_intent_duel_probe(probe_date)
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_main_force_intent_duel_probe' 未找到。")
-            if debug_params.get('enable_process_sync_probe', False):
-                self.probes._deploy_process_sync_probe(probe_date, 'PROCESS_STRATEGY_DYN_VS_CHIP_DECAY')
-            if debug_params.get('enable_process_meta_probe', False):
-                if hasattr(self.probes, '_deploy_cost_advantage_probe'):
-                    self.probes._deploy_cost_advantage_probe(probe_date, 'PROCESS_META_COST_ADVANTAGE_TREND')
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_cost_advantage_probe' 未找到。")
+                self.probes._deploy_structural_pillar_fusion_probe(probe_date)
             if debug_params.get('enable_structural_pillar_dissection_probe', False):
-                if hasattr(self.probes, '_deploy_structural_pillar_dissection_probe'):
-                    # 将解剖目标锁定为新的嫌疑犯 'structural_stability'
-                    self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
-                else:
-                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_pillar_dissection_probe' 未找到。")
+                self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
+
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

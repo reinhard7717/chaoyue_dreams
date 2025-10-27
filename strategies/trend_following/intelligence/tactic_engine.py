@@ -402,7 +402,7 @@ class TacticEngine:
         【V4.0 · 状态主导协议版】战术专用的关系元分析核心引擎
         - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
-        # [代码修改开始]
+        
         p_conf = get_params_block(self.strategy, 'tactic_engine_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         # 权重调整为状态主导
@@ -444,7 +444,7 @@ class TacticEngine:
         final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
-        # [代码修改结束]
+        
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """

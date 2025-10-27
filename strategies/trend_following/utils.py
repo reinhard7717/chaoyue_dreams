@@ -436,7 +436,7 @@ def transmute_health_to_ultimate_signals(
                   现在，单双极性转换完全依赖于已修复的、无阈值的 `bipolar_to_exclusive_unipolar` 函数，
                   从根本上解决了弱信号在最后合成阶段被错误归零的问题。
     """
-    # [代码修改开始]
+    
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})

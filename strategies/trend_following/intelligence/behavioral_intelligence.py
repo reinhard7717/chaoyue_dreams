@@ -422,10 +422,10 @@ class BehavioralIntelligence:
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V12.2 · 宙斯敕令版】量价原子信号诊断引擎
-        - 核心修复: 贯彻“宙斯敕令”，修复“流动性枯竭风险”信号的逻辑。
-                      对于这类“事件状态”型风险信号，废除使用复杂的“关系元分析”引擎，
-                      直接使用其多周期融合的“快照分”作为最终信号。
+        【V13.1 · 信号更名版】量价原子信号诊断引擎
+        - 核心重构: SCORE_RISK_LIQUIDITY_DRAIN 的逻辑被彻底重构。
+                      旧的“缩量下跌”逻辑被废弃，升级为全新的“流动性真空度”模型。
+        - 信号更名: SCORE_RISK_LIQUIDITY_DRAIN -> SCORE_RISK_LIQUIDITY_VACUUM
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -452,31 +452,16 @@ class BehavioralIntelligence:
                 for p_tactical in periods:
                     final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (numeric_tf_weights_weak.get(p_tactical, 0) / total_weight_weak)
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
-        drain_scores_by_period = {}
-        price_drop_magnitude = df['pct_change_D'].clip(upper=0).abs()
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            tactical_price_drop = normalize_score(price_drop_magnitude, df.index, p_tactical, ascending=True)
-            tactical_vol_shrink = normalize_score(df['volume_D'], df.index, p_tactical, ascending=False)
-            context_price_drop = normalize_score(price_drop_magnitude, df.index, p_context, ascending=True)
-            context_vol_shrink = normalize_score(df['volume_D'], df.index, p_context, ascending=False)
-            fused_price_drop = (tactical_price_drop * context_price_drop)**0.5
-            fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
-            drain_scores_by_period[p_tactical] = (fused_price_drop * fused_vol_shrink).astype(np.float32)
-        final_drain_snapshot = pd.Series(0.0, index=df.index)
-        numeric_tf_weights_drain = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
-        total_weight_drain = sum(numeric_tf_weights_drain.values())
-        if total_weight_drain > 0:
-            for p_tactical in periods:
-                final_drain_snapshot += drain_scores_by_period.get(p_tactical, 0.0) * (numeric_tf_weights_drain.get(p_tactical, 0) / total_weight_drain)
-        # 签署“宙斯敕令”：废除对“流动性枯竭风险”快照分进行不当的元分析
-        # 旧的错误逻辑:
-        # drain_signal_dict = self._perform_relational_meta_analysis(df, final_drain_snapshot, "SCORE_RISK_LIQUIDITY_DRAIN")
-        # states.update(drain_signal_dict)
-        # 新的正确逻辑:
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = final_drain_snapshot.clip(0, 1).astype(np.float32)
+        norm_window = get_param_value(p.get('norm_window'), 55)
+        low_turnover_risk = normalize_score(df.get('turnover_rate_D', pd.Series(10.0, index=df.index)), df.index, norm_window, ascending=False)
+        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
+        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
+        sustained_shrink_risk = normalize_score(vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0), df.index, norm_window, ascending=False)
+        fragility_risk = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        liquidity_drain_snapshot = (low_turnover_risk * sustained_shrink_risk * fragility_risk)**(1/3)
         
-        norm_window = 55
+        states['SCORE_RISK_LIQUIDITY_VACUUM'] = liquidity_drain_snapshot.clip(0, 1).astype(np.float32)
+        
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)

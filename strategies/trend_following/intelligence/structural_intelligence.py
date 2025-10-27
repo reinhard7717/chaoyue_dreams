@@ -37,7 +37,7 @@ class StructuralIntelligence:
                       得到一个最终的、唯一的双极性总分。最后再将此总分拆分为 s_bull 和 s_bear。
         - 收益: 从根本上解决了“中性信号”被错误累加为“看跌信号”的问题，确保了看涨信号不被“噪音”淹没。
         """
-        # [代码修改开始]
+        
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         periods = get_param_value(get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('periods'), [1, 5, 13, 21, 55])
@@ -153,9 +153,9 @@ class StructuralIntelligence:
             bear_meta_dynamics * fusion_weights.get('meta_dynamics', 0.25)
         )
         bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
-        # [代码修改开始]
+        
         final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
-        # [代码修改结束]
+        
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -184,9 +184,9 @@ class StructuralIntelligence:
             weekly_bear_health = weekly_alignment_bear * 0.5 + weekly_velocity_bear * 0.5
             weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
         fused_bipolar_snapshot = (daily_bipolar_snapshot * 0.7 + weekly_bipolar_snapshot * 0.3)
-        # [代码修改开始]
+        
         final_dynamic_score = self._perform_relational_meta_analysis(df, fused_bipolar_snapshot)
-        # [代码修改结束]
+        
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -217,9 +217,9 @@ class StructuralIntelligence:
         ]).astype(np.float32)
         bear_snapshot_score = classic_breakdown_score.astype(np.float32)
         bipolar_snapshot = pd.Series(bull_snapshot_score - bear_snapshot_score, index=df.index).clip(-1, 1)
-        # [代码修改开始]
+        
         final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
-        # [代码修改结束]
+        
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -238,7 +238,7 @@ class StructuralIntelligence:
                           从静态和动态两个维度评估上方压力的沉重程度。
         - 收益: 极大提升了该支柱的智能性和鲁棒性，使其能更真实地反映结构层面的多空攻防态势。
         """
-        # [代码修改开始]
+        
         s_bull, s_bear, d_intensity = {}, {}, {}
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
 
@@ -283,7 +283,7 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-        # [代码修改结束]
+        
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
@@ -293,7 +293,7 @@ class StructuralIntelligence:
                       如果原始快照分是正，则最终结果最低为0，绝不允许被负向动态拖入负值区。
                       反之亦然。这从根本上解决了“动态压制”问题。
         """
-        # [代码修改开始]
+        
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
@@ -332,7 +332,7 @@ class StructuralIntelligence:
         # 植入“状态主导协议”护栏
         final_score = np.where(snapshot_score >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         return pd.Series(final_score, index=df.index, dtype=np.float32)
-        # [代码修改结束]
+        
 
 
         

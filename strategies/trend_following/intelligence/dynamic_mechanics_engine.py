@@ -75,10 +75,10 @@ class DynamicMechanicsEngine:
         else:
             fused_bull_snapshot = pd.Series(0.5, index=df.index)
             fused_bear_snapshot = pd.Series(0.5, index=df.index)
-        # [代码修改开始]
+        
         # 将 bipolar_mechanics_snapshot 的计算移出 else 块，确保它总能被执行
         bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
-        # [代码修改结束]
+        
         modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
@@ -153,7 +153,7 @@ class DynamicMechanicsEngine:
         【V4.0 · 状态主导协议版】动态力学专用的关系元分析核心引擎
         - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
-        # [代码修改开始]
+        
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         p_meta = p_conf.get('relational_meta_analysis_params', {})
         # 权重调整为状态主导
@@ -192,7 +192,7 @@ class DynamicMechanicsEngine:
         # 植入“状态主导协议”护栏
         final_score = np.where(snapshot_score >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         return pd.Series(final_score, index=df.index, dtype=np.float32)
-        # [代码修改结束]
+        
 
 
 

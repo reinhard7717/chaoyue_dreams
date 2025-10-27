@@ -55,7 +55,7 @@
         "cn_name": "【认知风险】综合顶部风险",
         "category": "认知层-风险",
         "type": "risk",
-        "penalty_weight": -3000,
+        "penalty_weight": -1000,
         "context_role": "top_risk",
         "description": "【V6.0 三柱-神盾架构版】终极顶部风险裁决引擎。融合了“亢奋/高潮”、“派发/背叛”、“结构/周期”三大风险支柱，并引入“趋势韧性神盾”进行动态抑制。只有在趋势本身脆弱时，顶部风险信号才会被放大。"
         },
@@ -63,7 +63,7 @@
             "cn_name": "【认知风险】主力高成本追涨 vs 高位派发",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -2000,
+            "penalty_weight": -1000,
             "context_role": "top_risk",
             "description": "【V1.0 主力意图对决版】通过对决“主力追高买入的决心”与“主力拉高派发的背叛”，来判断顶部风险。只有当派发意图强于追高意图时，才会产生风险信号。"
         },
@@ -233,11 +233,11 @@
             "description": "【原子信号】识别下跌过程中成交量萎缩的现象，是卖盘动能衰竭的潜在信号。"
         },
         "SCORE_RISK_LIQUIDITY_DRAIN": {
-            "cn_name": "【行为风险】流动性枯竭",
+            "cn_name": "【行为风险】流动性真空风险",
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -500,
-            "description": "【原子风险】对持续缩量下跌可能引发流动性风险的动态评估。"
+            "description": "【V2.0 流动性真空度版】对市场流动性枯竭风险的动态评估。融合了“低换手率”、“持续缩量”和“高日内波动”三大支柱，精确刻画交易不活跃、市场脆弱的状态。"
         },
         "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
             "cn_name": "【行为】卖盘衰竭反转",
@@ -1174,12 +1174,12 @@
             "description": "【C级基础信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。"
         },
         "SCORE_FF_BEARISH_RESONANCE": {
-            "cn_name": "【资金终极风险】看跌共振",
+            "cn_name": "【资金终极风险】派发共振",
             "category": "资金流-风险",
             "type": "risk",
             "penalty_weight": -450,
             "context_role": "top_risk",
-            "description": "【C级共振信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看跌共振。"
+            "description": "【三公理版】基于“聚散”、“转移”、“内部结构”三大核心公理，在所有周期上形成的资金派发共振。"
         },
         "SCORE_FF_BOTTOM_REVERSAL": {
             "cn_name": "【资金终极】底部反转",
