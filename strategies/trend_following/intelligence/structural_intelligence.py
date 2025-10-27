@@ -97,11 +97,9 @@ class StructuralIntelligence:
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
         """
-        【V3.1 · 基因净化版】支柱一：趋势完整性
-        - 核心修复: 彻底移除了关于 `neutral_zone_threshold` 的所有定义和使用，
-                      同步 `bipolar_to_exclusive_unipolar` 的签名变更。
+        【V3.2 · 统一命名版】支柱一：趋势完整性
+        - 核心修复: 调用重命名后的 `_perform_relational_meta_analysis`。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
@@ -144,8 +142,9 @@ class StructuralIntelligence:
             bear_meta_dynamics * fusion_weights.get('meta_dynamics', 0.25)
         )
         bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
-        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # 调用无阈值的 bipolar_to_exclusive_unipolar 函数
+        # [代码修改开始]
+        final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
+        # [代码修改结束]
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -156,11 +155,9 @@ class StructuralIntelligence:
 
     def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_bipolar_snapshot: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V3.1 · 基因净化版】支柱二：多时间框架协同
-        - 核心修复: 彻底移除了关于 `neutral_zone_threshold` 的所有定义和使用，
-                      同步 `bipolar_to_exclusive_unipolar` 的签名变更。
+        【V3.2 · 统一命名版】支柱二：多时间框架协同
+        - 核心修复: 调用重命名后的 `_perform_relational_meta_analysis`。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         ma_periods_w = [5, 13, 21, 55]
         required_cols_w = [f'MA_{p}_W' for p in ma_periods_w]
@@ -176,8 +173,9 @@ class StructuralIntelligence:
             weekly_bear_health = weekly_alignment_bear * 0.5 + weekly_velocity_bear * 0.5
             weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
         fused_bipolar_snapshot = (daily_bipolar_snapshot * 0.7 + weekly_bipolar_snapshot * 0.3)
-        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, fused_bipolar_snapshot)
-        # 调用无阈值的 bipolar_to_exclusive_unipolar 函数
+        # [代码修改开始]
+        final_dynamic_score = self._perform_relational_meta_analysis(df, fused_bipolar_snapshot)
+        # [代码修改结束]
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -188,36 +186,29 @@ class StructuralIntelligence:
 
     def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.0 · 多维突破势能版】支柱三：结构突破潜力
-        - 核心重构: 升级为“多维突破势能引擎”，融合三种突破证据：
-          1. 经典箱体突破: 价格突破动态盘整区。
-          2. 波动性压缩突破: 从极低的波动率（price_cv, BBW）状态中爆发。
-          3. 筹码断层突破: 利用 `fault_breakthrough_intensity_D` 信号捕捉结构突变。
+        【V2.1 · 统一命名版】支柱三：结构突破潜力
+        - 核心修复: 调用重命名后的 `_perform_relational_meta_analysis`。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 证据一：经典箱体突破
         classic_breakout_score = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
         classic_breakdown_score = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
-        # 证据二：波动性压缩后爆发
         vol_compression_score = (
             normalize_score(df.get('price_cv_60d_D', pd.Series(1, index=df.index)), df.index, norm_window, ascending=False) *
             normalize_score(df.get('BBW_21_2.0_D', pd.Series(1, index=df.index)), df.index, norm_window, ascending=False)
         )**0.5
         vol_expansion_bull_score = vol_compression_score * (df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index)).clip(lower=0) > 0).astype(float)
         vol_expansion_bear_score = vol_compression_score * (df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index)).clip(lower=0) > 0).astype(float)
-        # 证据三：筹码断层突破
         fault_breakthrough_score = normalize_score(df.get('fault_breakthrough_intensity_D', pd.Series(0, index=df.index)), df.index, norm_window)
-        # 融合看涨证据
         bull_snapshot_score = np.maximum.reduce([
             classic_breakout_score,
-            vol_expansion_bull_score,
-            fault_breakthrough_score
+            vol_expansion_bull_score.values,
+            fault_breakthrough_score.values
         ]).astype(np.float32)
-        # 融合看跌证据 (目前主要是经典跌破)
         bear_snapshot_score = classic_breakdown_score.astype(np.float32)
-        bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
-        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
+        bipolar_snapshot = pd.Series(bull_snapshot_score - bear_snapshot_score, index=df.index).clip(-1, 1)
+        # [代码修改开始]
+        final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
+        # [代码修改结束]
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -225,27 +216,22 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-        # [代码修改结束]
 
     def _calculate_structural_stability_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V1.0 · 新增】支柱四：结构稳定性
-        - 核心逻辑: 评估基于筹码分布的结构稳定性。一个健康的结构应具备稳固的下方支撑，
-                      而一个危险的结构则面临巨大的上方筹码压力。
-        - 看涨证据: 融合 `peak_stability_D`, `peak_control_ratio_D`, `support_below_D`。
-        - 看跌证据: 使用 `pressure_above_D`。
+        【V1.1 · 统一命名版】支柱四：结构稳定性
+        - 核心修复: 调用重命名后的 `_perform_relational_meta_analysis`。
         """
-        # [代码新增开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # 看涨证据：下方结构稳固
         peak_stability = normalize_score(df.get('peak_stability_D', pd.Series(0, index=df.index)), df.index, norm_window)
         peak_control = normalize_score(df.get('peak_control_ratio_D', pd.Series(0, index=df.index)), df.index, norm_window)
         support_below = normalize_score(df.get('support_below_D', pd.Series(0, index=df.index)), df.index, norm_window)
         bull_snapshot_score = (peak_stability * peak_control * support_below)**(1/3)
-        # 看跌证据：上方筹码压力
         bear_snapshot_score = normalize_score(df.get('pressure_above_D', pd.Series(0, index=df.index)), df.index, norm_window)
         bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
-        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
+        # [代码修改开始]
+        final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
+        # [代码修改结束]
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -253,15 +239,16 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-        # [代码新增结束]
 
-    def _perform_structural_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
+    def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V3.0 · 阿瑞斯之怒协议版】结构专用的关系元分析核心引擎
-        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
-                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
-                      彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
+        【V4.0 · 状态主导协议版】结构专用的关系元分析核心引擎
+        - 核心重构: 废除旧名 `_perform_structural_relational_meta_analysis`，统一命名。
+        - 核心修复: 植入“状态主导协议”。在计算出最终动态分后增加一道“护栏”：
+                      如果原始快照分是正，则最终结果最低为0，绝不允许被负向动态拖入负值区。
+                      反之亦然。这从根本上解决了“动态压制”问题。
         """
+        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
@@ -270,19 +257,16 @@ class StructuralIntelligence:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -291,7 +275,6 @@ class StructuralIntelligence:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 (Bearish Force) ---
         bearish_state = (snapshot_score.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -300,9 +283,11 @@ class StructuralIntelligence:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决 (Net Value Adjudication) ---
-        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        return final_score.astype(np.float32)
+        net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # 植入“状态主导协议”护栏
+        final_score = np.where(snapshot_score >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
+        return pd.Series(final_score, index=df.index, dtype=np.float32)
+        # [代码修改结束]
 
 
         
