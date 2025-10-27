@@ -49,50 +49,6 @@ class CognitiveProbes:
         print(f"    - 【证据链总强度】: {retreat_evidence_chain:.4f}")
         print("\n--- “真实撤退风险探针”解剖完毕 ---")
 
-    def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
-        """
-        【V2.0 · 全息诊断版】流动性陷阱风险探针
-        - 核心升级: 同步主引擎的全息诊断逻辑，对每个证据进行多时间维度(MTF)的融合计算。
-        """
-        print("\n" + "="*35 + f" [认知探针] 正在启用 🌊【流动性陷阱风险探针 V2.0】🌊 " + "="*35)
-        df = self.strategy.df_indicators
-        atomic = self.strategy.atomic_states
-        engine = self.cognitive_intel
-        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
-        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {"1": 0.05, "5": 0.2, "13": 0.3, "21": 0.3, "55": 0.15})
-        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
-        total_weight = sum(numeric_tf_weights.values())
-        def get_val(series, date, default=np.nan):
-            if series is None: return default
-            val = series.get(date)
-            return default if pd.isna(val) else val
-        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        actual_final_score = get_val(atomic.get('COGNITIVE_RISK_LIQUIDITY_TRAP'), probe_date, 0.0)
-        print(f"    - 【最终风险分】: {actual_final_score:.4f}")
-        print("\n  [链路层 2] 全息证据链 (Holographic Evidence Chain)")
-        evidence_sources = {
-            '卖压背景': atomic.get('SCORE_FF_BEARISH_RESONANCE'),
-            '流动性枯竭': atomic.get('SCORE_RISK_LIQUIDITY_DRAIN'),
-            '市场脆弱性': df.get('intraday_volatility_D'),
-        }
-        fused_evidence_scores = {}
-        for name, series in evidence_sources.items():
-            fused_score_val = 0.0
-            if series is not None and total_weight > 0:
-                for p in periods:
-                    weight = numeric_tf_weights.get(p, 0) / total_weight
-                    norm_val = get_val(normalize_score(series, df.index, p), probe_date)
-                    fused_score_val += norm_val * weight
-            fused_evidence_scores[name] = fused_score_val
-        print("\n  [链路层 3] 快照分重算 (Snapshot Score Recalculation)")
-        evidence1_norm = fused_evidence_scores['卖压背景']
-        evidence2_norm = fused_evidence_scores['流动性枯竭']
-        evidence3_norm = fused_evidence_scores['市场脆弱性']
-        recalc_snapshot_score = (evidence1_norm * evidence2_norm * evidence3_norm)**(1/3)
-        print(f"    - 【探针重算快照分】: {recalc_snapshot_score:.4f}")
-        print("\n--- “流动性陷阱风险探针”解剖完毕 ---")
-
     def _deploy_profit_taking_pressure_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V1.0】利润兑现压力风险探针
@@ -352,11 +308,10 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 流动性陷阱版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心职责: 验证“流动性陷阱”风险信号的每一个证据链，确保其计算的准确性。
+        【探针 V1.1 · 信号同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心修复: 将引用的信号名从旧的 'SCORE_RISK_LIQUIDITY_DRAIN' 同步为新的 'SCORE_RISK_LIQUIDITY_VACUUM'。
         """
-        # [代码新增开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.0】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.1】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -365,12 +320,10 @@ class CognitiveProbes:
             val = series.get(date)
             return default if pd.isna(val) else val
 
-        # 1. 获取最终系统输出
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
         print(f"    - 【最终信号分】: {system_score:.4f}")
 
-        # 2. 重算快照分
         print("\n  [链路层 2] 快照分重算 (Snapshot Recalculation)")
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
@@ -378,7 +331,6 @@ class CognitiveProbes:
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
 
-        # 证据一：主力持续出逃
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused = pd.Series(0.0, index=df.index)
         if total_weight > 0:
@@ -386,10 +338,11 @@ class CognitiveProbes:
                 weight = numeric_tf_weights.get(p, 0) / total_weight
                 capital_flight_fused += normalize_score(capital_flight_raw, df.index, p) * weight
         
-        # 证据二：流动性真空
-        liquidity_drain_fused = atomic_states.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
+        # 证据二：流动性真空 - 使用正确的信号名称
+        liquidity_vacuum_fused = atomic_states.get('SCORE_RISK_LIQUIDITY_VACUUM', pd.Series(0.0, index=df.index))
+        # [代码修改结束]
 
-        # 证据三：买盘真空
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
         buyer_apathy_fused = pd.Series(0.0, index=df.index)
         if total_weight > 0:
@@ -397,25 +350,21 @@ class CognitiveProbes:
                 weight = numeric_tf_weights.get(p, 0) / total_weight
                 buyer_apathy_fused += normalize_score(buyer_apathy_raw, df.index, p) * weight
 
-        # 融合快照分
-        probe_snapshot_score = (capital_flight_fused * liquidity_drain_fused * buyer_apathy_fused)**(1/3)
+        probe_snapshot_score = (capital_flight_fused * liquidity_vacuum_fused * buyer_apathy_fused)**(1/3)
         probe_snapshot_val = get_val(probe_snapshot_score, probe_date)
         print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
 
-        # 3. 关系元分析
         print("\n  [链路层 3] 关系元分析 (Relational Meta-Analysis)")
         probe_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, probe_snapshot_score)
         probe_dynamic_val = get_val(probe_dynamic_score, probe_date)
         print(f"    - 【探针重算动态分】: {probe_dynamic_val:.4f}")
 
-        # 4. 终极对质
         print("\n  [链路层 4] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针重算值 {probe_dynamic_val:.4f} -> {'✅ 一致' if np.isclose(system_score, probe_dynamic_val) else '❌ 不一致'}")
 
-        # 5. 证据链分解
         print("\n  [链路层 5] 证据链分解 (Component Dissection)")
         print(f"    - [证据一: 主力持续出逃] 原始值: {get_val(capital_flight_raw, probe_date):.2f}, 融合归一化后: {get_val(capital_flight_fused, probe_date):.4f}")
-        print(f"    - [证据二: 流动性真空] 融合归一化后: {get_val(liquidity_drain_fused, probe_date):.4f}")
+        print(f"    - [证据二: 流动性真空] 融合归一化后: {get_val(liquidity_vacuum_fused, probe_date):.4f}")
         print(f"    - [证据三: 买盘真空] 原始值: {get_val(buyer_apathy_raw, probe_date):.4f}, 融合归一化后: {get_val(buyer_apathy_fused, probe_date):.4f}")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
