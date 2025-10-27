@@ -74,63 +74,66 @@ class StructuralProbes:
 
     def _deploy_structural_pillar_fusion_probe(self, probe_date: pd.Timestamp, period: int = 13):
         """
-        【探针 V1.1 · 结构势能同步版】结构支柱融合探针
-        - 核心同步: 与 `StructuralIntelligence` V19.0 的重构保持一致。
-          1. 将探针解剖的第四支柱从“形态确认”更新为“结构稳定性”。
-          2. 调用新的 `_calculate_structural_stability_health` 方法进行重算。
+        【探针 V2.0 · V20引擎同步版】结构支柱融合探针
+        - 核心重构: 完全同步 `StructuralIntelligence` V20.0 的融合逻辑。
+          1. 不再直接融合各支柱的 s_bull 分，而是先计算各支柱的 s_bull - s_bear 双极性净值。
+          2. 对这些双极性净值进行加权融合。
+          3. 将最终的融合净值通过 bipolar_to_exclusive_unipolar 转换为最终的看涨分进行对比。
+        - 收益: 确保探针的重算逻辑与主引擎完全一致，消除因逻辑不同步导致的“假警报”。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [结构探针] 正在启用 🔬【结构支柱融合探针 V1.1 (p={period})】🔬 " + "="*25)
+        print("\n" + "="*25 + f" [结构探针] 正在启用 🔬【结构支柱融合探针 V2.0 (p={period})】🔬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.structural_intel
+        from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         def get_val(series, date, default=0.0):
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        # 更新支柱名称列表
         pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'structural_stability']
         weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
         periods_list = get_param_value(get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('periods'), [1, 5, 13, 21, 55])
         norm_window = 55
-        print("\n  [链路层 1] 各支柱健康度重算 (Pillar Health Recalculation)")
-        ti_s_bull, _, _, daily_bipolar = engine._calculate_trend_integrity_health(df, periods_list, norm_window)
-        mtf_s_bull, _, _ = engine._calculate_mtf_cohesion_health(df, periods_list, norm_window, daily_bipolar)
-        bp_s_bull, _, _ = engine._calculate_breakout_potential_health(df, periods_list, norm_window)
-        # 调用新的支柱计算方法
-        ss_s_bull, _, _ = engine._calculate_structural_stability_health(df, periods_list, norm_window)
-        # 更新支柱健康度字典
-        pillar_health_series = {
-            'trend_integrity': ti_s_bull.get(period),
-            'mtf_cohesion': mtf_s_bull.get(period),
-            'breakout_potential': bp_s_bull.get(period),
-            'structural_stability': ss_s_bull.get(period)
+        print("\n  [链路层 1] 各支柱健康度净值重算 (Pillar Net Health Recalculation)")
+        # 获取每个支柱的 s_bull 和 s_bear
+        ti_s_bull, ti_s_bear, _, daily_bipolar = engine._calculate_trend_integrity_health(df, periods_list, norm_window)
+        mtf_s_bull, mtf_s_bear, _ = engine._calculate_mtf_cohesion_health(df, periods_list, norm_window, daily_bipolar)
+        bp_s_bull, bp_s_bear, _ = engine._calculate_breakout_potential_health(df, periods_list, norm_window)
+        ss_s_bull, ss_s_bear, _ = engine._calculate_structural_stability_health(df, periods_list, norm_window)
+        # 计算每个支柱在 probe_date 的双极性净值
+        pillar_bipolar_values = {
+            'trend_integrity': get_val(ti_s_bull.get(period), probe_date) - get_val(ti_s_bear.get(period), probe_date),
+            'mtf_cohesion': get_val(mtf_s_bull.get(period), probe_date) - get_val(mtf_s_bear.get(period), probe_date),
+            'breakout_potential': get_val(bp_s_bull.get(period), probe_date) - get_val(bp_s_bear.get(period), probe_date),
+            'structural_stability': get_val(ss_s_bull.get(period), probe_date) - get_val(ss_s_bear.get(period), probe_date)
         }
-        pillar_health_values = {name: get_val(series, probe_date) for name, series in pillar_health_series.items()}
         print("\n  [链路层 2] 融合过程解剖 (Fusion Process Dissection)")
-        recalc_fused_score = 0.0
+        recalc_fused_bipolar_score = 0.0
         total_weight = sum(weights_in_order)
         if total_weight > 0:
             for i, name in enumerate(pillar_names_in_order):
-                score = pillar_health_values.get(name, 0.5)
+                bipolar_score = pillar_bipolar_values.get(name, 0.0)
                 weight = weights_in_order[i]
-                contribution = score * (weight / total_weight)
-                recalc_fused_score += contribution
-                # 更新打印的支柱名称
-                print(f"    - [支柱: {name:<22}] 得分: {score:.4f} | 权重: {weight:.2f} | 贡献: {contribution:.4f}")
+                contribution = bipolar_score * (weight / total_weight)
+                recalc_fused_bipolar_score += contribution
+                print(f"    - [支柱: {name:<22}] 净值: {bipolar_score:.4f} | 权重: {weight:.2f} | 贡献: {contribution:.4f}")
         else:
-            scores = list(pillar_health_values.values())
-            recalc_fused_score = np.mean(scores) if scores else 0.5
-        print(f"    - 【探针重算融合分 (p={period})】: {recalc_fused_score:.4f}")
-        print("\n  [链路层 3] 终极对质 (Final Verdict)")
+            scores = list(pillar_bipolar_values.values())
+            recalc_fused_bipolar_score = np.mean(scores) if scores else 0.0
+        print(f"    - 【探针重算融合净值 (p={period})】: {recalc_fused_bipolar_score:.4f}")
+        print("\n  [链路层 3] 最终信号转换 (Final Signal Transmutation)")
+        recalc_bull_score, _ = bipolar_to_exclusive_unipolar(pd.Series([recalc_fused_bipolar_score]))
+        final_recalc_score = recalc_bull_score.iloc[0]
+        print(f"    - 【探针重算看涨分】: {final_recalc_score:.4f}")
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
         overall_health = atomic.get('__STRUCTURE_overall_health', {})
         s_bull_overall = overall_health.get('s_bull', {})
         system_fused_score = get_val(s_bull_overall.get(period), probe_date)
-        print(f"    - [对比]: 系统值 {system_fused_score:.4f} vs. 探针重算值 {recalc_fused_score:.4f} -> {'✅ 一致' if np.isclose(system_fused_score, recalc_fused_score) else '❌ 不一致'}")
+        print(f"    - [对比]: 系统值 {system_fused_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(system_fused_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构支柱融合探针”解剖完毕 ---")
-        # [代码修改结束]
 
     def _deploy_structural_pillar_dissection_probe(self, probe_date: pd.Timestamp, pillar_name: str = 'trend_integrity', period: int = 13):
         """
