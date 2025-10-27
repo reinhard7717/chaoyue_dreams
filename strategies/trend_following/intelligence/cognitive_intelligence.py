@@ -909,8 +909,10 @@ class CognitiveIntelligence:
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V4.0 · 状态主导协议版】认知层专用的关系元分析核心引擎
-        - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
+        【V4.1 · 加速度修复版】认知层专用的关系元分析核心引擎
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
+                      此修复将从根本上恢复关系元分析的数学正确性。
         """
         
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -928,7 +930,12 @@ class CognitiveIntelligence:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1) 而不是 diff(meta_window)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
