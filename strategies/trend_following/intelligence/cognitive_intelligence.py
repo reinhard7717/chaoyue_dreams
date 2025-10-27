@@ -811,13 +811,16 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.7 · 智能处理修正版】认知扩展信号统一合成引擎
-        - 核心修复: 赋予引擎智能。当消费的组件来源是 'atomic' (原子信号)时，直接使用其值，
-                      不再进行冗余且错误的MTF二次融合。MTF融合仅用于处理 'df' 来源的原始指标。
-                      此修改从根本上解决了“二次加工”导致的逻辑错误。
+        【V2.8 · 协议修正版】认知扩展信号统一合成引擎
+        - 核心升级: 引入可配置的融合算法，默认为更稳健的“算术平均”，从根本上废除脆弱的“湮灭协议”（几何平均）。
+                      同时，由于算术平均对0值不敏感，一并废除了副作用巨大的“幽灵协议”（zero_mask强制归零逻辑）。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        # [代码新增开始]
+        # 获取信号专属的覆盖配置
+        signal_specific_configs = get_param_value(p_cognitive.get('expansion_signal_specific_configs'), {})
+        # [代码新增结束]
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {
             "1": 0.05, "5": 0.2, "13": 0.3, "21": 0.3, "55": 0.15
@@ -826,11 +829,11 @@ class CognitiveIntelligence:
         total_weight = sum(numeric_tf_weights.values())
         expansion_signal_configs = {
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
-                'description': '【V2.0 · 流动性黑洞版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。',
+                'description': '【V3.0 · 协议修正版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。采用算术平均，避免湮灭。',
                 'components': [
-                    {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'description': '证据一：主力持续出逃'},
-                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_VACUUM', 'description': '证据二：流动性真空 (V2.0版)'},
-                    {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'description': '证据三：买盘真空'},
+                    {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'weight': 0.4},
+                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_VACUUM', 'weight': 0.4},
+                    {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'weight': 0.2},
                 ]
             },
         }
@@ -840,7 +843,13 @@ class CognitiveIntelligence:
         df['gap_not_filled'] = (df['low_D'] > df['pre_close_D'])
         df['touched_limit_down'] = (df['low_D'] <= df.get('down_limit_D', 0) * 1.005)
         for signal_name, config in expansion_signal_configs.items():
+            # [代码修改开始]
+            # 获取当前信号的专属配置，如果不存在则使用默认值
+            specific_config = signal_specific_configs.get(signal_name, {})
+            fusion_method = specific_config.get('fusion_method', 'arithmetic') # 默认使用算术平均
             fused_component_scores = []
+            component_weights = [] # 用于算术加权平均
+            # [代码修改结束]
             gate_scores = []
             for comp in config.get('components', []):
                 source_series_raw = None
@@ -850,7 +859,10 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
-                zero_mask = np.isclose(source_series_raw, 0)
+                # [代码修改开始]
+                # 废除“幽灵协议”：不再需要基于原始值的zero_mask
+                # zero_mask = np.isclose(source_series_raw, 0)
+                # [代码修改结束]
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
@@ -870,11 +882,9 @@ class CognitiveIntelligence:
                     transformed_series = transformed_series.shift(params[0]).fillna(0)
                 elif transform == 'shift_lt':
                     transformed_series = transformed_series.shift(params[0]).fillna(params[1]) < params[1]
-                # [代码修改开始]
-                # 智能处理：仅对原始指标('df')应用MTF融合，对成品原子信号('atomic')直接使用
                 if comp['source'] == 'atomic':
                     fused_component_series = transformed_series
-                else: # comp['source'] == 'df'
+                else:
                     fused_component_series = pd.Series(0.0, index=df.index)
                     if total_weight > 0:
                         for p in periods:
@@ -883,17 +893,31 @@ class CognitiveIntelligence:
                             fused_component_series += normalized_series * weight
                     else:
                         fused_component_series = normalize_score(transformed_series, df.index, 55)
+                # [代码修改开始]
+                # 废除“幽灵协议”：不再需要强制归零
+                # fused_component_series[zero_mask] = 0.0
                 # [代码修改结束]
-                fused_component_series[zero_mask] = 0.0
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
                     fused_component_scores.append(fused_component_series.values)
+                    # [代码新增开始]
+                    # 收集每个组件的权重
+                    component_weights.append(comp.get('weight', 1.0))
+                    # [代码新增结束]
             if not fused_component_scores:
                 snapshot_score_values = np.ones(len(df.index), dtype=np.float32)
             else:
+                # [代码修改开始]
+                # 协议修正：根据配置选择融合算法
                 stacked_scores = np.stack(fused_component_scores, axis=0)
-                snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(fused_component_scores))
+                if fusion_method == 'geometric':
+                    # 保留旧的“湮灭协议”作为备用选项
+                    snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(fused_component_scores))
+                else: # 默认为 'arithmetic'
+                    # 使用更稳健的加权算术平均
+                    snapshot_score_values = np.average(stacked_scores, axis=0, weights=np.array(component_weights))
+                # [代码修改结束]
             if gate_scores:
                 for gate in gate_scores:
                     snapshot_score_values *= gate

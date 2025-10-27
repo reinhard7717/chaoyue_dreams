@@ -609,7 +609,7 @@
             "type": "risk",
             "penalty_weight": -1200,
             "context_role": "top_risk",
-            "description": "【资金流增强】资金流出 + 市场流动性差 + 价格波动剧烈 = 极高的流动性风险。"
+            "description": "【V3.0 · 协议修正版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。采用更稳健的算术平均融合，避免因单一证据为零导致整体风险被错误湮灭。"
         },
         "COGNITIVE_SCORE_UPSTREAM_SWIMMER": {
             "cn_name": "【认知】恐慌中逆势吸筹",

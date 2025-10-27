@@ -987,6 +987,13 @@
           "13": 0.3,
           "21": 0.3,
           "55": 0.15
+        },
+        "expansion_signal_specific_configs": {
+          "description": "【V1.0 · 新增】为特定的认知扩展信号提供覆盖配置。",
+          "COGNITIVE_RISK_LIQUIDITY_TRAP": {
+            "fusion_method": "arithmetic",
+            "description": "明确为流动性陷阱信号配置使用算术平均融合，以提高稳健性。"
+          }
         }
       },
       "intraday_behavior_engine_params": {
