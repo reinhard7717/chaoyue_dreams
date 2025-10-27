@@ -308,17 +308,27 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.5 · 幽灵协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 探针完整植入在生产代码中发现的“幽灵协议”(zero_mask)逻辑。
-                      即：无论MTF融合分多高，只要原始值为0，最终证据分强制归零。
-                      本探针的目标是100%复现系统最终输出，为修复提供终极证据。
+        【探针 V1.5.1 · 崩溃修复版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心修复: 修正了因数据类型不匹配导致的运行时崩溃。将 np.isclose 返回的 Numpy 数组
+                      显式转换为带索引的 Pandas Series，以适配 get_val 辅助函数。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.5 · 幽灵协议版】💧 " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.5.1 · 崩溃修复版】💧 " + "="*25)
+        # [代码修改结束]
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
         
         def get_val(series, date, default=0.0):
+            # [代码修改开始]
+            # 增加对Numpy数组的处理能力，以防万一
+            if isinstance(series, np.ndarray):
+                try:
+                    idx_loc = df.index.get_loc(date)
+                    return series[idx_loc]
+                except (KeyError, IndexError):
+                    return default
+            # [代码修改结束]
             val = series.get(date)
             return default if pd.isna(val) else val
 
@@ -344,15 +354,16 @@ class CognitiveProbes:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
 
-        # [代码修改开始]
         # --- 链路层 2: 犯罪现场重现 (植入幽灵协议) ---
         print("\n  [链路层 2] 犯罪现场重现 (Path C - 植入幽灵协议)")
 
         # C.1: 证据一 (主力持续出逃)
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused_raw = mtf_fuse(capital_flight_raw)
-        # 植入幽灵协议
-        capital_flight_zero_mask = np.isclose(capital_flight_raw, 0)
+        # [代码修改开始]
+        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
+        capital_flight_zero_mask = pd.Series(np.isclose(capital_flight_raw, 0), index=df.index)
+        # [代码修改结束]
         capital_flight_fused_final = capital_flight_fused_raw.copy()
         capital_flight_fused_final[capital_flight_zero_mask] = 0.0
         print(f"    - [证据一: 主力持续出逃]")
@@ -365,8 +376,10 @@ class CognitiveProbes:
         # C.2: 证据二 (流动性真空) - 模拟二次融合的错误
         liquidity_vacuum_from_atomic = self.intelligence_layer.cognitive_intel._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_VACUUM', 0.0)
         liquidity_vacuum_double_fused_raw = mtf_fuse(liquidity_vacuum_from_atomic)
-        # 植入幽灵协议
-        liquidity_vacuum_zero_mask = np.isclose(liquidity_vacuum_from_atomic, 0)
+        # [代码修改开始]
+        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
+        liquidity_vacuum_zero_mask = pd.Series(np.isclose(liquidity_vacuum_from_atomic, 0), index=df.index)
+        # [代码修改结束]
         liquidity_vacuum_double_fused_final = liquidity_vacuum_double_fused_raw.copy()
         liquidity_vacuum_double_fused_final[liquidity_vacuum_zero_mask] = 0.0
         print(f"    - [证据二: 流动性真空]")
@@ -379,8 +392,10 @@ class CognitiveProbes:
         # C.3: 证据三 (买盘真空)
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
         buyer_apathy_fused_raw = mtf_fuse(buyer_apathy_raw)
-        # 植入幽灵协议
-        buyer_apathy_zero_mask = np.isclose(buyer_apathy_raw, 0)
+        # [代码修改开始]
+        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
+        buyer_apathy_zero_mask = pd.Series(np.isclose(buyer_apathy_raw, 0), index=df.index)
+        # [代码修改结束]
         buyer_apathy_fused_final = buyer_apathy_fused_raw.copy()
         buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
         print(f"    - [证据三: 买盘真空]")
@@ -409,7 +424,6 @@ class CognitiveProbes:
         print("    - 修复方案应包含：1. 修正行为层`SCORE_RISK_LIQUIDITY_VACUUM`的计算。 2. 修正认知层，使其不再对原子信号进行二次融合。 3. 审慎评估是否保留“幽灵协议”。")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
-        # [代码修改结束]
 
 
 
