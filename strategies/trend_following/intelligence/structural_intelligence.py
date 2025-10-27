@@ -76,7 +76,6 @@ class StructuralIntelligence:
         # 4. 将最终的双极性总分拆分为 s_bull 和 s_bear
         overall_s_bull = {}
         overall_s_bear = {}
-        from .utils import bipolar_to_exclusive_unipolar
         for p in periods:
             s_bull, s_bear = bipolar_to_exclusive_unipolar(final_bipolar_by_period.get(p, default_series))
             overall_s_bull[p] = s_bull
