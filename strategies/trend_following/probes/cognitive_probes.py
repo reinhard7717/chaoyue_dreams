@@ -308,13 +308,15 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.8 · 湮灭协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 探针移除错误的“阿波罗协议”，忠实复现生产代码的“湮灭协议”（无条件几何平均）。
-                      这是对系统所有已知缺陷的最终、最精确的复现。
+        【探针 V2.0 · 净化协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 此探针已完全同步一个修复了所有已知BUG（原罪、二次加工、时空错乱、协议双煞）的系统。
+                      它将：
+                      1. 在内部按“公理”正确重算 SCORE_RISK_LIQUIDITY_VACUUM。
+                      2. 严格遵循“成品信号不二次加工”原则。
+                      3. 使用稳健的“算术平均”进行融合。
+                      4. 使用正确的“加速度”逻辑进行动态分析。
         """
-        # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.8 · 湮灭协议版】💧 " + "="*25)
-        # [代码修改结束]
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V2.0 · 净化协议版】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -334,7 +336,7 @@ class CognitiveProbes:
         system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
         print(f"    - 【最终信号分】: {system_score:.4f}")
 
-        # --- 准备工作: 定义MTF融合函数 ---
+        # --- 准备工作: 定义正确的工具函数 ---
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
@@ -351,94 +353,72 @@ class CognitiveProbes:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
         
-        # --- 在探针内部复现“时空错乱”的元分析引擎 ---
-        def _replicate_flawed_meta_analysis(snapshot_score: pd.Series) -> pd.Series:
-            """在探针内部完整复现生产代码中错误的加速度计算逻辑"""
+        def _replicate_correct_meta_analysis(snapshot_score: pd.Series) -> pd.Series:
+            """在探针内部完整复现生产代码中正确的加速度计算逻辑"""
             p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
-            w_state = get_param_value(p_meta.get('state_weight'), 0.6)
-            w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
-            w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
-            norm_window = 55
-            meta_window = 5 # 这个值将导致加速度计算错误
+            w_state, w_velocity, w_acceleration = 0.6, 0.2, 0.2
+            norm_window, meta_window = 55, 5
             bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
             relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
             velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window)
-            
-            # 复现“时空错乱”的罪行：使用 diff(meta_window) 而不是 diff(1)
-            relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-            
+            relationship_accel = relationship_trend.diff(1).fillna(0) # 正确的加速度
             acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window)
-            bullish_state = bipolar_snapshot.clip(0, 1)
-            bullish_velocity = velocity_score.clip(0, 1)
-            bullish_acceleration = acceleration_score.clip(0, 1)
-            total_bullish_force = (bullish_state * w_state + bullish_velocity * w_velocity + bullish_acceleration * w_acceleration)
-            bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
-            bearish_velocity = (velocity_score.clip(-1, 0) * -1)
-            bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
-            total_bearish_force = (bearish_state * w_state + bearish_velocity * w_velocity + bearish_acceleration * w_acceleration)
-            net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+            bullish_force = (bipolar_snapshot.clip(0, 1) * w_state + velocity_score.clip(0, 1) * w_velocity + acceleration_score.clip(0, 1) * w_acceleration)
+            bearish_force = ((bipolar_snapshot.clip(-1, 0) * -1) * w_state + (velocity_score.clip(-1, 0) * -1) * w_velocity + (acceleration_score.clip(-1, 0) * -1) * w_acceleration)
+            net_force = (bullish_force - bearish_force).clip(-1, 1)
             final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
             return (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
 
-        # --- 链路层 2: 终极犯罪现场重现 ---
-        print("\n  [链路层 2] 终极犯罪现场重现 (复现全部五大罪行)")
+        # --- 链路层 2: 净化后的证据链重算 ---
+        print("\n  [链路层 2] 净化后的证据链重算 (Purified Evidence Chain Recalculation)")
 
-        # 罪行三: 幽灵协议
+        # 证据一: 主力持续出逃 (常规处理)
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
-        capital_flight_fused_raw = mtf_fuse(capital_flight_raw)
-        capital_flight_zero_mask = pd.Series(np.isclose(capital_flight_raw, 0), index=df.index)
-        capital_flight_fused_final = capital_flight_fused_raw.copy()
-        capital_flight_fused_final[capital_flight_zero_mask] = 0.0
-        print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused_final, probe_date):.4f}")
-        if get_val(capital_flight_zero_mask, probe_date):
-            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(capital_flight_fused_raw, probe_date):.4f} -> 0.0")
+        capital_flight_fused = mtf_fuse(capital_flight_raw)
+        print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused, probe_date):.4f}")
 
-        # 罪行一 & 二: 原罪 + 二次加工
-        liquidity_vacuum_from_atomic = self.intelligence_layer.cognitive_intel._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_VACUUM', 0.0)
-        liquidity_vacuum_double_fused_raw = mtf_fuse(liquidity_vacuum_from_atomic)
-        liquidity_vacuum_zero_mask = pd.Series(np.isclose(liquidity_vacuum_from_atomic, 0), index=df.index)
-        liquidity_vacuum_double_fused_final = liquidity_vacuum_double_fused_raw.copy()
-        liquidity_vacuum_double_fused_final[liquidity_vacuum_zero_mask] = 0.0
-        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_double_fused_final, probe_date):.4f}")
+        # 证据二: 流动性真空 (按公理正确重算)
+        p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
+        norm_window_pv = get_param_value(p_atomic.get('norm_window'), 55)
+        turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
+        low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
+        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
+        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
+        sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
+        fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
+        raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
+        liquidity_vacuum_correct = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window_pv, ascending=True)
+        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_correct, probe_date):.4f} (按公理重算)")
 
-        # 证据三 (常规处理)
-        buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
-        buyer_apathy_fused_raw = mtf_fuse(buyer_apathy_raw)
-        buyer_apathy_zero_mask = pd.Series(np.isclose(buyer_apathy_raw, 0), index=df.index)
-        buyer_apathy_fused_final = buyer_apathy_fused_raw.copy()
-        buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
-        print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
+        # 证据三: 买盘真空 (常规处理)
+        buyer_apathy_raw = 1.0 - df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index))
+        buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)
+        print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused, probe_date):.4f}")
 
-        # [代码修改开始]
-        # 罪行四: 湮灭协议 (无条件几何平均)
-        print("\n    --- [快照分融合裁决] ---")
-        components = [capital_flight_fused_final, liquidity_vacuum_double_fused_final, buyer_apathy_fused_final]
+        # --- 链路层 3: 净化后的融合与裁决 ---
+        print("\n  [链路层 3] 净化后的融合与裁决 (Purified Fusion & Adjudication)")
+        
+        # 净化后的融合 (算术平均)
+        weights = [0.4, 0.4, 0.2]
+        components = [capital_flight_fused, liquidity_vacuum_correct, buyer_apathy_fused]
         stacked_scores = np.stack([c.values for c in components], axis=0)
+        purified_snapshot_values = np.average(stacked_scores, axis=0, weights=np.array(weights))
+        purified_snapshot_score = pd.Series(purified_snapshot_values, index=df.index)
         
-        # 移除“阿波罗协议”，忠实复现“湮灭协议”
-        snapshot_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(components))
-        crime_scene_snapshot_score = pd.Series(snapshot_values, index=df.index)
-        
-        print(f"      - 💥【湮灭协议执行】: 无条件使用 [几何平均]。")
+        print(f"    - [融合算法]: 稳健的加权算术平均")
         component_values_at_date = [get_val(c, probe_date) for c in components]
-        print(f"      - 计算: ({component_values_at_date[0]:.4f} * {component_values_at_date[1]:.4f} * {component_values_at_date[2]:.4f})**(1/3)")
-        # [代码修改结束]
+        print(f"    - 计算: ({component_values_at_date[0]:.4f}*0.4) + ({component_values_at_date[1]:.4f}*0.4) + ({component_values_at_date[2]:.4f}*0.2)")
         
-        # 罪行五: 时空错乱
-        crime_scene_dynamic_score = _replicate_flawed_meta_analysis(crime_scene_snapshot_score)
+        # 净化后的动态分析
+        purified_dynamic_score = _replicate_correct_meta_analysis(purified_snapshot_score)
         
-        print("\n    --- [重现最终裁决] ---")
-        print(f"    - 【重现快照分】: {get_val(crime_scene_snapshot_score, probe_date):.4f}")
-        print(f"    - 【重现动态分】(基于错误加速度): {get_val(crime_scene_dynamic_score, probe_date):.4f}")
+        print(f"    - 【探针重算快照分】: {get_val(purified_snapshot_score, probe_date):.4f}")
+        print(f"    - 【探针重算动态分】: {get_val(purified_dynamic_score, probe_date):.4f}")
 
-        # --- 链路层 3: 终极对质 ---
-        print("\n  [链路层 3] 终极对质 (Final Verdict)")
-        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 犯罪现场重现值 {get_val(crime_scene_dynamic_score, probe_date):.4f} -> {'✅ 完美重现犯罪现场' if np.isclose(system_score, get_val(crime_scene_dynamic_score, probe_date), atol=1e-4) else '❌ 重现失败'}")
-
-        # --- 链路层 4: 结论 ---
-        print("\n  [链路层 4] 结论")
-        print("    - 探针已100%复现系统当前的全部五大逻辑缺陷，证明了它们是导致最终结果异常的完整原因。")
-        print("    - 修复方案必须按顺序执行：1. 修复行为层“原罪”。 2. 修复认知层“二次加工”。 3. 修复认知层“时空错乱”。 4. 重新评估是否保留两大协议。")
+        # --- 链路层 4: 终极对质 ---
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
+        final_probe_score = get_val(purified_dynamic_score, probe_date)
+        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针净化值 {final_probe_score:.4f} -> {'✅ 逻辑闭环' if np.isclose(system_score, final_probe_score, atol=1e-4) else '❌ 仍有偏差'}")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
 
