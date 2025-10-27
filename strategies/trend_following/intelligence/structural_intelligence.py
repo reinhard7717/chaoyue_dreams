@@ -230,19 +230,52 @@ class StructuralIntelligence:
 
     def _calculate_structural_stability_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V1.1 · 统一命名版】支柱四：结构稳定性
-        - 核心修复: 调用重命名后的 `_perform_relational_meta_analysis`。
+        【V2.0 · 堡垒完整度 vs 围城压力版】支柱四：结构稳定性
+        - 核心重构: 废除旧的、过于简单的计算模型。引入全新的“堡垒完整度 vs 围城压力”物理战况模型。
+        - 看涨分量 (堡垒完整度): 融合了支撑距离、支撑带成交量、已实现的支撑强度、主峰防守强度和主力支撑强度，
+                          从静态和动态两个维度评估下方支撑的坚固程度。
+        - 看跌分量 (围城压力): 融合了压力距离、压力带成交量、已实现的压力强度和主力派发压力，
+                          从静态和动态两个维度评估上方压力的沉重程度。
+        - 收益: 极大提升了该支柱的智能性和鲁棒性，使其能更真实地反映结构层面的多空攻防态势。
         """
-        s_bull, s_bear, d_intensity = {}, {}, {}
-        peak_stability = normalize_score(df.get('peak_stability_D', pd.Series(0, index=df.index)), df.index, norm_window)
-        peak_control = normalize_score(df.get('peak_control_ratio_D', pd.Series(0, index=df.index)), df.index, norm_window)
-        support_below = normalize_score(df.get('support_below_D', pd.Series(0, index=df.index)), df.index, norm_window)
-        bull_snapshot_score = (peak_stability * peak_control * support_below)**(1/3)
-        bear_snapshot_score = normalize_score(df.get('pressure_above_D', pd.Series(0, index=df.index)), df.index, norm_window)
-        bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
         # [代码修改开始]
+        s_bull, s_bear, d_intensity = {}, {}, {}
+        default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+
+        # 1. 看涨分量: 堡垒完整度 (Fortress Integrity)
+        # 静态城墙厚度 (Static Fortress Thickness)
+        static_support_dist = normalize_score(df.get('support_below_D', default_series), df.index, norm_window)
+        static_support_vol = normalize_score(df.get('support_below_volume_D', default_series), df.index, norm_window)
+        static_fortress_score = (static_support_dist * static_support_vol)**0.5
+
+        # 动态防御行动 (Dynamic Defense Actions)
+        realized_support = normalize_score(df.get('realized_support_intensity_D', default_series), df.index, norm_window)
+        peak_defense = normalize_score(df.get('peak_defense_intensity_D', default_series), df.index, norm_window)
+        main_force_support = normalize_score(df.get('main_force_support_strength_D', default_series), df.index, norm_window)
+        dynamic_defense_score = (realized_support * peak_defense * main_force_support)**(1/3)
+
+        # 融合看涨分
+        bull_snapshot_score = (static_fortress_score * 0.4 + dynamic_defense_score * 0.6)
+
+        # 2. 看跌分量: 围城压力 (Siege Pressure)
+        # 静态兵力规模 (Static Siege Force)
+        static_pressure_dist = normalize_score(df.get('pressure_above_D', default_series), df.index, norm_window, ascending=False) # 距离越近，分数越高
+        static_pressure_vol = normalize_score(df.get('pressure_above_volume_D', default_series), df.index, norm_window)
+        static_siege_score = (static_pressure_dist * static_pressure_vol)**0.5
+
+        # 动态攻击行动 (Dynamic Assault Actions)
+        realized_pressure = normalize_score(df.get('realized_pressure_intensity_D', default_series), df.index, norm_window)
+        main_force_pressure = normalize_score(df.get('main_force_distribution_pressure_D', default_series), df.index, norm_window)
+        dynamic_assault_score = (realized_pressure * main_force_pressure)**0.5
+
+        # 融合看跌分
+        bear_snapshot_score = (static_siege_score * 0.4 + dynamic_assault_score * 0.6)
+
+        # 3. 生成双极性快照并进行元分析
+        bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
         final_dynamic_score = self._perform_relational_meta_analysis(df, bipolar_snapshot)
-        # [代码修改结束]
+
+        # 4. 最终转换与输出
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
@@ -250,6 +283,7 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
+        # [代码修改结束]
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """

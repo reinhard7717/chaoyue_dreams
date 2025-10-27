@@ -137,10 +137,11 @@ class StructuralProbes:
 
     def _deploy_structural_pillar_dissection_probe(self, probe_date: pd.Timestamp, pillar_name: str = 'trend_integrity', period: int = 13):
         """
-        【探针 V1.3 · 稳定性解剖版】结构支柱穿透式解剖探针
-        - 核心扩展: 新增对 'structural_stability' 支柱的解剖能力，穿透其计算链路。
+        【探针 V1.4 · 堡垒完整度同步版】结构支柱穿透式解剖探针
+        - 核心同步: 'structural_stability' 支柱的解剖逻辑已与主引擎 V2.0 的“堡垒完整度 vs 围城压力”模型完全同步。
         """
-        print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.3 ({pillar_name})】🧬 " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.4 ({pillar_name})】🧬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.structural_intel
@@ -185,36 +186,48 @@ class StructuralProbes:
             ti_s_bull, _, _, _ = engine._calculate_trend_integrity_health(df, [period], norm_window)
             system_pillar_score = get_val(ti_s_bull.get(period), probe_date)
             print(f"    - [对比]: 系统支柱分 {system_pillar_score:.4f} vs. 探针重算分 {get_val(final_bull_score, probe_date):.4f} -> {'✅ 一致' if np.isclose(system_pillar_score, get_val(final_bull_score, probe_date)) else '❌ 不一致'}")
-        # [代码新增开始]
         elif pillar_name == 'structural_stability':
             print("\n  [链路层 1] 结构稳定性支柱解剖 (Structural Stability Dissection)")
             norm_window = 55
-            # 1. 重算看涨组件
-            peak_stability_series = normalize_score(df.get('peak_stability_D', pd.Series(0, index=df.index)), df.index, norm_window)
-            peak_control_series = normalize_score(df.get('peak_control_ratio_D', pd.Series(0, index=df.index)), df.index, norm_window)
-            support_below_series = normalize_score(df.get('support_below_D', pd.Series(0, index=df.index)), df.index, norm_window)
-            peak_stability_val = get_val(peak_stability_series, probe_date)
-            peak_control_val = get_val(peak_control_series, probe_date)
-            support_below_val = get_val(support_below_series, probe_date)
-            print(f"    - [看涨组件] 峰稳定性: {peak_stability_val:.4f}, 峰控制力: {peak_control_val:.4f}, 下方支撑: {support_below_val:.4f}")
-            bull_snapshot_series = (peak_stability_series * peak_control_series * support_below_series)**(1/3)
-            bull_snapshot_val = get_val(bull_snapshot_series, probe_date)
-            print(f"    - 【融合看涨快照分】: {bull_snapshot_val:.4f}")
-            # 2. 重算看跌组件
-            pressure_above_series = normalize_score(df.get('pressure_above_D', pd.Series(0, index=df.index)), df.index, norm_window)
-            pressure_above_val = get_val(pressure_above_series, probe_date)
-            print(f"    - [看跌组件] 上方压力: {pressure_above_val:.4f}")
-            bear_snapshot_series = pressure_above_series
-            bear_snapshot_val = pressure_above_val
-            print(f"    - 【融合看跌快照分】: {bear_snapshot_val:.4f}")
+            default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
+            
+            # 1. 重算看涨组件: 堡垒完整度 (Fortress Integrity)
+            print("    --- [看涨组件: 堡垒完整度] ---")
+            static_support_dist_s = normalize_score(df.get('support_below_D', default_series), df.index, norm_window)
+            static_support_vol_s = normalize_score(df.get('support_below_volume_D', default_series), df.index, norm_window)
+            static_fortress_s = (static_support_dist_s * static_support_vol_s)**0.5
+            realized_support_s = normalize_score(df.get('realized_support_intensity_D', default_series), df.index, norm_window)
+            peak_defense_s = normalize_score(df.get('peak_defense_intensity_D', default_series), df.index, norm_window)
+            main_force_support_s = normalize_score(df.get('main_force_support_strength_D', default_series), df.index, norm_window)
+            dynamic_defense_s = (realized_support_s * peak_defense_s * main_force_support_s)**(1/3)
+            bull_snapshot_series = (static_fortress_s * 0.4 + dynamic_defense_s * 0.6)
+            
+            print(f"      - [静态城墙] 支撑距离: {get_val(static_support_dist_s, probe_date):.4f}, 支撑量: {get_val(static_support_vol_s, probe_date):.4f} -> 融合分: {get_val(static_fortress_s, probe_date):.4f}")
+            print(f"      - [动态防御] 已实现支撑: {get_val(realized_support_s, probe_date):.4f}, 主峰防御: {get_val(peak_defense_s, probe_date):.4f}, 主力支撑: {get_val(main_force_support_s, probe_date):.4f} -> 融合分: {get_val(dynamic_defense_s, probe_date):.4f}")
+            print(f"    - 【融合看涨快照分】: {get_val(bull_snapshot_series, probe_date):.4f}")
+
+            # 2. 重算看跌组件: 围城压力 (Siege Pressure)
+            print("    --- [看跌组件: 围城压力] ---")
+            static_pressure_dist_s = normalize_score(df.get('pressure_above_D', default_series), df.index, norm_window, ascending=False)
+            static_pressure_vol_s = normalize_score(df.get('pressure_above_volume_D', default_series), df.index, norm_window)
+            static_siege_s = (static_pressure_dist_s * static_pressure_vol_s)**0.5
+            realized_pressure_s = normalize_score(df.get('realized_pressure_intensity_D', default_series), df.index, norm_window)
+            main_force_pressure_s = normalize_score(df.get('main_force_distribution_pressure_D', default_series), df.index, norm_window)
+            dynamic_assault_s = (realized_pressure_s * main_force_pressure_s)**0.5
+            bear_snapshot_series = (static_siege_s * 0.4 + dynamic_assault_s * 0.6)
+
+            print(f"      - [静态兵力] 压力距离: {get_val(static_pressure_dist_s, probe_date):.4f}, 压力量: {get_val(static_pressure_vol_s, probe_date):.4f} -> 融合分: {get_val(static_siege_s, probe_date):.4f}")
+            print(f"      - [动态攻击] 已实现压力: {get_val(realized_pressure_s, probe_date):.4f}, 主力派发: {get_val(main_force_pressure_s, probe_date):.4f} -> 融合分: {get_val(dynamic_assault_s, probe_date):.4f}")
+            print(f"    - 【融合看跌快照分】: {get_val(bear_snapshot_series, probe_date):.4f}")
+
             # 3. 计算双极性快照分
             bipolar_snapshot_series = (bull_snapshot_series - bear_snapshot_series).clip(-1, 1)
-            bipolar_snapshot_val = get_val(bipolar_snapshot_series, probe_date)
-            print(f"    - 【双极性快照分】: {bipolar_snapshot_val:.4f}")
+            print(f"    - 【双极性快照分】: {get_val(bipolar_snapshot_series, probe_date):.4f}")
+
             # 4. 执行关系元分析
             final_dynamic_score_series = engine._perform_relational_meta_analysis(df, bipolar_snapshot_series)
-            final_dynamic_score_val = get_val(final_dynamic_score_series, probe_date)
-            print(f"    - 【关系元分析后动态分】: {final_dynamic_score_val:.4f}")
+            print(f"    - 【关系元分析后动态分】: {get_val(final_dynamic_score_series, probe_date):.4f}")
+
             # 5. 最终转换与对比
             final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score_series)
             ss_s_bull, ss_s_bear, _ = engine._calculate_structural_stability_health(df, [period], norm_window)
@@ -223,10 +236,10 @@ class StructuralProbes:
             print(f"    - 【最终单极性转换后】 看涨分: {get_val(final_bull_score, probe_date):.4f}, 看跌分: {get_val(final_bear_score, probe_date):.4f}")
             print(f"    - [对比-看涨]: 系统支柱分 {system_s_bull:.4f} vs. 探针重算分 {get_val(final_bull_score, probe_date):.4f} -> {'✅ 一致' if np.isclose(system_s_bull, get_val(final_bull_score, probe_date)) else '❌ 不一致'}")
             print(f"    - [对比-看跌]: 系统支柱分 {system_s_bear:.4f} vs. 探针重算分 {get_val(final_bear_score, probe_date):.4f} -> {'✅ 一致' if np.isclose(system_s_bear, get_val(final_bear_score, probe_date)) else '❌ 不一致'}")
-        # [代码新增结束]
         else:
             print(f"    - 探针暂不支持解剖 '{pillar_name}' 支柱。")
         print("\n--- “结构支柱解剖探针”解剖完毕 ---")
+
 
 
 
