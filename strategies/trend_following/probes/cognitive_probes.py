@@ -308,15 +308,11 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.1 · 最终净化版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 此探针已完全同步一个修复了所有已知BUG的系统。
-                      它将：
-                      1. 在内部按“维度正交”公理正确重算 SCORE_RISK_LIQUIDITY_VACUUM。
-                      2. 严格遵循“成品信号不二次加工”原则。
-                      3. 使用稳健的“算术平均”进行融合。
-                      4. 使用正确的“加速度”逻辑进行动态分析。
+        【探针 V2.2 · 趋势上下文同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 同步上游 `SCORE_RISK_LIQUIDITY_VACUUM` 的 V13.7 版 "趋势上下文" 逻辑。
+                      确保探针内部对“流动性真空”证据的重算与生产代码完全一致。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V2.1 · 最终净化版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V2.2 · 趋势上下文同步版】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -365,15 +361,19 @@ class CognitiveProbes:
         capital_flight_fused = mtf_fuse(capital_flight_raw)
         print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused, probe_date):.4f}")
         # [代码修改开始]
-        # 证据二: 流动性真空 (按最终公理正确重算)
+        # 证据二: 流动性真空 (按最终公理正确重算，包含趋势上下文)
         p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
         norm_window_pv = get_param_value(p_atomic.get('norm_window'), 55)
         low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window_pv, ascending=False)
         vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
         sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window_pv, ascending=False)
-        fragility_score = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window_pv, ascending=True)
-        liquidity_vacuum_correct = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_correct, probe_date):.4f} (按公理重算)")
+        calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
+        fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window_pv, ascending=True)
+        liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
+        trend_context_score = self.intelligence_layer.behavioral_intel._diagnose_trend_context(df)
+        risk_suppression_factor = (1 - trend_context_score.clip(0, 1))
+        liquidity_vacuum_correct = liquidity_vacuum_snapshot * risk_suppression_factor
+        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_correct, probe_date):.4f} (已应用趋势上下文)")
         # [代码修改结束]
         buyer_apathy_raw = 1.0 - df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index))
         buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)

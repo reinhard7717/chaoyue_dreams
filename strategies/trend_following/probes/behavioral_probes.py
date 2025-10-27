@@ -123,11 +123,13 @@ class BehavioralProbes:
 
     def _deploy_liquidity_vacuum_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.4 · 维度正交版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
-        - 核心升级: 此探针已完全同步生产代码V13.6的“维度正交”公理。
-                      它将独立计算每个风险维度的分数，然后融合这些分数，作为验证修复的最终“黄金标准”。
+        【探针 V1.5 · 趋势上下文版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
+        - 核心升级: 同步生产代码V13.7的“趋势上下文”逻辑。
+                      1. [数据加固] 使用 (high-low)/pre_close 计算波动率。
+                      2. [逻辑升维] 引入趋势上下文调制，并清晰展示其对最终风险的抑制作用。
+                      3. [数据透视] 增加对不可靠的 `intraday_volatility_D` 原始值的输出，以供对比。
         """
-        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.4】🌀 " + "="*25)
+        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.5】🌀 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'SCORE_RISK_LIQUIDITY_VACUUM'
@@ -140,24 +142,32 @@ class BehavioralProbes:
         print("\n  [链路层 2] 快照分重算 (黄金标准) (Snapshot Recalculation - Gold Standard)")
         p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
         norm_window = get_param_value(p_atomic.get('norm_window'), 55)
-        # [代码修改开始]
-        # 1. 将每个风险维度分别归一化为0-1的风险分数
         low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
         vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
         sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
-        fragility_score = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        # 2. 在统一的维度空间中，融合这些风险分数
+        # [代码修改开始]
+        # 使用更可靠的波动率计算方式
+        calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
+        fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window, ascending=True)
         probe_snapshot_score_series = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
         probe_snapshot_val = get_val(probe_snapshot_score_series, probe_date)
-        # [代码修改结束]
         print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
-        print("\n  [链路层 3] 终极对质 (Final Verdict)")
-        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针正确值 {probe_snapshot_val:.4f} -> {'✅ 修复成功' if np.isclose(system_score, probe_snapshot_val) else '❌ 仍有偏差'}")
-        print("\n  [链路层 4] 证据链分解 (Component Dissection)")
+        print("\n  [链路层 3] 趋势上下文调制 (Trend Context Modulation)")
+        trend_context_score = self.intelligence_layer.behavioral_intel._diagnose_trend_context(df)
+        risk_suppression_factor = (1 - trend_context_score.clip(0, 1))
+        probe_final_risk = probe_snapshot_val * get_val(risk_suppression_factor, probe_date)
+        print(f"    - 趋势上下文分数: {get_val(trend_context_score, probe_date):.4f}")
+        print(f"    - 风险抑制因子: {get_val(risk_suppression_factor, probe_date):.4f}")
+        print(f"    - 【探针重算最终风险】: {probe_snapshot_val:.4f} * {get_val(risk_suppression_factor, probe_date):.4f} = {probe_final_risk:.4f}")
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
+        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针正确值 {probe_final_risk:.4f} -> {'✅ 修复成功' if np.isclose(system_score, probe_final_risk) else '❌ 仍有偏差'}")
+        print("\n  [链路层 5] 证据链分解 (Component Dissection)")
         print(f"    - [支柱一: 低换手率风险分]: {get_val(low_turnover_score, probe_date):.4f}")
         print(f"    - [支柱二: 持续缩量风险分]: {get_val(sustained_shrink_score, probe_date):.4f}")
-        print(f"    - [支柱三: 市场脆弱性风险分]: {get_val(fragility_score, probe_date):.4f}")
+        print(f"    - [支柱三: 市场脆弱性风险分]: {get_val(fragility_score, probe_date):.4f} (基于 (H-L)/PreC 计算)")
+        print(f"      - [数据透视] 不可靠的 intraday_volatility_D 原始值: {get_val(df.get('intraday_volatility_D'), probe_date):.4f}")
         print(f"    - [融合后快照分]: {probe_snapshot_val:.4f}")
+        # [代码修改结束]
         print("\n--- “流动性真空探针”解剖完毕 ---")
 
 

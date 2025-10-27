@@ -420,11 +420,35 @@ class BehavioralIntelligence:
         states[signal_name] = final_snapshot_score.clip(0, 1).astype(np.float32)
         return states
 
+    def _diagnose_trend_context(self, df: pd.DataFrame) -> pd.Series:
+        """
+        【V1.0 · 新增】行为层专属的趋势上下文诊断引擎
+        - 核心逻辑: 基于关键移动平均线的位置和斜率，生成一个[-1, 1]区间的双极性趋势分数。
+                      +1 代表明确的上升趋势，-1 代表明确的下降趋势，0 附近代表震荡或趋势不明。
+        - 输出: 一个代表当前趋势方向和强度的双极性分数。
+        """
+        p = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        trend_ma_period = get_param_value(p.get('trend_context_ma_period'), 55)
+        ma_col = f'EMA_{trend_ma_period}_D'
+        slope_col = f'SLOPE_5_{ma_col}' # 使用5日斜率判断短期趋势方向
+        if ma_col not in df.columns or slope_col not in df.columns:
+            return pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 证据一：价格是否在趋势线上方
+        price_above_ma = (df['close_D'] > df[ma_col]).astype(float) * 2 - 1 # 转换为[-1, 1]
+        # 证据二：趋势线斜率方向
+        ma_slope = df[slope_col]
+        slope_direction = normalize_to_bipolar(ma_slope, df.index, window=trend_ma_period)
+        # 融合：位置权重60%，斜率权重40%
+        trend_context_score = (price_above_ma * 0.6 + slope_direction * 0.4)
+        return trend_context_score.clip(-1, 1).astype(np.float32)
+
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.6 · 维度正交版】量价原子信号诊断引擎
-        - 核心公理修正: 彻底修正“流动性真空风险”的计算逻辑。遵循“先归一化各风险维度，再融合风险分数”的原则。
-                        这确保了不同量纲的指标（如换手率、波动率）在融合前处于正交的、可比较的维度空间，从根本上解决了该信号的逻辑缺陷。
+        【V13.7 · 趋势上下文版】量价原子信号诊断引擎
+        - 核心升级 (流动性真空风险):
+          1. [数据加固] 废弃不稳定的 `intraday_volatility_D`，改用 `(high-low)/pre_close` 计算的真实波动率。
+          2. [逻辑升维] 引入趋势上下文判断。流动性真空风险现在只在下降或震荡趋势中被激活。
+                         在明确的上升趋势中，该风险将被抑制，因为缩量和低换手此时是积极信号。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -453,19 +477,21 @@ class BehavioralIntelligence:
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
         norm_window = get_param_value(p.get('norm_window'), 55)
         # [代码修改开始]
-        # --- 流动性真空风险 V2.3 (维度正交版) ---
-        # 1. 将每个风险维度分别归一化为0-1的风险分数
-        # 支柱一：低换手率风险分。换手率越低，风险越高。
+        # --- 流动性真空风险 V2.4 (趋势上下文版) ---
+        # 1. 维度正交化 (逻辑不变)
         low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
-        # 支柱二：持续缩量风险分。成交量相对长期均线越萎缩，风险越高。
         vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
         sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
-        # 支柱三：市场脆弱性风险分。日内波动率越大，风险越高。
-        fragility_score = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        # 2. 在统一的维度空间中，融合这些风险分数
+        # [数据加固] 使用更可靠的波动率计算方式
+        calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
+        fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window, ascending=True)
         liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        # 统一信号名称为 SCORE_RISK_LIQUIDITY_VACUUM
-        states['SCORE_RISK_LIQUIDITY_VACUUM'] = liquidity_vacuum_snapshot.clip(0, 1).astype(np.float32)
+        # 2. [逻辑升维] 引入趋势上下文进行调制
+        trend_context_score = self._diagnose_trend_context(df)
+        # 风险抑制因子：只有在下降趋势(-1)或震荡趋势(0)中，风险才被完全表达。上升趋势(+1)中风险被抑制为0。
+        risk_suppression_factor = (1 - trend_context_score.clip(0, 1))
+        final_liquidity_vacuum_risk = liquidity_vacuum_snapshot * risk_suppression_factor
+        states['SCORE_RISK_LIQUIDITY_VACUUM'] = final_liquidity_vacuum_risk.clip(0, 1).astype(np.float32)
         # [代码修改结束]
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
