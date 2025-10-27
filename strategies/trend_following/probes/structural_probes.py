@@ -1,7 +1,7 @@
 # 文件: strategies/trend_following/intelligence/probes/structural_probes.py
 import pandas as pd
 import numpy as np
-from strategies.trend_following.utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 class StructuralProbes:
     """
