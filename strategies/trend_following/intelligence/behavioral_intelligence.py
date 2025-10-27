@@ -422,10 +422,10 @@ class BehavioralIntelligence:
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.2 · 风险哲学统一版】量价原子信号诊断引擎
-        - 核心重构: 统一 SCORE_RISK_LIQUIDITY_VACUUM 的计算哲学。
-                      废除“先分别归一化再融合”的错误逻辑，升级为与认知层一致的
-                      “先融合原始指标，再对综合能量进行归一化”的正确范式。
+        【V13.3 · 能量定义修正版】量价原子信号诊断引擎
+        - 核心修复: 修正了“市场脆弱性能量”(fragility_energy)的计算逻辑。
+                      该指标本身就是正相关能量，不应被错误处理，直接使用其原始值即可。
+                      此修复将从根本上解决 SCORE_RISK_LIQUIDITY_VACUUM 分数被异常拉低的问题。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -454,24 +454,19 @@ class BehavioralIntelligence:
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
         
         norm_window = get_param_value(p.get('norm_window'), 55)
-        # [代码修改开始]
-        # --- 流动性真空风险 V2.1 (风险哲学统一版) ---
-        # 1. 获取原始风险指标
-        # 支柱一: 低换手率 (原始值越小风险越大，取倒数使其变为正相关)
         turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
         low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
-        # 支柱二: 持续缩量 (原始值越小风险越大，取倒数使其变为正相关)
         vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
         vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
         sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
-        # 支柱三: 市场脆弱性 (原始值越大风险越大)
+        # [代码修改开始]
+        # 修正：脆弱性能量直接使用原始值，因为它已经是正相关能量
         fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
-        # 2. 先融合原始能量，得到一个综合的“原始风险能量”
+        # [代码修改结束]
         raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
-        # 3. 再对这个综合能量进行统一的归一化
         liquidity_vacuum_snapshot = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window, ascending=True)
         states['SCORE_RISK_LIQUIDITY_VACUUM'] = liquidity_vacuum_snapshot.clip(0, 1).astype(np.float32)
-
+        
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)

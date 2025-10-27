@@ -123,10 +123,10 @@ class BehavioralProbes:
 
     def _deploy_liquidity_vacuum_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.1 · 哲学同步版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
-        - 核心修复: 同步更新探针的计算逻辑，使其与行为层 V13.2 版的“先融合后归一”哲学完全一致。
+        【探针 V1.2 · 能量定义修正版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
+        - 核心修复: 同步修正探针中“市场脆弱性能量”的计算逻辑，与生产代码保持一致。
         """
-        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.1】🌀 " + "="*25)
+        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.2】🌀 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'SCORE_RISK_LIQUIDITY_VACUUM'
@@ -143,8 +143,6 @@ class BehavioralProbes:
         p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
         norm_window = get_param_value(p_atomic.get('norm_window'), 55)
 
-        # [代码修改开始]
-        # 1. 获取原始风险能量指标
         turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
         low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
         
@@ -153,12 +151,13 @@ class BehavioralProbes:
         sustained_shrink_energy_raw = vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)
         sustained_shrink_energy = 1 / sustained_shrink_energy_raw.replace(0, 1e-6)
 
+        # [代码修改开始]
+        # 修正：脆弱性能量直接使用原始值
         fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
+        # [代码修改结束]
 
-        # 2. 先融合原始能量
         raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
         
-        # 3. 再对综合能量进行归一化
         probe_snapshot_score = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window, ascending=True)
         probe_snapshot_val = get_val(probe_snapshot_score, probe_date)
         print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
@@ -171,7 +170,6 @@ class BehavioralProbes:
         print(f"    - [支柱二: 持续缩量能量] 原始值: {get_val(sustained_shrink_energy_raw, probe_date):.2f}, 能量值: {get_val(sustained_shrink_energy, probe_date):.4f}")
         print(f"    - [支柱三: 市场脆弱性能量] 原始值: {get_val(fragility_energy, probe_date):.2f}, 能量值: {get_val(fragility_energy, probe_date):.4f}")
         print(f"    - [综合原始能量]: {get_val(raw_liquidity_vacuum_energy, probe_date):.4f}")
-        # [代码修改结束]
         
         print("\n--- “流动性真空探针”解剖完毕 ---")
 
