@@ -31,9 +31,9 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V18.1 · 信号链路修复版】
-        - 核心修复: 重建了第一支柱和第二支柱之间的信号传递链路。现在，第一支柱会将其计算的
-                      双极性快照分(`bipolar_snapshot`)传递给第二支柱，确保第二支柱能获得正确的输入。
+        【V18.2 · 算术平均融合版】
+        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”来融合四大支柱。
+                      此修改确保了单个支柱的暂时性疲软不会导致整个健康度评估系统崩溃。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -45,25 +45,18 @@ class StructuralIntelligence:
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] }
         pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'pattern_confirmation']
         weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
-        # [代码修改开始]
-        # --- 依次调用四大支柱引擎 ---
-        # 支柱一: 趋势完整性 (Trend Integrity) - 现在返回双极性快照分
         ti_s_bull, ti_s_bear, ti_d_intensity, daily_bipolar_snapshot = self._calculate_trend_integrity_health(df, periods, norm_window)
         health_data['s_bull'].append(ti_s_bull)
         health_data['s_bear'].append(ti_s_bear)
         health_data['d_intensity'].append(ti_d_intensity)
-        # 支柱二: 多时间框架协同 (MTF Cohesion) - 接收双极性快照分作为输入
         mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar_snapshot)
-        # [代码修改结束]
         health_data['s_bull'].append(mtf_s_bull)
         health_data['s_bear'].append(mtf_s_bear)
         health_data['d_intensity'].append(mtf_d_intensity)
-        # 支柱三: 结构突破潜力 (Breakout Potential)
         bp_s_bull, bp_s_bear, bp_d_intensity = self._calculate_breakout_potential_health(df, periods, norm_window)
         health_data['s_bull'].append(bp_s_bull)
         health_data['s_bear'].append(bp_s_bear)
         health_data['d_intensity'].append(bp_d_intensity)
-        # 支柱四: 形态确认 (Pattern Confirmation)
         pc_s_bull, pc_s_bear, pc_d_intensity = self._calculate_pattern_health(df, periods, norm_window)
         health_data['s_bull'].append(pc_s_bull)
         health_data['s_bear'].append(pc_s_bear)
@@ -72,24 +65,23 @@ class StructuralIntelligence:
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
-                # 确保权重和组件列表长度一致
-                valid_components = [(health_sources[i], weights_in_order[i]) for i in range(len(pillar_names_in_order)) if p in health_sources[i]]
-                if valid_components:
-                    components_for_period = [item[0][p].values for item in valid_components]
-                    weights_for_period = [item[1] for item in valid_components]
-                    stacked_values = np.stack(components_for_period, axis=0)
-                    total_weight = sum(weights_for_period)
-                    if total_weight > 0:
-                        normalized_weights = np.array(weights_for_period) / total_weight
-                        weights_array = normalized_weights.reshape(-1, 1)
-                        # 使用安全的几何平均，避免log(0)
-                        safe_values = np.maximum(stacked_values, 1e-9)
-                        fused_values = np.exp(np.sum(np.log(safe_values) * weights_array, axis=0))
+                # [代码修改开始]
+                # --- 使用加权算术平均数进行融合 ---
+                fused_score = pd.Series(0.0, index=df.index, dtype=np.float64)
+                total_weight = sum(weights_in_order)
+                if total_weight > 0:
+                    for i, pillar_dict in enumerate(health_sources):
+                        if p in pillar_dict:
+                            weight = weights_in_order[i]
+                            fused_score += pillar_dict[p].fillna(0.5) * (weight / total_weight)
+                else: # 如果总权重为0，则使用简单的算术平均
+                    components = [pillar_dict[p].fillna(0.5) for pillar_dict in health_sources if p in pillar_dict]
+                    if components:
+                        fused_score = sum(components) / len(components)
                     else:
-                        fused_values = np.mean(stacked_values, axis=0)
-                    overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
-                else:
-                    overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
+                        fused_score = pd.Series(0.5, index=df.index)
+                overall_health[health_type][p] = fused_score.astype(np.float32)
+                # [代码修改结束]
         self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(
             df=df,

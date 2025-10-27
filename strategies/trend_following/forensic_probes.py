@@ -5,15 +5,11 @@ from strategies.trend_following.utils import get_params_block
 
 class ForensicProbes:
     """
-    【V2.0 · 中央调度版】法医探针调度中心
-    - 核心重构: 本模块不再包含任何探针的具体实现。
-    - 核心职责: 1. 导入并实例化所有分类探针模块（如 BehavioralProbes, ChipProbes 等）。
-                2. 通过方法委托，将所有子模块的探针方法统一暴露给上层调用。
-    - 收益: 实现了探针的完全模块化，结构清晰，易于维护和扩展。
+    【V2.6 · 结构支柱融合探针版】法医探针调度中心
     """
     def __init__(self, intelligence_layer_instance):
         """
-        【V2.5 · 结构与趋势探针版】法医探针调度中心
+        【V2.6 · 结构支柱融合探针版】法医探针调度中心
         """
         from .probes.behavioral_probes import BehavioralProbes
         from .probes.chip_probes import ChipProbes
@@ -22,9 +18,7 @@ class ForensicProbes:
         from .probes.foundation_probes import FoundationProbes
         from .probes.fund_flow_probes import FundFlowProbes
         from .probes.process_probes import ProcessProbes
-        # [代码新增开始]
         from .probes.structural_probes import StructuralProbes
-        # [代码新增结束]
         self.behavioral_probes = BehavioralProbes(intelligence_layer_instance)
         self.chip_probes = ChipProbes(intelligence_layer_instance)
         self.cognitive_probes = CognitiveProbes(intelligence_layer_instance)
@@ -32,9 +26,7 @@ class ForensicProbes:
         self.foundation_probes = FoundationProbes(intelligence_layer_instance)
         self.fund_flow_probes = FundFlowProbes(intelligence_layer_instance)
         self.process_probes = ProcessProbes(intelligence_layer_instance)
-        # [代码新增开始]
         self.structural_probes = StructuralProbes(intelligence_layer_instance)
-        # [代码新增结束]
         self._deploy_prometheus_torch_probe = self.behavioral_probes._deploy_prometheus_torch_probe
         self._deploy_pressure_transmutation_probe = self.behavioral_probes._deploy_pressure_transmutation_probe
         self._deploy_hephaestus_forge_probe = self.chip_probes._deploy_hephaestus_forge_probe
@@ -43,9 +35,10 @@ class ForensicProbes:
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
         self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
         self._deploy_comprehensive_top_risk_probe = self.cognitive_probes._deploy_comprehensive_top_risk_probe
-        # [代码新增开始]
         self._deploy_trend_quality_probe = self.cognitive_probes._deploy_trend_quality_probe
         self._deploy_structural_health_probe = self.structural_probes._deploy_structural_health_probe
+        # [代码新增开始]
+        self._deploy_structural_pillar_fusion_probe = self.structural_probes._deploy_structural_pillar_fusion_probe
         # [代码新增结束]
         self._deploy_main_force_intent_duel_probe = self.cognitive_probes._deploy_main_force_intent_duel_probe
         self._deploy_ares_chariot_probe = self.dynamic_mechanics_probes._deploy_ares_chariot_probe
