@@ -162,13 +162,12 @@ class StructuralIntelligence:
 
     def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_bipolar_snapshot: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.0 · 对称重构版】支柱二：多时间框架协同
-        - 核心重构: 废除旧的、错误的`1-score`逻辑。现在以完全对称的方式计算周线级别的双极性快照分，
-                      并与日线级别的双极性快照分进行融合，确保了跨周期评估的逻辑一致性和正确性。
+        【V2.1 · 双极性加权融合版】支柱二：多时间框架协同
+        - 核心重构: 融合逻辑从惩罚性的乘法改为更稳健的加权平均。现在将日线和周线的双极性快照分
+                      进行加权融合，能更合理地反映综合趋势，避免因周期稍有不配合就导致信号崩溃。
         """
         # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
-        # --- 计算周线级别的双极性快照分 ---
         ma_periods_w = [5, 13, 21, 55]
         required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
         if not all(col in df.columns for col in required_cols_w):
@@ -182,10 +181,8 @@ class StructuralIntelligence:
             weekly_bull_health = weekly_alignment_bull * 0.5 + weekly_velocity_bull * 0.5
             weekly_bear_health = weekly_alignment_bear * 0.5 + weekly_velocity_bear * 0.5
             weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
-        # --- 融合日线和周线的双极性快照分 ---
-        # 只有当日线和周线方向一致时，信号才最强。使用乘法可以体现这一点。
-        fused_bipolar_snapshot = daily_bipolar_snapshot * weekly_bipolar_snapshot
-        # --- 对融合后的双极性快照分进行关系元分析 ---
+        # --- 使用加权平均融合日线和周线的双极性快照分 ---
+        fused_bipolar_snapshot = (daily_bipolar_snapshot * 0.7 + weekly_bipolar_snapshot * 0.3)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, fused_bipolar_snapshot)
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)

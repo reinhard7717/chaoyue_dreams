@@ -29,9 +29,9 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.2 · 阿瑞斯之盾版】动态力学终极信号诊断引擎
-        - 核心革命: 签署“阿瑞斯之盾”协议，废除 s_bear 对 (1 - ma_health_score) 的错误依赖。
-                      现在，我们首先合成一个[-1, 1]的双极性力学快照分，然后从中互斥地派生出 s_bull 和 s_bear。
+        【V16.3 · 算术平均融合版】动态力学终极信号诊断引擎
+        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”来融合五大支柱。
+                      此修改确保了单个支柱的暂时性疲软不会导致整个力学快照分崩溃为零。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -56,29 +56,34 @@ class DynamicMechanicsEngine:
         ine_bear_snapshot = (normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False))**0.5
         energy_bull_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         energy_bear_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
-        weight_keys = list(pillar_weights.keys())
-        weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
-        weights_array /= weights_array.sum()
-        bull_snapshots = [vol_bull_snapshot, eff_bull_snapshot, mom_bull_snapshot, ine_bull_snapshot, energy_bull_snapshot]
-        bear_snapshots = [vol_bear_snapshot, eff_bear_snapshot, mom_bear_snapshot, ine_bear_snapshot, energy_bear_snapshot]
-        stacked_bull = np.stack([s.fillna(0.5).values for s in bull_snapshots], axis=0)
-        stacked_bear = np.stack([s.fillna(0.5).values for s in bear_snapshots], axis=0)
-        fused_bull_snapshot = pd.Series(np.prod(stacked_bull ** weights_array[:, np.newaxis], axis=0), index=df.index)
-        fused_bear_snapshot = pd.Series(np.prod(stacked_bear ** weights_array[:, np.newaxis], axis=0), index=df.index)
-        # 引入双极性健康分计算
-        # 首先，计算一个统一的、双极性的力学快照分
+        # [代码修改开始]
+        # --- 使用加权算术平均数进行融合 ---
+        bull_snapshots = {
+            'volatility': vol_bull_snapshot, 'efficiency': eff_bull_snapshot, 'momentum': mom_bull_snapshot,
+            'inertia': ine_bull_snapshot, 'energy_transition': energy_bull_snapshot
+        }
+        bear_snapshots = {
+            'volatility': vol_bear_snapshot, 'efficiency': eff_bear_snapshot, 'momentum': mom_bear_snapshot,
+            'inertia': ine_bear_snapshot, 'energy_transition': energy_bear_snapshot
+        }
+        fused_bull_snapshot = pd.Series(0.0, index=df.index, dtype=np.float64)
+        fused_bear_snapshot = pd.Series(0.0, index=df.index, dtype=np.float64)
+        total_weight = sum(pillar_weights.values())
+        if total_weight > 0:
+            for name, weight in pillar_weights.items():
+                fused_bull_snapshot += bull_snapshots.get(name, pd.Series(0.5, index=df.index)).fillna(0.5) * (weight / total_weight)
+                fused_bear_snapshot += bear_snapshots.get(name, pd.Series(0.5, index=df.index)).fillna(0.5) * (weight / total_weight)
+        else:
+            fused_bull_snapshot = pd.Series(0.5, index=df.index)
+            fused_bear_snapshot = pd.Series(0.5, index=df.index)
+        # [代码修改结束]
         bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
-        # 然后，将这个双极性快照分与均线趋势上下文（一个[0,1]的看涨确认分）相乘，进行调节
         modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
-        
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # 对调节后的双极性分数进行元分析，得到最终的动态健康分
             final_bipolar_health = self._perform_dynamic_relational_meta_analysis(df, modulated_bipolar_snapshot, p, context_p)
-            # 从最终的双极性健康分中，互斥地派生出 s_bull 和 s_bear
             overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
             overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
-            # d_intensity 现在是 s_bull 的一个内在维度，但为保持接口兼容性，可以返回一个占位符
             overall_health['d_intensity'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
         self.strategy.atomic_states['__DYN_overall_health'] = overall_health
         ultimate_signals = transmute_health_to_ultimate_signals(

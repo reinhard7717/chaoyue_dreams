@@ -202,7 +202,7 @@
       },
       "ultimate_signal_synthesis_params": {
         "enabled": true,
-        "description": "【V1.2 · 阿波罗日冕版】终极信号中央合成引擎。",
+        "description": "【V1.2 · 新高健康度版】终极信号中央合成引擎。",
         "periods": [1, 5, 13, 21, 55],
         "norm_window": 55,
         "resonance_tf_weights": { "short": 0.2, "medium": 0.5, "long": 0.3 },
@@ -211,7 +211,7 @@
         "final_score_exponent": 1.0,
         "new_high_context_params": {
           "enabled": { "value": true },
-          "description": "【阿波罗日冕协议】渐进式遗忘协议，评估新高健康度。",
+          "description": "【新高健康度协议】渐进式遗忘协议，评估新高健康度。",
           "periods": [5, 13, 21, 55],
           "period_weights": { "5": 0.1, "13": 0.2, "21": 0.3, "55": 0.4 },
           "bias_thresholds": { "21": 0.15, "55": 0.25 },
@@ -219,12 +219,12 @@
         },
         "trend_confirmation_context_params": {
           "enabled": { "value": true },
-          "description": "【波塞冬三叉戟】评估趋势的强度、方向和健康度，以更智能地抑制底部信号。",
+          "description": "【趋势确认上下文】评估趋势的强度、方向和健康度，以更智能地抑制底部信号。",
           "adx_threshold": { "value": 20 }
         },
         "tactical_reversal_params": {
           "enabled": { "value": true },
-          "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉战术性回调底部的参数。",
+          "description": "【战术回调捕捉】在上升趋势中，捕捉战术性回调底部的参数。",
           "macro_trend_window": { "value": 3 },
           "bias_periods": [5, 13],
           "bias_weights": {
@@ -236,7 +236,7 @@
         },
         "dynamic_reversal_context_params": {
           "enabled": { "value": true },
-          "description": "【赫菲斯托斯之锤-飞鞋之魂】基于二阶求导，计算动态反转上下文。",
+          "description": "【动态反转上下文】基于二阶求导，计算动态反转上下文。",
           "short_ma_period": 5,
           "mid_ma_period": 21,
           "slope_period": 3,
@@ -255,13 +255,13 @@
         },
         "bottom_context_weights": { "price_pos": 0.5, "rsi_w": 0.3, "cycle": 0.2 },
         "bias_overheat_params": {
-          "description": "【赫淮斯托斯卡尺】用于计算顶部风险的绝对乖离率阈值。",
+          "description": "【乖离率过热阈值】用于计算顶部风险的绝对乖离率阈值。",
           "warning_threshold": 0.15,
           "danger_threshold": 0.25
         },
         "gaia_bedrock_params": {
           "enabled": true,
-          "description": "【V3.1 · 参数校准版】盖亚基石动态支撑系统，引入与乌拉诺斯穹顶对齐的详细权重。",
+          "description": "【V3.1 · 参数校准版】动态支撑系统，引入与动态阻力对齐的详细权重。",
           "support_levels": [34, 55, 89, 144, 233],
           "confirmation_window": 3,
           "aegis_lookback_window": 5,
@@ -290,7 +290,7 @@
         },
         "uranus_ceiling_params": {
           "enabled": true,
-          "description": "“乌拉诺斯穹顶”动态阻力系统参数，是盖亚基石的镜像。",
+          "description": "动态阻力系统参数，是动态支撑的镜像。",
           "resistance_levels": [34, 55, 89, 144, 233],
           "confirmation_window": 3,
           "rejection_lookback_window": 5,
@@ -335,7 +335,7 @@
         "min_price_drop_pct": -0.025,
         "comment_min_price_drop_pct": "触发恐慌信号的最低价格跌幅门槛。",
         "volume_calmness_logic": {
-          "description": "【生命线协议 V2】成交量静谧度评分逻辑。5日均量是拥有绝对王权的生命线，跌破即得1.0基础分；跌破更长均线则获得额外奖励分数。",
+          "description": "【成交量静谧度 V2】成交量静谧度评分逻辑。5日均量是拥有绝对王权的生命线，跌破即得1.0基础分；跌破更长均线则获得额外奖励分数。",
           "lifeline_ma_period": 5,
           "lifeline_base_score": 1.0,
           "absolute_depth_bonus": {
@@ -563,7 +563,7 @@
         },
         "upper_shadow_intent_params": {
           "enabled": true,
-          "description": "【V2.1 · 阿瑞斯之矛版】上影线意图诊断引擎参数。聚焦于主力净流向和成本代价两大核心证据。",
+          "description": "【V2.1 · 主力意图诊断版】上影线意图诊断引擎参数。聚焦于主力净流向和成本代价两大核心证据。",
           "norm_window": 55,
           "min_upper_shadow_ratio": 0.4,
           "fusion_weights": {
@@ -696,23 +696,23 @@
       },
       "behavioral_dynamics_params": {
         "enabled": true,
-        "description": "【V23.1 · 阿瑞斯之怒版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
+        "description": "【V23.1 · 双通道净值版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
         "reversal_echo_window": 3,
         "pillar_weights": {
           "price": 0.4, "volume": 0.3, "kline": 0.3
         },
         "relational_meta_analysis_params": {
-          "description": "【V3.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【V3.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "supreme_fusion_params": {
-          "description": "【宙斯之雷】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
+          "description": "【顶层神谕融合】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
           "fusion_weights": {
             "description": "各原子底部信号在加权几何平均中的权重。",
             "BOTTOM_FORMATION": 0.4,
@@ -741,7 +741,7 @@
           "peak_integrity": 0.15
         },
         "ma_trend_context_weights": {
-          "description": "【V2.0 · 阿波罗战车版】为筹码引擎专用的四维趋势上下文评估提供权重。",
+          "description": "【V2.0 · 四维趋势上下文版】为筹码引擎专用的四维趋势上下文评估提供权重。",
           "alignment": 0.3,
           "velocity": 0.2,
           "acceleration": 0.2,
@@ -755,7 +755,7 @@
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         },
         "context_modulation_params": {
           "description": "上下文感知模块，用于增强或抑制筹码信号。",
@@ -770,21 +770,22 @@
           "volatility": 0.25, "efficiency": 0.25, "momentum": 0.2, "inertia": 0.2, "energy_transition": 0.1
         },
         "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。关系分是核心。",
+          "description": "【五维均线健康度】五维均线健康度加权融合权重。关系分是核心。",
           "alignment": 0.15,
           "slope": 0.15,
           "accel": 0.2,
-          "relational": 0.5
+          "relational": 0.25,
+          "meta_dynamics": 0.25
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【V2.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "foundation_ultimate_params": {
@@ -857,7 +858,7 @@
         "description": "【V1.3 · 拉升派发识别版】微观行为引擎的专属参数块。",
         "icarus_fall_params": {
           "enabled": true,
-          "description": "【V2.0】'伊卡洛斯之坠'风险诊断引擎参数，识别主力在高位通过诱多完成派发的风险。",
+          "description": "【V2.0】'高位诱多派发'风险诊断引擎参数，识别主力在高位通过诱多完成派发的风险。",
           "norm_window": 55
         },
         "rally_distribute_params": {
@@ -866,26 +867,26 @@
           "norm_window": 55
         },
         "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】四维均线健康度加权融合权重。",
+          "description": "【五维均线健康度】五维均线健康度加权融合权重。",
           "alignment": 0.15,
           "slope": 0.15,
           "accel": 0.2,
           "relational": 0.5
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【V2.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V18.0 · 四位一体版】定义了基于“趋势完整性、MTF协同、结构突破、形态确认”四大核心支柱的新结构引擎参数。",
+        "description": "【V18.0 · 四支柱融合版】定义了基于“趋势完整性、MTF协同、结构突破、形态确认”四大核心支柱的新结构引擎参数。",
         "pillar_weights": {
           "trend_integrity": 0.4,
           "mtf_cohesion": 0.3,
@@ -893,7 +894,7 @@
           "pattern_confirmation": 0.15
         },
         "ma_health_fusion_weights": {
-          "description": "【赫尔墨斯的商神杖】五维均线健康度加权融合权重。元动力和关系分是核心。",
+          "description": "【五维均线健康度】五维均线健康度加权融合权重。元动力和关系分是核心。",
           "alignment": 0.15,
           "slope": 0.15,
           "accel": 0.2,
@@ -901,14 +902,14 @@
           "meta_dynamics": 0.25
         },
         "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
+          "description": "【V2.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
           "state_weight": 0.3,
           "velocity_weight": 0.3,
           "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
         }
       },
       "cognitive_intelligence_params": {

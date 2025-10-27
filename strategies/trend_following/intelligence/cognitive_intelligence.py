@@ -171,13 +171,12 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.0 · 周期解耦版】趋势质量融合评分模块
-        - 核心升级: 将“周期性”从“趋势政权”中解耦，作为一个独立的、负向的评估维度。
-                      高质量的趋势必然是低周期性的。此修改使趋势质量的评估更纯粹、更精准。
+        【V5.1 · 算术平均融合版】趋势质量融合评分模块
+        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”。
+                      此修改确保了单个领域的暂时性疲软不会导致整个评估系统崩溃。
         """
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
-        # 调整domain_scores_map，将周期性解耦
         domain_scores_map = {
             'behavior': 1.0 - get_unified_score(self.strategy.atomic_states, df.index, 'STRUCT_BEHAVIOR_TOP_REVERSAL'),
             'chip': get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE'),
@@ -185,19 +184,22 @@ class CognitiveIntelligence:
             'structural': get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE'),
             'mechanics': get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE'),
             'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
-            'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') # 新增：周期性作为负向指标
+            'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME')
         }
-        
-        valid_scores = [score.values for name, score in domain_scores_map.items() if weights.get(name, 0) > 0]
-        valid_weights = [weights.get(name) for name in domain_scores_map if weights.get(name, 0) > 0]
-        if valid_scores:
-            weights_array = np.array(valid_weights)
-            weights_array /= weights_array.sum()
-            stacked_scores = np.stack(valid_scores, axis=0)
-            consensus_snapshot_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-            consensus_snapshot_score = pd.Series(consensus_snapshot_values, index=df.index, dtype=np.float32)
+        # [代码修改开始]
+        # --- 使用加权算术平均数进行融合 ---
+        consensus_snapshot_score = pd.Series(0.0, index=df.index, dtype=np.float64)
+        total_weight = 0.0
+        valid_weights = {name: w for name, w in weights.items() if w > 0 and name in domain_scores_map}
+        total_weight = sum(valid_weights.values())
+        if total_weight > 0:
+            for name, score_series in domain_scores_map.items():
+                weight = valid_weights.get(name, 0)
+                if weight > 0:
+                    consensus_snapshot_score += score_series.fillna(0.5) * (weight / total_weight)
         else:
             consensus_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        # [代码修改结束]
         direct_trend_health_score = self._calculate_cognitive_trend_health(df)
         trend_quality_snapshot_score = (direct_trend_health_score * consensus_snapshot_score)**0.5
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
