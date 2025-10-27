@@ -7,17 +7,17 @@ class StructuralProbes:
     """
     【探针模块】结构情报专属探针
     """
-    # [代码新增开始]
     def __init__(self, intel_layer):
         self.strategy = intel_layer.strategy
         self.structural_intel = intel_layer.structural_intel
     def _deploy_structural_health_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0】结构健康度探针
-        - 核心使命: 解剖 SCORE_STRUCTURE_BULLISH_RESONANCE 信号，追溯其零分根源。
-        - 解剖链路: 1. 最终信号 -> 2. 跨周期融合 -> 3. 四大支柱融合 -> 4. 各支柱健康度
+        【探针 V1.1 · 链路同步版】结构健康度探针
+        - 核心升级: 同步主引擎的信号链路变更。现在正确地将第一支柱计算出的`bipolar_snapshot`
+                      作为输入传递给第二支柱，确保了探针重算逻辑与主引擎完全一致。
         """
-        print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V1.0】🏛️ " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V1.1】🏛️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.structural_intel
@@ -53,10 +53,12 @@ class StructuralProbes:
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'pattern_confirmation']
-        ti_s_bull, _, _ = engine._calculate_trend_integrity_health(df, periods, 55)
-        mtf_s_bull, _, _ = engine._calculate_mtf_cohesion_health(df, periods, 55, ti_s_bull)
-        bp_s_bull, _, _ = engine._calculate_breakout_potential_health(df, periods, 55)
-        pc_s_bull, _, _ = engine._calculate_pattern_health(df, periods, 55)
+        norm_window = 55
+        # 重新执行支柱计算，并同步新的信号链路
+        ti_s_bull, _, _, daily_bipolar_snapshot = engine._calculate_trend_integrity_health(df, periods, norm_window)
+        mtf_s_bull, _, _ = engine._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar_snapshot)
+        bp_s_bull, _, _ = engine._calculate_breakout_potential_health(df, periods, norm_window)
+        pc_s_bull, _, _ = engine._calculate_pattern_health(df, periods, norm_window)
         pillar_bull_health = {
             'trend_integrity': ti_s_bull,
             'mtf_cohesion': mtf_s_bull,
@@ -72,27 +74,18 @@ class StructuralProbes:
             print(f"      - [支柱: {name}] 健康度: {pillar_values_p13[name]:.4f}")
         # 链路层 4: 支柱融合重算
         print("\n  [链路层 4] 支柱融合重算 (p=13 周期)")
-        weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
-        total_pillar_weight = sum(weights_in_order)
-        normalized_weights = np.array(weights_in_order) / total_pillar_weight
-        components = [pillar_values_p13[name] for name in pillar_names_in_order]
-        safe_components = np.maximum(components, 1e-9)
-        recalc_overall_health_p13 = np.exp(np.sum(normalized_weights * np.log(safe_components)))
+        valid_components = [(pillar_values_p13[name], pillar_weights.get(name, 0.25)) for name in pillar_names_in_order]
+        components = [item[0] for item in valid_components]
+        weights_for_period = [item[1] for item in valid_components]
+        total_pillar_weight = sum(weights_for_period)
+        if total_pillar_weight > 0:
+            normalized_weights = np.array(weights_for_period) / total_pillar_weight
+            safe_components = np.maximum(components, 1e-9)
+            recalc_overall_health_p13 = np.exp(np.sum(normalized_weights * np.log(safe_components)))
+        else:
+            recalc_overall_health_p13 = np.mean(components) if components else 0.0
         print(f"    - [融合公式]: product(pillar_score ** weight)")
         print(f"    - 【探针重算整体健康度 (p=13)】: {recalc_overall_health_p13:.4f}")
         print(f"    - [对比]: 系统值 {overall_health_p13:.4f} vs. 探针重算值 {recalc_overall_health_p13:.4f} -> {'✅ 一致' if np.isclose(overall_health_p13, recalc_overall_health_p13) else '❌ 不一致'}")
         print("\n--- “结构健康度探针”解剖完毕 ---")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        # [代码修改结束]
