@@ -158,11 +158,6 @@ class IntelligenceLayer:
                 self.probes._deploy_structural_pillar_fusion_probe(probe_date)
             if debug_params.get('enable_structural_pillar_dissection_probe', False):
                 self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
-            # [代码修改开始]
-            # 新增对高位遇阻风险探针的调用
-            if debug_params.get('enable_peak_rejection_risk_probe', False):
-                self.probes._deploy_peak_rejection_risk_probe(probe_date)
-            # [代码修改结束]
 
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 

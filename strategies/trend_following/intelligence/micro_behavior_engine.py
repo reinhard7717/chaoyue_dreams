@@ -38,10 +38,7 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_microstructure_dynamics(df)) # 此方法已被重构
         update_states(self._synthesize_profit_taking_pressure_risk(df)) # 新增独立的风险引擎调用
         update_states(self.synthesize_euphoric_acceleration_risk(df))
-        update_states(self.synthesize_peak_rejection_risk(df))
         update_states(self.diagnose_hermes_gambit(df))
-        # 调用全新的“伊卡洛斯之坠”诊断引擎
-        update_states(self.diagnose_icarus_fall_risk(df))
         update_states(self._diagnose_consolidation_breakout(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
         update_states(self.synthesize_reversal_reliability_score(

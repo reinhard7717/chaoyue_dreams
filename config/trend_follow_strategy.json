@@ -156,8 +156,7 @@
         "enable_structural_pillar_dissection_probe": false,
         "enable_trend_quality_probe": false,
         "enable_structural_health_probe": false,
-        "enable_structural_pillar_fusion_probe": false,
-        "enable_peak_rejection_risk_probe": true
+        "enable_structural_pillar_fusion_probe": false
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
