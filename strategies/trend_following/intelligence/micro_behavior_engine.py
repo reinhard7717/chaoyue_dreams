@@ -427,7 +427,6 @@ class MicroBehaviorEngine:
         - 核心逻辑: 对“了结紧迫度”和“兑现溢价”两大核心证据进行独立的三维动态分析，然后加权融合，
                       最终生成一个高保真、高可信度的利润兑现风险信号。
         """
-        # [代码修改开始]
         states = {}
         signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
         periods = [1, 5, 13, 21, 55]
@@ -583,10 +582,10 @@ class MicroBehaviorEngine:
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V3.0 · 动态模型修正版】微观行为专用的关系元分析核心引擎
-        - 核心修正: 修正了动态融合模型的逻辑缺陷。现在，只有当速度和加速度为正（代表趋势增长）时，
-                      它们才会对最终分数做出贡献。这避免了因趋势减弱（负值）而错误地抵消当前状态分的问题，
-                      确保了风险信号只在风险累积和增长时才被激活。
+        【V4.0 · 阿瑞斯之怒协议版】微观行为专用的关系元分析核心引擎
+        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
+                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
+                      并转换为[0, 1]的单极性分数以兼容上游，彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -596,27 +595,42 @@ class MicroBehaviorEngine:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        state_score = snapshot_score.clip(0, 1)
-        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
-        # [代码修改开始]
-        velocity_score_bipolar = normalize_to_bipolar(
+        # 将输入的单极性快照分转换为双极性
+        bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
+        # 维度二：速度分
+        relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
+        velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
+        # 维度三：加速度分
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-        acceleration_score_bipolar = normalize_to_bipolar(
+        acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 修正核心：只取速度和加速度的看涨部分（正值）参与风险评分
-        velocity_score_unipolar = velocity_score_bipolar.clip(0, 1)
-        acceleration_score_unipolar = acceleration_score_bipolar.clip(0, 1)
-        final_score = (
-            state_score * w_state +
-            velocity_score_unipolar * w_velocity +
-            acceleration_score_unipolar * w_acceleration
-        ).clip(0, 1)
-        return final_score.astype(np.float32)
+        # --- 看涨力量评估 ---
+        bullish_state = bipolar_snapshot.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration
+        )
+        # --- 看跌力量评估 ---
+        bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration
+        )
+        # --- 净值裁决并转换为单极性输出 ---
+        final_bipolar_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        final_unipolar_score = (final_bipolar_score + 1) / 2.0
+        return final_unipolar_score.astype(np.float32)
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
@@ -676,7 +690,6 @@ class MicroBehaviorEngine:
                       确保无论调用者传入 'metric' 还是 'metric_D' 都能正确找到数据列，
                       从根本上解决因命名不一致导致的 AttributeError。
         """
-        # [代码修改开始]
         # 建立健壮的列名处理协议，确保总能正确找到带 '_D' 后缀的列
         base_metric_name = metric_name[:-2] if metric_name.endswith('_D') else metric_name
         full_metric_name = f"{base_metric_name}_D"

@@ -34,7 +34,6 @@ class IntelligenceLayer:
         【V407.2 · 探针调度器修复版】
         - 核心修复: 补上了对主探针调度器 ForensicProbes 的导入，解决了 NameError 启动错误。
         """
-        # [代码修改开始]
         self.strategy = strategy_instance
         self.kline_params = get_params_block(self.strategy, 'kline_pattern_params')
         self.strategy.pattern_recognizer = KlinePatternRecognizer(params=self.kline_params)

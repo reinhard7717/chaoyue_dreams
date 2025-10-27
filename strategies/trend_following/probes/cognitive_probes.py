@@ -165,7 +165,6 @@ class CognitiveProbes:
         【探针 V2.1 · 神盾解剖版】综合顶部风险探针
         - 核心升级: 增强对“趋势韧性神盾”的解剖能力，清晰展示其“静态韧性”和“动态韧性”的计算过程。
         """
-        # [代码修改开始]
         print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.1】🛡️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -247,7 +246,6 @@ class CognitiveProbes:
         【探针 V4.0 · 全息意图对决版】主力意图对决风险探针
         - 核心重构: 同步主引擎的MTF分析逻辑，解剖从“分周期对决”到“全息融合”的完整链路。
         """
-        # [代码修改开始]
         print("\n" + "="*25 + f" [认知探针] 正在启用 ⚔️【主力意图对决风险探针 V4.0】⚔️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states

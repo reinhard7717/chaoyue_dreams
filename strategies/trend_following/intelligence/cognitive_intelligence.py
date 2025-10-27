@@ -69,7 +69,6 @@ class CognitiveIntelligence:
         del self.strategy.atomic_states['strategy_instance_ref']
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
-        # [代码修改开始]
         # 调用重构后的综合顶部风险诊断引擎
         comprehensive_top_risk_states = self._diagnose_comprehensive_top_risk(df)
         self.strategy.atomic_states.update(comprehensive_top_risk_states)
@@ -749,7 +748,6 @@ class CognitiveIntelligence:
           3. [信号净化]: 彻底清除所有“幽灵信号”，并替换为最新的正确信号。
         - 最终逻辑: 最终风险 = max(三柱风险) * (1 - 神盾分数)
         """
-        # [代码修改开始]
         states = {}
         signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
         # --- 支柱一: 亢奋/高潮风险 (Euphoric/Climactic Risk) ---
@@ -1119,7 +1117,7 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
-                # [代码修改开始] 零值隔离协议
+                # 零值隔离协议
                 zero_mask = np.isclose(source_series_raw, 0)
                 # [代码修改结束]
                 transformed_series = source_series_raw.copy()
@@ -1149,7 +1147,7 @@ class CognitiveIntelligence:
                         fused_component_series += normalized_series * weight
                 else:
                     fused_component_series = normalize_score(transformed_series, df.index, 55)
-                # [代码修改开始] 零值隔离协议执行
+                # 零值隔离协议执行
                 fused_component_series[zero_mask] = 0.0
                 # [代码修改结束]
                 if comp.get('is_gate', False):
@@ -1174,48 +1172,55 @@ class CognitiveIntelligence:
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 动态模型修正版】认知层专用的关系元分析核心引擎
-        - 核心修正: 与微观行为引擎同步，修正了动态融合模型的逻辑缺陷。
-                      现在，只有当速度和加速度为正（代表趋势增长）时，它们才会对最终分数做出贡献。
-                      这避免了因趋势减弱（负值）而错误地抵消当前状态分的问题，确保了风险/机会信号只在累积和增长时才被激活。
+        【V3.0 · 阿瑞斯之怒协议版】认知层专用的关系元分析核心引擎
+        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
+                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
+                      并转换为[0, 1]的单极性分数以兼容上游，彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
         """
-        # [代码修改开始]
-        # 从认知层专属配置中获取权重
         p_conf = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 使用“阿瑞斯之怒”的加法模型
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
-        # 核心参数
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - “共识”的当前状态
-        state_score = snapshot_score.clip(0, 1)
-        # 第二维度：速度分 (Velocity Score) - “共识”的变化速度
-        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
-        velocity_score_bipolar = normalize_to_bipolar(
+        # 将输入的单极性快照分转换为双极性
+        bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
+        # 维度二：速度分
+        relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
+        velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 第三维度：加速度分 (Acceleration Score) - “共识”的变化加速度
+        # 维度三：加速度分
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
-        acceleration_score_bipolar = normalize_to_bipolar(
+        acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 修正核心：只取速度和加速度的看涨部分（正值）参与评分
-        velocity_score_unipolar = velocity_score_bipolar.clip(0, 1)
-        acceleration_score_unipolar = acceleration_score_bipolar.clip(0, 1)
-        # 终极融合：加法赋权
-        final_score = (
-            state_score * w_state +
-            velocity_score_unipolar * w_velocity +
-            acceleration_score_unipolar * w_acceleration
-        ).clip(0, 1)
-        return final_score.astype(np.float32)
-        # [代码修改结束]
+        # --- 看涨力量评估 ---
+        bullish_state = bipolar_snapshot.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration
+        )
+        # --- 看跌力量评估 ---
+        bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration
+        )
+        # --- 净值裁决并转换为单极性输出 ---
+        final_bipolar_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        final_unipolar_score = (final_bipolar_score + 1) / 2.0
+        return final_unipolar_score.astype(np.float32)
 
     def _calculate_aegis_shield_context(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -1415,7 +1420,6 @@ class CognitiveIntelligence:
                       然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
                       这解决了单一维度判断的战略短视和信号脆弱问题。
         """
-        # [代码修改开始]
         states = {}
         signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -1451,7 +1455,6 @@ class CognitiveIntelligence:
         - 核心重构: 废除脆弱的“加权几何平均数”，换用更具韧性的“加权算术平均数”，避免因单点故障导致神盾完全失效。
         - 战略升维: 引入关系元分析。最终神盾分数 = 静态韧性 * (1 + 动态韧性)，使其能感知趋势的“生命力”。
         """
-        # [代码修改开始]
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
         if not get_param_value(p_shield.get('enabled'), True):

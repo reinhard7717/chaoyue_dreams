@@ -102,7 +102,6 @@ class StructuralIntelligence:
         - 核心重构: 废除旧的非对称评估逻辑。现在为看涨和看跌两个方向建立完全对称的五维评估体系，
                       并计算其“净值”作为双极性快照分，从根本上修复信号被错误压制的问题。
         """
-        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
@@ -261,10 +260,10 @@ class StructuralIntelligence:
 
     def _perform_structural_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V2.0 · 阿瑞斯之怒协议版】结构专用的关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V3.0 · 阿瑞斯之怒协议版】结构专用的关系元分析核心引擎
+        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
+                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
+                      彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
         """
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -274,23 +273,40 @@ class StructuralIntelligence:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        state_score = snapshot_score.clip(0, 1)
+        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
+        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        final_score = (
-            state_score * w_state +
-            velocity_score * w_velocity +
-            acceleration_score * w_acceleration
-        ).clip(0, 1)
+        # --- 看涨力量评估 (Bullish Force) ---
+        bullish_state = snapshot_score.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration
+        )
+        # --- 看跌力量评估 (Bearish Force) ---
+        bearish_state = (snapshot_score.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration
+        )
+        # --- 净值裁决 (Net Value Adjudication) ---
+        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
         return final_score.astype(np.float32)
+
 
         
 

@@ -22,7 +22,7 @@ class ProcessProbes:
                       解决了因配置结构理解错误导致的 KeyError。
         """
         print(f"--- 探针启动: 解剖信号 '{signal_name}' 在 {probe_date.date()} 的状态 ---")
-        # [代码修改开始] 使用 get_params_block 安全地获取参数块
+        # 使用 get_params_block 安全地获取参数块
         from strategies.trend_following.utils import get_params_block
         process_params = get_params_block(self.strategy, 'process_intelligence_params', {})
         config = next((c for c in process_params.get('diagnostics', []) if c.get('name') == signal_name), None)
@@ -32,7 +32,7 @@ class ProcessProbes:
             return
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
-        # [代码修改开始] 从正确的参数块中获取参数
+        # 从正确的参数块中获取参数
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         std_window = process_params.get('std_window')

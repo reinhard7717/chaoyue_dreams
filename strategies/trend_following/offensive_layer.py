@@ -27,7 +27,7 @@ class OffensiveLayer:
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_series = atomic_states.get(signal_name, playbook_states.get(signal_name))
-            # [代码修改开始] 增加对 signal_series 类型的严格检查
+            # 增加对 signal_series 类型的严格检查
             if signal_series is None or not isinstance(signal_series, pd.Series):
                 continue
             # [代码修改结束]

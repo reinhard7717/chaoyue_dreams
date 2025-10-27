@@ -62,7 +62,7 @@ class BehavioralIntelligence:
         self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
         # 步骤三：【核心重构】调用全新的、基于高保真结构指标的健康度计算引擎
         overall_health = self._calculate_structural_behavior_health(df, p_conf)
-        # [代码修改开始] 将复杂的字典存入一个内部专用的键，避免污染
+        # 将复杂的字典存入一个内部专用的键，避免污染
         self.strategy.atomic_states['_internal_behavior_health_dict'] = overall_health
         # [代码修改结束]
         # 步骤四：调用终极信号合成引擎 (逻辑保留，但消费的是更高质量的健康度数据)
@@ -96,7 +96,7 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # [代码修改开始] 实施全链路逻辑集权，并移除冗余调用
+        # 实施全链路逻辑集权，并移除冗余调用
         # 步骤1: 生成临时的广义抛压信号
         provisional_kline_signals = self._diagnose_kline_patterns(df, day_quality_score)
         provisional_pressure = provisional_kline_signals.get('PROVISIONAL_GENERAL_PRESSURE_RISK', pd.Series(0.0, index=df.index))
@@ -663,7 +663,7 @@ class BehavioralIntelligence:
             return states
         norm_window = get_param_value(p.get('norm_window'), 55)
         weights = get_param_value(p.get('fusion_weights'), {})
-        # [代码修改开始] 实施“阿瑞斯之矛”协议，更新权重和证据
+        # 实施“阿瑞斯之矛”协议，更新权重和证据
         w_flow = get_param_value(weights.get('main_force_flow'), 0.6)
         w_profit = get_param_value(weights.get('profit_profile'), 0.4)
         # [代码修改结束]
@@ -671,7 +671,7 @@ class BehavioralIntelligence:
         upper_shadow = (df['high_D'] - np.maximum(df['open_D'], df['close_D'])).clip(lower=0)
         upper_shadow_ratio = (upper_shadow / kline_range).fillna(0)
         trigger_mask = upper_shadow_ratio > get_param_value(p.get('min_upper_shadow_ratio'), 0.4)
-        # [代码修改开始] 实施“阿瑞斯之矛”协议，精简证据链
+        # 实施“阿瑞斯之矛”协议，精简证据链
         # 证据A: 主力净流向 (绝对意图)
         main_force_flow_score = normalize_to_bipolar(df.get('main_force_net_flow_consensus_D', 0), df.index, norm_window)
         # 证据B: 成本代价 (信念强度)
@@ -777,48 +777,58 @@ class BehavioralIntelligence:
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, signal_name: str) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 阿瑞斯之怒协议版】关系元分析核心引擎
-        - 核心革命: 响应“重变化、轻状态”的哲学，从“状态 * (1 + 动态)”的乘法模型，升级为
-                      “(状态*权重) + (速度*权重) + (加速度*权重)”的加法模型。
-        - 核心目标: 即使静态分很低，只要动态（尤其是加速度）足够强，也能产生高分，真正捕捉“拐点”。
+        【V4.0 · 阿瑞斯之怒协议版】关系元分析核心引擎
+        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
+                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
+                      彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
         """
         states = {}
-        # 引入新的权重体系和加法融合模型
-        # 从配置中获取新的加法模型权重
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 新的权重体系，直接作用于最终分数，而非杠杆
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4) # 赋予加速度最高权重
-        # --- 从ProcessIntelligence借鉴的核心参数 ---
+        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 第一维度：状态分 (State Score) - 范围 [0, 1]
-        state_score = snapshot_score.clip(0, 1)
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
-        relationship_trend = snapshot_score.diff(meta_window).fillna(0)
+        # 将输入的单极性快照分转换为双极性，以适配新的双通道逻辑
+        # 假设 snapshot_score 是 [0, 1] 的机会分
+        bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
+        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
+        relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
+        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
         relationship_accel = relationship_trend.diff(meta_window).fillna(0)
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 终极融合：从乘法调制升级为加法赋权
-        # 旧的乘法模型: dynamic_leverage = 1 + (velocity_score * w_velocity) + (acceleration_score * w_acceleration)
-        # 旧的乘法模型: final_score = (state_score * dynamic_leverage).clip(0, 1)
-        # 新的加法模型:
-        final_score = (
-            state_score * w_state +
-            velocity_score * w_velocity +
-            acceleration_score * w_acceleration
-        ).clip(0, 1) # clip确保分数在[0, 1]范围内
-        states[signal_name] = final_score.astype(np.float32)
+        # --- 看涨力量评估 (Bullish Force) ---
+        bullish_state = bipolar_snapshot.clip(0, 1)
+        bullish_velocity = velocity_score.clip(0, 1)
+        bullish_acceleration = acceleration_score.clip(0, 1)
+        total_bullish_force = (
+            bullish_state * w_state +
+            bullish_velocity * w_velocity +
+            bullish_acceleration * w_acceleration
+        )
+        # --- 看跌力量评估 (Bearish Force) ---
+        bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
+        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
+        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
+        total_bearish_force = (
+            bearish_state * w_state +
+            bearish_velocity * w_velocity +
+            bearish_acceleration * w_acceleration
+        )
+        # --- 净值裁决 (Net Value Adjudication) ---
+        # 最终输出一个 [0, 1] 的分数，因为上游调用者期望的是一个机会分
+        final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        unipolar_score = (final_score + 1) / 2.0
+        states[signal_name] = unipolar_score.astype(np.float32)
         return states
 
     def _supreme_fusion_engine(self, df: pd.DataFrame, signals_to_fuse: Dict[str, pd.Series], params: Dict) -> pd.Series:

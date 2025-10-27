@@ -195,7 +195,7 @@ class ProcessIntelligence:
         meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
         meta_score = np.clip(meta_score, -1, 1)
         
-        # [代码修改开始] 信号分裂：将一个双极性信号拆分为两个单极性信号
+        # 信号分裂：将一个双极性信号拆分为两个单极性信号
         # 风险信号 (DECAY): 只取负向部分，并转为正值，代表风险强度。
         risk_part = meta_score.clip(upper=0).abs()
         atomic_states[signal_name] = risk_part.astype(np.float32)
