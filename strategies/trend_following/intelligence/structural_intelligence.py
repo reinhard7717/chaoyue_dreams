@@ -98,14 +98,14 @@ class StructuralIntelligence:
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
-        【V1.2 · 壁炉协议版】支柱一：趋势完整性 (赫尔墨斯的商神杖)
-        - 核心革命: 引入“赫斯提亚的壁炉”协议，建立稳定的中性区，避免在平衡点附近产生神经质信号。
+        【V2.0 · 对称评估版】支柱一：趋势完整性
+        - 核心重构: 废除旧的非对称评估逻辑。现在为看涨和看跌两个方向建立完全对称的五维评估体系，
+                      并计算其“净值”作为双极性快照分，从根本上修复信号被错误压制的问题。
         """
+        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        # 获取壁炉阈值
         neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
-        
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
@@ -115,32 +115,46 @@ class StructuralIntelligence:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
             return s_bull, s_bear, d_intensity
         ma_values = np.stack([df[col].values for col in required_cols], axis=0)
+        # --- 五维健康度计算 ---
+        # 维度1: 排列
         bull_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
         bear_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
+        # 维度2: 速度
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
-        velocity_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in slope_cols], axis=0) if slope_cols else 0.5
+        bull_velocity = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in slope_cols], axis=0) if slope_cols else 0.5
+        bear_velocity = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in slope_cols], axis=0) if slope_cols else 0.5
+        # 维度3: 加速度
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
-        acceleration_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in accel_cols], axis=0) if accel_cols else 0.5
+        bull_acceleration = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in accel_cols], axis=0) if accel_cols else 0.5
+        bear_acceleration = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in accel_cols], axis=0) if accel_cols else 0.5
+        # 维度4: 关系
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
+        bull_relational = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values # 发散为看跌，收敛为看涨
+        bear_relational = normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
+        # 维度5: 元动力
         meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
-        meta_dynamics_health = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
+        bull_meta_dynamics = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
+        bear_meta_dynamics = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
+        # --- 对称融合 ---
         bull_score_values = (
             bull_alignment * fusion_weights.get('alignment', 0.15) +
-            velocity_health * fusion_weights.get('slope', 0.15) +
-            acceleration_health * fusion_weights.get('accel', 0.2) +
-            relational_health * fusion_weights.get('relational', 0.25) +
-            meta_dynamics_health * fusion_weights.get('meta_dynamics', 0.25)
+            bull_velocity * fusion_weights.get('slope', 0.15) +
+            bull_acceleration * fusion_weights.get('accel', 0.2) +
+            bull_relational * fusion_weights.get('relational', 0.25) +
+            bull_meta_dynamics * fusion_weights.get('meta_dynamics', 0.25)
         )
-        bull_snapshot_score = pd.Series(bull_score_values, index=df.index, dtype=np.float32)
-        bear_snapshot_score = pd.Series(bear_alignment, index=df.index, dtype=np.float32)
-        bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
+        bear_score_values = (
+            bear_alignment * fusion_weights.get('alignment', 0.15) +
+            bear_velocity * fusion_weights.get('slope', 0.15) +
+            bear_acceleration * fusion_weights.get('accel', 0.2) +
+            bear_relational * fusion_weights.get('relational', 0.25) +
+            bear_meta_dynamics * fusion_weights.get('meta_dynamics', 0.25)
+        )
+        # --- 净值裁决与动态分析 ---
+        bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # 部署“赫斯提亚的壁炉”协议
-        # 不再使用简单的clip，而是调用新的协议执行器
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
-        
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
