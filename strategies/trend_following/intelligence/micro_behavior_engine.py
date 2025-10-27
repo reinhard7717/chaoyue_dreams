@@ -519,47 +519,60 @@ class MicroBehaviorEngine:
 
     def synthesize_peak_rejection_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 结构化重构版】高位遇阻风险 (Peak Rejection Risk) 诊断引擎
-        - 核心重构: 废弃旧的、脆弱的“高位回落”逻辑，重构为更稳健、更精确的“高位遇阻”逻辑。
-        - 新核心逻辑: 风险 = (高位区域得分) * (当日抛压得分) * (趋势抑制因子)
-        - 优势: 1. 直接复用高质量的结构化指标和原子风险信号，逻辑更清晰、更稳健。
-                  2. 能够精确识别上涨日背后隐藏的“冲高回落”式派发风险，解决了旧逻辑的根本缺陷。
+        【V6.0 · 过度拉伸版】高位遇阻风险 (Peak Rejection Risk) 诊断引擎
+        - 核心重构: 1. 废弃基于 price_to_peak_ratio 的脆弱逻辑。
+                      2. 改为使用更稳健的“过度拉伸”模型 (stretch_from_ma55_score) 来定义“高位区域”。
+        - 新核心逻辑: 风险 = (过度拉伸得分) * (当日抛压得分) * (趋势抑制因子)
+        - 优势: 能够动态、自适应地识别任何趋势阶段的“亢奋”和“力竭”状态，解决了在主升浪中误判的问题。
         """
         states = {}
-        # [代码修改开始]
-        # 信号名称更新，以更准确地反映其逻辑
         signal_name = 'COGNITIVE_RISK_PEAK_REJECTION'
         p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
             states[signal_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
             return states
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        # 支柱一：战略位置 - 是否处于高危区域？
-        # 使用更直接的结构化指标 price_to_peak_ratio_D
-        peak_proximity_threshold = get_param_value(p_risk.get('peak_proximity_threshold'), 0.95)
-        is_near_peak_score = (df.get('price_to_peak_ratio_D', 0.0) > peak_proximity_threshold).astype(float)
-        # 支柱二：战术行为 - 当日是否遭遇了实质性抛压？
-        # 直接复用高质量的原子风险信号
+        
+        # [代码修改开始]
+        # --- 支柱一：战略位置 (重构为“过度拉伸”模型) ---
+        high_position_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
+        ma55 = df.get('EMA_55_D', df['close_D'])
+        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
+        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
+        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
+        is_overextended_score = (stretch_from_ma55_score > high_position_threshold).astype(float)
+        
+        # --- 支柱二：战术行为 (逻辑不变) ---
         rejection_quality_score = self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0)
-        # 安全阀：趋势健康度
+        
+        # --- 安全阀：趋势健康度 (逻辑不变) ---
         ma_health_score = self._calculate_ma_health(df, p_conf, 55)
         trend_suppression_factor = (1 - ma_health_score.clip(0, 1))
-        # 融合生成风险快照分
-        snapshot_score = is_near_peak_score * rejection_quality_score * trend_suppression_factor
-        # 对快照分进行关系元分析，捕捉其动态变化
+        
+        # --- 融合生成风险快照分 ---
+        snapshot_score = is_overextended_score * rejection_quality_score * trend_suppression_factor
+        # [代码修改结束]
+
+        # --- 对快照分进行关系元分析 (此函数已被修复) ---
         final_risk_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
         states[signal_name] = final_risk_score.clip(0, 1).astype(np.float32)
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V5.0 · 状态主导协议版】微观行为专用的关系元分析核心引擎
-        - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
+        【V5.1 · 动态熔断版】微观行为专用的关系元分析核心引擎
+        - 核心修复: 植入“动态熔断”机制。当输入信号在近期无波动时，直接返回中性分0.5，
+                      从根本上杜绝了从静态输入中凭空制造“幽灵信号”的BUG。
         """
+        # [代码修改开始]
+        # --- 动态熔断机制 ---
+        # 如果输入信号在近期是平的（标准差接近0），则它不具备任何“动态”，直接返回中性分。
+        if snapshot_score.rolling(window=5).std().iloc[-1] < 1e-6:
+            return pd.Series(0.5, index=df.index, dtype=np.float32)
+        # [代码修改结束]
         
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        # 权重调整为状态主导
         w_state = get_param_value(p_meta.get('state_weight'), 0.6)
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
@@ -594,11 +607,9 @@ class MicroBehaviorEngine:
             bearish_acceleration * w_acceleration
         )
         net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # 植入“状态主导协议”护栏
         final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
-        
 
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """

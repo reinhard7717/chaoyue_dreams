@@ -1199,11 +1199,11 @@
           "mechanics": 0.2, "chip": 0.2, "foundation": 0.1, "behavior": 0.2, "structure": 0.2, "ff": 0.1
         }
       },
-      "post_peak_downturn_risk_params": {
+      "peak_rejection_risk_params": {
         "enabled": true,
-        "description": "【V5.0 · 结构化重构版】高位遇阻风险诊断引擎参数。",
-        "peak_proximity_threshold": 0.95,
-        "comment": "定义何为'高位区域'。当价格达到近期高点的95%以上时，即认为处于高危区域。"
+        "description": "【V6.0 · 过度拉伸版】高位遇阻风险诊断引擎参数。",
+        "high_position_threshold": 0.7,
+        "comment": "定义何为'过度拉伸'。当股价相对MA55的伸展度超过70%时，即认为处于高危区域。"
       },
       "mean_reversion_grid_params": {
         "enabled": true,
