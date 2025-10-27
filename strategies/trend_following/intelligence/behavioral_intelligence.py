@@ -459,23 +459,26 @@ class BehavioralIntelligence:
         # [代码修改开始]
         # --- 流动性真空风险 V2.2 (最终修复版) ---
         # 1. 获取原始风险能量指标
+        # 支柱一：低换手率能量。换手率越低，能量越高。
         turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
         low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
         
+        # 支柱二：持续缩量能量。成交量相对均线越萎缩，能量越高。
         vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
         vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
         sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
         
+        # 支柱三：市场脆弱性能量。日内波动率越大，能量越高。
         # 修正：脆弱性能量直接使用原始值，因为它已经是正相关能量
         fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
         
         # 2. 先融合原始能量，得到一个综合的“原始风险能量”
+        # 这是最关键的修复：先相乘，再归一化，符合物理学逻辑。
         raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
         
         # 3. 再对这个综合能量进行统一的归一化
         liquidity_vacuum_snapshot = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window, ascending=True)
         states['SCORE_RISK_LIQUIDITY_VACUUM'] = liquidity_vacuum_snapshot.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
