@@ -776,10 +776,9 @@ class BehavioralIntelligence:
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, signal_name: str) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 阿瑞斯之怒协议版】关系元分析核心引擎
-        - 核心革命: 签署“阿瑞斯之怒”协议，废除旧的、错误的单极性剪裁逻辑。
-                      引入“双通道”处理，分别计算看涨和看跌力量，最终输出一个[-1, 1]的净值分数，
-                      彻底修复了因丢弃负向信息而导致信号失效的致命BUG。
+        【V4.1 · 加速度修复版】行为层专用的关系元分析核心引擎
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -790,22 +789,20 @@ class BehavioralIntelligence:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # 将输入的单极性快照分转换为双极性，以适配新的双通道逻辑
-        # 假设 snapshot_score 是 [0, 1] 的机会分
         bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
-        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1) 而不是 diff(meta_window)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = bipolar_snapshot.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -814,7 +811,6 @@ class BehavioralIntelligence:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 (Bearish Force) ---
         bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -823,8 +819,6 @@ class BehavioralIntelligence:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决 (Net Value Adjudication) ---
-        # 最终输出一个 [0, 1] 的分数，因为上游调用者期望的是一个机会分
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
         unipolar_score = (final_score + 1) / 2.0
         states[signal_name] = unipolar_score.astype(np.float32)
