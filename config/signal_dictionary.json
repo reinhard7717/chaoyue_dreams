@@ -232,13 +232,14 @@
             "type": "context",
             "description": "【原子信号】识别下跌过程中成交量萎缩的现象，是卖盘动能衰竭的潜在信号。"
         },
-        "SCORE_RISK_LIQUIDITY_DRAIN": {
+        "SCORE_RISK_LIQUIDITY_VACUUM": {
             "cn_name": "【行为风险】流动性真空风险",
             "category": "行为层-风险",
             "type": "risk",
             "penalty_weight": -500,
-            "description": "【V2.0 流动性真空度版】对市场流动性枯竭风险的动态评估。融合了“低换手率”、“持续缩量”和“高日内波动”三大支柱，精确刻画交易不活跃、市场脆弱的状态。"
+            "description": "【V2.2 公理修正版】对市场流动性枯竭风险的动态评估。遵循“先融合能量，再归一化”的物理学公理，融合了“低换手率”、“持续缩量”和“高日内波动”三大能量支柱，精确刻画交易不活跃、市场脆弱的状态。"
         },
+
         "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
             "cn_name": "【行为】卖盘衰竭反转",
             "category": "行为层-机会",
