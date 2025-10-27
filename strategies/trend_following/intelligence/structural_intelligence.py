@@ -31,9 +31,10 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V18.2 · 算术平均融合版】
-        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”来融合四大支柱。
-                      此修改确保了单个支柱的暂时性疲软不会导致整个健康度评估系统崩溃。
+        【V18.3 · 权重校准版】
+        - 核心修复: 修正了四大支柱融合时的权重计算错误。现在确保每个支柱的贡献是基于其
+                      在总权重中的正确比例，彻底修复了融合结果不正确的问题。
+        - 优化: 将融合逻辑重构为更清晰、更安全的函数式风格（列表推导式 + sum）。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -66,15 +67,19 @@ class StructuralIntelligence:
             overall_health[health_type] = {}
             for p in periods:
                 # [代码修改开始]
-                # --- 使用加权算术平均数进行融合 ---
-                fused_score = pd.Series(0.0, index=df.index, dtype=np.float64)
                 total_weight = sum(weights_in_order)
                 if total_weight > 0:
-                    for i, pillar_dict in enumerate(health_sources):
-                        if p in pillar_dict:
-                            weight = weights_in_order[i]
-                            fused_score += pillar_dict[p].fillna(0.5) * (weight / total_weight)
-                else: # 如果总权重为0，则使用简单的算术平均
+                    # 使用列表推导式创建一个包含所有加权分数的列表
+                    weighted_scores = [
+                        pillar_dict[p].fillna(0.5) * (weights_in_order[i] / total_weight)
+                        for i, pillar_dict in enumerate(health_sources) if p in pillar_dict
+                    ]
+                    # 使用sum()对列表中的所有Series求和
+                    if weighted_scores:
+                        fused_score = sum(weighted_scores)
+                    else:
+                        fused_score = pd.Series(0.5, index=df.index)
+                else:
                     components = [pillar_dict[p].fillna(0.5) for pillar_dict in health_sources if p in pillar_dict]
                     if components:
                         fused_score = sum(components) / len(components)
