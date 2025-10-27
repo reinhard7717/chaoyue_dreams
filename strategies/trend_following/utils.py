@@ -431,10 +431,9 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.6 · 阈值根除版】终极信号中央合成引擎
-    - 核心重构: 彻底移除了函数内部关于 `neutral_zone_threshold` 的定义和使用。
-                  现在，单双极性转换完全依赖于已修复的、无阈值的 `bipolar_to_exclusive_unipolar` 函数，
-                  从根本上解决了弱信号被错误归零的问题。
+    【V5.7 · 基因重组同步版】终极信号中央合成引擎
+    - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了函数内部
+                  关于 `neutral_zone_threshold` 的所有定义和使用。
     """
     # [代码修改开始]
     states = {}
@@ -444,7 +443,7 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
-    # 移除了 neutral_zone_threshold 的获取
+    # 彻底移除了 neutral_zone_threshold 的获取
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
@@ -492,9 +491,9 @@ def transmute_health_to_ultimate_signals(
         bipolar_health[p] = s_bull - s_bear
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
-    # 调用无阈值的 bipolar_to_exclusive_unipolar 函数
-    final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance, threshold=0.0)
-    final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal, threshold=0.0)
+    # 调用无参数的 bipolar_to_exclusive_unipolar 函数
+    final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance)
+    final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
     final_top_reversal_score = (final_top_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
@@ -872,12 +871,11 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
     rejection_quality_score.loc[is_in_influence_zone & is_apollo_absorption] = 0.0
     return rejection_quality_score.clip(0, 1.0)
 
-def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series, threshold: float) -> Tuple[pd.Series, pd.Series]:
+def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, pd.Series]:
     """
-    【V2.0 · 根除协议版】将双极性分数转换为互斥的单极性分数。
-    - 核心重构: 彻底废除“中性区”设计。该设计已被证明是导致弱信号被错误归零的根源。
-    - 新逻辑: 采用最直接、最稳健的clip操作。任何正分都归属于s_bull，任何负分都归属于s_bear。
-                这确保了信号的完整性，避免了“信号黑洞”问题。
+    【V3.0 · 基因重组版】将双极性分数转换为互斥的单极性分数。
+    - 核心重构: 彻底从函数签名中移除了 `threshold` 参数。此修改强制性地在整个代码库中
+                  废除了“中性区”概念，确保了该函数行为的唯一性和稳健性。
     """
     # [代码修改开始]
     # 看涨分数：直接截取双极性分数中的正值部分。

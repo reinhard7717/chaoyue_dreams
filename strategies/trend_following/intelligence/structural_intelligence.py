@@ -93,13 +93,14 @@ class StructuralIntelligence:
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
         """
-        【V2.1 · 信号链路版】支柱一：趋势完整性
-        - 核心升级: 增加返回其计算出的双极性快照分 `bipolar_snapshot`，为下游支柱提供正确的信号输入。
+        【V2.2 · 基因重组同步版】支柱一：趋势完整性
+        - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了
+                      关于 `neutral_zone_threshold` 的所有定义和使用。
         """
         # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
+        # 移除了 neutral_zone_threshold 的获取
         fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
@@ -141,7 +142,8 @@ class StructuralIntelligence:
         )
         bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
+        # 调用无参数的 bipolar_to_exclusive_unipolar 函数
+        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
@@ -152,9 +154,9 @@ class StructuralIntelligence:
 
     def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_bipolar_snapshot: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V2.1 · 双极性加权融合版】支柱二：多时间框架协同
-        - 核心重构: 融合逻辑从惩罚性的乘法改为更稳健的加权平均。现在将日线和周线的双极性快照分
-                      进行加权融合，能更合理地反映综合趋势，避免因周期稍有不配合就导致信号崩溃。
+        【V2.2 · 基因重组同步版】支柱二：多时间框架协同
+        - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了
+                      关于 `neutral_zone_threshold` 的所有定义和使用。
         """
         # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
@@ -171,19 +173,17 @@ class StructuralIntelligence:
             weekly_bull_health = weekly_alignment_bull * 0.5 + weekly_velocity_bull * 0.5
             weekly_bear_health = weekly_alignment_bear * 0.5 + weekly_velocity_bear * 0.5
             weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
-        # --- 使用加权平均融合日线和周线的双极性快照分 ---
         fused_bipolar_snapshot = (daily_bipolar_snapshot * 0.7 + weekly_bipolar_snapshot * 0.3)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, fused_bipolar_snapshot)
-        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
-        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
+        # 移除了 neutral_zone_threshold 的获取
+        # 调用无参数的 bipolar_to_exclusive_unipolar 函数
+        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-        # [代码修改结束]
 
     def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
