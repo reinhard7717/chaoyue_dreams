@@ -8,6 +8,7 @@ class ChipProbes:
     【探针模块】筹码情报专属探针
     """
     def __init__(self, intel_layer):
+        self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.chip_intel = intel_layer.chip_intel
 

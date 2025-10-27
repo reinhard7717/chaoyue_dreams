@@ -8,6 +8,7 @@ class DynamicMechanicsProbes:
     【探针模块】动态力学情报专属探针
     """
     def __init__(self, intel_layer):
+        self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.mechanics_engine = intel_layer.mechanics_engine
 

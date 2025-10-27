@@ -8,6 +8,7 @@ class FundFlowProbes:
     【探针模块】资金流情报专属探针
     """
     def __init__(self, intel_layer):
+        self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.fund_flow_intel = intel_layer.fund_flow_intel
 

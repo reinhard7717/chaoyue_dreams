@@ -8,6 +8,7 @@ class FoundationProbes:
     【探针模块】基础情报专属探针
     """
     def __init__(self, intel_layer):
+        self.intelligence_layer = intel_layer
         self.strategy = intel_layer.strategy
         self.foundation_intel = intel_layer.foundation_intel
 
