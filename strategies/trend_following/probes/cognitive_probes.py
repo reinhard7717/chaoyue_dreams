@@ -308,10 +308,12 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.1 · 信号同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心修复: 将引用的信号名从旧的 'SCORE_RISK_LIQUIDITY_DRAIN' 同步为新的 'SCORE_RISK_LIQUIDITY_VACUUM'。
+        【探针 V1.2 · 链路重建版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心修复: 废除了对“证据二：流动性真空”成品分数的快捷方式调用。
+                      现在，探针会获取其最原始的三个指标，并完全复刻认知扩展引擎的MTF融合过程，
+                      确保探针的计算路径与系统完全一致。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.1】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.2】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
@@ -331,24 +333,39 @@ class CognitiveProbes:
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
 
+        def mtf_fuse(raw_series: pd.Series) -> pd.Series:
+            fused = pd.Series(0.0, index=df.index)
+            if total_weight > 0:
+                for p in periods:
+                    weight = numeric_tf_weights.get(p, 0) / total_weight
+                    fused += normalize_score(raw_series, df.index, p) * weight
+            else:
+                fused = normalize_score(raw_series, df.index, 55)
+            return fused
+
+        # 证据一：主力持续出逃 (MTF融合)
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
-        capital_flight_fused = pd.Series(0.0, index=df.index)
-        if total_weight > 0:
-            for p in periods:
-                weight = numeric_tf_weights.get(p, 0) / total_weight
-                capital_flight_fused += normalize_score(capital_flight_raw, df.index, p) * weight
+        capital_flight_fused = mtf_fuse(capital_flight_raw)
         
         # [代码修改开始]
-        # 证据二：流动性真空 - 使用正确的信号名称
-        liquidity_vacuum_fused = atomic_states.get('SCORE_RISK_LIQUIDITY_VACUUM', pd.Series(0.0, index=df.index))
+        # 证据二：流动性真空 (重建MTF融合链路)
+        # 2.1 获取三大支柱的原始序列
+        low_turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
+        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
+        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
+        sustained_shrink_raw = vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)
+        fragility_raw = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
+        # 2.2 对每个支柱进行MTF融合
+        low_turnover_fused = mtf_fuse(low_turnover_raw)
+        sustained_shrink_fused = mtf_fuse(sustained_shrink_raw)
+        fragility_fused = mtf_fuse(fragility_raw)
+        # 2.3 融合三大支柱，得到最终的证据分
+        liquidity_vacuum_fused = (low_turnover_fused * sustained_shrink_fused * fragility_fused)**(1/3)
         # [代码修改结束]
 
+        # 证据三：买盘真空 (MTF融合)
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
-        buyer_apathy_fused = pd.Series(0.0, index=df.index)
-        if total_weight > 0:
-            for p in periods:
-                weight = numeric_tf_weights.get(p, 0) / total_weight
-                buyer_apathy_fused += normalize_score(buyer_apathy_raw, df.index, p) * weight
+        buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)
 
         probe_snapshot_score = (capital_flight_fused * liquidity_vacuum_fused * buyer_apathy_fused)**(1/3)
         probe_snapshot_val = get_val(probe_snapshot_score, probe_date)
