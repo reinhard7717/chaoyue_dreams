@@ -123,52 +123,41 @@ class BehavioralProbes:
 
     def _deploy_liquidity_vacuum_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.3 · 黄金标准版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
-        - 核心升级: 此探针现在代表了“流动性真空”计算的最终正确逻辑（黄金标准）。
-                      它将用于验证主引擎是否已成功修复“原罪”BUG。
+        【探针 V1.4 · 维度正交版】穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号
+        - 核心升级: 此探针已完全同步生产代码V13.6的“维度正交”公理。
+                      它将独立计算每个风险维度的分数，然后融合这些分数，作为验证修复的最终“黄金标准”。
         """
-        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.3】🌀 " + "="*25)
+        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V1.4】🌀 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'SCORE_RISK_LIQUIDITY_VACUUM'
-        
         def get_val(series, date, default=0.0):
             val = series.get(date)
             return default if pd.isna(val) else val
-
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
         print(f"    - 【最终信号分】: {system_score:.4f}")
-
         print("\n  [链路层 2] 快照分重算 (黄金标准) (Snapshot Recalculation - Gold Standard)")
         p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
         norm_window = get_param_value(p_atomic.get('norm_window'), 55)
-
-        turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
-        low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
-        
-        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
-        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
-        sustained_shrink_energy_raw = vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)
-        sustained_shrink_energy = 1 / sustained_shrink_energy_raw.replace(0, 1e-6)
-
-        fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
-
-        raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
-        
-        probe_snapshot_score = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window, ascending=True)
-        probe_snapshot_val = get_val(probe_snapshot_score, probe_date)
+        # [代码修改开始]
+        # 1. 将每个风险维度分别归一化为0-1的风险分数
+        low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
+        vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
+        sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
+        fragility_score = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 2. 在统一的维度空间中，融合这些风险分数
+        probe_snapshot_score_series = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
+        probe_snapshot_val = get_val(probe_snapshot_score_series, probe_date)
+        # [代码修改结束]
         print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
-
         print("\n  [链路层 3] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针正确值 {probe_snapshot_val:.4f} -> {'✅ 修复成功' if np.isclose(system_score, probe_snapshot_val) else '❌ 仍有偏差'}")
-
         print("\n  [链路层 4] 证据链分解 (Component Dissection)")
-        print(f"    - [支柱一: 低换手率能量] 原始值: {get_val(turnover_raw, probe_date):.2f}%, 能量值: {get_val(low_turnover_energy, probe_date):.4f}")
-        print(f"    - [支柱二: 持续缩量能量] 原始值: {get_val(sustained_shrink_energy_raw, probe_date):.2f}, 能量值: {get_val(sustained_shrink_energy, probe_date):.4f}")
-        print(f"    - [支柱三: 市场脆弱性能量] 原始值: {get_val(fragility_energy, probe_date):.2f}, 能量值: {get_val(fragility_energy, probe_date):.4f}")
-        print(f"    - [综合原始能量]: {get_val(raw_liquidity_vacuum_energy, probe_date):.4f}")
-        
+        print(f"    - [支柱一: 低换手率风险分]: {get_val(low_turnover_score, probe_date):.4f}")
+        print(f"    - [支柱二: 持续缩量风险分]: {get_val(sustained_shrink_score, probe_date):.4f}")
+        print(f"    - [支柱三: 市场脆弱性风险分]: {get_val(fragility_score, probe_date):.4f}")
+        print(f"    - [融合后快照分]: {probe_snapshot_val:.4f}")
         print("\n--- “流动性真空探针”解剖完毕 ---")
 
 

@@ -422,9 +422,9 @@ class BehavioralIntelligence:
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.5 · 最终净化版】量价原子信号诊断引擎
-        - 核心修复: 修正了“流动性真空风险”的计算逻辑，遵循“先融合原始能量，再归一化”的物理学公理。
-                      此修复将从根本上解决该信号在能量为零时依然输出非零值的“原罪”问题。
+        【V13.6 · 维度正交版】量价原子信号诊断引擎
+        - 核心公理修正: 彻底修正“流动性真空风险”的计算逻辑。遵循“先归一化各风险维度，再融合风险分数”的原则。
+                        这确保了不同量纲的指标（如换手率、波动率）在融合前处于正交的、可比较的维度空间，从根本上解决了该信号的逻辑缺陷。
         """
         states = {}
         p = get_params_block(self.strategy, 'price_volume_atomic_params')
@@ -453,22 +453,17 @@ class BehavioralIntelligence:
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
         norm_window = get_param_value(p.get('norm_window'), 55)
         # [代码修改开始]
-        # --- 流动性真空风险 V2.2 (公理修正版) ---
-        # 1. 获取原始风险能量指标
-        # 支柱一：低换手率能量。换手率越低，能量越高。
-        turnover_raw = df.get('turnover_rate_D', pd.Series(10.0, index=df.index))
-        low_turnover_energy = 1 / turnover_raw.replace(0, 1e-6)
-        # 支柱二：持续缩量能量。成交量相对均线越萎缩，能量越高。
-        vol_vs_ma5 = df['volume_D'] / df.get('VOL_MA_5_D', df['volume_D'])
-        vol_vs_ma55 = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
-        sustained_shrink_energy = 1 / (vol_vs_ma5.fillna(1.0) + vol_vs_ma55.fillna(1.0)).replace(0, 1e-6)
-        # 支柱三：市场脆弱性能量。日内波动率越大，能量越高。
-        fragility_energy = df.get('intraday_volatility_D', pd.Series(0.0, index=df.index))
-        # 2. 先融合原始能量，得到一个综合的“原始风险能量”
-        # 这是最关键的修复：先相乘，再归一化，符合物理学逻辑。
-        raw_liquidity_vacuum_energy = (low_turnover_energy * sustained_shrink_energy * fragility_energy)
-        # 3. 再对这个综合能量进行统一的归一化
-        liquidity_vacuum_snapshot = normalize_score(raw_liquidity_vacuum_energy, df.index, norm_window, ascending=True)
+        # --- 流动性真空风险 V2.3 (维度正交版) ---
+        # 1. 将每个风险维度分别归一化为0-1的风险分数
+        # 支柱一：低换手率风险分。换手率越低，风险越高。
+        low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
+        # 支柱二：持续缩量风险分。成交量相对长期均线越萎缩，风险越高。
+        vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
+        sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
+        # 支柱三：市场脆弱性风险分。日内波动率越大，风险越高。
+        fragility_score = normalize_score(df.get('intraday_volatility_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 2. 在统一的维度空间中，融合这些风险分数
+        liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
         # 统一信号名称为 SCORE_RISK_LIQUIDITY_VACUUM
         states['SCORE_RISK_LIQUIDITY_VACUUM'] = liquidity_vacuum_snapshot.clip(0, 1).astype(np.float32)
         # [代码修改结束]
