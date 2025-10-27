@@ -199,6 +199,12 @@ class IntelligenceLayer:
                     self.probes._deploy_cost_advantage_probe(probe_date, 'PROCESS_META_COST_ADVANTAGE_TREND')
                 else:
                     print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_cost_advantage_probe' 未找到。")
+            if debug_params.get('enable_structural_pillar_dissection_probe', False):
+                if hasattr(self.probes, '_deploy_structural_pillar_dissection_probe'):
+                    # 默认解剖 trend_integrity 支柱
+                    self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='trend_integrity')
+                else:
+                    print(f"    -> [法医探针] 警告: 探针 'self.probes._deploy_structural_pillar_dissection_probe' 未找到。")
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

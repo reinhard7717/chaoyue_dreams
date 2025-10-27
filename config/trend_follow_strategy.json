@@ -153,7 +153,8 @@
         "enable_main_force_intent_duel_probe": false,
         "enable_trend_quality_probe": true,
         "enable_structural_health_probe": true,
-        "enable_structural_pillar_fusion_probe": true
+        "enable_structural_pillar_fusion_probe": true,
+        "enable_structural_pillar_dissection_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
