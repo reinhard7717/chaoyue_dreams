@@ -811,7 +811,7 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.6 · 智能处理版】认知扩展信号统一合成引擎
+        【V2.7 · 智能处理修正版】认知扩展信号统一合成引擎
         - 核心修复: 赋予引擎智能。当消费的组件来源是 'atomic' (原子信号)时，直接使用其值，
                       不再进行冗余且错误的MTF二次融合。MTF融合仅用于处理 'df' 来源的原始指标。
                       此修改从根本上解决了“二次加工”导致的逻辑错误。
@@ -825,7 +825,6 @@ class CognitiveIntelligence:
         numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_tf_weights.values())
         expansion_signal_configs = {
-            # ... (所有信号配置保持不变) ...
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
                 'description': '【V2.0 · 流动性黑洞版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。',
                 'components': [
@@ -834,7 +833,6 @@ class CognitiveIntelligence:
                     {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'description': '证据三：买盘真空'},
                 ]
             },
-            # ... (其他信号配置保持不变) ...
         }
         df['is_limit_up'] = df.get('close_D', 0) >= df.get('up_limit_D', np.inf) * 0.995
         df['volume_spike'] = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D'])
@@ -872,7 +870,6 @@ class CognitiveIntelligence:
                     transformed_series = transformed_series.shift(params[0]).fillna(0)
                 elif transform == 'shift_lt':
                     transformed_series = transformed_series.shift(params[0]).fillna(params[1]) < params[1]
-                
                 # [代码修改开始]
                 # 智能处理：仅对原始指标('df')应用MTF融合，对成品原子信号('atomic')直接使用
                 if comp['source'] == 'atomic':
@@ -887,7 +884,6 @@ class CognitiveIntelligence:
                     else:
                         fused_component_series = normalize_score(transformed_series, df.index, 55)
                 # [代码修改结束]
-
                 fused_component_series[zero_mask] = 0.0
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
