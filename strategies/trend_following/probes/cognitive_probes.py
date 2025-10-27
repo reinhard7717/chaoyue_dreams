@@ -119,10 +119,12 @@ class CognitiveProbes:
 
     def _deploy_comprehensive_top_risk_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.1 · 神盾解剖版】综合顶部风险探针
-        - 核心升级: 增强对“趋势韧性神盾”的解剖能力，清晰展示其“静态韧性”和“动态韧性”的计算过程。
+        【探针 V2.2 · 信号源同步版】综合顶部风险探针
+        - 核心升级: 同步主引擎 V6.1 的信号源升级。在“亢奋/高潮”支柱的解剖中，
+                      使用经过意图审判的 SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW
+                      替换原始的 SCORE_RISK_ICARUS_FALL，确保探针与生产逻辑完全一致。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.1】🛡️ " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 🛡️【综合顶部风险探针 V2.2】🛡️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.cognitive_intel
@@ -135,14 +137,20 @@ class CognitiveProbes:
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终风险分】: {actual_final_score:.4f}")
         print("\n  [链路层 2] 三柱风险分析 (Tri-Pillar Risk Analysis)")
+        # [代码修改开始]
+        # --- 亢奋/高潮支柱 ---
         euphoric_signals = {
             'EUPHORIC_ACCELERATION': engine._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            'ICARUS_FALL': engine._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            # 信号源升级：与主引擎同步，使用经过意图审判的“上影线抛压风险”
+            'SELLING_PRESSURE': engine._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0),
             'BOARD_HEAVEN_EARTH': engine._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }
+        # [代码修改结束]
         euphoric_scores = {name: get_val(s, probe_date) for name, s in euphoric_signals.items()}
         euphoric_risk_score = max(euphoric_scores.values()) if euphoric_scores else 0.0
         print(f"    - [支柱 I: 亢奋/高潮风险] -> 得分: {euphoric_risk_score:.4f}")
+        for name, score in euphoric_scores.items():
+            print(f"      - {name}: {score:.4f}")
         distribution_signals = {
             'MAIN_FORCE_INTENT_DUEL': engine._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
             'UPTHRUST_DISTRIBUTION': engine._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
@@ -152,6 +160,8 @@ class CognitiveProbes:
         distribution_scores = {name: get_val(s, probe_date) for name, s in distribution_signals.items()}
         distribution_risk_score = max(distribution_scores.values()) if distribution_scores else 0.0
         print(f"    - [支柱 II: 派发/背叛风险] -> 得分: {distribution_risk_score:.4f}")
+        for name, score in distribution_scores.items():
+            print(f"      - {name}: {score:.4f}")
         structural_signals = {
             'CONTEXT_TOP': engine._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
             'CYCLICAL_TOP': engine._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
@@ -159,6 +169,8 @@ class CognitiveProbes:
         structural_scores = {name: get_val(s, probe_date) for name, s in structural_signals.items()}
         structural_risk_score = max(structural_scores.values()) if structural_scores else 0.0
         print(f"    - [支柱 III: 结构/周期风险] -> 得分: {structural_risk_score:.4f}")
+        for name, score in structural_scores.items():
+            print(f"      - {name}: {score:.4f}")
         print("\n  [链路层 3] 原始风险融合 (Raw Risk Fusion)")
         recalc_raw_risk = max(euphoric_risk_score, distribution_risk_score, structural_risk_score)
         print(f"    - 【探针重算原始风险】: max({euphoric_risk_score:.2f}, {distribution_risk_score:.2f}, {structural_risk_score:.2f}) = {recalc_raw_risk:.4f}")

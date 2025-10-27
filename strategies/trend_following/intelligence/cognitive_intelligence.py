@@ -680,19 +680,25 @@ class CognitiveIntelligence:
 
     def _diagnose_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 三支柱风险架构版】综合顶部风险诊断引擎
-        - 核心重构: 引入“三支柱”架构，将风险信号归类为“亢奋/高潮”、“派发/背叛”、“结构/周期”。
-        - 抑制机制: 计算“趋势韧性”分数，用于动态抑制原始风险。
-        - 最终逻辑: 最终风险 = max(三支柱风险) * (1 - 趋势韧性分)
+        【V6.1 · 信号源升级版】综合顶部风险诊断引擎
+        - 核心升级: 废弃消费原始的、模棱两可的 SCORE_RISK_ICARUS_FALL 信号。
+                      全面换装为消费由 _transmute_pressure_into_opportunity 引擎产出的、
+                      经过主力意图审判的 SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW 信号。
+        - 收益: 确保了顶层风险引擎的每一个输入都是经过深度加工的高质量情报，提升了最终裁决的准确性。
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
+        # [代码修改开始]
+        # --- 亢奋/高潮支柱 ---
         euphoric_pillar_signals = {
             'EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            'ICARUS_FALL': self._get_atomic_score(df, 'SCORE_RISK_ICARUS_FALL', 0.0),
+            # 信号源升级：使用经过意图审判的“上影线抛压风险”替换原始的“伊卡洛斯之坠”
+            'SELLING_PRESSURE': self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0),
             'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }
+        # [代码修改结束]
         euphoric_risk_score = np.maximum.reduce([s.values for s in euphoric_pillar_signals.values()])
+        # --- 派发/背叛支柱 ---
         distribution_pillar_signals = {
             'MAIN_FORCE_INTENT_DUEL': self._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
             'UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
@@ -700,11 +706,13 @@ class CognitiveIntelligence:
             'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
         }
         distribution_risk_score = np.maximum.reduce([s.values for s in distribution_pillar_signals.values()])
+        # --- 结构/周期支柱 ---
         structural_pillar_signals = {
             'CONTEXT_TOP': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
             'CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
         }
         structural_risk_score = np.maximum.reduce([s.values for s in structural_pillar_signals.values()])
+        # --- 融合与抑制 ---
         raw_fused_risk = np.maximum.reduce([euphoric_risk_score, distribution_risk_score, structural_risk_score])
         shield_score = self._calculate_trend_resilience_shield(df)
         final_risk_values = raw_fused_risk * (1.0 - shield_score.values)

@@ -1111,8 +1111,7 @@
           "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": { "weight": 1.5 },
           "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
           "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
-          "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 },
-          "SCORE_RISK_ICARUS_FALL": { "weight": 2.2, "description": "伊卡洛斯之坠风险，识别主力背叛趋势、高位诱多派发的行为，权重极高。" }
+          "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
         },
          "cyclical_risk": {
             "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }

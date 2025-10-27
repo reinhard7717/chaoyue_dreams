@@ -797,13 +797,6 @@
             "description": "融合了筹码、行为、资金流、结构等多个维度的风险信号，并经过动态加权和共振惩罚后得到的最终风险总分。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
-        "SCORE_RISK_ICARUS_FALL": {
-            "cn_name": "【微观风险】冲高回落诱多派发",
-            "category": "微观行为-风险",
-            "type": "risk",
-            "penalty_weight": -2800,
-            "description": "【重大风险】识别主力背叛前期趋势，通过制造虚假的冲高回落来吸引散户接盘，从而在高位完成派发的“伊卡洛斯之坠”式风险。融合了虚假繁荣、矛盾博弈、背叛上下文和结构恶化四重证据链。"
-        },
         "SCORE_MICRO_HERMES_GAMBIT": {
             "cn_name": "【微观】压单吸筹",
             "category": "微观行为-机会",
@@ -861,14 +854,6 @@
             "penalty_weight": -1200,
             "context_role": "top_risk",
             "description": "融合了主力“战术性T+0获利了结”和“战略性持仓派发”两大证据链，是量化主力兑现利润意愿的专属风险信号。"
-        },
-        "COGNITIVE_RISK_PEAK_REJECTION": {
-            "cn_name": "【认知风险】高位遇阻风险",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2800,
-            "context_role": "top_risk",
-            "description": "【V6.0 · 过度拉伸版】识别股价因过度拉伸远离趋势生命线后，遭遇实质性抛压的风险。融合了'过度拉伸'的战略位置和'上影线抛压'的战术行为，并受整体趋势健康度调制。是比单纯的'高位回落'更精确、更稳健的顶部风险信号。"
         },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",

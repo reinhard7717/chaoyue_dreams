@@ -199,87 +199,6 @@ class MicroBehaviorEngine:
         states['SCORE_MICRO_HERMES_GAMBIT'] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 
-    def diagnose_icarus_fall_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V6.0 · 资金流升维版】“伊卡洛斯之坠”风险诊断引擎
-        - 核心升维: 对“矛盾的博弈”证据链中主力流出和散户追涨信号进行四维质量评估。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'icarus_fall_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return states
-        periods = [1, 5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        icarus_scores_by_period = {}
-        previous_trend_quality = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0).shift(1).fillna(0.5)
-        top_context_score = self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0)
-        betrayal_evidence = (previous_trend_quality * top_context_score)**0.5
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 证据链 1: 虚假的繁荣 (略) ---
-            tactical_rally = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=p_tactical, ascending=True)
-            tactical_inefficient_vol = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_tactical, ascending=False)
-            tactical_vol_spike = normalize_score(df['volume_D'] / df.get(f'VOL_MA_{p_tactical}_D', df['volume_D']), df.index, window=p_tactical, ascending=True)
-            close_position_in_range = ((df['close_D'] - df['low_D']) / (df['high_D'] - df['low_D']).replace(0, np.nan)).fillna(0.5)
-            closing_weakness_score = 1.0 - close_position_in_range
-            tactical_high_level_dist = (tactical_rally * closing_weakness_score * tactical_inefficient_vol)**(1/3)
-            is_at_limit_up = (df['close_D'] >= df.get('up_limit_D', np.inf) * 0.995).astype(float)
-            tactical_limit_up_deception = is_at_limit_up * tactical_vol_spike
-            tactical_alluring_rally = np.maximum(tactical_high_level_dist, tactical_limit_up_deception)
-            context_rally = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=p_context, ascending=True)
-            context_inefficient_vol = normalize_score(df.get('VPA_EFFICIENCY_D'), df.index, window=p_context, ascending=False)
-            context_vol_spike = normalize_score(df['volume_D'] / df.get(f'VOL_MA_{p_context}_D', df['volume_D']), df.index, window=p_context, ascending=True)
-            context_high_level_dist = (context_rally * closing_weakness_score * context_inefficient_vol)**(1/3)
-            context_limit_up_deception = is_at_limit_up * context_vol_spike
-            context_alluring_rally = np.maximum(context_high_level_dist, context_limit_up_deception)
-            alluring_rally_evidence = (tactical_alluring_rally * context_alluring_rally)**0.5
-            # --- 证据链 2: 矛盾的博弈 (分层计算) ---
-            # 使用四维质量评估资金流
-            # 主力日内获利 (状态)
-            tactical_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_tactical, ascending=True)
-            context_profit = normalize_score(df.get('main_force_intraday_profit_D'), df.index, window=p_context, ascending=True)
-            fused_profit = (tactical_profit * context_profit)**0.5
-            # 主力流出质量 (MFNF, ascending=False)
-            outflow_quality = self._calculate_4d_metric_quality(
-                df, 'main_force_net_flow_consensus', p_tactical, p_context, ascending=False
-            )
-            # 散户追涨质量 (RNF, ascending=True)
-            fomo_quality = self._calculate_4d_metric_quality(
-                df, 'retail_net_flow_consensus', p_tactical, p_context, ascending=True
-            )
-            # 融合：日内获利 * 高质量流出 * 高质量追涨
-            contradiction_evidence = (fused_profit * outflow_quality * fomo_quality)**(1/3)
-            
-            # --- 证据链 4: 恶化的结构 (筹码集中度衰减，已在筹码升维中修改) ---
-            chip_metric = 'concentration_90pct'
-            chip_static = df.get(f'{chip_metric}_D', 0)
-            chip_slope = df.get(f'SLOPE_{p_tactical}_{chip_metric}_D', 0)
-            chip_accel = df.get(f'ACCEL_{p_tactical}_{chip_metric}_D', 0)
-            tactical_chip_static = normalize_score(chip_static, df.index, p_tactical, ascending=False)
-            tactical_chip_slope = normalize_score(chip_slope, df.index, p_tactical, ascending=False)
-            tactical_chip_accel = normalize_score(chip_accel, df.index, p_tactical, ascending=False)
-            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
-            context_chip_static = normalize_score(chip_static, df.index, p_context, ascending=False)
-            context_chip_slope = normalize_score(df.get(f'SLOPE_{p_context}_{chip_metric}_D', 0), df.index, p_context, ascending=False)
-            context_chip_accel = normalize_score(df.get(f'ACCEL_{p_context}_{chip_metric}_D', 0), df.index, p_context, ascending=False)
-            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
-            chip_concentration_decay_score = (tactical_chip_quality * context_chip_quality)**0.5
-            # --- 最终融合，生成“瞬时风险快照分” ---
-            snapshot_score = (alluring_rally_evidence * contradiction_evidence * betrayal_evidence * chip_concentration_decay_score)**(1/4)
-            # --- 对“风险关系”进行元分析 ---
-            period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-            icarus_scores_by_period[p_tactical] = period_score
-        # --- 跨周期融合，生成最终信号 ---
-        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1}
-        final_fused_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                final_fused_score += icarus_scores_by_period.get(p_tactical, 0.0) * weight
-        states['SCORE_RISK_ICARUS_FALL'] = final_fused_score.clip(0, 1).astype(np.float32)
-        return states
-
     def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
         """
         【V6.0 · 分层印证版】高质量战备可靠性诊断引擎
@@ -517,60 +436,13 @@ class MicroBehaviorEngine:
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 
-    def synthesize_peak_rejection_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V6.0 · 过度拉伸版】高位遇阻风险 (Peak Rejection Risk) 诊断引擎
-        - 核心重构: 1. 废弃基于 price_to_peak_ratio 的脆弱逻辑。
-                      2. 改为使用更稳健的“过度拉伸”模型 (stretch_from_ma55_score) 来定义“高位区域”。
-        - 新核心逻辑: 风险 = (过度拉伸得分) * (当日抛压得分) * (趋势抑制因子)
-        - 优势: 能够动态、自适应地识别任何趋势阶段的“亢奋”和“力竭”状态，解决了在主升浪中误判的问题。
-        """
-        states = {}
-        signal_name = 'COGNITIVE_RISK_PEAK_REJECTION'
-        p_risk = get_params_block(self.strategy, 'post_peak_downturn_risk_params', {})
-        if not get_param_value(p_risk.get('enabled'), True):
-            states[signal_name] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            return states
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        
-        # [代码修改开始]
-        # --- 支柱一：战略位置 (重构为“过度拉伸”模型) ---
-        high_position_threshold = get_param_value(p_risk.get('high_position_threshold'), 0.7)
-        ma55 = df.get('EMA_55_D', df['close_D'])
-        rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-        wave_channel_height = (rolling_high_55d - ma55).replace(0, np.nan)
-        stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-        is_overextended_score = (stretch_from_ma55_score > high_position_threshold).astype(float)
-        
-        # --- 支柱二：战术行为 (逻辑不变) ---
-        rejection_quality_score = self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0)
-        
-        # --- 安全阀：趋势健康度 (逻辑不变) ---
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        trend_suppression_factor = (1 - ma_health_score.clip(0, 1))
-        
-        # --- 融合生成风险快照分 ---
-        snapshot_score = is_overextended_score * rejection_quality_score * trend_suppression_factor
-        # [代码修改结束]
-
-        # --- 对快照分进行关系元分析 (此函数已被修复) ---
-        final_risk_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-        states[signal_name] = final_risk_score.clip(0, 1).astype(np.float32)
-        return states
-
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V5.1 · 动态熔断版】微观行为专用的关系元分析核心引擎
-        - 核心修复: 植入“动态熔断”机制。当输入信号在近期无波动时，直接返回中性分0.5，
-                      从根本上杜绝了从静态输入中凭空制造“幽灵信号”的BUG。
+        【V5.2 · 幽灵信号根除版】微观行为专用的关系元分析核心引擎
+        - 核心修复: 彻底修复了将中性输入(0)错误解读为最大负向状态(-1)的根本性数学缺陷。
+                      现在，输入信号被正确地视为一个[0, 1]的“量值”，其本身只贡献积极状态，
+                      而负向状态完全由其动态（负速度/负加速度）产生。
         """
-        # [代码修改开始]
-        # --- 动态熔断机制 ---
-        # 如果输入信号在近期是平的（标准差接近0），则它不具备任何“动态”，直接返回中性分。
-        if snapshot_score.rolling(window=5).std().iloc[-1] < 1e-6:
-            return pd.Series(0.5, index=df.index, dtype=np.float32)
-        # [代码修改结束]
-        
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.6)
@@ -579,7 +451,12 @@ class MicroBehaviorEngine:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        bipolar_snapshot = (snapshot_score * 2 - 1).clip(-1, 1)
+        # [代码修改开始]
+        # 关键修复：直接将输入的 unipolar score [0, 1] 作为双极性分析的基准。
+        # 这正确地将输入解读为“量值”，其中0是中性，1是最大。
+        # 它解决了旧公式 (score * 2 - 1) 将 0 错误地映射到 -1 的“幽灵信号”问题。
+        bipolar_snapshot = snapshot_score.clip(0, 1)
+        # [代码修改结束]
         relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
@@ -598,6 +475,7 @@ class MicroBehaviorEngine:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
+        # 因为bipolar_snapshot现在是[0,1]，所以它对bearish_state没有贡献，这是正确的。
         bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -607,6 +485,7 @@ class MicroBehaviorEngine:
             bearish_acceleration * w_acceleration
         )
         net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
+        # 状态主导协议护栏保持不变
         final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)
