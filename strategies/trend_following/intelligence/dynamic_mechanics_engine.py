@@ -96,10 +96,11 @@ class DynamicMechanicsEngine:
     # ==============================================================================
     def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
         """
-        【V2.1 · 维度安全版】“赫尔墨斯的商神杖”五维均线健康度评估引擎
-        - 核心修复: 修正了速度和加速度健康度的计算逻辑。废弃了“展平-归一化-重塑”的错误流程，
-                      改为对每个斜率/加速度序列独立进行归一化，从根本上解决了维度不匹配的ValueError。
+        【V3.0 · 算术平均版】“赫尔墨斯的商神杖”五维均线健康度评估引擎
+        - 核心重构: 废除脆弱的“几何平均数(np.prod)”，换用更具韧性的“加权算术平均数(Σ(score*weight))”。
+                      此修改确保了单个维度的暂时性疲软不会导致整个评估系统崩溃，彻底根除“零值传染病”的一个源头。
         """
+        # [代码修改开始]
         p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
         weights = {
             'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
@@ -113,47 +114,35 @@ class DynamicMechanicsEngine:
         if not all(col in df.columns for col in ma_cols):
             return pd.Series(0.5, index=df.index, dtype=np.float32)
         ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        # 维度1: 排列健康度
-        alignment_bools = ma_values[:-1] > ma_values[1:]
-        alignment_health = np.mean(alignment_bools, axis=0) if alignment_bools.size > 0 else np.full(len(df.index), 0.5)
-        # 维度2: 速度健康度
-        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods]
-        if all(col in df.columns for col in slope_cols):
-            normalized_slopes = [normalize_score(df[col], df.index, norm_window).values for col in slope_cols]
-            slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
-        else:
-            slope_health = np.full(len(df.index), 0.5)
-        # 维度3: 加速度健康度
-        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods]
-        if all(col in df.columns for col in accel_cols):
-            normalized_accels = [normalize_score(df[col], df.index, norm_window).values for col in accel_cols]
-            accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
-        else:
-            accel_health = np.full(len(df.index), 0.5)
-        # 维度4: 关系健康度
+        # --- 五维健康度计算 ---
+        alignment_health = np.mean(ma_values[:-1] > ma_values[1:], axis=0) if ma_values.shape[0] > 1 else np.full(len(df.index), 0.5)
+        slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
+        slope_health = np.mean([normalize_score(df[col], df.index, norm_window).values for col in slope_cols], axis=0) if slope_cols else np.full(len(df.index), 0.5)
+        accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
+        accel_health = np.mean([normalize_score(df[col], df.index, norm_window).values for col in accel_cols], axis=0) if accel_cols else np.full(len(df.index), 0.5)
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True)
-        # 维度5: 元动力健康度 (Meta-Dynamics Health) - 跨周期导数
-        meta_dynamics_cols = [
-            'SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D'
-        ]
+        relational_health = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
+        meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D', 'SLOPE_21_EMA_144_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
-        if valid_meta_cols:
-            meta_values = np.stack([normalize_score(df[col], df.index, norm_window) for col in valid_meta_cols], axis=0)
-            meta_dynamics_health = np.mean(meta_values, axis=0)
+        meta_dynamics_health = np.mean([normalize_score(df[col], df.index, norm_window).values for col in valid_meta_cols], axis=0) if valid_meta_cols else np.full(len(df.index), 0.5)
+        # --- 使用加权算术平均数进行融合 ---
+        total_score = pd.Series(0.0, index=df.index, dtype=np.float64)
+        total_weight = 0.0
+        health_components = {
+            'alignment': alignment_health, 'slope': slope_health, 'accel': accel_health,
+            'relational': relational_health, 'meta_dynamics': meta_dynamics_health
+        }
+        for name, score in health_components.items():
+            weight = weights.get(name, 0)
+            if weight > 0:
+                total_score += score * weight
+                total_weight += weight
+        if total_weight > 0:
+            final_score = total_score / total_weight
         else:
-            meta_dynamics_health = np.full(len(df.index), 0.5)
-        # 将新维度加入最终融合
-        scores = np.stack([alignment_health, slope_health, accel_health, relational_health, meta_dynamics_health], axis=0)
-        # 过滤掉非数字类型的权重值
-        numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
-        weights_array = np.array(list(numeric_weights.values()))
-        if weights_array.sum() > 0:
-            weights_array /= weights_array.sum()
-        else: # 如果权重和为0，则使用等权重
-            weights_array = np.full(len(numeric_weights), 1.0 / len(numeric_weights))
-        final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
-        return pd.Series(final_score_values, index=df.index, dtype=np.float32)
+            final_score = pd.Series(0.5, index=df.index, dtype=np.float32)
+        return final_score.astype(np.float32)
+        # [代码修改结束]
 
     def _perform_dynamic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, tactical_p: int, context_p: int) -> pd.Series:
         """

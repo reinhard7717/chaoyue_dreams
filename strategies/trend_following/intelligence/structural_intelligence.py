@@ -31,9 +31,9 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V18.0 · 四位一体版】
-        - 核心革命: 废弃旧的“一核三辅”架构，重铸为“趋势完整性、MTF协同、结构突破、形态确认”四大独立支柱。
-                      每个支柱都装备了最新的动态分析武器，实现了真正的“四位一体”打击。
+        【V18.1 · 信号链路修复版】
+        - 核心修复: 重建了第一支柱和第二支柱之间的信号传递链路。现在，第一支柱会将其计算的
+                      双极性快照分(`bipolar_snapshot`)传递给第二支柱，确保第二支柱能获得正确的输入。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -42,18 +42,19 @@ class StructuralIntelligence:
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        # 重构为全新的四大支柱
         health_data = { 's_bull': [], 's_bear': [], 'd_intensity': [] }
         pillar_names_in_order = ['trend_integrity', 'mtf_cohesion', 'breakout_potential', 'pattern_confirmation']
         weights_in_order = [pillar_weights.get(name, 0.25) for name in pillar_names_in_order]
+        # [代码修改开始]
         # --- 依次调用四大支柱引擎 ---
-        # 支柱一: 趋势完整性 (Trend Integrity)
-        ti_s_bull, ti_s_bear, ti_d_intensity = self._calculate_trend_integrity_health(df, periods, norm_window)
+        # 支柱一: 趋势完整性 (Trend Integrity) - 现在返回双极性快照分
+        ti_s_bull, ti_s_bear, ti_d_intensity, daily_bipolar_snapshot = self._calculate_trend_integrity_health(df, periods, norm_window)
         health_data['s_bull'].append(ti_s_bull)
         health_data['s_bear'].append(ti_s_bear)
         health_data['d_intensity'].append(ti_d_intensity)
-        # 支柱二: 多时间框架协同 (MTF Cohesion)
-        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, ti_s_bull)
+        # 支柱二: 多时间框架协同 (MTF Cohesion) - 接收双极性快照分作为输入
+        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar_snapshot)
+        # [代码修改结束]
         health_data['s_bull'].append(mtf_s_bull)
         health_data['s_bear'].append(mtf_s_bear)
         health_data['d_intensity'].append(mtf_d_intensity)
@@ -67,21 +68,25 @@ class StructuralIntelligence:
         health_data['s_bull'].append(pc_s_bull)
         health_data['s_bear'].append(pc_s_bear)
         health_data['d_intensity'].append(pc_d_intensity)
-
         overall_health = {}
         for health_type, health_sources in health_data.items():
             overall_health[health_type] = {}
             for p in periods:
-                components_for_period = [pillar_dict[p].values for pillar_dict in health_sources if p in pillar_dict]
-                if components_for_period:
+                # 确保权重和组件列表长度一致
+                valid_components = [(health_sources[i], weights_in_order[i]) for i in range(len(pillar_names_in_order)) if p in health_sources[i]]
+                if valid_components:
+                    components_for_period = [item[0][p].values for item in valid_components]
+                    weights_for_period = [item[1] for item in valid_components]
                     stacked_values = np.stack(components_for_period, axis=0)
-                    total_weight = sum(weights_in_order)
+                    total_weight = sum(weights_for_period)
                     if total_weight > 0:
-                        normalized_weights = np.array(weights_in_order) / total_weight
+                        normalized_weights = np.array(weights_for_period) / total_weight
                         weights_array = normalized_weights.reshape(-1, 1)
-                        fused_values = np.prod(stacked_values ** weights_array, axis=0)
+                        # 使用安全的几何平均，避免log(0)
+                        safe_values = np.maximum(stacked_values, 1e-9)
+                        fused_values = np.exp(np.sum(np.log(safe_values) * weights_array, axis=0))
                     else:
-                        fused_values = np.prod(stacked_values, axis=0) ** (1.0 / stacked_values.shape[0])
+                        fused_values = np.mean(stacked_values, axis=0)
                     overall_health[health_type][p] = pd.Series(fused_values, index=df.index, dtype=np.float32)
                 else:
                     overall_health[health_type][p] = pd.Series(0.5, index=df.index, dtype=np.float32)
@@ -96,12 +101,12 @@ class StructuralIntelligence:
         states.update(ultimate_signals)
         return states
 
-    def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
         """
-        【V2.0 · 对称评估版】支柱一：趋势完整性
-        - 核心重构: 废除旧的非对称评估逻辑。现在为看涨和看跌两个方向建立完全对称的五维评估体系，
-                      并计算其“净值”作为双极性快照分，从根本上修复信号被错误压制的问题。
+        【V2.1 · 信号链路版】支柱一：趋势完整性
+        - 核心升级: 增加返回其计算出的双极性快照分 `bipolar_snapshot`，为下游支柱提供正确的信号输入。
         """
+        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
@@ -110,32 +115,26 @@ class StructuralIntelligence:
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
             default_series = pd.Series(0.5, index=df.index, dtype=np.float32)
+            bipolar_default = pd.Series(0.0, index=df.index, dtype=np.float32)
             for p in periods:
                 s_bull[p], s_bear[p], d_intensity[p] = default_series.copy(), default_series.copy(), default_series.copy()
-            return s_bull, s_bear, d_intensity
+            return s_bull, s_bear, d_intensity, bipolar_default
         ma_values = np.stack([df[col].values for col in required_cols], axis=0)
-        # --- 五维健康度计算 ---
-        # 维度1: 排列
         bull_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
         bear_alignment = np.mean([(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).values for i in range(len(ma_periods) - 1)], axis=0)
-        # 维度2: 速度
         slope_cols = [f'SLOPE_{p}_EMA_{p}_D' for p in ma_periods if f'SLOPE_{p}_EMA_{p}_D' in df.columns]
         bull_velocity = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in slope_cols], axis=0) if slope_cols else 0.5
         bear_velocity = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in slope_cols], axis=0) if slope_cols else 0.5
-        # 维度3: 加速度
         accel_cols = [f'ACCEL_{p}_EMA_{p}_D' for p in ma_periods if f'ACCEL_{p}_EMA_{p}_D' in df.columns]
         bull_acceleration = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in accel_cols], axis=0) if accel_cols else 0.5
         bear_acceleration = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in accel_cols], axis=0) if accel_cols else 0.5
-        # 维度4: 关系
         ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        bull_relational = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values # 发散为看跌，收敛为看涨
+        bull_relational = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
         bear_relational = normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
-        # 维度5: 元动力
         meta_dynamics_cols = ['SLOPE_5_EMA_55_D', 'SLOPE_13_EMA_89_D']
         valid_meta_cols = [col for col in meta_dynamics_cols if col in df.columns]
         bull_meta_dynamics = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
         bear_meta_dynamics = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in valid_meta_cols], axis=0) if valid_meta_cols else 0.5
-        # --- 对称融合 ---
         bull_score_values = (
             bull_alignment * fusion_weights.get('alignment', 0.15) +
             bull_velocity * fusion_weights.get('slope', 0.15) +
@@ -150,7 +149,6 @@ class StructuralIntelligence:
             bear_relational * fusion_weights.get('relational', 0.25) +
             bear_meta_dynamics * fusion_weights.get('meta_dynamics', 0.25)
         )
-        # --- 净值裁决与动态分析 ---
         bipolar_snapshot = pd.Series(bull_score_values - bear_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
         final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
         final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
@@ -159,45 +157,46 @@ class StructuralIntelligence:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        return s_bull, s_bear, d_intensity
+        return s_bull, s_bear, d_intensity, bipolar_snapshot
+        # [代码修改结束]
 
-    def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_health: Dict) -> Tuple[Dict, Dict, Dict]:
+    def _calculate_mtf_cohesion_health(self, df: pd.DataFrame, periods: list, norm_window: int, daily_bipolar_snapshot: pd.Series) -> Tuple[Dict, Dict, Dict]:
         """
-        【V1.1 · 赫利俄斯敕令版】支柱二：多时间框架协同 (克洛诺斯的时间之轮)
-        - 核心革命: 遵循“赫利俄斯敕令”，对双极性快照分执行关系元分析，得到最终动态分，再派生s_bull/s_bear。
+        【V2.0 · 对称重构版】支柱二：多时间框架协同
+        - 核心重构: 废除旧的、错误的`1-score`逻辑。现在以完全对称的方式计算周线级别的双极性快照分，
+                      并与日线级别的双极性快照分进行融合，确保了跨周期评估的逻辑一致性和正确性。
         """
+        # [代码修改开始]
         s_bull, s_bear, d_intensity = {}, {}, {}
-        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
-        fusion_weights = get_param_value(p_conf.get('ma_health_fusion_weights'), {})
+        # --- 计算周线级别的双极性快照分 ---
         ma_periods_w = [5, 13, 21, 55]
         required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
         if not all(col in df.columns for col in required_cols_w):
-            weekly_bull_health = pd.Series(0.5, index=df.index, dtype=np.float32)
+            weekly_bipolar_snapshot = pd.Series(0.0, index=df.index, dtype=np.float32)
         else:
-            weekly_alignment = np.mean([(df[f'EMA_{ma_periods_w[i]}_W'] > df[f'EMA_{ma_periods_w[i+1]}_W']).values for i in range(len(ma_periods_w) - 1)], axis=0)
+            weekly_alignment_bull = np.mean([(df[f'EMA_{ma_periods_w[i]}_W'] > df[f'EMA_{ma_periods_w[i+1]}_W']).values for i in range(len(ma_periods_w) - 1)], axis=0)
+            weekly_alignment_bear = np.mean([(df[f'EMA_{ma_periods_w[i]}_W'] < df[f'EMA_{ma_periods_w[i+1]}_W']).values for i in range(len(ma_periods_w) - 1)], axis=0)
             weekly_slope_cols = [f'SLOPE_{p}_EMA_{p}_W' for p in ma_periods_w if f'SLOPE_{p}_EMA_{p}_W' in df.columns]
-            weekly_velocity = np.mean([((normalize_to_bipolar(df[col], df.index, norm_window) + 1) / 2.0).values for col in weekly_slope_cols], axis=0) if weekly_slope_cols else 0.5
-            weekly_bull_health_values = weekly_alignment * 0.5 + weekly_velocity * 0.5
-            weekly_bull_health = pd.Series(weekly_bull_health_values, index=df.index, dtype=np.float32)
-        daily_bull_health = daily_health.get(norm_window, pd.Series(0.5, index=df.index))
-        bull_snapshot_score = (daily_bull_health * weekly_bull_health)**0.5
-        # 遵循“赫利俄斯敕令”
-        # 1. 计算双极性快照分 (使用阿瑞斯之盾逻辑)
-        bear_snapshot_score = 1.0 - bull_snapshot_score
-        bipolar_snapshot = (bull_snapshot_score - bear_snapshot_score).clip(-1, 1)
-        # 2. 对双极性快照分执行关系元分析，得到最终的动态健康分
-        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, bipolar_snapshot)
-        # 3. 从最终动态分中互斥地派生出 s_bull 和 s_bear
-        final_bull_score = final_dynamic_score.clip(0, 1).astype(np.float32)
-        final_bear_score = (final_dynamic_score.clip(-1, 0) * -1).astype(np.float32)
-        # 4. 将 d_intensity 降级为无意义的占位符
+            weekly_velocity_bull = np.mean([normalize_score(df[col], df.index, norm_window, ascending=True).values for col in weekly_slope_cols], axis=0) if weekly_slope_cols else 0.5
+            weekly_velocity_bear = np.mean([normalize_score(df[col], df.index, norm_window, ascending=False).values for col in weekly_slope_cols], axis=0) if weekly_slope_cols else 0.5
+            weekly_bull_health = weekly_alignment_bull * 0.5 + weekly_velocity_bull * 0.5
+            weekly_bear_health = weekly_alignment_bear * 0.5 + weekly_velocity_bear * 0.5
+            weekly_bipolar_snapshot = pd.Series(weekly_bull_health - weekly_bear_health, index=df.index, dtype=np.float32).clip(-1, 1)
+        # --- 融合日线和周线的双极性快照分 ---
+        # 只有当日线和周线方向一致时，信号才最强。使用乘法可以体现这一点。
+        fused_bipolar_snapshot = daily_bipolar_snapshot * weekly_bipolar_snapshot
+        # --- 对融合后的双极性快照分进行关系元分析 ---
+        final_dynamic_score = self._perform_structural_relational_meta_analysis(df, fused_bipolar_snapshot)
+        p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
+        neutral_zone_threshold = get_param_value(p_conf.get('neutral_zone_threshold'), 0.1)
+        final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score, neutral_zone_threshold)
         unified_d_intensity = pd.Series(1.0, index=df.index, dtype=np.float32)
         for p in periods:
             s_bull[p] = final_bull_score
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
-        
         return s_bull, s_bear, d_intensity
+        # [代码修改结束]
 
     def _calculate_breakout_potential_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict]:
         """
