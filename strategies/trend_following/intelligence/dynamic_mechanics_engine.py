@@ -29,9 +29,10 @@ class DynamicMechanicsEngine:
 
     def diagnose_ultimate_dynamic_mechanics_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V16.3 · 算术平均融合版】动态力学终极信号诊断引擎
-        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”来融合五大支柱。
-                      此修改确保了单个支柱的暂时性疲软不会导致整个力学快照分崩溃为零。
+        【V16.4 · 逻辑链路修复版】动态力学终极信号诊断引擎
+        - 核心修复: 修正了 `bipolar_mechanics_snapshot` 变量仅在 else 分支中定义的致命错误。
+                      将其移出 if/else 结构，确保在所有逻辑路径下都能被正确计算和赋值，
+                      解决了 UnboundLocalError 问题。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -56,7 +57,6 @@ class DynamicMechanicsEngine:
         ine_bear_snapshot = (normalize_score(df.get('ADX_14_D'), df.index, norm_window, ascending=False) * normalize_score(df.get('hurst_120d_D'), df.index, norm_window, ascending=False))**0.5
         energy_bull_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=True)
         energy_bear_snapshot = normalize_score(df.get('energy_ratio_D'), df.index, norm_window, ascending=False)
-            # --- 使用加权算术平均数进行融合 ---
         bull_snapshots = {
             'volatility': vol_bull_snapshot, 'efficiency': eff_bull_snapshot, 'momentum': mom_bull_snapshot,
             'inertia': ine_bull_snapshot, 'energy_transition': energy_bull_snapshot
@@ -75,7 +75,10 @@ class DynamicMechanicsEngine:
         else:
             fused_bull_snapshot = pd.Series(0.5, index=df.index)
             fused_bear_snapshot = pd.Series(0.5, index=df.index)
-            bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
+        # [代码修改开始]
+        # 将 bipolar_mechanics_snapshot 的计算移出 else 块，确保它总能被执行
+        bipolar_mechanics_snapshot = (fused_bull_snapshot - fused_bear_snapshot).clip(-1, 1)
+        # [代码修改结束]
         modulated_bipolar_snapshot = bipolar_mechanics_snapshot * ma_health_score
         for i, p in enumerate(sorted_periods):
             context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
