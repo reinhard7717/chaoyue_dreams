@@ -13,15 +13,16 @@ class StructuralProbes:
 
     def _deploy_structural_health_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.3 · 动态周期组版】结构健康度探针
-        - 核心修复: 废除了硬编码的周期分组逻辑。现在探针会动态地、精确地复制主引擎中
-                      `period_groups` 的划分逻辑，确保在任何 `periods` 配置下都能正确重算。
+        【探针 V2.0 · 信号流穿透版】结构健康度探针
+        - 核心升级: 探针现在能完全模拟 `transmute_health_to_ultimate_signals` 的内部计算流程，
+                      包括 s_bull/s_bear 的净值计算、多时间框架融合、以及最终的单双极性转换，
+                      从而实现对信号流的端到端穿透式解剖。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V1.3】🏛️ " + "="*25)
+        print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V2.0】🏛️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        engine = self.structural_intel
+        from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         def get_val(series, date, default=0.0):
             if series is None: return default
             val = series.get(date)
@@ -30,32 +31,43 @@ class StructuralProbes:
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_final_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终信号分】: {actual_final_score:.4f}")
-        print("\n  [链路层 2] 整体健康度融合 (Overall Health Fusion)")
+        print("\n  [链路层 2] 周期健康度净值计算 (Per-Period Net Health)")
         overall_health = atomic.get('__STRUCTURE_overall_health', {})
         s_bull_overall = overall_health.get('s_bull', {})
+        s_bear_overall = overall_health.get('s_bear', {})
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        bipolar_health_by_period = {}
+        for p in periods:
+            s_bull = get_val(s_bull_overall.get(p), probe_date)
+            s_bear = get_val(s_bear_overall.get(p), probe_date)
+            net_health = s_bull - s_bear
+            bipolar_health_by_period[p] = net_health
+            print(f"    - [周期 {p}d] s_bull: {s_bull:.4f}, s_bear: {s_bear:.4f} -> 净值: {net_health:.4f}")
+        print("\n  [链路层 3] 整体健康度融合 (Overall Health Fusion)")
         resonance_tf_weights = get_param_value(p_synthesis.get('resonance_tf_weights'), {})
-        # 精确复制主引擎的周期分组逻辑
         period_groups = {
             'short': [p for p in periods if p <= 5],
             'medium': [p for p in periods if 5 < p <= 21],
             'long': [p for p in periods if p > 21]
         }
-        recalc_bullish_resonance = 0.0
+        recalc_final_bipolar_resonance = 0.0
         total_weight = sum(resonance_tf_weights.values())
         if total_weight > 0:
             for p_key, weight in resonance_tf_weights.items():
-                # 使用动态生成的周期组
                 group_periods = period_groups.get(p_key, [])
-                group_scores = [get_val(s_bull_overall.get(p), probe_date) for p in group_periods if p in s_bull_overall]
+                group_scores = [bipolar_health_by_period.get(p, 0.0) for p in group_periods]
                 avg_group_score = np.mean(group_scores) if group_scores else 0.0
-                recalc_bullish_resonance += avg_group_score * (weight / total_weight)
-                print(f"    - [周期组 {p_key}] 平均健康度: {avg_group_score:.4f}, 权重贡献: {(avg_group_score * (weight / total_weight)):.4f}")
-        print(f"    - 【探针重算看涨共振分】: {recalc_bullish_resonance:.4f}")
-        # 最终裁决时，需要模拟 bipolar_to_exclusive_unipolar 的行为
-        # 因为我们已经移除了阈值，所以直接比较即可
-        final_recalc_score = recalc_bullish_resonance
+                recalc_final_bipolar_resonance += avg_group_score * (weight / total_weight)
+                print(f"    - [周期组 {p_key}] 平均净值: {avg_group_score:.4f}, 权重贡献: {(avg_group_score * (weight / total_weight)):.4f}")
+        print(f"    - 【探针重算融合净值】: {recalc_final_bipolar_resonance:.4f}")
+        print("\n  [链路层 4] 最终信号转换 (Final Signal Transmutation)")
+        # 模拟 bipolar_to_exclusive_unipolar 的转换
+        recalc_bullish_resonance, _ = bipolar_to_exclusive_unipolar(pd.Series([recalc_final_bipolar_resonance]))
+        final_recalc_score = recalc_bullish_resonance.iloc[0]
+        print(f"    - [转换函数]: bipolar_to_exclusive_unipolar({recalc_final_bipolar_resonance:.4f})")
+        print(f"    - 【探针重算看涨共振分】: {final_recalc_score:.4f}")
+        print("\n  [链路层 5] 终极对质 (Final Verdict)")
         print(f"    - [对比]: 系统最终值 {actual_final_score:.4f} vs. 探针重算值 {final_recalc_score:.4f} -> {'✅ 一致' if np.isclose(actual_final_score, final_recalc_score) else '❌ 不一致'}")
         print("\n--- “结构健康度探针”解剖完毕 ---")
         # [代码修改结束]
