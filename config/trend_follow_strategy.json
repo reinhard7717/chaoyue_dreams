@@ -149,8 +149,8 @@
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
         "enable_profit_taking_pressure_probe": false,
-        "enable_ultimate_top_reversal_probe": false,
-        "enable_main_force_intent_duel_probe": true
+        "enable_ultimate_top_reversal_probe": true,
+        "enable_main_force_intent_duel_probe": false
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },
