@@ -431,10 +431,12 @@ def transmute_health_to_ultimate_signals(
     domain_prefix: str
 ) -> Dict[str, pd.Series]:
     """
-    【V5.8 · 签名净化同步版】终极信号中央合成引擎
-    - 核心修复: 同步 `bipolar_to_exclusive_unipolar` 的签名变更，彻底移除了函数内部
-                  关于 `neutral_zone_threshold` 的所有定义和使用。
+    【V5.9 · 终极净化版】终极信号中央合成引擎
+    - 核心重构: 彻底移除了函数内部关于 `neutral_zone_threshold` 的定义和使用。
+                  现在，单双极性转换完全依赖于已修复的、无阈值的 `bipolar_to_exclusive_unipolar` 函数，
+                  从根本上解决了弱信号在最后合成阶段被错误归零的问题。
     """
+    # [代码修改开始]
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
@@ -442,6 +444,7 @@ def transmute_health_to_ultimate_signals(
     norm_window = get_param_value(params.get('norm_window'), 55)
     bottom_context_bonus_factor = get_param_value(params.get('bottom_context_bonus_factor'), 0.5)
     exponent = get_param_value(params.get('final_score_exponent'), 1.0)
+    # 彻底移除了 neutral_zone_threshold 的获取
     atomic_states['strategy_instance_ref'] = df.strategy if hasattr(df, 'strategy') else {}
     bottom_context_score, top_context_score = calculate_context_scores(df, atomic_states)
     if 'strategy_instance_ref' in atomic_states:
@@ -489,12 +492,14 @@ def transmute_health_to_ultimate_signals(
         bipolar_health[p] = s_bull - s_bear
     final_bipolar_resonance = fuse_bipolar_health(bipolar_health, resonance_tf_weights)
     final_bipolar_reversal = fuse_bipolar_health(bipolar_health, reversal_tf_weights)
+    # 调用无阈值的 bipolar_to_exclusive_unipolar 函数，确保信号的完整性
     final_bullish_resonance, final_bearish_resonance = bipolar_to_exclusive_unipolar(final_bipolar_resonance)
     final_bottom_reversal_trigger, final_top_reversal_trigger = bipolar_to_exclusive_unipolar(final_bipolar_reversal)
     raw_bottom_reversal_score = (final_bottom_reversal_trigger * (1 + recent_reversal_context_modulated * bottom_context_bonus_factor)).clip(0, 1)
     final_bottom_reversal_score = raw_bottom_reversal_score * bottom_context_score * (1 - trend_confirmation_context)
     final_top_reversal_score = (final_top_reversal_trigger * (1 + top_context_score * bottom_context_bonus_factor)).clip(0, 1)
     final_tactical_reversal_score = calculate_tactical_reversal_score(df, atomic_states, overall_health, tactical_params, norm_window)
+    # 在这里，final_bullish_resonance 将直接用于生成最终信号，不再有任何中间的阈值过滤
     final_signal_map = {
         f'SCORE_{domain_prefix}_BULLISH_RESONANCE': (final_bullish_resonance ** exponent),
         f'SCORE_{domain_prefix}_BOTTOM_REVERSAL': (final_bottom_reversal_score ** exponent),
