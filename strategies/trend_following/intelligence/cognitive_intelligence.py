@@ -811,16 +811,14 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.8 · 协议修正版】认知扩展信号统一合成引擎
-        - 核心升级: 引入可配置的融合算法，默认为更稳健的“算术平均”，从根本上废除脆弱的“湮灭协议”（几何平均）。
-                      同时，由于算术平均对0值不敏感，一并废除了副作用巨大的“幽灵协议”（zero_mask强制归零逻辑）。
+        【V2.9 · 最终净化版】认知扩展信号统一合成引擎
+        - 核心修复: 赋予引擎智能。当消费的组件来源是 'atomic' (原子信号)时，直接使用其值，
+                      不再进行冗余且错误的MTF二次融合。MTF融合仅用于处理 'df' 来源的原始指标。
+                      此修改从根本上解决了“二次加工”导致的逻辑错误。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        # [代码新增开始]
-        # 获取信号专属的覆盖配置
         signal_specific_configs = get_param_value(p_cognitive.get('expansion_signal_specific_configs'), {})
-        # [代码新增结束]
         periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
         tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {
             "1": 0.05, "5": 0.2, "13": 0.3, "21": 0.3, "55": 0.15
@@ -843,13 +841,10 @@ class CognitiveIntelligence:
         df['gap_not_filled'] = (df['low_D'] > df['pre_close_D'])
         df['touched_limit_down'] = (df['low_D'] <= df.get('down_limit_D', 0) * 1.005)
         for signal_name, config in expansion_signal_configs.items():
-            # [代码修改开始]
-            # 获取当前信号的专属配置，如果不存在则使用默认值
             specific_config = signal_specific_configs.get(signal_name, {})
-            fusion_method = specific_config.get('fusion_method', 'arithmetic') # 默认使用算术平均
+            fusion_method = specific_config.get('fusion_method', 'arithmetic')
             fused_component_scores = []
-            component_weights = [] # 用于算术加权平均
-            # [代码修改结束]
+            component_weights = []
             gate_scores = []
             for comp in config.get('components', []):
                 source_series_raw = None
@@ -859,10 +854,6 @@ class CognitiveIntelligence:
                     source_series_raw = self._get_atomic_score(df, comp['name'], 0.0)
                 if source_series_raw is None or source_series_raw.empty:
                     source_series_raw = pd.Series(0.0, index=df.index)
-                # [代码修改开始]
-                # 废除“幽灵协议”：不再需要基于原始值的zero_mask
-                # zero_mask = np.isclose(source_series_raw, 0)
-                # [代码修改结束]
                 transformed_series = source_series_raw.copy()
                 transform = comp.get('transform')
                 params = comp.get('params', ())
@@ -882,9 +873,11 @@ class CognitiveIntelligence:
                     transformed_series = transformed_series.shift(params[0]).fillna(0)
                 elif transform == 'shift_lt':
                     transformed_series = transformed_series.shift(params[0]).fillna(params[1]) < params[1]
+                # [代码修改开始]
+                # 智能处理：仅对原始指标('df')应用MTF融合，对成品原子信号('atomic')直接使用
                 if comp['source'] == 'atomic':
                     fused_component_series = transformed_series
-                else:
+                else: # comp['source'] == 'df'
                     fused_component_series = pd.Series(0.0, index=df.index)
                     if total_weight > 0:
                         for p in periods:
@@ -893,31 +886,20 @@ class CognitiveIntelligence:
                             fused_component_series += normalized_series * weight
                     else:
                         fused_component_series = normalize_score(transformed_series, df.index, 55)
-                # [代码修改开始]
-                # 废除“幽灵协议”：不再需要强制归零
-                # fused_component_series[zero_mask] = 0.0
                 # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:
                     fused_component_scores.append(fused_component_series.values)
-                    # [代码新增开始]
-                    # 收集每个组件的权重
                     component_weights.append(comp.get('weight', 1.0))
-                    # [代码新增结束]
             if not fused_component_scores:
                 snapshot_score_values = np.ones(len(df.index), dtype=np.float32)
             else:
-                # [代码修改开始]
-                # 协议修正：根据配置选择融合算法
                 stacked_scores = np.stack(fused_component_scores, axis=0)
                 if fusion_method == 'geometric':
-                    # 保留旧的“湮灭协议”作为备用选项
                     snapshot_score_values = np.prod(stacked_scores, axis=0) ** (1.0 / len(fused_component_scores))
-                else: # 默认为 'arithmetic'
-                    # 使用更稳健的加权算术平均
+                else:
                     snapshot_score_values = np.average(stacked_scores, axis=0, weights=np.array(component_weights))
-                # [代码修改结束]
             if gate_scores:
                 for gate in gate_scores:
                     snapshot_score_values *= gate

@@ -422,7 +422,7 @@ class BehavioralIntelligence:
 
     def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V13.4 · 公理修正版】量价原子信号诊断引擎
+        【V13.5 · 最终净化版】量价原子信号诊断引擎
         - 核心修复: 修正了“流动性真空风险”的计算逻辑，遵循“先融合原始能量，再归一化”的物理学公理。
                       此修复将从根本上解决该信号在能量为零时依然输出非零值的“原罪”问题。
         """
