@@ -122,12 +122,13 @@ class StructuralProbes:
 
     def _deploy_structural_pillar_dissection_probe(self, probe_date: pd.Timestamp, pillar_name: str = 'trend_integrity', period: int = 13):
         """
-        【探针 V1.0 · 新增】结构支柱穿透式解剖探针
-        - 核心使命: 深度解剖单个结构支柱的完整计算链路，从最原始的组件到最终的健康分。
-        - 解剖链路: 1. 原始组件分 -> 2. 融合快照分 -> 3. 关系元分析 -> 4. 单双极性转换 -> 5. 最终输出
+        【探针 V1.1 · 标量修复版】结构支柱穿透式解剖探针
+        - 核心修复: 删除了对 `ma_values` 的错误计算。该行代码试图对一个标量（单个数字）
+                      调用 `.values` 属性，导致了 AttributeError。由于该变量在后续也未使用，
+                      直接移除是最佳修复方案。
         """
-        # [代码新增开始]
-        print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.0 ({pillar_name})】🧬 " + "="*25)
+        # [代码修改开始]
+        print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.1 ({pillar_name})】🧬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.structural_intel
@@ -145,7 +146,7 @@ class StructuralProbes:
             if not all(col in df.columns for col in required_cols):
                 print("    - 缺少必要的MA列，无法进行解剖。")
                 return
-            ma_values = np.stack([df[col].loc[probe_date].values for col in required_cols], axis=0)
+            # 删除了错误的 ma_values 计算行
             bull_alignment = np.mean([(df[f'MA_{ma_periods[i]}_D'].loc[probe_date] > df[f'MA_{ma_periods[i+1]}_D'].loc[probe_date]) for i in range(len(ma_periods) - 1)])
             bear_alignment = np.mean([(df[f'MA_{ma_periods[i]}_D'].loc[probe_date] < df[f'MA_{ma_periods[i+1]}_D'].loc[probe_date]) for i in range(len(ma_periods) - 1)])
             slope_cols = [f'SLOPE_{p}_MA_{p}_D' for p in ma_periods if f'SLOPE_{p}_MA_{p}_D' in df.columns]
@@ -156,6 +157,7 @@ class StructuralProbes:
             bear_relational = get_val(normalize_score(ma_std_series, df.index, norm_window, ascending=True), probe_date)
             print(f"    - [看涨组件] 排列: {bull_alignment:.4f}, 速度: {bull_velocity:.4f}, 关系: {bull_relational:.4f}")
             print(f"    - [看跌组件] 排列: {bear_alignment:.4f}, 速度: {bear_velocity:.4f}, 关系: {bear_relational:.4f}")
+            # 简化计算，只保留核心权重
             bull_score_val = (bull_alignment * fusion_weights.get('alignment', 0.15) + bull_velocity * fusion_weights.get('slope', 0.15) + bull_relational * fusion_weights.get('relational', 0.25))
             bear_score_val = (bear_alignment * fusion_weights.get('alignment', 0.15) + bear_velocity * fusion_weights.get('slope', 0.15) + bear_relational * fusion_weights.get('relational', 0.25))
             print(f"    - 【融合看涨分】: {bull_score_val:.4f}")
@@ -170,12 +172,13 @@ class StructuralProbes:
             from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
             final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score_series)
             print(f"    - 【最终单极性转换后】 看涨分: {get_val(final_bull_score, probe_date):.4f}, 看跌分: {get_val(final_bear_score, probe_date):.4f}")
-            system_s_bull = get_val(atomic.get('__STRUCTURE_overall_health', {}).get('s_bull', {}).get(period), probe_date)
-            print(f"    - [对比]: 系统支柱分 {system_s_bull:.4f} vs. 探针重算分 {get_val(final_bull_score, probe_date):.4f} -> {'✅ 一致' if np.isclose(system_s_bull, get_val(final_bull_score, probe_date)) else '❌ 不一致'}")
+            # 获取系统实际计算出的支柱分进行对比
+            ti_s_bull, _, _, _ = engine._calculate_trend_integrity_health(df, [period], norm_window)
+            system_pillar_score = get_val(ti_s_bull.get(period), probe_date)
+            print(f"    - [对比]: 系统支柱分 {system_pillar_score:.4f} vs. 探针重算分 {get_val(final_bull_score, probe_date):.4f} -> {'✅ 一致' if np.isclose(system_pillar_score, get_val(final_bull_score, probe_date)) else '❌ 不一致'}")
         else:
             print(f"    - 探针暂不支持解剖 '{pillar_name}' 支柱。")
         print("\n--- “结构支柱解剖探针”解剖完毕 ---")
-        # [代码新增结束]
 
 
 
