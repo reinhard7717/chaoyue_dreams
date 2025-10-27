@@ -170,10 +170,12 @@ class CognitiveIntelligence:
 
     def synthesize_trend_quality_score(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V5.1 · 算术平均融合版】趋势质量融合评分模块
-        - 核心重构: 废除脆弱的“几何平均数”，换用更具韧性的“加权算术平均数”。
-                      此修改确保了单个领域的暂时性疲软不会导致整个评估系统崩溃。
+        【V5.2 · 逻辑链路修复版】趋势质量融合评分模块
+        - 核心修复: 修正了 `direct_trend_health_score` 变量仅在 else 分支中定义的致命错误。
+                      将其移出 if/else 结构，确保在所有逻辑路径下都能被正确计算和赋值，
+                      解决了 UnboundLocalError 问题。
         """
+        # [代码修改开始]
         p = get_params_block(self.strategy, 'trend_quality_params', {})
         weights = p.get('domain_weights', {})
         domain_scores_map = {
@@ -185,7 +187,8 @@ class CognitiveIntelligence:
             'regime': (self._get_atomic_score(df, 'SCORE_TRENDING_REGIME') * self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT'))**0.5,
             'cyclical': 1.0 - self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME')
         }
-            # --- 使用加权算术平均数进行融合 ---
+        # 将 direct_trend_health_score 的计算移出 if/else 块，确保它总能被定义
+        direct_trend_health_score = self._calculate_cognitive_trend_health(df)
         consensus_snapshot_score = pd.Series(0.0, index=df.index, dtype=np.float64)
         total_weight = 0.0
         valid_weights = {name: w for name, w in weights.items() if w > 0 and name in domain_scores_map}
@@ -197,11 +200,11 @@ class CognitiveIntelligence:
                     consensus_snapshot_score += score_series.fillna(0.5) * (weight / total_weight)
         else:
             consensus_snapshot_score = pd.Series(0.5, index=df.index, dtype=np.float32)
-            direct_trend_health_score = self._calculate_cognitive_trend_health(df)
         trend_quality_snapshot_score = (direct_trend_health_score * consensus_snapshot_score)**0.5
         final_trend_quality_score = self._perform_cognitive_relational_meta_analysis(df, trend_quality_snapshot_score)
         self.strategy.atomic_states['COGNITIVE_SCORE_TREND_QUALITY'] = final_trend_quality_score.astype(np.float32)
         return df
+
 
     def synthesize_pullback_states(self, df: pd.DataFrame) -> pd.DataFrame:
         """
