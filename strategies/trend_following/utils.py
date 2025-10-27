@@ -875,28 +875,18 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
 
 def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series, threshold: float) -> Tuple[pd.Series, pd.Series]:
     """
-    【V1.0 · 赫斯提亚的壁炉协议】将双极性分数转换为互斥的单极性分数。
-    - 核心逻辑: 在0点周围建立一个由`threshold`定义的“中性区”（壁炉）。
-                1. 分数在[-threshold, threshold]区间内，s_bull和s_bear均为0。
-                2. 分数在(threshold, 1]区间内，s_bull被线性映射到(0, 1]。
-                3. 分数在[-1, -threshold)区间内，s_bear被线性映射到(0, 1]。
-    - :param bipolar_score: 输入的[-1, 1]双极性分数序列。
-    - :param threshold: 中性区的阈值，例如 0.1。
-    - :return: 一个包含 (s_bull, s_bear) 的元组。
+    【V2.0 · 根除协议版】将双极性分数转换为互斥的单极性分数。
+    - 核心重构: 彻底废除“中性区”设计。该设计已被证明是导致弱信号被错误归零的根源。
+    - 新逻辑: 采用最直接、最稳健的clip操作。任何正分都归属于s_bull，任何负分都归属于s_bear。
+                这确保了信号的完整性，避免了“信号黑洞”问题。
     """
-    if threshold < 0 or threshold >= 1:
-        raise ValueError("中性区阈值必须在 [0, 1) 范围内。")
-    # [代码新增开始]
-    # 计算重新标定的基数，增加一个极小值避免除以零
-    denominator = 1.0 - threshold + 1e-9
-    # 对绝对值超出阈值的部分进行线性重新标定
-    rescaled_abs_score = (bipolar_score.abs() - threshold) / denominator
-    # 看涨分数：只取原始分数为正且重标定后也为正的部分
-    s_bull = rescaled_abs_score.where(bipolar_score > threshold, 0).clip(0, 1)
-    # 看跌分数：只取原始分数为负且重标定后也为正的部分
-    s_bear = rescaled_abs_score.where(bipolar_score < -threshold, 0).clip(0, 1)
+    # [代码修改开始]
+    # 看涨分数：直接截取双极性分数中的正值部分。
+    s_bull = bipolar_score.clip(0, 1)
+    # 看跌分数：截取双极性分数中的负值部分，然后取其绝对值。
+    s_bear = (bipolar_score.clip(-1, 0) * -1)
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
-    
+    # [代码修改结束]
 
 
 
