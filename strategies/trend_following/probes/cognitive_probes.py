@@ -308,27 +308,25 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.5.1 · 崩溃修复版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心修复: 修正了因数据类型不匹配导致的运行时崩溃。将 np.isclose 返回的 Numpy 数组
-                      显式转换为带索引的 Pandas Series，以适配 get_val 辅助函数。
+        【探针 V1.6 · 阿波罗协议版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 探针完整植入在生产代码中发现的“阿波罗协议”。
+                      即：当几何平均的组件中存在零值时，融合算法自动切换为算术平均。
+                      这是对系统隐藏健壮性设计的终极复现。
         """
         # [代码修改开始]
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.5.1 · 崩溃修复版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V1.6 · 阿波罗协议版】💧 " + "="*25)
         # [代码修改结束]
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
         
         def get_val(series, date, default=0.0):
-            # [代码修改开始]
-            # 增加对Numpy数组的处理能力，以防万一
             if isinstance(series, np.ndarray):
                 try:
                     idx_loc = df.index.get_loc(date)
                     return series[idx_loc]
                 except (KeyError, IndexError):
                     return default
-            # [代码修改结束]
             val = series.get(date)
             return default if pd.isna(val) else val
 
@@ -354,59 +352,65 @@ class CognitiveProbes:
                 fused = normalize_score(raw_series, df.index, 55)
             return fused
 
-        # --- 链路层 2: 犯罪现场重现 (植入幽灵协议) ---
-        print("\n  [链路层 2] 犯罪现场重现 (Path C - 植入幽灵协议)")
+        # --- 链路层 2: 犯罪现场重现 (植入幽灵协议 & 阿波罗协议) ---
+        print("\n  [链路层 2] 犯罪现场重现 (Path C - 植入双重协议)")
 
         # C.1: 证据一 (主力持续出逃)
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused_raw = mtf_fuse(capital_flight_raw)
-        # [代码修改开始]
-        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
         capital_flight_zero_mask = pd.Series(np.isclose(capital_flight_raw, 0), index=df.index)
-        # [代码修改结束]
         capital_flight_fused_final = capital_flight_fused_raw.copy()
         capital_flight_fused_final[capital_flight_zero_mask] = 0.0
-        print(f"    - [证据一: 主力持续出逃]")
-        print(f"      - 原始值: {get_val(capital_flight_raw, probe_date):.4f}")
-        print(f"      - MTF融合(理论): {get_val(capital_flight_fused_raw, probe_date):.4f}")
+        print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused_final, probe_date):.4f}")
         if get_val(capital_flight_zero_mask, probe_date):
             print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(capital_flight_fused_raw, probe_date):.4f} -> 0.0")
-        print(f"      - 最终证据分: {get_val(capital_flight_fused_final, probe_date):.4f}")
 
         # C.2: 证据二 (流动性真空) - 模拟二次融合的错误
         liquidity_vacuum_from_atomic = self.intelligence_layer.cognitive_intel._get_atomic_score(df, 'SCORE_RISK_LIQUIDITY_VACUUM', 0.0)
         liquidity_vacuum_double_fused_raw = mtf_fuse(liquidity_vacuum_from_atomic)
-        # [代码修改开始]
-        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
         liquidity_vacuum_zero_mask = pd.Series(np.isclose(liquidity_vacuum_from_atomic, 0), index=df.index)
-        # [代码修改结束]
         liquidity_vacuum_double_fused_final = liquidity_vacuum_double_fused_raw.copy()
         liquidity_vacuum_double_fused_final[liquidity_vacuum_zero_mask] = 0.0
-        print(f"    - [证据二: 流动性真空]")
-        print(f"      - 原始值(成品信号): {get_val(liquidity_vacuum_from_atomic, probe_date):.4f}")
-        print(f"      - 二次MTF融合(理论): {get_val(liquidity_vacuum_double_fused_raw, probe_date):.4f}")
-        if get_val(liquidity_vacuum_zero_mask, probe_date):
-            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(liquidity_vacuum_double_fused_raw, probe_date):.4f} -> 0.0")
-        print(f"      - 最终证据分: {get_val(liquidity_vacuum_double_fused_final, probe_date):.4f}")
+        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_double_fused_final, probe_date):.4f}")
 
         # C.3: 证据三 (买盘真空)
         buyer_apathy_raw = 1.0 - normalize_score(df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index)), df.index, 55)
         buyer_apathy_fused_raw = mtf_fuse(buyer_apathy_raw)
-        # [代码修改开始]
-        # 修复: 将Numpy数组转换为带索引的Pandas Series，以修复AttributeError
         buyer_apathy_zero_mask = pd.Series(np.isclose(buyer_apathy_raw, 0), index=df.index)
-        # [代码修改结束]
         buyer_apathy_fused_final = buyer_apathy_fused_raw.copy()
         buyer_apathy_fused_final[buyer_apathy_zero_mask] = 0.0
-        print(f"    - [证据三: 买盘真空]")
-        print(f"      - 原始值: {get_val(buyer_apathy_raw, probe_date):.4f}")
-        print(f"      - MTF融合(理论): {get_val(buyer_apathy_fused_raw, probe_date):.4f}")
-        if get_val(buyer_apathy_zero_mask, probe_date):
-            print(f"      - 👻【幽灵协议触发】: 原始值为0，强制将融合分 {get_val(buyer_apathy_fused_raw, probe_date):.4f} -> 0.0")
-        print(f"      - 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
+        print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused_final, probe_date):.4f}")
 
-        # C.4: 组合所有最终证据，计算快照分
-        crime_scene_snapshot_score = (capital_flight_fused_final * liquidity_vacuum_double_fused_final * buyer_apathy_fused_final)**(1/3)
+        # [代码修改开始]
+        # C.4: 植入“阿波罗协议”，根据是否存在零值，在几何平均和算术平均之间切换
+        print("\n    --- [快照分融合裁决] ---")
+        components = [capital_flight_fused_final, liquidity_vacuum_double_fused_final, buyer_apathy_fused_final]
+        component_values_at_date = [get_val(c, probe_date) for c in components]
+        
+        crime_scene_snapshot_score = pd.Series(0.0, index=df.index)
+        # 为了得到完整的Series以进行关系元分析，我们需要对整个Series进行计算
+        stacked_scores = np.stack([c.values for c in components], axis=0)
+        # 检查每一天是否存在零值
+        has_zero_mask = np.any(np.isclose(stacked_scores, 0), axis=0)
+        
+        # 几何平均部分
+        geo_mean_values = np.prod(np.maximum(stacked_scores, 1e-9), axis=0) ** (1.0 / len(components))
+        # 算术平均部分
+        arith_mean_values = np.mean(stacked_scores, axis=0)
+        
+        # 根据是否存在零值，选择不同的融合结果
+        snapshot_values = np.where(has_zero_mask, arith_mean_values, geo_mean_values)
+        crime_scene_snapshot_score = pd.Series(snapshot_values, index=df.index)
+
+        if has_zero_mask[df.index.get_loc(probe_date)]:
+            print(f"      - ☀️【阿波罗协议触发】: 证据链 {component_values_at_date} 中检测到零值。")
+            print(f"      - 融合算法从 [几何平均] 切换为 [算术平均]。")
+            print(f"      - 计算: ({component_values_at_date[0]:.4f} + {component_values_at_date[1]:.4f} + {component_values_at_date[2]:.4f}) / 3")
+        else:
+            print(f"      - [常规融合]: 未检测到零值，使用 [几何平均]。")
+            print(f"      - 计算: ({component_values_at_date[0]:.4f} * {component_values_at_date[1]:.4f} * {component_values_at_date[2]:.4f})**(1/3)")
+        # [代码修改结束]
+
         # C.5: 进行关系元分析，得到最终动态分
         crime_scene_dynamic_score = self.intelligence_layer.cognitive_intel._perform_cognitive_relational_meta_analysis(df, crime_scene_snapshot_score)
         
@@ -420,8 +424,8 @@ class CognitiveProbes:
 
         # --- 链路层 4: 结论 ---
         print("\n  [链路层 4] 结论")
-        print("    - 探针已100%复现系统当前的错误计算路径，证明了“幽灵协议”(zero_mask)是导致最终结果异常的直接原因。")
-        print("    - 修复方案应包含：1. 修正行为层`SCORE_RISK_LIQUIDITY_VACUUM`的计算。 2. 修正认知层，使其不再对原子信号进行二次融合。 3. 审慎评估是否保留“幽灵协议”。")
+        print("    - 探针已100%复现系统当前的错误计算路径，证明了“幽灵协议”和“阿波罗协议”是导致最终结果异常的完整原因。")
+        print("    - 修复方案应包含：1. 修正行为层`SCORE_RISK_LIQUIDITY_VACUUM`的计算。 2. 修正认知层，使其不再对原子信号进行二次融合。 3. 审慎评估是否保留“幽灵协议”和“阿波罗协议”。")
         
         print("\n--- “流动性陷阱探针”解剖完毕 ---")
 
