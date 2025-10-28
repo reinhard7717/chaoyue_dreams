@@ -39,12 +39,12 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V15.0 · 综合风险重构版】顶层认知总分合成模块
+        【V16.0 · 职责净化版】顶层认知总分合成模块
         - 核心升级:
           1. [架构重构] 废除所有零散的 _synthesize_* 扩展信号方法，统一由全新的 `_synthesize_cognitive_expansion_engine` 引擎生成。
           2. [分析升维] 所有扩展信号现在都将经过“关系元分析”，具备“状态-速度-加速度”的动态洞察力。
         - 本次修改:
-          - [名称净化] 将 `_diagnose_ultimate_top_reversal` 重命名为 `_diagnose_comprehensive_top_risk`。
+          - [名称净化] 将 `_diagnose_comprehensive_top_risk` 重命名为 `_synthesize_comprehensive_top_risk`，使其更符合“合成”的职责。
           - [逻辑加固] 新的终极顶部风险引擎将采用“三柱-神盾”架构，融合更多高优先级风险信号，并引入趋势韧性抑制机制。
         """
         df = self.synthesize_trend_quality_score(df)
@@ -59,7 +59,7 @@ class CognitiveIntelligence:
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
         self.synthesize_tactical_opportunity_fusion(df)
-        suppression_vs_retreat_states = self._diagnose_suppression_vs_retreat(df)
+        suppression_vs_retreat_states = self._synthesize_suppression_vs_retreat(df) # [代码修改]
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
         cyclical_risk_states = self._calculate_cyclical_top_risk(df)
         self.strategy.atomic_states.update(cyclical_risk_states)
@@ -69,8 +69,10 @@ class CognitiveIntelligence:
         del self.strategy.atomic_states['strategy_instance_ref']
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
-        # 调用重构后的综合顶部风险诊断引擎
-        comprehensive_top_risk_states = self._diagnose_comprehensive_top_risk(df)
+        # [代码修改开始]
+        # 调用重构后的综合顶部风险合成引擎
+        comprehensive_top_risk_states = self._synthesize_comprehensive_top_risk(df)
+        # [代码修改结束]
         self.strategy.atomic_states.update(comprehensive_top_risk_states)
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
@@ -678,48 +680,6 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE'] = final_cascade_score
         self.strategy.atomic_states.update(states)
 
-    def _diagnose_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V7.0 · 双极性信号适配版】综合顶部风险诊断引擎
-        - 核心升级: 改造“亢奋/高潮”支柱，使其消费新的双极性亢奋事件信号。
-        - 新逻辑: 只取`COGNITIVE_BIPOLAR_EUPHORIC_EVENT`的负值部分（风险）作为该支柱的输入。
-        """
-        states = {}
-        signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
-        # [代码修改开始]
-        # --- 亢奋/高潮支柱 ---
-        # 1. 获取新的双极性亢奋事件信号
-        bipolar_euphoric_event = self._get_atomic_score(df, 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT', 0.0)
-        # 2. 只取其负值部分（风险），并转换为正值
-        euphoric_risk_component = bipolar_euphoric_event.clip(upper=0).abs()
-        euphoric_pillar_signals = {
-            'EUPHORIC_EVENT_RISK': euphoric_risk_component,
-            'SELLING_PRESSURE': self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0),
-            'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
-        }
-        # [代码修改结束]
-        euphoric_risk_score = np.maximum.reduce([s.values for s in euphoric_pillar_signals.values()])
-        # --- 派发/背叛支柱 ---
-        distribution_pillar_signals = {
-            'MAIN_FORCE_INTENT_DUEL': self._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
-            'UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
-            'RETAIL_FOMO_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
-            'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
-        }
-        distribution_risk_score = np.maximum.reduce([s.values for s in distribution_pillar_signals.values()])
-        # --- 结构/周期支柱 ---
-        structural_pillar_signals = {
-            'CONTEXT_TOP': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
-            'CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
-        }
-        structural_risk_score = np.maximum.reduce([s.values for s in structural_pillar_signals.values()])
-        # --- 融合与抑制 ---
-        raw_fused_risk = np.maximum.reduce([euphoric_risk_score, distribution_risk_score, structural_risk_score])
-        shield_score = self._calculate_trend_resilience_shield(df)
-        final_risk_values = raw_fused_risk * (1.0 - shield_score.values)
-        states[signal_name] = pd.Series(np.clip(final_risk_values, 0, 1), index=df.index, dtype=np.float32)
-        return states
-
     def synthesize_tactical_reversal_resonance(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V1.1 · 资金流补完版】战术反转共振融合引擎
@@ -817,6 +777,47 @@ class CognitiveIntelligence:
                 self.strategy.atomic_states[score_name].loc[trade_date] = score_value
         
         print(f"    -> [日内引擎] 微观分析完成。")
+
+    def _synthesize_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V8.0 · 名称净化版】综合顶部风险合成引擎
+        - 核心升级: 改造“亢奋/高潮”支柱，使其消费新的双极性亢奋事件信号。
+        - 新逻辑: 只取`COGNITIVE_BIPOLAR_EUPHORIC_EVENT`的负值部分（风险）作为该支柱的输入。
+        """
+        # [代码修改开始]
+        # 方法名从 _diagnose_comprehensive_top_risk 修改为 _synthesize_comprehensive_top_risk
+        # [代码修改结束]
+        states = {}
+        signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
+        # --- 亢奋/高潮支柱 ---
+        bipolar_euphoric_event = self._get_atomic_score(df, 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT', 0.0)
+        euphoric_risk_component = bipolar_euphoric_event.clip(upper=0).abs()
+        euphoric_pillar_signals = {
+            'EUPHORIC_EVENT_RISK': euphoric_risk_component,
+            'SELLING_PRESSURE': self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0),
+            'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
+        }
+        euphoric_risk_score = np.maximum.reduce([s.values for s in euphoric_pillar_signals.values()])
+        # --- 派发/背叛支柱 ---
+        distribution_pillar_signals = {
+            'MAIN_FORCE_INTENT_DUEL': self._get_atomic_score(df, 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION', 0.0),
+            'UPTHRUST_DISTRIBUTION': self._get_atomic_score(df, 'SCORE_RISK_UPTHRUST_DISTRIBUTION', 0.0),
+            'RETAIL_FOMO_RETREAT': self._get_atomic_score(df, 'COGNITIVE_RISK_RETAIL_FOMO_MAIN_FORCE_RETREAT', 0.0),
+            'TRUE_RETREAT': self._get_atomic_score(df, 'COGNITIVE_SCORE_TRUE_RETREAT_RISK', 0.0),
+        }
+        distribution_risk_score = np.maximum.reduce([s.values for s in distribution_pillar_signals.values()])
+        # --- 结构/周期支柱 ---
+        structural_pillar_signals = {
+            'CONTEXT_TOP': self._get_atomic_score(df, 'CONTEXT_TOP_SCORE', 0.0),
+            'CYCLICAL_TOP': self._get_atomic_score(df, 'COGNITIVE_RISK_CYCLICAL_TOP', 0.0),
+        }
+        structural_risk_score = np.maximum.reduce([s.values for s in structural_pillar_signals.values()])
+        # --- 融合与抑制 ---
+        raw_fused_risk = np.maximum.reduce([euphoric_risk_score, distribution_risk_score, structural_risk_score])
+        shield_score = self._calculate_trend_resilience_shield(df)
+        final_risk_values = raw_fused_risk * (1.0 - shield_score.values)
+        states[signal_name] = pd.Series(np.clip(final_risk_values, 0, 1), index=df.index, dtype=np.float32)
+        return states
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -1033,12 +1034,15 @@ class CognitiveIntelligence:
         
         return pd.Series(aegis_shield_values, index=df.index, dtype=np.float32)
 
-    def _diagnose_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_suppression_vs_retreat(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 信号替代修复版】“真伪识别：打压 vs 撤退”诊断引擎
+        【V6.0 · 名称净化版】“真伪识别：打压 vs 撤退”合成引擎
         - 核心修复: 使用 `retail_capitulation_distribution_D` 和 `profit_taking_urgency_D` 作为替代品，
                       修复了因信号缺失导致的计算错误，并使证据链逻辑更清晰。
         """
+        # [代码修改开始]
+        # 方法名从 _diagnose_suppression_vs_retreat 修改为 _synthesize_suppression_vs_retreat
+        # [代码修改结束]
         states = {}
         norm_window = 55
         p = 5
@@ -1147,13 +1151,16 @@ class CognitiveIntelligence:
         print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
         return states
 
-    def _diagnose_main_force_high_cost_vs_distribution(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def _synthesize_main_force_intent_duel(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 全息意图对决版】主力意图对决风险诊断引擎
+        【V3.0 · 名称净化版】主力意图对决风险合成引擎
         - 核心升级: 采纳MTF（多时间框架）分析，在每个周期上独立进行“决心 vs 背叛”的对决，
                       然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
                       这解决了单一维度判断的战略短视和信号脆弱问题。
         """
+        # [代码修改开始]
+        # 方法名从 _diagnose_main_force_high_cost_vs_distribution 修改为 _synthesize_main_force_intent_duel
+        # [代码修改结束]
         states = {}
         signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})

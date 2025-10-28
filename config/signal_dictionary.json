@@ -1100,217 +1100,177 @@
             "description": "【V4.4 · 成交量能核证版】基于筹码分布和行为，诊断市场是否具备“恐慌投降后反转”的潜力。成交量确认支柱已升级为“相对爆发强度”与“绝对换手水平”的双重核证，能更精准地识别剔除市值影响的真实恐慌放量。"
         },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
-        "说明_chip_ultimate": "--- 筹码层-终极信号 ---",
+        "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
         "SCORE_CHIP_BULLISH_ACCELERATION": {
-            "cn_name": "【筹码终极】看涨加速",
-            "category": "筹码层-机会",
+            "cn_name": "【筹码】看涨加速",
+            "category": "内部计分-筹码",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V6.0 · 四象限重构版】对“全息看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨趋势正在加速。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V7.0 · 状态信号版】对“筹码看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
+        },
+        "SCORE_CHIP_BEARISH_ACCELERATION": {
+            "cn_name": "【筹码】看跌加速",
+            "category": "内部计分-筹码",
+            "type": "risk",
+            "description": "【V7.0 · 状态信号版】对“筹码看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
-            "cn_name": "【筹码终极风险】看跌共振",
-            "category": "筹码层-风险",
+            "cn_name": "【筹码】看跌共振",
+            "category": "内部计分-筹码",
             "type": "risk",
-            "penalty_weight": -500,
-            "context_role": "top_risk",
-            "description": "【V6.0 · 四象限重构版】基于“聚散、吸派、转移、峰健康”四大核心公理，在多个时间级别上形成的“全息看跌共振”信号。代表筹码结构恶化，且主力正在派发。"
+            "description": "【V7.0 · 状态信号版】基于四大核心公理，在多时间级别上形成的“全息看跌共振”信号。作为中间状态供认知层融合。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
-            "cn_name": "【筹码终极】底部反转",
-            "category": "筹码层-机会",
+            "cn_name": "【筹码】底部反转",
+            "category": "内部计分-筹码",
             "type": "positional",
-            "score": 450,
-            "context_role": "bottom_opportunity",
-            "description": "【V6.0 · 四象限重构版】对“全息看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别筹码层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V7.0 · 状态信号版】对“筹码看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_CHIP_TACTICAL_REVERSAL": {
-            "cn_name": "【筹码终极】战术反转",
-            "category": "筹码层-机会",
+            "cn_name": "【筹码】战术反转",
+            "category": "内部计分-筹码",
             "type": "dynamic",
-            "score": 350,
-            "context_role": "bottom_opportunity",
-            "description": "【V6.0 · 四象限重构版】识别“强看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V7.0 · 状态信号版】识别“强看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_CHIP_TOP_REVERSAL": {
-            "cn_name": "【筹码终极风险】顶部反转",
-            "category": "筹码层-风险",
+            "cn_name": "【筹码】顶部反转",
+            "category": "内部计分-筹码",
             "type": "risk",
-            "penalty_weight": -900,
-            "context_role": "top_risk",
-            "description": "【V6.0 · 四象限重构版】对“全息看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别筹码层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V7.0 · 状态信号版】对“筹码看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_CHIP_BULLISH_RESONANCE": {
-            "cn_name": "【筹码终极】看涨共振",
-            "category": "筹码层-机会",
+            "cn_name": "【筹码】看涨共振",
+            "category": "内部计分-筹码",
             "type": "dynamic",
-            "score": 250,
-            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看涨共振”信号。代表筹码结构健康，且主力正在积极收集。"
+            "description": "【V7.0 · 状态信号版】基于三大核心公理，在多时间级别上形成的“全息看涨共振”信号。作为中间状态供认知层融合。"
         },
-        "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
-        "SCORE_STRUCT_BEHAVIOR_BULLISH_ACCELERATION": {
-            "cn_name": "【行为终极】看涨加速",
-            "category": "行为层-机会",
+        "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
+        "SCORE_BEHAVIOR_BULLISH_ACCELERATION": {
+            "cn_name": "【行为】看涨加速",
+            "category": "内部计分-行为",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V29.0 · 四象限重构版】对“行为看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨行为正在加速。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V30.0 · 状态信号版】对“行为看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_BEARISH_ACCELERATION": {
-            "cn_name": "【行为终极风险】看跌加速",
-            "category": "行为层-风险",
+        "SCORE_BEHAVIOR_BEARISH_ACCELERATION": {
+            "cn_name": "【行为】看跌加速",
+            "category": "内部计分-行为",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V29.0 · 四象限重构版】对“行为看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌行为正在加速。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V30.0 · 状态信号版】对“行为看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【行为终极】底部反转",
-            "category": "行为层-机会",
+        "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
+            "cn_name": "【行为】底部反转",
+            "category": "内部计分-行为",
             "type": "positional",
-            "score": 450,
-            "context_role": "bottom_opportunity",
-            "description": "【V29.0 · 四象限重构版】对“行为看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别行为层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V30.0 · 状态信号版】对“行为看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL": {
-            "cn_name": "【行为终极】战术反转",
-            "category": "行为层-机会",
+        "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
+            "cn_name": "【行为】战术反转",
+            "category": "内部计分-行为",
             "type": "dynamic",
-            "score": 350,
-            "context_role": "bottom_opportunity",
-            "description": "【V29.0 · 四象限重构版】识别“强行为看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V30.0 · 状态信号版】识别“强行为看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【行为终极风险】顶部反转",
-            "category": "行为层-风险",
+        "SCORE_BEHAVIOR_TOP_REVERSAL": {
+            "cn_name": "【行为】顶部反转",
+            "category": "内部计分-行为",
             "type": "risk",
-            "penalty_weight": -900,
-            "context_role": "top_risk",
-            "description": "【V29.0 · 四象限重构版】对“行为看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别行为层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V30.0 · 状态信号版】对“行为看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE": {
-            "cn_name": "【结构行为】看涨共振",
-            "category": "行为层-机会",
+        "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
+            "cn_name": "【行为】看涨共振",
+            "category": "内部计分-行为",
             "type": "dynamic",
-            "score": 250,
-            "description": "【高保真版】基于日内趋势效率、下影线成交量、收盘强度等高保真微观结构信号，在多周期上形成的看涨共振。"
+            "description": "【V30.0 · 状态信号版】基于高保真微观结构信号，在多周期上形成的看涨共振。作为中间状态供认知层融合。"
         },
-        "SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE": {
-            "cn_name": "【结构行为风险】看跌共振",
-            "category": "行为层-风险",
+        "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
+            "cn_name": "【行为】看跌共振",
+            "category": "内部计分-行为",
             "type": "risk",
-            "penalty_weight": -500,
-            "context_role": "top_risk",
-            "description": "【高保真版】基于日内趋势效率、上影线成交量、收盘强度等高保真微观结构信号，在多周期上形成的看跌共振。"
+            "description": "【V30.0 · 状态信号版】基于高保真微观结构信号，在多周期上形成的看跌共振。作为中间状态供认知层融合。"
         },
-        "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
+        "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
         "SCORE_FF_BULLISH_ACCELERATION": {
-            "cn_name": "【资金流终极】看涨加速",
-            "category": "资金流-机会",
+            "cn_name": "【资金流】看涨加速",
+            "category": "内部计分-资金流",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V4.0 · 四象限重构版】对“资金流看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨资金流入正在加速。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V5.0 · 状态信号版】对“资金流看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FF_BEARISH_ACCELERATION": {
-            "cn_name": "【资金流终极风险】看跌加速",
-            "category": "资金流-风险",
+            "cn_name": "【资金流】看跌加速",
+            "category": "内部计分-资金流",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V4.0 · 四象限重构版】对“资金流看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌资金流出正在加速。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V5.0 · 状态信号版】对“资金流看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FF_BOTTOM_REVERSAL": {
-            "cn_name": "【资金流终极】底部反转",
-            "category": "资金流-机会",
+            "cn_name": "【资金流】底部反转",
+            "category": "内部计分-资金流",
             "type": "positional",
-            "score": 450,
-            "context_role": "bottom_opportunity",
-            "description": "【V4.0 · 四象限重构版】对“资金流看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别资金流层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V5.0 · 状态信号版】对“资金流看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FF_TACTICAL_REVERSAL": {
-            "cn_name": "【资金流终极】战术反转",
-            "category": "资金流-机会",
+            "cn_name": "【资金流】战术反转",
+            "category": "内部计分-资金流",
             "type": "dynamic",
-            "score": 350,
-            "context_role": "bottom_opportunity",
-            "description": "【V4.0 · 四象限重构版】识别“强资金流看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V5.0 · 状态信号版】识别“强资金流看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_FF_TOP_REVERSAL": {
-            "cn_name": "【资金流终极风险】顶部反转",
-            "category": "资金流-风险",
+            "cn_name": "【资金流】顶部反转",
+            "category": "内部计分-资金流",
             "type": "risk",
-            "penalty_weight": -900,
-            "context_role": "top_risk",
-            "description": "【V4.0 · 四象限重构版】对“资金流看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别资金流层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V5.0 · 状态信号版】对“资金流看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FF_BULLISH_RESONANCE": {
-            "cn_name": "【资金终极】看涨共振",
-            "category": "资金流-机会",
+            "cn_name": "【资金流】看涨共振",
+            "category": "内部计分-资金流",
             "type": "dynamic",
-            "score": 200,
-            "description": "【C级基础信号】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。"
+            "description": "【V5.0 · 状态信号版】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。作为中间状态供认知层融合。"
         },
         "SCORE_FF_BEARISH_RESONANCE": {
-            "cn_name": "【资金终极风险】派发共振",
-            "category": "资金流-风险",
+            "cn_name": "【资金流】派发共振",
+            "category": "内部计分-资金流",
             "type": "risk",
-            "penalty_weight": -450,
-            "context_role": "top_risk",
-            "description": "【三公理版】基于“聚散”、“转移”、“内部结构”三大核心公理，在所有周期上形成的资金派发共振。"
+            "description": "【V5.0 · 状态信号版】基于三大核心公理，在所有周期上形成的资金派发共振。作为中间状态供认知层融合。"
         },
-        "说明_structural_ultimate": "--- 结构层-终极信号 ---",
+        "说明_structural_ultimate": "--- 结构层-终极信号 (现为内部状态) ---",
         "SCORE_STRUCTURE_BULLISH_ACCELERATION": {
-            "cn_name": "【结构终极】看涨加速",
-            "category": "结构层-机会",
+            "cn_name": "【结构】看涨加速",
+            "category": "内部计分-结构",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V21.0 · 四象限重构版】对“结构看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨结构正在加速形成。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V22.0 · 状态信号版】对“结构看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_BEARISH_ACCELERATION": {
-            "cn_name": "【结构终极风险】看跌加速",
-            "category": "结构层-风险",
+            "cn_name": "【结构】看跌加速",
+            "category": "内部计分-结构",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V21.0 · 四象限重构版】对“结构看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌结构正在加速形成。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V22.0 · 状态信号版】对“结构看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_BULLISH_RESONANCE": {
-            "cn_name": "【结构终极】看涨共振",
-            "category": "结构层-机会",
+            "cn_name": "【结构】看涨共振",
+            "category": "内部计分-结构",
             "type": "dynamic",
-            "score": 200,
-            "description": "【V21.0 · 四象限重构版】基于“趋势完整性、多周期协同、突破潜力、结构稳定性”四大支柱，形成的静态看涨共振分。"
+            "description": "【V22.0 · 状态信号版】基于四大支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_BEARISH_RESONANCE": {
-            "cn_name": "【结构终极风险】看跌共振",
-            "category": "结构层-风险",
+            "cn_name": "【结构】看跌共振",
+            "category": "内部计分-结构",
             "type": "risk",
-            "penalty_weight": -450,
-            "context_role": "top_risk",
-            "description": "【V21.0 · 四象限重构版】基于“趋势完整性、多周期协同、突破潜力、结构稳定性”四大支柱，形成的静态看跌共振分。"
+            "description": "【V22.0 · 状态信号版】基于四大支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
-            "cn_name": "【结构终极】底部反转",
-            "category": "结构层-机会",
+            "cn_name": "【结构】底部反转",
+            "category": "内部计分-结构",
             "type": "positional",
-            "score": 400,
-            "context_role": "bottom_opportunity",
-            "description": "【V21.0 · 四象限重构版】对“结构看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别结构层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V22.0 · 状态信号版】对“结构看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
-            "cn_name": "【结构终极】战术反转",
-            "category": "结构层-机会",
+            "cn_name": "【结构】战术反转",
+            "category": "内部计分-结构",
             "type": "dynamic",
-            "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【V21.0 · 四象限重构版】识别“强结构看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V22.0 · 状态信号版】识别“强结构看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURE_TOP_REVERSAL": {
-            "cn_name": "【结构终极风险】顶部反转",
-            "category": "结构层-风险",
+            "cn_name": "【结构】顶部反转",
+            "category": "内部计分-结构",
             "type": "risk",
-            "penalty_weight": -800,
-            "context_role": "top_risk",
-            "description": "【V21.0 · 四象限重构版】对“结构看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别结构层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V22.0 · 状态信号版】对“结构看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_STRUCTURAL_FAULT_BREAKTHROUGH": {
             "cn_name": "【结构】结构性断层突破",
@@ -1326,115 +1286,91 @@
             "score": 420,
             "description": "【B级战术信号】识别价格在经历充分盘整后，放量向上突破盘整区间的关键结构性事件，是经典的趋势启动信号。"
         },
-        "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
+        "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 (现为内部状态) ---",
         "SCORE_DYN_BULLISH_ACCELERATION": {
-            "cn_name": "【力学终极】看涨加速",
-            "category": "力学层-机会",
+            "cn_name": "【力学】看涨加速",
+            "category": "内部计分-力学",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V17.0 · 四象限重构版】对“力学看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨的物理属性正在加速形成。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V18.0 · 状态信号版】对“力学看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_BEARISH_ACCELERATION": {
-            "cn_name": "【力学终极风险】看跌加速",
-            "category": "力学层-风险",
+            "cn_name": "【力学】看跌加速",
+            "category": "内部计分-力学",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V17.0 · 四象限重构版】对“力学看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌的物理属性正在加速形成。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V18.0 · 状态信号版】对“力学看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_BULLISH_RESONANCE": {
-            "cn_name": "【力学终极】看涨共振",
-            "category": "力学层-机会",
+            "cn_name": "【力学】看涨共振",
+            "category": "内部计分-力学",
             "type": "dynamic",
-            "score": 200,
-            "description": "【V17.0 · 四象限重构版】基于波动率、效率、动能、惯性、能量转换五大力学支柱，形成的静态看涨共振分。"
+            "description": "【V18.0 · 状态信号版】基于五大力学支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_BEARISH_RESONANCE": {
-            "cn_name": "【力学终极风险】看跌共振",
-            "category": "力学层-风险",
+            "cn_name": "【力学】看跌共振",
+            "category": "内部计分-力学",
             "type": "risk",
-            "penalty_weight": -450,
-            "context_role": "top_risk",
-            "description": "【V17.0 · 四象限重构版】基于波动率、效率、动能、惯性、能量转换五大力学支柱，形成的静态看跌共振分。"
+            "description": "【V18.0 · 状态信号版】基于五大力学支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
-            "cn_name": "【力学终极】底部反转",
-            "category": "力学层-机会",
+            "cn_name": "【力学】底部反转",
+            "category": "内部计分-力学",
             "type": "positional",
-            "score": 400,
-            "context_role": "bottom_opportunity",
-            "description": "【V17.0 · 四象限重构版】对“力学看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别力学层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V18.0 · 状态信号版】对“力学看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_TACTICAL_REVERSAL": {
-            "cn_name": "【力学终极】战术反转",
-            "category": "力学层-机会",
+            "cn_name": "【力学】战术反转",
+            "category": "内部计分-力学",
             "type": "dynamic",
-            "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【V17.0 · 四象限重构版】识别“强力学看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V18.0 · 状态信号版】识别“强力学看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_DYN_TOP_REVERSAL": {
-            "cn_name": "【力学终极风险】顶部反转",
-            "category": "力学层-风险",
+            "cn_name": "【力学】顶部反转",
+            "category": "内部计分-力学",
             "type": "risk",
-            "penalty_weight": -800,
-            "context_role": "top_risk",
-            "description": "【V17.0 · 四象限重构版】对“力学看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别力学层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V18.0 · 状态信号版】对“力学看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
-        "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
+        "说明_foundation_ultimate": "--- 基础层-终极信号 (现为内部状态) ---",
         "SCORE_FOUNDATION_BULLISH_ACCELERATION": {
-            "cn_name": "【基础终极】看涨加速",
-            "category": "基础层-机会",
+            "cn_name": "【基础】看涨加速",
+            "category": "内部计分-基础",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V16.0 · 四象限重构版】对“基础看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨的基础指标正在加速改善。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V17.0 · 状态信号版】对“基础看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_BEARISH_ACCELERATION": {
-            "cn_name": "【基础终极风险】看跌加速",
-            "category": "基础层-风险",
+            "cn_name": "【基础】看跌加速",
+            "category": "内部计分-基础",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V16.0 · 四象限重构版】对“基础看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌的基础指标正在加速恶化。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V17.0 · 状态信号版】对“基础看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {
-            "cn_name": "【基础终极】看涨共振",
-            "category": "基础层-机会",
+            "cn_name": "【基础】看涨共振",
+            "category": "内部计分-基础",
             "type": "dynamic",
-            "score": 150,
-            "description": "【V16.0 · 四象限重构版】基于EMA、RSI、MACD、CMF四大基础支柱，形成的静态看涨共振分。"
+            "description": "【V17.0 · 状态信号版】基于四大基础支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_BEARISH_RESONANCE": {
-            "cn_name": "【基础终极风险】看跌共振",
-            "category": "基础层-风险",
+            "cn_name": "【基础】看跌共振",
+            "category": "内部计分-基础",
             "type": "risk",
-            "penalty_weight": -300,
-            "context_role": "top_risk",
-            "description": "【V16.0 · 四象限重构版】基于EMA、RSI、MACD、CMF四大基础支柱，形成的静态看跌共振分。"
+            "description": "【V17.0 · 状态信号版】基于四大基础支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
-            "cn_name": "【基础终极】底部反转",
-            "category": "基础层-机会",
+            "cn_name": "【基础】底部反转",
+            "category": "内部计分-基础",
             "type": "positional",
-            "score": 250,
-            "context_role": "bottom_opportunity",
-            "description": "【V16.0 · 四象限重构版】对“基础看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别基础指标层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V17.0 · 状态信号版】对“基础看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_TACTICAL_REVERSAL": {
-            "cn_name": "【基础终极】战术反转",
-            "category": "基础层-机会",
+            "cn_name": "【基础】战术反转",
+            "category": "内部计分-基础",
             "type": "dynamic",
-            "score": 200,
-            "context_role": "bottom_opportunity",
-            "description": "【V16.0 · 四象限重构版】识别“强基础看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V17.0 · 状态信号版】识别“强基础看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_TOP_REVERSAL": {
-            "cn_name": "【基础终极风险】顶部反转",
-            "category": "基础层-风险",
+            "cn_name": "【基础】顶部反转",
+            "category": "内部计分-基础",
             "type": "risk",
-            "penalty_weight": -500,
-            "context_role": "top_risk",
-            "description": "【V16.0 · 四象限重构版】对“基础看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别基础指标层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V17.0 · 状态信号版】对“基础看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_FOUNDATION_BOTTOM_CONFIRMED": {
             "cn_name": "【基础战术】底部确认",
@@ -1498,60 +1434,48 @@
             "penalty_weight": -300,
             "description": "成交量出现异常加速，在趋势顶部或底部都可能是力竭或恐慌的信号。"
         },
-        "说明_pattern_intelligence": "--- 形态层-终极信号 (Pattern Intelligence) ---",
+        "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
         "SCORE_PATTERN_BULLISH_ACCELERATION": {
-            "cn_name": "【形态终极】看涨加速",
-            "category": "形态层-机会",
+            "cn_name": "【形态】看涨加速",
+            "category": "内部计分-形态",
             "type": "dynamic",
-            "score": 300,
-            "description": "【V5.0 · 四象限重构版】对“形态看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨形态正在加速形成。这是一个上涨趋势的确认和加强信号。"
+            "description": "【V6.0 · 状态信号版】对“形态看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_BEARISH_ACCELERATION": {
-            "cn_name": "【形态终极风险】看跌加速",
-            "category": "形态层-风险",
+            "cn_name": "【形态】看跌加速",
+            "category": "内部计分-形态",
             "type": "risk",
-            "penalty_weight": -700,
-            "context_role": "top_risk",
-            "description": "【V5.0 · 四象限重构版】对“形态看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌形态正在加速形成。这是一个下跌趋势的确认和加强信号。"
+            "description": "【V6.0 · 状态信号版】对“形态看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_BULLISH_RESONANCE": {
-            "cn_name": "【形态终极】看涨共振",
-            "category": "形态层-机会",
+            "cn_name": "【形态】看涨共振",
+            "category": "内部计分-形态",
             "type": "dynamic",
-            "score": 200,
-            "description": "【V5.0 · 四象限重构版】基于“背离、动能反转、结构突破、能量跃迁”四大维度，形成的静态看涨共振分。"
+            "description": "【V6.0 · 状态信号版】基于四大维度，形成的静态看涨共振分。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_BEARISH_RESONANCE": {
-            "cn_name": "【形态终极风险】看跌共振",
-            "category": "形态层-风险",
+            "cn_name": "【形态】看跌共振",
+            "category": "内部计分-形态",
             "type": "risk",
-            "penalty_weight": -450,
-            "context_role": "top_risk",
-            "description": "【V5.0 · 四象限重构版】基于“背离、动能反转、结构突破、能量跃迁”四大维度，形成的静态看跌共振分。"
+            "description": "【V6.0 · 状态信号版】基于四大维度，形成的静态看跌共振分。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_BOTTOM_REVERSAL": {
-            "cn_name": "【形态终极】底部反转",
-            "category": "形态层-机会",
+            "cn_name": "【形态】底部反转",
+            "category": "内部计分-形态",
             "type": "positional",
-            "score": 400,
-            "context_role": "bottom_opportunity",
-            "description": "【V5.0 · 四象限重构版】对“形态看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别形态层面【看跌趋势衰竭】拐点的核心机会信号。"
+            "description": "【V6.0 · 状态信号版】对“形态看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_TACTICAL_REVERSAL": {
-            "cn_name": "【形态终极】战术反转",
-            "category": "形态层-机会",
+            "cn_name": "【形态】战术反转",
+            "category": "内部计分-形态",
             "type": "dynamic",
-            "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【V5.0 · 四象限重构版】识别“强形态看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+            "description": "【V6.0 · 状态信号版】识别“强形态看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
         },
         "SCORE_PATTERN_TOP_REVERSAL": {
-            "cn_name": "【形态终极风险】顶部反转",
-            "category": "形态层-风险",
+            "cn_name": "【形态】顶部反转",
+            "category": "内部计分-形态",
             "type": "risk",
-            "penalty_weight": -800,
-            "context_role": "top_risk",
-            "description": "【V5.0 · 四象限重构版】对“形态看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别形态层面【看涨趋势衰竭】拐点的核心风险信号。"
+            "description": "【V6.0 · 状态信号版】对“形态看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "SCORE_UNIVERSAL_BOTTOM_PATTERN": {
