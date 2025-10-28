@@ -25,13 +25,9 @@ class ChipIntelligence:
         all_chip_states = {}
         periods = [1, 5, 13, 21, 55]
         concentration_scores = self._diagnose_concentration_dynamics(df, periods)
-        all_chip_states['SCORE_CHIP_MTF_CONCENTRATION'] = concentration_scores
         accumulation_scores = self._diagnose_main_force_action(df, periods)
-        all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
-        all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
         peak_integrity_scores = self._diagnose_peak_integrity_dynamics(df, periods)
-        all_chip_states['SCORE_CHIP_MTF_PEAK_INTEGRITY'] = peak_integrity_scores
         ultimate_signals = self._synthesize_ultimate_signals(
             df,
             concentration_scores,
