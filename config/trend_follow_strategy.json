@@ -493,7 +493,10 @@
             "signal_A": "profit_taking_urgency_D", "source_A": "df", "change_type_A": "diff",
             "signal_B": "winner_profit_margin_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(利润垫变化-紧迫度变化)，正分代表利润增加但紧迫度下降。"
+            "antidote_signal": "total_winner_rate_D",
+            "antidote_change_type": "diff",
+            "antidote_k": 1.2,
+            "description": "【V3.0 解毒剂协议】诊断'修正后利润'与'紧迫度'的背离。引入total_winner_rate_D作为解毒剂，修正利润垫在突破日被稀释的问题。"
           },
           {
             "name": "PROCESS_META_LOSER_CAPITULATION",

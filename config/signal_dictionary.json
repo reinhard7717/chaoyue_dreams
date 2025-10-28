@@ -320,8 +320,8 @@
             "cn_name": "【过程】赢家信念",
             "type": "process",
             "score": 250,
-            "scoring_mode": "unipolar",
-            "description": "【事件型】获利盘拒绝出售，预期更高价格的过程。只应有加分。"
+            "scoring_mode": "bipolar",
+            "description": "【V3.0 解毒剂协议】诊断'修正后利润'与'紧迫度'的背离。引入total_winner_rate_D作为解毒剂，修正利润垫在突破日被稀释的问题。正分代表信念坚定，负分代表信念动摇。"
         },
         "PROCESS_META_LOSER_CAPITULATION": {
             "cn_name": "【过程】输家投降仪式",

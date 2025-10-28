@@ -118,31 +118,32 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.3.0 · 雅典娜裁决版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 签署“雅典娜的裁决”协议，引入 "diagnosis_mode" 概念。
-                      - "meta_analysis" (默认): 执行完整的趋势与加速度元分析。
-                      - "direct_confirmation": 直接使用“瞬时关系分”作为最终结果，用于状态确认型信号。
-        - 收益: 解决了对“主力散户背离”等状态确认型信号因“增长放缓”而被错误惩罚的致命BUG。
+        【V2.4.0 · 解毒剂协议版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 为 "PROCESS_META_WINNER_CONVICTION" 信号引入“解毒剂协议”，
+                      增加第三个信号源("解毒剂信号")，以修正“赢家利润垫”在突破日因“稀释效应”
+                      而被错误解读的问题，从而根本上加固了“赢家信念”的逻辑。
         """
         signal_name = config.get('name')
         df_index = df.index
-        # --- 步骤1: 获取第一维的“瞬时关系分”序列 ---
-        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        # [代码修改开始]
+        # 为“赢家信念”信号启用专属的“解毒剂”三变量逻辑
+        if signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
+            # 瞬时关系分使用专属逻辑计算
+            relationship_score = self._calculate_winner_conviction_relationship(df, config)
+        else:
+            # 否则，使用标准的双变量逻辑
+            relationship_score = self._calculate_instantaneous_relationship(df, config)
+        # [代码修改结束]
         if relationship_score.empty:
             return {}
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
-        # 实施“雅典娜的裁决”协议
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
         if diagnosis_mode == 'direct_confirmation':
-            # 直接确认模式：瞬时关系分就是最终得分
             meta_score = relationship_score
         else:
-            # 默认元分析模式：分析趋势和加速度
-            # --- 步骤2: 对“关系分”序列本身，进行趋势和加速度分析 ---
             relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
             relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-            # --- 步骤3: 将趋势和加速度归一化到[-1, 1]区间 ---
             bipolar_trend_strength = normalize_to_bipolar(
                 series=relationship_trend,
                 target_index=df_index,
@@ -155,18 +156,54 @@ class ProcessIntelligence:
                 window=self.norm_window,
                 sensitivity=self.bipolar_sensitivity
             )
-            # --- 步骤4: 使用加权平均法融合，确保最终分数在[-1, 1]区间 ---
             trend_weight = self.meta_score_weights[0]
             accel_weight = self.meta_score_weights[1]
             meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        
-        # 从权威的 self.score_type_map 获取信号元数据和计分模式
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':
             meta_score = meta_score.clip(lower=0)
-        meta_score = meta_score.clip(-1, 1).astype(np.float32) # clip作为最后的保险
+        meta_score = meta_score.clip(-1, 1).astype(np.float32)
         return {signal_name: meta_score}
+
+    def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0 · 新增】“赢家信念”专属关系计算引擎（解毒剂协议）
+        - 核心逻辑: 引入第三信号“解毒剂信号”(total_winner_rate_D)，用于修正
+                      winner_profit_margin_D 在突破日因新赢家涌入而被稀释的问题。
+        - 公式: CorrectedProfitMomentum = RawProfitMomentum + k_antidote * AntidoteMomentum
+                FinalScore = (k * CorrectedProfitMomentum - UrgencyMomentum) / (k + 1)
+        """
+        signal_a_name = config.get('signal_A') # Urgency
+        signal_b_name = config.get('signal_B') # Profit Margin
+        antidote_signal_name = config.get('antidote_signal') # Total Winner Rate
+        df_index = df.index
+        def get_signal_series(signal_name: str) -> Optional[pd.Series]:
+            # 过程信号的原始信号都来自于df_indicators
+            return df.get(signal_name)
+        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
+            if series is None: return pd.Series(dtype=np.float32)
+            if change_type == 'diff':
+                return series.diff(1).fillna(0)
+            return ta.percent_return(series, length=1).fillna(0)
+        # 1. 获取三个原始信号
+        signal_a = get_signal_series(signal_a_name)
+        signal_b = get_signal_series(signal_b_name)
+        signal_antidote = get_signal_series(antidote_signal_name)
+        if signal_a is None or signal_b is None or signal_antidote is None:
+            print(f"        -> [赢家信念] 警告: 缺少原始信号 '{signal_a_name}', '{signal_b_name}' 或 '{antidote_signal_name}'。")
+            return pd.Series(dtype=np.float32)
+        # 2. 计算三个动量
+        momentum_a = normalize_to_bipolar(get_change_series(signal_a, config.get('change_type_A')), df_index, self.std_window, self.bipolar_sensitivity)
+        momentum_b_raw = normalize_to_bipolar(get_change_series(signal_b, config.get('change_type_B')), df_index, self.std_window, self.bipolar_sensitivity)
+        momentum_antidote = normalize_to_bipolar(get_change_series(signal_antidote, config.get('antidote_change_type')), df_index, self.std_window, self.bipolar_sensitivity)
+        # 3. 应用解毒剂协议
+        antidote_k = config.get('antidote_k', 1.0)
+        momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
+        # 4. 计算最终的背离关系分
+        k = config.get('signal_b_factor_k', 1.0)
+        relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
+        return relationship_score.clip(-1, 1)
 
     def _diagnose_strategy_sync(self, df: pd.DataFrame, config: dict) -> Dict[str, pd.Series]:
         """
