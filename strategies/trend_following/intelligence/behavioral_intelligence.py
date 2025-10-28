@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, calculate_context_scores
 
 class BehavioralIntelligence:
     """
