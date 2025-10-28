@@ -63,7 +63,6 @@ class StructuralIntelligence:
             for tf_name, weight in resonance_tf_weights.items():
                 group_periods = period_groups.get(tf_name, [])
                 if not group_periods: continue
-                # 先对每个周期的支柱进行加权
                 period_fused_scores = []
                 for p in group_periods:
                     period_score = pd.Series(0.0, index=df.index, dtype=np.float32)
@@ -72,7 +71,6 @@ class StructuralIntelligence:
                         for pillar_name, p_weight in pillar_weights.items():
                             period_score += pillar_bipolar_scores.get(pillar_name, {}).get(p, default_series) * (p_weight / total_pillar_weight)
                     period_fused_scores.append(period_score)
-                # 再对时间框架内的周期进行平均
                 if period_fused_scores:
                     avg_group_score = sum(period_fused_scores) / len(period_fused_scores)
                     final_bipolar_health += avg_group_score * (weight / total_tf_weight)
@@ -88,6 +86,19 @@ class StructuralIntelligence:
         bear_divergence = self._calculate_holographic_divergence_structural(bearish_health, 5, 21, norm_window)
         bearish_acceleration = bear_divergence.clip(0, 1)
         bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
+        
+        # --- 调试信息植入 ---
+        # 找到第一个顶部反转信号较强的日期用于调试
+        debug_date_mask = (top_reversal > 0.5) & (top_reversal.shift(1) <= 0.5)
+        if debug_date_mask.any():
+            debug_date = df.index[debug_date_mask][0]
+            print(f"--- [调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑链路 @ {debug_date.date()} ---")
+            print(f"  [步骤一] 静态看涨共振分 (bullish_health): {bullish_health.loc[debug_date]:.4f}")
+            print(f"  [步骤二] 看涨趋势动态背离 (bull_divergence): {bull_divergence.loc[debug_date]:.4f}  (此值为负，代表看涨趋势正在衰竭)")
+            print(f"  [步骤三] 提纯后顶部反转分 (top_reversal): {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
+            print(f"--------------------------------------------------------------------")
+        # --- 调试信息结束 ---
+        
         # 步骤六：赋值给命名准确的终极信号
         states['SCORE_STRUCTURE_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
         states['SCORE_STRUCTURE_TOP_REVERSAL'] = top_reversal.astype(np.float32)
