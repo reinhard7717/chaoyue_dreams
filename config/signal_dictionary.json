@@ -239,12 +239,19 @@
             "type": "context",
             "description": "【原子信号】识别下跌过程中成交量萎缩的现象，是卖盘动能衰竭的潜在信号。"
         },
-        "SCORE_RISK_LIQUIDITY_VACUUM": {
-            "cn_name": "【行为风险】流动性真空风险",
+        "SCORE_OPPORTUNITY_LOCKUP_RALLY": {
+            "cn_name": "【行为】锁仓惜售机会",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V1.0 · 新增】识别“低换手率+日内上涨”的锁仓惜售行为，是趋势健康的积极信号。"
+        },
+        "SCORE_RISK_LIQUIDITY_DRAIN": {
+            "cn_name": "【行为风险】流动性流失风险",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": -500,
-            "description": "【V2.3 · 维度正交版】对市场流动性枯竭风险的动态评估。遵循“先归一化各风险维度，再融合风险分数”的最终公理，融合了“低换手率”、“持续缩量”和“高日内波动”三大风险维度，精确刻画交易不活跃、市场脆弱的状态。"
+            "penalty_weight": -600,
+            "description": "【V2.0 · 逻辑净化版】识别“放量下跌”（恐慌抛售）的风险场景。原有的“缩量下跌”逻辑已被剥离至中性的“收缩盘整”信号中。"
         },
         "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
             "cn_name": "【行为】卖盘衰竭反转",
@@ -615,7 +622,7 @@
             "type": "risk",
             "penalty_weight": -1200,
             "context_role": "top_risk",
-            "description": "【V3.0 · 协议修正版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。采用更稳健的算术平均融合，避免因单一证据为零导致整体风险被错误湮灭。"
+            "description": "【V5.0 · 逻辑重铸版】融合“主力持续出逃”、“收缩盘整”和“买盘真空”三大核心证据，精准识别“主力想卖、无人想买、市场不活跃”的危险状态。"
         },
         "COGNITIVE_SCORE_UPSTREAM_SWIMMER": {
             "cn_name": "【认知】恐慌中逆势吸筹",
@@ -1080,11 +1087,17 @@
             "type": "context",
             "description": "在下跌或盘整趋势中，筹码逆势集中。"
         },
+        "SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION": {
+            "cn_name": "【行为】收缩盘整",
+            "category": "行为层-环境",
+            "type": "context",
+            "description": "【V1.0 · 新增】识别“成交量萎缩”和“价格波动收窄”的中性市场状态，通常预示着变盘或中继整理，供上层融合引擎决策。"
+        },
         "SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL": {
             "cn_name": "【筹码】恐慌投降潜力",
             "category": "筹码层-机会",
             "type": "context",
-            "description": "基于筹码分布和行为，诊断市场是否具备“恐慌投降后反转”的潜力，供上层战术引擎消费。"
+            "description": "【V4.4 · 成交量能核证版】基于筹码分布和行为，诊断市场是否具备“恐慌投降后反转”的潜力。成交量确认支柱已升级为“相对爆发强度”与“绝对换手水平”的双重核证，能更精准地识别剔除市值影响的真实恐慌放量。"
         },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 ---",

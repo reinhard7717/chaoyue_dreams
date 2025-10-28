@@ -820,10 +820,11 @@ class CognitiveIntelligence:
 
     def _synthesize_cognitive_expansion_engine(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.9 · 最终净化版】认知扩展信号统一合成引擎
-        - 核心修复: 赋予引擎智能。当消费的组件来源是 'atomic' (原子信号)时，直接使用其值，
-                      不再进行冗余且错误的MTF二次融合。MTF融合仅用于处理 'df' 来源的原始指标。
-                      此修改从根本上解决了“二次加工”导致的逻辑错误。
+        【V4.0 · 流动性陷阱重铸版】认知扩展信号统一合成引擎
+        - 核心修复: 根据指挥官指令，重铸 COGNITIVE_RISK_LIQUIDITY_TRAP 信号的第三支柱。
+                      将其证据源从错误的 SCORE_RISK_LIQUIDITY_DRAIN (放量下跌)
+                      修正为正确的 SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION (收缩盘整)，
+                      完美还原“市场不活跃”这一核心环境特征。
         """
         states = {}
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
@@ -836,12 +837,14 @@ class CognitiveIntelligence:
         total_weight = sum(numeric_tf_weights.values())
         expansion_signal_configs = {
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
-                'description': '【V3.0 · 协议修正版】融合“主力持续出逃”、“流动性真空”和“买盘真空”三大核心证据。采用算术平均，避免湮灭。',
+                # [代码修改开始]
+                'description': '【V5.0 · 逻辑重铸版】融合“主力持续出逃”、“收缩盘整”和“买盘真空”三大核心证据。',
                 'components': [
-                    {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'weight': 0.4},
-                    {'source': 'atomic', 'name': 'SCORE_RISK_LIQUIDITY_VACUUM', 'weight': 0.4},
-                    {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'weight': 0.2},
+                    {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'weight': 0.4, 'comment': '证据一：主力想卖'},
+                    {'source': 'atomic', 'name': 'SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION', 'weight': 0.4, 'comment': '证据二：市场不活跃'},
+                    {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'weight': 0.2, 'comment': '证据三：无人想买'},
                 ]
+                # [代码修改结束]
             },
         }
         df['is_limit_up'] = df.get('close_D', 0) >= df.get('up_limit_D', np.inf) * 0.995
@@ -882,11 +885,9 @@ class CognitiveIntelligence:
                     transformed_series = transformed_series.shift(params[0]).fillna(0)
                 elif transform == 'shift_lt':
                     transformed_series = transformed_series.shift(params[0]).fillna(params[1]) < params[1]
-                # [代码修改开始]
-                # 智能处理：仅对原始指标('df')应用MTF融合，对成品原子信号('atomic')直接使用
                 if comp['source'] == 'atomic':
                     fused_component_series = transformed_series
-                else: # comp['source'] == 'df'
+                else:
                     fused_component_series = pd.Series(0.0, index=df.index)
                     if total_weight > 0:
                         for p in periods:
@@ -895,7 +896,6 @@ class CognitiveIntelligence:
                             fused_component_series += normalized_series * weight
                     else:
                         fused_component_series = normalize_score(transformed_series, df.index, 55)
-                # [代码修改结束]
                 if comp.get('is_gate', False):
                     gate_scores.append(fused_component_series.values)
                 else:

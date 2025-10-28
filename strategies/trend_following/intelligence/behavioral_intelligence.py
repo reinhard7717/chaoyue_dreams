@@ -81,8 +81,9 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 终极净化版】原子信号中心
-        - 核心重构: 彻底移除了对已被废弃的 `_fuse_upper_shadow_signals` 的调用，消除了逻辑冗余。
+        【V2.4 · 量价上下文重构版】原子信号中心
+        - 核心重构: 1. 新增对 _diagnose_volume_context 的调用，生成中性的“收缩盘整”信号。
+                      2. 保持对 _diagnose_liquidity_dynamics 的调用，但其内部逻辑已净化。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -95,27 +96,71 @@ class BehavioralIntelligence:
         final_rebound_score = np.maximum(epic_score, continuation_score)
         atomic_signals['SCORE_ATOMIC_REBOUND_REVERSAL'] = final_rebound_score.astype(np.float32)
         atomic_signals.update(continuation_reversal_states)
-        # 实施全链路逻辑集权，并移除冗余调用
-        # 步骤1: 生成临时的广义抛压信号
         provisional_kline_signals = self._diagnose_kline_patterns(df, day_quality_score)
         provisional_pressure = provisional_kline_signals.get('PROVISIONAL_GENERAL_PRESSURE_RISK', pd.Series(0.0, index=df.index))
         atomic_signals.update(provisional_kline_signals)
-        # 步骤2: 生成意图诊断信号
         intent_signals = self._diagnose_upper_shadow_intent(df)
         intent_diagnosis = intent_signals.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS', pd.Series(0.0, index=df.index))
         atomic_signals.update(intent_signals)
-        # 步骤3: 调用嬗变引擎，生成最终的风险和机会信号
         final_pressure_signals = self._transmute_pressure_into_opportunity(provisional_pressure, intent_diagnosis)
         atomic_signals.update(final_pressure_signals)
         atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
-        atomic_signals.update(self._diagnose_price_volume_atomics(df))
+        atomic_signals.update(self._diagnose_liquidity_dynamics(df))
+        # [代码新增开始]
+        # 新增调用，生成独立的、中性的“收缩盘整”上下文信号
+        atomic_signals.update(self._diagnose_volume_context(df))
+        # [代码新增结束]
         atomic_signals.update(self._diagnose_volume_price_dynamics(df, params, day_quality_score))
         upthrust_score_series = self._diagnose_upthrust_distribution(df, params, day_quality_score)
         atomic_signals[upthrust_score_series.name] = upthrust_score_series
         atomic_signals.update(self._diagnose_smart_intraday_trading(df))
         atomic_signals.update(self._diagnose_structural_fault_breakthrough(df))
         return atomic_signals
+
+    def _diagnose_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 逻辑净化版】流动性动态双极性诊断引擎
+        - 核心升级: 贯彻指挥官意图，将“缩量下跌”的逻辑剥离。此引擎的风险极现在只专注于“放量下跌”的恐慌抛售风险。
+        """
+        states = {}
+        norm_window = 55
+        low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
+        vol_spike_condition1 = df['volume_D'] > np.maximum(df.get('VOL_MA_5_D', 0), df.get('VOL_MA_21_D', 0))
+        vol_spike_condition2 = df['volume_D'] > (df['volume_D'].shift(1).fillna(0) * 2)
+        volume_spike_score = normalize_score((vol_spike_condition1 | vol_spike_condition2).astype(float), df.index, norm_window, ascending=True)
+        day_direction = np.sign(df['pct_change_D']).fillna(0)
+        bullish_lockup_score = low_turnover_score * (day_direction > 0).astype(float)
+        # [代码修改开始]
+        # 风险面逻辑净化：只保留“恐慌杀跌”作为风险来源
+        bearish_panic_score = volume_spike_score * (day_direction < 0).astype(float)
+        final_bearish_score = bearish_panic_score
+        # [代码修改结束]
+        bipolar_liquidity_dynamics = (bullish_lockup_score - final_bearish_score).astype(np.float32)
+        states['BEHAVIOR_BIPOLAR_LIQUIDITY_DYNAMICS'] = bipolar_liquidity_dynamics
+        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = bipolar_liquidity_dynamics.clip(lower=0)
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = bipolar_liquidity_dynamics.clip(upper=0).abs()
+        drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
+        price_drop_norm = normalize_score(drop_magnitude, df.index, norm_window, ascending=True)
+        vol_shrink_norm = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
+        states['SCORE_VOL_WEAKENING_DROP'] = (price_drop_norm * vol_shrink_norm).clip(0, 1).astype(np.float32)
+        return states
+
+    def _diagnose_volume_context(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】量价上下文诊断引擎
+        - 核心逻辑: 识别“收缩盘整”这一中性状态，为上层融合引擎提供决策依据。
+        """
+        states = {}
+        norm_window = 55
+        # 证据一: 成交量萎缩 (与“成交量爆发”互斥)
+        volume_contraction_score = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
+        # 证据二: 价格波动收窄
+        price_stagnation_score = normalize_score(df['pct_change_D'].abs(), df.index, norm_window, ascending=False)
+        # 融合，生成“收缩盘整”信号
+        contraction_consolidation_score = (volume_contraction_score * price_stagnation_score)**0.5
+        states['SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION'] = contraction_consolidation_score.clip(0, 1).astype(np.float32)
+        return states
 
     def _calculate_structural_behavior_health(self, df: pd.DataFrame, params: dict) -> Dict[str, Dict[int, pd.Series]]:
         """
@@ -441,65 +486,6 @@ class BehavioralIntelligence:
         # 融合：位置权重60%，斜率权重40%
         trend_context_score = (price_above_ma * 0.6 + slope_direction * 0.4)
         return trend_context_score.clip(-1, 1).astype(np.float32)
-
-    def _diagnose_price_volume_atomics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V13.7 · 趋势上下文版】量价原子信号诊断引擎
-        - 核心升级 (流动性真空风险):
-          1. [数据加固] 废弃不稳定的 `intraday_volatility_D`，改用 `(high-low)/pre_close` 计算的真实波动率。
-          2. [逻辑升维] 引入趋势上下文判断。流动性真空风险现在只在下降或震荡趋势中被激活。
-                         在明确的上升趋势中，该风险将被抑制，因为缩量和低换手此时是积极信号。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'price_volume_atomic_params')
-        if not get_param_value(p.get('enabled'), True): return states
-        periods = [5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        if 'pct_change_D' in df.columns:
-            weakening_drop_scores = {}
-            drop_magnitude = df['pct_change_D'].where(df['pct_change_D'] < 0, 0).abs()
-            for i, p_tactical in enumerate(sorted_periods):
-                p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-                tactical_price_drop = normalize_score(drop_magnitude, df.index, p_tactical, ascending=True)
-                tactical_vol_shrink = normalize_score(df['volume_D'], df.index, p_tactical, ascending=False)
-                context_price_drop = normalize_score(drop_magnitude, df.index, p_context, ascending=True)
-                context_vol_shrink = normalize_score(df['volume_D'], df.index, p_context, ascending=False)
-                fused_price_drop = (tactical_price_drop * context_price_drop)**0.5
-                fused_vol_shrink = (tactical_vol_shrink * context_vol_shrink)**0.5
-                weakening_drop_scores[p_tactical] = (fused_price_drop * fused_vol_shrink)
-            final_weakening_drop = pd.Series(0.0, index=df.index)
-            numeric_tf_weights_weak = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
-            total_weight_weak = sum(numeric_tf_weights_weak.values())
-            if total_weight_weak > 0:
-                for p_tactical in periods:
-                    final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (numeric_tf_weights_weak.get(p_tactical, 0) / total_weight_weak)
-            states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
-        norm_window = get_param_value(p.get('norm_window'), 55)
-        # --- 流动性真空风险 V2.4 (趋势上下文版) ---
-        low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
-        vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
-        sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
-        calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
-        fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window, ascending=True)
-        liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        trend_context_score = self._diagnose_trend_context(df)
-        # [代码修改开始]
-        # 风险抑制因子：只有在明确的上升趋势中(score > 0)，风险才被抑制。下降或震荡趋势中(score <= 0)，风险被完全表达。
-        risk_suppression_factor = 1.0 - trend_context_score.clip(lower=0)
-        # [代码修改结束]
-        final_liquidity_vacuum_risk = liquidity_vacuum_snapshot * risk_suppression_factor
-        states['SCORE_RISK_LIQUIDITY_VACUUM'] = final_liquidity_vacuum_risk.clip(0, 1).astype(np.float32)
-        vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
-        bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
-        bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
-        auction_power = normalize_score(df.get('final_hour_momentum_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
-        exhaustion_snapshot = (
-            vol_dry_up * bottom_support_power * auction_power * (1 + bullish_divergence)
-        ).clip(0, 1).astype(np.float32)
-        exhaustion_signal_dict = self._perform_relational_meta_analysis(df, exhaustion_snapshot, "SCORE_BULLISH_EXHAUSTION_REVERSAL")
-        states.update(exhaustion_signal_dict)
-        return states
 
     def _diagnose_atomic_bottom_formation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

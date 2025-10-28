@@ -121,70 +121,64 @@ class BehavioralProbes:
         print(f"    - 【探针重算机会分】: {recalc_opportunity:.4f}")
         print("\n--- “广义抛压嬗变探针”解剖完毕 ---")
 
-    def _deploy_liquidity_vacuum_probe(self, probe_date: pd.Timestamp):
+    def _deploy_liquidity_dynamics_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.0 · 原始数据穿透版】流动性真空风险探针
-        - 核心职责: 穿透式解剖 SCORE_RISK_LIQUIDITY_VACUUM 信号，直达最原始的三个输入指标，
-                      并完整重演归一化、融合、趋势上下文调制的全过程。
+        【探针 V1.0 · 新增】流动性动态探针
+        - 核心职责: 深度解剖全新的双极性流动性信号，验证“锁仓惜售”和“流动性枯竭/恐慌抛售”的计算逻辑。
         """
-        print("\n" + "="*25 + f" [行为探针] 正在启用 🌀【流动性真空探针 V2.0】🌀 " + "="*25)
+        print("\n" + "="*25 + f" [行为探针] 正在启用 💧【流动性动态探针 V1.0】💧 " + "="*25)
         df = self.strategy.df_indicators
-        atomic_states = self.strategy.atomic_states
-        signal_name = 'SCORE_RISK_LIQUIDITY_VACUUM'
+        atomic = self.strategy.atomic_states
         def get_val(series, date, default=0.0):
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
-        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
-        system_score = get_val(atomic_states.get(signal_name, pd.Series(0.0, index=df.index)), probe_date)
-        print(f"    - 【最终风险分】: {system_score:.4f}")
-        # [代码新增开始]
-        print("\n  [链路层 2] 原始证据值 (Raw Evidence Values)")
         norm_window = 55
-        # 证据一: 换手率
-        raw_turnover_rate = get_val(df.get('turnover_rate_D'), probe_date)
-        print(f"    - [原始证据 I: 换手率] -> 原始值: {raw_turnover_rate:.4f}%")
-        # 证据二: 成交量/均量比
+        print("\n  [链路层 1] 最终系统输出 (Final System Outputs)")
+        opp_score = get_val(atomic.get('SCORE_OPPORTUNITY_LOCKUP_RALLY'), probe_date)
+        risk_score = get_val(atomic.get('SCORE_RISK_LIQUIDITY_DRAIN'), probe_date)
+        bipolar_score = get_val(atomic.get('BEHAVIOR_BIPOLAR_LIQUIDITY_DYNAMICS'), probe_date)
+        print(f"    - 【锁仓惜售机会分】: {opp_score:.4f}")
+        print(f"    - 【流动性枯竭风险分】: {risk_score:.4f}")
+        print(f"    - (内部)双极性动态分: {bipolar_score:.4f}")
+        print("\n  [链路层 2] 原始证据值 (Raw Evidence Values)")
+        raw_turnover = get_val(df.get('turnover_rate_D'), probe_date)
+        raw_pct_change = get_val(df.get('pct_change_D'), probe_date)
         raw_vol = get_val(df.get('volume_D'), probe_date)
-        raw_vol_ma = get_val(df.get('VOL_MA_55_D'), probe_date)
-        raw_vol_ratio = raw_vol / raw_vol_ma if raw_vol_ma > 0 else 1.0
-        print(f"    - [原始证据 II: 成交量/均量比] -> 原始值: {raw_vol_ratio:.4f} (Vol:{raw_vol:.0f} / MA55:{raw_vol_ma:.0f})")
-        # 证据三: 日内波幅
-        raw_high = get_val(df.get('high_D'), probe_date)
-        raw_low = get_val(df.get('low_D'), probe_date)
-        raw_pre_close = get_val(df.get('pre_close_D'), probe_date)
-        raw_volatility = (raw_high - raw_low) / raw_pre_close if raw_pre_close > 0 else 0.0
-        print(f"    - [原始证据 III: 日内波幅] -> 原始值: {raw_volatility:.4f} (({raw_high:.2f}-{raw_low:.2f})/{raw_pre_close:.2f})")
-        # [代码新增结束]
-        print("\n  [链路层 3] 证据归一化 (Evidence Normalization)")
-        low_turnover_score_series = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
-        vol_ratio_series = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
-        sustained_shrink_score_series = normalize_score(vol_ratio_series.fillna(1.0), df.index, norm_window, ascending=False)
-        calculated_volatility_series = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
-        fragility_score_series = normalize_score(calculated_volatility_series.fillna(0.0), df.index, norm_window, ascending=True)
-        low_turnover_score = get_val(low_turnover_score_series, probe_date)
-        sustained_shrink_score = get_val(sustained_shrink_score_series, probe_date)
-        fragility_score = get_val(fragility_score_series, probe_date)
-        print(f"    - [证据 I: 低换手率] -> 归一化得分: {low_turnover_score:.4f}")
-        print(f"    - [证据 II: 持续缩量] -> 归一化得分: {sustained_shrink_score:.4f}")
-        print(f"    - [证据 III: 市场脆弱性] -> 归一化得分: {fragility_score:.4f}")
-        print("\n  [链路层 4] 快照分融合 (Snapshot Fusion)")
-        probe_snapshot_val = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        print(f"    - [融合公式]: (低换手 * 持续缩量 * 脆弱性)^(1/3)")
-        print(f"    - 【探针重算快照分】: {probe_snapshot_val:.4f}")
-        print("\n  [链路层 5] 趋势上下文调制 (Trend Context Modulation)")
-        trend_context_score_series = self.intelligence_layer.behavioral_intel._diagnose_trend_context(df)
-        risk_suppression_factor_series = 1.0 - trend_context_score_series.clip(lower=0)
-        trend_context_score = get_val(trend_context_score_series, probe_date)
-        risk_suppression_factor = get_val(risk_suppression_factor_series, probe_date)
-        probe_final_risk = probe_snapshot_val * risk_suppression_factor
-        print(f"    - 趋势上下文分数: {trend_context_score:.4f}")
-        print(f"    - 风险抑制因子: {risk_suppression_factor:.4f}")
-        print(f"    - 【探针重算最终风险】: {probe_snapshot_val:.4f} * {risk_suppression_factor:.4f} = {probe_final_risk:.4f}")
-        print("\n  [链路层 6] 终极对质 (Final Verdict)")
-        print(f"    - [对比]: 系统最终值 {system_score:.4f} vs. 探针正确值 {probe_final_risk:.4f} -> {'✅ 逻辑闭环' if np.isclose(system_score, probe_final_risk) else '❌ 仍有偏差'}")
-        print("\n--- “流动性真空探针”解剖完毕 ---")
-
+        raw_vol_ma5 = get_val(df.get('VOL_MA_5_D'), probe_date)
+        raw_vol_ma21 = get_val(df.get('VOL_MA_21_D'), probe_date)
+        raw_prev_vol = get_val(df.get('volume_D').shift(1), probe_date)
+        print(f"    - [换手率]: {raw_turnover:.4f}%")
+        print(f"    - [涨跌幅]: {raw_pct_change:.4f}%")
+        print(f"    - [成交量]: {raw_vol:.0f}")
+        print(f"    - [5日均量]: {raw_vol_ma5:.0f}")
+        print(f"    - [21日均量]: {raw_vol_ma21:.0f}")
+        print(f"    - [昨日成交量]: {raw_prev_vol:.0f}")
+        print("\n  [链路层 3] 证据归一化与融合 (Evidence Normalization & Fusion)")
+        low_turnover_score = get_val(normalize_score(df.get('turnover_rate_D'), df.index, norm_window, ascending=False), probe_date)
+        vol_spike_cond1 = df['volume_D'] > np.maximum(df.get('VOL_MA_5_D', 0), df.get('VOL_MA_21_D', 0))
+        vol_spike_cond2 = df['volume_D'] > (df['volume_D'].shift(1).fillna(0) * 2)
+        volume_spike_score = get_val(normalize_score((vol_spike_cond1 | vol_spike_cond2).astype(float), df.index, norm_window, ascending=True), probe_date)
+        day_direction = np.sign(raw_pct_change)
+        print(f"    - [低换手率得分]: {low_turnover_score:.4f}")
+        print(f"    - [成交量爆发得分]: {volume_spike_score:.4f}")
+        print(f"    - [日内方向]: {'上涨' if day_direction > 0 else '下跌' if day_direction < 0 else '平盘'}")
+        bullish_lockup_score = low_turnover_score * (1 if day_direction > 0 else 0)
+        bearish_vacuum_score = low_turnover_score * (1 if day_direction < 0 else 0)
+        bearish_panic_score = volume_spike_score * (1 if day_direction < 0 else 0)
+        final_bearish_score = max(bearish_vacuum_score, bearish_panic_score)
+        print(f"    - [机会面: 锁仓惜售]: {bullish_lockup_score:.4f} (低换手 * 上涨)")
+        print(f"    - [风险面A: 无人问津]: {bearish_vacuum_score:.4f} (低换手 * 下跌)")
+        print(f"    - [风险面B: 恐慌杀跌]: {bearish_panic_score:.4f} (成交量爆发 * 下跌)")
+        print(f"    - [最终风险组件]: max({bearish_vacuum_score:.4f}, {bearish_panic_score:.4f}) = {final_bearish_score:.4f}")
+        print("\n  [链路层 4] 终极对质 (Final Verdict)")
+        recalc_bipolar = bullish_lockup_score - final_bearish_score
+        recalc_opp = max(0, recalc_bipolar)
+        recalc_risk = abs(min(0, recalc_bipolar))
+        print(f"    - 【探针重算双极性分】: {bullish_lockup_score:.4f} - {final_bearish_score:.4f} = {recalc_bipolar:.4f}")
+        print(f"    - [机会分对比]: 系统值 {opp_score:.4f} vs. 探针值 {recalc_opp:.4f} -> {'✅ 逻辑闭环' if np.isclose(opp_score, recalc_opp) else '❌ 不一致'}")
+        print(f"    - [风险分对比]: 系统值 {risk_score:.4f} vs. 探针值 {recalc_risk:.4f} -> {'✅ 逻辑闭环' if np.isclose(risk_score, recalc_risk) else '❌ 不一致'}")
+        print("\n--- “流动性动态探针”解剖完毕 ---")
 
 
 
