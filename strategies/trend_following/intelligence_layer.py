@@ -57,10 +57,11 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V416.0 · 指挥链重塑版】情报层总指挥官
-        - 核心重构: 重新编排所有情报引擎的调用顺序，以解决微观层对专业层（筹码、资金流）的数据依赖问题。
-        - 新指挥链: 1. 基础/专业层 -> 2. 微观/战术层 -> 3. 认知融合/预测/剧本层。
-        - 职责调整: CognitiveIntelligence 不再负责调用微观和战术引擎，其职责被上收到本模块。
+        【V417.0 · 最终指挥链修复版】情报层总指挥官
+        - 核心重构: 修复了因指挥链顺序错误，导致微观引擎在上下文信号生成前运行的致命BUG。
+        - 新指挥链: 1. 基础/专业层 -> 2. 上下文层 -> 3. 微观/战术层 -> 4. 认知/决策层。
+        - 修改逻辑: 在微观引擎运行前，新增一个步骤，专门调用 `_calculate_and_update_context_scores`
+                      来预先计算所有必要的上下文分数，确保数据依赖完整。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -70,9 +71,6 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        
-        # 重新编排指挥链
-        # --- 阶段一: 基础层 & 专业层情报生成 ---
         print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
@@ -87,16 +85,17 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        
-        # --- 阶段二: 微观层 & 战术层情报生成 (现在可以安全消费专业层数据) ---
+        # [代码修改开始]
+        # --- 新增阶段: 上下文层情报生成 ---
+        print("  -> [指挥链] 正在执行: 上下文层情报生成...")
+        self._calculate_and_update_context_scores(df)
+        # [代码修改结束]
         print("  -> [指挥链] 正在执行: 微观层 & 战术层情报生成...")
         micro_behavior_states = self.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(df)
         update_states(micro_behavior_states)
         tactic_states = self.cognitive_intel.tactic_engine.run_tactic_synthesis(df, pullback_enhancements={})
         update_states(tactic_states)
         self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-
-        # --- 阶段三: 顶层认知融合与决策生成 ---
         print("  -> [指挥链] 正在执行: 顶层认知融合与决策生成...")
         self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
         update_states(self.predictive_intel.run_predictive_diagnostics())
@@ -106,10 +105,23 @@ class IntelligenceLayer:
         self.strategy.playbook_states.update(playbook_states)
         exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
         self.strategy.exit_triggers = exit_triggers_df
-        
-        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         return self.strategy.trigger_events
+
+    def _calculate_and_update_context_scores(self, df: pd.DataFrame):
+        """
+        【V1.0 · 新增】计算并更新所有通用上下文分数。
+        - 核心职责: 作为一个独立步骤，确保所有下游引擎在运行前都能获取到
+                      必要的上下文状态，如“深度底部区域”等。
+        """
+        context_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        context_scores = calculate_context_scores(
+            df=df,
+            atomic_states=self.strategy.atomic_states,
+            params=context_params
+        )
+        if context_scores:
+            self.strategy.atomic_states.update(context_scores)
 
     def deploy_forensic_probes(self):
         """

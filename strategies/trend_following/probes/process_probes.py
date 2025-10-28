@@ -146,14 +146,12 @@ class ProcessProbes:
 
     def _deploy_winner_conviction_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.0 · 解毒剂协议同步版】赢家信念探针
-        - 核心升级: 完全同步主程序中的“解毒剂协议”三变量计算逻辑。
-        - 诊断流程: 1. 读取并展示三个原始信号（紧迫度、利润垫、获利盘比例）。
-                      2. 计算并展示“修正后的利润动量”。
-                      3. 使用新公式重算瞬时关系分和最终得分，与系统值进行对质。
+        【探针 V2.1 · 精度校准版】赢家信念探针
+        - 核心升级: 将最终对质的逻辑从直接比较升级为使用 numpy.isclose，
+                      以兼容浮点数计算中产生的微小精度差异，避免误报。
         """
         signal_name = 'PROCESS_META_WINNER_CONVICTION'
-        print("\n" + "="*25 + f" [过程探针] 正在启用 🙏【赢家信念探针 V2.0】🙏 " + "="*25)
+        print("\n" + "="*25 + f" [过程探针] 正在启用 🙏【赢家信念探针 V2.1】🙏 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         engine = self.intel_layer.process_intel
@@ -165,16 +163,13 @@ class ProcessProbes:
         if not config:
             print(f"    [错误] 在配置中未找到信号 '{signal_name}' 的定义。")
             return
-        # --- 链路层 1: 最终系统输出 ---
         print("\n  [链路层 1] 最终系统输出 (Final System Output)")
         actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终信号分】: {actual_score:.4f}")
-        # [代码修改开始]
-        # --- 链路层 2: 原始信号与动量计算 (三变量) ---
         print("\n  [链路层 2] 原始信号与动量计算 (Tri-Variable)")
-        signal_a_name = config.get('signal_A') # profit_taking_urgency_D
-        signal_b_name = config.get('signal_B') # winner_profit_margin_D
-        antidote_signal_name = config.get('antidote_signal') # total_winner_rate_D
+        signal_a_name = config.get('signal_A')
+        signal_b_name = config.get('signal_B')
+        antidote_signal_name = config.get('antidote_signal')
         signal_a_series = df.get(signal_a_name)
         signal_b_series = df.get(signal_b_name)
         antidote_signal_series = df.get(antidote_signal_name)
@@ -191,18 +186,15 @@ class ProcessProbes:
         print(f"    - [信号A: {signal_a_name}] 值: {get_val(signal_a_series, probe_date):.4f} -> 动量: {get_val(momentum_a, probe_date):.4f} (紧迫度)")
         print(f"    - [信号B: {signal_b_name}] 值: {get_val(signal_b_series, probe_date):.4f} -> 动量: {get_val(momentum_b_raw, probe_date):.4f} (原始利润)")
         print(f"    - [解毒剂: {antidote_signal_name}] 值: {get_val(antidote_signal_series, probe_date):.4f} -> 动量: {get_val(momentum_antidote, probe_date):.4f} (新赢家流入)")
-        # --- 链路层 3: 解毒剂协议 ---
         print("\n  [链路层 3] 解毒剂协议 (Antidote Protocol)")
         antidote_k = config.get('antidote_k', 1.0)
         momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
         print(f"    - 【修正后利润动量】: {get_val(momentum_b_raw, probe_date):.4f} + {antidote_k:.1f} * {get_val(momentum_antidote, probe_date):.4f} = {get_val(momentum_b_corrected, probe_date):.4f}")
-        # --- 链路层 4: 瞬时关系分计算 ---
         print("\n  [链路层 4] 瞬时关系分计算 (Instantaneous Relationship)")
         k = config.get('signal_b_factor_k', 1.0)
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
         relationship_score_val = get_val(relationship_score, probe_date)
         print(f"    - 【瞬时关系分 (背离)】: ({k:.1f} * {get_val(momentum_b_corrected, probe_date):.4f} - {get_val(momentum_a, probe_date):.4f}) / {k+1:.1f} = {relationship_score_val:.4f}")
-        # --- 链路层 5: 关系元分析 ---
         print("\n  [链路层 5] 关系元分析 (Meta-Analysis)")
         relationship_trend = ta.linreg(relationship_score, length=engine.meta_window).fillna(0)
         relationship_accel = ta.linreg(relationship_trend, length=engine.meta_window).fillna(0)
@@ -210,13 +202,15 @@ class ProcessProbes:
         bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, engine.norm_window, engine.bipolar_sensitivity)
         print(f"    - [关系分趋势]: {get_val(relationship_trend, probe_date):.4f} -> 归一化趋势强度: {get_val(bipolar_trend_strength, probe_date):.4f}")
         print(f"    - [关系分加速度]: {get_val(relationship_accel, probe_date):.4f} -> 归一化加速度强度: {get_val(bipolar_accel_strength, probe_date):.4f}")
-        # --- 链路层 6: 最终裁决与对质 ---
         print("\n  [链路层 6] 最终裁决与对质 (Final Adjudication & Verdict)")
         trend_weight, accel_weight = engine.meta_score_weights
         recalc_score = (get_val(bipolar_trend_strength, probe_date) * trend_weight + get_val(bipolar_accel_strength, probe_date) * accel_weight)
         recalc_score = np.clip(recalc_score, -1, 1)
         print(f"    - 【探针重算-最终分】: {get_val(bipolar_trend_strength, probe_date):.4f} * {trend_weight} + {get_val(bipolar_accel_strength, probe_date):.4f} * {accel_weight} = {recalc_score:.4f}")
+        # [代码修改开始]
+        # 使用 isclose 替代直接比较，以容忍浮点数精度误差
         match = np.isclose(actual_score, recalc_score, atol=1e-4)
+        # [代码修改结束]
         print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
         print("\n--- “赢家信念探针”解剖完毕 ---")
 
