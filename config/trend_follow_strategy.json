@@ -149,7 +149,7 @@
         "enable_fund_flow_probe": false,
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
-        "enable_profit_taking_pressure_probe": false,
+        "enable_profit_taking_pressure_probe": true,
         "enable_lockdown_scramble_probe": false,
         "enable_comprehensive_top_risk_probe": false,
         "enable_main_force_intent_duel_probe": false,
