@@ -124,8 +124,6 @@ class IntelligenceLayer:
                 self.probes._deploy_trend_quality_probe(probe_date)
             if debug_params.get('enable_liquidity_trap_probe', False):
                 self.probes._deploy_liquidity_trap_probe(probe_date)
-            if debug_params.get('enable_liquidity_vacuum_probe', False):
-                self.probes._deploy_liquidity_vacuum_probe(probe_date)
             if debug_params.get('enable_ff_distribution_resonance_probe', False):
                 self.probes._deploy_ff_distribution_resonance_probe(probe_date)
             if debug_params.get('enable_structural_health_probe', False):
@@ -140,14 +138,12 @@ class IntelligenceLayer:
                 self.probes._deploy_euphoric_acceleration_transmutation_probe(probe_date)
             if debug_params.get('enable_chip_lockdown_probe', False):
                 self.probes._deploy_bottom_accumulation_lockdown_probe(probe_date)
-            # [代码修改开始]
             if debug_params.get('enable_winner_conviction_probe', False):
                 self.probes._deploy_winner_conviction_probe(probe_date)
             if debug_params.get('enable_profit_taking_pressure_probe', False):
                 self.probes._deploy_profit_taking_pressure_probe(probe_date)
             if debug_params.get('enable_lockdown_scramble_probe', False):
                 self.probes._deploy_lockdown_scramble_probe(probe_date)
-            # [代码修改结束]
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):
