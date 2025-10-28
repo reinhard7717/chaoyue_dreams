@@ -1184,48 +1184,61 @@ class CognitiveIntelligence:
 
     def _calculate_trend_resilience_shield(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V2.0 · 动态韧性版】“趋势韧性神盾”计算引擎
-        - 核心重构: 废除脆弱的“加权几何平均数”，换用更具韧性的“加权算术平均数”，避免因单点故障导致神盾完全失效。
-        - 战略升维: 引入关系元分析。最终神盾分数 = 静态韧性 * (1 + 动态韧性)，使其能感知趋势的“生命力”。
+        【V2.2 · 双支柱神盾版】“趋势韧性神盾”计算引擎
+        - 核心重构: 废弃对滞后的“静态韧性分”求导的错误逻辑。
+                      引入“双支柱”架构：
+                      1. 静态韧性: 保留原有的四领域健康度融合，作为趋势的“厚度”。
+                      2. 动态动能: 直接对最能代表趋势本身的“五维趋势健康度”求导，作为趋势的“锐度”。
+        - 收益: 能够正确识别趋势的加速和减速，解决了在反转日误判动能的致命缺陷。
         """
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
         if not get_param_value(p_shield.get('enabled'), True):
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         weights = get_param_value(p_shield.get('fusion_weights'), {})
-        # --- 神盾的四大支柱 ---
+        
+        # [代码修改开始]
+        # --- 支柱一：计算静态韧性分 (Static Resilience) ---
         pillars = {
             'trend_quality': self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0),
             'structural_health': self._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE', 0.0),
             'fund_flow_health': self._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE', 0.0),
             'chip_health': self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE', 0.0)
         }
-        # --- 阶段一：计算静态韧性分 (Static Resilience) ---
         static_resilience_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         total_weight = sum(weights.get(name, 0) for name in pillars.keys())
         if total_weight > 0:
             for name, score in pillars.items():
                 weight = weights.get(name, 0.25)
                 static_resilience_score += score * (weight / total_weight)
-        # --- 阶段二：计算动态韧性分 (Dynamic Resilience) ---
-        # 对静态韧性分本身进行关系元分析，只取其看涨的动态部分
+        
+        # --- 支柱二：计算动态动能分 (Dynamic Momentum) ---
+        # 直接对最能代表趋势本身的“五维趋势健康度”进行求导
+        direct_trend_health_score = self._calculate_cognitive_trend_health(df)
+        
         p_meta = get_param_value(p_cognitive.get('relational_meta_analysis_params'), {})
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
         meta_window = 5
-        relationship_trend = static_resilience_score.diff(meta_window).fillna(0)
+        
+        # 使用 direct_trend_health_score 作为求导的源
+        relationship_trend = direct_trend_health_score.diff(meta_window).fillna(0)
         velocity_score_bipolar = normalize_to_bipolar(relationship_trend, df.index, norm_window)
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        
+        relationship_accel = relationship_trend.diff(1).fillna(0)
         acceleration_score_bipolar = normalize_to_bipolar(relationship_accel, df.index, norm_window)
-        # 只取动态分的正向部分作为加成
-        dynamic_resilience_bonus = (
-            velocity_score_bipolar.clip(0, 1) * w_velocity +
-            acceleration_score_bipolar.clip(0, 1) * w_acceleration
+        
+        dynamic_momentum_bonus = (
+            velocity_score_bipolar * w_velocity +
+            acceleration_score_bipolar * w_acceleration
         )
+        
         # --- 阶段三：最终融合 ---
-        # 最终神盾分数 = 静态韧性 * (1 + 动态韧性加成)
-        final_shield_score = (static_resilience_score * (1 + dynamic_resilience_bonus)).clip(0, 1)
+        # 最终神盾分数 = 静态韧性 * (1 + 动态动能加成)
+        final_shield_score = (static_resilience_score * (1 + dynamic_momentum_bonus)).clip(0, 1)
+        # [代码修改结束]
+        
         return final_shield_score.astype(np.float32)
 
 
