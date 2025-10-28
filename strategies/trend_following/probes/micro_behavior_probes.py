@@ -86,73 +86,67 @@ class MicroBehaviorProbes:
 
     def _deploy_profit_taking_pressure_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V4.0 · 精准回溯版】利润兑现压力风险探针
-        - 核心升级: 修复“未来数据”污染。通过读取引擎保存的 `_PRE_ENHANCEMENT` 快照，
-                      确保使用与引擎完全一致的、未经增强的原始机会信号进行重算。
+        【探针 V5.0 · 燃料转化协议同步版】利润兑现压力探针
+        - 核心升级: 完全同步主引擎 V6.0 的“燃料转化协议”。
+                      精确解剖风险被“彻底湮灭”并100%转化为机会“燃料”的全过程。
         """
-        print("\n" + "="*25 + f" [微观探针] 正在启用 💸【利润兑现压力探针 V4.0】💸 " + "="*25)
+        print("\n" + "="*25 + f" [微观探针] 正在启用 💸【利润兑现压力探针 V5.0】💸 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-        engine = self.intelligence_layer.cognitive_intel.micro_behavior_engine
+        engine = self.intelligence_layer.micro_behavior_engine
         def get_val(series, date, default=0.0):
             if series is None: return default
             val = series.get(date)
             return default if pd.isna(val) else val
-        signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
         print("\n  [链路层 1] 最终系统输出 (Final System Outputs)")
-        actual_final_risk = get_val(atomic.get(signal_name), probe_date, 0.0)
-        actual_absorption_opp = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'), probe_date, 0.0)
-        actual_lockdown_opp = get_val(atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'), probe_date, 0.0)
-        print(f"    - 【最终风险分】: {actual_final_risk:.4f}")
-        print(f"    - 【最终吸收机会分】: {actual_absorption_opp:.4f}")
-        print(f"    - 【最终锁仓机会分】: {actual_lockdown_opp:.4f}")
+        final_risk = get_val(atomic.get('COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'), probe_date)
+        final_absorption_opp = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'), probe_date)
+        final_lockdown_opp = get_val(atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'), probe_date)
+        print(f"    - 【最终风险分】: {final_risk:.4f}")
+        print(f"    - 【最终吸收机会分】: {final_absorption_opp:.4f}")
+        print(f"    - 【最终锁仓机会分】: {final_lockdown_opp:.4f}")
         print("\n  [链路层 2] 原始风险分重算 (Raw Risk Recalculation)")
         periods = [1, 5, 13, 21, 55]
+        pressure_scores = {}
+        for p in periods:
+            urgency_q = engine._calculate_4d_metric_quality(df, 'profit_taking_urgency_D', p, p*2 if p<55 else p, True)
+            premium_q = engine._calculate_4d_metric_quality(df, 'profit_realization_premium_D', p, p*2 if p<55 else p, True)
+            snapshot = (urgency_q * premium_q)**0.5
+            pressure_scores[p] = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot)
         tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
-        recalc_raw_fused_series = pd.Series(0.0, index=df.index)
+        raw_risk_val = 0.0
         total_weight = sum(tf_weights.values())
-        if total_weight > 0:
-            for p_tactical in periods:
-                p_context = periods[periods.index(p_tactical) + 1] if periods.index(p_tactical) + 1 < len(periods) else p_tactical
-                urgency_q = engine._calculate_4d_metric_quality(df, 'profit_taking_urgency_D', p_tactical, p_context, ascending=True)
-                premium_q = engine._calculate_4d_metric_quality(df, 'profit_realization_premium_D', p_tactical, p_context, ascending=True)
-                snapshot_s = (urgency_q * premium_q)**0.5
-                period_score = engine._perform_micro_behavior_relational_meta_analysis(df, snapshot_s)
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                recalc_raw_fused_series += period_score * weight
-        recalc_raw_fused_score = get_val(recalc_raw_fused_series, probe_date, 0.0)
-        print(f"    - 【探针重算-原始风险分】: {recalc_raw_fused_score:.4f}")
-        # [代码修改开始]
+        for p in periods:
+            raw_risk_val += get_val(pressure_scores[p], probe_date) * (tf_weights[p] / total_weight)
+        print(f"    - 【探针重算-原始风险分】: {raw_risk_val:.4f}")
         print("\n  [链路层 3] 燃料转化机制 (Fuel Transmutation Mechanism)")
-        # 核心修正：从 atomic_states 读取引擎保存的“增强前”原始值，确保与引擎计算基准一致
-        original_absorption_opp_series = atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT', pd.Series(0.0, index=df.index))
-        original_lockdown_opp_series = atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT', pd.Series(0.0, index=df.index))
-        original_absorption_opp_val = get_val(original_absorption_opp_series, probe_date)
-        original_lockdown_opp_val = get_val(original_lockdown_opp_series, probe_date)
-        print(f"    - [护盾 I: 吸收反转机会] -> 增强前原始得分: {original_absorption_opp_val:.4f}")
-        print(f"    - [护盾 II: 底部锁仓机会] -> 增强前原始得分: {original_lockdown_opp_val:.4f}")
-        recalc_shield_score = max(original_absorption_opp_val, original_lockdown_opp_val)
-        print(f"    - 【探针重算-抑制护盾分】: max({original_absorption_opp_val:.4f}, {original_lockdown_opp_val:.4f}) = {recalc_shield_score:.4f}")
-        recalc_fuel_generated = recalc_raw_fused_score * recalc_shield_score
-        print(f"    - 【探针重算-转化燃料量】: {recalc_raw_fused_score:.4f} * {recalc_shield_score:.4f} = {recalc_fuel_generated:.4f}")
+        absorption_opp_pre = get_val(atomic.get('SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT'), probe_date)
+        lockdown_opp_pre = get_val(atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT'), probe_date)
+        print(f"    - [护盾 I: 吸收反转机会] -> 增强前原始得分: {absorption_opp_pre:.4f}")
+        print(f"    - [护盾 II: 底部锁仓机会] -> 增强前原始得分: {lockdown_opp_pre:.4f}")
+        shield_val = max(absorption_opp_pre, lockdown_opp_pre)
+        print(f"    - 【探针重算-抑制护盾分】: max({absorption_opp_pre:.4f}, {lockdown_opp_pre:.4f}) = {shield_val:.4f}")
+        # [代码修改开始]
+        # 同步“燃料转化协议”的计算逻辑
+        is_shield_active = shield_val > 0
+        fuel_val = raw_risk_val if is_shield_active else 0.0
+        print(f"    - [协议裁决]: 护盾已激活 -> {'是' if is_shield_active else '否'}")
+        print(f"    - 【探针重算-转化燃料量】: {fuel_val:.4f} (护盾激活时，转化全部原始风险)")
         print("\n  [链路层 4] 最终裁决与对质 (Final Adjudication & Verdict)")
-        recalc_final_risk = recalc_raw_fused_score * (1.0 - recalc_shield_score)
-        print(f"    - 【探针重算-最终风险分】: {recalc_raw_fused_score:.4f} * (1.0 - {recalc_shield_score:.4f}) = {recalc_final_risk:.4f}")
-        total_opp_strength = original_absorption_opp_val + original_lockdown_opp_val
-        safe_total_opp_strength = 1.0 if total_opp_strength == 0 else total_opp_strength
-        absorption_weight = original_absorption_opp_val / safe_total_opp_strength
-        lockdown_weight = original_lockdown_opp_val / safe_total_opp_strength
-        recalc_enhanced_absorption = (original_absorption_opp_val + recalc_fuel_generated * absorption_weight).clip(0, 1)
-        recalc_enhanced_lockdown = (original_lockdown_opp_val + recalc_fuel_generated * lockdown_weight).clip(0, 1)
-        print(f"    - 【探针重算-增强后吸收机会】: {original_absorption_opp_val:.4f} + {recalc_fuel_generated:.4f} * {absorption_weight:.2f} = {recalc_enhanced_absorption:.4f}")
-        print(f"    - 【探针重算-增强后锁仓机会】: {original_lockdown_opp_val:.4f} + {recalc_fuel_generated:.4f} * {lockdown_weight:.2f} = {recalc_enhanced_lockdown:.4f}")
-        risk_match = np.isclose(actual_final_risk, recalc_final_risk)
-        absorption_match = np.isclose(actual_absorption_opp, recalc_enhanced_absorption)
-        lockdown_match = np.isclose(actual_lockdown_opp, recalc_enhanced_lockdown)
-        print(f"    - [风险分对比]: 系统值 {actual_final_risk:.4f} vs. 探针值 {recalc_final_risk:.4f} -> {'✅ 一致' if risk_match else '❌ 不一致'}")
-        print(f"    - [吸收机会对比]: 系统值 {actual_absorption_opp:.4f} vs. 探针值 {recalc_enhanced_absorption:.4f} -> {'✅ 一致' if absorption_match else '❌ 不一致'}")
-        print(f"    - [锁仓机会对比]: 系统值 {actual_lockdown_opp:.4f} vs. 探针值 {recalc_enhanced_lockdown:.4f} -> {'✅ 一致' if lockdown_match else '❌ 不一致'}")
+        recalc_final_risk = 0.0 if is_shield_active else raw_risk_val
+        print(f"    - 【探针重算-最终风险分】: {recalc_final_risk:.4f} (护盾激活时，风险强制归零)")
+        total_opp_strength = absorption_opp_pre + lockdown_opp_pre
+        safe_total_opp = 1.0 if total_opp_strength == 0 else total_opp_strength
+        absorption_weight = absorption_opp_pre / safe_total_opp
+        lockdown_weight = lockdown_opp_pre / safe_total_opp
+        recalc_absorption_opp = (absorption_opp_pre + fuel_val * absorption_weight).clip(0, 1)
+        recalc_lockdown_opp = (lockdown_opp_pre + fuel_val * lockdown_weight).clip(0, 1)
+        print(f"    - 【探针重算-增强后吸收机会】: {absorption_opp_pre:.4f} + {fuel_val:.4f} * {absorption_weight:.2f} = {recalc_absorption_opp:.4f}")
+        print(f"    - 【探针重算-增强后锁仓机会】: {lockdown_opp_pre:.4f} + {fuel_val:.4f} * {lockdown_weight:.2f} = {recalc_lockdown_opp:.4f}")
         # [代码修改结束]
+        print(f"    - [风险分对比]: 系统值 {final_risk:.4f} vs. 探针值 {recalc_final_risk:.4f} -> {'✅ 一致' if np.isclose(final_risk, recalc_final_risk) else '❌ 不一致'}")
+        print(f"    - [吸收机会对比]: 系统值 {final_absorption_opp:.4f} vs. 探针值 {recalc_absorption_opp:.4f} -> {'✅ 一致' if np.isclose(final_absorption_opp, recalc_absorption_opp) else '❌ 不一致'}")
+        print(f"    - [锁仓机会对比]: 系统值 {final_lockdown_opp:.4f} vs. 探针值 {recalc_lockdown_opp:.4f} -> {'✅ 一致' if np.isclose(final_lockdown_opp, recalc_lockdown_opp) else '❌ 不一致'}")
         print("\n--- “利润兑现压力探针”解剖完毕 ---")
 
 

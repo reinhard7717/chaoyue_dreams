@@ -343,9 +343,10 @@ class MicroBehaviorEngine:
 
     def _synthesize_profit_taking_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 数据流修正版】“利润兑现压力”风险诊断引擎
-        - 核心修正: 1. 修复数据流污染：不再隐蔽地修改全局状态，而是将所有修改后的信号（风险+增强后的机会）作为字典显式返回。
-                      2. 增加可追溯性：在增强机会信号前，将其原始值以 `_PRE_ENHANCEMENT` 后缀保存，供探针精确回溯。
+        【V6.0 · 燃料转化协议版】“利润兑现压力”风险诊断引擎
+        - 核心升级: 签署“燃料转化协议”。当存在吸收或锁仓机会时，利润兑现压力不再是简单被削弱，
+                      而是被彻底归零，其全部能量100%转化为“燃料”，用于增强对应的机会信号。
+                      这解决了风险信号“阴魂不散”的逻辑矛盾。
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
@@ -370,33 +371,27 @@ class MicroBehaviorEngine:
                 weight = tf_weights.get(p, 0) / total_weight
                 raw_fused_risk_score += pressure_scores_by_period.get(p, 0.0) * weight
         # --- 燃料转化机制 ---
-        # 1. 获取具有否决权的看涨信号
         absorption_reversal_opp = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_ABSORPTION_REVERSAL', 0.0)
         chip_lockdown_opp = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
-        # [代码新增开始]
-        # 为了探针的可追溯性，存储增强前的原始值
         states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT'] = absorption_reversal_opp.copy()
         states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT'] = chip_lockdown_opp.copy()
-        # [代码新增结束]
-        # 2. 构建抑制护盾 (取两者中的最强者)
         suppression_shield = np.maximum(absorption_reversal_opp.values, chip_lockdown_opp.values)
-        # 3. 计算被护盾吸收的“燃料”
-        fuel_generated = raw_fused_risk_score * suppression_shield
-        # 4. 计算最终被削弱的风险
-        final_risk_with_context = raw_fused_risk_score * (1.0 - suppression_shield)
-        states[signal_name] = final_risk_with_context.clip(0, 1).astype(np.float32)
-        # 5. 将燃料加注到对应的机会信号上
+        # [代码修改开始]
+        # 实施“燃料转化协议”
+        # 1. 如果护盾存在，风险强制归零；否则，保留原始风险。
+        final_risk_with_context = np.where(suppression_shield > 0, 0.0, raw_fused_risk_score.values)
+        # 2. 如果护盾存在，全部原始风险都转化为燃料；否则，燃料为零。
+        fuel_generated = np.where(suppression_shield > 0, raw_fused_risk_score.values, 0.0)
+        states[signal_name] = pd.Series(final_risk_with_context, index=df.index).clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         total_opp_strength = absorption_reversal_opp.values + chip_lockdown_opp.values
         safe_total_opp_strength = np.where(total_opp_strength == 0, 1.0, total_opp_strength)
         absorption_weight = absorption_reversal_opp.values / safe_total_opp_strength
         lockdown_weight = chip_lockdown_opp.values / safe_total_opp_strength
         enhanced_absorption_opp = (absorption_reversal_opp + fuel_generated * absorption_weight).clip(0, 1)
         enhanced_lockdown_opp = (chip_lockdown_opp + fuel_generated * lockdown_weight).clip(0, 1)
-        # [代码修改开始]
-        # 修正数据流：将增强后的机会信号也放入返回字典，而不是直接修改全局状态
         states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = enhanced_absorption_opp.astype(np.float32)
         states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'] = enhanced_lockdown_opp.astype(np.float32)
-        # [代码修改结束]
         return states
 
     def synthesize_bipolar_euphoric_event(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

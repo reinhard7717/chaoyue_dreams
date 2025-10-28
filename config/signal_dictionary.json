@@ -876,7 +876,7 @@
             "type": "risk",
             "penalty_weight": -1200,
             "context_role": "top_risk",
-            "description": "融合了主力“战术性T+0获利了结”和“战略性持仓派发”两大证据链，是量化主力兑现利润意愿的专属风险信号。"
+            "description": "【V6.0 · 燃料转化协议版】融合主力T+0套利和战略派发两大证据链。当存在吸收或锁仓机会时，此风险将被彻底归零，其全部能量将转化为燃料，用于增强机会信号。"
         },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",
