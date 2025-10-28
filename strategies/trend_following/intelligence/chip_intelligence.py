@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
 from strategies.trend_following import utils
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics
 
 class ChipIntelligence:
     def __init__(self, strategy_instance, dynamic_thresholds: Dict):

@@ -1148,6 +1148,45 @@
             "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看涨共振”信号。代表筹码结构健康，且主力正在积极收集。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
+        "SCORE_STRUCT_BEHAVIOR_BULLISH_ACCELERATION": {
+            "cn_name": "【行为终极】看涨加速",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V29.0 · 四象限重构版】对“行为看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨行为正在加速。这是一个上涨趋势的确认和加强信号。"
+        },
+        "SCORE_STRUCT_BEHAVIOR_BEARISH_ACCELERATION": {
+            "cn_name": "【行为终极风险】看跌加速",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "context_role": "top_risk",
+            "description": "【V29.0 · 四象限重构版】对“行为看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌行为正在加速。这是一个下跌趋势的确认和加强信号。"
+        },
+        "SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL": {
+            "cn_name": "【行为终极】底部反转",
+            "category": "行为层-机会",
+            "type": "positional",
+            "score": 450,
+            "context_role": "bottom_opportunity",
+            "description": "【V29.0 · 四象限重构版】对“行为看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别行为层面【看跌趋势衰竭】拐点的核心机会信号。"
+        },
+        "SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL": {
+            "cn_name": "【行为终极】战术反转",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 350,
+            "context_role": "bottom_opportunity",
+            "description": "【V29.0 · 四象限重构版】识别“强行为看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+        },
+        "SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL": {
+            "cn_name": "【行为终极风险】顶部反转",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -900,
+            "context_role": "top_risk",
+            "description": "【V29.0 · 四象限重构版】对“行为看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别行为层面【看涨趋势衰竭】拐点的核心风险信号。"
+        },
         "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE": {
             "cn_name": "【结构行为】看涨共振",
             "category": "行为层-机会",
@@ -1163,31 +1202,46 @@
             "context_role": "top_risk",
             "description": "【高保真版】基于日内趋势效率、上影线成交量、收盘强度等高保真微观结构信号，在多周期上形成的看跌共振。"
         },
-        "SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【结构行为】底部反转",
-            "category": "行为层-机会",
+        "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
+        "SCORE_FF_BULLISH_ACCELERATION": {
+            "cn_name": "【资金流终极】看涨加速",
+            "category": "资金流-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V4.0 · 四象限重构版】对“资金流看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨资金流入正在加速。这是一个上涨趋势的确认和加强信号。"
+        },
+        "SCORE_FF_BEARISH_ACCELERATION": {
+            "cn_name": "【资金流终极风险】看跌加速",
+            "category": "资金流-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "context_role": "top_risk",
+            "description": "【V4.0 · 四象限重构版】对“资金流看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌资金流出正在加速。这是一个下跌趋势的确认和加强信号。"
+        },
+        "SCORE_FF_BOTTOM_REVERSAL": {
+            "cn_name": "【资金流终极】底部反转",
+            "category": "资金流-机会",
             "type": "positional",
             "score": 450,
             "context_role": "bottom_opportunity",
-            "description": "【高保真版】基于日内反转强度、底部背离、成交量分布等微观结构信号，在价格底部区域形成的强力反转信号。"
+            "description": "【V4.0 · 四象限重构版】对“资金流看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别资金流层面【看跌趋势衰竭】拐点的核心机会信号。"
         },
-        "SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL": {
-            "cn_name": "【结构行为】战术反转",
-            "category": "行为层-机会",
+        "SCORE_FF_TACTICAL_REVERSAL": {
+            "cn_name": "【资金流终极】战术反转",
+            "category": "资金流-机会",
             "type": "dynamic",
             "score": 350,
             "context_role": "bottom_opportunity",
-            "description": "【高保真版】在上升趋势中，捕捉由健康的日内结构（如缩量、趋势线性度良好）创造的战术性回调买入点。"
+            "description": "【V4.0 · 四象限重构版】识别“强资金流看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
         },
-        "SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【结构行为风险】顶部反转",
-            "category": "行为层-风险",
+        "SCORE_FF_TOP_REVERSAL": {
+            "cn_name": "【资金流终极风险】顶部反转",
+            "category": "资金流-风险",
             "type": "risk",
             "penalty_weight": -900,
             "context_role": "top_risk",
-            "description": "【高保真版】基于日内反转强度、顶部背离、成交量分布等微观结构信号，在价格顶部区域形成的强力反转风险。"
+            "description": "【V4.0 · 四象限重构版】对“资金流看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别资金流层面【看涨趋势衰竭】拐点的核心风险信号。"
         },
-        "说明_fund_flow_ultimate": "--- 资金流层-终极信号 ---",
         "SCORE_FF_BULLISH_RESONANCE": {
             "cn_name": "【资金终极】看涨共振",
             "category": "资金流-机会",
@@ -1203,37 +1257,28 @@
             "context_role": "top_risk",
             "description": "【三公理版】基于“聚散”、“转移”、“内部结构”三大核心公理，在所有周期上形成的资金派发共振。"
         },
-        "SCORE_FF_BOTTOM_REVERSAL": {
-            "cn_name": "【资金终极】底部反转",
-            "category": "资金流-机会",
-            "type": "positional",
-            "score": 400,
-            "context_role": "bottom_opportunity",
-            "description": "在价格底部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转信号。"
-        },
-        "SCORE_FF_TACTICAL_REVERSAL": {
-            "cn_name": "【资金终极】战术反转",
-            "category": "资金流-机会",
+        "说明_structural_ultimate": "--- 结构层-终极信号 ---",
+        "SCORE_STRUCTURE_BULLISH_ACCELERATION": {
+            "cn_name": "【结构终极】看涨加速",
+            "category": "结构层-机会",
             "type": "dynamic",
             "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由资金面健康、短期回调创造的战术性买入点。"
+            "description": "【V21.0 · 四象限重构版】对“结构看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨结构正在加速形成。这是一个上涨趋势的确认和加强信号。"
         },
-        "SCORE_FF_TOP_REVERSAL": {
-            "cn_name": "【资金终极风险】顶部反转",
-            "category": "资金流-风险",
+        "SCORE_STRUCTURE_BEARISH_ACCELERATION": {
+            "cn_name": "【结构终极风险】看跌加速",
+            "category": "结构层-风险",
             "type": "risk",
-            "penalty_weight": -800,
+            "penalty_weight": -700,
             "context_role": "top_risk",
-            "description": "【C级共振信号】在价格顶部，基于“分歧”和“情绪”意图的资金流支柱形成强力反转风险。"
+            "description": "【V21.0 · 四象限重构版】对“结构看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌结构正在加速形成。这是一个下跌趋势的确认和加强信号。"
         },
-        "说明_structural_ultimate": "--- 结构层-终极信号 ---",
         "SCORE_STRUCTURE_BULLISH_RESONANCE": {
             "cn_name": "【结构终极】看涨共振",
             "category": "结构层-机会",
             "type": "dynamic",
             "score": 200,
-            "description": "【C级基础信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看涨共振。"
+            "description": "【V21.0 · 四象限重构版】基于“趋势完整性、多周期协同、突破潜力、结构稳定性”四大支柱，形成的静态看涨共振分。"
         },
         "SCORE_STRUCTURE_BEARISH_RESONANCE": {
             "cn_name": "【结构终极风险】看跌共振",
@@ -1241,7 +1286,7 @@
             "type": "risk",
             "penalty_weight": -450,
             "context_role": "top_risk",
-            "description": "【C级共振信号】均线、力学、MTF、形态四大结构支柱在所有周期上形成看跌共振。"
+            "description": "【V21.0 · 四象限重构版】基于“趋势完整性、多周期协同、突破潜力、结构稳定性”四大支柱，形成的静态看跌共振分。"
         },
         "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
             "cn_name": "【结构终极】底部反转",
@@ -1249,7 +1294,23 @@
             "type": "positional",
             "score": 400,
             "context_role": "bottom_opportunity",
-            "description": "结构动态健康度在底部形成强力反转信号。"
+            "description": "【V21.0 · 四象限重构版】对“结构看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别结构层面【看跌趋势衰竭】拐点的核心机会信号。"
+        },
+        "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
+            "cn_name": "【结构终极】战术反转",
+            "category": "结构层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "context_role": "bottom_opportunity",
+            "description": "【V21.0 · 四象限重构版】识别“强结构看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+        },
+        "SCORE_STRUCTURE_TOP_REVERSAL": {
+            "cn_name": "【结构终极风险】顶部反转",
+            "category": "结构层-风险",
+            "type": "risk",
+            "penalty_weight": -800,
+            "context_role": "top_risk",
+            "description": "【V21.0 · 四象限重构版】对“结构看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别结构层面【看涨趋势衰竭】拐点的核心风险信号。"
         },
         "SCORE_STRUCTURAL_FAULT_BREAKTHROUGH": {
             "cn_name": "【结构】结构性断层突破",
@@ -1265,29 +1326,28 @@
             "score": 420,
             "description": "【B级战术信号】识别价格在经历充分盘整后，放量向上突破盘整区间的关键结构性事件，是经典的趋势启动信号。"
         },
-        "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
-            "cn_name": "【结构终极】战术反转",
-            "category": "结构层-机会",
+        "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
+        "SCORE_DYN_BULLISH_ACCELERATION": {
+            "cn_name": "【力学终极】看涨加速",
+            "category": "力学层-机会",
             "type": "dynamic",
             "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由市场结构健康、短期回调创造的战术性买入点。"
+            "description": "【V17.0 · 四象限重构版】对“力学看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨的物理属性正在加速形成。这是一个上涨趋势的确认和加强信号。"
         },
-        "SCORE_STRUCTURE_TOP_REVERSAL": {
-            "cn_name": "【结构终极风险】顶部反转",
-            "category": "结构层-风险",
+        "SCORE_DYN_BEARISH_ACCELERATION": {
+            "cn_name": "【力学终极风险】看跌加速",
+            "category": "力学层-风险",
             "type": "risk",
-            "penalty_weight": -800,
+            "penalty_weight": -700,
             "context_role": "top_risk",
-            "description": "【C级共振信号】结构动态健康度在顶部形成强力反转风险。"
+            "description": "【V17.0 · 四象限重构版】对“力学看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌的物理属性正在加速形成。这是一个下跌趋势的确认和加强信号。"
         },
-        "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 ---",
         "SCORE_DYN_BULLISH_RESONANCE": {
             "cn_name": "【力学终极】看涨共振",
             "category": "力学层-机会",
             "type": "dynamic",
             "score": 200,
-            "description": "【动态升维版】基于波动率、效率、动能、惯性四大力学支柱自身的“状态-速度-加速度”三维动态健康度，在所有周期上形成的看涨共振。"
+            "description": "【V17.0 · 四象限重构版】基于波动率、效率、动能、惯性、能量转换五大力学支柱，形成的静态看涨共振分。"
         },
         "SCORE_DYN_BEARISH_RESONANCE": {
             "cn_name": "【力学终极风险】看跌共振",
@@ -1295,7 +1355,7 @@
             "type": "risk",
             "penalty_weight": -450,
             "context_role": "top_risk",
-            "description": "【动态升维版】基于波动率、效率、动能、惯性四大力学支柱自身的“状态-速度-加速度”三维动态健康度，在所有周期上形成的看跌共振。"
+            "description": "【V17.0 · 四象限重构版】基于波动率、效率、动能、惯性、能量转换五大力学支柱，形成的静态看跌共振分。"
         },
         "SCORE_DYN_BOTTOM_REVERSAL": {
             "cn_name": "【力学终极】底部反转",
@@ -1303,7 +1363,7 @@
             "type": "positional",
             "score": 400,
             "context_role": "bottom_opportunity",
-            "description": "【动态升维版】力学动态健康度在底部形成强力反转信号。捕捉的是宏观物理属性（波动率、动能等）从看跌到看涨的“加速度”拐点。"
+            "description": "【V17.0 · 四象限重构版】对“力学看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别力学层面【看跌趋势衰竭】拐点的核心机会信号。"
         },
         "SCORE_DYN_TACTICAL_REVERSAL": {
             "cn_name": "【力学终极】战术反转",
@@ -1311,7 +1371,7 @@
             "type": "dynamic",
             "score": 300,
             "context_role": "bottom_opportunity",
-            "description": "【动态升维版】在上升趋势中，捕捉由市场宏观力学属性（如波动率收缩、效率提升）健康、短期回调创造的战术性买入点。"
+            "description": "【V17.0 · 四象限重构版】识别“强力学看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
         },
         "SCORE_DYN_TOP_REVERSAL": {
             "cn_name": "【力学终极风险】顶部反转",
@@ -1319,15 +1379,30 @@
             "type": "risk",
             "penalty_weight": -800,
             "context_role": "top_risk",
-            "description": "【动态升维版】力学动态健康度在顶部形成强力反转风险。捕捉的是宏观物理属性（波动率、动能等）从看涨到看跌的“加速度”拐点。"
+            "description": "【V17.0 · 四象限重构版】对“力学看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别力学层面【看涨趋势衰竭】拐点的核心风险信号。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 ---",
+        "SCORE_FOUNDATION_BULLISH_ACCELERATION": {
+            "cn_name": "【基础终极】看涨加速",
+            "category": "基础层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V16.0 · 四象限重构版】对“基础看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨的基础指标正在加速改善。这是一个上涨趋势的确认和加强信号。"
+        },
+        "SCORE_FOUNDATION_BEARISH_ACCELERATION": {
+            "cn_name": "【基础终极风险】看跌加速",
+            "category": "基础层-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "context_role": "top_risk",
+            "description": "【V16.0 · 四象限重构版】对“基础看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌的基础指标正在加速恶化。这是一个下跌趋势的确认和加强信号。"
+        },
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {
             "cn_name": "【基础终极】看涨共振",
             "category": "基础层-机会",
             "type": "dynamic",
             "score": 150,
-            "description": "【逻辑修正】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看涨共振。基于互斥的健康度评估，与看跌共振信号不会同时为正。"
+            "description": "【V16.0 · 四象限重构版】基于EMA、RSI、MACD、CMF四大基础支柱，形成的静态看涨共振分。"
         },
         "SCORE_FOUNDATION_BEARISH_RESONANCE": {
             "cn_name": "【基础终极风险】看跌共振",
@@ -1335,7 +1410,7 @@
             "type": "risk",
             "penalty_weight": -300,
             "context_role": "top_risk",
-            "description": "【逻辑修正】EMA、RSI、MACD、CMF四大基础支柱在所有周期上形成看跌共振。基于互斥的健康度评估，与看涨共振信号不会同时为正。"
+            "description": "【V16.0 · 四象限重构版】基于EMA、RSI、MACD、CMF四大基础支柱，形成的静态看跌共振分。"
         },
         "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
             "cn_name": "【基础终极】底部反转",
@@ -1343,7 +1418,7 @@
             "type": "positional",
             "score": 250,
             "context_role": "bottom_opportunity",
-            "description": "基础指标动态健康度在底部形成强力反转信号。"
+            "description": "【V16.0 · 四象限重构版】对“基础看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别基础指标层面【看跌趋势衰竭】拐点的核心机会信号。"
         },
         "SCORE_FOUNDATION_TACTICAL_REVERSAL": {
             "cn_name": "【基础终极】战术反转",
@@ -1351,7 +1426,7 @@
             "type": "dynamic",
             "score": 200,
             "context_role": "bottom_opportunity",
-            "description": "【赫尔墨斯飞鞋】在上升趋势中，捕捉由基础指标健康、短期回调创造的战术性买入点。"
+            "description": "【V16.0 · 四象限重构版】识别“强基础看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
         },
         "SCORE_FOUNDATION_TOP_REVERSAL": {
             "cn_name": "【基础终极风险】顶部反转",
@@ -1359,7 +1434,7 @@
             "type": "risk",
             "penalty_weight": -500,
             "context_role": "top_risk",
-            "description": "【C级共振信号】基础指标动态健康度在顶部形成强力反转风险。"
+            "description": "【V16.0 · 四象限重构版】对“基础看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别基础指标层面【看涨趋势衰竭】拐点的核心风险信号。"
         },
         "SCORE_FOUNDATION_BOTTOM_CONFIRMED": {
             "cn_name": "【基础战术】底部确认",
@@ -1423,30 +1498,60 @@
             "penalty_weight": -300,
             "description": "成交量出现异常加速，在趋势顶部或底部都可能是力竭或恐慌的信号。"
         },
-        "说明_pattern_intelligence": "--- 形态层-支柱信号 (Pattern Intelligence Pillar) ---",
-        "SCORE_PATTERN_BOTTOM_REVERSAL": {
-            "cn_name": "【形态支柱】底部反转",
-            "category": "结构层-形态支柱",
-            "type": "context",
-            "description": "形态支柱健康度：四位一体（RSI反转、平台突破、MACD金叉、动能衰竭）的底部反转形态分。"
+        "说明_pattern_intelligence": "--- 形态层-终极信号 (Pattern Intelligence) ---",
+        "SCORE_PATTERN_BULLISH_ACCELERATION": {
+            "cn_name": "【形态终极】看涨加速",
+            "category": "形态层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V5.0 · 四象限重构版】对“形态看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨形态正在加速形成。这是一个上涨趋势的确认和加强信号。"
+        },
+        "SCORE_PATTERN_BEARISH_ACCELERATION": {
+            "cn_name": "【形态终极风险】看跌加速",
+            "category": "形态层-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "context_role": "top_risk",
+            "description": "【V5.0 · 四象限重构版】对“形态看跌共振分”进行关系元分析，捕捉其“正向加速度”，即看跌形态正在加速形成。这是一个下跌趋势的确认和加强信号。"
         },
         "SCORE_PATTERN_BULLISH_RESONANCE": {
-            "cn_name": "【形态支柱】看涨共振",
-            "category": "结构层-形态支柱",
-            "type": "context",
-            "description": "形态支柱健康度：RSI处于强势区且ADX趋势度高的看涨共振形态分。"
-        },
-        "SCORE_PATTERN_TOP_REVERSAL": {
-            "cn_name": "【形态支柱风险】顶部反转",
-            "category": "结构层-形态支柱",
-            "type": "context",
-            "description": "形态支柱健康度：四位一体（RSI回落、平台破位、MACD死叉、动能衰竭）的顶部反转形态风险分。"
+            "cn_name": "【形态终极】看涨共振",
+            "category": "形态层-机会",
+            "type": "dynamic",
+            "score": 200,
+            "description": "【V5.0 · 四象限重构版】基于“背离、动能反转、结构突破、能量跃迁”四大维度，形成的静态看涨共振分。"
         },
         "SCORE_PATTERN_BEARISH_RESONANCE": {
-            "cn_name": "【形态支柱风险】看跌共振",
-            "category": "结构层-形态支柱",
-            "type": "context",
-            "description": "形态支柱健康度：RSI处于弱势区且ADX趋势度高的看跌共振形态风险分。"
+            "cn_name": "【形态终极风险】看跌共振",
+            "category": "形态层-风险",
+            "type": "risk",
+            "penalty_weight": -450,
+            "context_role": "top_risk",
+            "description": "【V5.0 · 四象限重构版】基于“背离、动能反转、结构突破、能量跃迁”四大维度，形成的静态看跌共振分。"
+        },
+        "SCORE_PATTERN_BOTTOM_REVERSAL": {
+            "cn_name": "【形态终极】底部反转",
+            "category": "形态层-机会",
+            "type": "positional",
+            "score": 400,
+            "context_role": "bottom_opportunity",
+            "description": "【V5.0 · 四象限重构版】对“形态看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别形态层面【看跌趋势衰竭】拐点的核心机会信号。"
+        },
+        "SCORE_PATTERN_TACTICAL_REVERSAL": {
+            "cn_name": "【形态终极】战术反转",
+            "category": "形态层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "context_role": "bottom_opportunity",
+            "description": "【V5.0 · 四象限重构版】识别“强形态看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
+        },
+        "SCORE_PATTERN_TOP_REVERSAL": {
+            "cn_name": "【形态终极风险】顶部反转",
+            "category": "形态层-风险",
+            "type": "risk",
+            "penalty_weight": -800,
+            "context_role": "top_risk",
+            "description": "【V5.0 · 四象限重构版】对“形态看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别形态层面【看涨趋势衰竭】拐点的核心风险信号。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "SCORE_UNIVERSAL_BOTTOM_PATTERN": {

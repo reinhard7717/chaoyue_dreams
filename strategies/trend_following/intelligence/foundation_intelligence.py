@@ -37,55 +37,60 @@ class FoundationIntelligence:
 
     def diagnose_unified_foundation_signals(self, df: pd.DataFrame, ma_context_score: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V15.1 · 哥白尼革命版】
-        - 核心革命: 彻底执行“哥白尼革命”，为每个周期 p 调用具有相应 meta_window 的元分析。
-        - 升级意义: 确保每个周期的健康度都是独立计算的动态结果，修复了最终信号归零的致命BUG。
+        【V16.0 · 四象限重构版】
+        - 核心重构: 废弃对通用函数 transmute_health_to_ultimate_signals 的调用，引入“四象限动态分析法”，
+                      彻底解决信号命名与逻辑混乱的问题，确保与所有情报模块的哲学统一。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
+        
+        # [代码修改开始]
+        # 步骤一：计算各支柱的静态快照分并融合
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        ema_snapshot = self._calculate_ema_health(df, norm_window, periods)
-        rsi_snapshot = self._calculate_rsi_health(df, norm_window, periods, ma_context_score)
-        macd_snapshot = self._calculate_macd_health(df, norm_window, periods, ma_context_score)
-        cmf_snapshot = self._calculate_cmf_health(df, norm_window, periods, ma_context_score)
-        snapshots = {
-            'ema': ema_snapshot,
-            'rsi': rsi_snapshot,
-            'macd': macd_snapshot,
-            'cmf': cmf_snapshot
-        }
+        
+        ema_snapshot = self._calculate_ema_health(df, norm_window, [])
+        rsi_snapshot = self._calculate_rsi_health(df, norm_window, [], ma_context_score)
+        macd_snapshot = self._calculate_macd_health(df, norm_window, [], ma_context_score)
+        cmf_snapshot = self._calculate_cmf_health(df, norm_window, [], ma_context_score)
+        
+        snapshots = {'ema': ema_snapshot, 'rsi': rsi_snapshot, 'macd': macd_snapshot, 'cmf': cmf_snapshot}
         weight_keys = list(snapshots.keys())
         weights_array = np.array([pillar_weights.get(name, 1.0/len(weight_keys)) for name in weight_keys])
         weights_array /= weights_array.sum()
+        
         stacked_snapshots = np.stack([s.fillna(0.0).values for s in snapshots.values()], axis=0)
         fused_bipolar_snapshot = pd.Series(
             np.sum(stacked_snapshots * weights_array[:, np.newaxis], axis=0),
             index=df.index, dtype=np.float32
         ).clip(-1, 1)
-        overall_health = {'s_bull': {}, 's_bear': {}, 'd_intensity': {}}
-        # 实施“哥白尼革命”
-        # 3. 对每个周期独立执行元分析，并传入周期 p 作为 meta_window
-        for p in periods:
-            # 确保 meta_window 至少为1
-            current_meta_window = max(1, p)
-            final_bipolar_health = self._perform_foundation_relational_meta_analysis(df, fused_bipolar_snapshot, meta_window=current_meta_window)
-            overall_health['s_bull'][p] = final_bipolar_health.clip(0, 1).astype(np.float32)
-            overall_health['s_bear'][p] = (final_bipolar_health.clip(-1, 0) * -1).astype(np.float32)
-            overall_health['d_intensity'][p] = pd.Series(1.0, index=df.index, dtype=np.float32)
         
-        self.strategy.atomic_states['__FOUNDATION_overall_health'] = overall_health
-        ultimate_signals = transmute_health_to_ultimate_signals(
-            df=df,
-            atomic_states=self.strategy.atomic_states,
-            overall_health=overall_health,
-            params=p_synthesis,
-            domain_prefix="FOUNDATION"
-        )
-        states.update(ultimate_signals)
+        # 步骤二：分离为纯粹的看涨/看跌健康分，并计算静态共振信号
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(fused_bipolar_snapshot)
+        states['SCORE_FOUNDATION_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
+        states['SCORE_FOUNDATION_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        
+        # 步骤三：计算四象限动态信号
+        bull_divergence = self._calculate_holographic_divergence_foundation(bullish_resonance, 5, 21, norm_window)
+        bullish_acceleration = bull_divergence.clip(0, 1)
+        top_reversal = (bull_divergence.clip(-1, 0) * -1)
+        
+        bear_divergence = self._calculate_holographic_divergence_foundation(bearish_resonance, 5, 21, norm_window)
+        bearish_acceleration = bear_divergence.clip(0, 1)
+        bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
+        
+        # 步骤四：赋值给命名准确的终极信号
+        states['SCORE_FOUNDATION_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
+        states['SCORE_FOUNDATION_TOP_REVERSAL'] = top_reversal.astype(np.float32)
+        states['SCORE_FOUNDATION_BEARISH_ACCELERATION'] = bearish_acceleration.astype(np.float32)
+        states['SCORE_FOUNDATION_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
+        
+        # 步骤五：重铸战术反转信号
+        states['SCORE_FOUNDATION_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
+        # [代码修改结束]
+        
         return states
 
     def diagnose_tactical_foundation_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -268,10 +273,9 @@ class FoundationIntelligence:
 
     def _perform_foundation_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int) -> pd.Series:
         """
-        【V2.2 · 哥白尼革命版】基础情报专用的关系元分析核心引擎
-        - 核心革命: 签署“哥白尼革命”协议，确立“周期中心论”。
-                      - [参数化改造] 新增 meta_window 参数，允许调用者为不同周期指定不同的动态分析窗口。
-                      - [废除异端] 废除了内部固定的 meta_window=5，将动态分析的决定权交还给调用方。
+        【V2.3 · 加速度校准版】基础情报专用的关系元分析核心引擎
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -279,23 +283,20 @@ class FoundationIntelligence:
         w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.3)
         w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.4)
         norm_window = 55
-        # 废除固定的 meta_window
-        # meta_window = 5 # 异端教条已被废除
         bipolar_sensitivity = 1.0
-        # 第二维度：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # 第三维度：加速度分 (Acceleration Score) - 范围 [-1, 1]
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        
-        # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -304,7 +305,6 @@ class FoundationIntelligence:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # --- 看跌力量评估 (Bearish Force) ---
         bearish_state = (snapshot_score.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -313,7 +313,6 @@ class FoundationIntelligence:
             bearish_velocity * w_velocity +
             bearish_acceleration * w_acceleration
         )
-        # --- 净值裁决 (Net Value Adjudication) ---
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
         return final_score.astype(np.float32)
 
@@ -343,6 +342,29 @@ class FoundationIntelligence:
         # 融合得到最终的趋势上下文分数
         ma_context_score = pd.Series((alignment_health * position_health)**0.5, index=df.index)
         return ma_context_score.astype(np.float32)
+
+    def _calculate_holographic_divergence_foundation(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】基础层专用的全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        """
+        # [代码新增开始]
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
+        # [代码新增结束]
 
     # ==============================================================================
     # 以下为保留的、具有特殊战术意义的模块

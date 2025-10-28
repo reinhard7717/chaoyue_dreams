@@ -190,52 +190,69 @@ class FundFlowIntelligence:
 
     def _synthesize_ultimate_signals_from_axioms(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], internal_structure: Dict[int, pd.Series], params: dict) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 健壮性加固版】基于物理公理的终极信号合成器
-        - 核心修复: 在处理周期权重(tf_weights)时，增加对非数字类型值的过滤，
-                      防止因配置中混入'description'等字符串导致的TypeError。
+        【V4.0 · 四象限重构版】基于物理公理的终极信号合成器
+        - 核心重构: 引入“四象限动态分析法”，彻底解决信号命名与逻辑混乱的问题。
+                      1. [正本清源] 将动态分析拆分为四个明确的象限：看涨加速、顶部反转、看跌加速、底部反转。
+                      2. [信号新生] 为每个象限创建独立的、命名准确的信号，确保逻辑清晰。
         """
         states = {}
         axiom_weights = get_param_value(params.get('axiom_weights'), {'concentration': 0.4, 'power_transfer': 0.4, 'internal_structure': 0.2})
         tf_weights = get_param_value(params.get('tf_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
-        # 过滤掉tf_weights中的非数字值，计算总权重
-        numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        numeric_weights = {int(k): v for k, v in tf_weights.items() if isinstance(v, (int, float))}
         total_tf_weight = sum(numeric_weights.values())
-        
-        trend_health_score = self._calculate_trend_context_ff(df, params)
+        periods = sorted(numeric_weights.keys())
+        # [代码修改开始]
+        # 步骤一：计算各周期的双极性“全息资金流健康分”
+        bipolar_health_by_period = {}
+        for p in periods:
+            conc_score = concentration.get(p, 0.0)
+            trans_score = power_transfer.get(p, 0.0)
+            struct_score = internal_structure.get(p, 0.0)
+            bipolar_health_by_period[p] = (
+                conc_score * axiom_weights['concentration'] +
+                trans_score * axiom_weights['power_transfer'] +
+                struct_score * axiom_weights['internal_structure']
+            ).clip(-1, 1)
+        # 步骤二：分离为纯粹的看涨/看跌健康分
+        bullish_scores_by_period = {p: score.clip(0, 1) for p, score in bipolar_health_by_period.items()}
+        bearish_scores_by_period = {p: (score.clip(-1, 0) * -1) for p, score in bipolar_health_by_period.items()}
+        # 步骤三：计算静态的共振信号 (零阶动态)
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
         if total_tf_weight > 0:
-            # 遍历过滤后的 numeric_weights 而不是原始的 tf_weights
-            for p_str, weight in numeric_weights.items():
-                p = int(p_str)
-                conc_score = concentration.get(p, 0.0)
-                trans_score = power_transfer.get(p, 0.0)
-                struct_score = internal_structure.get(p, 0.0)
-                period_bullish = (
-                    conc_score.clip(0, 1) * axiom_weights['concentration'] +
-                    trans_score.clip(0, 1) * axiom_weights['power_transfer'] +
-                    struct_score.clip(0, 1) * axiom_weights['internal_structure']
-                )
-                period_bearish = (
-                    conc_score.clip(-1, 0).abs() * axiom_weights['concentration'] +
-                    trans_score.clip(-1, 0).abs() * axiom_weights['power_transfer'] +
-                    struct_score.clip(-1, 0).abs() * axiom_weights['internal_structure']
-                )
-                bullish_resonance += period_bullish * (weight / total_tf_weight)
-                bearish_resonance += period_bearish * (weight / total_tf_weight)
-            
-        bullish_resonance = bullish_resonance * trend_health_score
-        bearish_resonance = bearish_resonance * (1 - trend_health_score)
-        bottom_reversal = self._perform_fund_flow_relational_meta_analysis(df, bullish_resonance)
-        top_reversal = self._perform_fund_flow_relational_meta_analysis(df, bearish_resonance)
-        tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
+            for p, weight in numeric_weights.items():
+                normalized_weight = weight / total_tf_weight
+                bullish_resonance += bullish_scores_by_period.get(p, 0.0) * normalized_weight
+                bearish_resonance += bearish_scores_by_period.get(p, 0.0) * normalized_weight
+        # 步骤四：计算四象限动态信号 (一阶和二阶动态)
+        bullish_accel_score = pd.Series(0.0, index=df.index)
+        top_reversal_score = pd.Series(0.0, index=df.index)
+        bearish_accel_score = pd.Series(0.0, index=df.index)
+        bottom_reversal_score = pd.Series(0.0, index=df.index)
+        if total_tf_weight > 0:
+            for p, weight in numeric_weights.items():
+                normalized_weight = weight / total_tf_weight
+                context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
+                # --- 基于“看涨健康分”的动态分析 ---
+                holographic_bull_divergence = self._calculate_holographic_divergence_ff(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
+                bullish_accel_score += holographic_bull_divergence.clip(0, 1) * normalized_weight
+                top_reversal_score += (holographic_bull_divergence.clip(-1, 0) * -1) * normalized_weight
+                # --- 基于“看跌健康分”的动态分析 ---
+                holographic_bear_divergence = self._calculate_holographic_divergence_ff(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
+                bearish_accel_score += holographic_bear_divergence.clip(0, 1) * normalized_weight
+                bottom_reversal_score += (holographic_bear_divergence.clip(-1, 0) * -1) * normalized_weight
+        # 步骤五：应用趋势上下文并构建最终信号字典
+        trend_health_score = self._calculate_trend_context_ff(df, params)
         final_scores = {
-            'bullish_resonance': bullish_resonance,
-            'bottom_reversal': bottom_reversal,
-            'bearish_resonance': bearish_resonance,
-            'top_reversal': top_reversal,
-            'tactical_reversal': tactical_reversal,
+            'bullish_resonance': (bullish_resonance * trend_health_score).clip(0, 1),
+            'bearish_resonance': (bearish_resonance * (1 - trend_health_score)).clip(0, 1),
+            'bullish_acceleration': (bullish_accel_score * trend_health_score).clip(0, 1),
+            'top_reversal': (top_reversal_score * trend_health_score).clip(0, 1),
+            'bearish_acceleration': (bearish_accel_score * (1 - trend_health_score)).clip(0, 1),
+            'bottom_reversal': (bottom_reversal_score * (1 - trend_health_score)).clip(0, 1),
+            'tactical_reversal': (bullish_resonance * top_reversal_score).clip(0, 1) # 战术反转 = 强看涨共振中的回调
         }
+        # [代码修改结束]
         return final_scores
 
     # ==============================================================================
@@ -304,7 +321,7 @@ class FundFlowIntelligence:
         # 将共振健康度存入原子状态，供其他模块消费
         self.strategy.atomic_states['__FF_overall_health'] = fused_results['resonance']
         return fused_results
-    
+
     def _synthesize_final_signals(self, df: pd.DataFrame, fused_health: Dict, context_scores: Dict, p_synthesis: Dict) -> Dict[str, pd.Series]:
         """
         【V5.3 · 战术激活版】
@@ -336,21 +353,24 @@ class FundFlowIntelligence:
 
     def _assign_graded_states(self, final_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.8 · 信号更名版】将最终信号赋值给状态字典。
-        - 核心修复: 更新信号映射，使用 SCORE_FF_DISTRIBUTION_RESONANCE。
+        【V3.0 · 四象限重构版】将最终信号赋值给状态字典。
+        - 核心升级: 全面更新信号映射，以匹配“四象限动态分析法”产出的新信号。
         """
         states = {}
+        # [代码修改开始]
+        # 更新信号映射以匹配四象限逻辑
         prefix_map = {
             'bullish_resonance': 'SCORE_FF_BULLISH_RESONANCE',
-            'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
-            
-            'bearish_resonance': 'SCORE_FF_DISTRIBUTION_RESONANCE',
-            
+            'bearish_resonance': 'SCORE_FF_BEARISH_RESONANCE',
+            'bullish_acceleration': 'SCORE_FF_BULLISH_ACCELERATION',
             'top_reversal': 'SCORE_FF_TOP_REVERSAL',
+            'bearish_acceleration': 'SCORE_FF_BEARISH_ACCELERATION',
+            'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
             'tactical_reversal': 'SCORE_FF_TACTICAL_REVERSAL',
         }
+        # [代码修改结束]
         for key, score in final_scores.items():
-            signal_name = prefix_map.get(key) # 使用 .get 增加健壮性
+            signal_name = prefix_map.get(key)
             if signal_name:
                 states[signal_name] = score.astype(np.float32)
         return states
@@ -493,7 +513,30 @@ class FundFlowIntelligence:
         weights_array /= weights_array.sum()
         final_score_values = np.prod(scores ** weights_array[:, np.newaxis], axis=0)
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
-        
+
+    def _calculate_holographic_divergence_ff(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】资金流专用的全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        - 正分: 看涨背离 (短期趋势强于长期趋势)。
+        - 负分: 看跌背离 (短期趋势弱于长期趋势)。
+        """
+        # [代码新增开始]
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
+        # [代码新增结束]
+
 
 
 

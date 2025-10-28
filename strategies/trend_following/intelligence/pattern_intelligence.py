@@ -3,106 +3,117 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class PatternIntelligence:
     """
-    【V3.1 · 语境修正版】形态智能引擎
-    - 核心升级: 引入了“下跌动能衰竭”作为第四个识别维度，赋予引擎在明确反转信号出现前，
-                  就能识别潜在底部形态的“预测”能力。
-    - 本次修改: 为“上涨动能衰竭”信号引入语境判断，修复其在趋势起点被错误触发的致命BUG。
+    【V5.0 · 四象限重构版】形态智能引擎
+    - 核心重构: 废弃旧的“四维聚变”模型，全面升级为与其他情报模块统一的“四象限动态分析法”。
+    - 收益: 实现了信号逻辑的清晰、统一和可解释性，彻底解决了信号命名与含义不符的问题。
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 四维聚变版】形态分析总指挥
-        - 核心升级: 废弃旧的“四模式或逻辑”，全面升级为基于“背离、反转、突破、跃迁”的四维动态融合模型。
-                      利用 SLOPE 和 ACCEL 指标，实现对形态更深层次的动态评估。
+        【V5.0 · 四象限重构版】形态分析总指挥
+        - 核心重构: 废弃旧的“四维聚变”逻辑，全面升级为基于“双极性快照+四象限动态分析”的统一模型。
         """
-        # 整个方法被重写以实现四维聚变逻辑
+        # [代码修改开始]
+        states = {}
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
             return {}
         weights = get_param_value(p.get('fusion_weights'), {})
         norm_window = 60
-        # --- 准备基础数据 ---
-        rsi = df.get('RSI_13_D', pd.Series(50, index=df.index))
-        macd_hist = df.get('MACDh_13_34_8_D', pd.Series(0, index=df.index))
+
+        # 步骤一：计算双极性“形态健康度”快照分
         price_slope = df.get('SLOPE_5_close_D', pd.Series(0, index=df.index))
         rsi_slope = df.get('SLOPE_5_RSI_13_D', pd.Series(0, index=df.index))
         macd_slope = df.get('SLOPE_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
         rsi_accel = df.get('ACCEL_5_RSI_13_D', pd.Series(0, index=df.index))
         macd_accel = df.get('ACCEL_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        # --- 维度一: 经典背离 (Classic Divergence) ---
+        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
+        
+        # 看涨证据
         bullish_rsi_div = (price_slope < 0) & (rsi_slope > 0)
         bullish_macd_div = (price_slope < 0) & (macd_slope > 0)
-        score_bullish_divergence = np.maximum(bullish_rsi_div, bullish_macd_div).astype(float)
+        bullish_divergence = np.maximum(bullish_rsi_div, bullish_macd_div).astype(float)
+        bullish_reversal_accel = (normalize_score(rsi_accel.clip(lower=0), df.index, norm_window) * normalize_score(macd_accel.clip(lower=0), df.index, norm_window))**0.5
+        bullish_breakout = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
+        
+        # 看跌证据
         bearish_rsi_div = (price_slope > 0) & (rsi_slope < 0)
         bearish_macd_div = (price_slope > 0) & (macd_slope < 0)
-        score_bearish_divergence = np.maximum(bearish_rsi_div, bearish_macd_div).astype(float)
-        # --- 维度二: 动能反转 (Momentum Reversal) ---
-        bullish_reversal_accel = (normalize_score(rsi_accel.clip(lower=0), df.index, norm_window) * normalize_score(macd_accel.clip(lower=0), df.index, norm_window))**0.5
+        bearish_divergence = np.maximum(bearish_rsi_div, bearish_macd_div).astype(float)
         bearish_reversal_accel = (normalize_score(rsi_accel.clip(upper=0).abs(), df.index, norm_window) * normalize_score(macd_accel.clip(upper=0).abs(), df.index, norm_window))**0.5
-        # --- 维度三: 结构突破 (Structural Breakout) ---
-        score_consolidation_breakout = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
-        score_consolidation_breakdown = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
-        # --- 维度四: 能量跃迁 (Energy Transition) ---
-        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
-        atr_slope = df.get('SLOPE_5_ATR_14_D', pd.Series(0, index=df.index))
-        energy_expansion_score = (normalize_score(bbw_slope.clip(lower=0), df.index, norm_window) * normalize_score(atr_slope.clip(lower=0), df.index, norm_window))**0.5
-        # --- 融合看涨形态 ---
-        bullish_pillars = {
-            'divergence': score_bullish_divergence,
-            'momentum_reversal': bullish_reversal_accel,
-            'structural_breakout': score_consolidation_breakout,
-            'energy_transition': energy_expansion_score
-        }
-        valid_bull_scores = [s.values for name, s in bullish_pillars.items() if weights.get(name, 0) > 0]
-        valid_bull_weights = [weights.get(name) for name in bullish_pillars if weights.get(name, 0) > 0]
-        if valid_bull_scores:
-            bull_weights_array = np.array(valid_bull_weights) / sum(valid_bull_weights)
-            bottom_pattern_score = np.prod(np.stack(valid_bull_scores, axis=0) ** bull_weights_array[:, np.newaxis], axis=0)
-        else:
-            bottom_pattern_score = np.zeros(len(df.index))
-        # --- 融合看跌形态 ---
-        bearish_pillars = {
-            'divergence': score_bearish_divergence,
-            'momentum_reversal': bearish_reversal_accel,
-            'structural_breakout': score_consolidation_breakdown,
-            'energy_transition': energy_expansion_score
-        }
-        valid_bear_scores = [s.values for name, s in bearish_pillars.items() if weights.get(name, 0) > 0]
-        valid_bear_weights = [weights.get(name) for name in bearish_pillars if weights.get(name, 0) > 0]
-        if valid_bear_scores:
-            bear_weights_array = np.array(valid_bear_weights) / sum(valid_bear_weights)
-            top_pattern_score = np.prod(np.stack(valid_bear_scores, axis=0) ** bear_weights_array[:, np.newaxis], axis=0)
-        else:
-            top_pattern_score = np.zeros(len(df.index))
-        # --- 延续形态 (逻辑优化) ---
-        p_cont = get_params_block(self.strategy, 'pattern_params.continuation_params', {})
-        rsi_cont_thresh = get_param_value(p_cont.get('rsi_threshold'), 55)
-        adx_cont_thresh = get_param_value(p_cont.get('adx_threshold'), 20)
-        adx = df.get('ADX_14_D', pd.Series(20, index=df.index))
-        is_trending = adx > adx_cont_thresh
-        bullish_pattern_score = (rsi > rsi_cont_thresh) & is_trending
-        bearish_pattern_score = (rsi < (100 - rsi_cont_thresh)) & is_trending
-        states = {
-            'SCORE_PATTERN_BOTTOM_REVERSAL': pd.Series(bottom_pattern_score, index=df.index).astype(np.float32),
-            'SCORE_PATTERN_BULLISH_RESONANCE': bullish_pattern_score.astype(np.float32),
-            'SCORE_PATTERN_TOP_REVERSAL': pd.Series(top_pattern_score, index=df.index).astype(np.float32),
-            'SCORE_PATTERN_BEARISH_RESONANCE': bearish_pattern_score.astype(np.float32),
-        }
+        bearish_breakdown = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        
+        # 能量催化剂 (中性)
+        energy_catalyst = normalize_score(bbw_slope.clip(lower=0), df.index, norm_window)
+        
+        # 融合看涨/看跌快照分
+        bullish_snapshot = (
+            bullish_divergence * weights.get('divergence', 0.3) +
+            bullish_reversal_accel * weights.get('momentum_reversal', 0.4) +
+            bullish_breakout * weights.get('structural_breakout', 0.3)
+        ) * energy_catalyst
+        
+        bearish_snapshot = (
+            bearish_divergence * weights.get('divergence', 0.3) +
+            bearish_reversal_accel * weights.get('momentum_reversal', 0.4) +
+            bearish_breakdown * weights.get('structural_breakout', 0.3)
+        ) * energy_catalyst
+        
+        bipolar_snapshot = (bullish_snapshot - bearish_snapshot).clip(-1, 1)
+        
+        # 步骤二：分离为纯粹的看涨/看跌健康分，并计算静态共振信号
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_snapshot)
+        states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
+        states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        
+        # 步骤三：计算四象限动态信号
+        bull_divergence = self._calculate_holographic_divergence_pattern(bullish_resonance, 5, 21, norm_window)
+        bullish_acceleration = bull_divergence.clip(0, 1)
+        top_reversal = (bull_divergence.clip(-1, 0) * -1)
+        
+        bear_divergence = self._calculate_holographic_divergence_pattern(bearish_resonance, 5, 21, norm_window)
+        bearish_acceleration = bear_divergence.clip(0, 1)
+        bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
+        
+        # 步骤四：赋值给命名准确的终极信号
+        states['SCORE_PATTERN_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
+        states['SCORE_PATTERN_TOP_REVERSAL'] = top_reversal.astype(np.float32)
+        states['SCORE_PATTERN_BEARISH_ACCELERATION'] = bearish_acceleration.astype(np.float32)
+        states['SCORE_PATTERN_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
+        
+        # 步骤五：重铸战术反转信号
+        states['SCORE_PATTERN_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
+        
         return states
+        # [代码修改结束]
 
-
-
-
-
-
-
-
-
+    def _calculate_holographic_divergence_pattern(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】形态层专用的全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        """
+        # [代码新增开始]
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
+        # [代码新增结束]
 
 

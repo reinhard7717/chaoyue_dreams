@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, bipolar_to_exclusive_unipolar
 
 class BehavioralIntelligence:
     """
@@ -41,9 +41,9 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series] = None) -> Dict[str, pd.Series]:
         """
-        【V28.1 · 状态隔离版】行为终极信号诊断引擎
-        - 核心修复: 将复杂的 overall_health 字典存入一个内部专用的键名，防止其污染通用的 atomic_states 存储空间，
-                      从而解决了下游模块因数据类型不匹配而崩溃的问题。
+        【V29.0 · 四象限重构版】行为终极信号诊断引擎
+        - 核心重构: 废弃对通用函数 transmute_health_to_ultimate_signals 的调用，引入“四象限动态分析法”，
+                      彻底解决信号命名与逻辑混乱的问题，确保与筹码、资金流模块的哲学统一。
         """
         if atomic_signals is None:
             atomic_signals = self._generate_all_atomic_signals(df)
@@ -51,29 +51,54 @@ class BehavioralIntelligence:
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
-        # 废除旧的三大支柱健康度计算，调用全新的结构行为健康度引擎
-        # 步骤一：调用“宙斯之雷”引擎获取权威的底部形态信号 (逻辑保留)
-        p_fusion = get_param_value(p_conf.get('supreme_fusion_params'), {})
-        bottom_formation_score = self._supreme_fusion_engine(df=df, signals_to_fuse=atomic_signals, params=p_fusion)
-        self.strategy.atomic_states['SCORE_UNIVERSAL_BOTTOM_PATTERN'] = bottom_formation_score
-        # 步骤二：计算并存储近期反转上下文 (逻辑保留)
-        reversal_echo_window = get_param_value(p_conf.get('reversal_echo_window'), 3)
-        recent_reversal_context = bottom_formation_score.rolling(window=reversal_echo_window, min_periods=1).max()
-        self.strategy.atomic_states['SCORE_CONTEXT_RECENT_REVERSAL'] = recent_reversal_context.astype(np.float32)
-        # 步骤三：【核心重构】调用全新的、基于高保真结构指标的健康度计算引擎
+        periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
+        resonance_tf_weights = get_param_value(p_synthesis.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
+        # [代码修改开始]
+        # 步骤一：获取原始的双极性健康度字典
         overall_health = self._calculate_structural_behavior_health(df, p_conf)
-        # 将复杂的字典存入一个内部专用的键，避免污染
         self.strategy.atomic_states['_internal_behavior_health_dict'] = overall_health
-            # 步骤四：调用终极信号合成引擎 (逻辑保留，但消费的是更高质量的健康度数据)
-        # 注意：我们将 domain_prefix 修改为 "STRUCT_BEHAVIOR" 以匹配新的信号字典定义
-        ultimate_signals = transmute_health_to_ultimate_signals(
-            df=df,
-            atomic_states=self.strategy.atomic_states,
-            overall_health=overall_health,
-            params=p_synthesis,
-            domain_prefix="STRUCT_BEHAVIOR"
-        )
-        states.update(ultimate_signals)
+        # 步骤二：融合多时间周期的双极性健康分
+        period_groups = {
+            'short': [p for p in periods if p <= 5],
+            'medium': [p for p in periods if 5 < p <= 21],
+            'long': [p for p in periods if p > 21]
+        }
+        final_bipolar_health = pd.Series(0.0, index=df.index, dtype=np.float64)
+        total_weight = sum(resonance_tf_weights.values())
+        if total_weight > 0:
+            for tf_name, weight in resonance_tf_weights.items():
+                group_periods = period_groups.get(tf_name, [])
+                # s_bull[p] 实际上是双极性分
+                group_scores = [overall_health['s_bull'].get(p, pd.Series(0.0, index=df.index)) for p in group_periods]
+                if group_scores:
+                    avg_group_score = sum(group_scores) / len(group_scores)
+                    final_bipolar_health += avg_group_score * (weight / total_weight)
+        final_bipolar_health = final_bipolar_health.clip(-1, 1).astype(np.float32)
+        # 步骤三：分离为纯粹的看涨/看跌健康分
+        bullish_health = final_bipolar_health.clip(0, 1)
+        bearish_health = (final_bipolar_health.clip(-1, 0) * -1)
+        states['SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'] = bullish_health
+        states['SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE'] = bearish_health
+        # 步骤四：计算四象限动态信号
+        # --- 基于“看涨健康分”的动态分析 ---
+        bull_divergence = self._calculate_holographic_divergence_behavior(bullish_health, 5, 21, 55)
+        bullish_acceleration = bull_divergence.clip(0, 1)
+        top_reversal = (bull_divergence.clip(-1, 0) * -1)
+        # --- 基于“看跌健康分”的动态分析 ---
+        bear_divergence = self._calculate_holographic_divergence_behavior(bearish_health, 5, 21, 55)
+        bearish_acceleration = bear_divergence.clip(0, 1)
+        bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
+        # 步骤五：应用上下文并赋值给命名准确的终极信号
+        self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
+        bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
+        del self.strategy.atomic_states['strategy_instance_ref']
+        states['SCORE_STRUCT_BEHAVIOR_BULLISH_ACCELERATION'] = (bullish_acceleration * bottom_context_score).clip(0, 1).astype(np.float32)
+        states['SCORE_STRUCT_BEHAVIOR_TOP_REVERSAL'] = (top_reversal * top_context_score).clip(0, 1).astype(np.float32)
+        states['SCORE_STRUCT_BEHAVIOR_BEARISH_ACCELERATION'] = (bearish_acceleration * top_context_score).clip(0, 1).astype(np.float32)
+        states['SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'] = (bottom_reversal * bottom_context_score).clip(0, 1).astype(np.float32)
+        # 步骤六：重铸战术反转信号
+        states['SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL'] = (bullish_health * top_reversal).clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     # ==============================================================================
@@ -679,6 +704,27 @@ class BehavioralIntelligence:
         ).clip(-1, 1)
         states[signal_name] = (final_intent_score * trigger_mask).astype(np.float32)
         return states
+
+    def _calculate_holographic_divergence_behavior(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】行为层专用的全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        """
+        # [代码新增开始]
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
+        # [代码新增结束]
 
     def _calculate_trend_health_score(self, df: pd.DataFrame) -> pd.Series:
         """

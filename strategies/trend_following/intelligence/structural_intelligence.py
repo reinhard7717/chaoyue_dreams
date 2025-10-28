@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class StructuralIntelligence:
     def __init__(self, strategy_instance, dynamic_thresholds: Dict):
@@ -31,24 +31,23 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V20.0 · 健康度定义修正版】结构情报的终极信号诊断与合成
-        - 核心重构: 彻底修正了 `overall_health` 的计算逻辑。不再对 s_bull 和 s_bear 分别进行加权平均，
-                      而是先计算每个支柱的双极性净值 (s_bull - s_bear)，然后对这些净值进行加权平均，
-                      得到一个最终的、唯一的双极性总分。最后再将此总分拆分为 s_bull 和 s_bear。
-        - 收益: 从根本上解决了“中性信号”被错误累加为“看跌信号”的问题，确保了看涨信号不被“噪音”淹没。
+        【V21.0 · 四象限重构版】结构情报的终极信号诊断与合成
+        - 核心重构: 废弃对通用函数 transmute_health_to_ultimate_signals 的调用，引入“四象限动态分析法”，
+                      彻底解决信号命名与逻辑混乱的问题，确保与筹码、资金流、行为模块的哲学统一。
         """
-        
         states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         periods = get_param_value(get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('periods'), [1, 5, 13, 21, 55])
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
-        # 1. 计算每个支柱的健康度 (s_bull, s_bear, d_intensity)
-        ti_s_bull, ti_s_bear, ti_d_intensity, daily_bipolar = self._calculate_trend_integrity_health(df, periods, norm_window)
-        mtf_s_bull, mtf_s_bear, mtf_d_intensity = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar)
-        bp_s_bull, bp_s_bear, bp_d_intensity = self._calculate_breakout_potential_health(df, periods, norm_window)
-        ss_s_bull, ss_s_bear, ss_d_intensity = self._calculate_structural_stability_health(df, periods, norm_window)
-        # 2. 构建每个支柱的双极性净值字典
+        resonance_tf_weights = get_param_value(p_conf.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
+        # [代码修改开始]
+        # 步骤一：计算每个支柱的健康度
+        ti_s_bull, ti_s_bear, _, daily_bipolar = self._calculate_trend_integrity_health(df, periods, norm_window)
+        mtf_s_bull, mtf_s_bear, _ = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar)
+        bp_s_bull, bp_s_bear, _ = self._calculate_breakout_potential_health(df, periods, norm_window)
+        ss_s_bull, ss_s_bear, _ = self._calculate_structural_stability_health(df, periods, norm_window)
+        # 步骤二：计算各支柱的双极性净值
         default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
         pillar_bipolar_scores = {
             'trend_integrity': {p: ti_s_bull.get(p, default_series) - ti_s_bear.get(p, default_series) for p in periods},
@@ -56,54 +55,47 @@ class StructuralIntelligence:
             'breakout_potential': {p: bp_s_bull.get(p, default_series) - bp_s_bear.get(p, default_series) for p in periods},
             'structural_stability': {p: ss_s_bull.get(p, default_series) - ss_s_bear.get(p, default_series) for p in periods}
         }
-        # 3. 对每个周期的支柱净值进行加权融合，得到最终的双极性总分
-        final_bipolar_by_period = {}
-        total_weight = sum(pillar_weights.values())
-        if total_weight > 0:
-            for p in periods:
-                fused_bipolar_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-                for pillar_name, weight in pillar_weights.items():
-                    pillar_score_for_period = pillar_bipolar_scores.get(pillar_name, {}).get(p, default_series)
-                    fused_bipolar_score += pillar_score_for_period * (weight / total_weight)
-                final_bipolar_by_period[p] = fused_bipolar_score.clip(-1, 1)
-        else: # 如果没有权重，则简单平均
-            for p in periods:
-                scores_to_avg = [pillar_bipolar_scores.get(name, {}).get(p, default_series) for name in pillar_weights.keys()]
-                if scores_to_avg:
-                    final_bipolar_by_period[p] = (sum(scores_to_avg) / len(scores_to_avg)).clip(-1, 1)
-                else:
-                    final_bipolar_by_period[p] = default_series
-        # 4. 将最终的双极性总分拆分为 s_bull 和 s_bear
-        overall_s_bull = {}
-        overall_s_bear = {}
-        for p in periods:
-            s_bull, s_bear = bipolar_to_exclusive_unipolar(final_bipolar_by_period.get(p, default_series))
-            overall_s_bull[p] = s_bull
-            overall_s_bear[p] = s_bear
-        # 5. 构造 overall_health 和 d_intensity
-        overall_health = {'s_bull': overall_s_bull, 's_bear': overall_s_bear}
-        # d_intensity 的融合逻辑保持不变（简单平均）
-        overall_d_intensity = {}
-        for p in periods:
-            intensities = [
-                ti_d_intensity.get(p, default_series),
-                mtf_d_intensity.get(p, default_series),
-                bp_d_intensity.get(p, default_series),
-                ss_d_intensity.get(p, default_series)
-            ]
-            overall_d_intensity[p] = sum(intensities) / len(intensities)
-        overall_health['d_intensity'] = overall_d_intensity
-        # 存储中间结果以供探针使用
-        self.strategy.atomic_states['__STRUCTURE_overall_health'] = overall_health
-        # 6. 调用中央合成引擎
-        ultimate_signals = transmute_health_to_ultimate_signals(
-            df=df,
-            atomic_states=self.strategy.atomic_states,
-            overall_health=overall_health,
-            params=p_conf,
-            domain_prefix='STRUCTURE'
-        )
-        states.update(ultimate_signals)
+        # 步骤三：融合得到最终的、跨周期的双极性总健康分
+        period_groups = {'short': [p for p in periods if p <= 5], 'medium': [p for p in periods if 5 < p <= 21], 'long': [p for p in periods if p > 21]}
+        final_bipolar_health = pd.Series(0.0, index=df.index, dtype=np.float64)
+        total_tf_weight = sum(resonance_tf_weights.values())
+        if total_tf_weight > 0:
+            for tf_name, weight in resonance_tf_weights.items():
+                group_periods = period_groups.get(tf_name, [])
+                if not group_periods: continue
+                # 先对每个周期的支柱进行加权
+                period_fused_scores = []
+                for p in group_periods:
+                    period_score = pd.Series(0.0, index=df.index, dtype=np.float32)
+                    total_pillar_weight = sum(pillar_weights.values())
+                    if total_pillar_weight > 0:
+                        for pillar_name, p_weight in pillar_weights.items():
+                            period_score += pillar_bipolar_scores.get(pillar_name, {}).get(p, default_series) * (p_weight / total_pillar_weight)
+                    period_fused_scores.append(period_score)
+                # 再对时间框架内的周期进行平均
+                if period_fused_scores:
+                    avg_group_score = sum(period_fused_scores) / len(period_fused_scores)
+                    final_bipolar_health += avg_group_score * (weight / total_tf_weight)
+        final_bipolar_health = final_bipolar_health.clip(-1, 1).astype(np.float32)
+        # 步骤四：分离为纯粹的看涨/看跌健康分，并计算静态共振信号
+        bullish_health, bearish_health = bipolar_to_exclusive_unipolar(final_bipolar_health)
+        states['SCORE_STRUCTURE_BULLISH_RESONANCE'] = bullish_health
+        states['SCORE_STRUCTURE_BEARISH_RESONANCE'] = bearish_health
+        # 步骤五：计算四象限动态信号
+        bull_divergence = self._calculate_holographic_divergence_structural(bullish_health, 5, 21, norm_window)
+        bullish_acceleration = bull_divergence.clip(0, 1)
+        top_reversal = (bull_divergence.clip(-1, 0) * -1)
+        bear_divergence = self._calculate_holographic_divergence_structural(bearish_health, 5, 21, norm_window)
+        bearish_acceleration = bear_divergence.clip(0, 1)
+        bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
+        # 步骤六：赋值给命名准确的终极信号
+        states['SCORE_STRUCTURE_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
+        states['SCORE_STRUCTURE_TOP_REVERSAL'] = top_reversal.astype(np.float32)
+        states['SCORE_STRUCTURE_BEARISH_ACCELERATION'] = bearish_acceleration.astype(np.float32)
+        states['SCORE_STRUCTURE_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
+        # 步骤七：重铸战术反转信号
+        states['SCORE_STRUCTURE_TACTICAL_REVERSAL'] = (bullish_health * top_reversal).clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
@@ -283,17 +275,33 @@ class StructuralIntelligence:
             s_bear[p] = final_bear_score
             d_intensity[p] = unified_d_intensity
         return s_bull, s_bear, d_intensity
-        
+
+    def _calculate_holographic_divergence_structural(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】结构层专用的全息背离计算引擎
+        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        """
+        # [代码新增开始]
+        # 维度一：速度背离 (短期斜率 vs 长期斜率)
+        slope_short = series.diff(short_p).fillna(0)
+        slope_long = series.diff(long_p).fillna(0)
+        velocity_divergence = slope_short - slope_long
+        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
+        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
+        accel_short = slope_short.diff(short_p).fillna(0)
+        accel_long = slope_long.diff(long_p).fillna(0)
+        acceleration_divergence = accel_short - accel_long
+        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
+        # 融合：速度背离和加速度背离的加权平均
+        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
+        return final_divergence_score.astype(np.float32)
+        # [代码新增结束]
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V4.0 · 状态主导协议版】结构专用的关系元分析核心引擎
-        - 核心重构: 废除旧名 `_perform_structural_relational_meta_analysis`，统一命名。
-        - 核心修复: 植入“状态主导协议”。在计算出最终动态分后增加一道“护栏”：
-                      如果原始快照分是正，则最终结果最低为0，绝不允许被负向动态拖入负值区。
-                      反之亦然。这从根本上解决了“动态压制”问题。
+        【V4.1 · 加速度校准版】结构专用的关系元分析核心引擎
+        - 核心修复: 修正了加速度计算的致命逻辑错误，应为 relationship_trend.diff(1)。
         """
-        
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         w_state = get_param_value(p_meta.get('state_weight'), 0.3)
@@ -307,7 +315,10 @@ class StructuralIntelligence:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
@@ -329,10 +340,9 @@ class StructuralIntelligence:
             bearish_acceleration * w_acceleration
         )
         net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # 植入“状态主导协议”护栏
         final_score = np.where(snapshot_score >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         return pd.Series(final_score, index=df.index, dtype=np.float32)
-        
+
 
 
         
