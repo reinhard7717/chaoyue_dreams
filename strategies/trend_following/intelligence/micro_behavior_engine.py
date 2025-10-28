@@ -375,21 +375,28 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V7.0 · 最终决战版】亢奋加速风险/机会诊断引擎
+        【V8.0 · 战场透镜版】亢奋加速风险/机会诊断引擎
         - 核心重构: 彻底重写函数，确保逻辑清晰、无懈可击。
+        - 新增功能: 增加详细的 print 调试信息，完整输出“亢奋嬗变”过程中的数据流转。
         - 作战流程:
           1. 计算原始的、中性的“亢奋事件”分。
           2. 构建“看涨上下文护盾”，融合底部区域、筹码锁仓、赢家信念三大情报。
           3. 执行“嬗变”裁决：
              - 最终风险 = 原始亢奋事件 * (1 - 护盾分)
              - 最终机会 = 原始亢奋事件 * 护盾分
-        - 收益: 能够正确区分底部的“点火机会”和顶部的“派发风险”，解决了将健康启动误判为风险的致命缺陷。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
             return states
-        # --- 步骤1: 计算原始亢奋事件分 (Raw Euphoric Event Score) ---
+        # [代码新增开始]
+        # --- 战场透镜：数据流转全过程输出 ---
+        # 获取当前探针日期，仅为调试输出使用
+        probe_date_str = self.strategy.params.get('debug_params', {}).get('probe_dates', [df.index[-1].strftime('%Y-%m-%d')])[0]
+        probe_ts = pd.to_datetime(probe_date_str)
+        if df.index.tz:
+            probe_ts = probe_ts.tz_localize(df.index.tz)
+        # [代码新增结束]
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         epsilon = 1e-9
         periods = [5, 13, 21, 55]
@@ -436,7 +443,6 @@ class MicroBehaviorEngine:
             for p_tactical in periods:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 dynamic_raw_euphoric_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
-        # --- 步骤2: 构建“看涨上下文护盾” (Bullish Context Shield) ---
         bottom_zone_context = self._get_atomic_score(df, 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE', 0.0)
         chip_lockdown_context = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
         winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0)
@@ -446,9 +452,25 @@ class MicroBehaviorEngine:
             chip_lockdown_context *
             winner_conviction_context
         )**(1/3)
-        # --- 步骤3: 执行“嬗变”裁决 (Transmutation Adjudication) ---
         final_risk_score = (dynamic_raw_euphoric_score * (1 - bullish_context_shield)).clip(0, 1)
         ignition_opportunity_score = (dynamic_raw_euphoric_score * bullish_context_shield).clip(0, 1)
+        # [代码新增开始]
+        # --- 战场透镜：数据流转全过程输出 ---
+        if probe_ts in df.index:
+            print("\n" + "="*25 + f" [战场透镜] 正在透视亢奋嬗变引擎 ({probe_date_str}) " + "="*25)
+            print(f"  [输入] 原始亢奋事件分: {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f}")
+            print("  --- 看涨上下文护盾 (Bullish Context Shield) ---")
+            print(f"    - [护盾支柱 I]  深度底部区域 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE): {bottom_zone_context.get(probe_ts, -1):.4f}")
+            print(f"    - [护盾支柱 II] 筹码吸筹锁仓 (SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN): {chip_lockdown_context.get(probe_ts, -1):.4f}")
+            print(f"    - [护盾支柱 III] 赢家信念 (PROCESS_META_WINNER_CONVICTION): {winner_conviction_context.get(probe_ts, -1):.4f} (原始值: {winner_conviction_raw.get(probe_ts, -1):.4f})")
+            print(f"    - [护盾总分] (融合后): {bullish_context_shield.get(probe_ts, -1):.4f}")
+            print("  --- 嬗变裁决 (Transmutation Adjudication) ---")
+            print(f"    - [计算] 最终风险分 = 原始分 * (1 - 护盾分) = {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f} * (1 - {bullish_context_shield.get(probe_ts, -1):.4f}) = {final_risk_score.get(probe_ts, -1):.4f}")
+            print(f"    - [计算] 最终机会分 = 原始分 * 护盾分       = {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f} * {bullish_context_shield.get(probe_ts, -1):.4f} = {ignition_opportunity_score.get(probe_ts, -1):.4f}")
+            print("  [输出] 最终风险信号 (COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION): " + f"{final_risk_score.get(probe_ts, -1):.4f}")
+            print("  [输出] 最终机会信号 (COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION): " + f"{ignition_opportunity_score.get(probe_ts, -1):.4f}")
+            print("="*80)
+        # [代码新增结束]
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
         states['COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION'] = ignition_opportunity_score.astype(np.float32)
         return states

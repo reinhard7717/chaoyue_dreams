@@ -44,14 +44,15 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V409.0 · 拂晓行动版】
-        - 核心重构: 彻底重建并固化了正确的指挥链，解决了所有时序和数据流问题。
+        【V410.0 · 拂晓总攻版】
+        - 核心修复: 修复了指挥链中的数据流断裂问题。现在每一步关键计算后，
+                      都会立即将结果注入全局的 atomic_states，确保下游引擎能获取到最新的情报。
         - 新指挥链:
-          1. 情报层完成所有基础诊断。
-          2. 计算上下文分数并注入原子状态。
-          3. 执行微观行为合成并注入原子状态。
-          4. 执行顶层认知合成，确保综合风险等信号在正确的时间点生成。
-          5. 执行后续的攻防决策与模拟。
+          1. 基础诊断 -> 注入
+          2. 上下文分析 -> 注入
+          3. 微观合成 -> 注入
+          4. 认知合成 -> 注入
+          5. 攻防决策
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -61,15 +62,15 @@ class TrendFollowStrategy:
         # [代码修改开始]
         # 步骤1: 情报层完成所有基础诊断，生成完整的 atomic_states
         self.intelligence_layer.run_all_diagnostics()
-        # 步骤2: 基于完整的诊断结果，进行上下文分析，并注入 atomic_states
+        # 步骤2: 基于完整的诊断结果，进行上下文分析，并【立即注入】atomic_states
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
         self.atomic_states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = bottom_context_score
         self.atomic_states['SCORE_CONTEXT_TOP_ZONE'] = top_context_score
-        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变），并注入 atomic_states
+        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变），并【立即注入】atomic_states
         micro_behavior_states = self.intelligence_layer.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(self.df_indicators)
         self.atomic_states.update(micro_behavior_states)
-        # 步骤4: 执行顶层认知合成，生成综合风险等最终认知信号
+        # 步骤4: 执行顶层认知合成，生成综合风险等最终认知信号 (其内部会自动更新atomic_states)
         self.intelligence_layer.cognitive_intel.synthesize_cognitive_scores(self.df_indicators, pullback_enhancements={})
         # 步骤5: 执行攻防决策与模拟
         # [代码修改结束]
