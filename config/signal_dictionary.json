@@ -1101,12 +1101,12 @@
         },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 ---",
-        "SCORE_CHIP_BULLISH_RESONANCE": {
-            "cn_name": "【筹码终极】看涨共振",
+        "SCORE_CHIP_BULLISH_ACCELERATION": {
+            "cn_name": "【筹码终极】看涨加速",
             "category": "筹码层-机会",
             "type": "dynamic",
-            "score": 250,
-            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看涨共振”信号。代表筹码结构健康，且主力正在积极收集。"
+            "score": 300,
+            "description": "【V6.0 · 四象限重构版】对“全息看涨共振分”进行关系元分析，捕捉其“正向加速度”，即看涨趋势正在加速。这是一个上涨趋势的确认和加强信号。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
             "cn_name": "【筹码终极风险】看跌共振",
@@ -1114,7 +1114,7 @@
             "type": "risk",
             "penalty_weight": -500,
             "context_role": "top_risk",
-            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看跌共振”信号。代表筹码结构恶化，且主力正在派发。"
+            "description": "【V6.0 · 四象限重构版】基于“聚散、吸派、转移、峰健康”四大核心公理，在多个时间级别上形成的“全息看跌共振”信号。代表筹码结构恶化，且主力正在派发。"
         },
         "SCORE_CHIP_BOTTOM_REVERSAL": {
             "cn_name": "【筹码终极】底部反转",
@@ -1122,7 +1122,7 @@
             "type": "positional",
             "score": 450,
             "context_role": "bottom_opportunity",
-            "description": "【筹码公理版】对“全息看涨共振”信号进行关系元分析，捕捉其从无到有、从弱到强的“加速度”，是识别筹码层面战略拐点的核心信号。"
+            "description": "【V6.0 · 四象限重构版】对“全息看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别筹码层面【看跌趋势衰竭】拐点的核心机会信号。"
         },
         "SCORE_CHIP_TACTICAL_REVERSAL": {
             "cn_name": "【筹码终极】战术反转",
@@ -1130,7 +1130,7 @@
             "type": "dynamic",
             "score": 350,
             "context_role": "bottom_opportunity",
-            "description": "【筹码公理版】“全息看涨共振”信号的弱化版，代表在整体看涨趋势中的短期、小级别回调机会。"
+            "description": "【V6.0 · 四象限重构版】识别“强看涨共振”背景下的“顶部反转（回调）”事件，是捕捉上升趋势中健康回调买点的精准战术信号。"
         },
         "SCORE_CHIP_TOP_REVERSAL": {
             "cn_name": "【筹码终极风险】顶部反转",
@@ -1138,7 +1138,14 @@
             "type": "risk",
             "penalty_weight": -900,
             "context_role": "top_risk",
-            "description": "【筹码公理版】对“全息看跌共振”信号进行关系元分析，捕捉其从无到有、从弱到强的“加速度”，是识别筹码层面风险拐点的核心信号。"
+            "description": "【V6.0 · 四象限重构版】对“全息看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”，是识别筹码层面【看涨趋势衰竭】拐点的核心风险信号。"
+        },
+        "SCORE_CHIP_BULLISH_RESONANCE": {
+            "cn_name": "【筹码终极】看涨共振",
+            "category": "筹码层-机会",
+            "type": "dynamic",
+            "score": 250,
+            "description": "【筹码公理版】基于“聚散、吸派、转移”三大核心公理，在多个时间级别上形成的“全息看涨共振”信号。代表筹码结构健康，且主力正在积极收集。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 ---",
         "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE": {

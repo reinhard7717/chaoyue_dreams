@@ -130,10 +130,11 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.5 · 赫尔墨斯商神杖版】终极信号合成器
-        - 核心革命: 签署“赫尔墨斯的商神杖”协议，修复反转信号的“阴阳混淆”逻辑。
-                      1. [阴阳分离] 对全息背离引擎输出的双极性分数进行分离，得到纯净的“看涨背离”和“看跌背离”部分。
-                      2. [各归其位] 将“看涨背离”路由给底部反转信号，将“看跌背离”路由给顶部反转信号，杜绝信号污染。
+        【V6.0 · 四象限重构版】终极信号合成器
+        - 核心重构: 引入“四象限动态分析法”，彻底解决信号命名与逻辑混乱的问题。
+                      1. [正本清源] 将动态分析拆分为四个明确的象限：看涨加速、顶部反转、看跌加速、底部反转。
+                      2. [信号新生] 为每个象限创建独立的、命名准确的信号，确保逻辑清晰，杜绝混淆。
+                      3. [战术重铸] 重构 SCORE_CHIP_TACTICAL_REVERSAL 逻辑，使其真正捕捉“上升趋势中的回调买点”。
         """
         states = {}
         periods = sorted(concentration.keys())
@@ -141,6 +142,8 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'accumulation': 0.3, 'power_transfer': 0.25, 'peak_integrity': 0.15})
         norm_window = 55
+        # [代码修改开始]
+        # 步骤一：计算各周期的双极性“全息筹码健康分”
         bipolar_health_by_period = {}
         for p in periods:
             conc_score = concentration.get(p, pd.Series(0.0, index=df.index))
@@ -153,37 +156,49 @@ class ChipIntelligence:
                 pow_score * axiom_weights.get('power_transfer', 0.25) +
                 peak_score * axiom_weights.get('peak_integrity', 0.15)
             ).clip(-1, 1)
+        # 步骤二：分离为纯粹的看涨/看跌健康分
         bullish_scores_by_period = {p: score.clip(0, 1) for p, score in bipolar_health_by_period.items()}
         bearish_scores_by_period = {p: (score.clip(-1, 0) * -1) for p, score in bipolar_health_by_period.items()}
+        # 步骤三：计算静态的共振信号 (零阶动态)
         bullish_resonance = pd.Series(0.0, index=df.index)
         bearish_resonance = pd.Series(0.0, index=df.index)
-        numeric_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        numeric_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
         total_weight = sum(numeric_weights.values())
         if total_weight > 0:
-            for p in periods:
-                weight = numeric_weights.get(str(p), 0) / total_weight
-                bullish_resonance += bullish_scores_by_period.get(p, 0.0) * weight
-                bearish_resonance += bearish_scores_by_period.get(p, 0.0) * weight
+            for p_str, weight in numeric_weights.items():
+                p = int(p_str)
+                normalized_weight = weight / total_weight
+                bullish_resonance += bullish_scores_by_period.get(p, 0.0) * normalized_weight
+                bearish_resonance += bearish_scores_by_period.get(p, 0.0) * normalized_weight
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        bottom_reversal_divergence = pd.Series(0.0, index=df.index)
-        top_reversal_divergence = pd.Series(0.0, index=df.index)
+        # 步骤四：计算四象限动态信号 (一阶和二阶动态)
+        bullish_accel_score = pd.Series(0.0, index=df.index)
+        top_reversal_score = pd.Series(0.0, index=df.index)
+        bearish_accel_score = pd.Series(0.0, index=df.index)
+        bottom_reversal_score = pd.Series(0.0, index=df.index)
         if total_weight > 0:
-            for p in periods:
-                weight = numeric_weights.get(str(p), 0) / total_weight
+            for p_str, weight in numeric_weights.items():
+                p = int(p_str)
+                normalized_weight = weight / total_weight
                 context_p = periods[periods.index(p) + 1] if periods.index(p) + 1 < len(periods) else p
-                # 实施“赫尔墨斯的商神杖”协议
-                # 分别计算基于看涨健康分和看跌健康分的背离
+                # --- 基于“看涨健康分”的动态分析 ---
                 holographic_bull_divergence = self._calculate_holographic_divergence(bullish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
+                bullish_accel_score += holographic_bull_divergence.clip(0, 1) * normalized_weight
+                top_reversal_score += (holographic_bull_divergence.clip(-1, 0) * -1) * normalized_weight
+                # --- 基于“看跌健康分”的动态分析 ---
                 holographic_bear_divergence = self._calculate_holographic_divergence(bearish_scores_by_period.get(p, pd.Series(0.0, index=df.index)), 1, p, context_p)
-                # 阴阳分离，各归其位
-                bottom_reversal_divergence += holographic_bull_divergence.clip(0, 1) * weight # 看涨背离 -> 底部反转
-                top_reversal_divergence += holographic_bear_divergence.clip(0, 1) * weight # 看跌背离 -> 顶部反转
-                
-        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_divergence.clip(0, 1).astype(np.float32)
-        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_divergence.clip(0, 1).astype(np.float32)
-        tactical_reversal = (bullish_resonance * 0.5).astype(np.float32)
-        states['SCORE_CHIP_TACTICAL_REVERSAL'] = tactical_reversal
+                bearish_accel_score += holographic_bear_divergence.clip(0, 1) * normalized_weight
+                bottom_reversal_score += (holographic_bear_divergence.clip(-1, 0) * -1) * normalized_weight
+        # 步骤五：赋值给命名准确的终极信号
+        states['SCORE_CHIP_BULLISH_ACCELERATION'] = bullish_accel_score.clip(0, 1).astype(np.float32)
+        states['SCORE_CHIP_TOP_REVERSAL'] = top_reversal_score.clip(0, 1).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_ACCELERATION'] = bearish_accel_score.clip(0, 1).astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_REVERSAL'] = bottom_reversal_score.clip(0, 1).astype(np.float32)
+        # 步骤六：重铸战术反转和哈迪斯陷阱信号
+        # 战术反转 = 强看涨共振中的顶部反转（回调）
+        states['SCORE_CHIP_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal_score).clip(0, 1).astype(np.float32)
+        # 哈迪斯陷阱 = 底部反转信号出现时，伴随着强烈的派发行为
         p = 5
         cost_divergence_score = normalize_score(df.get(f'SLOPE_{p}_cost_divergence_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         loser_turnover_up = normalize_score(df.get(f'SLOPE_{p}_retail_capitulation_distribution_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
@@ -195,6 +210,7 @@ class ChipIntelligence:
         distribution_strength = (transfer_snapshot.clip(-1, 0) * -1).astype(np.float32)
         hades_trap_score = (states['SCORE_CHIP_BOTTOM_REVERSAL'] * distribution_strength).clip(0, 1)
         states['SCORE_CHIP_HADES_TRAP'] = hades_trap_score.astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
