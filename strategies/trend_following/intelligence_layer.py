@@ -11,6 +11,7 @@ from .intelligence.structural_intelligence import StructuralIntelligence
 from .intelligence.chip_intelligence import ChipIntelligence
 from .intelligence.behavioral_intelligence import BehavioralIntelligence
 from .intelligence.cognitive_intelligence import CognitiveIntelligence
+from .intelligence.micro_behavior_engine import MicroBehaviorEngine
 from .intelligence.playbook_engine import PlaybookEngine
 from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
@@ -41,6 +42,7 @@ class IntelligenceLayer:
         self.structural_intel = StructuralIntelligence(self.strategy, {})
         self.chip_intel = ChipIntelligence(self.strategy, {})
         self.behavioral_intel = BehavioralIntelligence(self.strategy)
+        self.micro_behavior_engine = MicroBehaviorEngine(self.strategy)
         self.fund_flow_intel = FundFlowIntelligence(self.strategy)
         self.mechanics_engine = DynamicMechanicsEngine(self.strategy)
         self.pattern_intel = PatternIntelligence(strategy_instance)
