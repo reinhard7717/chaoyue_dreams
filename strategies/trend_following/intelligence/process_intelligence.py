@@ -228,45 +228,6 @@ class ProcessIntelligence:
         # [代码新增结束]
         return relationship_score.clip(-1, 1)
 
-    def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V1.0 · 新增】“赢家信念”专属关系计算引擎（解毒剂协议）
-        - 核心逻辑: 引入第三信号“解毒剂信号”(total_winner_rate_D)，用于修正
-                      winner_profit_margin_D 在突破日因新赢家涌入而被稀释的问题。
-        - 公式: CorrectedProfitMomentum = RawProfitMomentum + k_antidote * AntidoteMomentum
-                FinalScore = (k * CorrectedProfitMomentum - UrgencyMomentum) / (k + 1)
-        """
-        signal_a_name = config.get('signal_A') # Urgency
-        signal_b_name = config.get('signal_B') # Profit Margin
-        antidote_signal_name = config.get('antidote_signal') # Total Winner Rate
-        df_index = df.index
-        def get_signal_series(signal_name: str) -> Optional[pd.Series]:
-            # 过程信号的原始信号都来自于df_indicators
-            return df.get(signal_name)
-        def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
-            if series is None: return pd.Series(dtype=np.float32)
-            if change_type == 'diff':
-                return series.diff(1).fillna(0)
-            return ta.percent_return(series, length=1).fillna(0)
-        # 1. 获取三个原始信号
-        signal_a = get_signal_series(signal_a_name)
-        signal_b = get_signal_series(signal_b_name)
-        signal_antidote = get_signal_series(antidote_signal_name)
-        if signal_a is None or signal_b is None or signal_antidote is None:
-            print(f"        -> [赢家信念] 警告: 缺少原始信号 '{signal_a_name}', '{signal_b_name}' 或 '{antidote_signal_name}'。")
-            return pd.Series(dtype=np.float32)
-        # 2. 计算三个动量
-        momentum_a = normalize_to_bipolar(get_change_series(signal_a, config.get('change_type_A')), df_index, self.std_window, self.bipolar_sensitivity)
-        momentum_b_raw = normalize_to_bipolar(get_change_series(signal_b, config.get('change_type_B')), df_index, self.std_window, self.bipolar_sensitivity)
-        momentum_antidote = normalize_to_bipolar(get_change_series(signal_antidote, config.get('antidote_change_type')), df_index, self.std_window, self.bipolar_sensitivity)
-        # 3. 应用解毒剂协议
-        antidote_k = config.get('antidote_k', 1.0)
-        momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
-        # 4. 计算最终的背离关系分
-        k = config.get('signal_b_factor_k', 1.0)
-        relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
-        return relationship_score.clip(-1, 1)
-
     def _diagnose_strategy_sync(self, df: pd.DataFrame, config: dict) -> Dict[str, pd.Series]:
         """
         【V2.0 · 信号分裂版】战略同步诊断器
