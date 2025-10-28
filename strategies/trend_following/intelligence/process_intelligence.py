@@ -118,22 +118,16 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.4.0 · 解毒剂协议版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 为 "PROCESS_META_WINNER_CONVICTION" 信号引入“解毒剂协议”，
-                      增加第三个信号源("解毒剂信号")，以修正“赢家利润垫”在突破日因“稀释效应”
-                      而被错误解读的问题，从而根本上加固了“赢家信念”的逻辑。
+        【V2.5.0 · 加速度校准版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
         signal_name = config.get('name')
         df_index = df.index
-        # [代码修改开始]
-        # 为“赢家信念”信号启用专属的“解毒剂”三变量逻辑
         if signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
-            # 瞬时关系分使用专属逻辑计算
             relationship_score = self._calculate_winner_conviction_relationship(df, config)
         else:
-            # 否则，使用标准的双变量逻辑
             relationship_score = self._calculate_instantaneous_relationship(df, config)
-        # [代码修改结束]
         if relationship_score.empty:
             return {}
         intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
@@ -143,7 +137,10 @@ class ProcessIntelligence:
             meta_score = relationship_score
         else:
             relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-            relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
+            # [代码修改开始]
+            # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+            relationship_accel = relationship_trend.diff(1).fillna(0)
+            # [代码修改结束]
             bipolar_trend_strength = normalize_to_bipolar(
                 series=relationship_trend,
                 target_index=df_index,

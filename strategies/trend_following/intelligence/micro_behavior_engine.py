@@ -375,17 +375,21 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 上下文嬗变版】亢奋加速风险/机会诊断引擎
-        - 核心重构: 引入“上下文嬗变”逻辑。原始的亢奋加速信号不再是纯粹的风险，
-                      而是被视为一个中性的“亢奋事件”。
-        - 新增逻辑: 1. 构建“看涨上下文护盾”，融合底部区域、筹码吸筹锁仓、主力信念等多维度情报。
-                      2. 最终风险 = 原始亢奋事件 * (1 - 护盾分)。
-                      3. 新增机会信号“点火加速” = 原始亢奋事件 * 护盾分。
+        【V7.0 · 最终决战版】亢奋加速风险/机会诊断引擎
+        - 核心重构: 彻底重写函数，确保逻辑清晰、无懈可击。
+        - 作战流程:
+          1. 计算原始的、中性的“亢奋事件”分。
+          2. 构建“看涨上下文护盾”，融合底部区域、筹码锁仓、赢家信念三大情报。
+          3. 执行“嬗变”裁决：
+             - 最终风险 = 原始亢奋事件 * (1 - 护盾分)
+             - 最终机会 = 原始亢奋事件 * 护盾分
         - 收益: 能够正确区分底部的“点火机会”和顶部的“派发风险”，解决了将健康启动误判为风险的致命缺陷。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
-        if not get_param_value(p_risk.get('enabled'), True): return states
+        if not get_param_value(p_risk.get('enabled'), True):
+            return states
+        # --- 步骤1: 计算原始亢奋事件分 (Raw Euphoric Event Score) ---
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         epsilon = 1e-9
         periods = [5, 13, 21, 55]
@@ -394,21 +398,21 @@ class MicroBehaviorEngine:
         ma_health_score = self._calculate_ma_health(df, p_conf, 55)
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            tactical_bias = normalize_score(df[f'BIAS_{p_tactical}_D'].abs(), df.index, window=p_tactical, ascending=True) if f'BIAS_{p_tactical}_D' in df else pd.Series(0.5, index=df.index)
+            tactical_bias = normalize_score(df.get(f'BIAS_{p_tactical}_D', pd.Series(0.5, index=df.index)).abs(), df.index, window=p_tactical, ascending=True)
             tactical_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_tactical}_D', df['volume_D']) + epsilon)).fillna(1.0)
             tactical_vol_spike = normalize_score(tactical_vol_ratio, df.index, window=p_tactical, ascending=True)
-            tactical_atr_ratio = (df['ATR_14_D'] / (df['close_D'] + epsilon)).fillna(0.0)
+            tactical_atr_ratio = (df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / (df['close_D'] + epsilon)).fillna(0.0)
             tactical_volatility = normalize_score(tactical_atr_ratio, df.index, window=p_tactical, ascending=True)
-            context_bias = normalize_score(df[f'BIAS_{p_context}_D'].abs(), df.index, window=p_context, ascending=True) if f'BIAS_{p_context}_D' in df else pd.Series(0.5, index=df.index)
+            context_bias = normalize_score(df.get(f'BIAS_{p_context}_D', pd.Series(0.5, index=df.index)).abs(), df.index, window=p_context, ascending=True)
             context_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_context}_D', df['volume_D']) + epsilon)).fillna(1.0)
             context_vol_spike = normalize_score(context_vol_ratio, df.index, window=p_context, ascending=True)
-            context_atr_ratio = (df['ATR_14_D'] / (df['close_D'] + epsilon)).fillna(0.0)
+            context_atr_ratio = (df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / (df['close_D'] + epsilon)).fillna(0.0)
             context_volatility = normalize_score(context_atr_ratio, df.index, window=p_context, ascending=True)
             bias_score = (tactical_bias * context_bias)**0.5
             volume_spike_score = (tactical_vol_spike * context_vol_spike)**0.5
             volatility_score = (tactical_volatility * context_volatility)**0.5
             total_range = (df['high_D'] - df['low_D']).replace(0, epsilon)
-            upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D']))
+            upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['open_D'])).clip(lower=0)
             upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -432,27 +436,21 @@ class MicroBehaviorEngine:
             for p_tactical in periods:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
                 dynamic_raw_euphoric_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
-        # [代码修改开始]
-        # --- 构建“看涨上下文护盾” ---
+        # --- 步骤2: 构建“看涨上下文护盾” (Bullish Context Shield) ---
         bottom_zone_context = self._get_atomic_score(df, 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE', 0.0)
-        # 引入我们刚刚铸造的王牌信号：底部吸筹后锁仓
         chip_lockdown_context = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
         winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0)
-        winner_conviction_context = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5) # 转换为 [0, 1]
-        # 融合护盾：必须所有条件都满足，故使用几何平均
+        winner_conviction_context = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5)
         bullish_context_shield = (
             bottom_zone_context *
             chip_lockdown_context *
             winner_conviction_context
         )**(1/3)
-        # --- 执行“嬗变”裁决 ---
-        # 最终风险 = 原始亢奋事件 * (1 - 护盾分)
+        # --- 步骤3: 执行“嬗变”裁决 (Transmutation Adjudication) ---
         final_risk_score = (dynamic_raw_euphoric_score * (1 - bullish_context_shield)).clip(0, 1)
-        # 最终机会 = 原始亢奋事件 * 护盾分
         ignition_opportunity_score = (dynamic_raw_euphoric_score * bullish_context_shield).clip(0, 1)
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
         states['COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION'] = ignition_opportunity_score.astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
