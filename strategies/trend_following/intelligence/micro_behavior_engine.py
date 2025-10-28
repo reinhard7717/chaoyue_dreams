@@ -25,25 +25,32 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.8 · 伊卡洛斯之坠版】微观行为诊断引擎总指挥
-        - 核心升级: 引入“伊卡洛斯之坠”诊断引擎，取代旧的“拉升派发”模型，
-                      以更强大的多维证据链，专门识别主力在高位通过诱多完成派发的风险。
+        【V2.9 · 调用顺序修复版】微观行为诊断引擎总指挥
+        - 核心修复: 调整了内部函数的调用顺序。确保 `synthesize_reversal_reliability_score`
+                      在 `synthesize_euphoric_acceleration_risk` 之前执行。
+        - 收益: 保证了“亢奋嬗变”引擎在运行时，能够获取到最新的、正确的“深度底部区域”上下文分数，
+                从而让“看涨上下文护盾”能够正确生效。
         """
         all_states = {}
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
+        # [代码修改开始]
+        # 调整调用顺序：必须先计算所有上下文和依赖信号
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
-        update_states(self.synthesize_microstructure_dynamics(df)) # 此方法已被重构
-        update_states(self._synthesize_profit_taking_pressure_risk(df)) # 新增独立的风险引擎调用
-        update_states(self.synthesize_euphoric_acceleration_risk(df))
+        update_states(self.synthesize_microstructure_dynamics(df))
+        update_states(self._synthesize_profit_taking_pressure_risk(df))
         update_states(self.diagnose_hermes_gambit(df))
         update_states(self._diagnose_consolidation_breakout(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
+        # 步骤1: 先计算包含“深度底部区域”在内的“反转可靠性”信号
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
+        # 步骤2: 再计算依赖“深度底部区域”的“亢奋嬗变”信号
+        update_states(self.synthesize_euphoric_acceleration_risk(df))
+        # [代码修改结束]
         return all_states
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

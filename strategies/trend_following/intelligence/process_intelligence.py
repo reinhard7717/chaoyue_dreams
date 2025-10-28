@@ -118,9 +118,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.6.0 · 加速度校准版】对“关系分”进行元分析，输出分数。
-        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
-                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 ta.linreg(...)。
+        【V2.7.0 · 最终校准版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 再次强调并修正“加速度”计算的致命逻辑错误。加速度是速度(trend)的一阶导数，
+                      必须使用 relationship_trend.diff(1) 进行计算。
         """
         signal_name = config.get('name')
         df_index = df.index
@@ -138,7 +138,7 @@ class ProcessIntelligence:
         else:
             relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
             # [代码修改开始]
-            # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+            # 最终校准：加速度是速度(trend)的一阶导数，必须使用 diff(1)
             relationship_accel = relationship_trend.diff(1).fillna(0)
             # [代码修改结束]
             bipolar_trend_strength = normalize_to_bipolar(
