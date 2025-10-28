@@ -158,6 +158,8 @@ class IntelligenceLayer:
                 self.probes._deploy_structural_pillar_fusion_probe(probe_date)
             if debug_params.get('enable_structural_pillar_dissection_probe', False):
                 self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
+            if debug_params.get('enable_comprehensive_top_risk_probe', False):
+                self.probes._deploy_comprehensive_top_risk_probe(probe_date)
 
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
