@@ -52,6 +52,7 @@ class ForensicProbes:
         self._deploy_cost_advantage_probe = self.process_probes._deploy_cost_advantage_probe
         self._deploy_themis_scales_probe = self.process_probes._deploy_themis_scales_probe
         self._deploy_process_sync_probe = self.process_probes._deploy_process_sync_probe
+        self._deploy_euphoric_acceleration_transmutation_probe = self.micro_behavior_probes._deploy_euphoric_acceleration_transmutation_probe
 
 
 

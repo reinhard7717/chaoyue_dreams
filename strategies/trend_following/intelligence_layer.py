@@ -113,8 +113,8 @@ class IntelligenceLayer:
 
     def deploy_forensic_probes(self):
         """
-        【V2.21 · 微观行为探针激活版】法医探针调度中心
-        - 核心扩展: 新增对高位遇阻风险探针的调用。
+        【V2.22 · 亢奋嬗变探针激活版】法医探针调度中心
+        - 核心扩展: 新增对亢奋加速嬗变探针的调用。
         """
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         if not debug_params.get('enabled', {}).get('value', False):
@@ -126,7 +126,7 @@ class IntelligenceLayer:
                 probe_dates_list = [single_date]
         if not probe_dates_list or not isinstance(probe_dates_list, list):
             return
-        print("\n" + "="*30 + f" [法医探针部署中心 V2.21] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
+        print("\n" + "="*30 + f" [法医探针部署中心 V2.22] 开始对 {len(probe_dates_list)} 个目标日期进行解剖... " + "="*30)
         for probe_date_str in probe_dates_list:
             if not probe_date_str:
                 continue
@@ -160,7 +160,10 @@ class IntelligenceLayer:
                 self.probes._deploy_structural_pillar_dissection_probe(probe_date, pillar_name='structural_stability')
             if debug_params.get('enable_comprehensive_top_risk_probe', False):
                 self.probes._deploy_comprehensive_top_risk_probe(probe_date)
-
+            # [代码修改开始]
+            if debug_params.get('enable_euphoric_acceleration_probe', False):
+                self.probes._deploy_euphoric_acceleration_transmutation_probe(probe_date)
+            # [代码修改结束]
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 
     def _ignite_relational_dynamics_engine(self):

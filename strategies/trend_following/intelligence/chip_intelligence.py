@@ -17,8 +17,9 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V603.0 · 四公理版】筹码情报最高司令部
-        - 核心升级: 新增调用“公理四：筹码峰健康度”诊断引擎，形成四足鼎立的分析框架。
+        【V604.0 · 锁仓确认版】筹码情报最高司令部
+        - 核心升级: 新增调用“底部吸筹锁仓”诊断引擎，专门识别主力在底部吸筹后、
+                      于拉升日坚定锁仓的关键战术行为。
         """
         all_chip_states = {}
         periods = [1, 5, 13, 21, 55]
@@ -28,7 +29,6 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
         all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
-        # 新增调用第四公理诊断引擎
         peak_integrity_scores = self._diagnose_peak_integrity_dynamics(df, periods)
         all_chip_states['SCORE_CHIP_MTF_PEAK_INTEGRITY'] = peak_integrity_scores
         ultimate_signals = self._synthesize_ultimate_signals(
@@ -38,13 +38,66 @@ class ChipIntelligence:
             power_transfer_scores,
             peak_integrity_scores
         )
-
         all_chip_states.update(ultimate_signals)
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
         all_chip_states.update(capitulation_potential_states)
+        # [代码修改开始]
+        # 新增调用“底部吸筹锁仓”诊断引擎
+        lockdown_states = self.diagnose_bottom_accumulation_lockdown(df)
+        all_chip_states.update(lockdown_states)
+        # [代码修改结束]
         return all_chip_states
+
+    def diagnose_bottom_accumulation_lockdown(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V2.0 · 动态回溯版】“底部吸筹锁仓”诊断引擎
+        - 核心重构: 引入动态回溯验证机制，实现“设置-触发-确认”的严谨逻辑链。
+        - 新核心逻辑:
+          1. [设置]: 识别出由“权威底部支撑”和“持续筹码聚集”共同定义的“底部吸筹区”。
+          2. [触发]: 识别一个明确的放量上涨日作为“点火日”。
+          3. [确认]: 在点火日，回溯检查近期是否存在“底部吸筹区”，并同时确认当日主力坚定锁仓。
+        - 收益: 确保了信号的因果关系，能精准捕捉在真实吸筹基础上发起的突破行情。
+        """
+        states = {}
+        signal_name = 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'
+        p_conf = get_params_block(self.strategy, 'chip_lockdown_params', {})
+        lookback_window = get_param_value(p_conf.get('lookback_window'), 5)
+        accumulation_threshold = get_param_value(p_conf.get('accumulation_threshold'), 0.3)
+        norm_window = 55
+        # [代码修改开始]
+        # --- 1. 设置阶段: 识别“底部吸筹区” (Setup Phase) ---
+        # 权威的底部支撑信号 (调用utils中的底层函数)
+        gaia_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('gaia_bedrock_params', {})
+        fib_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('fibonacci_support_params', {})
+        gaia_support = self.strategy.utils._calculate_gaia_bedrock_support(df, gaia_params, self.strategy.atomic_states)
+        historical_low_support = self.strategy.utils._calculate_historical_low_support(df, fib_params)
+        authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
+        # 持续的筹码聚集信号
+        chip_accumulation_score = self.strategy.atomic_states.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
+        sustained_accumulation = chip_accumulation_score.rolling(window=3).mean() > accumulation_threshold
+        # 定义“底部吸筹区”状态
+        is_in_bottom_accumulation_zone = authoritative_bottom_support & sustained_accumulation
+        # --- 2. 触发阶段: 识别“点火日” (Trigger Phase) ---
+        is_ignition_day = (df['pct_change_D'] > 0.01) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
+        # --- 3. 确认阶段: 回溯验证与当天确认 (Confirmation Phase) ---
+        # 回溯验证: 点火日前lookback_window天内，是否存在“底部吸筹区”
+        has_recent_setup = is_in_bottom_accumulation_zone.rolling(window=lookback_window).max().shift(1).fillna(0).astype(bool)
+        # 当天锁仓确认
+        low_profit_taking_urgency = 1.0 - normalize_score(df.get('profit_taking_urgency_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        no_main_force_distribution = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        winner_conviction_raw = self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index))
+        winner_conviction_score = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5)
+        lockdown_confirmation_score = (low_profit_taking_urgency * no_main_force_distribution * winner_conviction_score)**(1/3)
+        # --- 4. 最终融合裁决 ---
+        final_score = (
+            is_ignition_day &
+            has_recent_setup
+        ) * lockdown_confirmation_score
+        states[signal_name] = final_score.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
+        return states
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
         """

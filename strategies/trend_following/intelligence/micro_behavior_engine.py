@@ -375,9 +375,13 @@ class MicroBehaviorEngine:
 
     def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.1 · 日间影线版】亢奋加速风险诊断引擎
-        - 核心升级: 签署“日间影线”协议。上影线的计算基准从当日开盘价改为昨日收盘价，
-                      以更精确地衡量价格从高点回落对日间涨幅的侵蚀程度。
+        【V6.0 · 上下文嬗变版】亢奋加速风险/机会诊断引擎
+        - 核心重构: 引入“上下文嬗变”逻辑。原始的亢奋加速信号不再是纯粹的风险，
+                      而是被视为一个中性的“亢奋事件”。
+        - 新增逻辑: 1. 构建“看涨上下文护盾”，融合底部区域、筹码吸筹锁仓、主力信念等多维度情报。
+                      2. 最终风险 = 原始亢奋事件 * (1 - 护盾分)。
+                      3. 新增机会信号“点火加速” = 原始亢奋事件 * 护盾分。
+        - 收益: 能够正确区分底部的“点火机会”和顶部的“派发风险”，解决了将健康启动误判为风险的致命缺陷。
         """
         states = {}
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
@@ -404,9 +408,7 @@ class MicroBehaviorEngine:
             volume_spike_score = (tactical_vol_spike * context_vol_spike)**0.5
             volatility_score = (tactical_volatility * context_volatility)**0.5
             total_range = (df['high_D'] - df['low_D']).replace(0, epsilon)
-            # 实施“日间影线”协议
             upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D']))
-            
             upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
@@ -424,13 +426,33 @@ class MicroBehaviorEngine:
             period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
             euphoric_scores_by_period[p_tactical] = period_score
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        final_fused_score = pd.Series(0.0, index=df.index)
+        dynamic_raw_euphoric_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
             for p_tactical in periods:
                 weight = tf_weights.get(p_tactical, 0) / total_weight
-                final_fused_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
-        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_fused_score.clip(0, 1).astype(np.float32)
+                dynamic_raw_euphoric_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
+        # [代码修改开始]
+        # --- 构建“看涨上下文护盾” ---
+        bottom_zone_context = self._get_atomic_score(df, 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE', 0.0)
+        # 引入我们刚刚铸造的王牌信号：底部吸筹后锁仓
+        chip_lockdown_context = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
+        winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0)
+        winner_conviction_context = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5) # 转换为 [0, 1]
+        # 融合护盾：必须所有条件都满足，故使用几何平均
+        bullish_context_shield = (
+            bottom_zone_context *
+            chip_lockdown_context *
+            winner_conviction_context
+        )**(1/3)
+        # --- 执行“嬗变”裁决 ---
+        # 最终风险 = 原始亢奋事件 * (1 - 护盾分)
+        final_risk_score = (dynamic_raw_euphoric_score * (1 - bullish_context_shield)).clip(0, 1)
+        # 最终机会 = 原始亢奋事件 * 护盾分
+        ignition_opportunity_score = (dynamic_raw_euphoric_score * bullish_context_shield).clip(0, 1)
+        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
+        states['COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION'] = ignition_opportunity_score.astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
