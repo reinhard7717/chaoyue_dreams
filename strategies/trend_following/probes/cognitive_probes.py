@@ -259,15 +259,17 @@ class CognitiveProbes:
 
     def _deploy_liquidity_trap_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V2.2 · 趋势上下文同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
-        - 核心升级: 同步上游 `SCORE_RISK_LIQUIDITY_VACUUM` 的 V13.7 版 "趋势上下文" 逻辑。
-                      确保探针内部对“流动性真空”证据的重算与生产代码完全一致。
+        【探针 V3.0 · 逻辑重铸同步版】穿透式解剖 COGNITIVE_RISK_LIQUIDITY_TRAP 信号
+        - 核心升级: 完全同步主引擎 V5.0 的逻辑重铸。将探针的第二证据源从废弃的“流动性真空”
+                      修正为全新的“收缩盘整” (SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION)，
+                      并为其增加了独立的构成解剖，确保探针的绝对真实性。
         """
-        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V2.2 · 趋势上下文同步版】💧 " + "="*25)
+        print("\n" + "="*25 + f" [认知探针] 正在启用 💧【流动性陷阱探针 V3.0 · 逻辑重铸同步版】💧 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
         signal_name = 'COGNITIVE_RISK_LIQUIDITY_TRAP'
         def get_val(series, date, default=0.0):
+            if series is None: return default
             if isinstance(series, np.ndarray):
                 try:
                     idx_loc = df.index.get_loc(date)
@@ -312,26 +314,24 @@ class CognitiveProbes:
         capital_flight_fused = mtf_fuse(capital_flight_raw)
         print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused, probe_date):.4f}")
         # [代码修改开始]
-        # 证据二: 流动性真空 (按最终公理正确重算，包含趋势上下文)
-        p_atomic = get_params_block(self.strategy, 'price_volume_atomic_params', {})
-        norm_window_pv = get_param_value(p_atomic.get('norm_window'), 55)
-        low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window_pv, ascending=False)
-        vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
-        sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window_pv, ascending=False)
-        calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
-        fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window_pv, ascending=True)
-        liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        trend_context_score = self.intelligence_layer.behavioral_intel._diagnose_trend_context(df)
-        risk_suppression_factor = (1 - trend_context_score.clip(0, 1))
-        liquidity_vacuum_correct = liquidity_vacuum_snapshot * risk_suppression_factor
-        print(f"    - [证据二: 流动性真空] -> 最终证据分: {get_val(liquidity_vacuum_correct, probe_date):.4f} (已应用趋势上下文)")
+        # 证据二: 收缩盘整 (SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION)
+        contraction_consolidation_score = atomic_states.get('SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION', pd.Series(0.0, index=df.index))
+        print(f"    - [证据二: 收缩盘整] -> 最终证据分: {get_val(contraction_consolidation_score, probe_date):.4f}")
+        # 增加对“收缩盘整”信号的构成解剖，提升探针透明度
+        norm_window_behavior = 55
+        vol_contraction = normalize_score(df['volume_D'], df.index, norm_window_behavior, ascending=False)
+        price_stagnation = normalize_score(df['pct_change_D'].abs(), df.index, norm_window_behavior, ascending=False)
+        print(f"      - (构成: 成交量萎缩 {get_val(vol_contraction, probe_date):.2f} * 价格波动收窄 {get_val(price_stagnation, probe_date):.2f})")
         # [代码修改结束]
         buyer_apathy_raw = 1.0 - df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index))
         buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)
         print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused, probe_date):.4f}")
         print("\n  [链路层 3] 净化后的融合与裁决 (Purified Fusion & Adjudication)")
         weights = [0.4, 0.4, 0.2]
-        components = [capital_flight_fused, liquidity_vacuum_correct, buyer_apathy_fused]
+        # [代码修改开始]
+        # 更新融合的组件列表
+        components = [capital_flight_fused, contraction_consolidation_score, buyer_apathy_fused]
+        # [代码修改结束]
         stacked_scores = np.stack([c.values for c in components], axis=0)
         purified_snapshot_values = np.average(stacked_scores, axis=0, weights=np.array(weights))
         purified_snapshot_score = pd.Series(purified_snapshot_values, index=df.index)

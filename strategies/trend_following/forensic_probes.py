@@ -34,7 +34,6 @@ class ForensicProbes:
         self.structural_probes = StructuralProbes(intelligence_layer_instance)
         
         # 注册新的探针
-        self._deploy_liquidity_vacuum_probe = self.behavioral_probes._deploy_liquidity_vacuum_probe
         self._deploy_ff_distribution_resonance_probe = self.fund_flow_probes._deploy_ff_distribution_resonance_probe
         self._deploy_pressure_transmutation_probe = self.behavioral_probes._deploy_pressure_transmutation_probe
         self._deploy_hephaestus_forge_probe = self.chip_probes._deploy_hephaestus_forge_probe
