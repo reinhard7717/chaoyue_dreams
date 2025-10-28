@@ -141,7 +141,7 @@
         "enable_behavioral_probe": false,
         "enable_pressure_transmutation_probe": false,
         "enable_liquidity_trap_probe": true,
-        "enable_liquidity_vacuum_probe": false,
+        "enable_liquidity_vacuum_probe": true,
         "enable_ff_distribution_resonance_probe": false,
         "enable_chip_probe": false,
         "enable_chip_resonance_probe": false,
