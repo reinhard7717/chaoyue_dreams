@@ -88,15 +88,31 @@ class StructuralIntelligence:
         bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
         
         # --- 调试信息植入 ---
-        # 找到第一个顶部反转信号较强的日期用于调试
-        debug_date_mask = (top_reversal > 0.5) & (top_reversal.shift(1) <= 0.5)
-        if debug_date_mask.any():
-            debug_date = df.index[debug_date_mask][0]
-            print(f"--- [调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑链路 @ {debug_date.date()} ---")
-            print(f"  [步骤一] 静态看涨共振分 (bullish_health): {bullish_health.loc[debug_date]:.4f}")
-            print(f"  [步骤二] 看涨趋势动态背离 (bull_divergence): {bull_divergence.loc[debug_date]:.4f}  (此值为负，代表看涨趋势正在衰竭)")
-            print(f"  [步骤三] 提纯后顶部反转分 (top_reversal): {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
-            print(f"--------------------------------------------------------------------")
+        debug_date_str = '2025-10-20'
+        if pd.to_datetime(debug_date_str) in df.index:
+            debug_date = pd.to_datetime(debug_date_str)
+            print(f"\n--- [深度调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑全链路 @ {debug_date.date()} ---")
+            
+            # 扩展部分：计算并展示四大支柱的贡献
+            print("\n[步骤零] 四大支柱贡献分析 (融合前的双极性健康分):")
+            pillar_contributions = {}
+            for pillar_name, p_scores_dict in pillar_bipolar_scores.items():
+                # 为每个支柱计算一个跨周期的平均分，以简化展示
+                pillar_avg_score = np.mean([s.get(debug_date, 0.0) for s in p_scores_dict.values()])
+                pillar_contributions[pillar_name] = pillar_avg_score
+                print(f"  - {pillar_name:<22}: {pillar_avg_score:.4f}")
+
+            print(f"\n[步骤一] 静态健康度评估:")
+            print(f"  - 融合后双极性总健康分 (final_bipolar_health): {final_bipolar_health.loc[debug_date]:.4f}")
+            print(f"  - 提纯后静态看涨共振分 (bullish_health)     : {bullish_health.loc[debug_date]:.4f}  (作为动态分析的输入)")
+
+            print(f"\n[步骤二] 动态变化分析:")
+            print(f"  - 看涨趋势动态背离 (bull_divergence)         : {bull_divergence.loc[debug_date]:.4f}  (此值为负，代表看涨趋势正在衰竭)")
+
+            print(f"\n[步骤三] 信号提纯与最终输出:")
+            print(f"  - 提纯后顶部反转分 (top_reversal)           : {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
+            print(f"  - 最终信号 (SCORE_STRUCTURE_TOP_REVERSAL)    : {top_reversal.loc[debug_date]:.4f}")
+            print("-----------------------------------------------------------------------------------\n")
         # --- 调试信息结束 ---
         
         # 步骤六：赋值给命名准确的终极信号
