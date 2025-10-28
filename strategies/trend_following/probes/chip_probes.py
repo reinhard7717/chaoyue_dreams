@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import json
+from strategies.trend_following import utils
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
 
 class ChipProbes:
@@ -121,8 +122,8 @@ class ChipProbes:
         print("\n  [链路层 2] 设置阶段: 识别“底部吸筹区” (Setup Phase)")
         gaia_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('gaia_bedrock_params', {})
         fib_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('fibonacci_support_params', {})
-        gaia_support = self.strategy.utils._calculate_gaia_bedrock_support(df, gaia_params, atomic)
-        historical_low_support = self.strategy.utils._calculate_historical_low_support(df, fib_params)
+        gaia_support = utils._calculate_gaia_bedrock_support(df, gaia_params, atomic)
+        historical_low_support = utils._calculate_historical_low_support(df, fib_params)
         authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
         chip_accumulation_score = atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
         sustained_accumulation = chip_accumulation_score.rolling(window=3).mean() > accumulation_threshold
