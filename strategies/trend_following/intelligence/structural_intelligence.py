@@ -87,39 +87,46 @@ class StructuralIntelligence:
         bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
         
         # [代码修改开始]
-        # --- 终极深度调试模块 ---
+        # --- 终极深度调试模块 V2.0 (时区感知版) ---
         debug_date_str = '2025-10-20'
-        debug_date = pd.to_datetime(debug_date_str)
-        if debug_date in df.index:
-            print(f"\n--- [深度调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑全链路 @ {debug_date.date()} ---")
-            
-            # 步骤零：展示四大支柱的贡献
-            print("\n[步骤零] 四大支柱贡献分析 (融合前的双极性健康分):")
-            for pillar_name, p_scores_dict in pillar_bipolar_scores.items():
-                pillar_avg_score = np.mean([s.get(debug_date, 0.0) for s in p_scores_dict.values()])
-                print(f"  - {pillar_name:<22}: {pillar_avg_score:.4f}")
+        try:
+            debug_date = pd.to_datetime(debug_date_str)
+            # 关键修复：进行时区对齐
+            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+                debug_date = debug_date.tz_localize(df.index.tz)
 
-            # 步骤一：展示静态健康度评估过程
-            print(f"\n[步骤一] 静态健康度评估:")
-            print(f"  - 融合后双极性总健康分 (final_bipolar_health): {final_bipolar_health.loc[debug_date]:.4f}")
-            print(f"  - 提纯后静态看涨共振分 (bullish_health)     : {bullish_health.loc[debug_date]:.4f}  (这是运动员当前的速度)")
+            if debug_date in df.index:
+                print(f"\n--- [深度调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑全链路 @ {debug_date.date()} ---")
+                
+                # 步骤零：展示四大支柱的贡献
+                print("\n[步骤零] 四大支柱贡献分析 (融合前的双极性健康分):")
+                for pillar_name, p_scores_dict in pillar_bipolar_scores.items():
+                    pillar_avg_score = np.mean([s.get(debug_date, 0.0) for s in p_scores_dict.values()])
+                    print(f"  - {pillar_name:<22}: {pillar_avg_score:.4f}")
 
-            # 步骤二：展示动态变化分析过程
-            print(f"\n[步骤二] 动态变化分析 (核心所在):")
-            # 获取debug_date之前5天的索引位置
-            loc = df.index.get_loc(debug_date)
-            prev_dates_loc = range(max(0, loc - 4), loc + 1)
-            prev_dates = df.index[prev_dates_loc]
-            print(f"  - 过去5天的 bullish_health 序列 (速度变化):")
-            for date in prev_dates:
-                print(f"    - {date.date()}: {bullish_health.get(date, 0.0):.4f}")
-            print(f"  - 看涨趋势动态背离 (bull_divergence)         : {bull_divergence.loc[debug_date]:.4f}  (负值代表体力衰竭)")
+                # 步骤一：展示静态健康度评估过程
+                print(f"\n[步骤一] 静态健康度评估:")
+                print(f"  - 融合后双极性总健康分 (final_bipolar_health): {final_bipolar_health.loc[debug_date]:.4f}")
+                print(f"  - 提纯后静态看涨共振分 (bullish_health)     : {bullish_health.loc[debug_date]:.4f}  (这是运动员当前的速度)")
 
-            # 步骤三：展示信号提纯与最终输出
-            print(f"\n[步骤三] 信号提纯与最终输出:")
-            print(f"  - 提纯后顶部反转分 (top_reversal)           : {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
-            print(f"  - 最终信号 (SCORE_STRUCTURE_TOP_REVERSAL)    : {top_reversal.loc[debug_date]:.4f}")
-            print("-----------------------------------------------------------------------------------\n")
+                # 步骤二：展示动态变化分析过程
+                print(f"\n[步骤二] 动态变化分析 (核心所在):")
+                # 获取debug_date之前5天的索引位置
+                loc = df.index.get_loc(debug_date)
+                prev_dates_loc = range(max(0, loc - 4), loc + 1)
+                prev_dates = df.index[prev_dates_loc]
+                print(f"  - 过去5天的 bullish_health 序列 (速度变化):")
+                for date in prev_dates:
+                    print(f"    - {date.date()}: {bullish_health.get(date, 0.0):.4f}")
+                print(f"  - 看涨趋势动态背离 (bull_divergence)         : {bull_divergence.loc[debug_date]:.4f}  (负值代表体力衰竭)")
+
+                # 步骤三：展示信号提纯与最终输出
+                print(f"\n[步骤三] 信号提纯与最终输出:")
+                print(f"  - 提纯后顶部反转分 (top_reversal)           : {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
+                print(f"  - 最终信号 (SCORE_STRUCTURE_TOP_REVERSAL)    : {top_reversal.loc[debug_date]:.4f}")
+                print("-----------------------------------------------------------------------------------\n")
+        except Exception as e:
+            print(f"--- [调试模块异常] 在植入调试代码时发生错误: {e} ---")
         # --- 调试信息结束 ---
         # [代码修改结束]
         
