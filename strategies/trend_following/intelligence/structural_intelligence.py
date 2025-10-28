@@ -31,7 +31,7 @@ class StructuralIntelligence:
 
     def diagnose_ultimate_structural_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.0 · 四象限重构版】结构情报的终极信号诊断与合成
+        【V21.1 · 深度调试版】结构情报的终极信号诊断与合成
         - 核心重构: 废弃对通用函数 transmute_health_to_ultimate_signals 的调用，引入“四象限动态分析法”，
                       彻底解决信号命名与逻辑混乱的问题，确保与筹码、资金流、行为模块的哲学统一。
         """
@@ -41,7 +41,6 @@ class StructuralIntelligence:
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
         resonance_tf_weights = get_param_value(p_conf.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
-        # [代码修改开始]
         # 步骤一：计算每个支柱的健康度
         ti_s_bull, ti_s_bear, _, daily_bipolar = self._calculate_trend_integrity_health(df, periods, norm_window)
         mtf_s_bull, mtf_s_bear, _ = self._calculate_mtf_cohesion_health(df, periods, norm_window, daily_bipolar)
@@ -87,33 +86,42 @@ class StructuralIntelligence:
         bearish_acceleration = bear_divergence.clip(0, 1)
         bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
         
-        # --- 调试信息植入 ---
+        # [代码修改开始]
+        # --- 终极深度调试模块 ---
         debug_date_str = '2025-10-20'
-        if pd.to_datetime(debug_date_str) in df.index:
-            debug_date = pd.to_datetime(debug_date_str)
+        debug_date = pd.to_datetime(debug_date_str)
+        if debug_date in df.index:
             print(f"\n--- [深度调试] SCORE_STRUCTURE_TOP_REVERSAL 逻辑全链路 @ {debug_date.date()} ---")
             
-            # 扩展部分：计算并展示四大支柱的贡献
+            # 步骤零：展示四大支柱的贡献
             print("\n[步骤零] 四大支柱贡献分析 (融合前的双极性健康分):")
-            pillar_contributions = {}
             for pillar_name, p_scores_dict in pillar_bipolar_scores.items():
-                # 为每个支柱计算一个跨周期的平均分，以简化展示
                 pillar_avg_score = np.mean([s.get(debug_date, 0.0) for s in p_scores_dict.values()])
-                pillar_contributions[pillar_name] = pillar_avg_score
                 print(f"  - {pillar_name:<22}: {pillar_avg_score:.4f}")
 
+            # 步骤一：展示静态健康度评估过程
             print(f"\n[步骤一] 静态健康度评估:")
             print(f"  - 融合后双极性总健康分 (final_bipolar_health): {final_bipolar_health.loc[debug_date]:.4f}")
-            print(f"  - 提纯后静态看涨共振分 (bullish_health)     : {bullish_health.loc[debug_date]:.4f}  (作为动态分析的输入)")
+            print(f"  - 提纯后静态看涨共振分 (bullish_health)     : {bullish_health.loc[debug_date]:.4f}  (这是运动员当前的速度)")
 
-            print(f"\n[步骤二] 动态变化分析:")
-            print(f"  - 看涨趋势动态背离 (bull_divergence)         : {bull_divergence.loc[debug_date]:.4f}  (此值为负，代表看涨趋势正在衰竭)")
+            # 步骤二：展示动态变化分析过程
+            print(f"\n[步骤二] 动态变化分析 (核心所在):")
+            # 获取debug_date之前5天的索引位置
+            loc = df.index.get_loc(debug_date)
+            prev_dates_loc = range(max(0, loc - 4), loc + 1)
+            prev_dates = df.index[prev_dates_loc]
+            print(f"  - 过去5天的 bullish_health 序列 (速度变化):")
+            for date in prev_dates:
+                print(f"    - {date.date()}: {bullish_health.get(date, 0.0):.4f}")
+            print(f"  - 看涨趋势动态背离 (bull_divergence)         : {bull_divergence.loc[debug_date]:.4f}  (负值代表体力衰竭)")
 
+            # 步骤三：展示信号提纯与最终输出
             print(f"\n[步骤三] 信号提纯与最终输出:")
             print(f"  - 提纯后顶部反转分 (top_reversal)           : {top_reversal.loc[debug_date]:.4f}  (由负的动态背离分转化而来)")
             print(f"  - 最终信号 (SCORE_STRUCTURE_TOP_REVERSAL)    : {top_reversal.loc[debug_date]:.4f}")
             print("-----------------------------------------------------------------------------------\n")
         # --- 调试信息结束 ---
+        # [代码修改结束]
         
         # 步骤六：赋值给命名准确的终极信号
         states['SCORE_STRUCTURE_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
@@ -122,7 +130,6 @@ class StructuralIntelligence:
         states['SCORE_STRUCTURE_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
         # 步骤七：重铸战术反转信号
         states['SCORE_STRUCTURE_TACTICAL_REVERSAL'] = (bullish_health * top_reversal).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _calculate_trend_integrity_health(self, df: pd.DataFrame, periods: list, norm_window: int) -> Tuple[Dict, Dict, Dict, pd.Series]:
