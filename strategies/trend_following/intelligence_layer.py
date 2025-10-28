@@ -84,15 +84,6 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        # [代码修改开始]
-        # --- 移除所有不属于“诊断”范畴的调用 ---
-        # 移除上下文计算，上移至策略层
-        # 移除微观行为合成，上移至策略层
-        # 移除战术合成，上移至策略层
-        # 移除顶层认知融合，上移至策略层
-        # 移除预测层，上移至策略层
-        # 移除剧本引擎，上移至策略层
-        # 移除硬止损，上移至策略层
         print("  -> [指挥链] 所有基础诊断完成，原子状态已生成。")
         return self.strategy.atomic_states # 返回生成的原子状态
 
@@ -152,6 +143,10 @@ class IntelligenceLayer:
             # [代码修改开始]
             if debug_params.get('enable_winner_conviction_probe', False):
                 self.probes._deploy_winner_conviction_probe(probe_date)
+            if debug_params.get('enable_profit_taking_pressure_probe', False):
+                self.probes._deploy_profit_taking_pressure_probe(probe_date)
+            if debug_params.get('enable_lockdown_scramble_probe', False):
+                self.probes._deploy_lockdown_scramble_probe(probe_date)
             # [代码修改结束]
         print("\n" + "="*35 + " [法医探针部署中心] 所有目标解剖完毕 " + "="*35 + "\n")
 

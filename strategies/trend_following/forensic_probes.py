@@ -40,7 +40,9 @@ class ForensicProbes:
         self._deploy_hephaestus_forge_probe = self.chip_probes._deploy_hephaestus_forge_probe
         self._deploy_chip_resonance_probe = self.chip_probes._deploy_chip_resonance_probe
         self._deploy_liquidity_trap_probe = self.cognitive_probes._deploy_liquidity_trap_probe
-        self._deploy_profit_taking_pressure_probe = self.cognitive_probes._deploy_profit_taking_pressure_probe
+        self._deploy_profit_taking_pressure_probe = self.micro_behavior_probes._deploy_profit_taking_pressure_probe
+        # 新增：注册锁仓抢筹探针
+        self._deploy_lockdown_scramble_probe = self.chip_probes._deploy_lockdown_scramble_probe
         self._deploy_comprehensive_top_risk_probe = self.cognitive_probes._deploy_comprehensive_top_risk_probe
         self._deploy_trend_quality_probe = self.cognitive_probes._deploy_trend_quality_probe
         self._deploy_main_force_intent_duel_probe = self.cognitive_probes._deploy_main_force_intent_duel_probe

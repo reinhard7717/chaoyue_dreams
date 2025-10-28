@@ -150,16 +150,17 @@
         "enable_fund_flow_probe": false,
         "enable_process_meta_probe": false,
         "enable_process_sync_probe": false,
-        "enable_profit_taking_pressure_probe": false,
-        "enable_comprehensive_top_risk_probe": true,
+        "enable_profit_taking_pressure_probe": true,
+        "enable_lockdown_scramble_probe": true,
+        "enable_comprehensive_top_risk_probe": false,
         "enable_main_force_intent_duel_probe": false,
         "enable_structural_pillar_dissection_probe": false,
         "enable_trend_quality_probe": false,
         "enable_structural_health_probe": false,
         "enable_structural_pillar_fusion_probe": false,
-        "enable_euphoric_acceleration_probe": true,
-        "enable_chip_lockdown_probe": true,
-        "enable_winner_conviction_probe": true
+        "enable_euphoric_acceleration_probe": false,
+        "enable_chip_lockdown_probe": false,
+        "enable_winner_conviction_probe": false
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },

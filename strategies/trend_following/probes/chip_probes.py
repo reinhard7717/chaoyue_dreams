@@ -170,6 +170,52 @@ class ChipProbes:
         print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
         print("\n--- “底部吸筹锁仓探针”解剖完毕 ---")
 
+    def _deploy_lockdown_scramble_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0 · 新增】锁仓抢筹探针
+        - 核心职责: 深度解剖“锁仓抢筹”信号，验证其“前提”和四大核心“证据”。
+        """
+        print("\n" + "="*25 + f" [筹码探针] 正在启用 🏃【锁仓抢筹探针 V1.0】🏃 " + "="*25)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.chip_intel
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        signal_name = 'SCORE_CHIP_LOCKDOWN_SCRAMBLE'
+        norm_window = 55
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终信号分】: {actual_score:.4f}")
+        print("\n  [链路层 2] 前提验证 (Prerequisite Validation)")
+        lockdown_trigger_series = atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', pd.Series(0.0, index=df.index))
+        lockdown_trigger_val = get_val(lockdown_trigger_series, probe_date)
+        print(f"    - [前提: 底部锁仓信号] -> 得分: {lockdown_trigger_val:.4f}")
+        print("\n  [链路层 3] 抢筹证据解剖 (Scramble Evidence Dissection)")
+        cost_advantage_series = normalize_score(df.get('main_buy_cost_advantage_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        net_flow_series = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+        conviction_series = normalize_score(df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        costly_buy_series = normalize_score(df.get('main_force_intraday_profit_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window, ascending=True)
+        cost_advantage_val = get_val(cost_advantage_series, probe_date)
+        net_flow_val = get_val(net_flow_series, probe_date)
+        conviction_val = get_val(conviction_series, probe_date)
+        costly_buy_val = get_val(costly_buy_series, probe_date)
+        print(f"    - [证据 I: 主力成本优势] -> 得分: {cost_advantage_val:.4f}")
+        print(f"    - [证据 II: 主力净流入] -> 得分: {net_flow_val:.4f}")
+        print(f"    - [证据 III: 主力信念] -> 得分: {conviction_val:.4f}")
+        print(f"    - [证据 IV: 亏钱也要买] -> 得分: {costly_buy_val:.4f}")
+        print("\n  [链路层 4] 证据融合 (Evidence Fusion)")
+        recalc_evidence_score = (cost_advantage_val * net_flow_val * conviction_val * costly_buy_val)**(1/4)
+        print(f"    - [融合公式]: (成本优势 * 净流入 * 信念 * 亏钱买入) ** (1/4)")
+        print(f"    - 【探针重算-证据总分】: {recalc_evidence_score:.4f}")
+        print("\n  [链路层 5] 最终裁决 (Final Adjudication)")
+        recalc_final_score = lockdown_trigger_val * recalc_evidence_score
+        print(f"    - [裁决公式]: 前提分 * 证据总分")
+        print(f"    - 【探针重算-最终分】: {lockdown_trigger_val:.4f} * {recalc_evidence_score:.4f} = {recalc_final_score:.4f}")
+        match = np.isclose(actual_score, recalc_final_score)
+        print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_final_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
+        print("\n--- “锁仓抢筹探针”解剖完毕 ---")
 
 
 

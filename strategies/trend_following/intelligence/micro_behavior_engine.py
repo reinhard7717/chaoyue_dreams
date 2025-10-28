@@ -343,11 +343,9 @@ class MicroBehaviorEngine:
 
     def _synthesize_profit_taking_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 核心指标重构版】“利润兑现压力”风险诊断引擎
-        - 核心重构: 废弃旧的、基于间接推断的逻辑。
-                      改为直接消费专门设计的核心指标 'profit_taking_urgency_D' 和 'profit_realization_premium_D'。
-        - 核心逻辑: 对“了结紧迫度”和“兑现溢价”两大核心证据进行独立的三维动态分析，然后加权融合，
-                      最终生成一个高保真、高可信度的利润兑现风险信号。
+        【V4.0 · 燃料转化版】“利润兑现压力”风险诊断引擎
+        - 核心升级: 利润兑现压力不再被简单抑制，而是被“嬗变”。
+                      被“看涨上下文护盾”吸收的风险部分，将转化为燃料，增强对应的机会信号。
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
@@ -356,27 +354,46 @@ class MicroBehaviorEngine:
         pressure_scores_by_period = {}
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # 证据维度一：获利盘了结紧迫度 (profit_taking_urgency_D)
             urgency_quality = self._calculate_4d_metric_quality(
                 df, 'profit_taking_urgency_D', p_tactical, p_context, ascending=True
             )
-            # 证据维度二：利润兑现溢价 (profit_realization_premium_D)
             premium_quality = self._calculate_4d_metric_quality(
                 df, 'profit_realization_premium_D', p_tactical, p_context, ascending=True
             )
-            # 融合两大核心证据，生成风险快照分
             snapshot_score = (urgency_quality * premium_quality)**0.5
-            # 对快照分进行关系元分析，捕捉其动态变化
             pressure_scores_by_period[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-        # 跨周期融合
         tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
-        final_fused_score = pd.Series(0.0, index=df.index)
+        raw_fused_risk_score = pd.Series(0.0, index=df.index)
         total_weight = sum(tf_weights.get(p, 0) for p in periods)
         if total_weight > 0:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
-                final_fused_score += pressure_scores_by_period.get(p, 0.0) * weight
-        states[signal_name] = final_fused_score.clip(0, 1).astype(np.float32)
+                raw_fused_risk_score += pressure_scores_by_period.get(p, 0.0) * weight
+        # [代码修改开始]
+        # --- 燃料转化机制 ---
+        # 1. 获取具有否决权的看涨信号
+        absorption_reversal_opp = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_ABSORPTION_REVERSAL', 0.0)
+        chip_lockdown_opp = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
+        # 2. 构建抑制护盾 (取两者中的最强者)
+        suppression_shield = np.maximum(absorption_reversal_opp.values, chip_lockdown_opp.values)
+        # 3. 计算被护盾吸收的“燃料”
+        fuel_generated = raw_fused_risk_score * suppression_shield
+        # 4. 计算最终被削弱的风险
+        final_risk_with_context = raw_fused_risk_score * (1.0 - suppression_shield)
+        states[signal_name] = final_risk_with_context.clip(0, 1).astype(np.float32)
+        # 5. 将燃料加注到对应的机会信号上
+        # 计算权重，避免重复加注
+        total_opp_strength = absorption_reversal_opp.values + chip_lockdown_opp.values
+        safe_total_opp_strength = np.where(total_opp_strength == 0, 1.0, total_opp_strength)
+        absorption_weight = absorption_reversal_opp.values / safe_total_opp_strength
+        lockdown_weight = chip_lockdown_opp.values / safe_total_opp_strength
+        # 更新机会信号
+        enhanced_absorption_opp = (absorption_reversal_opp + fuel_generated * absorption_weight).clip(0, 1)
+        enhanced_lockdown_opp = (chip_lockdown_opp + fuel_generated * lockdown_weight).clip(0, 1)
+        # 将增强后的机会信号存回 atomic_states，供后续模块使用
+        self.strategy.atomic_states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = enhanced_absorption_opp.astype(np.float32)
+        self.strategy.atomic_states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'] = enhanced_lockdown_opp.astype(np.float32)
+        # [代码修改结束]
         return states
 
     def synthesize_bipolar_euphoric_event(self, df: pd.DataFrame) -> Dict[str, pd.Series]:

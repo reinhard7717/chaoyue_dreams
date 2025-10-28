@@ -168,6 +168,13 @@
             "penalty_weight": -600,
             "description": "【战术风险】在潜在的底部反转区域，如果同时出现强烈的派发迹象，则构成“哈迪斯陷阱”，是诱多风险信号。"
         },
+        "SCORE_CHIP_LOCKDOWN_SCRAMBLE": {
+            "cn_name": "【筹码】锁仓抢筹",
+            "category": "筹码层-机会",
+            "type": "dynamic",
+            "score": 600,
+            "description": "【B级战术信号】在“底部锁仓”的前提下，进一步确认主力当天存在不计成本的抢筹行为（如成本优势、净流入、信念增强、亏钱买入），是即将拉升的高确定性信号。"
+        },
         "SCORE_CHIP_PB_RALLY_ACCUMULATION": {
             "cn_name": "【筹码】拉升吸筹剧本",
             "category": "筹码层-机会",

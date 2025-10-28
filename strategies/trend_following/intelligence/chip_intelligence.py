@@ -18,18 +18,12 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V606.0 · 内部依赖修复版】筹码情报最高司令部
-        - 核心修复: 修复了因内部数据依赖链断裂，导致“底部吸筹锁仓”信号被错误计算为0的致命BUG。
-        - 修改逻辑: 1. 恢复了 MTF 信号（嵌套字典）的输出，撤销了上一版错误的修改。
-                      2. 调整了内部方法的调用顺序，确保依赖信号被优先计算。
-                      3. 通过参数直接向 `diagnose_bottom_accumulation_lockdown` 传递其依赖的信号，
-                         而不是让其错误地从尚未更新的全局状态中读取。
+        【V607.0 · 主力抢筹版】筹码情报最高司令部
+        - 核心扩展: 新增对“锁仓抢筹”信号的诊断，完善底部行为分析。
         """
         all_chip_states = {}
         periods = [1, 5, 13, 21, 55]
         concentration_scores = self._diagnose_concentration_dynamics(df, periods)
-        # [代码修改开始]
-        # 恢复被错误移除的行，确保符合原始设计
         all_chip_states['SCORE_CHIP_MTF_CONCENTRATION'] = concentration_scores
         accumulation_scores = self._diagnose_main_force_action(df, periods)
         all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
@@ -45,15 +39,17 @@ class ChipIntelligence:
             peak_integrity_scores
         )
         all_chip_states.update(ultimate_signals)
-        # 调整调用顺序，先计算依赖项
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
         all_chip_states.update(capitulation_potential_states)
-        # 将已生成的 all_chip_states 作为参数传入，解决内部依赖问题
         lockdown_states = self.diagnose_bottom_accumulation_lockdown(df, all_chip_states)
         all_chip_states.update(lockdown_states)
-        # [代码修改结束]
+        # [代码新增开始]
+        # 新增调用：诊断主力抢筹信号
+        scramble_states = self.diagnose_lockdown_scramble(df, all_chip_states)
+        all_chip_states.update(scramble_states)
+        # [代码新增结束]
         return all_chip_states
 
     def diagnose_bottom_accumulation_lockdown(self, df: pd.DataFrame, current_chip_states: Dict) -> Dict[str, pd.Series]:
@@ -99,6 +95,36 @@ class ChipIntelligence:
             is_ignition_day &
             has_recent_setup
         ) * lockdown_confirmation_score
+        states[signal_name] = final_score.clip(0, 1).astype(np.float32)
+        return states
+
+    def diagnose_lockdown_scramble(self, df: pd.DataFrame, current_chip_states: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】“锁仓抢筹”诊断引擎
+        - 核心逻辑: 在“底部锁仓”信号触发的当天，进一步验证主力是否存在不计成本的抢筹行为。
+        """
+        states = {}
+        signal_name = 'SCORE_CHIP_LOCKDOWN_SCRAMBLE'
+        norm_window = 55
+        # 前提：必须是底部锁仓信号的触发日
+        lockdown_trigger = current_chip_states.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', pd.Series(0.0, index=df.index))
+        # 证据一：主力成本优势 (低吸)
+        cost_advantage = normalize_score(df.get('main_buy_cost_advantage_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据二：主力净流入 (买入)
+        net_flow = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+        # 证据三：主力信念 (大单买)
+        conviction = normalize_score(df.get('main_force_conviction_ratio_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据四：亏钱也要买 (不计成本)
+        costly_buy = normalize_score(df.get('main_force_intraday_profit_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs(), df.index, norm_window, ascending=True)
+        # 融合所有抢筹证据
+        scramble_evidence = (
+            cost_advantage *
+            net_flow *
+            conviction *
+            costly_buy
+        )**(1/4)
+        # 最终信号 = 前提 * 证据
+        final_score = lockdown_trigger * scramble_evidence
         states[signal_name] = final_score.clip(0, 1).astype(np.float32)
         return states
 
