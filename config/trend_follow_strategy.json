@@ -157,7 +157,8 @@
         "enable_trend_quality_probe": false,
         "enable_structural_health_probe": false,
         "enable_structural_pillar_fusion_probe": false,
-        "enable_euphoric_acceleration_probe": true
+        "enable_euphoric_acceleration_probe": true,
+        "enable_chip_lockdown_probe": true
       },
       "strategy_info": {
         "name": { "value": "TrendFollow" },

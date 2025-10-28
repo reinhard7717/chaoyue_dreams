@@ -93,3 +93,94 @@ class ChipProbes:
             bearish_scores_by_period[p] = max(0, -bipolar_health_by_period[p])
             print(f"    - [周期 {p:2d}] 双极性健康分: {bipolar_health_by_period[p]:.4f} -> 看涨: {bullish_scores_by_period[p]:.4f}, 看跌: {bearish_scores_by_period[p]:.4f}")
         print("\n--- “筹码共振探针”解剖完毕 ---")
+
+    def _deploy_bottom_accumulation_lockdown_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0 · 新增】底部吸筹锁仓探针
+        - 核心职责: 深度解剖“底部吸筹锁仓”信号的“设置-触发-确认”三段式逻辑，
+                      定位信号未触发或误触发的根本原因。
+        """
+        print("\n" + "="*25 + f" [筹码探针] 正在启用 ⛓️【底部吸筹锁仓探针 V1.0】⛓️ " + "="*25)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.chip_intel
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        # --- 重演 diagnose_bottom_accumulation_lockdown 的逻辑 ---
+        p_conf = get_params_block(self.strategy, 'chip_lockdown_params', {})
+        lookback_window = get_param_value(p_conf.get('lookback_window'), 5)
+        accumulation_threshold = get_param_value(p_conf.get('accumulation_threshold'), 0.3)
+        norm_window = 55
+        # --- 链路层 1: 最终系统输出 ---
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_score = get_val(atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'), probe_date, 0.0)
+        print(f"    - 【最终信号分】: {actual_score:.4f}")
+        # --- 链路层 2: 设置阶段 (Setup Phase) ---
+        print("\n  [链路层 2] 设置阶段: 识别“底部吸筹区” (Setup Phase)")
+        gaia_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('gaia_bedrock_params', {})
+        fib_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('fibonacci_support_params', {})
+        gaia_support = self.strategy.utils._calculate_gaia_bedrock_support(df, gaia_params, atomic)
+        historical_low_support = self.strategy.utils._calculate_historical_low_support(df, fib_params)
+        authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
+        chip_accumulation_score = atomic.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
+        sustained_accumulation = chip_accumulation_score.rolling(window=3).mean() > accumulation_threshold
+        is_in_bottom_accumulation_zone = authoritative_bottom_support & sustained_accumulation
+        print("    --- [回溯检查] 点火日前 '底部吸筹区' 状态 ---")
+        for i in range(lookback_window, 0, -1):
+            prev_date = probe_date - pd.Timedelta(days=i)
+            if prev_date in df.index:
+                auth_support_val = get_val(authoritative_bottom_support, prev_date, False)
+                sust_acc_val = get_val(sustained_accumulation, prev_date, False)
+                zone_val = get_val(is_in_bottom_accumulation_zone, prev_date, False)
+                print(f"    - [T-{i}] 日期: {prev_date.strftime('%Y-%m-%d')}: 权威底部支撑: {auth_support_val}, 持续吸筹: {sust_acc_val} -> 吸筹区: {zone_val}")
+        # --- 链路层 3: 触发阶段 (Trigger Phase) ---
+        print("\n  [链路层 3] 触发阶段: 识别“点火日” (Trigger Phase)")
+        is_ignition_day = (df['pct_change_D'] > 0.01) & (df['volume_D'] > df.get('VOL_MA_21_D', 0))
+        ignition_val = get_val(is_ignition_day, probe_date, False)
+        pct_change_val = get_val(df['pct_change_D'], probe_date)
+        vol_val = get_val(df['volume_D'], probe_date)
+        vol_ma21_val = get_val(df.get('VOL_MA_21_D'), probe_date)
+        print(f"    - 【点火日判断】: {ignition_val} (涨幅: {pct_change_val:.2%}, 成交量: {vol_val:.0f} > MA21量: {vol_ma21_val:.0f})")
+        # --- 链路层 4: 确认阶段 (Confirmation Phase) ---
+        print("\n  [链路层 4] 确认阶段: 回溯验证与当天确认 (Confirmation Phase)")
+        has_recent_setup = is_in_bottom_accumulation_zone.rolling(window=lookback_window).max().shift(1).fillna(0).astype(bool)
+        has_recent_setup_val = get_val(has_recent_setup, probe_date, False)
+        print(f"    - [回溯验证]: {has_recent_setup_val} (回看 {lookback_window} 天内是否存在吸筹区)")
+        low_profit_taking_urgency = 1.0 - normalize_score(df.get('profit_taking_urgency_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        no_main_force_distribution = 1.0 - normalize_score(df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        winner_conviction_raw = atomic.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index))
+        winner_conviction_score = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5)
+        lockdown_confirmation_score = (low_profit_taking_urgency * no_main_force_distribution * winner_conviction_score)**(1/3)
+        lptu_val = get_val(low_profit_taking_urgency, probe_date)
+        nmfd_val = get_val(no_main_force_distribution, probe_date)
+        wcs_val = get_val(winner_conviction_score, probe_date)
+        lockdown_conf_val = get_val(lockdown_confirmation_score, probe_date)
+        print(f"    - [当天锁仓确认]: 得分 {lockdown_conf_val:.4f}")
+        print(f"      - (低)获利了结紧迫度: {lptu_val:.4f}")
+        print(f"      - (无)主力拉高派发: {nmfd_val:.4f}")
+        print(f"      - 赢家信念: {wcs_val:.4f}")
+        # --- 链路层 5: 最终裁决 ---
+        print("\n  [链路层 5] 最终裁决 (Final Adjudication)")
+        recalc_score = (ignition_val & has_recent_setup_val) * lockdown_conf_val
+        print(f"    - 【探针重算-最终分】: ({ignition_val} AND {has_recent_setup_val}) * {lockdown_conf_val:.4f} = {recalc_score:.4f}")
+        match = np.isclose(actual_score, recalc_score)
+        print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
+        print("\n--- “底部吸筹锁仓探针”解剖完毕 ---")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
