@@ -110,16 +110,20 @@ class IntelligenceLayer:
 
     def _calculate_and_update_context_scores(self, df: pd.DataFrame):
         """
-        【V1.0 · 新增】计算并更新所有通用上下文分数。
+        【V1.1 · 调用签名修复版】计算并更新所有通用上下文分数。
+        - 核心修复: 修正了调用 `calculate_context_scores` 时因参数名错误导致的 TypeError。
         - 核心职责: 作为一个独立步骤，确保所有下游引擎在运行前都能获取到
                       必要的上下文状态，如“深度底部区域”等。
         """
         context_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
+        # [代码修改开始]
+        # 修正错误的关键字参数 'params' 为函数定义中实际使用的 'ultimate_signal_synthesis_params'
         context_scores = calculate_context_scores(
             df=df,
             atomic_states=self.strategy.atomic_states,
-            params=context_params
+            ultimate_signal_synthesis_params=context_params
         )
+        # [代码修改结束]
         if context_scores:
             self.strategy.atomic_states.update(context_scores)
 
