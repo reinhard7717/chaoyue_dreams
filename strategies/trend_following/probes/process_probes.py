@@ -144,6 +144,64 @@ class ProcessProbes:
         print(f"    - [元分析得分]: {recalc_meta_score:.4f} -> [最终风险分]: {recalc_final_score:.4f}")
         print("\n--- “过程同步探针”解剖完毕 ---")
 
+    def _deploy_winner_conviction_probe(self, probe_date: pd.Timestamp):
+        """
+        【探针 V1.0 · 新增】赢家信念探针
+        - 核心职责: 深度解剖“赢家信念”(PROCESS_META_WINNER_CONVICTION)信号的完整计算链路，
+                      从原始信号到动量计算，再到瞬时关系分和最终的元分析，定位信号异常的根源。
+        """
+        signal_name = 'PROCESS_META_WINNER_CONVICTION'
+        print("\n" + "="*25 + f" [过程探针] 正在启用 🙏【赢家信念探针 V1.0】🙏 " + "="*25)
+        df = self.strategy.df_indicators
+        atomic = self.strategy.atomic_states
+        engine = self.intel_layer.process_intel
+        def get_val(series, date, default=0.0):
+            if series is None: return default
+            val = series.get(date)
+            return default if pd.isna(val) else val
+        config = next((c for c in engine.diagnostics_config if c.get('name') == signal_name), None)
+        if not config:
+            print(f"    [错误] 在配置中未找到信号 '{signal_name}' 的定义。")
+            return
+        # --- 链路层 1: 最终系统输出 ---
+        print("\n  [链路层 1] 最终系统输出 (Final System Output)")
+        actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
+        print(f"    - 【最终信号分】: {actual_score:.4f}")
+        # --- 链路层 2: 原始信号与动量计算 ---
+        print("\n  [链路层 2] 原始信号与动量计算 (Raw Signals & Momentum)")
+        signal_a_name = config.get('signal_A') # profit_taking_urgency_D
+        signal_b_name = config.get('signal_B') # winner_profit_margin_D
+        signal_a_series = df.get(signal_a_name)
+        signal_b_series = df.get(signal_b_name)
+        change_a = signal_a_series.diff(1).fillna(0)
+        change_b = signal_b_series.diff(1).fillna(0)
+        momentum_a = normalize_to_bipolar(change_a, df.index, engine.std_window, engine.bipolar_sensitivity)
+        thrust_b = normalize_to_bipolar(change_b, df.index, engine.std_window, engine.bipolar_sensitivity)
+        print(f"    - [信号A: {signal_a_name}] 值: {get_val(signal_a_series, probe_date):.4f}, 变化量: {get_val(change_a, probe_date):.4f} -> 动量分: {get_val(momentum_a, probe_date):.4f}")
+        print(f"    - [信号B: {signal_b_name}] 值: {get_val(signal_b_series, probe_date):.4f}, 变化量: {get_val(change_b, probe_date):.4f} -> 动量分: {get_val(thrust_b, probe_date):.4f}")
+        # --- 链路层 3: 瞬时关系分计算 ---
+        print("\n  [链路层 3] 瞬时关系分计算 (Instantaneous Relationship)")
+        k = config.get('signal_b_factor_k', 1.0)
+        relationship_score = (k * thrust_b - momentum_a) / (k + 1)
+        relationship_score_val = get_val(relationship_score, probe_date)
+        print(f"    - 【瞬时关系分 (背离)】: ({k:.1f} * {get_val(thrust_b, probe_date):.4f} - {get_val(momentum_a, probe_date):.4f}) / {k+1:.1f} = {relationship_score_val:.4f}")
+        # --- 链路层 4: 关系元分析 ---
+        print("\n  [链路层 4] 关系元分析 (Meta-Analysis)")
+        relationship_trend = ta.linreg(relationship_score, length=engine.meta_window).fillna(0)
+        relationship_accel = ta.linreg(relationship_trend, length=engine.meta_window).fillna(0)
+        bipolar_trend_strength = normalize_to_bipolar(relationship_trend, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, engine.norm_window, engine.bipolar_sensitivity)
+        print(f"    - [关系分趋势]: {get_val(relationship_trend, probe_date):.4f} -> 归一化趋势强度: {get_val(bipolar_trend_strength, probe_date):.4f}")
+        print(f"    - [关系分加速度]: {get_val(relationship_accel, probe_date):.4f} -> 归一化加速度强度: {get_val(bipolar_accel_strength, probe_date):.4f}")
+        # --- 链路层 5: 最终裁决与对质 ---
+        print("\n  [链路层 5] 最终裁决与对质 (Final Adjudication & Verdict)")
+        trend_weight, accel_weight = engine.meta_score_weights
+        recalc_score = (get_val(bipolar_trend_strength, probe_date) * trend_weight + get_val(bipolar_accel_strength, probe_date) * accel_weight)
+        recalc_score = np.clip(recalc_score, -1, 1)
+        print(f"    - 【探针重算-最终分】: {get_val(bipolar_trend_strength, probe_date):.4f} * {trend_weight} + {get_val(bipolar_accel_strength, probe_date):.4f} * {accel_weight} = {recalc_score:.4f}")
+        match = np.isclose(actual_score, recalc_score)
+        print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
+        print("\n--- “赢家信念探针”解剖完毕 ---")
 
 
 

@@ -54,7 +54,7 @@ class ForensicProbes:
         self._deploy_process_sync_probe = self.process_probes._deploy_process_sync_probe
         self._deploy_euphoric_acceleration_transmutation_probe = self.micro_behavior_probes._deploy_euphoric_acceleration_transmutation_probe
         self._deploy_bottom_accumulation_lockdown_probe = self.chip_probes._deploy_bottom_accumulation_lockdown_probe
-
+        self._deploy_winner_conviction_probe = self.process_probes._deploy_winner_conviction_probe
 
 
 
