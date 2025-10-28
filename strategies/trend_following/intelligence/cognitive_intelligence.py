@@ -784,9 +784,6 @@ class CognitiveIntelligence:
         - 核心升级: 改造“亢奋/高潮”支柱，使其消费新的双极性亢奋事件信号。
         - 新逻辑: 只取`COGNITIVE_BIPOLAR_EUPHORIC_EVENT`的负值部分（风险）作为该支柱的输入。
         """
-        # [代码修改开始]
-        # 方法名从 _diagnose_comprehensive_top_risk 修改为 _synthesize_comprehensive_top_risk
-        # [代码修改结束]
         states = {}
         signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
         # --- 亢奋/高潮支柱 ---
@@ -916,7 +913,7 @@ class CognitiveIntelligence:
             snapshot_score = pd.Series(snapshot_score_values, index=df.index, dtype=np.float32)
             final_dynamic_score = self._perform_cognitive_relational_meta_analysis(df, snapshot_score)
             states[signal_name] = final_dynamic_score
-        states.update(self._diagnose_main_force_high_cost_vs_distribution(df))
+        states.update(self._synthesize_main_force_intent_duel(df))
         return states
 
     def _perform_cognitive_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
@@ -1040,9 +1037,6 @@ class CognitiveIntelligence:
         - 核心修复: 使用 `retail_capitulation_distribution_D` 和 `profit_taking_urgency_D` 作为替代品，
                       修复了因信号缺失导致的计算错误，并使证据链逻辑更清晰。
         """
-        # [代码修改开始]
-        # 方法名从 _diagnose_suppression_vs_retreat 修改为 _synthesize_suppression_vs_retreat
-        # [代码修改结束]
         states = {}
         norm_window = 55
         p = 5
@@ -1158,9 +1152,6 @@ class CognitiveIntelligence:
                       然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
                       这解决了单一维度判断的战略短视和信号脆弱问题。
         """
-        # [代码修改开始]
-        # 方法名从 _diagnose_main_force_high_cost_vs_distribution 修改为 _synthesize_main_force_intent_duel
-        # [代码修改结束]
         states = {}
         signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
