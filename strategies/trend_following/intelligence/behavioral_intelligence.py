@@ -476,23 +476,20 @@ class BehavioralIntelligence:
                     final_weakening_drop += weakening_drop_scores.get(p_tactical, 0.0) * (numeric_tf_weights_weak.get(p_tactical, 0) / total_weight_weak)
             states['SCORE_VOL_WEAKENING_DROP'] = final_weakening_drop.clip(0, 1).astype(np.float32)
         norm_window = get_param_value(p.get('norm_window'), 55)
-        # [代码修改开始]
         # --- 流动性真空风险 V2.4 (趋势上下文版) ---
-        # 1. 维度正交化 (逻辑不变)
         low_turnover_score = normalize_score(df.get('turnover_rate_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=False)
         vol_ratio = df['volume_D'] / df.get('VOL_MA_55_D', df['volume_D']).replace(0, np.nan)
         sustained_shrink_score = normalize_score(vol_ratio.fillna(1.0), df.index, norm_window, ascending=False)
-        # [数据加固] 使用更可靠的波动率计算方式
         calculated_volatility = (df['high_D'] - df['low_D']) / df['pre_close_D'].replace(0, np.nan)
         fragility_score = normalize_score(calculated_volatility.fillna(0.0), df.index, norm_window, ascending=True)
         liquidity_vacuum_snapshot = (low_turnover_score * sustained_shrink_score * fragility_score)**(1/3)
-        # 2. [逻辑升维] 引入趋势上下文进行调制
         trend_context_score = self._diagnose_trend_context(df)
-        # 风险抑制因子：只有在下降趋势(-1)或震荡趋势(0)中，风险才被完全表达。上升趋势(+1)中风险被抑制为0。
-        risk_suppression_factor = (1 - trend_context_score.clip(0, 1))
+        # [代码修改开始]
+        # 风险抑制因子：只有在明确的上升趋势中(score > 0)，风险才被抑制。下降或震荡趋势中(score <= 0)，风险被完全表达。
+        risk_suppression_factor = 1.0 - trend_context_score.clip(lower=0)
+        # [代码修改结束]
         final_liquidity_vacuum_risk = liquidity_vacuum_snapshot * risk_suppression_factor
         states['SCORE_RISK_LIQUIDITY_VACUUM'] = final_liquidity_vacuum_risk.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         vol_dry_up = normalize_score(df['volume_D'], df.index, norm_window, ascending=False)
         bottom_support_power = normalize_score(df.get('closing_strength_index_D', pd.Series(0.5, index=df.index)), df.index, norm_window)
         bullish_divergence = normalize_score(df.get('flow_divergence_mf_vs_retail_D', pd.Series(0.0, index=df.index)).clip(0), df.index, norm_window)
