@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
+from strategies.trend_following import utils
 from strategies.trend_following.utils import transmute_health_to_ultimate_signals, get_params_block, get_param_value, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics
 
 class ChipIntelligence:
@@ -71,8 +72,8 @@ class ChipIntelligence:
         # 权威的底部支撑信号 (调用utils中的底层函数)
         gaia_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('gaia_bedrock_params', {})
         fib_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('fibonacci_support_params', {})
-        gaia_support = self.strategy.utils._calculate_gaia_bedrock_support(df, gaia_params, self.strategy.atomic_states)
-        historical_low_support = self.strategy.utils._calculate_historical_low_support(df, fib_params)
+        gaia_support = utils._calculate_gaia_bedrock_support(df, gaia_params, self.strategy.atomic_states)
+        historical_low_support = utils._calculate_historical_low_support(df, fib_params)
         authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
         # 持续的筹码聚集信号
         chip_accumulation_score = self.strategy.atomic_states.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
