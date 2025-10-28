@@ -57,11 +57,10 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V417.0 · 最终指挥链修复版】情报层总指挥官
-        - 核心重构: 修复了因指挥链顺序错误，导致微观引擎在上下文信号生成前运行的致命BUG。
-        - 新指挥链: 1. 基础/专业层 -> 2. 上下文层 -> 3. 微观/战术层 -> 4. 认知/决策层。
-        - 修改逻辑: 在微观引擎运行前，新增一个步骤，专门调用 `_calculate_and_update_context_scores`
-                      来预先计算所有必要的上下文分数，确保数据依赖完整。
+        【V418.0 · 职责净化版】情报层总指挥官
+        - 核心重构: 移除了所有“合成”与“决策”相关的调用（如微观行为合成、上下文计算），
+                      使其回归“诊断”这一纯粹职责：生成所有基础的原子状态。
+        - 作战流程: 运行所有诊断引擎，填充 self.strategy.atomic_states。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -86,52 +85,16 @@ class IntelligenceLayer:
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
         # [代码修改开始]
-        # --- 新增阶段: 上下文层情报生成 ---
-        print("  -> [指挥链] 正在执行: 上下文层情报生成...")
-        self._calculate_and_update_context_scores(df)
-        # [代码修改结束]
-        print("  -> [指挥链] 正在执行: 微观层 & 战术层情报生成...")
-        micro_behavior_states = self.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(df)
-        update_states(micro_behavior_states)
-        tactic_states = self.cognitive_intel.tactic_engine.run_tactic_synthesis(df, pullback_enhancements={})
-        update_states(tactic_states)
-        self.strategy.playbook_states.update({k: v for k, v in tactic_states.items() if k.startswith('PLAYBOOK_')})
-        print("  -> [指挥链] 正在执行: 顶层认知融合与决策生成...")
-        self.cognitive_intel.synthesize_cognitive_scores(df, pullback_enhancements={})
-        update_states(self.predictive_intel.run_predictive_diagnostics())
-        trigger_events = self.playbook_engine.define_trigger_events(df)
-        self.strategy.trigger_events.update(trigger_events)
-        _, playbook_states = self.playbook_engine.generate_playbook_states(self.strategy.trigger_events)
-        self.strategy.playbook_states.update(playbook_states)
-        exit_triggers_df = self.structural_defense_layer.generate_hard_exit_triggers()
-        self.strategy.exit_triggers = exit_triggers_df
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        return self.strategy.trigger_events
-
-    def _calculate_and_update_context_scores(self, df: pd.DataFrame):
-        """
-        【V1.3 · 返回类型修复版】计算并更新所有通用上下文分数。
-        - 核心修复: 修正了对 calculate_context_scores 函数返回值的处理逻辑。
-                      该函数返回一个包含两个Series的元组，而不是字典。
-                      代码现在正确地解包元组，并用正确的键构建字典后再更新。
-        - 核心职责: 作为一个独立步骤，确保所有下游引擎在运行前都能获取到
-                      必要的上下文状态，如“深度底部区域”等。
-        """
-        from .utils import calculate_context_scores
-        # [代码修改开始]
-        # 步骤1: 调用函数并正确解包返回的元组 (Series, Series)
-        bottom_score_series, top_score_series = calculate_context_scores(
-            df=df,
-            atomic_states=self.strategy.atomic_states
-        )
-        # 步骤2: 使用正确的信号名作为键，构建一个字典
-        context_scores_dict = {
-            'SCORE_CONTEXT_DEEP_BOTTOM_ZONE': bottom_score_series,
-            'SCORE_CONTEXT_TOP_ZONE': top_score_series  # 假设顶部区域的键名
-        }
-        # 步骤3: 使用构建好的字典来更新 atomic_states
-        self.strategy.atomic_states.update(context_scores_dict)
-        # [代码修改结束]
+        # --- 移除所有不属于“诊断”范畴的调用 ---
+        # 移除上下文计算，上移至策略层
+        # 移除微观行为合成，上移至策略层
+        # 移除战术合成，上移至策略层
+        # 移除顶层认知融合，上移至策略层
+        # 移除预测层，上移至策略层
+        # 移除剧本引擎，上移至策略层
+        # 移除硬止损，上移至策略层
+        print("  -> [指挥链] 所有基础诊断完成，原子状态已生成。")
+        return self.strategy.atomic_states # 返回生成的原子状态
 
     def deploy_forensic_probes(self):
         """

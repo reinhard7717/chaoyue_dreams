@@ -44,20 +44,29 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V407.2 · 职责净化版】
-        - 核心修复: 移除了在 IntelligenceLayer 中已执行的 calculate_context_scores 的重复调用。
+        【V408.0 · 指挥权回归版】
+        - 核心重构: 本方法正式成为作战总指挥，严格按照“诊断->上下文->合成->决策”的顺序编排作战流程。
+        - 新指挥链:
+          1. 情报层完成所有诊断 (run_all_diagnostics)。
+          2. 计算上下文分数 (calculate_context_scores)。
+          3. 执行微观行为合成 (run_micro_behavior_synthesis)，修复了亢奋嬗变的时序BUG。
+          4. 执行后续的攻防决策与模拟。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        # 步骤1: 情报层生成所有原子状态和上下文分数
-        self.intelligence_layer.run_all_diagnostics()
         # [代码修改开始]
-        # 步骤2: 从已经计算好的 atomic_states 中直接获取上下文分数
-        bottom_context_score = self.atomic_states.get('SCORE_CONTEXT_DEEP_BOTTOM_ZONE', pd.Series(0.0, index=self.df_indicators.index))
-        top_context_score = self.atomic_states.get('SCORE_CONTEXT_TOP_ZONE', pd.Series(0.0, index=self.df_indicators.index))
+        # 步骤1: 情报层完成所有基础诊断，生成完整的 atomic_states
+        self.intelligence_layer.run_all_diagnostics()
+        # 步骤2: 基于完整的诊断结果，进行上下文分析
+        from .trend_following.utils import calculate_context_scores
+        bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
+        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变）
+        micro_behavior_states = self.intelligence_layer.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(self.df_indicators)
+        self.atomic_states.update(micro_behavior_states)
+        # 步骤4: 进行攻防决策
         # [代码修改结束]
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
