@@ -580,20 +580,25 @@ class MicroBehaviorEngine:
 
     def _calculate_4d_metric_quality(self, df: pd.DataFrame, metric_name: str, p: int, context_p: int, ascending: bool) -> pd.Series:
         """
-        【V1.2 · 健壮路径协议版】计算原子指标的四维质量分。
-        - 核心修正: 建立健壮的列名处理协议。函数内部会自动处理'_D'后缀，
-                      确保无论调用者传入 'metric' 还是 'metric_D' 都能正确找到数据列，
-                      从根本上解决因命名不一致导致的 AttributeError。
+        【V1.3 · 类型安全修复版】计算原子指标的四维质量分。
+        - 核心修复: 将 df.get() 的默认返回值从原始类型 0 修正为 pd.Series(0.0, index=df.index)，
+                      从根本上解决了当上游指标缺失时，导致下游 normalize_score 函数因类型不匹配而崩溃的致命错误。
         """
         # 建立健壮的列名处理协议，确保总能正确找到带 '_D' 后缀的列
         base_metric_name = metric_name[:-2] if metric_name.endswith('_D') else metric_name
         full_metric_name = f"{base_metric_name}_D"
+        # [代码新增开始]
+        # 创建一个标准的、类型安全的全零Series作为默认值
+        default_series = pd.Series(0.0, index=df.index)
+        # [代码新增结束]
+        # [代码修改开始]
         # 状态
-        static = df.get(full_metric_name, 0)
+        static = df.get(full_metric_name, default_series)
         # 速度 (战术层)
-        slope = df.get(f'SLOPE_{p}_{full_metric_name}', 0)
+        slope = df.get(f'SLOPE_{p}_{full_metric_name}', default_series)
         # 加速度 (战术层)
-        accel = df.get(f'ACCEL_{p}_{full_metric_name}', 0)
+        accel = df.get(f'ACCEL_{p}_{full_metric_name}', default_series)
+        # [代码修改结束]
         # 战术层 (p)
         tactical_static = normalize_score(static, df.index, p, ascending=ascending)
         tactical_slope = normalize_score(slope, df.index, p, ascending=ascending)
@@ -601,12 +606,15 @@ class MicroBehaviorEngine:
         tactical_quality = (tactical_static * tactical_slope * tactical_accel)**(1/3)
         # 战略/上下文层 (context_p)
         context_static = normalize_score(static, df.index, context_p, ascending=ascending)
-        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{full_metric_name}', 0), df.index, context_p, ascending=ascending)
-        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{full_metric_name}', 0), df.index, context_p, ascending=ascending)
+        # [代码修改开始]
+        # 使用类型安全的默认值
+        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
+        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
+        # [代码修改结束]
         context_quality = (context_static * context_slope * context_accel)**(1/3)
         # 最终融合 (战术 * 战略)
         return (tactical_quality * context_quality)**0.5
-    
+
     def _diagnose_consolidation_breakout(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V1.0 · 新增】“结构性盘整突破”诊断引擎
