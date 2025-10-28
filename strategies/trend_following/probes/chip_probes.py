@@ -173,8 +173,8 @@ class ChipProbes:
     def _deploy_lockdown_scramble_probe(self, probe_date: pd.Timestamp):
         """
         【探针 V2.0 · 原始数据穿透版】锁仓抢筹探针
-        - 核心升级: 新增“原始证据值”链路层，穿透归一化过程，直达最原始的输入数据，
-                      确保数据流转的绝对透明。
+        - 核心升级: 1. 修正前提验证逻辑，确保读取增强前的原始“底部锁仓”信号。
+                      2. 新增“原始证据值”链路层，穿透归一化过程，直达最原始的输入数据。
         """
         print("\n" + "="*25 + f" [筹码探针] 正在启用 🏃【锁仓抢筹探针 V2.0】🏃 " + "="*25)
         df = self.strategy.df_indicators
@@ -189,10 +189,16 @@ class ChipProbes:
         actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终信号分】: {actual_score:.4f}")
         print("\n  [链路层 2] 前提验证 (Prerequisite Validation)")
-        lockdown_trigger_series = atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
+        # 核心修正：读取由微观行为引擎保存的“增强前”的原始锁仓信号值，确保与引擎计算基准一致
+        # 提供一个回退，以防利润兑现模块未运行时探针崩溃
+        lockdown_trigger_series = atomic.get(
+            'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT',
+            atomic.get('SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', pd.Series(0.0, index=df.index))
+        )
         lockdown_trigger_val = get_val(lockdown_trigger_series, probe_date)
-        print(f"    - [前提: 底部锁仓信号] -> 得分: {lockdown_trigger_val:.4f}")
-        # [代码新增开始]
+        print(f"    - [前提: 底部锁仓信号 (增强前)] -> 得分: {lockdown_trigger_val:.4f}")
+        # [代码修改结束]
         print("\n  [链路层 3] 原始证据值 (Raw Evidence Values)")
         raw_cost_advantage = get_val(df.get('main_buy_cost_advantage_D'), probe_date)
         raw_net_flow = get_val(df.get('main_force_net_flow_consensus_D'), probe_date)
@@ -202,7 +208,6 @@ class ChipProbes:
         print(f"    - [原始证据 II: 主力净流入] -> 原始值: {raw_net_flow:.4f}")
         print(f"    - [原始证据 III: 主力信念] -> 原始值: {raw_conviction:.4f}")
         print(f"    - [原始证据 IV: 亏钱也要买(日内盈亏)] -> 原始值: {raw_costly_buy:.4f}")
-        # [代码新增结束]
         print("\n  [链路层 4] 抢筹证据归一化 (Scramble Evidence Normalization)")
         cost_advantage_series = normalize_score(df.get('main_buy_cost_advantage_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         net_flow_series = normalize_score(df.get('main_force_net_flow_consensus_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)

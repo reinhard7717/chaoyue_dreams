@@ -343,9 +343,9 @@ class MicroBehaviorEngine:
 
     def _synthesize_profit_taking_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 燃料转化版】“利润兑现压力”风险诊断引擎
-        - 核心升级: 利润兑现压力不再被简单抑制，而是被“嬗变”。
-                      被“看涨上下文护盾”吸收的风险部分，将转化为燃料，增强对应的机会信号。
+        【V5.0 · 数据流修正版】“利润兑现压力”风险诊断引擎
+        - 核心修正: 1. 修复数据流污染：不再隐蔽地修改全局状态，而是将所有修改后的信号（风险+增强后的机会）作为字典显式返回。
+                      2. 增加可追溯性：在增强机会信号前，将其原始值以 `_PRE_ENHANCEMENT` 后缀保存，供探针精确回溯。
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
@@ -369,11 +369,15 @@ class MicroBehaviorEngine:
             for p in periods:
                 weight = tf_weights.get(p, 0) / total_weight
                 raw_fused_risk_score += pressure_scores_by_period.get(p, 0.0) * weight
-        # [代码修改开始]
         # --- 燃料转化机制 ---
         # 1. 获取具有否决权的看涨信号
         absorption_reversal_opp = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_ABSORPTION_REVERSAL', 0.0)
         chip_lockdown_opp = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
+        # [代码新增开始]
+        # 为了探针的可追溯性，存储增强前的原始值
+        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT'] = absorption_reversal_opp.copy()
+        states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT'] = chip_lockdown_opp.copy()
+        # [代码新增结束]
         # 2. 构建抑制护盾 (取两者中的最强者)
         suppression_shield = np.maximum(absorption_reversal_opp.values, chip_lockdown_opp.values)
         # 3. 计算被护盾吸收的“燃料”
@@ -382,17 +386,16 @@ class MicroBehaviorEngine:
         final_risk_with_context = raw_fused_risk_score * (1.0 - suppression_shield)
         states[signal_name] = final_risk_with_context.clip(0, 1).astype(np.float32)
         # 5. 将燃料加注到对应的机会信号上
-        # 计算权重，避免重复加注
         total_opp_strength = absorption_reversal_opp.values + chip_lockdown_opp.values
         safe_total_opp_strength = np.where(total_opp_strength == 0, 1.0, total_opp_strength)
         absorption_weight = absorption_reversal_opp.values / safe_total_opp_strength
         lockdown_weight = chip_lockdown_opp.values / safe_total_opp_strength
-        # 更新机会信号
         enhanced_absorption_opp = (absorption_reversal_opp + fuel_generated * absorption_weight).clip(0, 1)
         enhanced_lockdown_opp = (chip_lockdown_opp + fuel_generated * lockdown_weight).clip(0, 1)
-        # 将增强后的机会信号存回 atomic_states，供后续模块使用
-        self.strategy.atomic_states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = enhanced_absorption_opp.astype(np.float32)
-        self.strategy.atomic_states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'] = enhanced_lockdown_opp.astype(np.float32)
+        # [代码修改开始]
+        # 修正数据流：将增强后的机会信号也放入返回字典，而不是直接修改全局状态
+        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = enhanced_absorption_opp.astype(np.float32)
+        states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'] = enhanced_lockdown_opp.astype(np.float32)
         # [代码修改结束]
         return states
 
