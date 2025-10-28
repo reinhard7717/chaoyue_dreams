@@ -462,23 +462,6 @@ class MicroBehaviorEngine:
         )**(1/3)
         final_risk_score = (dynamic_raw_euphoric_score * (1 - bullish_context_shield)).clip(0, 1)
         ignition_opportunity_score = (dynamic_raw_euphoric_score * bullish_context_shield).clip(0, 1)
-        # [代码新增开始]
-        # --- 战场透镜：数据流转全过程输出 ---
-        if probe_ts in df.index:
-            print("\n" + "="*25 + f" [战场透镜] 正在透视亢奋嬗变引擎 ({probe_date_str}) " + "="*25)
-            print(f"  [输入] 原始亢奋事件分: {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f}")
-            print("  --- 看涨上下文护盾 (Bullish Context Shield) ---")
-            print(f"    - [护盾支柱 I]  深度底部区域 (SCORE_CONTEXT_DEEP_BOTTOM_ZONE): {bottom_zone_context.get(probe_ts, -1):.4f}")
-            print(f"    - [护盾支柱 II] 筹码吸筹锁仓 (SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN): {chip_lockdown_context.get(probe_ts, -1):.4f}")
-            print(f"    - [护盾支柱 III] 赢家信念 (PROCESS_META_WINNER_CONVICTION): {winner_conviction_context.get(probe_ts, -1):.4f} (原始值: {winner_conviction_raw.get(probe_ts, -1):.4f})")
-            print(f"    - [护盾总分] (融合后): {bullish_context_shield.get(probe_ts, -1):.4f}")
-            print("  --- 嬗变裁决 (Transmutation Adjudication) ---")
-            print(f"    - [计算] 最终风险分 = 原始分 * (1 - 护盾分) = {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f} * (1 - {bullish_context_shield.get(probe_ts, -1):.4f}) = {final_risk_score.get(probe_ts, -1):.4f}")
-            print(f"    - [计算] 最终机会分 = 原始分 * 护盾分       = {dynamic_raw_euphoric_score.get(probe_ts, -1):.4f} * {bullish_context_shield.get(probe_ts, -1):.4f} = {ignition_opportunity_score.get(probe_ts, -1):.4f}")
-            print("  [输出] 最终风险信号 (COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION): " + f"{final_risk_score.get(probe_ts, -1):.4f}")
-            print("  [输出] 最终机会信号 (COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION): " + f"{ignition_opportunity_score.get(probe_ts, -1):.4f}")
-            print("="*80)
-        # [代码新增结束]
         states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
         states['COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION'] = ignition_opportunity_score.astype(np.float32)
         return states
