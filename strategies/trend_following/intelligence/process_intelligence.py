@@ -118,7 +118,7 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.7.0 · 最终校准版】对“关系分”进行元分析，输出分数。
+        【V2.8.0 · 最终校准版】对“关系分”进行元分析，输出分数。
         - 核心修复: 再次强调并修正“加速度”计算的致命逻辑错误。加速度是速度(trend)的一阶导数，
                       必须使用 relationship_trend.diff(1) 进行计算。
         """

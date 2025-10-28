@@ -16,7 +16,6 @@ class JudgmentLayer:
                       只有在“神盾”未激活时，离场信号才会被考虑（当前逻辑下，战术离场被完全压制）。
         - 收益: 实现了从“基于规则的被动离场”到“基于状态的主动防御”的哲学飞跃。
         """
-        print("    --- [最高作战指挥部 V537.0 · 盖亚的最终裁决版] 启动...")
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         debug_params = get_params_block(self.strategy, 'debug_params', {})

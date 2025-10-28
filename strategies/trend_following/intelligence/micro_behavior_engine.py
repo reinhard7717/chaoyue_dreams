@@ -25,18 +25,20 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.9 · 调用顺序修复版】微观行为诊断引擎总指挥
-        - 核心修复: 调整了内部函数的调用顺序。确保 `synthesize_reversal_reliability_score`
-                      在 `synthesize_euphoric_acceleration_risk` 之前执行。
-        - 收益: 保证了“亢奋嬗变”引擎在运行时，能够获取到最新的、正确的“深度底部区域”上下文分数，
-                从而让“看涨上下文护盾”能够正确生效。
+        【V3.0 · 情报同步修复版】微观行为诊断引擎总指挥
+        - 核心修复: 修正了内部数据流。现在每当一个子模块计算出新信号，
+                      都会立即更新到全局的 self.strategy.atomic_states 中，
+                      确保后续调用的模块能获取到最新的情报。
+        - 收益: 彻底解决了因内部情报不同步，导致“亢奋嬗变”引擎获取不到正确上下文的致命BUG。
         """
         all_states = {}
+        # [代码修改开始]
+        # 定义一个同时更新局部和全局状态的辅助函数
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
-        # [代码修改开始]
-        # 调整调用顺序：必须先计算所有上下文和依赖信号
+                self.strategy.atomic_states.update(new_states) # 立即更新全局状态
+        # [代码修改结束]
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
@@ -44,13 +46,12 @@ class MicroBehaviorEngine:
         update_states(self.diagnose_hermes_gambit(df))
         update_states(self._diagnose_consolidation_breakout(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
-        # 步骤1: 先计算包含“深度底部区域”在内的“反转可靠性”信号
+        # 步骤1: 先计算包含“深度底部区域”在内的“反转可靠性”信号，并立即更新全局状态
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
-        # 步骤2: 再计算依赖“深度底部区域”的“亢奋嬗变”信号
+        # 步骤2: 再计算依赖“深度底部区域”的“亢奋嬗变”信号，此时它能读到正确的全局状态
         update_states(self.synthesize_euphoric_acceleration_risk(df))
-        # [代码修改结束]
         return all_states
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
