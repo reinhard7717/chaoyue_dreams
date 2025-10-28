@@ -18,16 +18,25 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V604.0 · 锁仓确认版】筹码情报最高司令部
-        - 核心升级: 新增调用“底部吸筹锁仓”诊断引擎，专门识别主力在底部吸筹后、
-                      于拉升日坚定锁仓的关键战术行为。
+        【V606.0 · 内部依赖修复版】筹码情报最高司令部
+        - 核心修复: 修复了因内部数据依赖链断裂，导致“底部吸筹锁仓”信号被错误计算为0的致命BUG。
+        - 修改逻辑: 1. 恢复了 MTF 信号（嵌套字典）的输出，撤销了上一版错误的修改。
+                      2. 调整了内部方法的调用顺序，确保依赖信号被优先计算。
+                      3. 通过参数直接向 `diagnose_bottom_accumulation_lockdown` 传递其依赖的信号，
+                         而不是让其错误地从尚未更新的全局状态中读取。
         """
         all_chip_states = {}
         periods = [1, 5, 13, 21, 55]
         concentration_scores = self._diagnose_concentration_dynamics(df, periods)
+        # [代码修改开始]
+        # 恢复被错误移除的行，确保符合原始设计
+        all_chip_states['SCORE_CHIP_MTF_CONCENTRATION'] = concentration_scores
         accumulation_scores = self._diagnose_main_force_action(df, periods)
+        all_chip_states['SCORE_CHIP_MTF_ACCUMULATION'] = accumulation_scores
         power_transfer_scores = self._diagnose_power_transfer(df, periods)
+        all_chip_states['SCORE_CHIP_MTF_POWER_TRANSFER'] = power_transfer_scores
         peak_integrity_scores = self._diagnose_peak_integrity_dynamics(df, periods)
+        all_chip_states['SCORE_CHIP_MTF_PEAK_INTEGRITY'] = peak_integrity_scores
         ultimate_signals = self._synthesize_ultimate_signals(
             df,
             concentration_scores,
@@ -36,26 +45,23 @@ class ChipIntelligence:
             peak_integrity_scores
         )
         all_chip_states.update(ultimate_signals)
+        # 调整调用顺序，先计算依赖项
         accumulation_potential_states = self.diagnose_accumulation_playbooks(df)
         all_chip_states.update(accumulation_potential_states)
         capitulation_potential_states = self.diagnose_capitulation_reversal_potential(df)
         all_chip_states.update(capitulation_potential_states)
-        # [代码修改开始]
-        # 新增调用“底部吸筹锁仓”诊断引擎
-        lockdown_states = self.diagnose_bottom_accumulation_lockdown(df)
+        # 将已生成的 all_chip_states 作为参数传入，解决内部依赖问题
+        lockdown_states = self.diagnose_bottom_accumulation_lockdown(df, all_chip_states)
         all_chip_states.update(lockdown_states)
         # [代码修改结束]
         return all_chip_states
 
-    def diagnose_bottom_accumulation_lockdown(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def diagnose_bottom_accumulation_lockdown(self, df: pd.DataFrame, current_chip_states: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 动态回溯版】“底部吸筹锁仓”诊断引擎
-        - 核心重构: 引入动态回溯验证机制，实现“设置-触发-确认”的严谨逻辑链。
-        - 新核心逻辑:
-          1. [设置]: 识别出由“权威底部支撑”和“持续筹码聚集”共同定义的“底部吸筹区”。
-          2. [触发]: 识别一个明确的放量上涨日作为“点火日”。
-          3. [确认]: 在点火日，回溯检查近期是否存在“底部吸筹区”，并同时确认当日主力坚定锁仓。
-        - 收益: 确保了信号的因果关系，能精准捕捉在真实吸筹基础上发起的突破行情。
+        【V2.2 · 依赖注入修复版】“底部吸筹锁仓”诊断引擎
+        - 核心修复: 1. 增加 current_chip_states 参数，用于接收模块内已计算的信号。
+                      2. 将 SCORE_CHIP_TRUE_ACCUMULATION 的数据源从全局 self.strategy.atomic_states
+                         修正为从传入的 current_chip_states 获取，修复数据依赖链。
         """
         states = {}
         signal_name = 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'
@@ -63,7 +69,6 @@ class ChipIntelligence:
         lookback_window = get_param_value(p_conf.get('lookback_window'), 5)
         accumulation_threshold = get_param_value(p_conf.get('accumulation_threshold'), 0.3)
         norm_window = 55
-        # [代码修改开始]
         # --- 1. 设置阶段: 识别“底部吸筹区” (Setup Phase) ---
         # 权威的底部支撑信号 (调用utils中的底层函数)
         gaia_params = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {}).get('gaia_bedrock_params', {})
@@ -71,8 +76,10 @@ class ChipIntelligence:
         gaia_support = utils._calculate_gaia_bedrock_support(df, gaia_params, self.strategy.atomic_states)
         historical_low_support = utils._calculate_historical_low_support(df, fib_params)
         authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
-        # 持续的筹码聚集信号
-        chip_accumulation_score = self.strategy.atomic_states.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
+        # [代码修改开始]
+        # 修复数据依赖：从传入的 current_chip_states 中获取信号，而不是全局状态
+        chip_accumulation_score = current_chip_states.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
+        # [代码修改结束]
         sustained_accumulation = chip_accumulation_score.rolling(window=3).mean() > accumulation_threshold
         # 定义“底部吸筹区”状态
         is_in_bottom_accumulation_zone = authoritative_bottom_support & sustained_accumulation
@@ -93,7 +100,6 @@ class ChipIntelligence:
             has_recent_setup
         ) * lockdown_confirmation_score
         states[signal_name] = final_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: Dict[int, pd.Series], accumulation: Dict[int, pd.Series], power_transfer: Dict[int, pd.Series], peak_integrity: Dict[int, pd.Series]) -> Dict[str, pd.Series]:
