@@ -44,13 +44,14 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V408.0 · 指挥权回归版】
-        - 核心重构: 本方法正式成为作战总指挥，严格按照“诊断->上下文->合成->决策”的顺序编排作战流程。
+        【V409.0 · 拂晓行动版】
+        - 核心重构: 彻底重建并固化了正确的指挥链，解决了所有时序和数据流问题。
         - 新指挥链:
-          1. 情报层完成所有诊断 (run_all_diagnostics)。
-          2. 计算上下文分数 (calculate_context_scores)。
-          3. 执行微观行为合成 (run_micro_behavior_synthesis)，修复了亢奋嬗变的时序BUG。
-          4. 执行后续的攻防决策与模拟。
+          1. 情报层完成所有基础诊断。
+          2. 计算上下文分数并注入原子状态。
+          3. 执行微观行为合成并注入原子状态。
+          4. 执行顶层认知合成，确保综合风险等信号在正确的时间点生成。
+          5. 执行后续的攻防决策与模拟。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -60,13 +61,17 @@ class TrendFollowStrategy:
         # [代码修改开始]
         # 步骤1: 情报层完成所有基础诊断，生成完整的 atomic_states
         self.intelligence_layer.run_all_diagnostics()
-        # 步骤2: 基于完整的诊断结果，进行上下文分析
+        # 步骤2: 基于完整的诊断结果，进行上下文分析，并注入 atomic_states
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
-        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变）
+        self.atomic_states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = bottom_context_score
+        self.atomic_states['SCORE_CONTEXT_TOP_ZONE'] = top_context_score
+        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变），并注入 atomic_states
         micro_behavior_states = self.intelligence_layer.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(self.df_indicators)
         self.atomic_states.update(micro_behavior_states)
-        # 步骤4: 进行攻防决策
+        # 步骤4: 执行顶层认知合成，生成综合风险等最终认知信号
+        self.intelligence_layer.cognitive_intel.synthesize_cognitive_scores(self.df_indicators, pullback_enhancements={})
+        # 步骤5: 执行攻防决策与模拟
         # [代码修改结束]
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,

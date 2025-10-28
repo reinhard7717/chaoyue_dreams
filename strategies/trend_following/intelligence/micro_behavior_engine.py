@@ -457,10 +457,9 @@ class MicroBehaviorEngine:
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V5.2 · 幽灵信号根除版】微观行为专用的关系元分析核心引擎
-        - 核心修复: 彻底修复了将中性输入(0)错误解读为最大负向状态(-1)的根本性数学缺陷。
-                      现在，输入信号被正确地视为一个[0, 1]的“量值”，其本身只贡献积极状态，
-                      而负向状态完全由其动态（负速度/负加速度）产生。
+        【V5.3 · 加速度校准版】微观行为专用的关系元分析核心引擎
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -470,18 +469,16 @@ class MicroBehaviorEngine:
         norm_window = 55
         meta_window = 5
         bipolar_sensitivity = 1.0
-        # [代码修改开始]
-        # 关键修复：直接将输入的 unipolar score [0, 1] 作为双极性分析的基准。
-        # 这正确地将输入解读为“量值”，其中0是中性，1是最大。
-        # 它解决了旧公式 (score * 2 - 1) 将 0 错误地映射到 -1 的“幽灵信号”问题。
         bipolar_snapshot = snapshot_score.clip(0, 1)
-        # [代码修改结束]
         relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
@@ -494,7 +491,6 @@ class MicroBehaviorEngine:
             bullish_velocity * w_velocity +
             bullish_acceleration * w_acceleration
         )
-        # 因为bipolar_snapshot现在是[0,1]，所以它对bearish_state没有贡献，这是正确的。
         bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -504,7 +500,6 @@ class MicroBehaviorEngine:
             bearish_acceleration * w_acceleration
         )
         net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        # 状态主导协议护栏保持不变
         final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
         final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
         return final_unipolar_score.astype(np.float32)

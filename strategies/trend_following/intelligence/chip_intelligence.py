@@ -349,11 +349,9 @@ class ChipIntelligence:
 
     def _perform_chip_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series, meta_window: int, holographic_divergence_score: pd.Series) -> pd.Series:
         """
-        【V6.1 · 双子座协议版】筹码专用的关系元分析核心引擎
-        - 核心革命: 签署“双子座”协议，重铸“阿瑞斯之怒”引擎。
-                      1. [一体两面] 分别计算看涨力量(Bullish Force)和看跌力量(Bearish Force)。
-                      2. [净值裁决] 最终得分 = 看涨力量 - 看跌力量，输出一个[-1, 1]的双极性净值分数。
-        - 升级意义: 能够同时评估市场的进攻和防守意图，解决了原模型只看涨、忽略看跌信号的致命缺陷。
+        【V6.2 · 加速度校准版】筹码专用的关系元分析核心引擎
+        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
+                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -363,16 +361,14 @@ class ChipIntelligence:
         w_holographic = get_param_value(p_meta.get('holographic_weight'), 0.2)
         norm_window = 55
         bipolar_sensitivity = 1.0
-        # 实施“双子座”协议
-        # 维度二：速度分 (Velocity Score) - 范围 [-1, 1]
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
-        # 维度三：加速度分 (Acceleration Score) - 范围 [-1, 1]
-        relationship_accel = relationship_trend.diff(meta_window).fillna(0)
+        # [代码修改开始]
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        # [代码修改结束]
         acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
-        # 维度四：全息背离分 (Holographic Divergence Score) - 范围 [-1, 1]
         holographic_score = holographic_divergence_score.clip(-1, 1)
-        # --- 看涨力量评估 (Bullish Force) ---
         bullish_state = snapshot_score.clip(0, 1)
         bullish_velocity = velocity_score.clip(0, 1)
         bullish_acceleration = acceleration_score.clip(0, 1)
@@ -383,7 +379,6 @@ class ChipIntelligence:
             bullish_acceleration * w_acceleration +
             bullish_holographic * w_holographic
         )
-        # --- 看跌力量评估 (Bearish Force) ---
         bearish_state = (snapshot_score.clip(-1, 0) * -1)
         bearish_velocity = (velocity_score.clip(-1, 0) * -1)
         bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
@@ -394,9 +389,7 @@ class ChipIntelligence:
             bearish_acceleration * w_acceleration +
             bearish_holographic * w_holographic
         )
-        # --- 净值裁决 (Net Value Adjudication) ---
         final_score = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        
         return final_score.astype(np.float32)
 
     def _calculate_holographic_divergence(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:

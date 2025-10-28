@@ -416,12 +416,9 @@ class FundFlowIntelligence:
         
         return {'s_bull': s_bull, 's_bear': s_bear, 'd_intensity': d_intensity}
 
-    # ==============================================================================
-    # 以下为V2.1版新增的模块化辅助方法
-    # ==============================================================================
     def _perform_fund_flow_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """
-        【V2.1 · 加速度修复版】资金流专用的关系元分析核心引擎
+        【V2.2 · 加速度校准版】资金流专用的关系元分析核心引擎
         - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
                       因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
         """
@@ -440,7 +437,7 @@ class FundFlowIntelligence:
             window=norm_window, sensitivity=bipolar_sensitivity
         )
         # [代码修改开始]
-        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1) 而不是 diff(meta_window)
+        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
         relationship_accel = relationship_trend.diff(1).fillna(0)
         # [代码修改结束]
         acceleration_score = normalize_to_bipolar(
