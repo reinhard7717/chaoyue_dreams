@@ -44,16 +44,21 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V407.1 · 阿里阿德涅之线协议版】
+        【V407.2 · 职责净化版】
+        - 核心修复: 移除了在 IntelligenceLayer 中已执行的 calculate_context_scores 的重复调用。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
+        # 步骤1: 情报层生成所有原子状态和上下文分数
         self.intelligence_layer.run_all_diagnostics()
-        from .trend_following.utils import calculate_context_scores
-        bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
+        # [代码修改开始]
+        # 步骤2: 从已经计算好的 atomic_states 中直接获取上下文分数
+        bottom_context_score = self.atomic_states.get('SCORE_CONTEXT_DEEP_BOTTOM_ZONE', pd.Series(0.0, index=self.df_indicators.index))
+        top_context_score = self.atomic_states.get('SCORE_CONTEXT_TOP_ZONE', pd.Series(0.0, index=self.df_indicators.index))
+        # [代码修改结束]
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,
