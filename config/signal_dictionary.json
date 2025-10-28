@@ -797,20 +797,14 @@
             "description": "融合了筹码、行为、资金流、结构等多个维度的风险信号，并经过动态加权和共振惩罚后得到的最终风险总分。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
-        "COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION": {
-            "cn_name": "【认知风险】亢奋加速风险",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -3000,
-            "context_role": "top_risk",
-            "description": "【V6.0 上下文嬗变版】经过“看涨上下文护盾”过滤后的纯粹风险信号。仅当亢奋行为发生在非底部、无主力锁仓的背景下时，此信号才会被激活。"
-        },
-        "COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION": {
-            "cn_name": "【认知机会】点火加速",
-            "category": "认知层-机会",
-            "type": "dynamic",
+        "COGNITIVE_BIPOLAR_EUPHORIC_EVENT": {
+            "cn_name": "【认知】双极性亢奋事件",
+            "category": "认知层-动态",
+            "type": "process",
             "score": 700,
-            "description": "【V6.0 上下文嬗变版】由“亢奋事件”在强大的“看涨上下文护盾”（含底部区域、筹码锁仓、主力信念）调节下嬗变而来的黄金机会信号。代表在坚实的底部基础上发起的、高确定性的主升浪点火。"
+            "penalty_weight": -3000,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0 · 双极性重构版】亢奋事件的最终裁决信号。正值代表在强看涨上下文下的点火机会，负值代表在弱看涨上下文下的力竭风险。计分引擎会根据其正负分别应用加分或罚分。"
         },
         "SCORE_MICRO_HERMES_GAMBIT": {
             "cn_name": "【微观】压单吸筹",

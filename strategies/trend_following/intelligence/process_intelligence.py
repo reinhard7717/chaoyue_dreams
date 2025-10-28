@@ -157,23 +157,6 @@ class ProcessIntelligence:
             trend_weight = self.meta_score_weights[0]
             accel_weight = self.meta_score_weights[1]
             meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-            # [代码新增开始]
-            # --- 真理探针：关系元分析探针 ---
-            if signal_name == 'PROCESS_META_WINNER_CONVICTION':
-                probe_date_str = self.strategy.params.get('debug_params', {}).get('probe_dates', [df.index[-1].strftime('%Y-%m-%d')])[0]
-                probe_ts = pd.to_datetime(probe_date_str)
-                if df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
-                if probe_ts in df.index:
-                    print("\n" + "="*25 + f" [真理探针] 正在透视关系元分析 ({probe_date_str}) " + "="*25)
-                    print("  --- [链路层 5] 关系元分析 (Meta-Analysis) ---")
-                    print(f"    - [输入] 瞬时关系分: {relationship_score.get(probe_ts, -1):.4f}")
-                    print(f"    - [计算] 关系分趋势 (linreg): {relationship_trend.get(probe_ts, -1):.4f} -> 归一化趋势强度: {bipolar_trend_strength.get(probe_ts, -1):.4f}")
-                    print(f"    - [计算] 关系分加速度 (diff(1)): {relationship_accel.get(probe_ts, -1):.4f} -> 归一化加速度强度: {bipolar_accel_strength.get(probe_ts, -1):.4f}")
-                    print("  --- [链路层 6] 最终裁决 (Final Adjudication) ---")
-                    print(f"    - [计算] 最终分 = (趋势强度 * {trend_weight}) + (加速度强度 * {accel_weight})")
-                    print(f"    - [计算]         = ({bipolar_trend_strength.get(probe_ts, -1):.4f} * {trend_weight}) + ({bipolar_accel_strength.get(probe_ts, -1):.4f} * {accel_weight}) = {meta_score.get(probe_ts, -1):.4f}")
-                    print("="*80)
-            # [代码新增结束]
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':
@@ -210,22 +193,6 @@ class ProcessIntelligence:
         momentum_b_corrected = momentum_b_raw + antidote_k * momentum_antidote
         k = config.get('signal_b_factor_k', 1.0)
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
-        # [代码新增开始]
-        # --- 真理探针：赢家信念探针 ---
-        probe_date_str = self.strategy.params.get('debug_params', {}).get('probe_dates', [df.index[-1].strftime('%Y-%m-%d')])[0]
-        probe_ts = pd.to_datetime(probe_date_str)
-        if df.index.tz: probe_ts = probe_ts.tz_localize(df.index.tz)
-        if probe_ts in df.index:
-            print("\n" + "="*25 + f" [真理探针] 正在透视赢家信念 ({probe_date_str}) " + "="*25)
-            print("  --- [链路层 2] 原始信号与动量计算 ---")
-            print(f"    - [信号A: {signal_a_name}] 值: {signal_a.get(probe_ts, -1):.4f} -> 动量: {momentum_a.get(probe_ts, -1):.4f} (紧迫度)")
-            print(f"    - [信号B: {signal_b_name}] 值: {signal_b.get(probe_ts, -1):.4f} -> 动量: {momentum_b_raw.get(probe_ts, -1):.4f} (原始利润)")
-            print(f"    - [解毒剂: {antidote_signal_name}] 值: {signal_antidote.get(probe_ts, -1):.4f} -> 动量: {momentum_antidote.get(probe_ts, -1):.4f} (新赢家流入)")
-            print("  --- [链路层 3] 解毒剂协议 ---")
-            print(f"    - 【修正后利润动量】: {momentum_b_raw.get(probe_ts, -1):.4f} + {antidote_k} * {momentum_antidote.get(probe_ts, -1):.4f} = {momentum_b_corrected.get(probe_ts, -1):.4f}")
-            print("  --- [链路层 4] 瞬时关系分计算 ---")
-            print(f"    - 【瞬时关系分 (背离)】: ({k} * {momentum_b_corrected.get(probe_ts, -1):.4f} - {momentum_a.get(probe_ts, -1):.4f}) / {k + 1} = {relationship_score.get(probe_ts, -1):.4f}")
-        # [代码新增结束]
         return relationship_score.clip(-1, 1)
 
     def _diagnose_strategy_sync(self, df: pd.DataFrame, config: dict) -> Dict[str, pd.Series]:

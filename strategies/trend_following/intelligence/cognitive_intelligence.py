@@ -680,19 +680,20 @@ class CognitiveIntelligence:
 
     def _diagnose_comprehensive_top_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 信号源升级版】综合顶部风险诊断引擎
-        - 核心升级: 废弃消费原始的、模棱两可的 SCORE_RISK_ICARUS_FALL 信号。
-                      全面换装为消费由 _transmute_pressure_into_opportunity 引擎产出的、
-                      经过主力意图审判的 SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW 信号。
-        - 收益: 确保了顶层风险引擎的每一个输入都是经过深度加工的高质量情报，提升了最终裁决的准确性。
+        【V7.0 · 双极性信号适配版】综合顶部风险诊断引擎
+        - 核心升级: 改造“亢奋/高潮”支柱，使其消费新的双极性亢奋事件信号。
+        - 新逻辑: 只取`COGNITIVE_BIPOLAR_EUPHORIC_EVENT`的负值部分（风险）作为该支柱的输入。
         """
         states = {}
         signal_name = 'COGNITIVE_RISK_COMPREHENSIVE_TOP'
         # [代码修改开始]
         # --- 亢奋/高潮支柱 ---
+        # 1. 获取新的双极性亢奋事件信号
+        bipolar_euphoric_event = self._get_atomic_score(df, 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT', 0.0)
+        # 2. 只取其负值部分（风险），并转换为正值
+        euphoric_risk_component = bipolar_euphoric_event.clip(upper=0).abs()
         euphoric_pillar_signals = {
-            'EUPHORIC_ACCELERATION': self._get_atomic_score(df, 'COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION', 0.0),
-            # 信号源升级：使用经过意图审判的“上影线抛压风险”替换原始的“伊卡洛斯之坠”
+            'EUPHORIC_EVENT_RISK': euphoric_risk_component,
             'SELLING_PRESSURE': self._get_atomic_score(df, 'SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW', 0.0),
             'BOARD_HEAVEN_EARTH': self._get_atomic_score(df, 'SCORE_BOARD_HEAVEN_EARTH', 0.0),
         }

@@ -25,20 +25,17 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 情报同步修复版】微观行为诊断引擎总指挥
+        【V4.0 · 调用链修复版】微观行为诊断引擎总指挥
         - 核心修复: 修正了内部数据流。现在每当一个子模块计算出新信号，
                       都会立即更新到全局的 self.strategy.atomic_states 中，
                       确保后续调用的模块能获取到最新的情报。
-        - 收益: 彻底解决了因内部情报不同步，导致“亢奋嬗变”引擎获取不到正确上下文的致命BUG。
+        - 核心修复: 修正了对亢奋事件诊断方法的调用，确保调用的是新的双极性信号方法。
         """
         all_states = {}
-        # [代码修改开始]
-        # 定义一个同时更新局部和全局状态的辅助函数
         def update_states(new_states: Dict[str, pd.Series]):
             if new_states:
                 all_states.update(new_states)
-                self.strategy.atomic_states.update(new_states) # 立即更新全局状态
-        # [代码修改结束]
+                self.strategy.atomic_states.update(new_states)
         update_states(self.synthesize_early_momentum_ignition(df))
         update_states(self.diagnose_deceptive_retail_flow(df))
         update_states(self.synthesize_microstructure_dynamics(df))
@@ -46,12 +43,13 @@ class MicroBehaviorEngine:
         update_states(self.diagnose_hermes_gambit(df))
         update_states(self._diagnose_consolidation_breakout(df))
         early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
-        # 步骤1: 先计算包含“深度底部区域”在内的“反转可靠性”信号，并立即更新全局状态
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
-        # 步骤2: 再计算依赖“深度底部区域”的“亢奋嬗变”信号，此时它能读到正确的全局状态
-        update_states(self.synthesize_euphoric_acceleration_risk(df))
+        # [代码修改开始]
+        # 修正调用，确保调用的是新的双极性信号方法
+        update_states(self.synthesize_bipolar_euphoric_event(df))
+        # [代码修改结束]
         return all_states
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -381,30 +379,25 @@ class MicroBehaviorEngine:
         states[signal_name] = final_fused_score.clip(0, 1).astype(np.float32)
         return states
 
-    def synthesize_euphoric_acceleration_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def synthesize_bipolar_euphoric_event(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 战场透镜版】亢奋加速风险/机会诊断引擎
-        - 核心重构: 彻底重写函数，确保逻辑清晰、无懈可击。
-        - 新增功能: 增加详细的 print 调试信息，完整输出“亢奋嬗变”过程中的数据流转。
-        - 作战流程:
-          1. 计算原始的、中性的“亢奋事件”分。
-          2. 构建“看涨上下文护盾”，融合底部区域、筹码锁仓、赢家信念三大情报。
-          3. 执行“嬗变”裁决：
-             - 最终风险 = 原始亢奋事件 * (1 - 护盾分)
-             - 最终机会 = 原始亢奋事件 * 护盾分
+        【V9.0 · 双极性重构版】亢奋事件诊断引擎
+        - 核心重构: 废除风险和机会双信号输出。引入单一的双极性信号，彻底解决重复计分问题。
+        - 新逻辑:
+          1. 计算原始的“亢奋事件”分。
+          2. 构建“看涨上下文护盾”。
+          3. 最终输出一个[-1, 1]的双极性信号：
+             - 护盾强 -> 信号为正 (机会)
+             - 护盾弱 -> 信号为负 (风险)
         """
         states = {}
+        # [代码修改开始]
+        # 1. 重命名信号以反映其双极性特性
+        signal_name = 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT'
+        # [代码修改结束]
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
             return states
-        # [代码新增开始]
-        # --- 战场透镜：数据流转全过程输出 ---
-        # 获取当前探针日期，仅为调试输出使用
-        probe_date_str = self.strategy.params.get('debug_params', {}).get('probe_dates', [df.index[-1].strftime('%Y-%m-%d')])[0]
-        probe_ts = pd.to_datetime(probe_date_str)
-        if df.index.tz:
-            probe_ts = probe_ts.tz_localize(df.index.tz)
-        # [代码新增结束]
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         epsilon = 1e-9
         periods = [5, 13, 21, 55]
@@ -453,17 +446,21 @@ class MicroBehaviorEngine:
                 dynamic_raw_euphoric_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
         bottom_zone_context = self._get_atomic_score(df, 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE', 0.0)
         chip_lockdown_context = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
-        winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_META_WINNER_CONVICTION', 0.0)
+        winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_WINNER_CONVICTION_DYNAMICS', 0.0)
         winner_conviction_context = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5)
         bullish_context_shield = (
             bottom_zone_context *
             chip_lockdown_context *
             winner_conviction_context
         )**(1/3)
-        final_risk_score = (dynamic_raw_euphoric_score * (1 - bullish_context_shield)).clip(0, 1)
-        ignition_opportunity_score = (dynamic_raw_euphoric_score * bullish_context_shield).clip(0, 1)
-        states['COGNITIVE_SCORE_RISK_EUPHORIC_ACCELERATION'] = final_risk_score.astype(np.float32)
-        states['COGNITIVE_OPPORTUNITY_IGNITION_ACCELERATION'] = ignition_opportunity_score.astype(np.float32)
+        # [代码修改开始]
+        # 2. 将护盾分[0, 1]映射为调制器[-1, 1]
+        shield_modulator = (bullish_context_shield * 2) - 1
+        # 3. 计算最终的双极性信号
+        bipolar_euphoric_score = (dynamic_raw_euphoric_score * shield_modulator).clip(-1, 1)
+        # 4. 存储唯一的双极性信号，废除旧的双信号
+        states[signal_name] = bipolar_euphoric_score.astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
