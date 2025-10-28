@@ -110,22 +110,28 @@ class IntelligenceLayer:
 
     def _calculate_and_update_context_scores(self, df: pd.DataFrame):
         """
-        【V1.2 · 终极修复版】计算并更新所有通用上下文分数。
-        - 核心修复: 移除了对 calculate_context_scores 函数的所有冗余参数传递，
-                      使其与函数真实定义（只接收df和atomic_states）完全匹配。
+        【V1.3 · 返回类型修复版】计算并更新所有通用上下文分数。
+        - 核心修复: 修正了对 calculate_context_scores 函数返回值的处理逻辑。
+                      该函数返回一个包含两个Series的元组，而不是字典。
+                      代码现在正确地解包元组，并用正确的键构建字典后再更新。
         - 核心职责: 作为一个独立步骤，确保所有下游引擎在运行前都能获取到
                       必要的上下文状态，如“深度底部区域”等。
         """
-        # [代码修改开始]
-        # 移除所有多余的参数，函数会自己从 self.strategy 中获取所需配置
         from .utils import calculate_context_scores
-        context_scores = calculate_context_scores(
+        # [代码修改开始]
+        # 步骤1: 调用函数并正确解包返回的元组 (Series, Series)
+        bottom_score_series, top_score_series = calculate_context_scores(
             df=df,
             atomic_states=self.strategy.atomic_states
         )
+        # 步骤2: 使用正确的信号名作为键，构建一个字典
+        context_scores_dict = {
+            'SCORE_CONTEXT_DEEP_BOTTOM_ZONE': bottom_score_series,
+            'SCORE_CONTEXT_TOP_ZONE': top_score_series  # 假设顶部区域的键名
+        }
+        # 步骤3: 使用构建好的字典来更新 atomic_states
+        self.strategy.atomic_states.update(context_scores_dict)
         # [代码修改结束]
-        if context_scores:
-            self.strategy.atomic_states.update(context_scores)
 
     def deploy_forensic_probes(self):
         """
