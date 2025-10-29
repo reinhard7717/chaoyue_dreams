@@ -124,8 +124,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V2.9.0 · 真理探针植入版】对“关系分”进行元分析，输出分数。
-        - 新增功能: 为“赢家信念”信号植入“真-关系元分析探针”，打印其计算过程。
+        【V3.0.0 · 门控分析版】对“关系分”进行元分析，输出分数。
+        - 核心升级: 新增 'gated_meta_analysis' 诊断模式。在该模式下，会先计算完整的动态分数，
+                      然后在最后一步使用一个“情境门”进行过滤，确保信号只在最相关的市场环境下激活。
         - 核心修复: 再次强调并修正“加速度”计算的致命逻辑错误。加速度是速度(trend)的一阶导数，
                       必须使用 relationship_trend.diff(1) 进行计算。
         """
@@ -144,10 +145,8 @@ class ProcessIntelligence:
             meta_score = relationship_score
         else:
             relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-    
             # 最终校准：加速度是速度(trend)的一阶导数，必须使用 diff(1)
             relationship_accel = relationship_trend.diff(1).fillna(0)
-            
             bipolar_trend_strength = normalize_to_bipolar(
                 series=relationship_trend,
                 target_index=df_index,
@@ -163,6 +162,21 @@ class ProcessIntelligence:
             trend_weight = self.meta_score_weights[0]
             accel_weight = self.meta_score_weights[1]
             meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        # [代码修改开始]
+        # --- 情境门控逻辑 ---
+        if diagnosis_mode == 'gated_meta_analysis':
+            gate_condition_config = config.get('gate_condition', {})
+            gate_type = gate_condition_config.get('type')
+            gate_is_open = pd.Series(True, index=df_index) # 默认门是打开的
+            if gate_type == 'price_vs_ma':
+                ma_period = gate_condition_config.get('ma_period', 5)
+                ma_series = df.get(f'EMA_{ma_period}_D')
+                if ma_series is not None:
+                    # 门控条件：仅当收盘价低于指定均线时，门才打开
+                    gate_is_open = df['close_D'] < ma_series
+            # 应用门控：只有当门打开时，信号才能通过
+            meta_score = meta_score * gate_is_open.astype(float)
+        # [代码修改结束]
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':
