@@ -40,36 +40,42 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V2.2.0 · 架构升级版】运行所有在配置中定义的元分析诊断任务。
-        - 核心升级: 新增对 'strategy_sync' 任务类型的支持，调用专属的计算引擎。
+        【V2.3.0 · 信号分裂版】运行所有在配置中定义的元分析诊断任务。
+        - 核心升级: 新增对 'split_meta_analysis' 任务类型的支持，调用专属的信号分裂计算引擎。
         """
-        # print(f"      -> [过程情报引擎 V2.2.0 · 架构升级版] 启动 (模式: {task_type_filter or 'all'})...")
+        # print(f"      -> [过程情报引擎 V2.3.0 · 信号分裂版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
-            print(f"      -> [过程情报引擎 V2.2.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
+            print(f"      -> [过程情报引擎 V2.3.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
             return {}
-            
         for config in self.diagnostics_config:
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
-
             signal_name = config.get('name')
             signal_type = config.get('type')
+            # [代码修改开始]
+            # 增加对新任务类型的路由
+            custom_signal_type = config.get('signal_type')
             if not signal_name:
                 continue
-
             # 增加对新任务类型的路由，为 'strategy_sync' 调用专属诊断方法
             if signal_type == 'meta_analysis':
-                meta_states = self._diagnose_meta_relationship(df, config)
-                if meta_states:
-                    all_process_states.update(meta_states)
+                # 增加对新任务类型的路由
+                if custom_signal_type == 'split_meta_analysis':
+                    split_states = self._diagnose_split_meta_relationship(df, config)
+                    if split_states:
+                        all_process_states.update(split_states)
+                else:
+                    meta_states = self._diagnose_meta_relationship(df, config)
+                    if meta_states:
+                        all_process_states.update(meta_states)
+            # [代码修改结束]
             elif signal_type == 'strategy_sync':
                 sync_states = self._diagnose_strategy_sync(df, config)
                 if sync_states:
                     all_process_states.update(sync_states)
-        
-        # print(f"      -> [过程情报引擎 V2.2.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
+        # print(f"      -> [过程情报引擎 V2.3.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -163,6 +169,51 @@ class ProcessIntelligence:
             meta_score = meta_score.clip(lower=0)
         meta_score = meta_score.clip(-1, 1).astype(np.float32)
         return {signal_name: meta_score}
+
+    def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】分裂型元关系诊断器
+        - 核心职责: 将一个双极性的元分析分数，在源头分裂为两个互斥的单极性信号：机会与风险。
+        - 收益: 彻底解决了下游计分和报告的逻辑混乱问题，使信号意图更纯粹。
+        """
+        states = {}
+        output_names = config.get('output_names', {})
+        opportunity_signal_name = output_names.get('opportunity')
+        risk_signal_name = output_names.get('risk')
+        if not opportunity_signal_name or not risk_signal_name:
+            print(f"        -> [分裂元分析] 警告: 缺少 'output_names' 配置，无法进行信号分裂。")
+            return {}
+        # 步骤1: 计算瞬时关系分
+        relationship_score = self._calculate_instantaneous_relationship(df, config)
+        if relationship_score.empty:
+            return {}
+        # 步骤2: 对关系分进行动态元分析，得到最终的双极性 meta_score
+        relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
+        relationship_accel = relationship_trend.diff(1).fillna(0)
+        bipolar_trend_strength = normalize_to_bipolar(
+            series=relationship_trend,
+            target_index=df.index,
+            window=self.norm_window,
+            sensitivity=self.bipolar_sensitivity
+        )
+        bipolar_accel_strength = normalize_to_bipolar(
+            series=relationship_accel,
+            target_index=df.index,
+            window=self.norm_window,
+            sensitivity=self.bipolar_sensitivity
+        )
+        trend_weight = self.meta_score_weights[0]
+        accel_weight = self.meta_score_weights[1]
+        meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        meta_score = meta_score.clip(-1, 1)
+        # 步骤3: 信号分裂
+        # 机会信号: 只取正向部分，代表机会强度
+        opportunity_part = meta_score.clip(lower=0)
+        states[opportunity_signal_name] = opportunity_part.astype(np.float32)
+        # 风险信号: 只取负向部分，并转为正值，代表风险强度
+        risk_part = meta_score.clip(upper=0).abs()
+        states[risk_signal_name] = risk_part.astype(np.float32)
+        return states
 
     def _calculate_winner_conviction_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """

@@ -418,14 +418,19 @@
             "comment": "【逻辑修复】1.明确为'背离'关系。2.废除k=-1.5的黑魔法，改为正值。3.使用'diff'计算变化。正分代表价格跌而散户加速投降，是看涨信号。"
           },
           {
-            "name": "PROCESS_META_PE_EFFICIENCY_TURN",
+            "name": "PROCESS_DYNAMICS_PRICE_EFFICIENCY",
             "type": "meta_analysis",
             "task_type": "base",
+            "signal_type": "split_meta_analysis",
+            "output_names": {
+              "opportunity": "PROCESS_OPP_VPA_EFFICIENCY_TURN",
+              "risk": "PROCESS_RISK_VPA_EFFICIENCY_DECAY"
+            },
             "relationship_type": "consensus",
             "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
             "signal_B": "VPA_EFFICIENCY_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【逻辑修复】1.明确为'共识'关系。2.使用'diff'计算VPA效率变化。正分代表价涨且效率提升。"
+            "comment": "【V2.0 · 信号分裂版】诊断'价格-VPA效率'关系。将其分裂为'效率看涨拐点'机会信号和'效率衰减'风险信号。"
           },
           {
             "name": "PROCESS_META_PD_DIVERGENCE_CONFIRM",

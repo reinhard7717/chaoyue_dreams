@@ -300,13 +300,21 @@
             "scoring_mode": "bipolar",
             "description": "【逻辑升级】诊断'价格下跌'与'散户投降式派发行为加剧'的背离。正分代表恐慌盘被吸收，是看涨的底部特征。"
         },
-        "PROCESS_META_PE_EFFICIENCY_TURN": {
+        "PROCESS_OPP_VPA_EFFICIENCY_TURN": {
             "cn_name": "【过程】VPA效率看涨拐点",
-            "category": "过程层-基础",
+            "category": "过程层-机会",
             "type": "process",
             "score": 100,
-            "scoring_mode": "bipolar",
-            "description": "诊断'价格-VPA效率'关系。正分为看涨拐点，负分为看跌拐点（惩罚）。"
+            "scoring_mode": "unipolar",
+            "description": "【过程引擎分裂信号】诊断'价格-VPA效率'关系中的积极动态。高分代表价格上涨与VPA效率提升形成共识，并且这种良好关系正在加速改善。"
+        },
+        "PROCESS_RISK_VPA_EFFICIENCY_DECAY": {
+            "cn_name": "【过程风险】VPA效率衰减",
+            "category": "过程层-风险",
+            "type": "risk",
+            "penalty_weight": -300,
+            "scoring_mode": "unipolar",
+            "description": "【过程引擎分裂信号】诊断'价格-VPA效率'关系中的负面动态。高分代表价格下跌与VPA效率下降形成共识，或出现价涨但效率下降的背离，并且这种负面关系正在加速恶化。"
         },
         "PROCESS_META_PD_DIVERGENCE_CONFIRM": {
             "cn_name": "【过程】主力散户背离确认",
@@ -1419,13 +1427,6 @@
             "type": "dynamic",
             "score": 500,
             "description": "【V1.1 · 名称规范化】由抛压分析协议创造的强力买入机会信号。当市场出现广义抛压（价跌或长上影），且主力吸收强度超过'审判阈值'时触发。分数越高，代表抛压越大、吸收越坚决。"
-        },
-        "SCORE_RISK_VPA_EFFICIENCY_DECLINING": {
-            "cn_name": "【VPA风险】效率下降",
-            "category": "基础层-风险",
-            "type": "risk",
-            "penalty_weight": -300,
-            "description": "VPA效率指标持续走低，表明投入的成交量无法有效推动价格，是潜在的上涨乏力或派发风险。"
         },
         "SCORE_RISK_VPA_VOLUME_ACCELERATING": {
             "cn_name": "【VPA风险】成交量加速",
