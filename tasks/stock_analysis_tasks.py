@@ -531,10 +531,14 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================== 2. 高级资金、筹码特征任务 ==================
 # =================================================================
 async def _initialize_task_context_unified(stock_code: str, is_incremental: bool, start_date_str: str = None):
-    """【V1.0 · 统一上下文版】为深度融合任务统一初始化上下文。"""
+    """【V1.1 · 创世防线版】为深度融合任务统一初始化上下文。
+    - 核心修复: 当发现数据库为空时，强制从 '2025-05-01' 的创世日期开始计算，
+                  防止因 fetch_start_date 为空而回溯全部历史数据。
+    """
     
     from services.fund_flow_service import AdvancedFundFlowMetricsService
     from services.advanced_chip_metrics_service import AdvancedChipMetricsService
+    from datetime import datetime, timedelta # 确保导入
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     ChipMetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     FundFlowMetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
@@ -575,7 +579,16 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
         if last_metric_date:
             fetch_start_date = last_metric_date - timedelta(days=max_lookback_days)
         else:
+            # [代码修改开始]
+            # 核心修复：当数据库为空时，必须设置一个起始点，而不是让 fetch_start_date 为 None。
+            # 这就是“创世防线”，防止任务回溯到遥远的2000年。
             is_incremental = False # 数据库为空，转为全量
+            genesis_date_str = '2025-05-01'
+            start_date_obj = datetime.strptime(genesis_date_str, '%Y-%m-%d').date()
+            fetch_start_date = start_date_obj - timedelta(days=max_lookback_days)
+            # last_metric_date 保持为 None，以便下游逻辑知道这是从头计算
+            logger.info(f"[{stock_code}] [统一初始化] 未发现任何高级指标，将从创世日期 {genesis_date_str} 开始计算（回溯至 {fetch_start_date}）。")
+            # [代码修改结束]
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
