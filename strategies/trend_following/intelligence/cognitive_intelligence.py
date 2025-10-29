@@ -315,16 +315,55 @@ class CognitiveIntelligence:
 
     def synthesize_chimera_conflict_score(self, df: pd.DataFrame) -> None:
         """
-        【V3.1 · 资金流分歧版】多维冲突诊断引擎
+        【V4.0 · 风险净化版】多维冲突诊断引擎
         - 核心升级: 引入“资金流分歧度”作为独立的冲突维度。
-        - 新核心逻辑: 最终冲突分 = (信号冲突分 * 权重) + (资金流分歧冲突分 * 权重)。
+        - 核心修改(V4.0): 在计算“信号冲突”时，动态构建一个排除了所有结构性和趋势性风险
+                          （即_BEARISH_RESONANCE和_TOP_REVERSAL）的“净化版风险分”，
+                          使“奇美拉冲突”更精确地衡量“进攻意图”与“战术性风险”的矛盾。
         """
         states = {}
         p_chimera = get_params_block(self.strategy, 'chimera_conflict_params', {})
         weights = get_param_value(p_chimera.get('fusion_weights'), {'signal_conflict': 0.6, 'flow_divergence': 0.4})
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
-        bearish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_FUSED_RISK_SCORE', 0.0).clip(0, 1)
-        signal_conflict_score = np.minimum(bullish_score_normalized, bearish_score_normalized)
+        # [代码修改开始]
+        # --- 动态计算一个“净化后”的风险分，用于奇美拉冲突诊断 ---
+        p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
+        risk_categories = p_fused_risk.get('risk_categories', {})
+        all_required_signals = {
+            s for signals in risk_categories.values() if isinstance(signals, dict)
+            for s in signals if s != "说明"
+        }
+        signal_numpy_cache = {
+            sig_name: self._get_atomic_score(df, sig_name, 0.0).values
+            for sig_name in all_required_signals
+        }
+        default_numpy_array = np.zeros(len(df.index), dtype=np.float32)
+        purified_dimension_scores = {}
+        for category_name, signals in risk_categories.items():
+            if category_name == "说明": continue
+            category_signal_scores = []
+            for signal_name, signal_params in signals.items():
+                if signal_name == "说明": continue
+                # 核心过滤逻辑：跳过 _BEARISH_RESONANCE 和 _TOP_REVERSAL 信号
+                if signal_name.endswith('_BEARISH_RESONANCE') or signal_name.endswith('_TOP_REVERSAL'):
+                    continue
+                atomic_score_np = signal_numpy_cache.get(signal_name, default_numpy_array)
+                processed_score = 1.0 - atomic_score_np if signal_params.get('inverse', False) else atomic_score_np
+                category_signal_scores.append(processed_score * signal_params.get('weight', 1.0))
+            if category_signal_scores:
+                stacked_scores = np.stack(category_signal_scores, axis=0)
+                dimension_risk_values = np.maximum.reduce(stacked_scores, axis=0)
+                purified_dimension_scores[category_name] = dimension_risk_values
+        valid_purified_scores_np = [score for score in purified_dimension_scores.values()]
+        if valid_purified_scores_np:
+            stacked_purified_scores = np.stack(valid_purified_scores_np, axis=0)
+            purified_bearish_score_values = np.maximum.reduce(stacked_purified_scores, axis=0)
+            purified_bearish_score_normalized = pd.Series(purified_bearish_score_values, index=df.index, dtype=np.float32).clip(0, 1)
+        else:
+            purified_bearish_score_normalized = pd.Series(0.0, index=df.index, dtype=np.float32)
+        # 使用净化后的风险分计算信号冲突
+        signal_conflict_score = np.minimum(bullish_score_normalized, purified_bearish_score_normalized)
+        # [代码修改结束]
         norm_window = 55
         div_ts_ths_abs = df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)).abs()
         div_ts_dc_abs = df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)).abs()
