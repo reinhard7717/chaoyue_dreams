@@ -1429,11 +1429,10 @@
             "description": "【V1.1 · 名称规范化】由抛压分析协议创造的强力买入机会信号。当市场出现广义抛压（价跌或长上影），且主力吸收强度超过'审判阈值'时触发。分数越高，代表抛压越大、吸收越坚决。"
         },
         "SCORE_RISK_VPA_VOLUME_ACCELERATING": {
-            "cn_name": "【VPA风险】成交量加速",
-            "category": "基础层-风险",
-            "type": "risk",
-            "penalty_weight": -300,
-            "description": "成交量出现异常加速，在趋势顶部或底部都可能是力竭或恐慌的信号。"
+            "cn_name": "【内部】VPA成交量加速风险因子",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【原子风险因子】纯粹量化成交量动态的“失控”程度。此信号本身不直接计分，而是作为原始证据，供上层风险融合引擎（如fused_risk_scoring）进行综合审判。"
         },
         "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
         "SCORE_PATTERN_BULLISH_ACCELERATION": {
