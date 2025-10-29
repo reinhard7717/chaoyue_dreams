@@ -53,7 +53,7 @@ class BehavioralIntelligence:
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         periods = get_param_value(p_synthesis.get('periods'), [1, 5, 13, 21, 55])
         resonance_tf_weights = get_param_value(p_synthesis.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
-        # [代码修改开始]
+
         # 步骤一：获取原始的双极性健康度字典
         overall_health = self._calculate_structural_behavior_health(df, p_conf)
         self.strategy.atomic_states['_internal_behavior_health_dict'] = overall_health
@@ -98,7 +98,7 @@ class BehavioralIntelligence:
         states['SCORE_STRUCT_BEHAVIOR_BOTTOM_REVERSAL'] = (bottom_reversal * bottom_context_score).clip(0, 1).astype(np.float32)
         # 步骤六：重铸战术反转信号
         states['SCORE_STRUCT_BEHAVIOR_TACTICAL_REVERSAL'] = (bullish_health * top_reversal).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         return states
 
     # ==============================================================================
@@ -156,11 +156,11 @@ class BehavioralIntelligence:
         volume_spike_score = normalize_score((vol_spike_condition1 | vol_spike_condition2).astype(float), df.index, norm_window, ascending=True)
         day_direction = np.sign(df['pct_change_D']).fillna(0)
         bullish_lockup_score = low_turnover_score * (day_direction > 0).astype(float)
-        # [代码修改开始]
+
         # 风险面逻辑净化：只保留“恐慌杀跌”作为风险来源
         bearish_panic_score = volume_spike_score * (day_direction < 0).astype(float)
         final_bearish_score = bearish_panic_score
-        # [代码修改结束]
+        
         bipolar_liquidity_dynamics = (bullish_lockup_score - final_bearish_score).astype(np.float32)
         states['BEHAVIOR_BIPOLAR_LIQUIDITY_DYNAMICS'] = bipolar_liquidity_dynamics
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = bipolar_liquidity_dynamics.clip(lower=0)
@@ -837,10 +837,10 @@ class BehavioralIntelligence:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1) 而不是 diff(meta_window)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity

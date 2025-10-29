@@ -19,7 +19,7 @@ class PatternIntelligence:
         【V5.0 · 四象限重构版】形态分析总指挥
         - 核心重构: 废弃旧的“四维聚变”逻辑，全面升级为基于“双极性快照+四象限动态分析”的统一模型。
         """
-        # [代码修改开始]
+
         states = {}
         p = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p.get('enabled'), True):
@@ -91,7 +91,7 @@ class PatternIntelligence:
         states['SCORE_PATTERN_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
         
         return states
-        # [代码修改结束]
+        
 
     def _calculate_holographic_divergence_pattern(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
         """

@@ -11,7 +11,7 @@ class JudgmentLayer:
 
     def make_final_decisions(self, score_details_df: pd.DataFrame, risk_details_df: pd.DataFrame):
         """
-        【V537.0 · 盖亚的最终裁决版】
+        【V538.0 · 风险否决净化版】
         - 核心革命: 彻底废除“趋势破位离场”的逻辑。所有战术离场信号现在都必须接受“神盾协议”的裁决。
                       只有在“神盾”未激活时，离场信号才会被考虑（当前逻辑下，战术离场被完全压制）。
         - 收益: 实现了从“基于规则的被动离场”到“基于状态的主动防御”的哲学飞跃。
@@ -34,7 +34,10 @@ class JudgmentLayer:
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
-        is_veto_by_alert = df['alert_level'] >= 3
+
+        # 核心否决逻辑
+        is_veto_by_alert = df['alert_level'] >= get_param_value(p_judge_common.get('veto_alert_level'), 3)
+        
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
@@ -42,19 +45,12 @@ class JudgmentLayer:
         df.loc[alert_veto_condition, 'final_score'] = 0.0
         exit_triggers_df = self.strategy.exit_triggers
         strategic_exit_mask = exit_triggers_df.get('EXIT_STRATEGY_INVALIDATED', pd.Series(False, index=df.index))
-        # 实施“盖亚的最终裁决”
         gaia_bedrock_score = atomic.get('SCORE_FOUNDATION_BOTTOM_CONFIRMED', pd.Series(0.0, index=df.index))
         is_aegis_shield_active = (gaia_bedrock_score > 0.1)
-        # 捕获原始的、未经神盾过滤的战术离场信号
         raw_tactical_exit_mask = exit_triggers_df.get('EXIT_TREND_BROKEN', pd.Series(False, index=df.index)) & ~strategic_exit_mask
-        # 定义被神盾否决的离场条件，并赋予新的信号类型
         aegis_defense_condition = raw_tactical_exit_mask & is_aegis_shield_active
         df.loc[aegis_defense_condition, 'signal_type'] = '神盾防御'
-        # 彻底废除“趋势破位离场”信号
-        # tactical_exit_mask = raw_tactical_exit_mask & ~is_aegis_shield_active
         df.loc[strategic_exit_mask & ~potential_buy_condition, 'signal_type'] = '战略失效离场'
-        # df.loc[tactical_exit_mask & ~potential_buy_condition, 'signal_type'] = '趋势破位离场' # 此行被彻底废除
-        
         df['final_score'] = df['final_score'].fillna(0).round().astype(int)
         df['signal_details_cn'] = self._get_human_readable_summary(score_details_df)
         self._finalize_signals()
@@ -136,55 +132,57 @@ class JudgmentLayer:
 
     def _adjudicate_risk_level(self) -> Tuple[pd.Series, pd.Series, pd.DataFrame]:
         """
-        【V2.8 · 数据纯净法案版】风险裁决者 (Risk Adjudicator)
-        - 核心修复: 不再将字符串类型的 alert_reason 存入 atomic_states，确保其只包含数值状态。
-        - 核心逻辑: alert_reason 作为最终描述性结果，直接返回给 make_final_decisions 方法处理。
-        - 收益: 根除了因数据类型污染导致的下游模块（如探针）崩溃问题。
+        【V2.9 · 否决权上收版】风险裁决者 (Risk Adjudicator)
+        - 核心修改: 根据指挥官指令，移除了“先知风险”、“多域顶部反转”和“多域看跌共振”的3级警报触发能力。
+                      这些信号现在只作为常规风险项影响总分，不再具备一票否决权。
+                      风险否决的权力被进一步上收到更高阶的、融合后的认知风险信号。
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
+
+        # 从风险类别定义中移除不再用于直接裁决的类别
         risk_categories = {
             'ARCHANGEL_RISK': ['SCORE_ARCHANGEL_TOP_REVERSAL'],
-            'TOP_REVERSAL': ['SCORE_BEHAVIOR_TOP_REVERSAL', 'SCORE_CHIP_TOP_REVERSAL', 'SCORE_FF_TOP_REVERSAL', 'SCORE_STRUCTURE_TOP_REVERSAL', 'SCORE_DYN_TOP_REVERSAL', 'SCORE_FOUNDATION_TOP_REVERSAL'],
-            'BEARISH_RESONANCE': ['SCORE_BEHAVIOR_BEARISH_RESONANCE', 'SCORE_CHIP_BEARISH_RESONANCE', 'SCORE_FF_BEARISH_RESONANCE', 'SCORE_STRUCTURE_BEARISH_RESONANCE', 'SCORE_DYN_BEARISH_RESONANCE', 'SCORE_FOUNDATION_BEARISH_RESONANCE'],
             'MICRO_RISK': ['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL', 'COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'],
             'EUPHORIA_RISK': ['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION']
+            # 'TOP_REVERSAL' 和 'BEARISH_RESONANCE' 类别被移除，因为它们不再直接触发警报
         }
+        
         fused_risks = {}
         for category, signals in risk_categories.items():
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
         p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
-        predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
-        prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
+
+        # 移除或注释掉相关阈值和信号的获取
+        # predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
+        # prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
         archangel_threshold = get_param_value(p_judge.get('archangel_alert_threshold'), 0.7)
-        top_reversal_threshold = get_param_value(p_judge.get('top_reversal_alert_threshold'), 0.8)
-        resonance_threshold = get_param_value(p_judge.get('bearish_resonance_alert_threshold'), 0.7)
+        # top_reversal_threshold = get_param_value(p_judge.get('top_reversal_alert_threshold'), 0.8)
+        # resonance_threshold = get_param_value(p_judge.get('bearish_resonance_alert_threshold'), 0.7)
         euphoria_threshold = get_param_value(p_judge.get('euphoria_alert_threshold'), 0.75)
         micro_risk_threshold = get_param_value(p_judge.get('micro_risk_alert_threshold'), 0.6)
         is_uptrend_context = df.get('close_D', 0) > df.get('EMA_5_D', 0)
+        # 从裁决条件中移除相关逻辑
         conditions = [
-            (predictive_exhaustion_risk > prophet_threshold) & is_uptrend_context,
+            # (predictive_exhaustion_risk > prophet_threshold) & is_uptrend_context, # 已移除
             fused_risks_df['ARCHANGEL_RISK'] > archangel_threshold,
-            fused_risks_df['TOP_REVERSAL'] > top_reversal_threshold,
-            (fused_risks_df['BEARISH_RESONANCE'] > resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > euphoria_threshold),
+            # fused_risks_df['TOP_REVERSAL'] > top_reversal_threshold, # 已移除
+            # (fused_risks_df['BEARISH_RESONANCE'] > resonance_threshold) | (fused_risks_df['EUPHORIA_RISK'] > euphoria_threshold), # 'BEARISH_RESONANCE' 部分已移除
+            fused_risks_df['EUPHORIA_RISK'] > euphoria_threshold, # 'EUPHORIA_RISK' 单独作为2级警报
             fused_risks_df['MICRO_RISK'] > micro_risk_threshold,
         ]
-        choices_level = [3, 3, 3, 2, 1]
+        choices_level = [3, 2, 1] # 警报等级选择列表相应调整
         choices_reason = [
-            '红色警报: 先知-高潮衰竭',
-            '红色警报: 天使长-明确顶部形态',
-            '红色警报: 顶部反转风险',
-            '橙色警报: 共振或亢奋风险',
+            '红色警报: 明确顶部形态', # 'ARCHANGEL_RISK' 仍然是3级警报
+            '橙色警报: 亢奋风险',
             '黄色警报: 微观结构风险'
         ]
+        
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
-        # 只将数值型的 alert_level 存入 atomic_states
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
-        # [代码删除] 不再将字符串类型的 alert_reason 存入 atomic_states
-        # self.strategy.atomic_states['ALERT_REASON'] = alert_reason
         return alert_level, alert_reason, fused_risks_df
 
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:

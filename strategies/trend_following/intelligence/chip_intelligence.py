@@ -72,10 +72,10 @@ class ChipIntelligence:
         gaia_support = utils._calculate_gaia_bedrock_support(df, gaia_params, self.strategy.atomic_states)
         historical_low_support = utils._calculate_historical_low_support(df, fib_params)
         authoritative_bottom_support = np.maximum(gaia_support, historical_low_support) > 0.1
-        # [代码修改开始]
+
         # 修复数据依赖：从传入的 current_chip_states 中获取信号，而不是全局状态
         chip_accumulation_score = current_chip_states.get('SCORE_CHIP_TRUE_ACCUMULATION', pd.Series(0.0, index=df.index))
-        # [代码修改结束]
+        
         sustained_accumulation = chip_accumulation_score.rolling(window=3).mean() > accumulation_threshold
         # 定义“底部吸筹区”状态
         is_in_bottom_accumulation_zone = authoritative_bottom_support & sustained_accumulation
@@ -142,7 +142,7 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'accumulation': 0.3, 'power_transfer': 0.25, 'peak_integrity': 0.15})
         norm_window = 55
-        # [代码修改开始]
+
         # 步骤一：计算各周期的双极性“全息筹码健康分”
         bipolar_health_by_period = {}
         for p in periods:
@@ -210,7 +210,7 @@ class ChipIntelligence:
         distribution_strength = (transfer_snapshot.clip(-1, 0) * -1).astype(np.float32)
         hades_trap_score = (states['SCORE_CHIP_BOTTOM_REVERSAL'] * distribution_strength).clip(0, 1)
         states['SCORE_CHIP_HADES_TRAP'] = hades_trap_score.astype(np.float32)
-        # [代码修改结束]
+        
         return states
 
     def _diagnose_concentration_dynamics(self, df: pd.DataFrame, periods: list) -> Dict[int, pd.Series]:
@@ -405,10 +405,10 @@ class ChipIntelligence:
         bipolar_sensitivity = 1.0
         relationship_trend = snapshot_score.diff(meta_window).fillna(0)
         velocity_score = normalize_to_bipolar(relationship_trend, df.index, norm_window, bipolar_sensitivity)
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(relationship_accel, df.index, norm_window, bipolar_sensitivity)
         holographic_score = holographic_divergence_score.clip(-1, 1)
         bullish_state = snapshot_score.clip(0, 1)
@@ -554,10 +554,10 @@ class ChipIntelligence:
                       和“绝对换手水平”（高换手率）共同构成，彻底解决了成交量绝对值的欺骗性问题。
         """
         states = {}
-        # [代码修改开始]
+
         # 增加 VOL_MA_5_D, VOL_MA_21_D, turnover_rate_D 到必需列
         required_cols = ['total_loser_rate_D', 'close_D', 'retail_capitulation_distribution_D', 'volume_D', 'VOL_MA_5_D', 'VOL_MA_21_D', 'turnover_rate_D']
-        # [代码修改结束]
+        
         if any(col not in df.columns for col in required_cols):
             states['SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL'] = pd.Series(0.0, index=df.index)
             return states
@@ -565,7 +565,7 @@ class ChipIntelligence:
         sorted_periods = sorted(periods)
         capitulation_scores_by_period = {}
         bearish_ma_context = 1 - self._calculate_ma_trend_context(df, [5, 13, 21, 55])
-        # [代码修改开始]
+
         # --- 构建全新的“成交量能核证”支柱 ---
         # 维度一：相对爆发强度
         volume_breakout_condition = df['volume_D'] > np.maximum(df.get('VOL_MA_5_D', 0), df.get('VOL_MA_21_D', 0))
@@ -573,7 +573,7 @@ class ChipIntelligence:
         high_turnover_score = normalize_score(df['turnover_rate_D'], df.index, 55, ascending=True)
         # 融合：必须同时满足相对爆发和高换手
         volume_confirmation_score = (volume_breakout_condition.astype(float) * high_turnover_score)
-        # [代码修改结束]
+        
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
             tactical_deep_cap = normalize_score(df['total_loser_rate_D'], df.index, p_tactical, ascending=True)
@@ -585,10 +585,10 @@ class ChipIntelligence:
             fused_deep_cap = (tactical_deep_cap * context_deep_cap)**0.5
             fused_price_lows = (tactical_price_lows * context_price_lows)**0.5
             fused_loser_turnover = (tactical_loser_turnover * context_loser_turnover)**0.5
-            # [代码修改开始]
+    
             # 在融合时使用全新的、更可靠的成交量能核证分数
             snapshot_score = (fused_deep_cap * fused_price_lows * fused_loser_turnover * bearish_ma_context * volume_confirmation_score).astype(np.float32)
-            # [代码修改结束]
+            
             holographic_divergence = self._calculate_holographic_divergence(snapshot_score, p_tactical, p_context, p_context * 2)
             capitulation_scores_by_period[p_tactical] = self._perform_chip_relational_meta_analysis(df, snapshot_score, p_tactical, holographic_divergence)
         tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}

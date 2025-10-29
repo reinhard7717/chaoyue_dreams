@@ -46,10 +46,10 @@ class MicroBehaviorEngine:
         update_states(self.synthesize_reversal_reliability_score(
             df, early_ignition_score=early_ignition_score
         ))
-        # [代码修改开始]
+
         # 修正调用，确保调用的是新的双极性信号方法
         update_states(self.synthesize_bipolar_euphoric_event(df))
-        # [代码修改结束]
+        
         return all_states
 
     def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -376,14 +376,14 @@ class MicroBehaviorEngine:
         states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT'] = absorption_reversal_opp.copy()
         states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT'] = chip_lockdown_opp.copy()
         suppression_shield = np.maximum(absorption_reversal_opp.values, chip_lockdown_opp.values)
-        # [代码修改开始]
+
         # 实施“燃料转化协议”
         # 1. 如果护盾存在，风险强制归零；否则，保留原始风险。
         final_risk_with_context = np.where(suppression_shield > 0, 0.0, raw_fused_risk_score.values)
         # 2. 如果护盾存在，全部原始风险都转化为燃料；否则，燃料为零。
         fuel_generated = np.where(suppression_shield > 0, raw_fused_risk_score.values, 0.0)
         states[signal_name] = pd.Series(final_risk_with_context, index=df.index).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         total_opp_strength = absorption_reversal_opp.values + chip_lockdown_opp.values
         safe_total_opp_strength = np.where(total_opp_strength == 0, 1.0, total_opp_strength)
         absorption_weight = absorption_reversal_opp.values / safe_total_opp_strength
@@ -406,10 +406,10 @@ class MicroBehaviorEngine:
              - 护盾弱 -> 信号为负 (风险)
         """
         states = {}
-        # [代码修改开始]
+
         # 1. 重命名信号以反映其双极性特性
         signal_name = 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT'
-        # [代码修改结束]
+        
         p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
         if not get_param_value(p_risk.get('enabled'), True):
             return states
@@ -468,14 +468,14 @@ class MicroBehaviorEngine:
             chip_lockdown_context *
             winner_conviction_context
         )**(1/3)
-        # [代码修改开始]
+
         # 2. 将护盾分[0, 1]映射为调制器[-1, 1]
         shield_modulator = (bullish_context_shield * 2) - 1
         # 3. 计算最终的双极性信号
         bipolar_euphoric_score = (dynamic_raw_euphoric_score * shield_modulator).clip(-1, 1)
         # 4. 存储唯一的双极性信号，废除旧的双信号
         states[signal_name] = bipolar_euphoric_score.astype(np.float32)
-        # [代码修改结束]
+        
         return states
 
     def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
@@ -498,10 +498,10 @@ class MicroBehaviorEngine:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
@@ -591,14 +591,14 @@ class MicroBehaviorEngine:
         # 创建一个标准的、类型安全的全零Series作为默认值
         default_series = pd.Series(0.0, index=df.index)
         # [代码新增结束]
-        # [代码修改开始]
+
         # 状态
         static = df.get(full_metric_name, default_series)
         # 速度 (战术层)
         slope = df.get(f'SLOPE_{p}_{full_metric_name}', default_series)
         # 加速度 (战术层)
         accel = df.get(f'ACCEL_{p}_{full_metric_name}', default_series)
-        # [代码修改结束]
+        
         # 战术层 (p)
         tactical_static = normalize_score(static, df.index, p, ascending=ascending)
         tactical_slope = normalize_score(slope, df.index, p, ascending=ascending)
@@ -606,11 +606,11 @@ class MicroBehaviorEngine:
         tactical_quality = (tactical_static * tactical_slope * tactical_accel)**(1/3)
         # 战略/上下文层 (context_p)
         context_static = normalize_score(static, df.index, context_p, ascending=ascending)
-        # [代码修改开始]
+
         # 使用类型安全的默认值
         context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
         context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
-        # [代码修改结束]
+        
         context_quality = (context_static * context_slope * context_accel)**(1/3)
         # 最终融合 (战术 * 战略)
         return (tactical_quality * context_quality)**0.5

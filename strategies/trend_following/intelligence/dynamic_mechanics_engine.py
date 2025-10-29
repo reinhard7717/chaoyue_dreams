@@ -37,7 +37,7 @@ class DynamicMechanicsEngine:
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        # [代码修改开始]
+
         # 步骤一：计算各支柱的静态快照分
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         pillar_weights = get_param_value(p_conf.get('pillar_weights'), {})
@@ -93,7 +93,7 @@ class DynamicMechanicsEngine:
         
         # 步骤五：重铸战术反转信号
         states['SCORE_DYN_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         
         return states
 

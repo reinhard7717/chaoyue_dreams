@@ -265,7 +265,7 @@ class ContextualAnalysisService:
             stage_weight_sum = (stage_df == stage).dot(aligned_weights)
             stage_score = (stage_weight_sum / daily_total_weight.replace(0, np.nan)).fillna(0)
             final_df[f'industry_{stage.lower()}_score_D'] = stage_score
-        print(f"    - [行业背景融合引擎 V1.1] 完成。已为 {stock_code} 生成 {len(final_df)} 天的数值化融合行业背景。")
+        # print(f"    - [行业背景融合引擎 V1.1] 完成。已为 {stock_code} 生成 {len(final_df)} 天的数值化融合行业背景。")
         return final_df
 
     async def prepare_hot_money_signals(self, stock_code: str, start_date: datetime.date, end_date: datetime.date, params: dict) -> pd.DataFrame:

@@ -138,10 +138,10 @@ class ProcessIntelligence:
             meta_score = relationship_score
         else:
             relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-            # [代码修改开始]
+    
             # 最终校准：加速度是速度(trend)的一阶导数，必须使用 diff(1)
             relationship_accel = relationship_trend.diff(1).fillna(0)
-            # [代码修改结束]
+            
             bipolar_trend_strength = normalize_to_bipolar(
                 series=relationship_trend,
                 target_index=df_index,

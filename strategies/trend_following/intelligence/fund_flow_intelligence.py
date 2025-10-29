@@ -201,7 +201,7 @@ class FundFlowIntelligence:
         numeric_weights = {int(k): v for k, v in tf_weights.items() if isinstance(v, (int, float))}
         total_tf_weight = sum(numeric_weights.values())
         periods = sorted(numeric_weights.keys())
-        # [代码修改开始]
+
         # 步骤一：计算各周期的双极性“全息资金流健康分”
         bipolar_health_by_period = {}
         for p in periods:
@@ -252,7 +252,7 @@ class FundFlowIntelligence:
             'bottom_reversal': (bottom_reversal_score * (1 - trend_health_score)).clip(0, 1),
             'tactical_reversal': (bullish_resonance * top_reversal_score).clip(0, 1) # 战术反转 = 强看涨共振中的回调
         }
-        # [代码修改结束]
+        
         return final_scores
 
     # ==============================================================================
@@ -357,7 +357,7 @@ class FundFlowIntelligence:
         - 核心升级: 全面更新信号映射，以匹配“四象限动态分析法”产出的新信号。
         """
         states = {}
-        # [代码修改开始]
+
         # 更新信号映射以匹配四象限逻辑
         prefix_map = {
             'bullish_resonance': 'SCORE_FF_BULLISH_RESONANCE',
@@ -368,7 +368,7 @@ class FundFlowIntelligence:
             'bottom_reversal': 'SCORE_FF_BOTTOM_REVERSAL',
             'tactical_reversal': 'SCORE_FF_TACTICAL_REVERSAL',
         }
-        # [代码修改结束]
+        
         for key, score in final_scores.items():
             signal_name = prefix_map.get(key)
             if signal_name:
@@ -456,10 +456,10 @@ class FundFlowIntelligence:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
@@ -505,7 +505,7 @@ class FundFlowIntelligence:
         scores = np.stack([alignment_health, velocity_health, meta_dynamics_health], axis=0)
         # 增加类型过滤，确保只处理数字类型的权重值
         numeric_weights = {k: v for k, v in weights.items() if isinstance(v, (int, float))}
-        print(f"      -> [FundFlowIntel:_calculate_trend_context_ff] 过滤后数字权重: {numeric_weights}")
+        # print(f"      -> [FundFlowIntel:_calculate_trend_context_ff] 过滤后数字权重: {numeric_weights}")
         weights_array = np.array(list(numeric_weights.values()))
         
         if weights_array.sum() == 0:

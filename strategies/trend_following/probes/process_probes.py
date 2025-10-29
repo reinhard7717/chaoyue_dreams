@@ -207,10 +207,10 @@ class ProcessProbes:
         recalc_score = (get_val(bipolar_trend_strength, probe_date) * trend_weight + get_val(bipolar_accel_strength, probe_date) * accel_weight)
         recalc_score = np.clip(recalc_score, -1, 1)
         print(f"    - 【探针重算-最终分】: {get_val(bipolar_trend_strength, probe_date):.4f} * {trend_weight} + {get_val(bipolar_accel_strength, probe_date):.4f} * {accel_weight} = {recalc_score:.4f}")
-        # [代码修改开始]
+
         # 使用 isclose 替代直接比较，以容忍浮点数精度误差
         match = np.isclose(actual_score, recalc_score, atol=1e-4)
-        # [代码修改结束]
+        
         print(f"    - [对比]: 系统最终值 {actual_score:.4f} vs. 探针正确值 {recalc_score:.4f} -> {'✅ 一致' if match else '❌ 不一致'}")
         print("\n--- “赢家信念探针”解剖完毕 ---")
 

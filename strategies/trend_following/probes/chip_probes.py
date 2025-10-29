@@ -189,7 +189,7 @@ class ChipProbes:
         actual_score = get_val(atomic.get(signal_name), probe_date, 0.0)
         print(f"    - 【最终信号分】: {actual_score:.4f}")
         print("\n  [链路层 2] 前提验证 (Prerequisite Validation)")
-        # [代码修改开始]
+
         # 核心修正：读取由微观行为引擎保存的“增强前”的原始锁仓信号值，确保与引擎计算基准一致
         # 提供一个回退，以防利润兑现模块未运行时探针崩溃
         lockdown_trigger_series = atomic.get(
@@ -198,7 +198,7 @@ class ChipProbes:
         )
         lockdown_trigger_val = get_val(lockdown_trigger_series, probe_date)
         print(f"    - [前提: 底部锁仓信号 (增强前)] -> 得分: {lockdown_trigger_val:.4f}")
-        # [代码修改结束]
+        
         print("\n  [链路层 3] 原始证据值 (Raw Evidence Values)")
         raw_cost_advantage = get_val(df.get('main_buy_cost_advantage_D'), probe_date)
         raw_net_flow = get_val(df.get('main_force_net_flow_consensus_D'), probe_date)

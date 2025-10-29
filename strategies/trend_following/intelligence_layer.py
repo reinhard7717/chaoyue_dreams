@@ -72,7 +72,7 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
+        # print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
         update_states(base_process_states)
@@ -86,7 +86,7 @@ class IntelligenceLayer:
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
         update_states(strategy_process_states)
-        print("  -> [指挥链] 所有基础诊断完成，原子状态已生成。")
+        # print("  -> [指挥链] 所有基础诊断完成，原子状态已生成。")
         return self.strategy.atomic_states # 返回生成的原子状态
 
     def deploy_forensic_probes(self):

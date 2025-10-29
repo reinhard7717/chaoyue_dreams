@@ -69,10 +69,10 @@ class CognitiveIntelligence:
         del self.strategy.atomic_states['strategy_instance_ref']
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
-        # [代码修改开始]
+
         # 调用重构后的综合顶部风险合成引擎
         comprehensive_top_risk_states = self._synthesize_comprehensive_top_risk(df)
-        # [代码修改结束]
+        
         self.strategy.atomic_states.update(comprehensive_top_risk_states)
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
@@ -835,14 +835,14 @@ class CognitiveIntelligence:
         total_weight = sum(numeric_tf_weights.values())
         expansion_signal_configs = {
             'COGNITIVE_RISK_LIQUIDITY_TRAP': {
-                # [代码修改开始]
+        
                 'description': '【V5.0 · 逻辑重铸版】融合“主力持续出逃”、“收缩盘整”和“买盘真空”三大核心证据。',
                 'components': [
                     {'source': 'df', 'name': 'main_force_net_flow_consensus_sum_5d_D', 'transform': 'neg_clip_abs', 'weight': 0.4, 'comment': '证据一：主力想卖'},
                     {'source': 'atomic', 'name': 'SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION', 'weight': 0.4, 'comment': '证据二：市场不活跃'},
                     {'source': 'df', 'name': 'realized_support_intensity_D', 'transform': 'inverse', 'weight': 0.2, 'comment': '证据三：无人想买'},
                 ]
-                # [代码修改结束]
+                
             },
         }
         df['is_limit_up'] = df.get('close_D', 0) >= df.get('up_limit_D', np.inf) * 0.995
@@ -940,10 +940,10 @@ class CognitiveIntelligence:
             window=norm_window, sensitivity=bipolar_sensitivity
         )
         
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1) 而不是 diff(meta_window)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
@@ -1142,7 +1142,7 @@ class CognitiveIntelligence:
         cyclical_top_risk = (cycle_power * cycle_phase_score).clip(0, 1)
         
         states['COGNITIVE_RISK_CYCLICAL_TOP'] = cyclical_top_risk.astype(np.float32)
-        print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
+        # print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
         return states
 
     def _synthesize_main_force_intent_duel(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -1196,7 +1196,7 @@ class CognitiveIntelligence:
             return pd.Series(0.0, index=df.index, dtype=np.float32)
         weights = get_param_value(p_shield.get('fusion_weights'), {})
         
-        # [代码修改开始]
+
         # --- 支柱一：计算静态韧性分 (Static Resilience) ---
         pillars = {
             'trend_quality': self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.0),
@@ -1236,7 +1236,7 @@ class CognitiveIntelligence:
         # --- 阶段三：最终融合 ---
         # 最终神盾分数 = 静态韧性 * (1 + 动态动能加成)
         final_shield_score = (static_resilience_score * (1 + dynamic_momentum_bonus)).clip(0, 1)
-        # [代码修改结束]
+        
         
         return final_shield_score.astype(np.float32)
 

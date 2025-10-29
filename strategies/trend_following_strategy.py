@@ -59,7 +59,7 @@ class TrendFollowStrategy:
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-        # [代码修改开始]
+
         # 步骤1: 情报层完成所有基础诊断，生成完整的 atomic_states
         self.intelligence_layer.run_all_diagnostics()
         # 步骤2: 基于完整的诊断结果，进行上下文分析，并【立即注入】atomic_states
@@ -73,7 +73,7 @@ class TrendFollowStrategy:
         # 步骤4: 执行顶层认知合成，生成综合风险等最终认知信号 (其内部会自动更新atomic_states)
         self.intelligence_layer.cognitive_intel.synthesize_cognitive_scores(self.df_indicators, pullback_enhancements={})
         # 步骤5: 执行攻防决策与模拟
-        # [代码修改结束]
+        
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,

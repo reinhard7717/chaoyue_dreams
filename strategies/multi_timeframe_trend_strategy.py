@@ -528,7 +528,7 @@ class MultiTimeframeTrendStrategy:
         print("=" * 80)
         try:
             # 步骤 1: 独立执行数据准备和战术引擎，并捕获所有返回结果
-            print("    -> [阶段 1/3] 正在执行核心策略计算，以捕获调试所需数据...")
+            # print("    -> [阶段 1/3] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
             
             engine_results = await self._run_tactical_engine(
@@ -544,10 +544,10 @@ class MultiTimeframeTrendStrategy:
                 print("[严重错误] 战术引擎未能生成有效的分析数据(daily_analysis_df)，调试终止。")
                 return
 
-            print("    -> [阶段 1/3] 核心策略计算完成。")
+            # print("    -> [阶段 1/3] 核心策略计算完成。")
 
             # 步骤 2: 立即部署探针，确保其在最新的数据上运行
-            print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
+            # print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
             if get_param_value(debug_params.get('enabled'), False):
                 # 确保探针使用的是本次运行的最新 atomic_states
@@ -556,7 +556,7 @@ class MultiTimeframeTrendStrategy:
                 print("    -> [信息] 法医探针在配置中被禁用，跳过解剖。")
 
             # 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
-            print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
+            # print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
@@ -599,13 +599,13 @@ class MultiTimeframeTrendStrategy:
                             if isinstance(item, dict):
                                 print(f"    - {item.get('name', 'N/A'):<20} ({item.get('score', 0):>5.0f})")
 
-            print(f"\n--- [历史回溯调试完成] ---")
+            # print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生顶层异常: {e}")
             traceback.print_exc()
         finally:
             gc.collect()
-            print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
+            # print("    -> [内存管理] 已清理本次分析任务产生的临时数据。")
 
     def _deploy_bottom_reversal_probe(self, probe_date: str, daily_analysis_df: pd.DataFrame, atomic_states: dict):
         """

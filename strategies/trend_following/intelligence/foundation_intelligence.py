@@ -45,7 +45,7 @@ class FoundationIntelligence:
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True): return states
         
-        # [代码修改开始]
+
         # 步骤一：计算各支柱的静态快照分并融合
         p_synthesis = get_params_block(self.strategy, 'ultimate_signal_synthesis_params', {})
         norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
@@ -89,7 +89,7 @@ class FoundationIntelligence:
         
         # 步骤五：重铸战术反转信号
         states['SCORE_FOUNDATION_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         
         return states
 
@@ -289,10 +289,10 @@ class FoundationIntelligence:
             series=relationship_trend, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
         )
-        # [代码修改开始]
+
         # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
         relationship_accel = relationship_trend.diff(1).fillna(0)
-        # [代码修改结束]
+        
         acceleration_score = normalize_to_bipolar(
             series=relationship_accel, target_index=df.index,
             window=norm_window, sensitivity=bipolar_sensitivity
