@@ -787,70 +787,112 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V2.1 · 创世日期版】
-    - 核心升级: 如果不传入 start_date_str，则自动检测所有高级指标的最近同步点，并从下一天开始增量计算。
-    - 核心修改(V2.1): 如果未发现任何已存的高级指标数据，则从默认的 '2025-05-01' 开始计算，作为“创世日”。
+    【总调度器 V2.3 · 分组解耦版】
+    - 核心升级: 废除统一的“最短板”原则，将计算任务解耦为两个独立的调度组：
+                  1. 【耦合组】筹码 + 资金流 (因存在内在依赖，仍需绑定计算)
+                  2. 【独立组】结构指标
+    - 收益: 每个组根据自身的最新数据决定计算起点，避免了因一个模型的滞后导致其他模型不必要的重复计算，大幅提升效率。
     """
     try:
-        # 智能日期决策模块
-        if start_date_str is None and is_incremental:
-            from datetime import timedelta
-            from stock_models.advanced_metrics import (
-                AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
-                AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
-                AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
-            )
-            from stock_models.time_trade import StockDailyBasic
-            print("✅✅✅ [总调度器] 未指定起始日期，进入自动增量模式。")
-            metric_models = [
-                AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
-                AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
-                AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
-            ]
-            all_latest_metric_dates = []
-            for model in metric_models:
+        from datetime import timedelta, datetime
+        from stock_models.advanced_metrics import (
+            AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
+            AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
+            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
+        )
+        from stock_models.time_trade import StockDailyBasic
+        
+        # [代码修改开始]
+        # --- 分组定义模型 ---
+        chip_ff_models = [
+            AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
+            AdvancedFundFlowMetrics_SH, AdvancedFundFlowMetrics_SZ, AdvancedFundFlowMetrics_CY, AdvancedFundFlowMetrics_KC, AdvancedFundFlowMetrics_BJ,
+        ]
+        structural_models = [
+            AdvancedStructuralMetrics_SH, AdvancedStructuralMetrics_SZ, AdvancedStructuralMetrics_CY, AdvancedStructuralMetrics_KC, AdvancedStructuralMetrics_BJ
+        ]
+
+        def get_group_start_date(models, group_name: str):
+            """为指定的模型组计算增量起始日期"""
+            all_latest_dates = []
+            for model in models:
                 latest_metric = model.objects.order_by('-trade_time').first()
                 if latest_metric:
-                    all_latest_metric_dates.append(latest_metric.trade_time)
+                    all_latest_dates.append(latest_metric.trade_time)
+            
+            if not all_latest_dates:
+                # 如果组内没有任何数据，则从创世日期开始
+                logger.info(f"【总调度-{group_name}组】未发现任何数据，将从创世日期开始。")
+                return '2025-05-01', False # 返回 (start_date, is_incremental=False)
+            
+            # 取组内的“最短板”作为同步点
+            sync_date = min(all_latest_dates)
             latest_basic_data = StockDailyBasic.objects.order_by('-trade_time').first()
             if not latest_basic_data:
-                logger.warning("【总调度】StockDailyBasic 为空，无法确定数据范围，任务终止。")
-                return {"status": "skipped", "reason": "StockDailyBasic is empty."}
-            # [代码修改开始]
-            if not all_latest_metric_dates:
-                start_date_str = '2025-05-01' # 指定“创世日”
-                is_incremental = False # 明确为全量模式，但有指定起点
-                logger.info(f"【总调度】未发现任何已存的高级指标数据，将从默认创世日期 {start_date_str} 开始计算。")
-                print(f"✅✅✅ [总调度器] 未发现任何已存的高级指标数据，将从默认创世日期 {start_date_str} 开始计算。")
-            # [代码修改结束]
-            else:
-                # 取所有指标中“最旧的那个最新日期”作为同步点，确保数据完整性
-                sync_date = min(all_latest_metric_dates)
-                start_date_obj = sync_date + timedelta(days=1)
-                # 如果计算出的起始日期已经超过了基础数据的最新日期，说明所有数据都是最新的
-                if start_date_obj > latest_basic_data.trade_time:
-                    logger.info(f"【总调度】所有高级指标已同步至 {sync_date}，无需更新。")
-                    return {"status": "skipped", "reason": "All metrics are up to date."}
-                start_date_str = start_date_obj.strftime('%Y-%m-%d')
-                print(f"✅✅✅ [总调度器] 自动检测到增量计算起始日期为: {start_date_str}")
+                raise ValueError("StockDailyBasic 为空，无法确定数据范围。")
+
+            start_date_obj = sync_date + timedelta(days=1)
+            if start_date_obj.date() > latest_basic_data.trade_time:
+                logger.info(f"【总调度-{group_name}组】所有指标已同步至 {sync_date}，无需更新。")
+                return None, True # 无需更新
+            
+            # 对于自动增量，我们不传递具体日期，让子任务自己决定
+            return None, True
+
+        # --- 智能日期决策模块 (分组执行) ---
+        start_date_chip_ff, is_incremental_chip_ff = None, is_incremental
+        start_date_structural, is_incremental_structural = None, is_incremental
+
+        if start_date_str is None and is_incremental:
+            print("✅✅✅ [总调度器] 未指定起始日期，进入自动增量模式，开始分组检测...")
+            start_date_chip_ff, is_incremental_chip_ff = get_group_start_date(chip_ff_models, "筹码-资金流")
+            start_date_structural, is_incremental_structural = get_group_start_date(structural_models, "结构")
+        else:
+            # 如果手动指定了日期，则所有组都使用该日期
+            start_date_chip_ff = start_date_str
+            start_date_structural = start_date_str
+            is_incremental_chip_ff = is_incremental
+            is_incremental_structural = is_incremental
+
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}
-        mode_str = '增量' if is_incremental else '全量'
-        start_date_display = start_date_str if start_date_str else "数据库起始"
-        print(f"✅✅✅ [总调度器启动] 模式: {mode_str}, 起始日期: {start_date_display}")
-        print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。")
-        tasks_to_dispatch = []
-        chip_ff_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
-        tasks_to_dispatch.extend(chip_ff_tasks)
-        print(f"✅✅✅ [总调度器] 已创建 {len(chip_ff_tasks)} 个【合并计算】任务签名。")
-        structural_tasks = [precompute_advanced_structural_metrics_for_stock.s(stock_code=code, is_incremental=is_incremental, start_date_str=start_date_str) for code in stock_codes]
-        tasks_to_dispatch.extend(structural_tasks)
-        print(f"✅✅✅ [总调度器] 已创建 {len(structural_tasks)} 个【结构指标】任务签名。")
-        job_group = group(tasks_to_dispatch)
-        job_group.apply_async()
-        total_tasks_dispatched = len(tasks_to_dispatch)
+
+        print(f"✅✅✅ [总调度器] 发现 {len(stock_codes)} 只股票。开始分派任务...")
+        total_tasks_dispatched = 0
+
+        # --- 分派【筹码+资金流】耦合组任务 ---
+        if start_date_chip_ff is not None or is_incremental_chip_ff: # 只有在需要计算时才分派
+            mode_str_cf = '增量' if is_incremental_chip_ff else '全量'
+            start_date_display_cf = start_date_chip_ff if start_date_chip_ff else "自动检测"
+            print(f"  -> [耦合组] 模式: {mode_str_cf}, 起始: {start_date_display_cf}")
+            
+            chip_ff_tasks = [precompute_advanced_chips_for_stock.s(stock_code=code, is_incremental=is_incremental_chip_ff, start_date_str=start_date_chip_ff) for code in stock_codes]
+            if chip_ff_tasks:
+                job_group_cf = group(chip_ff_tasks)
+                job_group_cf.apply_async()
+                total_tasks_dispatched += len(chip_ff_tasks)
+                print(f"  -> [耦合组] 已创建并发送 {len(chip_ff_tasks)} 个【合并计算】任务。")
+        else:
+            print("  -> [耦合组] 无需更新，跳过任务分派。")
+
+        # --- 分派【结构】独立组任务 ---
+        if start_date_structural is not None or is_incremental_structural: # 只有在需要计算时才分派
+            mode_str_s = '增量' if is_incremental_structural else '全量'
+            start_date_display_s = start_date_structural if start_date_structural else "自动检测"
+            print(f"  -> [独立组] 模式: {mode_str_s}, 起始: {start_date_display_s}")
+
+            structural_tasks = [precompute_advanced_structural_metrics_for_stock.s(stock_code=code, is_incremental=is_incremental_structural, start_date_str=start_date_structural) for code in stock_codes]
+            if structural_tasks:
+                job_group_s = group(structural_tasks)
+                job_group_s.apply_async()
+                total_tasks_dispatched += len(structural_tasks)
+                print(f"  -> [独立组] 已创建并发送 {len(structural_tasks)} 个【结构指标】任务。")
+        else:
+            print("  -> [独立组] 无需更新，跳过任务分派。")
+        # [代码修改结束]
+
         print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务。")
         return {
