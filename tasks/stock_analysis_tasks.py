@@ -787,11 +787,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V2.3 · 分组解耦版】
-    - 核心升级: 废除统一的“最短板”原则，将计算任务解耦为两个独立的调度组：
-                  1. 【耦合组】筹码 + 资金流 (因存在内在依赖，仍需绑定计算)
-                  2. 【独立组】结构指标
-    - 收益: 每个组根据自身的最新数据决定计算起点，避免了因一个模型的滞后导致其他模型不必要的重复计算，大幅提升效率。
+    【总调度器 V2.4 · 类型修复版】
+    - 核心升级: 废除统一的“最短板”原则，将计算任务解耦为两个独立的调度组。
+    - 核心修改(V2.4): 修复了在比较日期时，对一个已经是 date 类型的对象错误调用 .date() 方法的 AttributeError。
     """
     try:
         from datetime import timedelta, datetime
@@ -802,7 +800,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         )
         from stock_models.time_trade import StockDailyBasic
         
-        # [代码修改开始]
         # --- 分组定义模型 ---
         chip_ff_models = [
             AdvancedChipMetrics_SH, AdvancedChipMetrics_SZ, AdvancedChipMetrics_CY, AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ,
@@ -832,7 +829,10 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
                 raise ValueError("StockDailyBasic 为空，无法确定数据范围。")
 
             start_date_obj = sync_date + timedelta(days=1)
-            if start_date_obj.date() > latest_basic_data.trade_time:
+            # [代码修改开始]
+            # 修复: start_date_obj 已经是 date 类型，不能再调用 .date()
+            if start_date_obj > latest_basic_data.trade_time:
+            # [代码修改结束]
                 logger.info(f"【总调度-{group_name}组】所有指标已同步至 {sync_date}，无需更新。")
                 return None, True # 无需更新
             
@@ -891,7 +891,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
                 print(f"  -> [独立组] 已创建并发送 {len(structural_tasks)} 个【结构指标】任务。")
         else:
             print("  -> [独立组] 无需更新，跳过任务分派。")
-        # [代码修改结束]
 
         print(f"✅✅✅ [总调度器] 任务组已异步发送。总派遣任务数: {total_tasks_dispatched}。")
         logger.info(f"【总调度】成功！已向计算集群分发 {total_tasks_dispatched} 个子任务。")
