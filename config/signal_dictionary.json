@@ -479,7 +479,7 @@
             "cn_name": "【认知风险】奇美拉冲突",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -1000,
+            "penalty_weight": -100,
             "description": "【战神阿瑞斯版】量化“牛熊冲突”的激烈程度。融合了“信号冲突”（看涨/看跌信号同时高企）和“资金流分歧冲突”（多源资金流数据互相矛盾）两大维度。高分代表市场极度混乱和不可预测，是强烈的风险信号。"
         },
         "COGNITIVE_SCORE_ALPHA_WOLF_LEADERSHIP": {

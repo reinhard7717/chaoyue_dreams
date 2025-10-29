@@ -784,13 +784,12 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
         # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
         raise
     
-
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
-    【总调度器 V2.0 · 智能日期决策版】
-    - 核心升级: 如果不传入 start_date_str，则自动检测所有高级指标的最近同步点，并从下一天开始增量计算，
-                  直至 StockDailyBasic 的最新日期。
+    【总调度器 V2.1 · 创世日期版】
+    - 核心升级: 如果不传入 start_date_str，则自动检测所有高级指标的最近同步点，并从下一天开始增量计算。
+    - 核心修改(V2.1): 如果未发现任何已存的高级指标数据，则从默认的 '2025-05-01' 开始计算，作为“创世日”。
     """
     try:
         # 智能日期决策模块
@@ -817,10 +816,13 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             if not latest_basic_data:
                 logger.warning("【总调度】StockDailyBasic 为空，无法确定数据范围，任务终止。")
                 return {"status": "skipped", "reason": "StockDailyBasic is empty."}
+            # [代码修改开始]
             if not all_latest_metric_dates:
-                logger.info("【总调度】未发现任何已存的高级指标数据，将触发全量计算。")
-                # start_date_str 保持为 None，子任务将执行全量计算
-                is_incremental = False # 明确切换为全量模式
+                start_date_str = '2025-05-01' # 指定“创世日”
+                is_incremental = False # 明确为全量模式，但有指定起点
+                logger.info(f"【总调度】未发现任何已存的高级指标数据，将从默认创世日期 {start_date_str} 开始计算。")
+                print(f"✅✅✅ [总调度器] 未发现任何已存的高级指标数据，将从默认创世日期 {start_date_str} 开始计算。")
+            # [代码修改结束]
             else:
                 # 取所有指标中“最旧的那个最新日期”作为同步点，确保数据完整性
                 sync_date = min(all_latest_metric_dates)
@@ -831,7 +833,6 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
                     return {"status": "skipped", "reason": "All metrics are up to date."}
                 start_date_str = start_date_obj.strftime('%Y-%m-%d')
                 print(f"✅✅✅ [总调度器] 自动检测到增量计算起始日期为: {start_date_str}")
-        
         stock_codes = list(StockInfo.objects.filter(list_status='L').values_list('stock_code', flat=True))
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何上市状态的股票，任务终止。")

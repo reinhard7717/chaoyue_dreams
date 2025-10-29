@@ -292,12 +292,20 @@ class AdvancedChipMetricsService:
                         # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
                         derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
         return derivatives_df
-        
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """准备并以“更新或创建”的方式原子化保存数据。"""
         if final_df.empty: return 0
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        # [代码修改开始]
+        # 健壮性修复：确保所有布尔字段在保存前都有确定的值 (True/False)，而不是 NaN。
+        # NaN 在保存时会变成 NULL，导致数据库 NOT NULL 约束错误。
+        boolean_fields = BaseAdvancedChipMetrics.BOOLEAN_FIELDS
+        for col in boolean_fields:
+            if col in final_df.columns:
+                # 将 NaN 值填充为 False，这是布尔字段最安全的默认值
+                final_df[col] = final_df[col].fillna(False)
+        # [代码修改结束]
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')
