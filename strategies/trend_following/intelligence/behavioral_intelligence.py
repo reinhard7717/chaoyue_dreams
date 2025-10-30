@@ -110,11 +110,11 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.12 · 依赖顺序修正版】原子信号中心
+        【V2.13 · 数据总线修复版】原子信号中心
         - 核心重构: 使用全新的 `_diagnose_vpa_stagnation_risk` 替换了旧的 `_diagnose_volume_price_dynamics`。
         - 核心新增: 集成全新的 `_diagnose_grand_divergence` 引擎，生成战略级背离信号。
         - 核心升级: 调用全新的权威趋势健康度引擎 `_calculate_trend_health_score` 和权威绝望指数引擎 `_calculate_despair_context_score`，并将其结果存入原子状态。
-        - 核心修正: 修正了致命的依赖倒置问题。将 `_diagnose_advanced_atomic_signals` 的调用提前，确保其产出的基础原子信号（如连跌天数）能在 `_calculate_despair_context_score` 等引擎中被正确使用。
+        - 核心修复: 彻底修复数据流问题。确保生产者引擎（如_diagnose_advanced_atomic_signals）在计算后，立即将其结果发布到 `self.strategy.atomic_states` 中央总线，供后续的消费者引擎（如_calculate_despair_context_score）安全订阅。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -124,9 +124,10 @@ class BehavioralIntelligence:
         self.strategy.atomic_states['SCORE_TREND_HEALTH'] = trend_health_score # 立即存入，供后续引擎使用
         
         # [代码修改开始]
-        # 步骤二: 计算基础原子信号，这些信号是后续许多引擎的依赖项
-        # 修正依赖倒置：必须在 _calculate_despair_context_score 之前调用
-        atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
+        # 步骤二: 计算并【立即发布】基础原子信号，这些信号是后续许多引擎的依赖项
+        advanced_signals = self._diagnose_advanced_atomic_signals(df)
+        atomic_signals.update(advanced_signals)
+        self.strategy.atomic_states.update(advanced_signals) # 关键修复：立即将新信号发布到中央情报总线
         
         # 步骤三: 现在可以安全地计算依赖于基础原子信号的上下文分数
         despair_context_score = self._calculate_despair_context_score(df)
@@ -152,6 +153,7 @@ class BehavioralIntelligence:
         atomic_signals.update(intent_signals)
         final_pressure_signals = self._resolve_pressure_absorption_dynamics(provisional_pressure, intent_diagnosis)
         atomic_signals.update(final_pressure_signals)
+        # 此处不再需要调用 _diagnose_advanced_atomic_signals，因为它已被提前
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_liquidity_dynamics(df))
         atomic_signals.update(self._diagnose_contraction_consolidation(df))
@@ -1102,13 +1104,14 @@ class BehavioralIntelligence:
 
     def _calculate_despair_context_score(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V4.0 · 冥河三途模型重构版】权威市场绝望指数引擎
+        【V4.1 · 数据总线修复版】权威市场绝望指数引擎
         - 核心思想: 真正的市场绝望，是“深度”、“速度”和“投降”三个维度的共振。
         - 核心升级:
           1. 正式废弃旧的实现，成为一个权威的、可供全局调用的基础环境指标。
           2. 深度(Depth): 融合年度回撤与中期乖离，衡量市场的“痛苦指数”。
           3. 速度(Velocity): 融合中期下跌速率与连跌天数，衡量市场的“恐慌指数”。
           4. 投降(Capitulation): 融合流动性枯竭、收盘绝望和散户抛售，衡量市场的“投降指数”，直指A股博弈本质。
+        - 核心修复: 修正数据订阅逻辑，从 `self.strategy.atomic_states` 中央总线订阅 `COUNT_CONSECUTIVE_DOWN_STREAK` 信号，而不是从原始df中获取。
         - 返回: 一个在[0, 1]区间的、代表市场绝望程度的单极性分数，分数越高越绝望。
         """
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -1118,7 +1121,7 @@ class BehavioralIntelligence:
         # 证据1.1: 从年度高点的回撤幅度
         rolling_peak_250d = df['high_D'].rolling(window=250, min_periods=120).max()
         drawdown_from_peak = (rolling_peak_250d - df['close_D']) / rolling_peak_250d.replace(0, np.nan)
-        depth_score = self._get_mtf_normalized_score(drawdown_from_peak.clip(lower=0), ascending=True, tf_weights={250: 1.0})
+        depth_score = self._get_mtf_normalized_score(drawdown_from_peak.clip(lower=0), ascending=True, tf_weights={'weights': {250: 1.0}})
         # 证据1.2: 向下偏离中期均线的程度
         panic_bias_score = self._get_mtf_normalized_score(df.get('BIAS_55_D', 0), ascending=False, tf_weights=default_weights) # 负值越大分数越高
         depth_dimension_score = (depth_score * panic_bias_score).pow(0.5)
@@ -1126,8 +1129,11 @@ class BehavioralIntelligence:
         # 证据2.1: 中期下跌速率
         price_roc_21d = df['close_D'].pct_change(21)
         velocity_score = self._get_mtf_normalized_score(price_roc_21d, ascending=False, tf_weights=default_weights) # 负值越大分数越高
-        # 证据2.2: 连跌天数
-        down_streak_score = self._get_mtf_normalized_score(df.get('COUNT_CONSECUTIVE_DOWN_STREAK', 0), ascending=True, tf_weights=default_weights)
+        # [代码修改开始]
+        # 证据2.2: 连跌天数 (从中央情报总线订阅)
+        down_streak_series = self.strategy.atomic_states.get('COUNT_CONSECUTIVE_DOWN_STREAK', pd.Series(0, index=df.index))
+        down_streak_score = self._get_mtf_normalized_score(down_streak_series, ascending=True, tf_weights=default_weights)
+        # [代码修改结束]
         velocity_dimension_score = (velocity_score * down_streak_score).pow(0.5)
         # --- 维度三: 投降 (Capitulation) ---
         # 证据3.1: 流动性枯竭风险 (恐慌性抛售导致买盘真空)
