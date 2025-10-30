@@ -531,14 +531,11 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
 # =================== 2. 高级资金、筹码特征任务 ==================
 # =================================================================
 async def _initialize_task_context_unified(stock_code: str, is_incremental: bool, start_date_str: str = None):
-    """【V2.0 · 窗口解耦版】彻底分离数据加载窗口与指标计算窗口。"""
+    """【V2.1 · 三级窗口终极版】引入回溯、处理、存储三级窗口，根除所有日期逻辑缺陷。"""
     from services.fund_flow_service import AdvancedFundFlowMetricsService
     from services.advanced_chip_metrics_service import AdvancedChipMetricsService
     from datetime import datetime, timedelta
-    # [代码新增开始]
-    # 核心新增：引入权威交易日历模型
     from stock_models.index import TradeCalendar
-    # [代码新增结束]
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     ChipMetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     FundFlowMetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
@@ -546,21 +543,19 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     fund_flow_service = AdvancedFundFlowMetricsService()
     max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days)
     # [代码修改开始]
-    # 核心修正：重新定义日期变量，解耦加载与计算
-    process_start_date = None # 需要加载数据的第一天
-    save_start_date = None    # 需要保存指标的第一天
+    # 核心修正：定义三级时间窗口变量
+    lookback_start_date = None # 数据加载的最远边界
+    process_start_date = None  # 计算循环的起点 (T-1)
+    save_start_date = None     # 指标存储的起点 (T)
     # [代码修改结束]
     if start_date_str:
         try:
             save_start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             is_incremental = True
-            # [代码修改开始]
-            # 核心修正：process_start_date 是 save_start_date 的前一个交易日
             process_start_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=save_start_date, offset=-1)
             if not process_start_date:
-                logger.warning(f"[{stock_code}] 无法找到 {save_start_date} 的前一个交易日，将从 {save_start_date} 开始处理。")
                 process_start_date = save_start_date
-            # [代码修改结束]
+            lookback_start_date = process_start_date - timedelta(days=max_lookback_days)
             chip_del_count, _ = await sync_to_async(ChipMetricsModel.objects.filter(stock=stock_info, trade_time__gte=save_start_date).delete)()
             ff_del_count, _ = await sync_to_async(FundFlowMetricsModel.objects.filter(stock=stock_info, trade_time__gte=save_start_date).delete)()
             logger.info(f"[{stock_code}] [统一回滚] 筹码指标删除 {chip_del_count} 条，资金流指标删除 {ff_del_count} 条。")
@@ -584,25 +579,22 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
         elif latest_ff_date:
             last_metric_date = latest_ff_date
         if last_metric_date:
-            # [代码修改开始]
-            # 核心修正：增量模式下，处理日从最后一条记录开始，保存日从下一交易日开始
             process_start_date = last_metric_date
             save_start_date = await sync_to_async(TradeCalendar.get_next_trade_date)(last_metric_date)
-            # [代码修改结束]
+            lookback_start_date = process_start_date - timedelta(days=max_lookback_days)
         else:
-            is_incremental = False # 数据库为空，转为全量
-    # [代码修改开始]
-    # 核心修正：统一处理全量/创世模式
+            is_incremental = False
     if not is_incremental:
         genesis_date_str = '2025-05-01'
         save_start_date = datetime.strptime(genesis_date_str, '%Y-%m-%d').date()
         process_start_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=save_start_date, offset=-1)
         if not process_start_date:
-            logger.warning(f"[{stock_code}] [创世模式] 无法找到创世日 {save_start_date} 的前一个交易日，将从创世日开始处理。")
             process_start_date = save_start_date
-        logger.info(f"[{stock_code}] [统一初始化] 未发现任何高级指标，将从创世日期 {genesis_date_str} 开始保存，数据从 {process_start_date} 开始加载。")
-    # 核心修正：移除令人困惑的 fetch_start_date，下游不再需要它
-    return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, process_start_date, save_start_date
+        lookback_start_date = process_start_date - timedelta(days=max_lookback_days)
+        logger.info(f"[{stock_code}] [统一初始化] 创世模式启动。存储自: {save_start_date}, 处理自: {process_start_date}, 回溯自: {lookback_start_date}")
+    # [代码修改开始]
+    # 核心修正：返回新的三级窗口日期
+    return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
     # [代码修改结束]
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
@@ -659,8 +651,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V25.2 · 窗口协议执行版】
-    - 核心修复: 遵循窗口解耦协议，使用 process_start_date 构建处理列表，使用 save_start_date 过滤保存结果。
+    【V25.3 · 三级窗口执行版】
+    - 核心修复: 严格遵循三级窗口协议，精确控制数据加载、处理和存储的范围。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -669,34 +661,36 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
         # [代码修改开始]
-        # 核心修正：接收新的、解耦的日期变量
-        stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, process_start_date, save_start_date = await _initialize_task_context_unified(
+        # 核心修正：接收并解包新的三级窗口日期
+        stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
         # [代码修改结束]
         DailyModel = get_daily_data_model_by_code(stock_code)
         DateSourceModel = StockDailyBasic
         process_date_filter = {'stock': stock_info}
-        # [代码修改开始]
-        # 核心修正：使用 process_start_date 来构建需要加载和处理的日期列表
         if process_start_date:
             process_date_filter['trade_time__gte'] = process_start_date
-        # [代码修改结束]
         all_dates_qs = DateSourceModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
         dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
         # [代码修改开始]
-        # 核心修正：context_start_date 现在就是 process_start_date
-        context_start_date = process_start_date
+        # 核心修正：加载历史指标的上下文截止到 process_start_date 的前一天
+        context_end_date = process_start_date
+        ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
+        chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
         # [代码修改结束]
-        ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_start_date)
-        chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_start_date)
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
+        # [代码修改开始]
+        # 核心修正：使用 lookback_start_date 优化全局回溯数据的加载效率
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
-            stock=stock_info, trade_time__lte=dates_to_process.max()
+            stock=stock_info,
+            trade_time__gte=lookback_start_date,
+            trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
+        # [代码修改结束]
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -749,14 +743,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
             context_df = full_sequence_for_derivatives
         if not all_final_metrics_to_save.empty:
-            # [代码修改开始]
-            # 核心修正：使用 save_start_date 来过滤需要保存的数据
             if save_start_date:
                 chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
             else:
-                # 如果 save_start_date 为 None（可能发生在增量更新且无新数据时），则保存所有计算出的数据
                 chunk_to_save = all_final_metrics_to_save
-            # [代码修改结束]
             if not chunk_to_save.empty:
                 ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
                 chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
