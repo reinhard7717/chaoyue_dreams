@@ -110,11 +110,11 @@ class BehavioralIntelligence:
     # ==============================================================================
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.11 · 压力解析引擎换装版】原子信号中心
+        【V2.12 · 依赖顺序修正版】原子信号中心
         - 核心重构: 使用全新的 `_diagnose_vpa_stagnation_risk` 替换了旧的 `_diagnose_volume_price_dynamics`。
         - 核心新增: 集成全新的 `_diagnose_grand_divergence` 引擎，生成战略级背离信号。
         - 核心升级: 调用全新的权威趋势健康度引擎 `_calculate_trend_health_score` 和权威绝望指数引擎 `_calculate_despair_context_score`，并将其结果存入原子状态。
-        - 核心换装: 使用全新的 `_resolve_pressure_absorption_dynamics` 替换旧的压力嬗变逻辑。
+        - 核心修正: 修正了致命的依赖倒置问题。将 `_diagnose_advanced_atomic_signals` 的调用提前，确保其产出的基础原子信号（如连跌天数）能在 `_calculate_despair_context_score` 等引擎中被正确使用。
         """
         atomic_signals = {}
         params = self.strategy.params
@@ -122,9 +122,18 @@ class BehavioralIntelligence:
         trend_health_score = self._calculate_trend_health_score(df)
         atomic_signals['SCORE_TREND_HEALTH'] = trend_health_score
         self.strategy.atomic_states['SCORE_TREND_HEALTH'] = trend_health_score # 立即存入，供后续引擎使用
+        
+        # [代码修改开始]
+        # 步骤二: 计算基础原子信号，这些信号是后续许多引擎的依赖项
+        # 修正依赖倒置：必须在 _calculate_despair_context_score 之前调用
+        atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
+        
+        # 步骤三: 现在可以安全地计算依赖于基础原子信号的上下文分数
         despair_context_score = self._calculate_despair_context_score(df)
         atomic_signals['SCORE_CONTEXT_DESPAIR'] = despair_context_score
         self.strategy.atomic_states['SCORE_CONTEXT_DESPAIR'] = despair_context_score
+        # [代码修改结束]
+
         day_quality_score = self._calculate_day_quality_score(df)
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
         epic_reversal_states = self._diagnose_atomic_rebound_reversal(df)
@@ -141,12 +150,8 @@ class BehavioralIntelligence:
         intent_signals = self._diagnose_upper_shadow_intent(df)
         intent_diagnosis = intent_signals.get('SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS', pd.Series(0.0, index=df.index))
         atomic_signals.update(intent_signals)
-        # [代码修改开始]
-        # 使用全新的“压力-承接连续谱模型”进行解析
         final_pressure_signals = self._resolve_pressure_absorption_dynamics(provisional_pressure, intent_diagnosis)
-        # [代码修改结束]
         atomic_signals.update(final_pressure_signals)
-        atomic_signals.update(self._diagnose_advanced_atomic_signals(df))
         atomic_signals.update(self._diagnose_board_patterns(df))
         atomic_signals.update(self._diagnose_liquidity_dynamics(df))
         atomic_signals.update(self._diagnose_contraction_consolidation(df))
