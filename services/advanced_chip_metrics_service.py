@@ -120,7 +120,7 @@ class AdvancedChipMetricsService:
         return data_dfs
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
-        """【V2.2 · 数据主轴重塑版】修正数据合并逻辑，确保所有交易日都被包含。"""
+        """【V2.3 · 数据主链重铸版】将 inner join 修改为 left join，确保日线数据是唯一主轴。"""
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -131,12 +131,14 @@ class AdvancedChipMetricsService:
         daily_basic_df.set_index('trade_time', inplace=True)
         cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore', inplace=True)
         cyq_perf_df.set_index('trade_time', inplace=True)
-        daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='inner')
         # [代码修改开始]
-        # 核心修正: 使用 'right' 合并，确保以 daily_combined_df (日线数据) 的日期为主轴。
-        # 这样即使某天缺少筹码数据(cyq_chips)，该日期也会被保留在 merged_df 中，其 price 和 percent 列为 NaN。
-        merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
+        # 核心修正: 将 'inner' join 修改为 'left' join。
+        # 这确立了 daily_data_df (日线行情) 作为数据合并的唯一主轴。
+        # 即使 daily_basic 或 cyq_perf 缺少某天数据，该交易日也会被保留，其对应字段为 NaN，
+        # 而不是像 inner join 那样直接删除整行，从而保证了处理循环的完整性。
+        daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='left')
         # [代码修改结束]
+        merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
