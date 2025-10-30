@@ -753,6 +753,41 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
 
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_structural_metrics_for_stock', queue='SaveHistoryData_TimeTrade')
+@with_cache_manager
+def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
+    """
+    【V1.0 · 新增】为单只股票预计算高级结构与行为指标的Celery任务。
+    - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
+    """
+    #
+    async def main(incremental_flag: bool, start_date_override: str):
+        from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
+        
+        structural_service = AdvancedStructuralMetricsService()
+        
+        try:
+            processed_count = await structural_service.run_precomputation(
+                stock_code=stock_code,
+                is_incremental=incremental_flag,
+                start_date_str=start_date_override
+            )
+            logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
+            return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}
+        except Exception as e:
+            logger.error(f"[{stock_code}] [结构指标任务] 执行失败: {e}", exc_info=True)
+            # 可以在这里决定是否重试
+            raise
+            
+    try:
+        # 使用 async_to_sync 将异步的 main 函数同步执行
+        result = async_to_sync(main)(is_incremental, start_date_str)
+        return result
+    except Exception as e:
+        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_structural_metrics_for_stock for {stock_code}: {e}", exc_info=True)
+        # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
+        raise
+    
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
