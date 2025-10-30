@@ -763,8 +763,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V25.1 · 依赖注入重构版】
-    - 核心重构: 在任务顶层统一解析 DailyModel，并将其作为参数注入下层数据加载函数。
+    【V25.2 · 参数同步修复版】
+    - 核心修复: 修正对 _load_all_sources_unified 的调用，补全缺失的 DailyModel 参数。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -775,11 +775,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        # [代码修改开始]
-        # 核心重构: 在顶层统一解析 DailyModel，以实现依赖注入，避免在下层函数中重复解析。
         DailyModel = get_daily_data_model_by_code(stock_code)
         DateSourceModel = StockDailyBasic
-        # [代码修改结束]
         process_date_filter = {'stock': stock_info}
         if fetch_start_date:
             process_date_filter['trade_time__gte'] = fetch_start_date
@@ -823,7 +820,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if chunk_dates.empty: continue
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
             # [代码修改开始]
-            # 核心重构: 将解析好的 DailyModel 作为参数传递下去。
+            # 核心修复: 在调用 _load_all_sources_unified 时，补全之前遗漏的 DailyModel 参数。
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_start_date, chunk_end_date)
             # [代码修改结束]
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
