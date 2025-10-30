@@ -32,17 +32,26 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V13.1 · 流程修正版】
-        - 核心修正: 恢复对 _calculate_static_structure 方法的正确调用，该方法现在作为所有静态结构指标计算的统一入口。
+        【V13.2 · 健壮性日志增强版】
+        - 核心修正: 恢复对 _calculate_static_structure 方法的正确调用。
+        - 核心新增: 在计算开始前增加健壮性检查，如果核心数据缺失，则打印明确的调试信息并中止计算。
         """
-        if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
+        # [代码修改开始]
+        # 核心新增：增加前置检查和调试日志
+        stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+        trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+        if self.df.empty:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 筹码计算中止，原因：当日筹码分布数据(daily_chips_df)为空。")
             return {}
+        required_keys = ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']
+        missing_keys = [k for k in required_keys if k not in self.ctx or self.ctx[k] is None or pd.isna(self.ctx[k])]
+        if missing_keys:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
+            return {}
+        # [代码修改结束]
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
-        # [代码修改开始]
-        # 核心修正：调用新整合的静态结构计算主流程方法
         static_structure_metrics = self._calculate_static_structure()
-        # [代码修改结束]
         self.ctx.update(static_structure_metrics)
         intraday_dynamics_metrics = self._calculate_intraday_dynamics()
         self.ctx.update(intraday_dynamics_metrics)
@@ -98,11 +107,17 @@ class ChipFeatureCalculator:
         # [代码新增结束]
 
     def _prepare_minute_data_features(self):
-        """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""
+        """【V2.2 · 健壮性日志增强版】对单日分钟数据进行类型降级，并增加空数据日志。"""
         minute_df = self.ctx.get('minute_data')
+        # [代码修改开始]
+        # 核心新增：增加前置检查和调试日志
         if minute_df is None or minute_df.empty:
+            stock_code = self.ctx.get('stock_code', 'UNKNOWN')
+            trade_date = self.ctx.get('trade_date', 'UNKNOWN')
+            print(f"调试信息: [{stock_code}] [{trade_date}] 分钟数据特征准备跳过，原因：分钟数据(minute_data)为空。")
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
+        # [代码修改结束]
         dtype_map = {
             'amount': 'float32',
             'vol': 'int32',
@@ -114,18 +129,14 @@ class ChipFeatureCalculator:
         for col, dtype in dtype_map.items():
             if col in minute_df.columns:
                 minute_df[col] = pd.to_numeric(minute_df[col], errors='coerce').astype(dtype, errors='ignore')
-        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         total_amount_yuan = minute_df['amount'].sum()
         total_vol_shares = minute_df['vol'].sum()
-        
         daily_vwap = total_amount_yuan / total_vol_shares if total_vol_shares > 0 else None
         self.ctx['daily_vwap'] = daily_vwap
         if daily_vwap is None:
             self.ctx.update({'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
-        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
         minute_df['minute_vwap'] = (minute_df['amount'] / minute_df['vol'].replace(0, np.nan)).astype('float32', errors='ignore')
-        
         vol_above_vwap = minute_df[minute_df['minute_vwap'] > daily_vwap]['vol'].sum()
         vol_below_vwap = minute_df[minute_df['minute_vwap'] < daily_vwap]['vol'].sum()
         total_vol = minute_df['vol'].sum()
@@ -159,39 +170,41 @@ class ChipFeatureCalculator:
 
     def _calculate_cross_day_holder_flow(self, context: dict) -> dict:
         """
-        【V1.0 · 新增】计算长短期筹码的跨日流动情况。
-        - 核心逻辑: 假设当日成交量按比例来源于昨日不同持仓者（长/短期、盈/亏），
-                      计算各类持仓者的卖出意愿或换手强度。
+        【V1.1 · 健壮性日志增强版】计算长短期筹码的跨日流动情况。
+        - 核心新增: 增加对上游数据的检查，并在数据缺失时打印调试信息。
         """
-        # [代码新增开始]
         results = {
             'short_term_profit_taking_ratio': None,
             'long_term_chips_unlocked_ratio': None,
             'short_term_capitulation_ratio': None,
             'long_term_despair_selling_ratio': None,
         }
-        # 检查所有必需的上下文变量
+        # [代码修改开始]
+        # 核心新增：增加前置检查和调试日志
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
         required_keys = ['prev_chip_distribution', 'daily_turnover_volume', 'prev_close', 'prev_20d_close', 'total_chip_volume']
-        if not all(key in context and context[key] is not None and pd.notna(context[key]) for key in required_keys):
+        missing_keys = [k for k in required_keys if k not in context or context[k] is None or pd.isna(context[k])]
+        if missing_keys:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文(context)中缺少前一日关键数据: {missing_keys}。")
             return results
         prev_df = context['prev_chip_distribution']
         if prev_df.empty:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：前一日筹码分布(prev_chip_distribution)为空。")
             return results
+        # [代码修改结束]
         turnover_vol = context['daily_turnover_volume']
         prev_close = context['prev_close']
         prev_20d_close = context['prev_20d_close']
         total_chips = context['total_chip_volume']
-        # 1. 划分昨日的四类持仓者
         prev_winners_short_df = prev_df[(prev_df['price'] >= prev_20d_close) & (prev_df['price'] < prev_close)]
         prev_winners_long_df = prev_df[prev_df['price'] < prev_20d_close]
         prev_losers_short_df = prev_df[(prev_df['price'] >= prev_20d_close) & (prev_df['price'] > prev_close)]
         prev_losers_long_df = prev_df[(prev_df['price'] < prev_20d_close) & (prev_df['price'] > prev_close)]
-        # 2. 计算昨日各类持仓者的筹码总量（股）
         vol_winners_short = (prev_winners_short_df['percent'].sum() / 100) * total_chips
         vol_winners_long = (prev_winners_long_df['percent'].sum() / 100) * total_chips
         vol_losers_short = (prev_losers_short_df['percent'].sum() / 100) * total_chips
         vol_losers_long = (prev_losers_long_df['percent'].sum() / 100) * total_chips
-        # 3. 计算当日成交量中，归属于各类持仓者卖出的部分
         total_prev_percent = prev_df['percent'].sum()
         if total_prev_percent > 0:
             turnover_from_winners_short = turnover_vol * (prev_winners_short_df['percent'].sum() / total_prev_percent)
@@ -200,7 +213,6 @@ class ChipFeatureCalculator:
             turnover_from_losers_long = turnover_vol * (prev_losers_long_df['percent'].sum() / total_prev_percent)
         else:
             return results
-        # 4. 计算最终比率（卖出意愿）
         if vol_winners_short > 0:
             results['short_term_profit_taking_ratio'] = (turnover_from_winners_short / vol_winners_short) * 100
         if vol_winners_long > 0:
@@ -210,7 +222,6 @@ class ChipFeatureCalculator:
         if vol_losers_long > 0:
             results['long_term_despair_selling_ratio'] = (turnover_from_losers_long / vol_losers_long) * 100
         return results
-        # [代码新增结束]
 
     def _calculate_cross_day_chip_flow(self) -> dict:
         """
@@ -379,27 +390,22 @@ class ChipFeatureCalculator:
 
     def _calculate_vital_signs(self) -> dict:
         """
-        【V1.0 · 新增】计算所有属于“第五象限：生命体征”的元指标。
+        【V1.1 · 空值防御版】计算所有属于“第五象限：生命体征”的元指标。
+        - 核心修正: 在“主导力量姿态”的条件判断中，使用 `(get(key) or 0.0)` 模式，
+                      以健壮地处理上游指标可能计算失败返回 None 的情况，防止 TypeError。
         """
-        # [代码新增开始]
         from scipy.spatial.distance import jensenshannon
         from scipy.stats import entropy
         results = {}
         # 1. 计算筹码熵和换手速度
         prev_chips_df = self.ctx.get('prev_chip_distribution')
-        # 对齐价格轴
         if prev_chips_df is not None and not prev_chips_df.empty:
-            # 创建一个包含今天和昨天所有价格的联合价格轴
             combined_prices = pd.concat([self.df[['price']], prev_chips_df[['price']]]).drop_duplicates().sort_values('price').reset_index(drop=True)
-            # 将今天和昨天的筹码分布映射到联合轴上
             today_aligned = pd.merge(combined_prices, self.df, on='price', how='left')['percent'].fillna(0).to_numpy()
             prev_aligned = pd.merge(combined_prices, prev_chips_df, on='price', how='left')['percent'].fillna(0).to_numpy()
-            # 归一化为概率分布
             p_today = today_aligned / today_aligned.sum() if today_aligned.sum() > 0 else np.zeros_like(today_aligned)
             p_prev = prev_aligned / prev_aligned.sum() if prev_aligned.sum() > 0 else np.zeros_like(prev_aligned)
-            # 计算JSD作为换手速度
             results['chip_turnover_velocity'] = jensenshannon(p_today, p_prev, base=2)**2
-            # 计算今天的筹码熵
             results['chip_entropy'] = entropy(p_today, base=2)
         else:
             results['chip_turnover_velocity'] = None
@@ -410,30 +416,31 @@ class ChipFeatureCalculator:
         conc_90 = self.ctx.get('concentration_90pct', 1.0)
         profit_margin = self.ctx.get('winner_profit_margin', 0)
         chip_entropy = results.get('chip_entropy', np.log2(len(self.df)) if len(self.df) > 0 else 0)
-        # 归一化各分项
-        norm_peak_stability = np.clip(peak_stability / 20.0, 0, 1) # 假设20是很好的稳定性
-        norm_concentration = 1 - np.clip(conc_90 / 0.5, 0, 1) # 假设50%集中度是下限
-        norm_profit_margin = np.clip(profit_margin / 50.0, 0, 1) # 假设50%利润垫是很好的
+        norm_peak_stability = np.clip(peak_stability / 20.0, 0, 1)
+        norm_concentration = 1 - np.clip(conc_90 / 0.5, 0, 1)
+        norm_profit_margin = np.clip(profit_margin / 50.0, 0, 1)
         max_entropy = np.log2(len(self.df)) if len(self.df) > 0 else 1
         norm_entropy = 1 - (chip_entropy / max_entropy if max_entropy > 0 else 1)
         results['structural_stability_index'] = (norm_peak_stability * norm_concentration * norm_profit_margin * norm_entropy)**(1/4)
         # 3. 计算主导力量姿态
-        posture = 0 # 0: 无主导
+        posture = 0
+        # [代码修改开始]
+        # 核心修正：对所有从 self.ctx 获取并用于比较的指标，使用 `(get() or 0.0)` 模式进行空值防御
         # 规则1: 强力吸筹
-        if self.ctx.get('main_force_cost_advantage', 0) > 1.0 and self.ctx.get('concentration_increase_by_support', 0) > 0.1:
+        if (self.ctx.get('main_force_cost_advantage') or 0.0) > 1.0 and (self.ctx.get('concentration_increase_by_support') or 0.0) > 0.1:
             posture = 1
         # 规则2: 锁仓拉升/持有
-        elif results.get('structural_stability_index', 0) > 0.6 and results.get('chip_turnover_velocity', 1) < 0.01 and self.ctx.get('winner_conviction_index', 0) > 1.2:
+        elif (results.get('structural_stability_index') or 0.0) > 0.6 and (results.get('chip_turnover_velocity') or 1.0) < 0.01 and (self.ctx.get('winner_conviction_index') or 0.0) > 1.2:
             posture = 2
         # 规则3: 高位派发
-        elif self.ctx.get('main_force_cost_advantage', 0) < -1.0 and self.ctx.get('concentration_decrease_by_distribution', 0) > 0.1:
+        elif (self.ctx.get('main_force_cost_advantage') or 0.0) < -1.0 and (self.ctx.get('concentration_decrease_by_distribution') or 0.0) > 0.1:
             posture = 3
         # 规则4: 恐慌杀跌
-        elif self.ctx.get('concentration_decrease_by_capitulation', 0) > 0.1 and self.ctx.get('retail_capitulation_score', 0) > 0.2:
+        elif (self.ctx.get('concentration_decrease_by_capitulation') or 0.0) > 0.1 and (self.ctx.get('retail_capitulation_score') or 0.0) > 0.2:
             posture = 4
+        # [代码修改结束]
         results['dominant_force_posture'] = posture
         return results
-        # [代码新增结束]
 
     def _calculate_concentration_from_perf(self) -> dict:
         """【V13.0 重构】直接基于 cyq_perf 提供的成本分位数计算筹码集中度。"""
