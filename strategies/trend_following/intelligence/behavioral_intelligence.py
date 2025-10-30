@@ -160,8 +160,9 @@ class BehavioralIntelligence:
 
     def _get_mtf_normalized_score(self, series: pd.Series, ascending: bool = True, tf_weights: Dict[int, float] = None) -> pd.Series:
         """
-        【V1.0 · 新增】多时间框架(MTF)归一化引擎
+        【V1.1 · 防御性加固版】多时间框架(MTF)归一化引擎
         - 核心职责: 将单一指标的归一化从固定窗口升维为跨周期的加权融合。
+        - 核心加固: 增加对权重字典中非数字值的过滤，防止因配置文件污染导致TypeError。
         - 输入:
           - series: 原始数据序列。
           - ascending: 归一化方向，True表示值越大分数越高。
@@ -171,30 +172,72 @@ class BehavioralIntelligence:
         if tf_weights is None:
             # 如果未提供权重，则使用默认的等权重配置
             tf_weights = {5: 0.2, 13: 0.2, 21: 0.2, 55: 0.2, 89: 0.2}
+        
+        # [代码修改开始]
+        # 防御性编程：过滤掉权重字典中非数字的值，并处理嵌套结构
+        if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
+            # 适配新的、更规范的配置文件结构
+            valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
+        else:
+            # 兼容旧的配置文件结构，并过滤非数字项
+            valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+        
+        if not valid_weights:
+             # 如果过滤后没有有效的权重，则退化为使用一个默认周期
+            print(f"警告: 在 _get_mtf_normalized_score 中没有找到有效的权重配置。将使用默认周期 55。")
+            return normalize_score(series, series.index, 55, ascending)
+
         final_score = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(tf_weights.values())
+        total_weight = sum(valid_weights.values())
         if total_weight <= 0:
             # 如果权重和为0，则退化为使用最长周期的归一化
-            return normalize_score(series, series.index, max(tf_weights.keys()), ascending)
-        for period, weight in tf_weights.items():
-            single_period_score = normalize_score(series, series.index, period, ascending)
-            final_score += single_period_score * (weight / total_weight)
+            return normalize_score(series, series.index, max(valid_weights.keys()), ascending)
+        
+        for period_str, weight in valid_weights.items():
+            try:
+                period = int(period_str)
+                single_period_score = normalize_score(series, series.index, period, ascending)
+                final_score += single_period_score * (weight / total_weight)
+            except (ValueError, TypeError) as e:
+                print(f"警告: 在 _get_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
+                continue
+        # [代码修改结束]
         return final_score.clip(0, 1)
 
     def _get_mtf_normalized_bipolar_score(self, series: pd.Series, tf_weights: Dict[int, float] = None, sensitivity: float = 1.0) -> pd.Series:
         """
-        【V1.0 · 新增】多时间框架(MTF)双极性归一化引擎
+        【V1.1 · 防御性加固版】多时间框架(MTF)双极性归一化引擎
         - 核心职责: _get_mtf_normalized_score 的双极性版本，输出范围为[-1, 1]。
+        - 核心加固: 增加对权重字典中非数字值的过滤，防止因配置文件污染导致TypeError。
         """
         if tf_weights is None:
             tf_weights = {5: 0.2, 13: 0.2, 21: 0.2, 55: 0.2, 89: 0.2}
+        
+        # [代码修改开始]
+        # 防御性编程：过滤掉权重字典中非数字的值，并处理嵌套结构
+        if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
+            valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
+        else:
+            valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+
+        if not valid_weights:
+            print(f"警告: 在 _get_mtf_normalized_bipolar_score 中没有找到有效的权重配置。将使用默认周期 55。")
+            return normalize_to_bipolar(series, series.index, 55, sensitivity)
+
         final_score = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(tf_weights.values())
+        total_weight = sum(valid_weights.values())
         if total_weight <= 0:
-            return normalize_to_bipolar(series, series.index, max(tf_weights.keys()), sensitivity)
-        for period, weight in tf_weights.items():
-            single_period_score = normalize_to_bipolar(series, series.index, period, sensitivity)
-            final_score += single_period_score * (weight / total_weight)
+            return normalize_to_bipolar(series, series.index, max(valid_weights.keys()), sensitivity)
+        
+        for period_str, weight in valid_weights.items():
+            try:
+                period = int(period_str)
+                single_period_score = normalize_to_bipolar(series, series.index, period, sensitivity)
+                final_score += single_period_score * (weight / total_weight)
+            except (ValueError, TypeError) as e:
+                print(f"警告: 在 _get_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
+                continue
+        # [代码修改结束]
         return final_score.clip(-1, 1)
 
     def _diagnose_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
