@@ -334,29 +334,26 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict]:
         """
-        【V6.2 · 原料审计版】计算概率成本时，增加对上游资金流数据的存在性校验。
+        【V6.3 · 协同修正版】计算概率成本时，增加对上游资金流数据的存在性校验。
+        - 核心修正: 在生成归因分钟数据后，立即调用 `_attribute_minute_volume_to_players`，确保下游所有函数都能获取到主力/散户层级的成交量数据。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index), {}
         results = {}
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
-        # 定义成本计算所必需的日度资金流字段
         required_daily_fund_flow_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
-        
         from scipy.spatial.distance import jensenshannon
         for date, daily_data in daily_df.iterrows():
             date_key = date.date()
             if date_key not in minute_df_grouped.index:
                 continue
-            # 审计当日的资金流原料数据
             missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
             if missing_cols:
                 logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，缺失资金流原料数据: {missing_cols}")
                 continue
-            
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_continuous.empty:
@@ -383,6 +380,10 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
+            # [代码修改开始]
+            # 核心修正：在此处立即进行主力/散户层级的成交量聚合，确保弹药前置生产
+            minute_data_for_day = self._attribute_minute_volume_to_players(minute_data_for_day)
+            # [代码修改结束]
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
@@ -401,6 +402,24 @@ class AdvancedFundFlowMetricsService:
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         final_df = pvwap_df.join(aggregate_costs_df)
         return final_df, attributed_minute_map
+
+    def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        【V1.0 · 新增】将基础成交量归因为主力/散户的核心辅助函数。
+        - 核心职责: 聚合基础的 *_vol_attr 列，生成 main_force_* 和 retail_* 级别的成交量列。
+        """
+        # [代码新增开始]
+        df = minute_df.copy()
+        # 聚合计算主力成交量
+        df['main_force_buy_vol'] = df.get('lg_buy_vol_attr', 0) + df.get('elg_buy_vol_attr', 0)
+        df['main_force_sell_vol'] = df.get('lg_sell_vol_attr', 0) + df.get('elg_sell_vol_attr', 0)
+        df['main_force_net_vol'] = df['main_force_buy_vol'] - df['main_force_sell_vol']
+        # 聚合计算散户成交量
+        df['retail_buy_vol'] = df.get('sm_buy_vol_attr', 0) + df.get('md_buy_vol_attr', 0)
+        df['retail_sell_vol'] = df.get('sm_sell_vol_attr', 0) + df.get('md_sell_vol_attr', 0)
+        df['retail_net_vol'] = df['retail_buy_vol'] - df['retail_sell_vol']
+        return df
+        # [代码新增结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -594,7 +613,8 @@ class AdvancedFundFlowMetricsService:
 
     def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
-        【V3.1 · 竞价隔离版】计算行为指标时，仅使用连续交易时段的数据。
+        【V3.2 · 协同修正版】计算行为指标时，仅使用连续交易时段的数据。
+        - 核心修正: 移除对主力/散户成交量的重复计算，直接使用上游准备好的数据。
         """
         if not minute_df_attributed_grouped:
             return pd.DataFrame(index=daily_df.index)
@@ -602,16 +622,12 @@ class AdvancedFundFlowMetricsService:
         for date, daily_data in daily_df.iterrows():
             if date not in minute_df_attributed_grouped:
                 continue
-            # minute_data_for_day 已经是连续交易时段的数据
             minute_data_for_day = minute_df_attributed_grouped[date]
-            
             day_results = {'trade_time': date}
-            minute_data_for_day['main_force_buy_vol'] = minute_data_for_day.get('lg_buy_vol_attr', 0) + minute_data_for_day.get('elg_buy_vol_attr', 0)
-            minute_data_for_day['main_force_sell_vol'] = minute_data_for_day.get('lg_sell_vol_attr', 0) + minute_data_for_day.get('elg_sell_vol_attr', 0)
-            minute_data_for_day['main_force_net_vol'] = minute_data_for_day['main_force_buy_vol'] - minute_data_for_day['main_force_sell_vol']
-            minute_data_for_day['retail_buy_vol'] = minute_data_for_day.get('sm_buy_vol_attr', 0) + minute_data_for_day.get('md_buy_vol_attr', 0)
-            minute_data_for_day['retail_sell_vol'] = minute_data_for_day.get('sm_sell_vol_attr', 0) + minute_data_for_day.get('md_sell_vol_attr', 0)
-            minute_data_for_day['retail_net_vol'] = minute_data_for_day['retail_buy_vol'] - minute_data_for_day['retail_sell_vol']
+            # [代码修改开始]
+            # 核心修正：移除此处的聚合计算，因为该计算已在 _calculate_probabilistic_costs 中前置完成。
+            # minute_data_for_day['main_force_buy_vol'] = ... (及其他相关行)
+            # [代码修改结束]
             low_threshold = minute_data_for_day['minute_vwap'].quantile(0.1)
             bottom_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] <= low_threshold]
             if not bottom_zone_minutes.empty:
