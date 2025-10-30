@@ -763,8 +763,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V25.2 · 参数同步修复版】
-    - 核心修复: 修正对 _load_all_sources_unified 的调用，补全缺失的 DailyModel 参数。
+    【V25.3 · 协议同步修复版】
+    - 核心修复: 修正对 _load_all_sources_unified 的调用，严格遵循其最新的函数签名，补全缺失的 DailyModel 参数。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -820,7 +820,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if chunk_dates.empty: continue
             chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
             # [代码修改开始]
-            # 核心修复: 在调用 _load_all_sources_unified 时，补全之前遗漏的 DailyModel 参数。
+            # 核心修复: 在调用 _load_all_sources_unified 时，严格按照其函数签名传递所有四个参数。
             data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_start_date, chunk_end_date)
             # [代码修改结束]
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
