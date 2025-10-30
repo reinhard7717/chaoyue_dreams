@@ -651,14 +651,14 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V26.0 · 预热启动版】
-    - 核心修复: 引入“预热日”逻辑，将计算起点的T-1日加入处理队列，确保记忆链在第一天就完整建立。
+    【V27.0 · 上下文播种版】
+    - 核心修复: 引入“上下文播种”协议，在主循环前为“播种日”(T-1)单独计算并生成初始记忆，彻底解决启动悖论。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
         import pandas_ta as ta
-        from stock_models.index import TradeCalendar # 新增导入
+        from stock_models.index import TradeCalendar
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
@@ -674,25 +674,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
-        # [代码修改开始]
-        # 核心修正：引入“预热日”逻辑，确保记忆链在计算开始的第一天就已建立。
-        # 我们获取待处理日期列表的第一天，并找到它的前一个交易日作为“预热日”。
-        first_real_processing_day = dates_to_process.min()
-        warmup_day = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_real_processing_day.date(), offset=-1)
-        if warmup_day:
-            warmup_day_ts = pd.to_datetime(warmup_day)
-            # 只有当预热日不在已有的处理列表中时，才将其加入，避免重复。
-            if warmup_day_ts not in dates_to_process:
-                # 将预热日添加到处理队列的最前端
-                dates_to_process = pd.DatetimeIndex([warmup_day_ts]).append(dates_to_process)
-                logger.info(f"[{stock_code}] [预热启动] 将 {warmup_day} 加入处理队列，以建立初始记忆。")
-        # [代码修改结束]
-        context_end_date = dates_to_process.min()
+        context_end_date = dates_to_process.min().date()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
-        # [代码修改开始]
-        # 核心修正：全局回溯的起始点应基于新的、可能包含预热日的 dates_to_process 列表
         max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days)
         global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
@@ -700,7 +685,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
-        # [代码修改结束]
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -719,6 +703,31 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
         cross_chunk_memory = {}
+        # [代码新增开始]
+        # 核心新增：“上下文播种”协议
+        # 在主循环开始前，为计算队列的第一天准备好其前一天的“记忆”。
+        first_processing_day = dates_to_process.min().date()
+        seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
+        if seed_date:
+            logger.info(f"[{stock_code}] [上下文播种] 正在为 {first_processing_day} 准备播种日 {seed_date} 的初始记忆...")
+            seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
+            seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
+            # 检查播种日的核心数据是否存在
+            if not seed_data_dfs["cyq_chips"].empty and not seed_data_dfs["daily_data"].empty:
+                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
+                seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
+                seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs)
+                seed_daily_vwap = await fund_flow_service._calculate_daily_vwap(stock_info, seed_ff_raw_df.index)
+                fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
+                _, seed_ff_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, seed_daily_vwap)
+                seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
+                seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global)
+                # 以空的初始记忆调用计算，其返回的记忆将作为我们真正的初始记忆
+                _, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={})
+                logger.info(f"[{stock_code}] [上下文播种] 成功生成初始记忆。")
+            else:
+                logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
+        # [代码新增结束]
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
