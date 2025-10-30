@@ -120,7 +120,7 @@ class AdvancedChipMetricsService:
         return data_dfs
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
-        """【V2.3 · 数据主链重铸版】将 inner join 修改为 left join，确保日线数据是唯一主轴。"""
+        """【V2.4 · 终极修复版】移除导致循环中断的、冗余的 dropna 调用。"""
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -131,20 +131,21 @@ class AdvancedChipMetricsService:
         daily_basic_df.set_index('trade_time', inplace=True)
         cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore', inplace=True)
         cyq_perf_df.set_index('trade_time', inplace=True)
-        # [代码修改开始]
-        # 核心修正: 将 'inner' join 修改为 'left' join。
-        # 这确立了 daily_data_df (日线行情) 作为数据合并的唯一主轴。
-        # 即使 daily_basic 或 cyq_perf 缺少某天数据，该交易日也会被保留，其对应字段为 NaN，
-        # 而不是像 inner join 那样直接删除整行，从而保证了处理循环的完整性。
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='left')
-        # [代码修改结束]
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
-        merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
+        # [代码修改开始]
+        # 核心修正: 彻底移除此处的 dropna 调用。
+        # 此行是导致“记忆链”反复断裂的最终元凶。
+        # 当上游数据（特别是 StockDailyBasic）缺失某一天时，left join 会产生 NaN。
+        # 这个 dropna 会将该日期从整个 DataFrame 中删除，导致处理循环跳过该天，从而中断记忆链。
+        # 下游的 _synthesize_and_forge_metrics 方法中的 missing_keys 检查已足够健壮，可以处理 NaN 值。
+        # merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
+        # [代码修改结束]
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
