@@ -217,71 +217,89 @@ class AdvancedFundFlowMetricsService:
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V2.1 · 战报记录版】
-        - 核心升级: 接收并传递由下游计算函数返回的失败记录。
+        【V2.2 · 日度循环与前置审计版】
+        - 核心重构: 将方法从处理整个数据块重构为按天循环处理，以便进行精确的日度数据审计。
+        - 核心新增: 在计算前对每日的分钟数据和日线资金流数据进行前置审计，若缺失则打印信息、记录失败并跳过当天。
         """
-        df = merged_df.copy()
-        df['daily_vwap'] = daily_vwap_series
-        result_df = df.copy()
+        all_metrics_list = []
         attributed_minute_map = {}
-        # [代码新增开始]
-        # 核心新增：初始化失败记录列表
         all_failures = []
-        # [代码新增结束]
-        consensus_map = {
-            'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
-            'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
-            'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
-            'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
-            'net_lg_amount_consensus': ['net_lg_amount_tushare', 'net_lg_amount_ths', 'net_lg_amount_dc'],
-            'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
-            'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
-        }
-        for target_col, source_cols in consensus_map.items():
-            existing_cols = [col for col in source_cols if col in df.columns]
-            if existing_cols:
-                result_df[target_col] = df[existing_cols].mean(axis=1)
-        safe_denom = lambda v: v.replace(0, np.nan)
-        if 'trade_count' in df.columns and 'amount' in df.columns and 'close' in df.columns:
-            total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
-            trade_count_np = pd.to_numeric(df['trade_count'], errors='coerce')
-            result_df['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
-            close_price_np = pd.to_numeric(df['close'], errors='coerce')
-            avg_order_value_np = result_df['avg_order_value'].values
-            result_df['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
-        if 'amount' in df.columns and 'circ_mv' in df.columns:
-            total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
-            circ_mv_yuan = pd.to_numeric(df['circ_mv'], errors='coerce') * 10000
-            if 'main_force_net_flow_consensus' in result_df.columns:
-                main_force_net_flow_yuan = pd.to_numeric(result_df['main_force_net_flow_consensus'], errors='coerce') * 10000
-                result_df['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
-                result_df['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
-            if 'net_xl_amount_consensus' in result_df.columns:
-                total_xl_trade_yuan = pd.to_numeric(result_df['net_xl_amount_consensus'], errors='coerce').abs() * 10000
-                result_df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
-        if 'main_force_net_flow_consensus' in result_df.columns and 'retail_net_flow_consensus' in result_df.columns:
-            result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
-        if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
-            result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
-        if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # [代码修改开始]
-            # 核心修正：接收并聚合失败记录
-            pvwap_costs_df, attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
-            all_failures.extend(pvwap_failures)
-            # [代码修改结束]
-            result_df = result_df.join(pvwap_costs_df)
-            tactical_log_df = self._calculate_tactical_log_metrics(result_df, attributed_minute_map)
-            result_df = result_df.join(tactical_log_df)
-            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
-            result_df = result_df.join(pnl_matrix_df)
-            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
-            result_df = result_df.join(behavioral_metrics_df)
-            structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
-            result_df = result_df.join(structure_metrics_df)
         # [代码修改开始]
-        # 核心修正：返回收集到的失败记录列表
-        return result_df, attributed_minute_map, all_failures
+        # 核心修正：从处理整个DataFrame改为按天循环处理
+        for trade_date, daily_data_series in merged_df.iterrows():
+            daily_data = daily_data_series.to_frame().T
+            daily_data.index.name = 'trade_time'
+            # --- 前置审计与熔断机制 ---
+            minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
+            has_minute_data = minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and trade_date.date() in minute_df_daily_grouped.index
+            has_daily_flow_data = 'buy_sm_vol' in daily_data.columns and pd.notna(daily_data['buy_sm_vol'].iloc[0])
+            if not has_minute_data or not has_daily_flow_data:
+                reason = []
+                if not has_minute_data:
+                    reason.append("分钟线数据缺失")
+                if not has_daily_flow_data:
+                    reason.append("日线资金流数据缺失")
+                reason_str = " & ".join(reason)
+                # 使用 print 打印明确的调试信息
+                print(f"[资金流服务] [{stock_code}] [{trade_date.date()}] 跳过计算，原因：{reason_str}")
+                all_failures.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': f"[资金流服务] {reason_str}"})
+                continue # 跳过当天的所有计算
+            # --- 审计通过，开始计算 ---
+            daily_data['daily_vwap'] = daily_vwap_series.get(trade_date)
+            result_df_day = daily_data.copy()
+            consensus_map = {
+                'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
+                'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
+                'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
+                'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
+                'net_lg_amount_consensus': ['net_lg_amount_tushare', 'net_lg_amount_ths', 'net_lg_amount_dc'],
+                'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
+                'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
+            }
+            for target_col, source_cols in consensus_map.items():
+                existing_cols = [col for col in source_cols if col in daily_data.columns]
+                if existing_cols:
+                    result_df_day[target_col] = daily_data[existing_cols].mean(axis=1)
+            safe_denom = lambda v: v.replace(0, np.nan)
+            if 'trade_count' in daily_data.columns and 'amount' in daily_data.columns and 'close' in daily_data.columns:
+                total_turnover_yuan = pd.to_numeric(daily_data['amount'], errors='coerce') * 1000
+                trade_count_np = pd.to_numeric(daily_data['trade_count'], errors='coerce')
+                result_df_day['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
+                close_price_np = pd.to_numeric(daily_data['close'], errors='coerce')
+                avg_order_value_np = result_df_day['avg_order_value'].values
+                result_df_day['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
+            if 'amount' in daily_data.columns and 'circ_mv' in daily_data.columns:
+                total_turnover_yuan = pd.to_numeric(daily_data['amount'], errors='coerce') * 1000
+                circ_mv_yuan = pd.to_numeric(daily_data['circ_mv'], errors='coerce') * 10000
+                if 'main_force_net_flow_consensus' in result_df_day.columns:
+                    main_force_net_flow_yuan = pd.to_numeric(result_df_day['main_force_net_flow_consensus'], errors='coerce') * 10000
+                    result_df_day['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
+                    result_df_day['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
+                if 'net_xl_amount_consensus' in result_df_day.columns:
+                    total_xl_trade_yuan = pd.to_numeric(result_df_day['net_xl_amount_consensus'], errors='coerce').abs() * 10000
+                    result_df_day['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
+            if 'main_force_net_flow_consensus' in result_df_day.columns and 'retail_net_flow_consensus' in result_df_day.columns:
+                result_df_day['flow_divergence_mf_vs_retail'] = result_df_day['main_force_net_flow_consensus'] - result_df_day['retail_net_flow_consensus']
+            if 'net_xl_amount_consensus' in result_df_day.columns and 'net_lg_amount_consensus' in result_df_day.columns:
+                result_df_day['main_force_conviction_ratio'] = result_df_day['net_xl_amount_consensus'] / safe_denom(result_df_day['net_lg_amount_consensus'])
+            pvwap_costs_df, day_attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(daily_data, minute_df_daily_grouped, stock_code)
+            all_failures.extend(pvwap_failures)
+            if not pvwap_costs_df.empty:
+                result_df_day = result_df_day.join(pvwap_costs_df)
+                attributed_minute_map.update(day_attributed_minute_map)
+                tactical_log_df = self._calculate_tactical_log_metrics(result_df_day, day_attributed_minute_map)
+                result_df_day = result_df_day.join(tactical_log_df)
+                pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df_day)
+                result_df_day = result_df_day.join(pnl_matrix_df)
+                behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df_day, day_attributed_minute_map)
+                result_df_day = result_df_day.join(behavioral_metrics_df)
+                structure_metrics_df = self._calculate_intraday_structure_metrics(result_df_day, minute_df_daily_grouped)
+                result_df_day = result_df_day.join(structure_metrics_df)
+            all_metrics_list.append(result_df_day)
+        if not all_metrics_list:
+            return pd.DataFrame(), {}, all_failures
+        final_df = pd.concat(all_metrics_list)
+        return final_df, attributed_minute_map, all_failures
         # [代码修改结束]
 
     def _calculate_tactical_log_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
