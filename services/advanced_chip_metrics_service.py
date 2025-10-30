@@ -144,7 +144,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.2 · 记忆链强化版】修复 T-1 上下文在计算跳过时丢失的问题。"""
+        """【V1.3 · 记忆链路修复版】移除导致记忆链中断的短路逻辑。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
@@ -159,11 +159,14 @@ class AdvancedChipMetricsService:
                 missing_keys.append('valid_chip_distribution')
             if missing_keys:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
-                # 即使跳过，也要更新记忆，以防下一天需要
-            if chip_data_for_calc.empty:
-                # 如果当天连基础筹码分布都没有，则无法更新记忆，直接进入下一天
-                if is_first_day_in_batch: is_first_day_in_batch = False
-                continue
+            # [代码修改开始]
+            # 核心修正: 移除此处的 'continue' 短路逻辑。
+            # 即使当天原始筹码数据为空，也应让流程继续，以便在循环末尾正确更新记忆链。
+            # 下游的 ChipFeatureCalculator 已能处理空 DataFrame 的情况。
+            # if chip_data_for_calc.empty:
+            #     if is_first_day_in_batch: is_first_day_in_batch = False
+            #     continue
+            # [代码修改结束]
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
             context_for_calc.update({
@@ -195,9 +198,6 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
-            # [代码修改开始]
-            # 核心修正：无论当天指标是否计算成功，都必须在循环末尾更新记忆链(prev_metrics)
-            # 这样可以确保下一天总能获取到正确的 T-1 上下文
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -206,7 +206,6 @@ class AdvancedChipMetricsService:
                 'prev_20d_close': context_data.get('prev_20d_close')
             }
             if is_first_day_in_batch: is_first_day_in_batch = False
-            # [代码修改结束]
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
