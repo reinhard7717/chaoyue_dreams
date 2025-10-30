@@ -146,7 +146,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.4 · 优雅降级版】增加 dropna() 以处理因 right-merge 产生的 NaN。"""
+        """【V1.5 · 预警日志增强版】增加对源数据缺失的预警日志。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
@@ -155,83 +155,17 @@ class AdvancedChipMetricsService:
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
-            # [代码修改开始]
-            # 核心修正: 使用 .dropna() 清理可能因 'right' 合并产生的 NaN 值。
-            # 这能确保在当天没有筹码数据时，向计算器传递一个空的 DataFrame，而不是一个充满 NaN 的 DataFrame。
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
-            # [代码修改结束]
-            missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
-            if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
-                missing_keys.append('valid_chip_distribution')
-            if missing_keys:
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
-            cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
-            context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
-            context_for_calc.update({
-                'close_price': context_data.get('close_qfq'),
-                'high_price': context_data.get('high_qfq'),
-                'low_price': context_data.get('low_qfq'),
-                'open_price': context_data.get('open_qfq'),
-                'pre_close': context_data.get('pre_close_qfq'),
-                'daily_turnover_volume': context_data.get('vol', 0) * 100,
-                'total_chip_volume': context_data.get('float_share', 0) * 10000,
-                'stock_code': stock_code,
-                'trade_date': trade_date.date(),
-                'circ_mv': context_data.get('circ_mv'),
-                'is_first_day_in_batch': is_first_day_in_batch,
-                'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
-                'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
-                'prev_chip_distribution': prev_metrics.get('chip_distribution'),
-                'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
-            })
-            if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
-                enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
-            else:
-                raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
-                enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-            context_for_calc['minute_data'] = enhanced_minute_data
-            calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
-            daily_metrics = calculator.calculate_all_metrics()
-            if daily_metrics:
-                daily_metrics['trade_time'] = trade_date
-                daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
-                all_metrics_list.append(daily_metrics)
-            prev_metrics = {
-                'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
-                'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
-                'chip_distribution': chip_data_for_calc,
-                'close_price': context_data.get('close_qfq'),
-                'prev_20d_close': context_data.get('prev_20d_close')
-            }
-            if is_first_day_in_batch: is_first_day_in_batch = False
-        if not all_metrics_list:
-            return pd.DataFrame(), prev_metrics
-        return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
-
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.3 · 记忆链路修复版】移除导致记忆链中断的短路逻辑。"""
-        stock_code = stock_info.stock_code
-        all_metrics_list = []
-        prev_metrics = memory.copy() if memory is not None else {}
-        grouped_data = merged_df.groupby('trade_time')
-        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
-        is_first_day_in_batch = True
-        for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            context_data = daily_full_df.iloc[0].to_dict()
-            missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
-            chip_data_for_calc = daily_full_df[['price', 'percent']]
-            if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
-                missing_keys.append('valid_chip_distribution')
-            if missing_keys:
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
             # [代码修改开始]
-            # 核心修正: 移除此处的 'continue' 短路逻辑。
-            # 即使当天原始筹码数据为空，也应让流程继续，以便在循环末尾正确更新记忆链。
-            # 下游的 ChipFeatureCalculator 已能处理空 DataFrame 的情况。
-            # if chip_data_for_calc.empty:
-            #     if is_first_day_in_batch: is_first_day_in_batch = False
-            #     continue
+            # 核心新增：增加前瞻性预警日志
+            if chip_data_for_calc.empty:
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：当日源筹码分布(cyq_chips)数据缺失。这将导致下一交易日的跨日指标计算失败。")
             # [代码修改结束]
+            missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
+            if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
+                missing_keys.append('valid_chip_distribution')
+            if missing_keys:
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
             context_for_calc.update({
