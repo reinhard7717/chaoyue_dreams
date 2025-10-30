@@ -157,6 +157,61 @@ class ChipFeatureCalculator:
         results.update(minute_derived_dynamics_info)
         return results
 
+    def _calculate_cross_day_holder_flow(self, context: dict) -> dict:
+        """
+        【V1.0 · 新增】计算长短期筹码的跨日流动情况。
+        - 核心逻辑: 假设当日成交量按比例来源于昨日不同持仓者（长/短期、盈/亏），
+                      计算各类持仓者的卖出意愿或换手强度。
+        """
+        # [代码新增开始]
+        results = {
+            'short_term_profit_taking_ratio': None,
+            'long_term_chips_unlocked_ratio': None,
+            'short_term_capitulation_ratio': None,
+            'long_term_despair_selling_ratio': None,
+        }
+        # 检查所有必需的上下文变量
+        required_keys = ['prev_chip_distribution', 'daily_turnover_volume', 'prev_close', 'prev_20d_close', 'total_chip_volume']
+        if not all(key in context and context[key] is not None and pd.notna(context[key]) for key in required_keys):
+            return results
+        prev_df = context['prev_chip_distribution']
+        if prev_df.empty:
+            return results
+        turnover_vol = context['daily_turnover_volume']
+        prev_close = context['prev_close']
+        prev_20d_close = context['prev_20d_close']
+        total_chips = context['total_chip_volume']
+        # 1. 划分昨日的四类持仓者
+        prev_winners_short_df = prev_df[(prev_df['price'] >= prev_20d_close) & (prev_df['price'] < prev_close)]
+        prev_winners_long_df = prev_df[prev_df['price'] < prev_20d_close]
+        prev_losers_short_df = prev_df[(prev_df['price'] >= prev_20d_close) & (prev_df['price'] > prev_close)]
+        prev_losers_long_df = prev_df[(prev_df['price'] < prev_20d_close) & (prev_df['price'] > prev_close)]
+        # 2. 计算昨日各类持仓者的筹码总量（股）
+        vol_winners_short = (prev_winners_short_df['percent'].sum() / 100) * total_chips
+        vol_winners_long = (prev_winners_long_df['percent'].sum() / 100) * total_chips
+        vol_losers_short = (prev_losers_short_df['percent'].sum() / 100) * total_chips
+        vol_losers_long = (prev_losers_long_df['percent'].sum() / 100) * total_chips
+        # 3. 计算当日成交量中，归属于各类持仓者卖出的部分
+        total_prev_percent = prev_df['percent'].sum()
+        if total_prev_percent > 0:
+            turnover_from_winners_short = turnover_vol * (prev_winners_short_df['percent'].sum() / total_prev_percent)
+            turnover_from_winners_long = turnover_vol * (prev_winners_long_df['percent'].sum() / total_prev_percent)
+            turnover_from_losers_short = turnover_vol * (prev_losers_short_df['percent'].sum() / total_prev_percent)
+            turnover_from_losers_long = turnover_vol * (prev_losers_long_df['percent'].sum() / total_prev_percent)
+        else:
+            return results
+        # 4. 计算最终比率（卖出意愿）
+        if vol_winners_short > 0:
+            results['short_term_profit_taking_ratio'] = (turnover_from_winners_short / vol_winners_short) * 100
+        if vol_winners_long > 0:
+            results['long_term_chips_unlocked_ratio'] = (turnover_from_winners_long / vol_winners_long) * 100
+        if vol_losers_short > 0:
+            results['short_term_capitulation_ratio'] = (turnover_from_losers_short / vol_losers_short) * 100
+        if vol_losers_long > 0:
+            results['long_term_despair_selling_ratio'] = (turnover_from_losers_long / vol_losers_long) * 100
+        return results
+        # [代码新增结束]
+
     def _calculate_cross_day_chip_flow(self) -> dict:
         """
         【V1.0 · 新增】计算所有属于“第三象限：跨日迁徙”的指标。
