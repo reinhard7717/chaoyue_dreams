@@ -170,8 +170,9 @@ class ChipFeatureCalculator:
 
     def _calculate_cross_day_holder_flow(self, context: dict) -> dict:
         """
-        【V1.1 · 健壮性日志增强版】计算长短期筹码的跨日流动情况。
-        - 核心新增: 增加对上游数据的检查，并在数据缺失时打印调试信息。
+        【V1.2 · 分类检查修正版】计算长短期筹码的跨日流动情况。
+        - 核心修正: 分离对 DataFrame 和标量值的检查逻辑，以解决 `ValueError: The truth value of a DataFrame is ambiguous` 的问题。
+        - 核心优化: 提供更精确的调试日志。
         """
         results = {
             'short_term_profit_taking_ratio': None,
@@ -180,17 +181,19 @@ class ChipFeatureCalculator:
             'long_term_despair_selling_ratio': None,
         }
         # [代码修改开始]
-        # 核心新增：增加前置检查和调试日志
+        # 核心修正：分离对 DataFrame 和标量的检查
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
-        required_keys = ['prev_chip_distribution', 'daily_turnover_volume', 'prev_close', 'prev_20d_close', 'total_chip_volume']
-        missing_keys = [k for k in required_keys if k not in context or context[k] is None or pd.isna(context[k])]
-        if missing_keys:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文(context)中缺少前一日关键数据: {missing_keys}。")
+        # 1. 检查标量数据
+        scalar_keys = ['daily_turnover_volume', 'prev_close', 'prev_20d_close', 'total_chip_volume']
+        missing_scalar_keys = [k for k in scalar_keys if context.get(k) is None or pd.isna(context.get(k))]
+        if missing_scalar_keys:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文(context)中缺少前一日关键标量数据: {missing_scalar_keys}。")
             return results
-        prev_df = context['prev_chip_distribution']
-        if prev_df.empty:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：前一日筹码分布(prev_chip_distribution)为空。")
+        # 2. 检查 DataFrame 数据
+        prev_df = context.get('prev_chip_distribution')
+        if prev_df is None or prev_df.empty:
+            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：前一日筹码分布(prev_chip_distribution)为空或不存在。")
             return results
         # [代码修改结束]
         turnover_vol = context['daily_turnover_volume']
