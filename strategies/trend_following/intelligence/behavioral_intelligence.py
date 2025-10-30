@@ -954,39 +954,48 @@ class BehavioralIntelligence:
 
     def _calculate_signal_dynamics(self, series: pd.Series, params: dict) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 动力学重构版】信号动态分析引擎
+        【V2.1 · 战术加固版】信号动态分析引擎
         - 核心思想: 任何信号都具备物理学属性。此引擎为输入的任何信号序列，提供其在“状态(State)”、“速度(Velocity)”和“加速度(Acceleration)”三个维度上的全息画像。
         - 核心升级:
           1. 废弃了旧的 `_calculate_holographic_divergence_behavior`。
           2. 速度(Velocity): 采用多时间框架(MTF)的线性回归斜率加权融合，替代简单的diff，结果更平滑、可靠。
           3. 加速度(Acceleration): 采用对“速度”的一阶差分(diff(1))，更符合物理学定义，精准捕捉动能变化。
+        - 核心修复: 放弃使用不稳定的 `.ta` 访问器，改为 `ta.slope(series, ...)` 的直接函数调用方式，彻底解决 'Series' object has no attribute 'ta' 的幽灵错误。
         - 返回: 一个包含 'state', 'velocity', 'acceleration' 三个双极性分数的字典。
         """
-        # [代码新增开始]
         p_mtf = get_param_value(params.get('mtf_normalization_params'), {})
-        velocity_weights = get_param_value(p_mtf.get('velocity_weights'), {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1})
+        velocity_weights_config = get_param_value(p_mtf.get('velocity_weights'), {'weights': {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1}})
+        # 兼容新旧两种配置格式
+        velocity_weights = velocity_weights_config.get('weights', velocity_weights_config)
         norm_window = get_param_value(params.get('relational_meta_analysis_params', {}).get('norm_window'), 55)
-        
         # 维度一: 状态 (State) - 信号的当前位置
         # 使用较长周期归一化，以获得稳定的状态评估
         state_score = normalize_to_bipolar(series, series.index, norm_window)
-        
         # 维度二: 速度 (Velocity) - 信号的变化速率 (MTF斜率融合)
         holographic_velocity = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(velocity_weights.values())
+        # 再次加固，确保 velocity_weights 是字典
+        if not isinstance(velocity_weights, dict):
+            velocity_weights = {3: 0.4, 5: 0.3, 8: 0.2, 13: 0.1} # 如果配置错误，使用硬编码的默认值
+        total_weight = sum(v for v in velocity_weights.values() if isinstance(v, (int, float)))
         if total_weight > 0:
-            for period, weight in velocity_weights.items():
-                # 使用pandas_ta计算线性回归斜率，更稳健
-                slope_series = series.ta.slope(length=period).fillna(0)
-                # 对每个周期的斜率进行归一化
-                normalized_slope = normalize_to_bipolar(slope_series, series.index, norm_window)
-                holographic_velocity += normalized_slope * (weight / total_weight)
-        
+            for period_str, weight in velocity_weights.items():
+                if not isinstance(weight, (int, float)): continue
+                try:
+                    period = int(period_str)
+                    # [代码修改开始]
+                    # 关键修复：放弃使用 .ta 访问器，改为直接函数调用，以增强代码的健壮性
+                    slope_series = ta.slope(series, length=period).fillna(0)
+                    # [代码修改结束]
+                    # 对每个周期的斜率进行归一化
+                    normalized_slope = normalize_to_bipolar(slope_series, series.index, norm_window)
+                    holographic_velocity += normalized_slope * (weight / total_weight)
+                except (ValueError, TypeError) as e:
+                    print(f"警告: 在 _calculate_signal_dynamics 中跳过无效的速度周期配置: '{period_str}'. 错误: {e}")
+                    continue
         # 维度三: 加速度 (Acceleration) - 速度的变化率
         # 加速度是速度的一阶导数
         acceleration_raw = holographic_velocity.diff(1).fillna(0)
         holographic_acceleration = normalize_to_bipolar(acceleration_raw, series.index, norm_window)
-        
         return {
             'state': state_score.clip(-1, 1),
             'velocity': holographic_velocity.clip(-1, 1),
