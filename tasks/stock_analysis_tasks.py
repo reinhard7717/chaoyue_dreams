@@ -651,8 +651,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V27.0 · 上下文播种版】
-    - 核心修复: 引入“上下文播种”协议，在主循环前为“播种日”(T-1)单独计算并生成初始记忆，彻底解决启动悖论。
+    【V27.1 · 播种验证版】
+    - 核心新增: 在上下文播种后增加“播种验证探针”，明确报告初始记忆的生成状态。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -703,16 +703,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
         cross_chunk_memory = {}
-        # [代码新增开始]
-        # 核心新增：“上下文播种”协议
-        # 在主循环开始前，为计算队列的第一天准备好其前一天的“记忆”。
         first_processing_day = dates_to_process.min().date()
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
             logger.info(f"[{stock_code}] [上下文播种] 正在为 {first_processing_day} 准备播种日 {seed_date} 的初始记忆...")
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
             seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
-            # 检查播种日的核心数据是否存在
             if not seed_data_dfs["cyq_chips"].empty and not seed_data_dfs["daily_data"].empty:
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
@@ -722,11 +718,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 _, seed_ff_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, seed_daily_vwap)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global)
-                # 以空的初始记忆调用计算，其返回的记忆将作为我们真正的初始记忆
                 _, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={})
                 logger.info(f"[{stock_code}] [上下文播种] 成功生成初始记忆。")
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
+        # [代码新增开始]
+        # 核心新增：“播种验证探针”，检查初始记忆的状态
+        print(f"\n>>>>> [播种验证探针] @ 任务层 | 检查为 {first_processing_day} 准备的初始记忆 <<<<<")
+        seeded_dist = cross_chunk_memory.get('chip_distribution')
+        if seeded_dist is not None and not seeded_dist.empty:
+            print(f"  - 探针[验证]: 初始记忆 'cross_chunk_memory' 包含有效的 'chip_distribution'。")
+            print(f"  - 探针[内容]: 记忆中的筹码分布行数: {len(seeded_dist)}, 总比例: {seeded_dist['percent'].sum():.2f}%")
+        else:
+            print(f"  - 探针[验证]: 警告！初始记忆 'cross_chunk_memory' 为空或不含有效的 'chip_distribution'。")
+        print(f">>>>> [播种验证探针] 诊断结束 <<<<<\n")
         # [代码新增结束]
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]

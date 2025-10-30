@@ -144,7 +144,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.6 · 记忆链路探针版】注入探针，追踪 T-1 上下文在循环中的传递状态。"""
+        """【V1.7 · 注入确认版】升级探针，确认初始记忆是否成功注入主循环。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
@@ -152,24 +152,20 @@ class AdvancedChipMetricsService:
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # [代码新增开始]
-            # 核心新增: 记忆链路深度探针
-            # 使用方法: 修改 watch_dates 为需要调查的日期及其前后一天
-            watch_dates = ['2024-07-04', '2024-07-05']
+            # [代码修改开始]
+            # 核心修正：升级记忆探针，增加对“注入”状态的确认
             current_date_str = trade_date.strftime('%Y-%m-%d')
-            if current_date_str in watch_dates:
-                print(f"\n--- [记忆探针] @ {current_date_str} ---")
+            # 探针现在会在每个批次的“第一天”触发，以检查初始记忆
+            if is_first_day_in_batch:
+                print(f"\n--- [注入确认探针] @ {current_date_str} (批次首日) ---")
                 prev_dist = prev_metrics.get('chip_distribution')
                 if prev_dist is not None and not prev_dist.empty:
-                    # 尝试从DataFrame中获取日期，如果列不存在则优雅降级
-                    try:
-                        prev_date_val = pd.to_datetime(prev_dist['trade_time'].iloc[0]).date()
-                    except (KeyError, IndexError):
-                        prev_date_val = '未知日期'
-                    print(f"  - 探针[输入]: prev_metrics 携带的筹码分布日期为: {prev_date_val}, 数据非空: True")
+                    print(f"  - 探针[注入]: 成功接收到初始/跨区块记忆。")
+                    print(f"  - 探针[内容]: 记忆中的 'chip_distribution' 非空，行数: {len(prev_dist)}。")
                 else:
-                    print(f"  - 探针[输入]: prev_metrics 携带的筹码分布为空或不存在。")
-            # [代码新增结束]
+                    print(f"  - 探针[注入]: 警告！未接收到有效的初始/跨区块记忆。'chip_distribution' 为空或不存在。")
+                print(f"--- [注入确认探针] 结束 ---\n")
+            # [代码修改结束]
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
@@ -210,11 +206,6 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
-            # [代码新增开始]
-            # 核心新增: 记忆链路深度探针
-            if current_date_str in watch_dates:
-                print(f"  - 探针[处理]: 为当天({current_date_str})准备的 'chip_data_for_calc' 是否为空: {chip_data_for_calc.empty}")
-            # [代码新增结束]
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -222,12 +213,6 @@ class AdvancedChipMetricsService:
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close')
             }
-            # [代码新增开始]
-            # 核心新增: 记忆链路深度探针
-            if current_date_str in watch_dates:
-                print(f"  - 探针[输出]: 即将为下一天准备的 'prev_metrics'，其携带的 'chip_distribution' 是否为空: {prev_metrics['chip_distribution'].empty}")
-                print(f"--- [记忆探针] 结束 @ {current_date_str} ---\n")
-            # [代码新增结束]
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics
