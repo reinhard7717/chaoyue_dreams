@@ -591,19 +591,18 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
             
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
 
-async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, start_date: pd.Timestamp, end_date: pd.Timestamp):
-    """【V1.4 · 协议同步终极版】修正函数签名，使其与调用协议完全匹配。"""
+async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
+    """【V1.5 · 精确加载协议版】修正函数签名，接收确切的日期列表，并使用 `__in` 查询。"""
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
-    @sync_to_async(thread_sensitive=True)
-    def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_dt=None, end_dt=None):
-        if not model: return pd.DataFrame()
-        qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__gte': start_dt, f'{date_field}__lte': end_dt})
-        return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
-    chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     # [代码修改开始]
-    # 核心修正：移除内部的 daily_data_model 定义，因为它现在已作为参数传入。
-    # daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
+    # 核心修正: 内部函数 get_data_async 的查询方式从范围查询(gte/lte)升级为列表查询(in)。
+    @sync_to_async(thread_sensitive=True)
+    def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
+        if not model or not dates_list: return pd.DataFrame()
+        qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
+        return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     # [代码修改结束]
+    chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq'
     )
@@ -617,15 +616,19 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, sta
         'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
         'net_mf_vol', 'net_mf_amount', 'trade_count'
     )
+    # [代码修改开始]
+    # 核心修正: 将 DatetimeIndex 转换为纯日期对象列表，以匹配数据库字段类型。
+    chunk_dates_list = [d.date() for d in dates_in_chunk]
     data_tasks = {
-        "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), start_dt=start_date, end_dt=end_date),
-        "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, start_dt=start_date, end_dt=end_date),
-        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=all_daily_basic_fields, start_dt=start_date, end_dt=end_date),
-        "cyq_perf": get_data_async(StockCyqPerf, stock_info, start_dt=start_date, end_dt=end_date),
-        "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, start_dt=start_date, end_dt=end_date),
-        "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
-        "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
+        "cyq_chips": get_data_async(chip_model, stock_info, fields=('trade_time', 'price', 'percent'), dates_list=chunk_dates_list),
+        "daily_data": get_data_async(daily_data_model, stock_info, fields=all_daily_fields, dates_list=chunk_dates_list),
+        "daily_basic": get_data_async(StockDailyBasic, stock_info, fields=all_daily_basic_fields, dates_list=chunk_dates_list),
+        "cyq_perf": get_data_async(StockCyqPerf, stock_info, dates_list=chunk_dates_list),
+        "fund_flow_tushare": get_data_async(get_fund_flow_model_by_code(stock_info.stock_code), stock_info, fields=fund_flow_tushare_fields, dates_list=chunk_dates_list),
+        "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
+        "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, dates_list=chunk_dates_list),
     }
+    # [代码修改结束]
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     for name, df in data_dfs.items():
@@ -634,18 +637,17 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, sta
                 logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
                 data_dfs[name] = pd.DataFrame()
                 continue
-            # 在调试阶段暂时注释掉，以防因单一数据源缺失而中断整个流程
-            # raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
-            logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
-            data_dfs[name] = pd.DataFrame() # 即使核心数据为空，也创建一个空DataFrame以防下游崩溃
+            logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
+            data_dfs[name] = pd.DataFrame()
     return data_dfs
 
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V25.3 · 协议同步修复版】
-    - 核心修复: 修正对 _load_all_sources_unified 的调用，严格遵循其最新的函数签名，补全缺失的 DailyModel 参数。
+    【V25.1 · 精确加载修正版】
+    - 核心修复: 改造数据加载流程，从范围查询(gte/lte)升级为精确列表查询(in)，根除数据空洞问题。
+    - 核心新增: 在任务顶层增加探针，监控待处理日期列表的完整性。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -663,6 +665,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             process_date_filter['trade_time__gte'] = fetch_start_date
         all_dates_qs = DateSourceModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
         dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+        # [代码新增开始]
+        # 核心新增: 任务级数据流探针
+        target_date_str = '2024-07-04'
+        target_date = pd.to_datetime(target_date_str)
+        print(f"\n>>>>> [任务探针] @ precompute_advanced_chips_for_stock | 目标日期: {target_date_str} <<<<<")
+        is_present_in_master_list = target_date in dates_to_process
+        print(f"  - 探针[主日历]: 目标日期在 'dates_to_process' 完整列表中的存在状态: {is_present_in_master_list}")
+        print(f"  - 探针[主日历]: 'dates_to_process' 列表总长度: {len(dates_to_process)}")
+        print(f">>>>> [任务探针] 诊断结束 <<<<<\n")
+        # [代码新增结束]
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
@@ -699,19 +711,18 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
-            chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
             # [代码修改开始]
-            # 核心修复: 在调用 _load_all_sources_unified 时，严格按照其函数签名传递所有四个参数。
-            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_start_date, chunk_end_date)
+            # 核心修正: 不再传递 chunk_start/end_date，而是直接传递确切的日期列表 chunk_dates。
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_dates)
             # [代码修改结束]
-            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
+            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
             ff_data_dfs = {
                 "tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"],
                 "daily": data_dfs["daily_data"], "daily_basic": data_dfs["daily_basic"],
             }
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
             if fund_flow_raw_df.empty:
-                logger.warning(f"[{stock_code}] 区块 {chunk_start_date.date()} to {chunk_end_date.date()} 资金流原始数据为空，跳过。")
+                logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
             daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
