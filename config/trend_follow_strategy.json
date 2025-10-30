@@ -740,6 +740,22 @@
             "BULLISH_EXHAUSTION_REVERSAL": 0.2
           },
           "synergy_bonus_factor": 0.5
+        },
+        "mtf_normalization_params": {
+          "description": "【V1.0 · 新增】多时间框架(MTF)归一化引擎的权重配置。",
+          "default_weights": {
+            "description": "默认权重，适用于大多数常规指标，侧重中短期动态。",
+            "5": 0.4,
+            "13": 0.3,
+            "21": 0.2,
+            "55": 0.1
+          },
+          "volatility_weights": {
+            "description": "波动率指标专属权重，侧重中长期结构。",
+            "21": 0.5,
+            "55": 0.3,
+            "89": 0.2
+          }
         }
       },
       "chip_ultimate_params": {

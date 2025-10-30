@@ -233,26 +233,6 @@
             "penalty_weight": -600,
             "description": "【原子风险】识别成交量巨大但价格停滞不前的风险，通常是多空分歧加剧或派发的信号。"
         },
-        "SCORE_VOL_WEAKENING_DROP": {
-            "cn_name": "【行为】缩量下跌",
-            "category": "行为层-机会",
-            "type": "context",
-            "description": "【原子信号】识别下跌过程中成交量萎缩的现象，是卖盘动能衰竭的潜在信号。"
-        },
-        "SCORE_OPPORTUNITY_LOCKUP_RALLY": {
-            "cn_name": "【行为】锁仓惜售机会",
-            "category": "行为层-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "【V1.0 · 新增】识别“低换手率+日内上涨”的锁仓惜售行为，是趋势健康的积极信号。"
-        },
-        "SCORE_RISK_LIQUIDITY_DRAIN": {
-            "cn_name": "【行为风险】流动性流失风险",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -600,
-            "description": "【V2.0 · 逻辑净化版】识别“放量下跌”（恐慌抛售）的风险场景。原有的“缩量下跌”逻辑已被剥离至中性的“收缩盘整”信号中。"
-        },
         "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
             "cn_name": "【行为】卖盘衰竭反转",
             "category": "行为层-机会",
@@ -261,11 +241,17 @@
             "description": "【原子信号】融合了成交量枯竭、底部支撑、看涨背离和竞价强度，是识别卖盘力量耗尽后反转的复合信号。"
         },
         "SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT": {
-            "cn_name": "【基础】筹码断层突破",
-            "category": "基础层-机会",
+            "cn_name": "【内部】筹码断层潜力",
+            "category": "内部计分-基础",
+            "type": "context",
+            "description": "【V2.0 · 角色变更】基于筹码断层的强度和真空范围，评估潜在的突破潜力。此信号不直接计分，仅作为上层认知引擎的原始输入。"
+        },
+        "SCORE_TACTICAL_BREAKOUT_CONFIRMATION": {
+            "cn_name": "【认知】战术突破确认",
+            "category": "认知层-机会",
             "type": "dynamic",
-            "score": 300,
-            "description": "【战术信号】基于筹码断层的强度和真空范围，评估潜在的突破机会。"
+            "score": 750,
+            "description": "【A级战术信号】融合结构、点火、风险、环境四维一体，高精度捕捉筹码断层突破的“完美风暴”买点。"
         },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_PV_REL_BULLISH_TURN": {
@@ -1099,7 +1085,27 @@
             "cn_name": "【行为】收缩盘整",
             "category": "行为层-环境",
             "type": "context",
-            "description": "【V1.0 · 新增】识别“成交量萎缩”和“价格波动收窄”的中性市场状态，通常预示着变盘或中继整理，供上层融合引擎决策。"
+            "description": "【V2.0 · MTF三支柱版】融合“物理收缩度”、“结构健康度”和“主力吸筹度”三大支柱，并基于多时间框架分析，精准识别具备向上突破潜力的“卧龙”形态。"
+        },
+        "SCORE_OPPORTUNITY_LOCKUP_RALLY": {
+            "cn_name": "【行为】锁仓惜售拉升",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 300,
+            "description": "【V2.0 · MTF四象限版】基于多时间框架分析，识别在健康趋势中，因获利盘惜售、浮筹稀少而导致的“价涨量缩”的健康上涨模式。"
+        },
+        "SCORE_RISK_LIQUIDITY_DRAIN": {
+            "cn_name": "【行为风险】流动性流失风险",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -600,
+            "description": "【V3.0 · MTF四象限版】基于多时间框架分析，识别“价跌量增”的恐慌抛售风险场景。在弱势趋势中，此风险会被放大。"
+        },
+        "SCORE_VOL_WEAKENING_DROP": {
+            "cn_name": "【行为】缩量下跌(卖盘衰竭)",
+            "category": "行为层-机会",
+            "type": "context",
+            "description": "【V2.0 · MTF四象限版】基于多时间框架分析，识别在健康趋势中，因卖盘衰竭导致的“价跌量缩”现象，是潜在的“黄金坑”买点信号。"
         },
         "SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL": {
             "cn_name": "【筹码】恐慌投降潜力",

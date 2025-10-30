@@ -39,13 +39,10 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame, pullback_enhancements: Dict) -> pd.DataFrame:
         """
-        【V16.0 · 职责净化版】顶层认知总分合成模块
+        【V17.0 · 战术突破确认版】顶层认知总分合成模块
         - 核心升级:
-          1. [架构重构] 废除所有零散的 _synthesize_* 扩展信号方法，统一由全新的 `_synthesize_cognitive_expansion_engine` 引擎生成。
-          2. [分析升维] 所有扩展信号现在都将经过“关系元分析”，具备“状态-速度-加速度”的动态洞察力。
-        - 本次修改:
-          - [名称净化] 将 `_diagnose_comprehensive_top_risk` 重命名为 `_synthesize_comprehensive_top_risk`，使其更符合“合成”的职责。
-          - [逻辑加固] 新的终极顶部风险引擎将采用“三柱-神盾”架构，融合更多高优先级风险信号，并引入趋势韧性抑制机制。
+          1. 新增 `_synthesize_tactical_breakout_confirmation` 方法，用于计算新的战术突破确认信号。
+          2. 将新的 `SCORE_TACTICAL_BREAKOUT_CONFIRMATION` 信号纳入最终的看涨分数计算。
         """
         df = self.synthesize_trend_quality_score(df)
         df = self.synthesize_pullback_states(df)
@@ -59,20 +56,23 @@ class CognitiveIntelligence:
         df = self.synthesize_state_process_synergy(df)
         self.synthesize_trend_acceleration_cascade(df)
         self.synthesize_tactical_opportunity_fusion(df)
-        suppression_vs_retreat_states = self._synthesize_suppression_vs_retreat(df) # [代码修改]
+        suppression_vs_retreat_states = self._synthesize_suppression_vs_retreat(df)
         self.strategy.atomic_states.update(suppression_vs_retreat_states)
         cyclical_risk_states = self._calculate_cyclical_top_risk(df)
         self.strategy.atomic_states.update(cyclical_risk_states)
         self.strategy.atomic_states.update(self._synthesize_cognitive_expansion_engine(df))
+        # [代码新增开始]
+        # 新增：调用新的战术突破确认信号引擎
+        tactical_breakout_states = self._synthesize_tactical_breakout_confirmation(df)
+        self.strategy.atomic_states.update(tactical_breakout_states)
+        # [代码新增结束]
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']
         self.strategy.atomic_states['CONTEXT_BOTTOM_SCORE'] = bottom_context_score
         self.strategy.atomic_states['CONTEXT_TOP_SCORE'] = top_context_score
-
         # 调用重构后的综合顶部风险合成引擎
         comprehensive_top_risk_states = self._synthesize_comprehensive_top_risk(df)
-        
         self.strategy.atomic_states.update(comprehensive_top_risk_states)
         bullish_signal_names = [
             'COGNITIVE_SCORE_IGNITION_RESONANCE',
@@ -90,7 +90,10 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING',
             'SCORE_STRUCTURAL_FAULT_BREAKTHROUGH',
             'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT',
-            'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT',
+            # [代码修改开始]
+            # 'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT', # 废弃旧信号
+            'SCORE_TACTICAL_BREAKOUT_CONFIRMATION', # 新增战术突破确认信号
+            # [代码修改结束]
             'SCORE_MICRO_HERMES_GAMBIT',
             'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE',
             'COGNITIVE_SCORE_INDUSTRY_RECESSION_INDIVIDUAL_STRENGTH',
@@ -1129,6 +1132,98 @@ class CognitiveIntelligence:
         states['COGNITIVE_SCORE_TRUE_RETREAT_RISK'] = true_retreat_score.astype(np.float32)
         return states
 
+    def _synthesize_main_force_intent_duel(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 名称净化版】主力意图对决风险合成引擎
+        - 核心升级: 采纳MTF（多时间框架）分析，在每个周期上独立进行“决心 vs 背叛”的对决，
+                      然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
+                      这解决了单一维度判断的战略短视和信号脆弱问题。
+        """
+        states = {}
+        signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
+        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
+        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
+        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
+        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
+        total_weight = sum(numeric_tf_weights.values())
+        bipolar_intent_by_period = {}
+        # 1. 在每个时间框架上独立进行意图对决
+        for p in periods:
+            # 获取看涨证据：主力追高买入的决心
+            urgency_score_raw = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_URGENCY', 0.0)
+            urgency_score_norm = normalize_score(urgency_score_raw, df.index, p)
+            # 获取看跌证据：主力拉高派发的背叛
+            distribution_score_raw = df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
+            distribution_score_norm = normalize_score(distribution_score_raw, df.index, p)
+            # 计算该周期的“净意图分”
+            bipolar_intent_by_period[p] = urgency_score_norm - distribution_score_norm
+        # 2. 加权融合所有周期的“净意图分”
+        final_bipolar_intent = pd.Series(0.0, index=df.index)
+        if total_weight > 0:
+            for p in periods:
+                weight = numeric_tf_weights.get(p, 0) / total_weight
+                final_bipolar_intent += bipolar_intent_by_period.get(p, 0.0) * weight
+        # 3. 风险裁决：只取“背叛 > 决心”的部分作为风险
+        risk_score = -(final_bipolar_intent.clip(upper=0))
+        states[signal_name] = risk_score.astype(np.float32)
+        return states
+
+    def _synthesize_tactical_breakout_confirmation(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】战术突破确认信号合成引擎
+        - 核心思想: 一个完美的突破买点 = 坚实的发射台 + 干净的跑道 + 点火的引擎 + 顺风的环境。
+        - 融合维度:
+          1. 结构有效性 (Structural Validity): 确认突破的结构基础是否牢固。
+          2. 突破确认 (Breakout Confirmation): 确认当前K线是否为健康的、主力驱动的突破行为。
+          3. 风险抑制 (Risk Suppression): 排除派发、高位兑现等明显的风险。
+          4. 环境协同 (Contextual Synergy): 确认突破是否得到市场或行业环境的支撑。
+        """
+        states = {}
+        norm_window = 55 # 使用统一的归一化窗口
+        # --- Helper function for safe normalization ---
+        def _safe_normalize(series_name: str, ascending: bool = True, default_value: float = 0.0) -> pd.Series:
+            # 优先从self.strategy.df_indicators获取数据，因为这是最新的数据帧
+            series = self.strategy.df_indicators.get(series_name)
+            if series is None:
+                return pd.Series(default_value, index=df.index)
+            return normalize_score(series, df.index, norm_window, ascending=ascending)
+        # --- 维度一: 结构有效性 (Structural Validity) ---
+        # 原料: chip_fault_strength_D, chip_fault_vacuum_percent_D, peak_stability_D, concentration_90pct_D
+        c90 = _safe_normalize('concentration_90pct_D', ascending=False) # 越小越好 -> 分数越高
+        s_peak = _safe_normalize('peak_stability_D', ascending=True) # 越大越好 -> 分数越高
+        f_strength = _safe_normalize('chip_fault_strength_D', ascending=True) # 越大越好 -> 分数越高
+        v_vacuum = _safe_normalize('chip_fault_vacuum_percent_D', ascending=False) # 越小越好 -> 分数越高
+        s_structure_launchpad = (c90 * s_peak).pow(0.5)
+        s_structure_path = f_strength * v_vacuum
+        s_structure = s_structure_launchpad * s_structure_path
+        # --- 维度二: 突破确认 (Breakout Confirmation) ---
+        # 原料: SLOPE_1_close_D, SLOPE_1_volume_D, VPA_EFFICIENCY_D, main_force_chasing_accumulation_D
+        delta_p = self.strategy.df_indicators.get('SLOPE_1_close_D', pd.Series(0.0, index=df.index)).clip(lower=0)
+        delta_v = self.strategy.df_indicators.get('SLOPE_1_volume_D', pd.Series(0.0, index=df.index)).clip(lower=0)
+        norm_delta_p = normalize_score(delta_p, df.index, norm_window, ascending=True)
+        norm_delta_v = normalize_score(delta_v, df.index, norm_window, ascending=True)
+        norm_vpa_efficiency = _safe_normalize('VPA_EFFICIENCY_D', ascending=True)
+        norm_chasing_acc = _safe_normalize('main_force_chasing_accumulation_D', ascending=True)
+        s_ignition = norm_delta_p * norm_delta_v * norm_vpa_efficiency * norm_chasing_acc
+        # --- 维度三: 风险抑制 (Risk Suppression) ---
+        # 原料: main_force_rally_distribution_D, profit_taking_urgency_D, realized_pressure_intensity_D
+        norm_d_rally = _safe_normalize('main_force_rally_distribution_D', ascending=True)
+        norm_u_profit = _safe_normalize('profit_taking_urgency_D', ascending=True)
+        norm_p_realized = _safe_normalize('realized_pressure_intensity_D', ascending=True)
+        s_safety = (1 - norm_d_rally) * (1 - norm_u_profit) * (1 - norm_p_realized)
+        # --- 维度四: 环境协同 (Contextual Synergy) ---
+        # 原料: industry_markup_score_D, IS_MARKET_LEADER_D, BBW_21_2.0_D
+        i_markup = self.strategy.df_indicators.get('industry_markup_score_D', pd.Series(0.0, index=df.index))
+        l_leader = self.strategy.df_indicators.get('IS_MARKET_LEADER_D', pd.Series(0.0, index=df.index)).astype(float)
+        # BBW越小，代表从收缩到扩张，潜力越大，分数越高
+        norm_bbw = _safe_normalize('BBW_21_2.0_D', ascending=False)
+        s_context = (1 + i_markup + l_leader) * norm_bbw
+        s_context = s_context.clip(0, 2) / 2 # 粗略归一化到 [0, 1]
+        # --- 最终融合 ---
+        final_score = s_structure * s_ignition * s_safety * s_context
+        states['SCORE_TACTICAL_BREAKOUT_CONFIRMATION'] = final_score.clip(0, 1).astype(np.float32)
+        return states
+
     def _calculate_cognitive_trend_health(self, df: pd.DataFrame) -> pd.Series:
         """
         【V1.0 · 新增】五维趋势健康度评估引擎
@@ -1182,42 +1277,6 @@ class CognitiveIntelligence:
         
         states['COGNITIVE_RISK_CYCLICAL_TOP'] = cyclical_top_risk.astype(np.float32)
         # print(f"      -> [CognitiveIntelligence:_calculate_cyclical_top_risk] 已生成周期顶风险信号。")
-        return states
-
-    def _synthesize_main_force_intent_duel(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V3.0 · 名称净化版】主力意图对决风险合成引擎
-        - 核心升级: 采纳MTF（多时间框架）分析，在每个周期上独立进行“决心 vs 背叛”的对决，
-                      然后加权融合成一个更可靠的“综合净意图”，最后进行风险裁决。
-                      这解决了单一维度判断的战略短视和信号脆弱问题。
-        """
-        states = {}
-        signal_name = 'COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION'
-        p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
-        periods = get_param_value(p_cognitive.get('expansion_engine_periods'), [1, 5, 13, 21, 55])
-        tf_weights = get_param_value(p_cognitive.get('expansion_engine_tf_weights'), {})
-        numeric_tf_weights = {int(k): v for k, v in tf_weights.items() if str(k).isdigit()}
-        total_weight = sum(numeric_tf_weights.values())
-        bipolar_intent_by_period = {}
-        # 1. 在每个时间框架上独立进行意图对决
-        for p in periods:
-            # 获取看涨证据：主力追高买入的决心
-            urgency_score_raw = self._get_atomic_score(df, 'PROCESS_META_MAIN_FORCE_URGENCY', 0.0)
-            urgency_score_norm = normalize_score(urgency_score_raw, df.index, p)
-            # 获取看跌证据：主力拉高派发的背叛
-            distribution_score_raw = df.get('main_force_rally_distribution_D', pd.Series(0.0, index=df.index))
-            distribution_score_norm = normalize_score(distribution_score_raw, df.index, p)
-            # 计算该周期的“净意图分”
-            bipolar_intent_by_period[p] = urgency_score_norm - distribution_score_norm
-        # 2. 加权融合所有周期的“净意图分”
-        final_bipolar_intent = pd.Series(0.0, index=df.index)
-        if total_weight > 0:
-            for p in periods:
-                weight = numeric_tf_weights.get(p, 0) / total_weight
-                final_bipolar_intent += bipolar_intent_by_period.get(p, 0.0) * weight
-        # 3. 风险裁决：只取“背叛 > 决心”的部分作为风险
-        risk_score = -(final_bipolar_intent.clip(upper=0))
-        states[signal_name] = risk_score.astype(np.float32)
         return states
 
     def _calculate_trend_resilience_shield(self, df: pd.DataFrame) -> pd.Series:

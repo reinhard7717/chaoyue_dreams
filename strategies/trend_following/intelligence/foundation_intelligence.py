@@ -158,8 +158,10 @@ class FoundationIntelligence:
 
     def diagnose_chip_fault_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 分层印证版】筹码断层动态诊断引擎
+        【V2.2 · 逻辑修正与重命名版】筹码断层动态诊断引擎
         - 核心升级: 引入“分层动态印证”框架。对“断层强度”和“真空范围”的评估进行多时间维度的分层验证。
+        - 核心修正: 修正了 `chip_fault_vacuum_percent_D` 的归一化逻辑。该值越小越好，因此应使用 `ascending=False`。
+        - 核心修改: 将输出信号重命名为 INTERNAL_SCORE_CHIP_FAULT_POTENTIAL，明确其作为内部原始潜能分的角色，供上层认知引擎消费。
         """
         states = {}
         # 引入分层印证框架
@@ -170,7 +172,10 @@ class FoundationIntelligence:
         fault_strength_series = df.get('chip_fault_strength_D')
         vacuum_percent_series = df.get('chip_fault_vacuum_percent_D')
         if fault_strength_series is None or vacuum_percent_series is None:
-            states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            # [代码修改开始]
+            # 重命名输出信号，并确保在数据缺失时也能正确返回
+            states['INTERNAL_SCORE_CHIP_FAULT_POTENTIAL'] = pd.Series(0.0, index=df.index, dtype=np.float32)
+            # [代码修改结束]
             return states
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
@@ -178,9 +183,11 @@ class FoundationIntelligence:
             tactical_strength = normalize_score(fault_strength_series, df.index, p_tactical, ascending=True)
             context_strength = normalize_score(fault_strength_series, df.index, p_context, ascending=True)
             fused_strength = (tactical_strength * context_strength)**0.5
-            # 真空范围分层验证
-            tactical_vacuum = normalize_score(vacuum_percent_series, df.index, p_tactical, ascending=True)
-            context_vacuum = normalize_score(vacuum_percent_series, df.index, p_context, ascending=True)
+            # [代码修改开始]
+            # 真空范围分层验证 (真空百分比越小越好，所以归一化时使用 ascending=False)
+            tactical_vacuum = normalize_score(vacuum_percent_series, df.index, p_tactical, ascending=False)
+            context_vacuum = normalize_score(vacuum_percent_series, df.index, p_context, ascending=False)
+            # [代码修改结束]
             fused_vacuum = (tactical_vacuum * context_vacuum)**0.5
             # 融合生成当期快照分
             breakout_potential_scores[p_tactical] = (fused_strength * fused_vacuum)**0.5
@@ -190,8 +197,10 @@ class FoundationIntelligence:
         if total_weight > 0:
             for p in periods:
                 final_breakout_potential += breakout_potential_scores.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
-        states['SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT'] = final_breakout_potential.clip(0, 1).astype(np.float32)
-        
+        # [代码修改开始]
+        # 重命名输出信号
+        states['INTERNAL_SCORE_CHIP_FAULT_POTENTIAL'] = final_breakout_potential.clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     # ==============================================================================
