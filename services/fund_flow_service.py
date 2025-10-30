@@ -215,17 +215,19 @@ class AdvancedFundFlowMetricsService:
             return None
         return self._group_minute_data_from_df(minute_df)
         
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V2.0 · 三体模型锻造版】
-        - 核心重构: 遵循“资金博弈三体模型”，将指标计算流程重组为“力量格局”、“战术日志”、“战果评估”三大模块。
-        - 核心新增: 调用新增的 `_calculate_tactical_log_metrics` 方法，锻造全新的战术画像指标。
+        【V2.1 · 战报记录版】
+        - 核心升级: 接收并传递由下游计算函数返回的失败记录。
         """
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         result_df = df.copy()
         attributed_minute_map = {}
-        # --- 第一体: 锻造力量格局指标 ---
+        # [代码新增开始]
+        # 核心新增：初始化失败记录列表
+        all_failures = []
+        # [代码新增结束]
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
@@ -261,22 +263,26 @@ class AdvancedFundFlowMetricsService:
             result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
-        # --- 第二体 & 第三体: 锻造战术日志与战果评估指标 ---
         minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
         if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
+            # [代码修改开始]
+            # 核心修正：接收并聚合失败记录
+            pvwap_costs_df, attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
+            all_failures.extend(pvwap_failures)
+            # [代码修改结束]
             result_df = result_df.join(pvwap_costs_df)
-            # 战术日志
             tactical_log_df = self._calculate_tactical_log_metrics(result_df, attributed_minute_map)
             result_df = result_df.join(tactical_log_df)
-            # 战果评估
             pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
             result_df = result_df.join(pnl_matrix_df)
             behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
             result_df = result_df.join(behavioral_metrics_df)
             structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
             result_df = result_df.join(structure_metrics_df)
-        return result_df, attributed_minute_map
+        # [代码修改开始]
+        # 核心修正：返回收集到的失败记录列表
+        return result_df, attributed_minute_map, all_failures
+        # [代码修改结束]
 
     def _calculate_tactical_log_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
@@ -331,14 +337,20 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame()
         return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
-    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict]:
+    def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V6.3 · 协同修正版】计算概率成本时，增加对上游资金流数据的存在性校验。
-        - 核心修正: 在生成归因分钟数据后，立即调用 `_attribute_minute_volume_to_players`，确保下游所有函数都能获取到主力/散户层级的成交量数据。
+        【V6.4 · 战报记录版】计算概率成本时，记录并返回因数据缺失导致的失败事件。
         """
         if minute_df_grouped is None:
-            return pd.DataFrame(index=daily_df.index), {}
+            # [代码修改开始]
+            # 核心修正：确保在任何退出路径都返回三个值
+            return pd.DataFrame(index=daily_df.index), {}, []
+            # [代码修改结束]
         results = {}
+        # [代码新增开始]
+        # 核心新增：初始化失败记录列表
+        failures_list = []
+        # [代码新增结束]
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         required_daily_fund_flow_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
@@ -350,9 +362,14 @@ class AdvancedFundFlowMetricsService:
             if date_key not in minute_df_grouped.index:
                 continue
             missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
+            # [代码修改开始]
+            # 核心修正：如果发现数据缺失，则记录失败事件并跳过当天
             if missing_cols:
-                logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，缺失资金流原料数据: {missing_cols}")
+                reason = f"缺失资金流原料数据: {missing_cols}"
+                logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，{reason}")
+                failures_list.append({'stock_code': stock_code, 'trade_date': str(date.date()), 'reason': reason})
                 continue
+            # [代码修改结束]
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_continuous.empty:
@@ -379,10 +396,7 @@ class AdvancedFundFlowMetricsService:
                 total_attributed_value = attributed_value.sum()
                 total_attributed_vol = attributed_vol.sum()
                 day_results[f'avg_cost_{cost_type}'] = total_attributed_value / total_attributed_vol if total_attributed_vol > 0 else np.nan
-            # [代码修改开始]
-            # 核心修正：在此处立即进行主力/散户层级的成交量聚合，确保弹药前置生产
             minute_data_for_day = self._attribute_minute_volume_to_players(minute_data_for_day)
-            # [代码修改结束]
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
@@ -390,17 +404,23 @@ class AdvancedFundFlowMetricsService:
             first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
                               (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
             first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
-            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100 # 使用日线数据中的全天成交量
+            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100
             day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
-            return pd.DataFrame(), {}
+            # [代码修改开始]
+            # 核心修正：确保在任何退出路径都返回三个值
+            return pd.DataFrame(), {}, failures_list
+            # [代码修改结束]
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         final_df = pvwap_df.join(aggregate_costs_df)
-        return final_df, attributed_minute_map
+        # [代码修改开始]
+        # 核心修正：返回收集到的失败记录列表
+        return final_df, attributed_minute_map, failures_list
+        # [代码修改结束]
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
