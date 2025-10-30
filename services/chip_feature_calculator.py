@@ -230,22 +230,21 @@ class ChipFeatureCalculator:
 
     def _calculate_game_theoretic_intent(self) -> dict:
         """
-        【V1.0 · 新增】计算所有属于“第四象限：博弈意图”的指标。
+        【V1.1 · 冗余修正版】计算所有属于“第四象限：博弈意图”的指标。
+        - 核心修正: 移除了对已不存在的 `_calculate_winner_structure_advanced` 方法的冗余调用。
+                      其功能已由 `_calculate_advanced_structures` 方法承载。
         """
         results = {}
         # 计算主力/散户筹码交互
         chip_interaction_info = self._calculate_chip_interaction_dynamics(self.ctx)
         results.update(chip_interaction_info)
-        # 计算获利盘结构
-        winner_structure_info = self._calculate_winner_structure_advanced(self.ctx)
-        results.update(winner_structure_info)
         # 计算主力成本优势
         cost_advantage_info = self._calculate_main_force_cost_advantage(self.ctx)
         results.update(cost_advantage_info)
         # 计算获利盘信念指数
         conviction_info = self._calculate_winner_conviction(self.ctx)
         results.update(conviction_info)
-        # 计算其他高级结构指标
+        # 计算其他高级结构指标（此方法已包含高级获利盘指标的计算）
         advanced_structure_info = self._calculate_advanced_structures(self.ctx)
         results.update(advanced_structure_info)
         return results
