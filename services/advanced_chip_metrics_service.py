@@ -119,8 +119,9 @@ class AdvancedChipMetricsService:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
 
-    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict) -> pd.DataFrame:
-        """【V2.0 · 全局视野版】接收全局计算的map，不再自己计算长周期依赖。"""
+    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
+        """【V2.1 · 波动率注入版】接收全局计算的atr_map，为标准化指标提供波动率数据。"""
+        # [代码修改开始]
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -134,10 +135,10 @@ class AdvancedChipMetricsService:
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='inner')
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='left')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
-        # 移除内部的长周期依赖计算，直接使用传入的全局map
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
-        
+        # 新增：将ATR数据合并到主DataFrame中
+        merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
         return merged_df
@@ -297,7 +298,7 @@ class AdvancedChipMetricsService:
         """准备并以“更新或创建”的方式原子化保存数据。"""
         if final_df.empty: return 0
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        # [代码修改开始]
+        
         # 健壮性修复：确保所有布尔字段在保存前都有确定的值 (True/False)，而不是 NaN。
         # NaN 在保存时会变成 NULL，导致数据库 NOT NULL 约束错误。
         boolean_fields = BaseAdvancedChipMetrics.BOOLEAN_FIELDS
@@ -305,7 +306,7 @@ class AdvancedChipMetricsService:
             if col in final_df.columns:
                 # 将 NaN 值填充为 False，这是布尔字段最安全的默认值
                 final_df[col] = final_df[col].fillna(False)
-        # [代码修改结束]
+        
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')

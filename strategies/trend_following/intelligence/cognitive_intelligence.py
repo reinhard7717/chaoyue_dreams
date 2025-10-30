@@ -90,10 +90,10 @@ class CognitiveIntelligence:
             'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING',
             'SCORE_STRUCTURAL_FAULT_BREAKTHROUGH',
             'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT',
-            # [代码修改开始]
+            
             # 'SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT', # 废弃旧信号
             'SCORE_TACTICAL_BREAKOUT_CONFIRMATION', # 新增战术突破确认信号
-            # [代码修改结束]
+            
             'SCORE_MICRO_HERMES_GAMBIT',
             'COGNITIVE_SCORE_LEADER_DRIVES_SECTOR_RISE',
             'COGNITIVE_SCORE_INDUSTRY_RECESSION_INDIVIDUAL_STRENGTH',
@@ -328,7 +328,7 @@ class CognitiveIntelligence:
         p_chimera = get_params_block(self.strategy, 'chimera_conflict_params', {})
         weights = get_param_value(p_chimera.get('fusion_weights'), {'signal_conflict': 0.6, 'flow_divergence': 0.4})
         bullish_score_normalized = self._get_atomic_score(df, 'COGNITIVE_BULLISH_SCORE', 0.0).clip(0, 1)
-        # [代码修改开始]
+        
         # --- 动态计算一个“净化后”的风险分，用于奇美拉冲突诊断 ---
         p_fused_risk = get_params_block(self.strategy, 'fused_risk_scoring')
         risk_categories = p_fused_risk.get('risk_categories', {})
@@ -366,7 +366,7 @@ class CognitiveIntelligence:
             purified_bearish_score_normalized = pd.Series(0.0, index=df.index, dtype=np.float32)
         # 使用净化后的风险分计算信号冲突
         signal_conflict_score = np.minimum(bullish_score_normalized, purified_bearish_score_normalized)
-        # [代码修改结束]
+        
         norm_window = 55
         div_ts_ths_abs = df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)).abs()
         div_ts_dc_abs = df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)).abs()

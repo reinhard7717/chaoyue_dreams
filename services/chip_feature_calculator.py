@@ -31,60 +31,40 @@ class ChipFeatureCalculator:
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
-        # 移除所有探针及相关的条件判断逻辑
+        """
+        【V13.0 · 生命体征锻造版】
+        - 核心重构: 遵循“生命体筹码剖面模型”，在四象限计算之后，增加最终的“生命体征”锻造步骤。
+        - 核心新增: 集成 `_calculate_vital_signs` 方法，计算筹码换手速度、熵、结构稳定性及主导力量姿态。
+        """
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
-        peaks_info = self._calculate_peaks()
-        concentration_info = self._calculate_concentration_from_perf()
-        winner_structure_info = self._calculate_winner_structure()
-        holder_costs_info = self._calculate_holder_costs()
-        pressure_support_info = self._calculate_pressure_support()
-        context_for_derived_metrics = {
-            **self.ctx,
-            **peaks_info,
-            **concentration_info,
-            **winner_structure_info,
-            **holder_costs_info,
-        }
-        advanced_structure_info = self._calculate_advanced_structures(context_for_derived_metrics)
-        context_for_derived_metrics.update(advanced_structure_info)
-        minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(context_for_derived_metrics)
-        chip_interaction_info = self._calculate_chip_interaction_dynamics(context_for_derived_metrics)
-        cross_day_flow_info = self._calculate_cross_day_chip_flow(context_for_derived_metrics)
-        turnover_microstructure_info = self._calculate_turnover_microstructure(context_for_derived_metrics)
-        concentration_dynamics_info = self._calculate_concentration_dynamics(context_for_derived_metrics)
-        peak_dynamics_info = self._calculate_peak_dynamics(context_for_derived_metrics)
-        fault_info = self._calculate_chip_fault(context_for_derived_metrics)
-        cost_divergence_info = self._calculate_cost_divergence(context_for_derived_metrics)
-        context_for_derived_metrics.update(cost_divergence_info)
-        health_score_info = self._calculate_health_score(context_for_derived_metrics)
+        static_structure_metrics = self._calculate_static_structure()
+        self.ctx.update(static_structure_metrics)
+        intraday_dynamics_metrics = self._calculate_intraday_dynamics()
+        self.ctx.update(intraday_dynamics_metrics)
+        cross_day_flow_metrics = self._calculate_cross_day_chip_flow()
+        self.ctx.update(cross_day_flow_metrics)
+        game_theory_metrics = self._calculate_game_theoretic_intent()
+        self.ctx.update(game_theory_metrics)
+        # [代码新增开始]
+        # --- 第五象限: 锻造生命体征指标 ---
+        vital_signs_metrics = self._calculate_vital_signs()
+        self.ctx.update(vital_signs_metrics)
+        # [代码新增结束]
+        health_score_info = self._calculate_health_score(self.ctx)
         all_metrics = {
-            **peaks_info,
-            **concentration_info,
-            **winner_structure_info,
-            **holder_costs_info,
-            **pressure_support_info,
-            **turnover_microstructure_info,
-            **concentration_dynamics_info,
-            **peak_dynamics_info,
-            **minute_derived_dynamics_info,
-            **chip_interaction_info,
-            **cross_day_flow_info,
-            **advanced_structure_info,
-            **fault_info,
-            **cost_divergence_info,
-            **health_score_info
+            **static_structure_metrics,
+            **intraday_dynamics_metrics,
+            **cross_day_flow_metrics,
+            **game_theory_metrics,
+            **vital_signs_metrics, # 新增
+            **health_score_info,
         }
-        if 'total_winner_rate' in summary_info:
-            all_metrics['total_winner_rate'] = summary_info['total_winner_rate']
-        if 'total_loser_rate' in winner_structure_info:
-            all_metrics['total_loser_rate'] = winner_structure_info['total_loser_rate']
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
         return all_metrics
-        
 
     def _prepare_minute_data_features(self):
         """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""
@@ -131,6 +111,130 @@ class ChipFeatureCalculator:
         return {
             'weight_avg_cost': weight_avg_cost,
             'total_winner_rate': total_winner_rate,
+        }
+
+    def _calculate_intraday_dynamics(self) -> dict:
+        """
+        【V1.0 · 新增】计算所有属于“第二象限：内部动态”的指标。
+        """
+        results = {}
+        # 计算主峰相关动态
+        peak_dynamics_info = self._calculate_peak_dynamics(self.ctx)
+        results.update(peak_dynamics_info)
+        # 计算日内微观结构动态
+        minute_derived_dynamics_info = self._calculate_minute_derived_dynamics(self.ctx)
+        results.update(minute_derived_dynamics_info)
+        return results
+
+    def _calculate_cross_day_chip_flow(self) -> dict:
+        """
+        【V1.0 · 新增】计算所有属于“第三象限：跨日迁徙”的指标。
+        """
+        results = {}
+        # 计算筹码集中度动态归因
+        concentration_dynamics_info = self._calculate_concentration_dynamics(self.ctx)
+        results.update(concentration_dynamics_info)
+        # 计算长短期筹码流动
+        cross_day_flow_info = self._calculate_cross_day_holder_flow(self.ctx)
+        results.update(cross_day_flow_info)
+        # 计算成本发散度
+        cost_divergence_info = self._calculate_cost_divergence(self.ctx)
+        results.update(cost_divergence_info)
+        return results
+
+    def _calculate_game_theoretic_intent(self) -> dict:
+        """
+        【V1.0 · 新增】计算所有属于“第四象限：博弈意图”的指标。
+        """
+        results = {}
+        # 计算主力/散户筹码交互
+        chip_interaction_info = self._calculate_chip_interaction_dynamics(self.ctx)
+        results.update(chip_interaction_info)
+        # 计算获利盘结构
+        winner_structure_info = self._calculate_winner_structure_advanced(self.ctx)
+        results.update(winner_structure_info)
+        # 计算主力成本优势
+        cost_advantage_info = self._calculate_main_force_cost_advantage(self.ctx)
+        results.update(cost_advantage_info)
+        # 计算获利盘信念指数
+        conviction_info = self._calculate_winner_conviction(self.ctx)
+        results.update(conviction_info)
+        # 计算其他高级结构指标
+        advanced_structure_info = self._calculate_advanced_structures(self.ctx)
+        results.update(advanced_structure_info)
+        return results
+
+    def _calculate_main_force_cost_advantage(self, context: dict) -> dict:
+        """
+        【V1.0 · 新增】计算主力成本优势。
+        这是A股博弈的核心，直接量化主力相对于散户的成本领先程度。
+        """
+        minute_df = context.get('minute_data')
+        required_cols = ['main_force_net_vol', 'retail_net_vol', 'minute_vwap']
+        if minute_df is None or minute_df.empty or not all(c in minute_df.columns for c in required_cols):
+            return {'main_force_cost_advantage': None}
+        # 计算主力全天总买入成本和总卖出成本
+        mf_buy_vol = minute_df['main_force_buy_vol'].sum()
+        mf_buy_amount = (minute_df['main_force_buy_vol'] * minute_df['minute_vwap']).sum()
+        mf_sell_vol = minute_df['main_force_sell_vol'].sum()
+        mf_sell_amount = (minute_df['main_force_sell_vol'] * minute_df['minute_vwap']).sum()
+        # 计算散户全天总买入成本和总卖出成本
+        retail_buy_vol = minute_df['retail_buy_vol'].sum()
+        retail_buy_amount = (minute_df['retail_buy_vol'] * minute_df['minute_vwap']).sum()
+        retail_sell_vol = minute_df['retail_sell_vol'].sum()
+        retail_sell_amount = (minute_df['retail_sell_vol'] * minute_df['minute_vwap']).sum()
+        # 计算主力与散户的当日成交均价
+        avg_cost_main_force = (mf_buy_amount + mf_sell_amount) / (mf_buy_vol + mf_sell_vol) if (mf_buy_vol + mf_sell_vol) > 0 else None
+        avg_cost_retail = (retail_buy_amount + retail_sell_amount) / (retail_buy_vol + retail_sell_vol) if (retail_buy_vol + retail_sell_vol) > 0 else None
+        if avg_cost_main_force and avg_cost_retail and avg_cost_retail > 0:
+            advantage = (avg_cost_retail - avg_cost_main_force) / avg_cost_retail * 100
+            return {'main_force_cost_advantage': advantage}
+        
+        return {'main_force_cost_advantage': None}
+
+    def _calculate_winner_conviction(self, context: dict) -> dict:
+        """
+        【V1.0 · 新增】计算获利盘信念指数。
+        结合“利润厚度”与“卖出意愿”，量化获利盘的持股决心。
+        """
+        urgency = context.get('profit_taking_urgency')
+        margin = context.get('winner_profit_margin')
+        if urgency is None or margin is None or not pd.notna(urgency) or not pd.notna(margin):
+            return {'winner_conviction_index': None}
+        # 紧迫度归一化到 [0, 1]，值越大越紧迫
+        urgency_norm = np.clip(urgency / 100.0, 0, 1)
+        # 利润安全垫归一化到 [0, 1]，值越大越安全
+        margin_norm = np.clip(margin / 50.0, 0, 1) # 假设50%是极高的利润
+        # 信念指数 = (1 - 卖出意愿) * (1 + 利润厚度)
+        # 范围大致在 [0, 2]，值越高信念越强
+        conviction_index = (1 - urgency_norm) * (1 + margin_norm)
+        return {'winner_conviction_index': conviction_index}
+
+    def _calculate_cost_divergence(self, context: dict) -> dict:
+        """
+        【V2.0 · 标准化增强版】计算成本发散度及其标准化版本。
+        - 核心升级: 引入基于ATR的波动率对成本发散度进行标准化，使其在不同股票和市场环境下更具可比性。
+        """
+        # [代码修改开始]
+        avg_cost_short = context.get('avg_cost_short_term')
+        avg_cost_long = context.get('avg_cost_long_term')
+        if avg_cost_short is None or avg_cost_long is None or avg_cost_long == 0:
+            return {'cost_divergence': None, 'cost_divergence_normalized': None}
+        divergence = (avg_cost_short / avg_cost_long - 1) * 100
+        # 计算标准化版本
+        atr_14d = self.ctx.get('atr_14d') # 现在可以安全地从上下文中获取
+        close_price = self.ctx.get('close_price')
+        normalized_divergence = None
+        if atr_14d is not None and pd.notna(atr_14d) and close_price is not None and close_price > 0:
+            # 用ATR百分比作为波动率的度量
+            volatility_pct = (atr_14d / close_price) * 100
+            if volatility_pct > 0:
+                # 标准化发散度 = 原始发散度 / 波动率
+                # 含义：在1个单位的波动中，成本发散了多少
+                normalized_divergence = divergence / volatility_pct
+        return {
+            'cost_divergence': divergence,
+            'cost_divergence_normalized': normalized_divergence
         }
 
     def _calculate_peaks(self) -> dict:
@@ -187,6 +291,64 @@ class ChipFeatureCalculator:
         else:
             result.update({'secondary_peak_cost': None, 'peak_distance_ratio': None, 'peak_strength_ratio': None})
         return result
+
+    def _calculate_vital_signs(self) -> dict:
+        """
+        【V1.0 · 新增】计算所有属于“第五象限：生命体征”的元指标。
+        """
+        # [代码新增开始]
+        from scipy.spatial.distance import jensenshannon
+        from scipy.stats import entropy
+        results = {}
+        # 1. 计算筹码熵和换手速度
+        prev_chips_df = self.ctx.get('prev_chip_distribution')
+        # 对齐价格轴
+        if prev_chips_df is not None and not prev_chips_df.empty:
+            # 创建一个包含今天和昨天所有价格的联合价格轴
+            combined_prices = pd.concat([self.df[['price']], prev_chips_df[['price']]]).drop_duplicates().sort_values('price').reset_index(drop=True)
+            # 将今天和昨天的筹码分布映射到联合轴上
+            today_aligned = pd.merge(combined_prices, self.df, on='price', how='left')['percent'].fillna(0).to_numpy()
+            prev_aligned = pd.merge(combined_prices, prev_chips_df, on='price', how='left')['percent'].fillna(0).to_numpy()
+            # 归一化为概率分布
+            p_today = today_aligned / today_aligned.sum() if today_aligned.sum() > 0 else np.zeros_like(today_aligned)
+            p_prev = prev_aligned / prev_aligned.sum() if prev_aligned.sum() > 0 else np.zeros_like(prev_aligned)
+            # 计算JSD作为换手速度
+            results['chip_turnover_velocity'] = jensenshannon(p_today, p_prev, base=2)**2
+            # 计算今天的筹码熵
+            results['chip_entropy'] = entropy(p_today, base=2)
+        else:
+            results['chip_turnover_velocity'] = None
+            p_today = self.df['percent'].to_numpy() / self.df['percent'].sum() if self.df['percent'].sum() > 0 else np.zeros(len(self.df))
+            results['chip_entropy'] = entropy(p_today, base=2)
+        # 2. 计算结构稳定性指数
+        peak_stability = self.ctx.get('peak_stability', 0)
+        conc_90 = self.ctx.get('concentration_90pct', 1.0)
+        profit_margin = self.ctx.get('winner_profit_margin', 0)
+        chip_entropy = results.get('chip_entropy', np.log2(len(self.df)) if len(self.df) > 0 else 0)
+        # 归一化各分项
+        norm_peak_stability = np.clip(peak_stability / 20.0, 0, 1) # 假设20是很好的稳定性
+        norm_concentration = 1 - np.clip(conc_90 / 0.5, 0, 1) # 假设50%集中度是下限
+        norm_profit_margin = np.clip(profit_margin / 50.0, 0, 1) # 假设50%利润垫是很好的
+        max_entropy = np.log2(len(self.df)) if len(self.df) > 0 else 1
+        norm_entropy = 1 - (chip_entropy / max_entropy if max_entropy > 0 else 1)
+        results['structural_stability_index'] = (norm_peak_stability * norm_concentration * norm_profit_margin * norm_entropy)**(1/4)
+        # 3. 计算主导力量姿态
+        posture = 0 # 0: 无主导
+        # 规则1: 强力吸筹
+        if self.ctx.get('main_force_cost_advantage', 0) > 1.0 and self.ctx.get('concentration_increase_by_support', 0) > 0.1:
+            posture = 1
+        # 规则2: 锁仓拉升/持有
+        elif results.get('structural_stability_index', 0) > 0.6 and results.get('chip_turnover_velocity', 1) < 0.01 and self.ctx.get('winner_conviction_index', 0) > 1.2:
+            posture = 2
+        # 规则3: 高位派发
+        elif self.ctx.get('main_force_cost_advantage', 0) < -1.0 and self.ctx.get('concentration_decrease_by_distribution', 0) > 0.1:
+            posture = 3
+        # 规则4: 恐慌杀跌
+        elif self.ctx.get('concentration_decrease_by_capitulation', 0) > 0.1 and self.ctx.get('retail_capitulation_score', 0) > 0.2:
+            posture = 4
+        results['dominant_force_posture'] = posture
+        return results
+        # [代码新增结束]
 
     def _calculate_concentration_from_perf(self) -> dict:
         """【V13.0 重构】直接基于 cyq_perf 提供的成本分位数计算筹码集中度。"""
@@ -584,53 +746,6 @@ class ChipFeatureCalculator:
             if results[key] is not None:
                 results[key] = (results[key] / total_daily_vol) * 100
         return results
-
-    def _calculate_cross_day_chip_flow(self, context: dict) -> dict:
-        """【V2.2 · 终极变量引用修正版】计算跨日筹码迁徙"""
-        results = {
-            'short_term_profit_taking_ratio': None,
-            'short_term_capitulation_ratio': None,
-            'long_term_despair_selling_ratio': None,
-        }
-        prev_chips_df = context.get('prev_chip_distribution')
-        prev_close = context.get('prev_close_price')
-        prev_20d_close = context.get('prev_20d_close')
-        daily_turnover_vol = context.get('daily_turnover_volume')
-        missing_keys = []
-        if prev_chips_df is None or prev_chips_df.empty:
-            missing_keys.append('prev_chip_distribution')
-        if prev_close is None or pd.isnull(prev_close):
-            missing_keys.append('prev_close_price')
-        if prev_20d_close is None or pd.isnull(prev_20d_close):
-            missing_keys.append('prev_20d_close')
-        if daily_turnover_vol is None or pd.isnull(daily_turnover_vol) or daily_turnover_vol <= 0:
-            missing_keys.append('daily_turnover_volume')
-        if missing_keys:
-            is_first_day = context.get('is_first_day_in_batch', False)
-            if not is_first_day and self.ctx.get('is_last_day_in_batch', False):
-                stock_code = context.get('stock_code', 'UNKNOWN_STOCK')
-                trade_date = context.get('trade_date', 'UNKNOWN_DATE')
-            return results
-        prev_winners = prev_chips_df[prev_chips_df['price'] < prev_close]
-        prev_losers = prev_chips_df[prev_chips_df['price'] > prev_close]
-        st_winners_pct = prev_winners[prev_winners['price'] >= prev_20d_close]['percent'].sum()
-        st_losers_pct = prev_losers[prev_losers['price'] >= prev_20d_close]['percent'].sum()
-        # 修正变量引用错误，将 losers_df 修正为 prev_losers
-        lt_losers_pct = prev_losers[prev_losers['price'] < prev_20d_close]['percent'].sum()
-        
-        results['short_term_profit_taking_ratio'] = st_winners_pct
-        results['short_term_capitulation_ratio'] = st_losers_pct
-        results['long_term_despair_selling_ratio'] = lt_losers_pct
-        return results
-
-    def _calculate_cost_divergence(self, context: dict) -> dict:
-        """计算成本乖离率"""
-        avg_cost_short = context.get('avg_cost_short_term')
-        avg_cost_long = context.get('avg_cost_long_term')
-        if avg_cost_short is None or avg_cost_long is None or avg_cost_long == 0:
-            return {'cost_divergence': None}
-        divergence = (avg_cost_short / avg_cost_long - 1) * 100
-        return {'cost_divergence': divergence}
 
     def _calculate_health_score(self, context: dict) -> dict:
         """计算筹码健康分"""

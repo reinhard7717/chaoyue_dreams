@@ -160,126 +160,113 @@ class AdvancedStructuralMetricsService:
 
     def _forge_advanced_structural_metrics(self, minute_data_map: dict, stock_code: str) -> pd.DataFrame:
         """
-        【V2.9 · 原料审计版】高级结构与行为指标锻造核心引擎
-        - 核心升级: 增强对分钟数据的校验，对数据不足的日期进行明确的日志记录并跳过。
+        【V3.0 · 战场动力学锻造版】
+        - 核心革命: 遵循“战场动力学”模型，计算“能量密度”、“控制权”、“博弈效率”三大核心要素指标。
         """
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
-        AM_END_TIME = time(11, 30, 0)
-        PM_START_TIME = time(13, 0, 0)
-        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
-        AUCTION_TIME = time(15, 0, 0)
-        TOTAL_TRADING_SECONDS = 14400
-        LUNCH_BREAK_SECONDS = 5400
+        # 预加载历史日线数据以计算基准ATR
+        all_dates = sorted(minute_data_map.keys())
+        DailyModel = get_daily_data_model_by_code(stock_code)
+        # 为了计算ATR，需要向前回溯更多数据
+        history_start_date = min(all_dates) - timedelta(days=50)
+        daily_data_qs = DailyModel.objects.filter(
+            stock__stock_code=stock_code,
+            trade_time__gte=history_start_date,
+            trade_time__lte=max(all_dates)
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
+        daily_df = pd.DataFrame.from_records(list(daily_data_qs))
+        if daily_df.empty:
+            logger.warning(f"[{stock_code}] 无法加载日线数据，部分标准化指标将无法计算。")
+            base_atr = pd.Series(dtype=float)
+        else:
+            daily_df['trade_time'] = pd.to_datetime(daily_df['trade_time']).dt.date
+            daily_df = daily_df.set_index('trade_time')
+            # 使用pandas_ta计算ATR
+            daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True)
+            base_atr = daily_df['ATRr_14']
         for date, group in minute_data_map.items():
-            # 增强对分钟数据的校验和日志记录
             if group.empty or len(group) < 10:
-                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟数据不足 (记录数: {len(group)})。")
+                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，分钟数据不足。")
                 continue
-            
-            group = group.sort_values(by='trade_time', ascending=True).reset_index(drop=True)
-            continuous_mask = group['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
-            continuous_group = group[continuous_mask]
+            group = group.sort_values(by='trade_time').reset_index(drop=True)
+            continuous_mask = group['trade_time'].dt.time < time(14, 57, 0)
+            continuous_group = group[continuous_mask].copy()
             if continuous_group.empty:
-                logger.warning(f"[{stock_code}] [{date}] 跳过结构指标计算，无连续交易时段的分钟数据。")
                 continue
+            # --- 基础数据准备 ---
             day_open, day_high, day_low, day_close = group['open'].iloc[0], group['high'].max(), group['low'].min(), group['close'].iloc[-1]
-            day_range = day_high - day_low
-            day_range_safe = day_range if day_range > 0 else np.nan
             total_volume = group['vol'].sum()
             total_volume_safe = total_volume if total_volume > 0 else np.nan
-            continuous_group = continuous_group.copy()
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
-            continuous_group['minute_vwap'] = continuous_group['minute_vwap'].fillna(method='ffill').fillna(day_open)
-            path_length = continuous_group['minute_vwap'].diff().abs().sum()
-            intraday_trend_efficiency = abs(day_close - day_open) / path_length if path_length > 0 else 0
+            continuous_group = continuous_group.fillna(method='ffill').fillna(day_open)
+            daily_vwap = (continuous_group['amount']).sum() / continuous_group['vol'].sum() if continuous_group['vol'].sum() > 0 else day_close
+            # --- 第一维度: 能量密度 (Energy Density) ---
+            intraday_atr = (continuous_group['high'] - continuous_group['low']).mean()
+            base_atr_for_day = base_atr.get(date)
+            normalized_volatility = intraday_atr / base_atr_for_day if pd.notna(base_atr_for_day) and base_atr_for_day > 0 else np.nan
+            up_vol = continuous_group[continuous_group['close'] > continuous_group['open']]['vol'].sum()
+            down_vol = continuous_group[continuous_group['close'] < continuous_group['open']]['vol'].sum()
+            volume_asymmetry = (up_vol - down_vol) / total_volume_safe if pd.notna(total_volume_safe) else 0
+            vol_array = continuous_group['vol'].dropna().values
+            intraday_volume_gini = self._calculate_gini(vol_array)
+            auction_data = group[group['trade_time'].dt.time >= time(14, 57, 0)]
+            auction_vol = auction_data['vol'].sum()
+            auction_volume_ratio = auction_vol / total_volume_safe if pd.notna(total_volume_safe) else 0
+            # --- 第二维度: 控制权 (Control) ---
+            vwap_dev = (continuous_group['minute_vwap'] - daily_vwap) * continuous_group['vol']
+            vwap_deviation_area = vwap_dev.sum() / (daily_vwap * total_volume_safe) if pd.notna(daily_vwap) and daily_vwap > 0 and pd.notna(total_volume_safe) else 0
+            trend_persistence_index = self._calculate_hurst(continuous_group['minute_vwap'])
+            time_series = continuous_group['trade_time']
+            seconds_from_start = (time_series - time_series.iloc[0]).dt.total_seconds()
+            seconds_from_start[time_series.dt.time >= time(13,0)] -= 5400 # 减去午休
+            weighted_time = (seconds_from_start * continuous_group['vol']).sum()
+            volume_weighted_time_index = weighted_time / (14400 * total_volume_safe) if pd.notna(total_volume_safe) else 0.5
+            auction_close = group['close'].iloc[-1]
+            last_continuous_close = continuous_group['close'].iloc[-1]
+            auction_price_impact = (auction_close - last_continuous_close) / last_continuous_close if last_continuous_close > 0 else 0
+            auction_conviction_index = auction_price_impact * auction_volume_ratio * 100
+            # --- 第三维度: 博弈效率 (Game Efficiency) ---
+            price_change_sign = np.sign(continuous_group['minute_vwap'].diff().fillna(0))
+            vpa_efficiency = (price_change_sign * continuous_group['vol']).sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
+            # --- 辅助指标 ---
             vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
             vpoc_interval = vp.idxmax() if not vp.empty else np.nan
-            vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else continuous_group['close'].iloc[-1]
-            intraday_vah, intraday_val = self._calculate_value_area(vp, total_volume, vpoc_interval)
-            x = np.arange(len(continuous_group))
-            y = continuous_group['close'].values
-            slope, intercept = np.polyfit(x, y, 1)
-            y_pred = slope * x + intercept
-            ss_res = np.sum((y - y_pred) ** 2)
-            ss_tot = np.sum((y - np.mean(y)) ** 2)
-            intraday_trend_linearity = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
-            is_intraday_bullish_divergence, is_intraday_bearish_divergence = self._detect_intraday_divergence(continuous_group)
-            vwap = (group['amount']).sum() / total_volume_safe if pd.notna(total_volume_safe) else day_close
-            vwap_pos = (vwap - day_low) / day_range_safe if pd.notna(day_range_safe) else 0.5
-            body_high, body_low = max(day_open, day_close), min(day_open, day_close)
-            upper_shadow_mask, lower_shadow_mask = group['high'] > body_high, group['low'] < body_low
-            upper_shadow_vol_ratio = group[upper_shadow_mask]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
-            lower_shadow_vol_ratio = group[lower_shadow_mask]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
-            mfm = ((group['close'] - group['low']) - (group['high'] - group['close'])) / (group['high'] - group['low']).replace(0, np.nan)
-            true_daily_cmf = (mfm.fillna(0) * group['vol']).sum() / total_volume_safe if pd.notna(total_volume_safe) else 0
-            if pd.notna(day_range_safe):
-                intraday_reversal_intensity = ((day_close - day_low) - (day_high - day_close)) / day_range_safe
-            else:
-                intraday_reversal_intensity = 0
-            close_vs_vpoc_ratio = day_close / vpoc if vpoc > 0 else 1.0
-            am_mask = group['trade_time'].dt.time <= AM_END_TIME
-            pm_mask = group['trade_time'].dt.time >= PM_START_TIME
-            am_vol = group[am_mask]['vol'].sum()
-            pm_vol = group[pm_mask]['vol'].sum()
-            am_pm_volume_ratio = pm_vol / am_vol if am_vol > 0 else np.nan
-            am_vwap = (group[am_mask]['amount']).sum() / am_vol if am_vol > 0 else np.nan
-            pm_vwap = (group[pm_mask]['amount']).sum() / pm_vol if pm_vol > 0 else np.nan
-            am_pm_vwap_ratio = pm_vwap / am_vwap if pd.notna(am_vwap) and am_vwap > 0 else np.nan
-            vol_array = group['vol'].dropna().values
-            if len(vol_array) > 1:
-                sorted_vol = np.sort(vol_array)
-                cum_vol = np.cumsum(sorted_vol)
-                n = len(vol_array)
-                intraday_volume_gini = (n + 1 - 2 * np.sum(cum_vol) / cum_vol[-1]) / n if cum_vol[-1] > 0 else 0
-            else:
-                intraday_volume_gini = 0
-            time_series = group['trade_time']
-            seconds_from_start = (time_series - time_series.iloc[0]).dt.total_seconds()
-            seconds_from_start[pm_mask] -= LUNCH_BREAK_SECONDS
-            weighted_time = (seconds_from_start * group['vol']).sum()
-            volume_weighted_time_index = weighted_time / (TOTAL_TRADING_SECONDS * total_volume_safe) if pd.notna(total_volume_safe) and total_volume_safe > 0 else 0.5
-            auction_volume_ratio = np.nan
-            auction_price_impact = np.nan
-            auction_conviction_index = np.nan
-            auction_data = group[group['trade_time'].dt.time == AUCTION_TIME]
-            if not auction_data.empty and not continuous_group.empty:
-                auction_vol = auction_data['vol'].iloc[0]
-                auction_close = auction_data['close'].iloc[0]
-                last_continuous_close = continuous_group['close'].iloc[-1]
-                if pd.notna(total_volume_safe) and total_volume_safe > 0:
-                    auction_volume_ratio = auction_vol / total_volume_safe
-                if pd.notna(last_continuous_close) and last_continuous_close > 0:
-                    auction_price_impact = (auction_close - last_continuous_close) / last_continuous_close
-                if pd.notna(auction_price_impact) and pd.notna(auction_volume_ratio):
-                    auction_conviction_index = auction_price_impact * auction_volume_ratio * 100
+            vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close
+            intraday_vah, intraday_val = self._calculate_value_area(vp, continuous_group['vol'].sum(), vpoc_interval)
+            is_bullish_divergence, is_bearish_divergence = self._detect_intraday_divergence(continuous_group)
+            # --- 汇总 ---
             daily_metrics.append({
                 'trade_time': date,
-                'volume_weighted_close_position': vwap_pos,
-                'upper_shadow_volume_ratio': upper_shadow_vol_ratio,
-                'lower_shadow_volume_ratio': lower_shadow_vol_ratio,
-                'true_daily_cmf': true_daily_cmf,
-                'intraday_trend_efficiency': intraday_trend_efficiency,
-                'intraday_reversal_intensity': intraday_reversal_intensity,
+                'normalized_intraday_volatility': normalized_volatility,
+                'volume_asymmetry_index': volume_asymmetry,
+                'intraday_volume_gini': intraday_volume_gini,
+                'auction_volume_ratio': auction_volume_ratio,
+                'vwap_deviation_area': vwap_deviation_area,
+                'trend_persistence_index': trend_persistence_index,
+                'volume_weighted_time_index': volume_weighted_time_index,
+                'auction_price_impact': auction_price_impact,
+                'auction_conviction_index': auction_conviction_index,
+                'vpa_efficiency': vpa_efficiency,
                 'intraday_vpoc': vpoc,
                 'intraday_vah': intraday_vah,
                 'intraday_val': intraday_val,
-                'close_vs_vpoc_ratio': close_vs_vpoc_ratio,
-                'am_pm_volume_ratio': am_pm_volume_ratio,
-                'am_pm_vwap_ratio': am_pm_vwap_ratio,
-                'intraday_volume_gini': intraday_volume_gini,
-                'intraday_trend_linearity': intraday_trend_linearity,
-                'volume_weighted_time_index': volume_weighted_time_index,
-                'is_intraday_bullish_divergence': is_intraday_bullish_divergence,
-                'is_intraday_bearish_divergence': is_intraday_bearish_divergence,
-                'auction_volume_ratio': auction_volume_ratio,
-                'auction_price_impact': auction_price_impact,
-                'auction_conviction_index': auction_conviction_index,
+                'upper_shadow_volume_ratio': group[group['high'] > max(day_open, day_close)]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0,
+                'lower_shadow_volume_ratio': group[group['low'] < min(day_open, day_close)]['vol'].sum() / total_volume_safe if pd.notna(total_volume_safe) else 0,
+                'true_daily_cmf': (((group['close'] - group['low']) - (group['high'] - group['close'])) / (group['high'] - group['low']).replace(0, np.nan)).fillna(0).dot(group['vol']) / total_volume_safe if pd.notna(total_volume_safe) else 0,
+                'intraday_trend_efficiency': abs(day_close - day_open) / continuous_group['minute_vwap'].diff().abs().sum() if continuous_group['minute_vwap'].diff().abs().sum() > 0 else 0,
+                'intraday_reversal_intensity': ((day_close - day_low) - (day_high - day_close)) / (day_high - day_low) if (day_high - day_low) > 0 else 0,
+                'close_vs_vpoc_ratio': day_close / vpoc if vpoc > 0 else 1.0,
+                'am_pm_volume_ratio': group[group['trade_time'].dt.time >= time(13,0)]['vol'].sum() / group[group['trade_time'].dt.time <= time(11,30)]['vol'].sum() if group[group['trade_time'].dt.time <= time(11,30)]['vol'].sum() > 0 else np.nan,
+                'am_pm_vwap_ratio': ((group[group['trade_time'].dt.time >= time(13,0)]['amount'].sum() / group[group['trade_time'].dt.time >= time(13,0)]['vol'].sum()) / (group[group['trade_time'].dt.time <= time(11,30)]['amount'].sum() / group[group['trade_time'].dt.time <= time(11,30)]['vol'].sum())) if group[group['trade_time'].dt.time <= time(11,30)]['vol'].sum() > 0 and group[group['trade_time'].dt.time >= time(13,0)]['vol'].sum() > 0 else np.nan,
+                'is_intraday_bullish_divergence': is_bullish_divergence,
+                'is_intraday_bearish_divergence': is_bearish_divergence,
             })
         if not daily_metrics:
             return pd.DataFrame()
-        return pd.DataFrame(daily_metrics).set_index(pd.to_datetime(pd.DataFrame(daily_metrics)['trade_time']))
+        result_df = pd.DataFrame(daily_metrics)
+        return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
     def _calculate_derivatives(self, stock_code: str, metrics_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -473,7 +460,27 @@ class AdvancedStructuralMetricsService:
                         break
         return is_bullish_divergence, is_bearish_divergence
 
+    def _calculate_gini(self, array: np.ndarray) -> float:
+        """计算基尼系数"""
+        # [代码新增开始]
+        if array is None or len(array) < 2 or np.sum(array) == 0:
+            return 0.0
+        sorted_array = np.sort(array)
+        n = len(array)
+        cum_array = np.cumsum(sorted_array, dtype=float)
+        return (n + 1 - 2 * np.sum(cum_array) / cum_array[-1]) / n
+        # [代码新增结束]
 
+    def _calculate_hurst(self, series: pd.Series) -> float:
+        """计算Hurst指数"""
+        # [代码新增开始]
+        if len(series) < 100:
+            return np.nan
+        lags = range(2, 100)
+        tau = [np.sqrt(np.std(np.subtract(series[lag:], series[:-lag]))) for lag in lags]
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+        return poly[0] * 2.0
+        # [代码新增结束]
 
 
 

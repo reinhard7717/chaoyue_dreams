@@ -216,11 +216,16 @@ class AdvancedFundFlowMetricsService:
         return self._group_minute_data_from_df(minute_df)
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict]:
+        """
+        【V2.0 · 三体模型锻造版】
+        - 核心重构: 遵循“资金博弈三体模型”，将指标计算流程重组为“力量格局”、“战术日志”、“战果评估”三大模块。
+        - 核心新增: 调用新增的 `_calculate_tactical_log_metrics` 方法，锻造全新的战术画像指标。
+        """
         df = merged_df.copy()
         df['daily_vwap'] = daily_vwap_series
         result_df = df.copy()
         attributed_minute_map = {}
-        # 移除所有探针性质的print语句
+        # --- 第一体: 锻造力量格局指标 ---
         consensus_map = {
             'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
             'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
@@ -234,59 +239,6 @@ class AdvancedFundFlowMetricsService:
             existing_cols = [col for col in source_cols if col in df.columns]
             if existing_cols:
                 result_df[target_col] = df[existing_cols].mean(axis=1)
-        source_cols = ['main_force_net_flow_tushare', 'main_force_net_flow_ths', 'main_force_net_flow_dc']
-        existing_sources = [col for col in source_cols if col in df.columns]
-        minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
-        if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
-            # 将 stock_code 传递给成本计算函数
-            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
-            
-            result_df = result_df.join(pvwap_costs_df)
-            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
-            result_df = result_df.join(pnl_matrix_df)
-            if 'net_position_change_value' in result_df.columns:
-                result_df['cost_weighted_main_flow'] = result_df['net_position_change_value']
-            if 'main_force_net_flow_consensus' in result_df.columns and 'pnl_matrix_confidence_score' in result_df.columns:
-                result_df['consensus_calibrated_main_flow'] = result_df['main_force_net_flow_consensus'] * result_df['pnl_matrix_confidence_score']
-            mf_flow = self._get_numeric_series_with_nan(result_df, 'main_force_net_flow_consensus')
-            retail_flow = self._get_numeric_series_with_nan(result_df, 'retail_net_flow_consensus')
-            numerator = (mf_flow - retail_flow).abs()
-            denominator = mf_flow.abs() + retail_flow.abs()
-            result_df['flow_internal_friction_ratio'] = numerator / denominator.replace(0, np.nan)
-            if len(existing_sources) > 1:
-                flows = df[existing_sources]
-                result_df['cross_source_divergence_std'] = flows.std(axis=1)
-            if 'cross_source_divergence_std' in result_df.columns and 'main_force_net_flow_consensus' in result_df.columns:
-                mean_abs_flow = result_df['main_force_net_flow_consensus'].abs().mean()
-                denominator_consistency = np.nan if mean_abs_flow == 0 else mean_abs_flow
-                consistency_ratio = result_df['cross_source_divergence_std'] / denominator_consistency
-                result_df['source_consistency_score'] = (1 - consistency_ratio).clip(lower=0)
-            if 'avg_cost_main_buy' in result_df.columns:
-                result_df['cost_divergence_mf_vs_retail'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_sell', np.nan)
-                result_df['main_buy_cost_advantage'] = np.divide(result_df['avg_cost_main_buy'], df['close'], out=np.full_like(df['close'].values, np.nan, dtype=float), where=df['close']!=0) - 1
-                result_df['market_cost_battle'] = result_df['avg_cost_main_buy'] - result_df.get('avg_cost_retail_buy', np.nan)
-                if 'daily_vwap' in result_df.columns:
-                    result_df['main_buy_cost_vs_vwap'] = result_df['avg_cost_main_buy'] - result_df['daily_vwap']
-                    result_df['main_sell_cost_vs_vwap'] = result_df.get('avg_cost_main_sell', np.nan) - result_df['daily_vwap']
-            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
-            result_df = result_df.join(behavioral_metrics_df)
-            structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
-            result_df = result_df.join(structure_metrics_df)
-        if len(existing_sources) > 1:
-            flows = df[existing_sources]
-            median_flow = flows.median(axis=1)
-            deviations = flows.sub(median_flow, axis=0).abs()
-            weights = 1 / (1 + deviations)
-            weighted_flows = flows.multiply(weights.values)
-            result_df['consensus_flow_weighted'] = weighted_flows.sum(axis=1) / weights.sum(axis=1).replace(0, np.nan)
-        else:
-            result_df['consensus_flow_weighted'] = result_df.get('main_force_net_flow_consensus', np.nan)
-        if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_ths' in df.columns:
-            result_df['divergence_ts_ths'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_ths']
-        if 'main_force_net_flow_tushare' in df.columns and 'main_force_net_flow_dc' in df.columns:
-            result_df['divergence_ts_dc'] = df['main_force_net_flow_tushare'] - df['main_force_net_flow_dc']
-        if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
-            result_df['divergence_ths_dc'] = df['main_force_net_flow_ths'] - df['main_force_net_flow_dc']
         safe_denom = lambda v: v.replace(0, np.nan)
         if 'trade_count' in df.columns and 'amount' in df.columns and 'close' in df.columns:
             total_turnover_yuan = pd.to_numeric(df['amount'], errors='coerce') * 1000
@@ -302,19 +254,83 @@ class AdvancedFundFlowMetricsService:
                 main_force_net_flow_yuan = pd.to_numeric(result_df['main_force_net_flow_consensus'], errors='coerce') * 10000
                 result_df['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
                 result_df['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
-                result_df['main_force_buy_rate_consensus'] = (main_force_net_flow_yuan / safe_denom(circ_mv_yuan)) * 100
-            if 'avg_order_value' in result_df.columns:
-                result_df['trade_granularity_impact'] = result_df['avg_order_value'] / safe_denom(circ_mv_yuan)
             if 'net_xl_amount_consensus' in result_df.columns:
                 total_xl_trade_yuan = pd.to_numeric(result_df['net_xl_amount_consensus'], errors='coerce').abs() * 10000
                 result_df['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
         if 'main_force_net_flow_consensus' in result_df.columns and 'retail_net_flow_consensus' in result_df.columns:
             result_df['flow_divergence_mf_vs_retail'] = result_df['main_force_net_flow_consensus'] - result_df['retail_net_flow_consensus']
-        if 'main_force_net_flow_consensus' in result_df.columns and 'net_xl_amount_consensus' in result_df.columns:
-            result_df['main_force_vs_xl_divergence'] = result_df['main_force_net_flow_consensus'] - result_df['net_xl_amount_consensus']
         if 'net_xl_amount_consensus' in result_df.columns and 'net_lg_amount_consensus' in result_df.columns:
             result_df['main_force_conviction_ratio'] = result_df['net_xl_amount_consensus'] / safe_denom(result_df['net_lg_amount_consensus'])
+        # --- 第二体 & 第三体: 锻造战术日志与战果评估指标 ---
+        minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
+        if minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and 'buy_sm_vol' in df.columns:
+            pvwap_costs_df, attributed_minute_map = self._calculate_probabilistic_costs(df, minute_df_daily_grouped, stock_code)
+            result_df = result_df.join(pvwap_costs_df)
+            # 战术日志
+            tactical_log_df = self._calculate_tactical_log_metrics(result_df, attributed_minute_map)
+            result_df = result_df.join(tactical_log_df)
+            # 战果评估
+            pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df)
+            result_df = result_df.join(pnl_matrix_df)
+            behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df, attributed_minute_map)
+            result_df = result_df.join(behavioral_metrics_df)
+            structure_metrics_df = self._calculate_intraday_structure_metrics(result_df, minute_df_daily_grouped)
+            result_df = result_df.join(structure_metrics_df)
         return result_df, attributed_minute_map
+
+    def _calculate_tactical_log_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
+        """
+        【V1.0 · 新增】计算所有属于“第二体：战术日志”的新增指标。
+        """
+        # [代码新增开始]
+        if not minute_df_attributed_grouped:
+            return pd.DataFrame(index=daily_df.index)
+        results = {}
+        for date, daily_data in daily_df.iterrows():
+            if date not in minute_df_attributed_grouped:
+                continue
+            minute_data = minute_df_attributed_grouped[date]
+            if minute_data.empty:
+                continue
+            day_results = {'trade_time': date}
+            total_daily_mf_net_flow = daily_data.get('main_force_net_flow_consensus', 0) * 10000 # 万元转元
+            total_daily_turnover = daily_data.get('amount', 0) * 1000 # 千元转元
+            # 确保时间是上海时间
+            minute_data['trade_time_local'] = minute_data['trade_time'].dt.tz_convert('Asia/Shanghai')
+            # 1. 主力开盘闪击
+            opening_mask = minute_data['trade_time_local'].dt.time < time(10, 0)
+            opening_mf_net_flow = minute_data.loc[opening_mask, 'main_force_net_vol'].sum()
+            if total_daily_mf_net_flow > 0:
+                day_results['main_force_opening_blitz'] = (opening_mf_net_flow / total_daily_mf_net_flow) * 100
+            else:
+                day_results['main_force_opening_blitz'] = 0.0
+            # 2. 主力尾盘偷袭
+            closing_mask = minute_data['trade_time_local'].dt.time >= time(14, 30)
+            closing_mf_net_flow = minute_data.loc[closing_mask, 'main_force_net_vol'].sum()
+            if total_daily_mf_net_flow > 0:
+                day_results['main_force_closing_assault'] = (closing_mf_net_flow / total_daily_mf_net_flow) * 100
+            else:
+                day_results['main_force_closing_assault'] = 0.0
+            # 3. 主力VWAP依从度
+            daily_vwap = daily_data.get('daily_vwap')
+            main_buy_cost = daily_data.get('avg_cost_main_buy')
+            if pd.notna(daily_vwap) and pd.notna(main_buy_cost) and daily_vwap > 0:
+                day_results['main_force_vwap_adherence'] = (main_buy_cost / daily_vwap - 1) * 100
+            else:
+                day_results['main_force_vwap_adherence'] = None
+            # 4. 资金动能反转
+            am_mask = minute_data['trade_time_local'].dt.time < time(12, 0)
+            pm_mask = minute_data['trade_time_local'].dt.time >= time(13, 0)
+            am_mf_net_flow = minute_data.loc[am_mask, 'main_force_net_vol'].sum()
+            pm_mf_net_flow = minute_data.loc[pm_mask, 'main_force_net_vol'].sum()
+            if total_daily_turnover > 0:
+                day_results['flow_momentum_reversal'] = (pm_mf_net_flow - am_mf_net_flow) / total_daily_turnover
+            else:
+                day_results['flow_momentum_reversal'] = 0.0
+            results[date] = day_results
+        if not results:
+            return pd.DataFrame()
+        return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict]:
         """

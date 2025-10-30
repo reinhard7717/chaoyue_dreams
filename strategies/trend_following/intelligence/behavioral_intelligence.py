@@ -80,7 +80,7 @@ class BehavioralIntelligence:
         states['SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE'] = bullish_health
         states['SCORE_STRUCT_BEHAVIOR_BEARISH_RESONANCE'] = bearish_health
         
-        # [代码修改开始]
+        
         # 步骤四：使用全新的动态分析引擎计算四象限动态信号
         # --- 基于“看涨健康分”的动态分析 ---
         bull_dynamics = self._calculate_signal_dynamics(bullish_health, p_conf)
@@ -124,7 +124,7 @@ class BehavioralIntelligence:
         atomic_signals['SCORE_TREND_HEALTH'] = trend_health_score
         self.strategy.atomic_states['SCORE_TREND_HEALTH'] = trend_health_score # 立即存入，供后续引擎使用
         
-        # [代码修改开始]
+        
         # 步骤二: 计算并【立即发布】基础原子信号，这些信号是后续许多引擎的依赖项
         advanced_signals = self._diagnose_advanced_atomic_signals(df)
         atomic_signals.update(advanced_signals)
@@ -134,7 +134,7 @@ class BehavioralIntelligence:
         despair_context_score = self._calculate_despair_context_score(df)
         atomic_signals['SCORE_CONTEXT_DESPAIR'] = despair_context_score
         self.strategy.atomic_states['SCORE_CONTEXT_DESPAIR'] = despair_context_score
-        # [代码修改结束]
+        
 
         day_quality_score = self._calculate_day_quality_score(df)
         atomic_signals.update(self._diagnose_atomic_bottom_formation(df))
@@ -181,7 +181,7 @@ class BehavioralIntelligence:
             # 如果未提供权重，则使用默认的等权重配置
             tf_weights = {5: 0.2, 13: 0.2, 21: 0.2, 55: 0.2, 89: 0.2}
         
-        # [代码修改开始]
+        
         # 防御性编程：过滤掉权重字典中非数字的值，并处理嵌套结构
         if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
             # 适配新的、更规范的配置文件结构
@@ -209,7 +209,7 @@ class BehavioralIntelligence:
             except (ValueError, TypeError) as e:
                 print(f"警告: 在 _get_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
                 continue
-        # [代码修改结束]
+        
         return final_score.clip(0, 1)
 
     def _get_mtf_normalized_bipolar_score(self, series: pd.Series, tf_weights: Dict[int, float] = None, sensitivity: float = 1.0) -> pd.Series:
@@ -221,7 +221,7 @@ class BehavioralIntelligence:
         if tf_weights is None:
             tf_weights = {5: 0.2, 13: 0.2, 21: 0.2, 55: 0.2, 89: 0.2}
         
-        # [代码修改开始]
+        
         # 防御性编程：过滤掉权重字典中非数字的值，并处理嵌套结构
         if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
             valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
@@ -245,7 +245,7 @@ class BehavioralIntelligence:
             except (ValueError, TypeError) as e:
                 print(f"警告: 在 _get_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
                 continue
-        # [代码修改结束]
+        
         return final_score.clip(-1, 1)
 
     def _diagnose_liquidity_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -255,7 +255,7 @@ class BehavioralIntelligence:
                       现在，价格动能和成交量压力的评估都是基于多时间框架的加权融合，
                       极大地提升了信号的鲁棒性和前瞻性。
         """
-        # [代码修改开始]
+        
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
@@ -536,7 +536,7 @@ class BehavioralIntelligence:
         - 核心思想: 一次高确定性的上冲派发 = 高危的位置 + 经典的派发行为 + 确凿的主力派发意图。
         - 核心升级: 全面采用MTF归一化引擎，并从资金流/筹码层引入“主力意图”证据链。
         """
-        # [代码修改开始]
+        
         p = get_params_block(self.strategy, 'upthrust_distribution_params', {})
         signal_name = 'SCORE_RISK_UPTHRUST_DISTRIBUTION'
         default_series = pd.Series(0.0, index=df.index, name=signal_name, dtype=np.float32)
@@ -574,7 +574,7 @@ class BehavioralIntelligence:
         final_risk_score = (location_risk_score * upthrust_behavior_score * distribution_intent_score).pow(1/3)
         final_risk_score.name = signal_name
         return final_risk_score.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
 
     def _diagnose_vpa_stagnation_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -628,7 +628,7 @@ class BehavioralIntelligence:
         - 核心升级: 引入“绝望舞台”、“卖盘枯竭”、“新王加冕”、“惊雷闪现”四幕剧模型，
                       融合价格、情绪、量能、筹码、资金流、日内行为等多维度数据，直指A股底部本质。
         """
-        # [代码修改开始]
+        
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -686,7 +686,7 @@ class BehavioralIntelligence:
         - 核心思想: 一次值得捕捉的V型反转，是一场“凤凰涅槃”的史诗，必须经历“绝境深渊”、“绝地反击”、“王权交替”和“涅槃之火”四个完整阶段。
         - 核心升级: 引入全新的四维诊断模型，融合多达12个来自不同数据层的核心指标，对恐慌性抛售后的V型反转进行最全面、最深刻的诊断。
         """
-        # [代码修改开始]
+        
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
@@ -757,10 +757,10 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         long_term_weights = get_param_value(p_mtf.get('volatility_weights'), {21: 0.5, 55: 0.3, 89: 0.2})
         # --- 第一步: 王牌飞行员 (The Ace Pilot) - 确认趋势王者地位 ---
-        # [代码修改开始]
+        
         # 证据1.1: 趋势本身足够健康 (调用全新的权威引擎)
         trend_health_score = self.strategy.atomic_states.get('SCORE_TREND_HEALTH', pd.Series(0.0, index=df.index))
-        # [代码修改结束]
+        
         # 证据1.2: 标的是行业龙头
         leader_score = self._get_mtf_normalized_score(df.get('industry_leader_score_D', pd.Series(0.0, index=df.index)), ascending=True, tf_weights=default_weights)
         # 证据1.3: 主力拥有成本优势，掌控全局
@@ -804,7 +804,7 @@ class BehavioralIntelligence:
         - 核心升级: 从描述“现象”升维至刻画“操盘手画像”，融合了日内行为、资金流向、主力信念等A股核心博弈指标，
                       旨在识别由专业机构主导的、具有高度持续性潜力的上涨行为。
         """
-        # [代码修改开始]
+        
         states = {}
         signal_name = 'SCORE_BEHAVIOR_SMART_INTRADAY_TRADING'
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -903,7 +903,7 @@ class BehavioralIntelligence:
         - 核心思想: 将上影线视为一份战报，通过“立案侦查”、“控方陈述(派发)”、“辩方陈述(洗盘)”和“最终裁决”的法庭审判流程，深刻洞察其背后的多空博弈本质。
         - 核心升级: 引入三维质证模型，融合多达6个来自资金流和行为层的核心正反方证据，对上影线意图进行交叉验证和最终裁定。
         """
-        # [代码修改开始]
+        
         states = {}
         signal_name = 'SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS'
         p_parent = get_params_block(self.strategy, 'kline_pattern_params', {})
@@ -982,10 +982,8 @@ class BehavioralIntelligence:
                 if not isinstance(weight, (int, float)): continue
                 try:
                     period = int(period_str)
-                    # [代码修改开始]
                     # 关键修复：放弃使用 .ta 访问器，改为直接函数调用，以增强代码的健壮性
                     slope_series = ta.slope(series, length=period).fillna(0)
-                    # [代码修改结束]
                     # 对每个周期的斜率进行归一化
                     normalized_slope = normalize_to_bipolar(slope_series, series.index, norm_window)
                     holographic_velocity += normalized_slope * (weight / total_weight)
@@ -1139,11 +1137,11 @@ class BehavioralIntelligence:
         # 证据2.1: 中期下跌速率
         price_roc_21d = df['close_D'].pct_change(21)
         velocity_score = self._get_mtf_normalized_score(price_roc_21d, ascending=False, tf_weights=default_weights) # 负值越大分数越高
-        # [代码修改开始]
+        
         # 证据2.2: 连跌天数 (从中央情报总线订阅)
         down_streak_series = self.strategy.atomic_states.get('COUNT_CONSECUTIVE_DOWN_STREAK', pd.Series(0, index=df.index))
         down_streak_score = self._get_mtf_normalized_score(down_streak_series, ascending=True, tf_weights=default_weights)
-        # [代码修改结束]
+        
         velocity_dimension_score = (velocity_score * down_streak_score).pow(0.5)
         # --- 维度三: 投降 (Capitulation) ---
         # 证据3.1: 流动性枯竭风险 (恐慌性抛售导致买盘真空)
@@ -1172,7 +1170,7 @@ class BehavioralIntelligence:
           4. 融合逻辑: 最终信号 = 火种 * 薪柴 * 天候。任何一个维度的缺失都将导致信号降级，完美体现共振效应。
         - 返回: 一个经过市场环境深度调节的、代表信号“成功概率”的最终分数。
         """
-        # [代码修改开始]
+        
         states = {}
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
@@ -1214,7 +1212,7 @@ class BehavioralIntelligence:
         
         states[signal_name] = final_score.astype(np.float32)
         return states
-        # [代码修改结束]
+        
 
     def _supreme_fusion_engine(self, df: pd.DataFrame, signals_to_fuse: Dict[str, pd.Series], params: Dict) -> pd.Series:
         """

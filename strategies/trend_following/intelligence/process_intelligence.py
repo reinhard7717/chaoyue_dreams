@@ -54,7 +54,7 @@ class ProcessIntelligence:
                 continue
             signal_name = config.get('name')
             signal_type = config.get('type')
-            # [代码修改开始]
+            
             # 增加对新任务类型的路由
             custom_signal_type = config.get('signal_type')
             if not signal_name:
@@ -70,7 +70,7 @@ class ProcessIntelligence:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
                         all_process_states.update(meta_states)
-            # [代码修改结束]
+            
             elif signal_type == 'strategy_sync':
                 sync_states = self._diagnose_strategy_sync(df, config)
                 if sync_states:
@@ -162,7 +162,7 @@ class ProcessIntelligence:
             trend_weight = self.meta_score_weights[0]
             accel_weight = self.meta_score_weights[1]
             meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        # [代码修改开始]
+        
         # --- 情境门控逻辑 ---
         if diagnosis_mode == 'gated_meta_analysis':
             gate_condition_config = config.get('gate_condition', {})
@@ -176,7 +176,7 @@ class ProcessIntelligence:
                     gate_is_open = df['close_D'] < ma_series
             # 应用门控：只有当门打开时，信号才能通过
             meta_score = meta_score * gate_is_open.astype(float)
-        # [代码修改结束]
+        
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':

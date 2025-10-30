@@ -172,10 +172,10 @@ class FoundationIntelligence:
         fault_strength_series = df.get('chip_fault_strength_D')
         vacuum_percent_series = df.get('chip_fault_vacuum_percent_D')
         if fault_strength_series is None or vacuum_percent_series is None:
-            # [代码修改开始]
+            
             # 重命名输出信号，并确保在数据缺失时也能正确返回
             states['INTERNAL_SCORE_CHIP_FAULT_POTENTIAL'] = pd.Series(0.0, index=df.index, dtype=np.float32)
-            # [代码修改结束]
+            
             return states
         for i, p_tactical in enumerate(sorted_periods):
             p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
@@ -183,11 +183,11 @@ class FoundationIntelligence:
             tactical_strength = normalize_score(fault_strength_series, df.index, p_tactical, ascending=True)
             context_strength = normalize_score(fault_strength_series, df.index, p_context, ascending=True)
             fused_strength = (tactical_strength * context_strength)**0.5
-            # [代码修改开始]
+            
             # 真空范围分层验证 (真空百分比越小越好，所以归一化时使用 ascending=False)
             tactical_vacuum = normalize_score(vacuum_percent_series, df.index, p_tactical, ascending=False)
             context_vacuum = normalize_score(vacuum_percent_series, df.index, p_context, ascending=False)
-            # [代码修改结束]
+            
             fused_vacuum = (tactical_vacuum * context_vacuum)**0.5
             # 融合生成当期快照分
             breakout_potential_scores[p_tactical] = (fused_strength * fused_vacuum)**0.5
@@ -197,10 +197,10 @@ class FoundationIntelligence:
         if total_weight > 0:
             for p in periods:
                 final_breakout_potential += breakout_potential_scores.get(p, 0.0) * (tf_weights.get(p, 0) / total_weight)
-        # [代码修改开始]
+        
         # 重命名输出信号
         states['INTERNAL_SCORE_CHIP_FAULT_POTENTIAL'] = final_breakout_potential.clip(0, 1).astype(np.float32)
-        # [代码修改结束]
+        
         return states
 
     # ==============================================================================
