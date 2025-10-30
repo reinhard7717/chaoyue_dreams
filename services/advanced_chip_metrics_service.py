@@ -144,16 +144,14 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
+        """【V1.1 · 数据链路修复版】修复 T-1 收盘价的传递逻辑。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        # 定义筹码计算所必需的日度原料字段
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
-        
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # 审计当日的筹码原料数据
             context_data = daily_full_df.iloc[0].to_dict()
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             chip_data_for_calc = daily_full_df[['price', 'percent']]
@@ -162,15 +160,17 @@ class AdvancedChipMetricsService:
             if missing_keys:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
                 continue
-            
             if chip_data_for_calc.empty: continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
+            # [代码修改开始]
+            # 核心修正：使用从数据库直接加载的 pre_close_qfq 作为 T-1 收盘价，并移除冗余的 prev_close_price
             context_for_calc.update({
                 'close_price': context_data.get('close_qfq'),
                 'high_price': context_data.get('high_qfq'),
                 'low_price': context_data.get('low_qfq'),
                 'open_price': context_data.get('open_qfq'),
+                'pre_close': context_data.get('pre_close_qfq'),
                 'daily_turnover_volume': context_data.get('vol', 0) * 100,
                 'total_chip_volume': context_data.get('float_share', 0) * 10000,
                 'stock_code': stock_code,
@@ -180,9 +180,9 @@ class AdvancedChipMetricsService:
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
-                'prev_close_price': prev_metrics.get('close_price'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
             })
+            # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:

@@ -592,7 +592,7 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
-    """【V1.2 · 情报源精确重定向版】修正 trade_count 的数据源归属，确保从正确的模型加载。"""
+    """【V1.3 · 数据链路修复版】增加 pre_close_qfq 的加载，为跨日指标提供 T-1 收盘价。"""
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_dt=None, end_dt=None):
@@ -601,16 +601,15 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
     daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
-    # 修正 trade_count 的情报来源
-    # 1. 定义日线行情所需字段，不包含 trade_count
+    # [代码修改开始]
+    # 1. 定义日线行情所需字段，增加 pre_close_qfq
     all_daily_fields = (
-        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq'
+        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq'
     )
-    # 2. 定义每日基本面所需字段，不包含 trade_count
+    # [代码修改结束]
     all_daily_basic_fields = (
         'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
     )
-    # 3. 为资金流(Tushare)源明确定义所需字段，确保 trade_count 从这里加载
     fund_flow_tushare_fields = (
         'trade_time', 'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
         'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
@@ -627,7 +626,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         "fund_flow_ths": get_data_async(get_fund_flow_ths_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
         "fund_flow_dc": get_data_async(get_fund_flow_dc_model_by_code(stock_info.stock_code), stock_info, start_dt=start_date, end_dt=end_date),
     }
-    
     results = await asyncio.gather(*data_tasks.values())
     data_dfs = dict(zip(data_tasks.keys(), results))
     for name, df in data_dfs.items():
