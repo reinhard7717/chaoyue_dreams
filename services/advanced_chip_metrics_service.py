@@ -120,7 +120,18 @@ class AdvancedChipMetricsService:
         return data_dfs
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
-        """【V2.4 · 终极修复版】移除导致循环中断的、冗余的 dropna 调用。"""
+        """【V2.5 · 数据完整性探针版】注入探针，检查关键日期在数据合并过程中的完整性。"""
+        # [代码新增开始]
+        # 核心新增: 数据完整性深度探针
+        # 使用方法: 修改 target_date_str 为需要调查的 "前一日" (即数据缺失日)
+        target_date_str = '2024-07-04'
+        target_date = pd.to_datetime(target_date_str)
+        print(f"\n===== [数据探针] 进入 _preprocess_and_merge_data | 目标日期: {target_date_str} =====")
+        for name, df in data_dfs.items():
+            if not df.empty and 'trade_time' in df.columns:
+                is_present = target_date in pd.to_datetime(df['trade_time']).dt.date.values
+                print(f"  - 探针[源头]: 目标日期在原始数据源 '{name}' 中是否存在: {is_present}")
+        # [代码新增结束]
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -132,24 +143,30 @@ class AdvancedChipMetricsService:
         cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore', inplace=True)
         cyq_perf_df.set_index('trade_time', inplace=True)
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='left')
+        # [代码新增开始]
+        # 核心新增: 数据完整性深度探针
+        is_present_after_join = target_date in daily_combined_df.index
+        print(f"  - 探针[合并-1]: 目标日期在 'daily_combined_df' (left join后) 中是否存在: {is_present_after_join}")
+        if is_present_after_join:
+            print(f"    - 关键值: {daily_combined_df.loc[[target_date]][['close_qfq', 'circ_mv', 'weight_avg']].to_string(header=True)}")
+        # [代码新增结束]
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
-        # [代码修改开始]
-        # 核心修正: 彻底移除此处的 dropna 调用。
-        # 此行是导致“记忆链”反复断裂的最终元凶。
-        # 当上游数据（特别是 StockDailyBasic）缺失某一天时，left join 会产生 NaN。
-        # 这个 dropna 会将该日期从整个 DataFrame 中删除，导致处理循环跳过该天，从而中断记忆链。
-        # 下游的 _synthesize_and_forge_metrics 方法中的 missing_keys 检查已足够健壮，可以处理 NaN 值。
-        # merged_df.dropna(subset=['close_qfq', 'circ_mv'], inplace=True)
-        # [代码修改结束]
+        # [代码新增开始]
+        # 核心新增: 数据完整性深度探针
+        if not merged_df.empty:
+            is_present_final = target_date in pd.to_datetime(merged_df['trade_time']).dt.date.values
+            print(f"  - 探针[合并-2]: 目标日期在最终 'merged_df' (right merge后) 中是否存在: {is_present_final}")
+        print(f"===== [数据探针] 离开 _preprocess_and_merge_data =====\n")
+        # [代码新增结束]
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.5 · 预警日志增强版】增加对源数据缺失的预警日志。"""
+        """【V1.6 · 记忆链路探针版】注入探针，追踪 T-1 上下文在循环中的传递状态。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
@@ -157,13 +174,28 @@ class AdvancedChipMetricsService:
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
+            # [代码新增开始]
+            # 核心新增: 记忆链路深度探针
+            # 使用方法: 修改 watch_dates 为需要调查的日期及其前后一天
+            watch_dates = ['2024-07-04', '2024-07-05']
+            current_date_str = trade_date.strftime('%Y-%m-%d')
+            if current_date_str in watch_dates:
+                print(f"\n--- [记忆探针] @ {current_date_str} ---")
+                prev_dist = prev_metrics.get('chip_distribution')
+                if prev_dist is not None and not prev_dist.empty:
+                    # 尝试从DataFrame中获取日期，如果列不存在则优雅降级
+                    try:
+                        prev_date_val = pd.to_datetime(prev_dist['trade_time'].iloc[0]).date()
+                    except (KeyError, IndexError):
+                        prev_date_val = '未知日期'
+                    print(f"  - 探针[输入]: prev_metrics 携带的筹码分布日期为: {prev_date_val}, 数据非空: True")
+                else:
+                    print(f"  - 探针[输入]: prev_metrics 携带的筹码分布为空或不存在。")
+            # [代码新增结束]
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
-            # [代码修改开始]
-            # 核心新增：增加前瞻性预警日志
             if chip_data_for_calc.empty:
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：当日源筹码分布(cyq_chips)数据缺失。这将导致下一交易日的跨日指标计算失败。")
-            # [代码修改结束]
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
                 missing_keys.append('valid_chip_distribution')
@@ -200,6 +232,11 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
+            # [代码新增开始]
+            # 核心新增: 记忆链路深度探针
+            if current_date_str in watch_dates:
+                print(f"  - 探针[处理]: 为当天({current_date_str})准备的 'chip_data_for_calc' 是否为空: {chip_data_for_calc.empty}")
+            # [代码新增结束]
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -207,6 +244,12 @@ class AdvancedChipMetricsService:
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close')
             }
+            # [代码新增开始]
+            # 核心新增: 记忆链路深度探针
+            if current_date_str in watch_dates:
+                print(f"  - 探针[输出]: 即将为下一天准备的 'prev_metrics'，其携带的 'chip_distribution' 是否为空: {prev_metrics['chip_distribution'].empty}")
+                print(f"--- [记忆探针] 结束 @ {current_date_str} ---\n")
+            # [代码新增结束]
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics
