@@ -143,27 +143,44 @@ class AdvancedChipMetricsService:
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.8 · 生产就绪版】移除所有调试探针。"""
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict, list]:
+        """【V1.9 · 战报记录版】在计算中止时，记录并返回结构化的失败事件。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
+        # [代码新增开始]
+        # 核心新增：初始化一个列表，用于收集本区块内的计算失败记录
+        failures_list = []
+        # [代码新增结束]
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # [代码删除开始]
-            # 核心修正：“注入确认探针”已完成使命，予以移除。
-            # [代码删除结束]
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
+            # [代码修改开始]
+            # 核心修正：在计算中止前，记录失败事件
             if chip_data_for_calc.empty:
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：当日源筹码分布(cyq_chips)数据缺失。这将导致下一交易日的跨日指标计算失败。")
+                reason = "当日源筹码分布(cyq_chips)数据缺失"
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。这将导致下一交易日的跨日指标计算失败。")
+                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
+                # 即使数据缺失，也要更新记忆，防止记忆链完全断裂
+                prev_metrics = {
+                    'concentration_90pct': None, 'winner_avg_cost': None,
+                    'chip_distribution': chip_data_for_calc, # 传递空的DataFrame
+                    'close_price': context_data.get('close_qfq'),
+                    'prev_20d_close': context_data.get('prev_20d_close')
+                }
+                if is_first_day_in_batch: is_first_day_in_batch = False
+                continue # 跳过后续计算
+            # [代码修改结束]
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
                 missing_keys.append('valid_chip_distribution')
             if missing_keys:
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，缺失核心原料数据: {missing_keys}")
+                reason = f"缺失核心原料数据: {missing_keys}"
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，{reason}")
+                failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
             context_for_calc.update({
@@ -204,8 +221,11 @@ class AdvancedChipMetricsService:
             }
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
-            return pd.DataFrame(), prev_metrics
-        return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics
+            # [代码修改开始]
+            # 核心修正：确保方法始终返回三个值
+            return pd.DataFrame(), prev_metrics, failures_list
+        return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics, failures_list
+        # [代码修改结束]
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
