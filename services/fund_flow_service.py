@@ -280,9 +280,10 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_tactical_log_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
-        【V1.0 · 新增】计算所有属于“第二体：战术日志”的新增指标。
+        【V1.1 · 类型修正版】计算所有属于“第二体：战术日志”的新增指标。
+        - 核心修正: 在进行除法运算前，将从 daily_df 中获取的 Decimal 类型数值显式转换为 float，
+                      以解决 'float' 和 'decimal.Decimal' 之间的 TypeError。
         """
-        # [代码新增开始]
         if not minute_df_attributed_grouped:
             return pd.DataFrame(index=daily_df.index)
         results = {}
@@ -293,32 +294,30 @@ class AdvancedFundFlowMetricsService:
             if minute_data.empty:
                 continue
             day_results = {'trade_time': date}
-            total_daily_mf_net_flow = daily_data.get('main_force_net_flow_consensus', 0) * 10000 # 万元转元
-            total_daily_turnover = daily_data.get('amount', 0) * 1000 # 千元转元
-            # 确保时间是上海时间
+            # [代码修改开始]
+            # 核心修正：将 Decimal 类型显式转换为 float，以避免 TypeError
+            total_daily_mf_net_flow = float(daily_data.get('main_force_net_flow_consensus', 0.0)) * 10000 # 万元转元
+            total_daily_turnover = float(daily_data.get('amount', 0.0)) * 1000 # 千元转元
+            # [代码修改结束]
             minute_data['trade_time_local'] = minute_data['trade_time'].dt.tz_convert('Asia/Shanghai')
-            # 1. 主力开盘闪击
             opening_mask = minute_data['trade_time_local'].dt.time < time(10, 0)
             opening_mf_net_flow = minute_data.loc[opening_mask, 'main_force_net_vol'].sum()
             if total_daily_mf_net_flow > 0:
                 day_results['main_force_opening_blitz'] = (opening_mf_net_flow / total_daily_mf_net_flow) * 100
             else:
                 day_results['main_force_opening_blitz'] = 0.0
-            # 2. 主力尾盘偷袭
             closing_mask = minute_data['trade_time_local'].dt.time >= time(14, 30)
             closing_mf_net_flow = minute_data.loc[closing_mask, 'main_force_net_vol'].sum()
             if total_daily_mf_net_flow > 0:
                 day_results['main_force_closing_assault'] = (closing_mf_net_flow / total_daily_mf_net_flow) * 100
             else:
                 day_results['main_force_closing_assault'] = 0.0
-            # 3. 主力VWAP依从度
             daily_vwap = daily_data.get('daily_vwap')
             main_buy_cost = daily_data.get('avg_cost_main_buy')
             if pd.notna(daily_vwap) and pd.notna(main_buy_cost) and daily_vwap > 0:
                 day_results['main_force_vwap_adherence'] = (main_buy_cost / daily_vwap - 1) * 100
             else:
                 day_results['main_force_vwap_adherence'] = None
-            # 4. 资金动能反转
             am_mask = minute_data['trade_time_local'].dt.time < time(12, 0)
             pm_mask = minute_data['trade_time_local'].dt.time >= time(13, 0)
             am_mf_net_flow = minute_data.loc[am_mask, 'main_force_net_vol'].sum()
