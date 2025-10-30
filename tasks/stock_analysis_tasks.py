@@ -591,8 +591,8 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
             
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, last_metric_date, fetch_start_date
 
-async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timestamp, end_date: pd.Timestamp):
-    """【V1.3 · 数据链路修复版】增加 pre_close_qfq 的加载，为跨日指标提供 T-1 收盘价。"""
+async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, start_date: pd.Timestamp, end_date: pd.Timestamp):
+    """【V1.4 · 依赖注入版】不再自行解析模型，通过参数接收 daily_data_model。"""
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', start_dt=None, end_dt=None):
@@ -600,13 +600,13 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__gte': start_dt, f'{date_field}__lte': end_dt})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
     # [代码修改开始]
-    # 1. 定义日线行情所需字段，增加 pre_close_qfq
+    # 核心修改: 不再在此处调用 get_daily_data_model_by_code，daily_data_model 已通过参数传入。
+    # daily_data_model = get_daily_data_model_by_code(stock_info.stock_code)
+    # [代码修改结束]
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq'
     )
-    # [代码修改结束]
     all_daily_basic_fields = (
         'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
     )
@@ -759,41 +759,125 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
 
-@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_structural_metrics_for_stock', queue='SaveHistoryData_TimeTrade')
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
-def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
+def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V1.0 · 新增】为单只股票预计算高级结构与行为指标的Celery任务。
-    - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
+    【V25.1 · 依赖注入重构版】
+    - 核心重构: 在任务顶层统一解析 DailyModel，并将其作为参数注入下层数据加载函数。
     """
-    #
     async def main(incremental_flag: bool, start_date_override: str):
-        from services.advanced_structural_metrics_service import AdvancedStructuralMetricsService
-        
-        structural_service = AdvancedStructuralMetricsService()
-        
-        try:
-            processed_count = await structural_service.run_precomputation(
-                stock_code=stock_code,
-                is_incremental=incremental_flag,
-                start_date_str=start_date_override
+        from services.fund_flow_service import AdvancedFundFlowMetricsService
+        from services.advanced_chip_metrics_service import AdvancedChipMetricsService
+        import pandas_ta as ta
+        fund_flow_service = AdvancedFundFlowMetricsService()
+        chip_service = AdvancedChipMetricsService()
+        stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context_unified(
+            stock_code, incremental_flag, start_date_override
+        )
+        # [代码修改开始]
+        # 核心重构: 在顶层统一解析 DailyModel，以实现依赖注入，避免在下层函数中重复解析。
+        DailyModel = get_daily_data_model_by_code(stock_code)
+        DateSourceModel = StockDailyBasic
+        # [代码修改结束]
+        process_date_filter = {'stock': stock_info}
+        if fetch_start_date:
+            process_date_filter['trade_time__gte'] = fetch_start_date
+        all_dates_qs = DateSourceModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
+        dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+        if dates_to_process.empty:
+            logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
+            return {"status": "skipped", "reason": "No new dates to process."}
+        save_start_date = None
+        if start_date_override:
+            save_start_date = datetime.strptime(start_date_override, '%Y-%m-%d').date()
+        elif last_metric_date and is_incremental_final:
+            save_start_date = last_metric_date + timedelta(days=1)
+        context_start_date = dates_to_process.min()
+        ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_start_date)
+        chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_start_date)
+        context_df = ff_hist_df.join(chip_hist_df, how='outer')
+        all_daily_data_for_lookback_qs = DailyModel.objects.filter(
+            stock=stock_info, trade_time__lte=dates_to_process.max()
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
+        all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
+        all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
+        all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
+        all_daily_data_for_lookback_df.ta.atr(length=14, append=True)
+        atr_col_name = 'ATRr_14'
+        if atr_col_name not in all_daily_data_for_lookback_df.columns:
+            raise ValueError(f"[{stock_code}] ATR计算失败，未能找到列: {atr_col_name}")
+        atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
+        close_map_global = all_daily_data_for_lookback_df['close_qfq'].to_dict()
+        trade_dates_series_global = all_daily_data_for_lookback_df.index.sort_values().to_series().reset_index(drop=True)
+        date_index_map = {date: i for i, date in enumerate(trade_dates_series_global)}
+        date_20d_ago_map_global = {
+            date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
+            for date, idx in date_index_map.items()
+        }
+        CHUNK_SIZE = 50
+        all_final_metrics_to_save = pd.DataFrame()
+        cross_chunk_memory = {}
+        for i in range(0, len(dates_to_process), CHUNK_SIZE):
+            chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
+            if chunk_dates.empty: continue
+            chunk_start_date, chunk_end_date = chunk_dates.min(), chunk_dates.max()
+            # [代码修改开始]
+            # 核心重构: 将解析好的 DailyModel 作为参数传递下去。
+            data_dfs = await _load_all_sources_unified(stock_info, DailyModel, chunk_start_date, chunk_end_date)
+            # [代码修改结束]
+            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_start_date, chunk_end_date)
+            ff_data_dfs = {
+                "tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"],
+                "daily": data_dfs["daily_data"], "daily_basic": data_dfs["daily_basic"],
+            }
+            fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
+            if fund_flow_raw_df.empty:
+                logger.warning(f"[{stock_code}] 区块 {chunk_start_date.date()} to {chunk_end_date.date()} 资金流原始数据为空，跳过。")
+                continue
+            daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
+            fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
+            fund_flow_metrics_df, fund_flow_attributed_minute_map = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
+            chip_data_dfs = {
+                "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
+                "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
+            }
+            chip_raw_df = chip_service._preprocess_and_merge_data(
+                stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global
             )
-            logger.info(f"[{stock_code}] [结构指标任务] 成功完成，处理了 {processed_count} 条记录。")
-            return {"status": "success", "stock_code": stock_code, "processed_days": processed_count}
-        except Exception as e:
-            logger.error(f"[{stock_code}] [结构指标任务] 执行失败: {e}", exc_info=True)
-            # 可以在这里决定是否重试
-            raise
-            
+            chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
+                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
+            )
+            chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
+            full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
+            ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
+            chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
+            chunk_final_df = full_sequence_for_derivatives.join([ff_derivatives, chip_derivatives])
+            all_final_metrics_to_save = pd.concat([all_final_metrics_to_save, chunk_final_df[chunk_final_df.index.isin(chunk_dates)]])
+            context_df = full_sequence_for_derivatives
+        if not all_final_metrics_to_save.empty:
+            if save_start_date:
+                chunk_to_save = all_final_metrics_to_save[all_final_metrics_to_save.index.date >= save_start_date]
+            else:
+                chunk_to_save = all_final_metrics_to_save
+            if not chunk_to_save.empty:
+                ff_save_count = await fund_flow_service._prepare_and_save_data(stock_info, FundFlowMetricsModel, chunk_to_save)
+                chip_save_count = await chip_service._prepare_and_save_data(stock_info, ChipMetricsModel, chunk_to_save)
+                logger.info(f"[{stock_code}] 成功！深度融合计算完成。资金流指标保存 {ff_save_count} 条，筹码指标保存 {chip_save_count} 条。")
+                return {"status": "success", "fund_flow_days": ff_save_count, "chip_days": chip_save_count}
+            else:
+                logger.info(f"[{stock_code}] 计算完成，但没有需要保存的新数据。")
+                return {"status": "no_new_data_to_save"}
+        else:
+            logger.info(f"[{stock_code}] 深度融合计算未产生任何新指标。")
+            return {"status": "no_new_data"}
     try:
-        # 使用 async_to_sync 将异步的 main 函数同步执行
         result = async_to_sync(main)(is_incremental, start_date_str)
         return result
     except Exception as e:
-        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_structural_metrics_for_stock for {stock_code}: {e}", exc_info=True)
-        # 根据Celery的最佳实践，重新抛出异常以便Celery可以跟踪任务失败和重试
+        logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
-    
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """
