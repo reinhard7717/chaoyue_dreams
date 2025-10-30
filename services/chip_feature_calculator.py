@@ -185,7 +185,7 @@ class ChipFeatureCalculator:
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
         # 1. 检查标量数据
-        scalar_keys = ['daily_turnover_volume', 'prev_close', 'prev_20d_close', 'total_chip_volume']
+        scalar_keys = ['daily_turnover_volume', 'pre_close', 'prev_20d_close', 'total_chip_volume']
         missing_scalar_keys = [k for k in scalar_keys if context.get(k) is None or pd.isna(context.get(k))]
         if missing_scalar_keys:
             print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文(context)中缺少前一日关键标量数据: {missing_scalar_keys}。")
@@ -197,7 +197,7 @@ class ChipFeatureCalculator:
             return results
         # [代码修改结束]
         turnover_vol = context['daily_turnover_volume']
-        prev_close = context['prev_close']
+        prev_close = context['pre_close']
         prev_20d_close = context['prev_20d_close']
         total_chips = context['total_chip_volume']
         prev_winners_short_df = prev_df[(prev_df['price'] >= prev_20d_close) & (prev_df['price'] < prev_close)]
