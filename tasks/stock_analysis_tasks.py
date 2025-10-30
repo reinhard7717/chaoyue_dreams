@@ -591,11 +591,9 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
         if not process_start_date:
             process_start_date = save_start_date
         lookback_start_date = process_start_date - timedelta(days=max_lookback_days)
-        logger.info(f"[{stock_code}] [统一初始化] 创世模式启动。存储自: {save_start_date}, 处理自: {process_start_date}, 回溯自: {lookback_start_date}")
-    # [代码修改开始]
+        # logger.info(f"[{stock_code}] [统一初始化] 创世模式启动。存储自: {save_start_date}, 处理自: {process_start_date}, 回溯自: {lookback_start_date}")
     # 核心修正：返回新的三级窗口日期
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
-    # [代码修改结束]
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """【V1.5 · 精确加载协议版】修正函数签名，接收确切的日期列表，并使用 `__in` 查询。"""
@@ -647,7 +645,6 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 
-# [代码新增开始]
 # 核心新增：定义“司令部”汇总任务
 @celery_app.task(name='tasks.stock_analysis_tasks.summarize_computation_failures', queue='celery')
 def summarize_computation_failures(results):
@@ -741,7 +738,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         first_processing_day = dates_to_process.min().date()
         seed_date = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_processing_day, offset=-1)
         if seed_date:
-            logger.info(f"[{stock_code}] [上下文播种] 正在为 {first_processing_day} 准备播种日 {seed_date} 的初始记忆...")
+            # logger.info(f"[{stock_code}] [上下文播种] 正在为 {first_processing_day} 准备播种日 {seed_date} 的初始记忆...")
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
             seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
             if not seed_data_dfs["cyq_chips"].empty and not seed_data_dfs["daily_data"].empty:
@@ -755,7 +752,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global)
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={})
                 all_failures.extend(seed_failures)
-                logger.info(f"[{stock_code}] [上下文播种] 成功生成初始记忆。")
+                # logger.info(f"[{stock_code}] [上下文播种] 成功生成初始记忆。")
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
