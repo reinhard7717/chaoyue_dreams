@@ -32,15 +32,17 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V13.0 · 生命体征锻造版】
-        - 核心重构: 遵循“生命体筹码剖面模型”，在四象限计算之后，增加最终的“生命体征”锻造步骤。
-        - 核心新增: 集成 `_calculate_vital_signs` 方法，计算筹码换手速度、熵、结构稳定性及主导力量姿态。
+        【V13.1 · 流程修正版】
+        - 核心修正: 恢复对 _calculate_static_structure 方法的正确调用，该方法现在作为所有静态结构指标计算的统一入口。
         """
         if self.df.empty or not all(k in self.ctx for k in ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']):
             return {}
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
+        # [代码修改开始]
+        # 核心修正：调用新整合的静态结构计算主流程方法
         static_structure_metrics = self._calculate_static_structure()
+        # [代码修改结束]
         self.ctx.update(static_structure_metrics)
         intraday_dynamics_metrics = self._calculate_intraday_dynamics()
         self.ctx.update(intraday_dynamics_metrics)
@@ -48,23 +50,52 @@ class ChipFeatureCalculator:
         self.ctx.update(cross_day_flow_metrics)
         game_theory_metrics = self._calculate_game_theoretic_intent()
         self.ctx.update(game_theory_metrics)
-        # [代码新增开始]
-        # --- 第五象限: 锻造生命体征指标 ---
         vital_signs_metrics = self._calculate_vital_signs()
         self.ctx.update(vital_signs_metrics)
-        # [代码新增结束]
         health_score_info = self._calculate_health_score(self.ctx)
         all_metrics = {
             **static_structure_metrics,
             **intraday_dynamics_metrics,
             **cross_day_flow_metrics,
             **game_theory_metrics,
-            **vital_signs_metrics, # 新增
+            **vital_signs_metrics,
             **health_score_info,
         }
         all_metrics.pop('peak_range_low', None)
         all_metrics.pop('peak_range_high', None)
         return all_metrics
+
+    def _calculate_static_structure(self) -> dict:
+        """
+        【V1.0 · 新增】计算所有属于“第一象限：静态结构”的指标。
+        这是一个主流程方法，负责整合所有静态结构相关的子计算模块。
+        """
+        # [代码新增开始]
+        # 1. 计算筹码峰结构
+        peak_metrics = self._calculate_peaks()
+        self.ctx.update(peak_metrics)
+        # 2. 计算筹码集中度
+        concentration_metrics = self._calculate_concentration_from_perf()
+        self.ctx.update(concentration_metrics)
+        # 3. 计算压力与支撑
+        pressure_support_metrics = self._calculate_pressure_support()
+        # 4. 计算获利盘/套牢盘结构
+        winner_loser_metrics = self._calculate_winner_structure()
+        # 5. 计算筹码断层
+        fault_metrics = self._calculate_chip_fault(self.ctx)
+        # 6. 计算长短期持仓成本
+        holder_cost_metrics = self._calculate_holder_costs()
+        # 整合所有静态结构指标
+        static_metrics = {
+            **peak_metrics,
+            **concentration_metrics,
+            **pressure_support_metrics,
+            **winner_loser_metrics,
+            **fault_metrics,
+            **holder_cost_metrics,
+        }
+        return static_metrics
+        # [代码新增结束]
 
     def _prepare_minute_data_features(self):
         """【V2.1 · API单位对齐版】对单日分钟数据进行类型降级，减少内存占用。"""
