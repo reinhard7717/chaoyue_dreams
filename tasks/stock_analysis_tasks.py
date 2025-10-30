@@ -641,24 +641,33 @@ async def _load_all_sources_unified(stock_info: StockInfo, start_date: pd.Timest
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V24.9 · 波动率指标注入版】
-    - 核心修复: 不再预先拆分数据，向两个服务传递完整的日线数据包，根除数据孤岛问题。
+    【V25.0 · 主日历重铸版】
+    - 核心修复: 将生成待处理日期列表的数据源从 DailyModel 切换到更可靠的 StockDailyBasic。
     - 核心新增: 在任务调度层即时计算ATR，并将其作为全局上下文注入到筹码计算服务中，以支持标准化指标的计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
-        import pandas_ta as ta # 引入pandas_ta
+        import pandas_ta as ta
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        DailyModel = get_daily_data_model_by_code(stock_code)
+        # [代码修改开始]
+        # 核心修正：将构建“主日历”的数据源从 DailyModel 切换为更权威的 StockDailyBasic。
+        # 这是解决“幽灵交易日”问题的根本所在。DailyModel 可能存在数据空洞，
+        # 而 StockDailyBasic 作为每日指标的集合，是更可靠的交易日历。
+        DateSourceModel = StockDailyBasic
+        DailyModel = get_daily_data_model_by_code(stock_code) # DailyModel 仍需用于加载具体数据
+        # [代码修改结束]
         process_date_filter = {'stock': stock_info}
         if fetch_start_date:
             process_date_filter['trade_time__gte'] = fetch_start_date
-        all_dates_qs = DailyModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
+        # [代码修改开始]
+        # 核心修正：使用新的 DateSourceModel 来构建主日历
+        all_dates_qs = DateSourceModel.objects.filter(**process_date_filter).values_list('trade_time', flat=True).order_by('trade_time')
+        # [代码修改结束]
         dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
@@ -672,24 +681,19 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_start_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_start_date)
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
-        # [代码修改开始]
-        # 修正：加载计算ATR所需的所有字段 (high, low, close)
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info, trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
-        # 新增：计算ATR_14D
         all_daily_data_for_lookback_df.ta.atr(length=14, append=True)
-        atr_col_name = 'ATRr_14' # pandas_ta默认的ATR列名
+        atr_col_name = 'ATRr_14'
         if atr_col_name not in all_daily_data_for_lookback_df.columns:
             raise ValueError(f"[{stock_code}] ATR计算失败，未能找到列: {atr_col_name}")
-        # 新增：创建ATR全局映射
         atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
         close_map_global = all_daily_data_for_lookback_df['close_qfq'].to_dict()
         trade_dates_series_global = all_daily_data_for_lookback_df.index.sort_values().to_series().reset_index(drop=True)
-        # [代码修改结束]
         date_index_map = {date: i for i, date in enumerate(trade_dates_series_global)}
         date_20d_ago_map_global = {
             date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
@@ -719,12 +723,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
                 "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
             }
-            # [代码修改开始]
-            # 修正：将 atr_map_global 传递给预处理方法
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global
             )
-            # [代码修改结束]
             chip_metrics_df, cross_chunk_memory = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )
