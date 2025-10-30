@@ -2,6 +2,7 @@
 # 行为与模式识别模块
 import pandas as pd
 import numpy as np
+import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, calculate_context_scores
