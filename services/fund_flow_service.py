@@ -517,54 +517,6 @@ class AdvancedFundFlowMetricsService:
         return df
         # [代码新增结束]
 
-    def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V1.7 · 聚合单位修正版】在加权平均聚合成本时，将成交量单位从“手”统一转换为“股”。
-        """
-        temp_df = pvwap_df.copy()
-        vol_cols = [
-            'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
-            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
-        ]
-        existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
-        agg_cols = ['avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell', 'vwap_tracking_error']
-        if not existing_vol_cols:
-            return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
-        temp_df = temp_df.join(daily_df[existing_vol_cols])
-        def weighted_avg_cost(cost_cols, vol_cols):
-            numerator = pd.Series(0.0, index=temp_df.index)
-            denominator = pd.Series(0.0, index=temp_df.index)
-            for cost_col, vol_col in zip(cost_cols, vol_cols):
-                if cost_col in temp_df.columns and vol_col in temp_df.columns:
-                    cost = temp_df[cost_col]
-                    # 将成交量从“手”转换为“股” (乘以100)
-                    volume_shares = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0) * 100
-                    value_contribution = (cost * volume_shares).fillna(0)
-                    
-                    numerator += value_contribution
-                    denominator += volume_shares.where(cost.notna(), 0)
-            return numerator / denominator.replace(0, np.nan)
-        result_agg_df = pd.DataFrame(index=pvwap_df.index)
-        result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(
-            ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
-            ['buy_lg_vol', 'buy_elg_vol']
-        )
-        result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(
-            ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
-            ['sell_lg_vol', 'sell_elg_vol']
-        )
-        result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(
-            ['avg_cost_sm_buy', 'avg_cost_md_buy'],
-            ['buy_sm_vol', 'buy_md_vol']
-        )
-        result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(
-            ['avg_cost_sm_sell', 'avg_cost_md_sell'],
-            ['sell_sm_vol', 'sell_md_vol']
-        )
-        if 'avg_cost_main_buy' in result_agg_df.columns and 'daily_vwap' in daily_df.columns:
-            result_agg_df['vwap_tracking_error'] = result_agg_df['avg_cost_main_buy'] - daily_df['daily_vwap']
-        return result_agg_df
-
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V3.7 · 导数协议修正版】为二阶导数（加速度）使用独立的、正确的短计算窗口。"""
         derivatives_df = pd.DataFrame(index=consensus_df.index)
