@@ -5,7 +5,7 @@ import numpy as np
 from scipy.signal import find_peaks
 from decimal import Decimal
 import logging
-logger = logging.getLogger('tasks')
+logger = logging.getLogger(__name__)
 
 class ChipFeatureCalculator:
     """
