@@ -144,7 +144,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
-        """【V1.7 · 注入确认版】升级探针，确认初始记忆是否成功注入主循环。"""
+        """【V1.8 · 生产就绪版】移除所有调试探针。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         prev_metrics = memory.copy() if memory is not None else {}
@@ -152,20 +152,9 @@ class AdvancedChipMetricsService:
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
         is_first_day_in_batch = True
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
-            # [代码修改开始]
-            # 核心修正：升级记忆探针，增加对“注入”状态的确认
-            current_date_str = trade_date.strftime('%Y-%m-%d')
-            # 探针现在会在每个批次的“第一天”触发，以检查初始记忆
-            if is_first_day_in_batch:
-                print(f"\n--- [注入确认探针] @ {current_date_str} (批次首日) ---")
-                prev_dist = prev_metrics.get('chip_distribution')
-                if prev_dist is not None and not prev_dist.empty:
-                    print(f"  - 探针[注入]: 成功接收到初始/跨区块记忆。")
-                    print(f"  - 探针[内容]: 记忆中的 'chip_distribution' 非空，行数: {len(prev_dist)}。")
-                else:
-                    print(f"  - 探针[注入]: 警告！未接收到有效的初始/跨区块记忆。'chip_distribution' 为空或不存在。")
-                print(f"--- [注入确认探针] 结束 ---\n")
-            # [代码修改结束]
+            # [代码删除开始]
+            # 核心修正：“注入确认探针”已完成使命，予以移除。
+            # [代码删除结束]
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:

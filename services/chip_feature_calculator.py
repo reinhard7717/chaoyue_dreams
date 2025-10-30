@@ -32,23 +32,25 @@ class ChipFeatureCalculator:
 
     def calculate_all_metrics(self) -> dict:
         """
-        【V13.2 · 健壮性日志增强版】
-        - 核心修正: 恢复对 _calculate_static_structure 方法的正确调用。
-        - 核心新增: 在计算开始前增加健壮性检查，如果核心数据缺失，则打印明确的调试信息并中止计算。
+        【V13.3 · 生产就绪版】
+        - 核心优化: 将调试用的 print 语句替换为 logger.warning，并移除其他临时探针。
         """
-        # [代码修改开始]
-        # 核心新增：增加前置检查和调试日志
         stock_code = self.ctx.get('stock_code', 'UNKNOWN')
         trade_date = self.ctx.get('trade_date', 'UNKNOWN')
         if self.df.empty:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 筹码计算中止，原因：当日筹码分布数据(daily_chips_df)为空。")
+            # [代码修改开始]
+            # 核心修正：将 print 替换为 logger.warning
+            logger.warning(f"[{stock_code}] [{trade_date}] 筹码计算中止，原因：当日筹码分布数据(daily_chips_df)为空。")
+            # [代码修改结束]
             return {}
         required_keys = ['weight_avg', 'winner_rate', 'cost_95pct', 'cost_5pct', 'close_price', 'total_chip_volume']
         missing_keys = [k for k in required_keys if k not in self.ctx or self.ctx[k] is None or pd.isna(self.ctx[k])]
         if missing_keys:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
+            # [代码修改开始]
+            # 核心修正：将 print 替换为 logger.warning
+            logger.warning(f"[{stock_code}] [{trade_date}] 筹码计算中止，原因：上下文(context_data)中缺少核心字段: {missing_keys}。")
+            # [代码修改结束]
             return {}
-        # [代码修改结束]
         summary_info = self._get_summary_metrics_from_context()
         self.ctx.update(summary_info)
         static_structure_metrics = self._calculate_static_structure()
@@ -107,17 +109,17 @@ class ChipFeatureCalculator:
         # [代码新增结束]
 
     def _prepare_minute_data_features(self):
-        """【V2.2 · 健壮性日志增强版】对单日分钟数据进行类型降级，并增加空数据日志。"""
+        """【V2.3 · 生产就绪版】将调试用的 print 语句替换为 logger.warning。"""
         minute_df = self.ctx.get('minute_data')
-        # [代码修改开始]
-        # 核心新增：增加前置检查和调试日志
         if minute_df is None or minute_df.empty:
             stock_code = self.ctx.get('stock_code', 'UNKNOWN')
             trade_date = self.ctx.get('trade_date', 'UNKNOWN')
-            print(f"调试信息: [{stock_code}] [{trade_date}] 分钟数据特征准备跳过，原因：分钟数据(minute_data)为空。")
+            # [代码修改开始]
+            # 核心修正：将 print 替换为 logger.warning
+            logger.warning(f"[{stock_code}] [{trade_date}] 分钟数据特征准备跳过，原因：分钟数据(minute_data)为空。")
+            # [代码修改结束]
             self.ctx.update({'daily_vwap': None, 'volume_above_vwap_ratio': None, 'volume_below_vwap_ratio': None})
             return
-        # [代码修改结束]
         dtype_map = {
             'amount': 'float32',
             'vol': 'int32',
@@ -170,9 +172,7 @@ class ChipFeatureCalculator:
 
     def _calculate_cross_day_holder_flow(self, context: dict) -> dict:
         """
-        【V1.2 · 分类检查修正版】计算长短期筹码的跨日流动情况。
-        - 核心修正: 分离对 DataFrame 和标量值的检查逻辑，以解决 `ValueError: The truth value of a DataFrame is ambiguous` 的问题。
-        - 核心优化: 提供更精确的调试日志。
+        【V1.3 · 生产就绪版】将调试用的 print 语句替换为 logger.info。
         """
         results = {
             'short_term_profit_taking_ratio': None,
@@ -180,22 +180,23 @@ class ChipFeatureCalculator:
             'short_term_capitulation_ratio': None,
             'long_term_despair_selling_ratio': None,
         }
-        # [代码修改开始]
-        # 核心修正：分离对 DataFrame 和标量的检查
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
-        # 1. 检查标量数据
         scalar_keys = ['daily_turnover_volume', 'pre_close', 'prev_20d_close', 'total_chip_volume']
         missing_scalar_keys = [k for k in scalar_keys if context.get(k) is None or pd.isna(context.get(k))]
         if missing_scalar_keys:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文(context)中缺少前一日关键标量数据: {missing_scalar_keys}。")
+            # [代码修改开始]
+            # 核心修正：将 print 替换为 logger.info，因为这是计算首日预期内的行为
+            logger.info(f"[{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：上下文缺少前一日关键标量数据: {missing_scalar_keys}。")
+            # [代码修改结束]
             return results
-        # 2. 检查 DataFrame 数据
         prev_df = context.get('prev_chip_distribution')
         if prev_df is None or prev_df.empty:
-            print(f"调试信息: [{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：前一日筹码分布(prev_chip_distribution)为空或不存在。")
+            # [代码修改开始]
+            # 核心修正：将 print 替换为 logger.info
+            logger.info(f"[{stock_code}] [{trade_date}] 跨日筹码流动计算跳过，原因：前一日筹码分布(prev_chip_distribution)为空或不存在。")
+            # [代码修改结束]
             return results
-        # [代码修改结束]
         turnover_vol = context['daily_turnover_volume']
         prev_close = context['pre_close']
         prev_20d_close = context['prev_20d_close']

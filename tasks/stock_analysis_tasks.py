@@ -651,8 +651,8 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V27.1 · 播种验证版】
-    - 核心新增: 在上下文播种后增加“播种验证探针”，明确报告初始记忆的生成状态。
+    【V28.0 · 生产就绪版】
+    - 核心优化: 移除所有调试探针，代码进入生产就绪状态。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -722,17 +722,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 logger.info(f"[{stock_code}] [上下文播种] 成功生成初始记忆。")
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
-        # [代码新增开始]
-        # 核心新增：“播种验证探针”，检查初始记忆的状态
-        print(f"\n>>>>> [播种验证探针] @ 任务层 | 检查为 {first_processing_day} 准备的初始记忆 <<<<<")
-        seeded_dist = cross_chunk_memory.get('chip_distribution')
-        if seeded_dist is not None and not seeded_dist.empty:
-            print(f"  - 探针[验证]: 初始记忆 'cross_chunk_memory' 包含有效的 'chip_distribution'。")
-            print(f"  - 探针[内容]: 记忆中的筹码分布行数: {len(seeded_dist)}, 总比例: {seeded_dist['percent'].sum():.2f}%")
-        else:
-            print(f"  - 探针[验证]: 警告！初始记忆 'cross_chunk_memory' 为空或不含有效的 'chip_distribution'。")
-        print(f">>>>> [播种验证探针] 诊断结束 <<<<<\n")
-        # [代码新增结束]
+        # [代码删除开始]
+        # 核心修正：“播种验证探针”已完成使命，予以移除。
+        # [代码删除结束]
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
             chunk_dates = dates_to_process[i:i + CHUNK_SIZE]
             if chunk_dates.empty: continue
