@@ -651,21 +651,19 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V25.3 · 三级窗口执行版】
-    - 核心修复: 严格遵循三级窗口协议，精确控制数据加载、处理和存储的范围。
+    【V26.0 · 预热启动版】
+    - 核心修复: 引入“预热日”逻辑，将计算起点的T-1日加入处理队列，确保记忆链在第一天就完整建立。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
         import pandas_ta as ta
+        from stock_models.index import TradeCalendar # 新增导入
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
-        # [代码修改开始]
-        # 核心修正：接收并解包新的三级窗口日期
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
             stock_code, incremental_flag, start_date_override
         )
-        # [代码修改结束]
         DailyModel = get_daily_data_model_by_code(stock_code)
         DateSourceModel = StockDailyBasic
         process_date_filter = {'stock': stock_info}
@@ -677,17 +675,29 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process."}
         # [代码修改开始]
-        # 核心修正：加载历史指标的上下文截止到 process_start_date 的前一天
-        context_end_date = process_start_date
+        # 核心修正：引入“预热日”逻辑，确保记忆链在计算开始的第一天就已建立。
+        # 我们获取待处理日期列表的第一天，并找到它的前一个交易日作为“预热日”。
+        first_real_processing_day = dates_to_process.min()
+        warmup_day = await sync_to_async(TradeCalendar.get_trade_date_offset)(reference_date=first_real_processing_day.date(), offset=-1)
+        if warmup_day:
+            warmup_day_ts = pd.to_datetime(warmup_day)
+            # 只有当预热日不在已有的处理列表中时，才将其加入，避免重复。
+            if warmup_day_ts not in dates_to_process:
+                # 将预热日添加到处理队列的最前端
+                dates_to_process = pd.DatetimeIndex([warmup_day_ts]).append(dates_to_process)
+                logger.info(f"[{stock_code}] [预热启动] 将 {warmup_day} 加入处理队列，以建立初始记忆。")
+        # [代码修改结束]
+        context_end_date = dates_to_process.min()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
-        # [代码修改结束]
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
         # [代码修改开始]
-        # 核心修正：使用 lookback_start_date 优化全局回溯数据的加载效率
+        # 核心修正：全局回溯的起始点应基于新的、可能包含预热日的 dates_to_process 列表
+        max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days)
+        global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info,
-            trade_time__gte=lookback_start_date,
+            trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
         ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
         # [代码修改结束]

@@ -120,18 +120,10 @@ class AdvancedChipMetricsService:
         return data_dfs
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
-        """【V2.5 · 数据完整性探针版】注入探针，检查关键日期在数据合并过程中的完整性。"""
-        # [代码新增开始]
-        # 核心新增: 数据完整性深度探针
-        # 使用方法: 修改 target_date_str 为需要调查的 "前一日" (即数据缺失日)
-        target_date_str = '2024-07-04'
-        target_date = pd.to_datetime(target_date_str)
-        print(f"\n===== [数据探针] 进入 _preprocess_and_merge_data | 目标日期: {target_date_str} =====")
-        for name, df in data_dfs.items():
-            if not df.empty and 'trade_time' in df.columns:
-                is_present = target_date in pd.to_datetime(df['trade_time']).dt.date.values
-                print(f"  - 探针[源头]: 目标日期在原始数据源 '{name}' 中是否存在: {is_present}")
-        # [代码新增结束]
+        """【V2.6 · 探针净化版】移除硬编码的、易产生误导的静态日期探针。"""
+        # [代码修改开始]
+        # 核心修正：移除所有硬编码的、用于调试的静态日期探针，避免在生产日志中产生混淆。
+        # [代码修改结束]
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -143,26 +135,12 @@ class AdvancedChipMetricsService:
         cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore', inplace=True)
         cyq_perf_df.set_index('trade_time', inplace=True)
         daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='left')
-        # [代码新增开始]
-        # 核心新增: 数据完整性深度探针
-        is_present_after_join = target_date in daily_combined_df.index
-        print(f"  - 探针[合并-1]: 目标日期在 'daily_combined_df' (left join后) 中是否存在: {is_present_after_join}")
-        if is_present_after_join:
-            print(f"    - 关键值: {daily_combined_df.loc[[target_date]][['close_qfq', 'circ_mv', 'weight_avg']].to_string(header=True)}")
-        # [代码新增结束]
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
-        # [代码新增开始]
-        # 核心新增: 数据完整性深度探针
-        if not merged_df.empty:
-            is_present_final = target_date in pd.to_datetime(merged_df['trade_time']).dt.date.values
-            print(f"  - 探针[合并-2]: 目标日期在最终 'merged_df' (right merge后) 中是否存在: {is_present_final}")
-        print(f"===== [数据探针] 离开 _preprocess_and_merge_data =====\n")
-        # [代码新增结束]
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict]:
