@@ -56,7 +56,6 @@ class AdvancedFundFlowMetricsService:
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
         )
-        # 移除所有调试性质的print语句
         if not is_incremental_final:
             await sync_to_async(MetricsModel.objects.filter(stock=stock_info).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
@@ -84,9 +83,11 @@ class AdvancedFundFlowMetricsService:
             chunk_raw_data_df = await self._load_and_merge_sources(stock_info, start_date=chunk_start_date, end_date=chunk_end_date)
             if chunk_raw_data_df.empty:
                 continue
-            daily_vwap_series = await self._calculate_daily_vwap(stock_info, chunk_raw_data_df.index)
+            # [代码修改开始]
+            # 核心修正：移除独立的 daily_vwap 计算步骤，将其整合到核心合成方法中
             self._minute_df_daily_grouped = await self._get_daily_grouped_minute_data(stock_info, chunk_raw_data_df.index)
-            chunk_new_metrics_df = self._synthesize_and_forge_metrics(stock_code, chunk_raw_data_df, daily_vwap_series)
+            chunk_new_metrics_df, _, _ = self._synthesize_and_forge_metrics(stock_code, chunk_raw_data_df)
+            # [代码修改结束]
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if hasattr(self, '_minute_df_daily_grouped'):
             del self._minute_df_daily_grouped
@@ -180,15 +181,6 @@ class AdvancedFundFlowMetricsService:
             merged_df = merged_df.join(daily_dfs_to_join, how='left')
         return merged_df
 
-    async def _calculate_daily_vwap(self, stock_info: StockInfo, date_index: pd.DatetimeIndex) -> pd.Series:
-        """【V1.3 · 时区修正版】从分钟数据计算日度VWAP"""
-        # 修正时区查询BUG
-        minute_df = await self._get_daily_grouped_minute_data(stock_info, date_index, fetch_full_cols=False)
-        if minute_df is None or minute_df.empty:
-            return pd.Series(np.nan, index=date_index)
-        # 使用新的、更可靠的辅助函数进行计算
-        return self._calculate_daily_vwap_from_df(minute_df, date_index)
-        
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):
         from django.utils import timezone
         from datetime import datetime, time
@@ -215,160 +207,140 @@ class AdvancedFundFlowMetricsService:
             return None
         return self._group_minute_data_from_df(minute_df)
         
-    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame, daily_vwap_series: pd.Series) -> tuple[pd.DataFrame, dict, list]:
+    def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V2.2 · 日度循环与前置审计版】
-        - 核心重构: 将方法从处理整个数据块重构为按天循环处理，以便进行精确的日度数据审计。
-        - 核心新增: 在计算前对每日的分钟数据和日线资金流数据进行前置审计，若缺失则打印信息、记录失败并跳过当天。
+        【V20.0 · 双核驱动版】
+        - 核心重构: 将计算流程重构为“日线衍生核心”与“分钟衍生核心”两大引擎驱动。
         """
         all_metrics_list = []
         attributed_minute_map = {}
         all_failures = []
-        # [代码修改开始]
-        # 核心修正：从处理整个DataFrame改为按天循环处理
         for trade_date, daily_data_series in merged_df.iterrows():
             daily_data = daily_data_series.to_frame().T
             daily_data.index.name = 'trade_time'
-            # --- 前置审计与熔断机制 ---
             minute_df_daily_grouped = getattr(self, '_minute_df_daily_grouped', None)
             has_minute_data = minute_df_daily_grouped is not None and not minute_df_daily_grouped.empty and trade_date.date() in minute_df_daily_grouped.index
             has_daily_flow_data = 'buy_sm_vol' in daily_data.columns and pd.notna(daily_data['buy_sm_vol'].iloc[0])
-            if not has_minute_data or not has_daily_flow_data:
-                reason = []
-                if not has_minute_data:
-                    reason.append("分钟线数据缺失")
-                if not has_daily_flow_data:
-                    reason.append("日线资金流数据缺失")
-                reason_str = " & ".join(reason)
-                # 使用 print 打印明确的调试信息
-                print(f"[资金流服务] [{stock_code}] [{trade_date.date()}] 跳过计算，原因：{reason_str}")
-                all_failures.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': f"[资金流服务] {reason_str}"})
-                continue # 跳过当天的所有计算
-            # --- 审计通过，开始计算 ---
-            daily_data['daily_vwap'] = daily_vwap_series.get(trade_date)
+            if not has_daily_flow_data:
+                reason = "日线资金流数据缺失"
+                print(f"[资金流服务] [{stock_code}] [{trade_date.date()}] 跳过计算，原因：{reason}")
+                all_failures.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': f"[资金流服务] {reason}"})
+                continue
             result_df_day = daily_data.copy()
-            consensus_map = {
-                'net_flow_consensus': ['net_flow_tushare', 'net_flow_ths', 'net_flow_dc'],
-                'main_force_net_flow_consensus': ['main_force_net_flow_tushare', 'main_force_net_flow_dc'],
-                'retail_net_flow_consensus': ['retail_net_flow_tushare', 'retail_net_flow_ths', 'retail_net_flow_dc'],
-                'net_xl_amount_consensus': ['net_xl_amount_tushare', 'net_xl_amount_dc'],
-                'net_lg_amount_consensus': ['net_lg_amount_tushare', 'net_lg_amount_ths', 'net_lg_amount_dc'],
-                'net_md_amount_consensus': ['net_md_amount_tushare', 'net_md_amount_ths', 'net_md_amount_dc'],
-                'net_sh_amount_consensus': ['net_sh_amount_tushare', 'net_sh_amount_ths', 'net_sh_amount_dc'],
-            }
-            for target_col, source_cols in consensus_map.items():
-                existing_cols = [col for col in source_cols if col in daily_data.columns]
-                if existing_cols:
-                    result_df_day[target_col] = daily_data[existing_cols].mean(axis=1)
-            safe_denom = lambda v: v.replace(0, np.nan)
-            if 'trade_count' in daily_data.columns and 'amount' in daily_data.columns and 'close' in daily_data.columns:
-                total_turnover_yuan = pd.to_numeric(daily_data['amount'], errors='coerce') * 1000
-                trade_count_np = pd.to_numeric(daily_data['trade_count'], errors='coerce')
-                result_df_day['avg_order_value'] = np.divide(total_turnover_yuan, trade_count_np, out=np.full_like(total_turnover_yuan, np.nan, dtype=float), where=trade_count_np!=0)
-                close_price_np = pd.to_numeric(daily_data['close'], errors='coerce')
-                avg_order_value_np = result_df_day['avg_order_value'].values
-                result_df_day['avg_order_value_norm_price'] = np.divide(avg_order_value_np, close_price_np, out=np.full_like(avg_order_value_np, np.nan, dtype=float), where=close_price_np!=0)
-            if 'amount' in daily_data.columns and 'circ_mv' in daily_data.columns:
-                total_turnover_yuan = pd.to_numeric(daily_data['amount'], errors='coerce') * 1000
-                circ_mv_yuan = pd.to_numeric(daily_data['circ_mv'], errors='coerce') * 10000
-                if 'main_force_net_flow_consensus' in result_df_day.columns:
-                    main_force_net_flow_yuan = pd.to_numeric(result_df_day['main_force_net_flow_consensus'], errors='coerce') * 10000
-                    result_df_day['main_force_flow_impact_ratio'] = main_force_net_flow_yuan / safe_denom(circ_mv_yuan)
-                    result_df_day['main_force_flow_intensity_ratio'] = main_force_net_flow_yuan / safe_denom(total_turnover_yuan)
-                if 'net_xl_amount_consensus' in result_df_day.columns:
-                    total_xl_trade_yuan = pd.to_numeric(result_df_day['net_xl_amount_consensus'], errors='coerce').abs() * 10000
-                    result_df_day['trade_concentration_index'] = total_xl_trade_yuan / safe_denom(total_turnover_yuan)
-            if 'main_force_net_flow_consensus' in result_df_day.columns and 'retail_net_flow_consensus' in result_df_day.columns:
-                result_df_day['flow_divergence_mf_vs_retail'] = result_df_day['main_force_net_flow_consensus'] - result_df_day['retail_net_flow_consensus']
-            if 'net_xl_amount_consensus' in result_df_day.columns and 'net_lg_amount_consensus' in result_df_day.columns:
-                result_df_day['main_force_conviction_ratio'] = result_df_day['net_xl_amount_consensus'] / safe_denom(result_df_day['net_lg_amount_consensus'])
-            pvwap_costs_df, day_attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(daily_data, minute_df_daily_grouped, stock_code)
-            all_failures.extend(pvwap_failures)
-            if not pvwap_costs_df.empty:
-                result_df_day = result_df_day.join(pvwap_costs_df)
-                attributed_minute_map.update(day_attributed_minute_map)
-                tactical_log_df = self._calculate_tactical_log_metrics(result_df_day, day_attributed_minute_map)
-                result_df_day = result_df_day.join(tactical_log_df)
-                pnl_matrix_df = self._upgrade_intraday_profit_metric(result_df_day)
-                result_df_day = result_df_day.join(pnl_matrix_df)
-                behavioral_metrics_df = self._upgrade_behavioral_metrics(result_df_day, day_attributed_minute_map)
-                result_df_day = result_df_day.join(behavioral_metrics_df)
-                structure_metrics_df = self._calculate_intraday_structure_metrics(result_df_day, minute_df_daily_grouped)
-                result_df_day = result_df_day.join(structure_metrics_df)
+            # [代码修改开始]
+            # --- 步骤1: 调用日线衍生指标统一计算核心 ---
+            daily_derived_metrics = self._calculate_daily_derived_metrics(result_df_day.iloc[0])
+            if daily_derived_metrics:
+                result_df_day = result_df_day.join(pd.DataFrame(daily_derived_metrics, index=[trade_date]))
+            # --- 步骤2: 计算概率成本 (连接日线与分钟线的桥梁) ---
+            if has_minute_data:
+                pvwap_costs_df, day_attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(result_df_day, minute_df_daily_grouped, stock_code)
+                all_failures.extend(pvwap_failures)
+                if not pvwap_costs_df.empty:
+                    result_df_day = result_df_day.join(pvwap_costs_df)
+                    attributed_minute_map.update(day_attributed_minute_map)
+                    # --- 步骤3: 调用分钟线衍生指标统一计算核心 ---
+                    advanced_behavioral_df = self._calculate_advanced_behavioral_metrics(result_df_day, day_attributed_minute_map)
+                    result_df_day = result_df_day.join(advanced_behavioral_df)
+            # [代码修改结束]
             all_metrics_list.append(result_df_day)
         if not all_metrics_list:
             return pd.DataFrame(), {}, all_failures
         final_df = pd.concat(all_metrics_list)
         return final_df, attributed_minute_map, all_failures
-        # [代码修改结束]
 
-    def _calculate_tactical_log_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
+    def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
-        【V1.1 · 类型修正版】计算所有属于“第二体：战术日志”的新增指标。
-        - 核心修正: 在进行除法运算前，将从 daily_df 中获取的 Decimal 类型数值显式转换为 float，
-                      以解决 'float' 和 'decimal.Decimal' 之间的 TypeError。
+        【V20.0 · 新增 · 日线衍生指标统一计算核心】
+        - 核心革命: 整合所有仅依赖日线数据的分散计算方法到一个统一的计算核心中。
+        - 核心思想:
+          1. 职责单一: 本方法专注于从单日的日线数据中衍生出所有“力量结构”和“共识”相关的指标。
+          2. 逻辑内聚: 将校准共识、可信度、博弈烈度、主力动态、交易结构等计算逻辑集中管理。
         """
-        if not minute_df_attributed_grouped:
-            return pd.DataFrame(index=daily_df.index)
+        # [代码新增开始]
         results = {}
-        for date, daily_data in daily_df.iterrows():
-            if date not in minute_df_attributed_grouped:
-                continue
-            minute_data = minute_df_attributed_grouped[date]
-            if minute_data.empty:
-                continue
-            day_results = {'trade_time': date}
-            # [代码修改开始]
-            # 核心修正：将 Decimal 类型显式转换为 float，以避免 TypeError
-            total_daily_mf_net_flow = float(daily_data.get('main_force_net_flow_consensus', 0.0)) * 10000 # 万元转元
-            total_daily_turnover = float(daily_data.get('amount', 0.0)) * 1000 # 千元转元
-            # [代码修改结束]
-            minute_data['trade_time_local'] = minute_data['trade_time'].dt.tz_convert('Asia/Shanghai')
-            opening_mask = minute_data['trade_time_local'].dt.time < time(10, 0)
-            opening_mf_net_flow = minute_data.loc[opening_mask, 'main_force_net_vol'].sum()
-            if total_daily_mf_net_flow > 0:
-                day_results['main_force_opening_blitz'] = (opening_mf_net_flow / total_daily_mf_net_flow) * 100
+        # --- 1. 校准共识资金流 (Calibrated Consensus) ---
+        consensus_map = {
+            'net_flow_calibrated': ('net_flow_tushare', ['net_flow_ths', 'net_flow_dc']),
+            'main_force_net_flow_calibrated': ('main_force_net_flow_tushare', ['main_force_net_flow_ths', 'main_force_net_flow_dc']),
+            'retail_net_flow_calibrated': ('retail_net_flow_tushare', ['retail_net_flow_ths', 'retail_net_flow_dc']),
+            'net_xl_amount_calibrated': ('net_xl_amount_tushare', ['net_xl_amount_dc']),
+            'net_lg_amount_calibrated': ('net_lg_amount_tushare', ['net_lg_amount_ths', 'net_lg_amount_dc']),
+            'net_md_amount_calibrated': ('net_md_amount_tushare', ['net_md_amount_ths', 'net_md_amount_dc']),
+            'net_sh_amount_calibrated': ('net_sh_amount_tushare', ['net_sh_amount_ths', 'net_sh_amount_dc']),
+        }
+        for target_col, (base_col, confirm_cols) in consensus_map.items():
+            base_value = pd.to_numeric(daily_data_series.get(base_col), errors='coerce')
+            if pd.notna(base_value):
+                confirmation_score = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)) and np.sign(base_value) == np.sign(pd.to_numeric(daily_data_series.get(conf_col), errors='coerce')))
+                available_sources = sum(1 for conf_col in confirm_cols if pd.notna(daily_data_series.get(conf_col)))
+                calibration_factor = (1 + confirmation_score) / (1 + available_sources) if available_sources > 0 else 1.0
+                results[target_col] = base_value * calibration_factor
             else:
-                day_results['main_force_opening_blitz'] = 0.0
-            closing_mask = minute_data['trade_time_local'].dt.time >= time(14, 30)
-            closing_mf_net_flow = minute_data.loc[closing_mask, 'main_force_net_vol'].sum()
-            if total_daily_mf_net_flow > 0:
-                day_results['main_force_closing_assault'] = (closing_mf_net_flow / total_daily_mf_net_flow) * 100
+                results[target_col] = np.nan
+        # --- 2. 资金流可信度与博弈烈度 (Credibility & Battle Intensity) ---
+        turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
+        if pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
+            base_flow = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce')
+            confirm_flows = [pd.to_numeric(daily_data_series.get(c), errors='coerce') for c in ['main_force_net_flow_ths', 'main_force_net_flow_dc']]
+            if pd.notna(base_flow):
+                deviations = [abs(conf_flow - base_flow) / turnover_amount_yuan for conf_flow in confirm_flows if pd.notna(conf_flow)]
+                results['flow_credibility_index'] = (1.0 - np.mean(deviations)) * 100 if deviations else 50.0
+            mf_flow = results.get('main_force_net_flow_calibrated')
+            retail_flow = results.get('retail_net_flow_calibrated')
+            if pd.notna(mf_flow) and pd.notna(retail_flow):
+                battle_volume = min(abs(mf_flow), abs(retail_flow))
+                results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
+        # --- 3. 主力动态 (Main Force Dynamics) ---
+        mf_buy = pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce', default=0) + pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce', default=0)
+        mf_sell = pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce', default=0) + pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce', default=0)
+        mf_total_activity = mf_buy + mf_sell
+        total_turnover_wan = turnover_amount_yuan / 10000
+        if total_turnover_wan > 0:
+            results['main_force_activity_ratio'] = (mf_total_activity / total_turnover_wan) * 100
+        if mf_total_activity > 0:
+            mf_net_calibrated = results.get('main_force_net_flow_calibrated')
+            if pd.notna(mf_net_calibrated):
+                results['main_force_flow_directionality'] = (mf_net_calibrated / mf_total_activity) * 100
+        # --- 4. 交易结构动态 (Trade Structure Dynamics) ---
+        def get_directionality(buy_c, sell_c):
+            b = pd.to_numeric(daily_data_series.get(buy_c), errors='coerce', default=0)
+            s = pd.to_numeric(daily_data_series.get(sell_c), errors='coerce', default=0)
+            return (b - s) / (b + s) if (b + s) > 0 else 0.0
+        xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
+        lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
+        results['xl_order_flow_directionality'] = xl_directionality * 100
+        results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
+        # --- 5. 力量格局动态 (Power Structure Dynamics) ---
+        mf_flow = results.get('main_force_net_flow_calibrated')
+        retail_flow = results.get('retail_net_flow_calibrated')
+        if pd.notna(mf_flow) and pd.notna(retail_flow):
+            total_opinionated_flow = abs(mf_flow) + abs(retail_flow)
+            if total_opinionated_flow > 0:
+                dominance_ratio = abs(retail_flow) / total_opinionated_flow
+                divergence_penalty = 1 if np.sign(mf_flow) != np.sign(retail_flow) and mf_flow != 0 and retail_flow != 0 else 0
+                results['retail_flow_dominance_index'] = np.sign(retail_flow) * dominance_ratio * (1 + divergence_penalty) * 100
+        pct_change = pd.to_numeric(daily_data_series.get('pct_chg'), errors='coerce')
+        if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
+            standardized_mf_flow = mf_flow / total_turnover_wan
+            if abs(standardized_mf_flow) > 1e-6:
+                results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
             else:
-                day_results['main_force_closing_assault'] = 0.0
-            daily_vwap = daily_data.get('daily_vwap')
-            main_buy_cost = daily_data.get('avg_cost_main_buy')
-            if pd.notna(daily_vwap) and pd.notna(main_buy_cost) and daily_vwap > 0:
-                day_results['main_force_vwap_adherence'] = (main_buy_cost / daily_vwap - 1) * 100
-            else:
-                day_results['main_force_vwap_adherence'] = None
-            am_mask = minute_data['trade_time_local'].dt.time < time(12, 0)
-            pm_mask = minute_data['trade_time_local'].dt.time >= time(13, 0)
-            am_mf_net_flow = minute_data.loc[am_mask, 'main_force_net_vol'].sum()
-            pm_mf_net_flow = minute_data.loc[pm_mask, 'main_force_net_vol'].sum()
-            if total_daily_turnover > 0:
-                day_results['flow_momentum_reversal'] = (pm_mf_net_flow - am_mf_net_flow) / total_daily_turnover
-            else:
-                day_results['flow_momentum_reversal'] = 0.0
-            results[date] = day_results
-        if not results:
-            return pd.DataFrame()
-        return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
+                results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
+        # --- 6. 其他日线级指标 ---
+        if total_turnover_yuan > 0:
+            results['main_force_buy_rate_consensus'] = (mf_buy * 10000 / total_turnover_yuan) * 100
+        return results
+        # [代码新增结束]
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V6.4 · 战报记录版】计算概率成本时，记录并返回因数据缺失导致的失败事件。
+        【V6.5 · 职责净化版】移除已废弃的 aggression_index_opening 计算逻辑。
         """
         if minute_df_grouped is None:
-            # [代码修改开始]
-            # 核心修正：确保在任何退出路径都返回三个值
             return pd.DataFrame(index=daily_df.index), {}, []
-            # [代码修改结束]
         results = {}
-        # [代码新增开始]
-        # 核心新增：初始化失败记录列表
         failures_list = []
-        # [代码新增结束]
         cost_types = ['sm_buy', 'sm_sell', 'md_buy', 'md_sell', 'lg_buy', 'lg_sell', 'elg_buy', 'elg_sell']
         required_daily_fund_flow_cols = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
@@ -380,14 +352,11 @@ class AdvancedFundFlowMetricsService:
             if date_key not in minute_df_grouped.index:
                 continue
             missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
-            # [代码修改开始]
-            # 核心修正：如果发现数据缺失，则记录失败事件并跳过当天
             if missing_cols:
                 reason = f"缺失资金流原料数据: {missing_cols}"
-                logger.warning(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，{reason}")
+                print(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，{reason}")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(date.date()), 'reason': reason})
                 continue
-            # [代码修改结束]
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
             if minute_data_continuous.empty:
@@ -418,31 +387,26 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
-            first_hour_mask = (trade_time_local.dt.hour == 9) & (trade_time_local.dt.minute >= 30) | \
-                              (trade_time_local.dt.hour == 10) & (trade_time_local.dt.minute <= 30)
-            first_hour_vol = minute_data_for_day[first_hour_mask]['vol_shares'].sum()
-            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100
-            day_results['aggression_index_opening'] = first_hour_vol / total_day_vol if total_day_vol else np.nan
+            # [代码修改开始]
+            # 核心修正：移除已废弃的 aggression_index_opening 计算逻辑
+            # [代码修改结束]
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
-            # [代码修改开始]
-            # 核心修正：确保在任何退出路径都返回三个值
             return pd.DataFrame(), {}, failures_list
-            # [代码修改结束]
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         final_df = pvwap_df.join(aggregate_costs_df)
-        # [代码修改开始]
-        # 核心修正：返回收集到的失败记录列表
         return final_df, attributed_minute_map, failures_list
-        # [代码修改结束]
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.8 · 逻辑补完版】补全 market_cost_battle 和 cost_divergence_mf_vs_retail 的计算。
+        【V3.0 · 成本博弈分析版】
+        - 核心重构: 废弃简单的成本聚合，引入全新的“主力成本Alpha”和“散户成本Beta”指标。
+        - 核心思想:
+          - 主力成本Alpha: 量化主力买入行为相对于市场平均的“超额收益能力”。
+          - 散户成本Beta: 量化散户买入行为相对于主力卖出行为的“被收割程度”。
         """
         temp_df = pvwap_df.copy()
         vol_cols = [
@@ -451,10 +415,10 @@ class AdvancedFundFlowMetricsService:
         ]
         existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
         # [代码修改开始]
-        # 核心修正：将缺失的指标名称添加到待聚合列的列表中，以确保DataFrame结构完整
+        # 核心修改: 聚合列中加入新的成本博弈指标
         agg_cols = [
             'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
-            'vwap_tracking_error', 'market_cost_battle', 'cost_divergence_mf_vs_retail'
+            'main_force_cost_alpha', 'retail_cost_beta', 'main_force_t0_spread_ratio'
         ]
         # [代码修改结束]
         if not existing_vol_cols:
@@ -472,31 +436,33 @@ class AdvancedFundFlowMetricsService:
                     denominator += volume_shares.where(cost.notna(), 0)
             return numerator / denominator.replace(0, np.nan)
         result_agg_df = pd.DataFrame(index=pvwap_df.index)
-        result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(
-            ['avg_cost_lg_buy', 'avg_cost_elg_buy'],
-            ['buy_lg_vol', 'buy_elg_vol']
-        )
-        result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(
-            ['avg_cost_lg_sell', 'avg_cost_elg_sell'],
-            ['sell_lg_vol', 'sell_elg_vol']
-        )
-        result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(
-            ['avg_cost_sm_buy', 'avg_cost_md_buy'],
-            ['buy_sm_vol', 'buy_md_vol']
-        )
-        result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(
-            ['avg_cost_sm_sell', 'avg_cost_md_sell'],
-            ['sell_sm_vol', 'sell_md_vol']
-        )
-        if 'avg_cost_main_buy' in result_agg_df.columns and 'daily_vwap' in daily_df.columns:
-            result_agg_df['vwap_tracking_error'] = result_agg_df['avg_cost_main_buy'] - daily_df['daily_vwap']
-        # [代码新增开始]
-        # 核心新增：补全被遗漏的两个关键博弈指标的计算逻辑
-        # 市场成本博弈差 = 主力买入均价 - 散户买入均价
-        result_agg_df['market_cost_battle'] = result_agg_df['avg_cost_main_buy'] - result_agg_df['avg_cost_retail_buy']
-        # 成本分歧度 = 主力买入均价 - 散户卖出均价
-        result_agg_df['cost_divergence_mf_vs_retail'] = result_agg_df['avg_cost_main_buy'] - result_agg_df['avg_cost_retail_sell']
-        # [代码新增结束]
+        result_agg_df['avg_cost_main_buy'] = weighted_avg_cost(['avg_cost_lg_buy', 'avg_cost_elg_buy'], ['buy_lg_vol', 'buy_elg_vol'])
+        result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
+        result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
+        result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
+        daily_vwap = daily_df.get('daily_vwap')
+        # [代码修改开始]
+        # 核心新增: 计算主力成本Alpha和散户成本Beta
+        if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
+            safe_vwap = daily_vwap.replace(0, np.nan)
+            result_agg_df['main_force_cost_alpha'] = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap) * 100
+        else:
+            result_agg_df['main_force_cost_alpha'] = np.nan
+        if 'avg_cost_retail_buy' in result_agg_df.columns and 'avg_cost_main_sell' in result_agg_df.columns:
+            safe_main_sell_cost = result_agg_df['avg_cost_main_sell'].replace(0, np.nan)
+            result_agg_df['retail_cost_beta'] = ((result_agg_df['avg_cost_retail_buy'] - safe_main_sell_cost) / safe_main_sell_cost) * 100
+        else:
+            result_agg_df['retail_cost_beta'] = np.nan
+        # [代码修改结束]
+        if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
+            t0_spread = result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']
+            spread_ratio = (t0_spread / daily_vwap.replace(0, np.nan)) * 100
+            result_agg_df['main_force_t0_spread_ratio'] = spread_ratio
+        else:
+            result_agg_df['main_force_t0_spread_ratio'] = np.nan
+        # 移除旧的、意义不明确的 market_cost_battle_premium
+        if 'market_cost_battle_premium' in result_agg_df.columns:
+            result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
@@ -612,239 +578,292 @@ class AdvancedFundFlowMetricsService:
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
 
-    def _upgrade_intraday_profit_metric(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _calculate_advanced_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
         """
-        【V3.2 · 会计准则修正版】修正 main_force_intraday_profit 的计算逻辑。
-        - 核心修正: 遵循金融第一性原理，将总盈亏修正为“已实现盈亏 + 未实现盈亏”。
-        """
-        results_df = pd.DataFrame(index=df.index)
-        cost_buy = self._get_numeric_series_with_nan(df, 'avg_cost_main_buy')
-        cost_sell = self._get_numeric_series_with_nan(df, 'avg_cost_main_sell')
-        close_price = self._get_numeric_series_with_nan(df, 'close')
-        vol_buy_shares = (self._get_safe_numeric_series(df, 'buy_lg_vol') + self._get_safe_numeric_series(df, 'buy_elg_vol')) * 100
-        vol_sell_shares = (self._get_safe_numeric_series(df, 'sell_lg_vol') + self._get_safe_numeric_series(df, 'sell_elg_vol')) * 100
-        exchanged_volume = np.minimum(vol_buy_shares, vol_sell_shares)
-        realized_profit_yuan = (cost_sell - cost_buy) * exchanged_volume
-        results_df['realized_profit_on_exchange'] = realized_profit_yuan / 10000 # 转换为万元
-        net_pos_change_vol = vol_buy_shares - vol_sell_shares
-        net_pos_change_cost = np.where(net_pos_change_vol > 0, cost_buy, cost_sell)
-        net_pos_change_value_yuan = net_pos_change_vol * net_pos_change_cost
-        results_df['net_position_change_value'] = net_pos_change_value_yuan / 10000 # 转换为万元
-        unrealized_pnl_yuan = (close_price - net_pos_change_cost) * net_pos_change_vol
-        results_df['unrealized_pnl_on_net_change'] = unrealized_pnl_yuan / 10000 # 转换为万元
-        # 修正主力日内盈亏的计算逻辑
-        # 旧的错误逻辑: total_profit_yuan = (cost_sell * vol_sell_shares) - (total_buy_value_yuan = cost_buy * vol_buy_shares)
-        # 这是净现金流，不是利润。
-        # 新的正确逻辑: 总利润 = 已实现利润 + 未实现（浮动）利润
-        total_profit_yuan = realized_profit_yuan + unrealized_pnl_yuan
-        results_df['main_force_intraday_profit'] = total_profit_yuan / 10000 # 将最终利润转换为“万元”
-        
-        dir_ts = np.sign(results_df['net_position_change_value'].fillna(0))
-        dir_ths = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_ths'))
-        dir_dc = np.sign(self._get_safe_numeric_series(df, 'main_force_net_flow_dc'))
-        agreement_count = pd.Series(0, index=df.index)
-        valid_sources = 0
-        if 'main_force_net_flow_ths' in df.columns:
-            agreement_count += (dir_ts == dir_ths).astype(int)
-            valid_sources += 1
-        if 'main_force_net_flow_dc' in df.columns:
-            agreement_count += (dir_ts == dir_dc).astype(int)
-            valid_sources += 1
-        if 'main_force_net_flow_ths' in df.columns and 'main_force_net_flow_dc' in df.columns:
-             agreement_count += (dir_ths == dir_dc).astype(int)
-             valid_sources += 1
-        if valid_sources > 0:
-            results_df['pnl_matrix_confidence_score'] = agreement_count / max(1, valid_sources)
-        else:
-            results_df['pnl_matrix_confidence_score'] = np.nan
-        return results_df
-
-    def _upgrade_behavioral_metrics(self, daily_df: pd.DataFrame, minute_df_attributed_grouped: dict) -> pd.DataFrame:
-        """
-        【V3.2 · 协同修正版】计算行为指标时，仅使用连续交易时段的数据。
-        - 核心修正: 移除对主力/散户成交量的重复计算，直接使用上游准备好的数据。
+        【V22.0 · 行为指标最终整合版】
+        - 核心革命: 将孤立的 `_upgrade_behavioral_metrics` 方法的逻辑，完全整合进本统一计算核心中。
+        - 核心思想: 激活 `opening_gambit_score`, `main_force_absorption_strength` 等指标，实现所有分钟级行为指标的“单一入口、一次计算”。
         """
         if not minute_df_attributed_grouped:
             return pd.DataFrame(index=daily_df.index)
-        results = {}
+        import pandas_ta as ta
+        all_results = {}
         for date, daily_data in daily_df.iterrows():
             if date not in minute_df_attributed_grouped:
                 continue
-            minute_data_for_day = minute_df_attributed_grouped[date]
-            day_results = {'trade_time': date}
-            # [代码修改开始]
-            # 核心修正：移除此处的聚合计算，因为该计算已在 _calculate_probabilistic_costs 中前置完成。
-            # minute_data_for_day['main_force_buy_vol'] = ... (及其他相关行)
-            # [代码修改结束]
-            low_threshold = minute_data_for_day['minute_vwap'].quantile(0.1)
-            bottom_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] <= low_threshold]
-            if not bottom_zone_minutes.empty:
-                support_net_flow = bottom_zone_minutes['main_force_net_vol'].sum()
-                total_main_buy = minute_data_for_day['main_force_buy_vol'].sum()
-                day_results['main_force_support_strength'] = support_net_flow / total_main_buy if total_main_buy else np.nan
-            else:
-                day_results['main_force_support_strength'] = 0
-            high_threshold = minute_data_for_day['minute_vwap'].quantile(0.9)
-            top_zone_minutes = minute_data_for_day[minute_data_for_day['minute_vwap'] >= high_threshold]
-            if not top_zone_minutes.empty:
-                distribution_net_flow = top_zone_minutes['main_force_net_vol'].sum()
-                total_main_sell = minute_data_for_day['main_force_sell_vol'].sum()
-                day_results['main_force_distribution_pressure'] = -distribution_net_flow / total_main_sell if total_main_sell else np.nan
-            else:
-                day_results['main_force_distribution_pressure'] = 0
-            minute_data_for_day['price_return_5min'] = minute_data_for_day['minute_vwap'].pct_change(5)
-            panic_minutes = minute_data_for_day[minute_data_for_day['price_return_5min'] < -0.015]
-            if not panic_minutes.empty:
-                panic_sell_vol = panic_minutes['retail_sell_vol'].sum()
-                total_retail_sell = minute_data_for_day['retail_sell_vol'].sum()
-                day_results['retail_capitulation_score'] = panic_sell_vol / total_retail_sell if total_retail_sell else np.nan
-            else:
-                day_results['retail_capitulation_score'] = 0
-            main_force_net_flow_series = minute_data_for_day['main_force_net_vol'].fillna(0)
-            price_change_series = minute_data_for_day['minute_vwap'].diff().fillna(0)
-            if not main_force_net_flow_series.empty and not price_change_series.empty and main_force_net_flow_series.std() > 0 and price_change_series.std() > 0:
-                correlation = main_force_net_flow_series.corr(price_change_series)
-                day_results['intraday_execution_alpha'] = -correlation if pd.notna(correlation) else 0
-            else:
-                day_results['intraday_execution_alpha'] = 0
-            results[date] = day_results
-        if not results:
-            return pd.DataFrame()
-        return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-
-    def _calculate_intraday_structure_metrics(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame) -> pd.DataFrame:
-        """
-        【V3.1 · 竞价隔离版】计算日内结构指标时，仅使用连续交易时段的数据。
-        """
-        if minute_df_grouped is None:
-            return pd.DataFrame(index=daily_df.index)
-        results = {}
-        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
-        for date, daily_data in daily_df.iterrows():
-            date_key = date.date()
-            if date_key not in minute_df_grouped.index:
+            minute_data = minute_df_attributed_grouped[date].copy()
+            if minute_data.empty:
                 continue
-            # 过滤出连续交易时段的数据
-            minute_data_full = minute_df_grouped.loc[[date_key]]
-            minute_data_for_day = minute_data_full[minute_data_full['is_continuous_trading']].copy()
-            if minute_data_for_day.empty:
-                continue
-            
             day_results = {'trade_time': date}
-            minute_returns = minute_data_for_day['minute_vwap'].pct_change().dropna()
-            day_results['intraday_volatility'] = minute_returns.std() if not minute_returns.empty else 0
-            intraday_high = minute_data_for_day['minute_vwap'].max()
-            intraday_low = minute_data_for_day['minute_vwap'].min()
-            close_price = daily_data.get('close')
-            price_range = intraday_high - intraday_low
-            if pd.notna(close_price) and price_range > 0:
-                # 修正：使用全天收盘价与连续交易时段的极值计算强度
-                day_results['closing_strength_index'] = (close_price - intraday_low) / price_range
-                
-            else:
-                day_results['closing_strength_index'] = np.nan
+            minute_data['trade_time_local'] = minute_data['trade_time'].dt.tz_convert('Asia/Shanghai').dt.time
+            # --- 1. 战术流动强度 (Tactical Flow Intensity) ---
+            if len(minute_data) >= 20:
+                minute_data.ta.bbands(length=60, append=True)
+                lower_band_col, upper_band_col = 'BBL_60_2.0', 'BBU_60_2.0'
+                if lower_band_col in minute_data.columns:
+                    dip_zone_mask = minute_data['minute_vwap'] < minute_data[lower_band_col]
+                    dip_minutes = minute_data[dip_zone_mask]
+                    day_results['dip_absorption_power'] = (dip_minutes['main_force_net_vol'].sum() / dip_minutes['vol_shares'].sum() * 100) if not dip_minutes.empty and dip_minutes['vol_shares'].sum() > 0 else 0
+                    rally_zone_mask = minute_data['minute_vwap'] > minute_data[upper_band_col]
+                    rally_minutes = minute_data[rally_zone_mask]
+                    day_results['rally_distribution_pressure'] = (rally_minutes['main_force_net_vol'].sum() / rally_minutes['vol_shares'].sum() * 100) if not rally_minutes.empty and rally_minutes['vol_shares'].sum() > 0 else 0
+            daily_total_volume = daily_data.get('vol', 0) * 100
+            if daily_total_volume > 0 and not minute_data.empty:
+                minute_data['price_pos'] = (minute_data['close'] - minute_data['low']) / (minute_data['high'] - minute_data['low']).replace(0, np.nan)
+                avg_minute_vol = minute_data['vol_shares'].mean()
+                is_panic_minute = (minute_data['price_pos'] < 0.25) & (minute_data['vol_shares'] > 1.5 * avg_minute_vol)
+                panic_streak = is_panic_minute.rolling(window=3).sum()
+                cascade_mask = (panic_streak >= 3).rolling(window=3).max().fillna(0).astype(bool)
+                cascade_minutes = minute_data[cascade_mask]
+                if not cascade_minutes.empty:
+                    retail_net_sell_in_cascade = cascade_minutes['retail_net_vol'].sum()
+                    day_results['panic_selling_cascade'] = (-retail_net_sell_in_cascade / daily_total_volume) * 100 if retail_net_sell_in_cascade < 0 else 0
+                else:
+                    day_results['panic_selling_cascade'] = 0
+            # --- 2. 关键时刻动态 (Key Moment Dynamics) ---
+            pre_close = daily_data.get('pre_close')
+            open_price = daily_data.get('open')
+            opening_15min = minute_data[minute_data['trade_time_local'] < time(9, 45)]
+            if not opening_15min.empty and pd.notna(pre_close) and pre_close > 0 and pd.notna(open_price) and open_price > 0:
+                gap_strength = (open_price - pre_close) / pre_close
+                vwap_15min_vol = opening_15min['vol_shares'].sum()
+                vwap_15min = (opening_15min['minute_vwap'] * opening_15min['vol_shares']).sum() / vwap_15min_vol if vwap_15min_vol > 0 else open_price
+                gap_defense_strength = (vwap_15min - open_price) / open_price
+                mf_net_vol_15min = opening_15min['main_force_net_vol'].sum()
+                mf_confirmation_factor = 1 + (mf_net_vol_15min / vwap_15min_vol if vwap_15min_vol > 0 else 0)
+                day_results['opening_battle_result'] = (gap_strength + gap_defense_strength) * mf_confirmation_factor * 100
+            pre_closing_minutes = minute_data[(minute_data['trade_time_local'] >= time(14, 30)) & (minute_data['trade_time_local'] < time(14, 57))]
+            if not pre_closing_minutes.empty and daily_total_volume > 0:
+                mf_total_activity = pre_closing_minutes['main_force_buy_vol'].sum() + pre_closing_minutes['main_force_sell_vol'].sum()
+                tail_directionality = pre_closing_minutes['main_force_net_vol'].sum() / mf_total_activity if mf_total_activity > 0 else 0
+                tail_volume_share = pre_closing_minutes['vol_shares'].sum() / daily_total_volume
+                day_results['pre_closing_posturing'] = tail_directionality * tail_volume_share * 100
+            final_close = daily_data.get('close')
+            atr = daily_data.get('atr_14d')
+            continuous_minutes = minute_data[minute_data['is_continuous_trading']].copy()
+            auction_minutes = minute_data[minute_data['trade_time_local'] >= time(14, 57)]
+            if not continuous_minutes.empty and not auction_minutes.empty and pd.notna(final_close) and pd.notna(atr) and atr > 0:
+                price_1457 = continuous_minutes.iloc[-1]['close']
+                price_surprise_factor = (final_close - price_1457) / atr
+                last_hour_avg_vol = minute_data[minute_data['trade_time_local'] >= time(14, 0)]['vol_shares'].mean()
+                if pd.notna(last_hour_avg_vol) and last_hour_avg_vol > 0:
+                    volume_energy_factor = np.log1p(auction_minutes['vol_shares'].sum() / last_hour_avg_vol)
+                    day_results['closing_auction_ambush'] = price_surprise_factor * volume_energy_factor * 10
+            # --- 3. 成本博弈 (Cost Game) ---
+            costs = {'main_buy': daily_data.get('avg_cost_main_buy'), 'main_sell': daily_data.get('avg_cost_main_sell'), 'retail_buy': daily_data.get('avg_cost_retail_buy'), 'retail_sell': daily_data.get('avg_cost_retail_sell')}
+            vols = {'main_buy_vol': (daily_data.get('buy_lg_vol', 0) + daily_data.get('buy_elg_vol', 0)) * 100, 'main_sell_vol': (daily_data.get('sell_lg_vol', 0) + daily_data.get('sell_elg_vol', 0)) * 100}
+            mf_buy_minutes = minute_data[minute_data['main_force_net_vol'] > 0]
+            if not mf_buy_minutes.empty and pd.notna(costs['main_buy']):
+                mf_active_vol = mf_buy_minutes['vol_shares'].sum()
+                mf_active_vwap = (mf_buy_minutes['minute_vwap'] * mf_buy_minutes['vol_shares']).sum() / mf_active_vol if mf_active_vol > 0 else np.nan
+                if pd.notna(mf_active_vwap) and mf_active_vwap > 0:
+                    day_results['main_force_execution_alpha'] = ((mf_active_vwap - costs['main_buy']) / mf_active_vwap) * 100
+            if pd.notna(costs['main_buy']) and costs['main_buy'] > 0 and pd.notna(costs['retail_sell']):
+                day_results['retail_panic_surrender_index'] = ((costs['main_buy'] - costs['retail_sell']) / costs['main_buy']) * 100
+            if pd.notna(costs['main_sell']) and costs['main_sell'] > 0 and pd.notna(costs['retail_buy']):
+                day_results['retail_fomo_premium_index'] = ((costs['retail_buy'] - costs['main_sell']) / costs['main_sell']) * 100
+            if pd.notna(costs['main_buy']) and pd.notna(costs['main_sell']) and vols['main_buy_vol'] > 0 and vols['main_sell_vol'] > 0:
+                t0_profit = min(vols['main_buy_vol'], vols['main_sell_vol']) * (costs['main_sell'] - costs['main_buy'])
+                total_capital_activity = (vols['main_buy_vol'] * costs['main_buy']) + (vols['main_sell_vol'] * costs['main_sell'])
+                if total_capital_activity > 0: day_results['main_force_t0_efficiency'] = (t0_profit / total_capital_activity) * 100
+            # --- 4. 市场脉搏 (Market Pulse) ---
+            def get_window_vwap(start_time, end_time):
+                window_df = minute_data[(minute_data['trade_time_local'] >= start_time) & (minute_data['trade_time_local'] < end_time)]
+                return (window_df['minute_vwap'] * window_df['vol_shares']).sum() / window_df['vol_shares'].sum() if not window_df.empty and window_df['vol_shares'].sum() > 0 else np.nan
+            opening_vwap = get_window_vwap(time(9, 30), time(9, 45))
+            midday_vwap = get_window_vwap(time(9, 45), time(14, 45))
+            closing_vwap = get_window_vwap(time(14, 45), time(15, 1))
+            if all(pd.notna(v) for v in [opening_vwap, midday_vwap, closing_vwap, atr]) and atr > 0:
+                day_results['vwap_structure_skew'] = (((opening_vwap + closing_vwap) / 2 - midday_vwap) / atr) * 100
+            pct_chg = daily_data.get('pct_chg')
+            mf_net_flow = daily_data.get('main_force_net_flow_calibrated')
+            total_turnover = daily_data.get('amount')
+            if all(pd.notna(v) for v in [pct_chg, mf_net_flow, total_turnover]) and total_turnover > 0:
+                mf_strength = mf_net_flow / (total_turnover / 10)
+                if abs(mf_strength) > 1e-6: day_results['flow_efficiency_index'] = (pct_chg / 100) / mf_strength
+            up_vol = minute_data[minute_data['close'] > minute_data['open']]['vol_shares'].sum()
+            down_vol = minute_data[minute_data['close'] < minute_data['open']]['vol_shares'].sum()
+            if down_vol > 0: day_results['asymmetric_volume_thrust'] = np.log(up_vol / down_vol) if up_vol > 0 else -np.inf
+            else: day_results['asymmetric_volume_thrust'] = np.inf if up_vol > 0 else 0
+            # --- 5. 盈亏矩阵 (P&L Matrix) ---
+            realized_profit_yuan = (costs['main_sell'] - costs['main_buy']) * min(vols['main_buy_vol'], vols['main_sell_vol'])
+            net_pos_change_vol = vols['main_buy_vol'] - vols['main_sell_vol']
+            net_pos_change_cost = np.where(net_pos_change_vol > 0, costs['main_buy'], costs['main_sell'])
+            unrealized_pnl_yuan = (final_close - net_pos_change_cost) * net_pos_change_vol
+            day_results['t0_arbitrage_profit'] = realized_profit_yuan / 10000
+            day_results['positional_pnl'] = unrealized_pnl_yuan / 10000
+            day_results['total_trading_pnl'] = (realized_profit_yuan.fillna(0) + unrealized_pnl_yuan.fillna(0)) / 10000
             daily_vwap = daily_data.get('daily_vwap')
-            if pd.notna(close_price) and pd.notna(daily_vwap) and daily_vwap > 0:
-                day_results['close_vs_vwap_ratio'] = (close_price / daily_vwap) - 1
+            if pd.notna(daily_vwap):
+                actual_net_cashflow = (costs['main_buy'] * vols['main_buy_vol']) - (costs['main_sell'] * vols['main_sell_vol'])
+                benchmark_net_cashflow = net_pos_change_vol * daily_vwap
+                total_activity_value = (costs['main_buy'] * vols['main_buy_vol']) + (costs['main_sell'] * vols['main_sell_vol'])
+                if pd.notna(total_activity_value) and total_activity_value > 0:
+                    day_results['execution_cost_alpha'] = ((benchmark_net_cashflow - actual_net_cashflow) / total_activity_value) * 100
+            # --- 6. 最终评估 (Final Assessment) ---
+            total_pnl = day_results.get('total_trading_pnl', 0)
+            exec_alpha = day_results.get('execution_cost_alpha', 0)
+            if 'total_activity_value' in locals() and total_activity_value > 0:
+                pnl_efficiency = (total_pnl * 10000) / total_activity_value
+                day_results['pnl_quality_score'] = pnl_efficiency * (1 + (exec_alpha / 100)) * 100
+            minute_returns = minute_data['minute_vwap'].pct_change()
+            upside_vol = minute_returns[minute_returns > 0].std()
+            downside_vol = minute_returns[minute_returns < 0].std()
+            if pd.notna(downside_vol) and downside_vol > 1e-9:
+                day_results['volatility_asymmetry_index'] = np.log((upside_vol if pd.notna(upside_vol) else 0) / downside_vol)
             else:
-                day_results['close_vs_vwap_ratio'] = np.nan
-            # final_hour_momentum 应该使用全天数据，但这里计算的是连续交易时段的最后部分
-            # 重新定义 final_hour_momentum 为连续交易时段的最后半小时（14:00-14:57）
-            trade_time_local = minute_data_for_day['trade_time'].dt.tz_convert('Asia/Shanghai')
-            final_hour_mask = trade_time_local.dt.hour >= 14
-            final_hour_vol = minute_data_for_day[final_hour_mask]['vol_shares'].sum()
-            total_continuous_vol = minute_data_for_day['vol_shares'].sum()
-            total_day_vol = pd.to_numeric(daily_data.get('vol'), errors='coerce') * 100 # 使用日线数据中的全天成交量
-            if total_day_vol > 0:
-                # 修正为：连续交易时段最后半小时的成交量占全天成交量的比例
-                day_results['final_hour_momentum'] = final_hour_vol / total_day_vol
-            else:
-                day_results['final_hour_momentum'] = np.nan
-            
-            results[date] = day_results
-        if not results:
+                day_results['volatility_asymmetry_index'] = np.inf if pd.notna(upside_vol) and upside_vol > 0 else 0
+            midday_df = minute_data[(minute_data['trade_time_local'] >= time(9, 45)) & (minute_data['trade_time_local'] < time(14, 57))]
+            if not midday_df.empty and not auction_minutes.empty and pd.notna(atr) and atr > 0 and pd.notna(final_close):
+                midday_avg_vol = midday_df['vol_shares'].mean()
+                if pd.notna(midday_vwap) and pd.notna(midday_avg_vol) and midday_avg_vol > 0:
+                    price_deviation = (final_close - midday_vwap) / atr
+                    volume_energy = np.log1p(auction_minutes['vol_shares'].sum() / midday_avg_vol)
+                    day_results['closing_price_deviation_score'] = price_deviation * (1 + np.sign(price_deviation) * volume_energy) * 10
+            # --- 7. 战术日志指标 (Tactical Log Metrics) ---
+            if daily_total_volume > 0:
+                opening_mask = minute_data['trade_time_local'] < time(10, 0)
+                day_results['main_force_opening_blitz'] = (minute_data.loc[opening_mask, 'main_force_net_vol'].sum() / daily_total_volume) * 100
+                closing_mask = minute_data['trade_time_local'] >= time(14, 30)
+                day_results['main_force_closing_assault'] = (minute_data.loc[closing_mask, 'main_force_net_vol'].sum() / daily_total_volume) * 100
+            if pd.notna(daily_vwap) and daily_vwap > 0 and 'total_activity_value' in locals():
+                buy_side_alpha = (daily_vwap - costs['main_buy']) * vols['main_buy_vol'] if pd.notna(costs['main_buy']) and vols['main_buy_vol'] > 0 else 0
+                sell_side_alpha = (costs['main_sell'] - daily_vwap) * vols['main_sell_vol'] if pd.notna(costs['main_sell']) and vols['main_sell_vol'] > 0 else 0
+                if total_activity_value > 0:
+                    day_results['main_force_vwap_alpha'] = ((buy_side_alpha + sell_side_alpha) / total_activity_value) * 100
+            if not continuous_minutes.empty:
+                continuous_minutes['cumulative_mf_net_vol'] = continuous_minutes['main_force_net_vol'].cumsum()
+                def get_flow_slope(df_period):
+                    if len(df_period) < 2: return 0.0
+                    return np.polyfit(np.arange(len(df_period)), df_period['cumulative_mf_net_vol'].values, 1)[0]
+                slope_am = get_flow_slope(continuous_minutes[continuous_minutes['trade_time_local'].dt.time < time(12, 0)])
+                slope_pm = get_flow_slope(continuous_minutes[continuous_minutes['trade_time_local'].dt.time >= time(13, 0)])
+                avg_vol_per_minute = daily_total_volume / 240 if daily_total_volume > 0 else 1
+                day_results['flow_acceleration_index'] = (slope_pm - slope_am) / avg_vol_per_minute
+                main_force_net_flows = continuous_minutes['main_force_net_vol'].to_numpy()
+                n = len(main_force_net_flows)
+                if n > 0:
+                    denominator = n * np.sum(np.abs(main_force_net_flows))
+                    day_results['flow_timing_index'] = np.sum(np.arange(1, n + 1) * main_force_net_flows) / denominator if denominator > 0 else 0.5
+                if 'vol_shares' in continuous_minutes.columns and daily_total_volume > 0:
+                    vol_ma_20 = continuous_minutes['vol_shares'].rolling(window=20, min_periods=1).mean()
+                    impulse_minutes_df = continuous_minutes[continuous_minutes['vol_shares'] > 3 * vol_ma_20]
+                    day_results['volume_impulse_index'] = (impulse_minutes_df['main_force_net_vol'].sum() / daily_total_volume) * 100 if not impulse_minutes_df.empty else 0.0
+                calc_df = pd.DataFrame({'price_change': continuous_minutes['close'].diff(), 'main_force_net_vol': continuous_minutes['main_force_net_vol']}).dropna()
+                if len(calc_df) < 2 or calc_df['price_change'].var() == 0 or calc_df['main_force_net_vol'].var() == 0:
+                    day_results['volume_price_momentum'] = 0.0
+                else:
+                    correlation = calc_df['price_change'].corr(calc_df['main_force_net_vol'])
+                    day_results['volume_price_momentum'] = correlation if pd.notna(correlation) else 0.0
+            # [代码新增开始]
+            # --- 8. 升级版行为指标 (Upgraded Behavioral Metrics) ---
+            opening_window_mask = minute_data['trade_time_local'] < time(9, 45)
+            opening_minutes = minute_data[opening_window_mask]
+            if not opening_minutes.empty and pd.notna(pre_close) and pre_close > 0:
+                opening_volume = opening_minutes['vol_shares'].sum()
+                if opening_volume > 0:
+                    vwap_opening = (opening_minutes['minute_vwap'] * opening_minutes['vol_shares']).sum() / opening_volume
+                    price_thrust = (vwap_opening - pre_close) / pre_close
+                    force_multiplier = opening_minutes['main_force_net_vol'].sum() / opening_volume
+                    day_results['opening_gambit_score'] = price_thrust * force_multiplier * 10000
+            if pd.notna(daily_vwap) and daily_vwap > 0:
+                absorption_minutes = minute_data[minute_data['minute_vwap'] < daily_vwap]
+                if not absorption_minutes.empty and absorption_minutes['vol_shares'].sum() > 0:
+                    day_results['main_force_absorption_strength'] = (absorption_minutes['main_force_buy_vol'].sum() / absorption_minutes['vol_shares'].sum()) * 100
+                distribution_minutes = minute_data[minute_data['minute_vwap'] > daily_vwap]
+                if not distribution_minutes.empty and distribution_minutes['vol_shares'].sum() > 0:
+                    day_results['main_force_distribution_intensity'] = (distribution_minutes['main_force_sell_vol'].sum() / distribution_minutes['vol_shares'].sum()) * 100
+            minute_returns = minute_data['minute_vwap'].pct_change().fillna(0)
+            panic_minutes = minute_data[(minute_returns < (minute_returns.mean() - 2 * minute_returns.std())) & (minute_data['vol_shares'] > (minute_data['vol_shares'].mean() + 2 * minute_data['vol_shares'].std()))]
+            if not panic_minutes.empty:
+                total_sell_in_panic = panic_minutes['main_force_sell_vol'].sum() + panic_minutes['retail_sell_vol'].sum()
+                if total_sell_in_panic > 0:
+                    retail_sell_dominance = panic_minutes['retail_sell_vol'].sum() / total_sell_in_panic
+                    total_buy_in_panic = panic_minutes['main_force_buy_vol'].sum() + panic_minutes['retail_buy_vol'].sum()
+                    main_force_absorption_rate = panic_minutes['main_force_buy_vol'].sum() / total_buy_in_panic if total_buy_in_panic > 0 else 0
+                    day_results['panic_selling_intensity'] = retail_sell_dominance * main_force_absorption_rate * 100
+            if len(minute_data) > 1 and not continuous_minutes.empty:
+                if pd.notna(final_close) and pd.notna(price_1457) and pd.notna(daily_vwap) and daily_vwap > 0 and pd.notna(avg_minute_vol) and avg_minute_vol > 0:
+                    price_impact = (final_close - price_1457) / daily_vwap
+                    volume_power = auction_minutes['vol_shares'].sum() / avg_minute_vol
+                    day_results['closing_auction_conviction'] = price_impact * volume_power * 100
+            tail_minutes = minute_data[minute_data['trade_time_local'] >= time(14, 30)]
+            if not tail_minutes.empty and daily_total_volume > 0:
+                day_results['tail_thrust_intensity'] = (tail_minutes['main_force_net_vol'].sum() / daily_total_volume) * 100
+            price_change_series = minute_data['minute_vwap'].diff().fillna(0)
+            if not main_force_net_flows.empty and not price_change_series.empty and main_force_net_flows.std() > 0 and price_change_series.std() > 0:
+                correlation = main_force_net_flows.corr(price_change_series)
+                day_results['intraday_execution_alpha'] = -correlation if pd.notna(correlation) else 0
+            # [代码新增结束]
+            all_results[date] = day_results
+        if not all_results:
             return pd.DataFrame()
-        return pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
+        return pd.DataFrame.from_dict(all_results, orient='index').set_index('trade_time')
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:
         """
-        【V7.1 · 级联选择重构版】使用np.select重构分钟成交额分类逻辑，根除“空桶”问题。
+        【V9.0 · 行为归因重构版】
+        - 核心革命: 废弃“一体适用”的权重模型，为超大单、大单、中单、小单引入各自独特的、基于行为特征的权重分配逻辑。
+        - 核心思想:
+          - 超大单(ELG) -> 脉冲修正: 权重集中在成交量和振幅剧增的“暴力分钟”。
+          - 大单(LG) -> VWAP修正: 权重与价格偏离VWAP的程度相关，体现战术意图。
+          - 中单(MD) -> 动量修正: 权重与短期价格动量相关，体现追涨杀跌特性。
+          - 小单(SM) -> 基准压力: 沿用原有的K线形态压力模型作为基准。
         """
+        # [代码修改开始]
         df = minute_data_for_day.copy()
-        if 'amount_yuan' not in df.columns or df['amount_yuan'].sum() < 1e-6:
+        if 'vol_shares' not in df.columns or df['vol_shares'].sum() < 1e-6 or len(df) < 5:
             for size in ['sm', 'md', 'lg', 'elg']:
-                df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
+                df[f'{size}_buy_weight'] = 0; df[f'{size}_sell_weight'] = 0
             return df
-        valid_amounts = df['amount_yuan'][df['amount_yuan'] > 0]
-        if valid_amounts.empty:
-            for size in ['sm', 'md', 'lg', 'elg']:
-                df[f'{size}_buy_weight'] = df[f'{size}_sell_weight'] = 0
-            return df
-        thresholds = {
-            'elg': valid_amounts.quantile(0.95),
-            'lg': valid_amounts.quantile(0.85),
-            'md': valid_amounts.quantile(0.60)
-        }
-        score_source_col = 'amount_yuan'
-        # 使用级联选择（np.select）重构分类逻辑，使其对重合的分位数具有鲁棒性
-        conditions = [
-            df[score_source_col] >= thresholds['elg'],
-            df[score_source_col] >= thresholds['lg'],
-            df[score_source_col] >= thresholds['md'],
-        ]
-        choices = ['elg', 'lg', 'md']
-        # np.select按顺序匹配，第一个为True的条件决定分类，完美解决分位数重合问题
-        df['category'] = np.select(conditions, choices, default='sm')
-        scores = {}
-        for size in ['sm', 'md', 'lg', 'elg']:
-            scores[size] = df[score_source_col].where(df['category'] == size, 0)
-        
+        # --- 1. 计算基础买卖压力和行为修正因子 ---
         price_range = df['high'] - df['low']
-        prev_close = df['close'].shift(1)
-        conditions_pressure = [
-            price_range > 0,
-            (price_range == 0) & (df['close'] > prev_close),
-            (price_range == 0) & (df['close'] < prev_close),
-        ]
-        choices_pressure = [
-            (df['close'] - df['low']) / price_range,
-            1.0,
-            0.0,
-        ]
-        buy_pressure_proxy = np.select(conditions_pressure, choices_pressure, default=0.5)
-        sell_pressure_proxy = 1.0 - buy_pressure_proxy
-        for size, score_series in scores.items():
-            unnormalized_buy_score = score_series * buy_pressure_proxy
-            unnormalized_sell_score = score_series * sell_pressure_proxy
-            total_buy_score_day = unnormalized_buy_score.sum()
-            total_sell_score_day = unnormalized_sell_score.sum()
-            if total_buy_score_day > 1e-9:
-                df[f'{size}_buy_weight'] = unnormalized_buy_score / total_buy_score_day
-            else:
-                df[f'{size}_buy_weight'] = 0
-            if total_sell_score_day > 1e-9:
-                df[f'{size}_sell_weight'] = unnormalized_sell_score / total_sell_score_day
-            else:
-                df[f'{size}_sell_weight'] = 0
+        conditions = [price_range > 0, (price_range == 0) & (df['close'] > df['open']), (price_range == 0) & (df['close'] < df['open'])]
+        choices = [(df['close'] - df['low']) / price_range, 1.0, 0.0]
+        buy_pressure_proxy = np.select(conditions, choices, default=0.5)
+        # 脉冲修正因子 (用于ELG)
+        vol_ma = df['vol_shares'].rolling(window=20, min_periods=1).mean()
+        range_ma = price_range.rolling(window=20, min_periods=1).mean()
+        impulse_modifier = (df['vol_shares'] / vol_ma) * (price_range / range_ma.replace(0, 1))
+        impulse_modifier = impulse_modifier.fillna(1).clip(0, 10) # 归一化并限制极端值
+        # VWAP修正因子 (用于LG)
+        daily_vwap = daily_data.get('daily_vwap')
+        if pd.notna(daily_vwap):
+            vwap_deviation = (df['minute_vwap'] - daily_vwap) / daily_vwap
+            # 买单权重在VWAP下方更高，卖单权重在VWAP上方更高
+            lg_buy_modifier = np.exp(-np.maximum(0, vwap_deviation) * 5) # 价格越高，权重越低
+            lg_sell_modifier = np.exp(np.minimum(0, vwap_deviation) * 5) # 价格越低，权重越低
+        else:
+            lg_buy_modifier = pd.Series(1.0, index=df.index); lg_sell_modifier = pd.Series(1.0, index=df.index)
+        # 动量修正因子 (用于MD)
+        momentum_modifier = df['minute_vwap'].pct_change().rolling(window=5).mean().fillna(0)
+        md_buy_modifier = np.exp(momentum_modifier * 50) # 动量为正时权重高
+        md_sell_modifier = np.exp(-momentum_modifier * 50) # 动量为负时权重高
+        # --- 2. 计算各类订单的非归一化权重 ---
+        # 小单 (SM): 使用基础压力模型
+        sm_buy_score = df['vol_shares'] * buy_pressure_proxy
+        sm_sell_score = df['vol_shares'] * (1 - buy_pressure_proxy)
+        # 中单 (MD): 基础压力 + 动量修正
+        md_buy_score = sm_buy_score * md_buy_modifier
+        md_sell_score = sm_sell_score * md_sell_modifier
+        # 大单 (LG): 基础压力 + VWAP修正
+        lg_buy_score = sm_buy_score * lg_buy_modifier
+        lg_sell_score = sm_sell_score * lg_sell_modifier
+        # 超大单 (ELG): 基础压力 + 脉冲修正
+        elg_buy_score = sm_buy_score * impulse_modifier
+        elg_sell_score = sm_sell_score * impulse_modifier
+        # --- 3. 分别归一化并赋值 ---
+        scores = {
+            'sm': (sm_buy_score, sm_sell_score), 'md': (md_buy_score, md_sell_score),
+            'lg': (lg_buy_score, lg_sell_score), 'elg': (elg_buy_score, elg_sell_score)
+        }
+        for size, (buy_score, sell_score) in scores.items():
+            total_buy_score = buy_score.sum()
+            df[f'{size}_buy_weight'] = buy_score / total_buy_score if total_buy_score > 1e-9 else 0
+            total_sell_score = sell_score.sum()
+            df[f'{size}_sell_weight'] = sell_score / total_sell_score if total_sell_score > 1e-9 else 0
         return df
-
-    def _calculate_daily_vwap_from_df(self, minute_df: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.Series:
-        """【V1.3 · API单位对齐版】从预加载的DataFrame计算日度VWAP"""
-        if minute_df.empty:
-            return pd.Series(np.nan, index=date_index)
-        df = minute_df.copy()
-        df['trade_time'] = pd.to_datetime(df['trade_time'])
-        df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
-        # 根据API文档，分钟线的amount单位是元，vol单位是股，无需转换。
-        df['total_value'] = df['amount']
-        df['total_volume'] = df['vol']
-        
-        daily_agg = df.groupby(df['trade_time'].dt.date)
-        daily_total_value = daily_agg['total_value'].sum()
-        daily_total_volume = daily_agg['total_volume'].sum()
-        daily_vwap = daily_total_value / daily_total_volume.replace(0, np.nan)
-        daily_vwap.index = pd.to_datetime(daily_vwap.index)
-        return daily_vwap.reindex(date_index)
+        # [代码修改结束]
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
         """【V1.4 · 竞价隔离版】从预加载的DataFrame构建按日分组的数据。"""
@@ -896,6 +915,12 @@ class AdvancedFundFlowMetricsService:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             
         return df
+
+
+
+
+
+
 
 
 

@@ -6,113 +6,157 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V19.0 · 四象限模型重构版】
-    - 核心革命: 废弃旧的扁平化指标体系，引入“静态结构”、“内部动态”、“跨日迁徙”、“博弈意图”四象限模型，
-                  使指标体系具备了从现象到本质的逻辑层次。
+    【V25.0 · 战术深化版】
+    - 核心革命: 在第一象限“静态结构”中，引入盈利亏损质量、结构稳定性、成本分布形态三个全新的计算维度。
     - 核心新增:
-      1. `main_force_cost_advantage`: 主力成本优势，直指A股博弈核心。
-      2. `winner_conviction_index`: 获利盘信念指数，量化趋势的持续性。
-      3. `cost_divergence_normalized`: 标准化成本发散度，提供跨股票可比的洗盘/派发信号。
+      1. `winner_profit_cushion`: 获利盘缓冲垫，量化多方的安全边际。
+      2. `loser_pain_index`: 套牢盘痛苦指数，评估空方的潜在投降压力。
+      3. `structural_stability_score`: 结构稳定性评分，综合评估当前筹码结构的稳固程度。
+      4. `cost_structure_skewness`: 成本结构偏度，从统计学角度判断成本重心的偏移方向。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+    # [代码修改开始]
     # --- 第一象限: 静态结构 (Static Structure) ---
     STATIC_STRUCTURE_METRICS = {
-        'peak_cost': '主筹码峰成本',
-        'peak_percent': '主筹码峰占比(%)',
+        'dominant_peak_cost': '主导峰成本',
+        'dominant_peak_volume_ratio': '主导峰筹码占比(%)',
+        'dominant_peak_mf_conviction': '主导峰主力信念',
+        'dominant_peak_profit_margin': '主导峰利润边际(%)',
+        'dominant_peak_breadth': '主导峰宽度(%)',
         'is_multi_peak': '是否多峰形态',
         'secondary_peak_cost': '次筹码峰成本',
-        'peak_distance_ratio': '主次峰距离比',
-        'peak_strength_ratio': '主次峰强度比',
-        'concentration_70pct': '70%筹码集中度',
-        'concentration_90pct': '90%筹码集中度',
-        'pressure_above': '上方2%套牢盘(%)',
-        'support_below': '下方2%支撑盘(%)',
-        'chip_fault_strength': '筹码断层强度',
-        'chip_fault_vacuum_percent': '断层真空区筹码占比(%)',
-        'is_chip_fault_formed': '是否形成筹码断层',
-        'total_winner_rate': '总获利盘(%)',
-        'total_loser_rate': '总套牢盘(%)',
-        'winner_rate_short_term': '短期获利盘(%)',
-        'winner_rate_long_term': '长期锁定盘(%)',
-        'loser_rate_short_term': '短期套牢盘(%)',
-        'loser_rate_long_term': '长期套牢盘(%)',
+        'peak_distance_volatility_ratio': '峰距波动率比',
+        'peak_dynamic_strength_ratio': '动态强度比',
+        'winner_concentration_90pct': '获利盘集中度',
+        'loser_concentration_90pct': '套牢盘集中度',
+        'long_term_concentration_90pct': '长期筹码集中度',
+        'short_term_concentration_90pct': '短期筹码集中度',
+        'dynamic_pressure_index': '动态压力指数',
+        'dynamic_support_index': '动态支撑指数',
+        'main_force_support_conviction_zone': '支撑区主力信念(%)',
+        'chip_fault_magnitude': '筹码断层量级(ATR)',
+        'chip_fault_blockage_ratio': '断层阻碍度(%)',
+        'chip_fault_traversal_conviction': '断层穿越信念(%)',
+        'chip_fault_status': '筹码断层状态',
+        'total_winner_rate': '存量总获利盘(%)',
+        'total_loser_rate': '存量总套牢盘(%)',
+        'effective_winner_rate': '有效获利盘比例(%)',
+        'winner_profit_margin_avg': '平均获利盘利润率(%)',
+        'loser_loss_margin_avg': '平均套牢盘亏损率(%)',
+        'active_winner_rate': '活跃获利盘比例(%)',
+        'active_loser_rate': '活跃套牢盘比例(%)',
+        'locked_profit_rate': '锁定利润盘比例(%)',
+        'locked_loss_rate': '锁定亏损盘比例(%)',
+        # --- 新增指标 ---
+        'winner_profit_cushion': '获利盘缓冲垫(%)',
+        'loser_pain_index': '套牢盘痛苦指数',
+        'structural_stability_score': '结构稳定性评分(0-100)',
+        'cost_structure_skewness': '成本结构偏度',
     }
+    # [代码修改结束]
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
-        'realized_pressure_intensity': '真实压力强度(%)',
-        'realized_support_intensity': '真实支撑强度(%)',
-        'turnover_at_peak_ratio': '主峰成交占比(%)',
-        'peak_defense_intensity': '主峰防守强度(%)',
-        'peak_vwap_deviation': '主峰VWAP偏离度(%)',
-        'intraday_volume_gini': '日内成交基尼系数',
-        'volume_weighted_time_index': '成交量加权时间指数',
-        'intraday_trend_efficiency': '日内趋势效率',
-        'am_pm_vwap_ratio': '上下午VWAP比(%)',
-        'fault_breakthrough_intensity': '断层突破强度',
+        'active_selling_pressure': '主动卖压强度(%)',
+        'active_buying_support': '主动买盘支撑(%)',
+        'peak_battle_intensity': '主峰交战强度(%)',
+        'peak_main_force_premium': '主峰主力溢价(%)',
+        'peak_mf_conviction_flow': '主峰主力信念流(%)',
+        'upward_impulse_purity': '上涨脉冲纯度(%)',
+        'opening_gap_defense_strength': '开盘缺口防御强度',
+        'active_zone_combat_intensity': '活跃战区交战强度(%)',
+        'active_zone_mf_stance': '活跃战区主力姿态(%)',
+        'profit_realization_quality': '获利盘兑现质量(%)',
+        'capitulation_absorption_quality': '套牢盘承接质量(%)',
     }
     # --- 第三象限: 跨日迁徙 (Cross-Day Flow) ---
     CROSS_DAY_FLOW_METRICS = {
-        'concentration_increase_by_support': '承接增集度',
-        'concentration_increase_by_chasing': '追涨增集度',
-        'concentration_decrease_by_distribution': '派发减集度',
-        'concentration_decrease_by_capitulation': '割肉减集度',
-        'short_term_profit_taking_ratio': '短期获利盘兑现占比(%)',
-        'long_term_chips_unlocked_ratio': '长期锁定盘解锁占比(%)',
-        'short_term_capitulation_ratio': '短期套牢盘割肉占比(%)',
-        'long_term_despair_selling_ratio': '长期套牢盘绝望占比(%)',
-        'cost_divergence': '成本发散度',
-        'cost_divergence_normalized': '标准化成本发散度', # 新增
+        'gathering_by_support': '承接式集结量(%)',
+        'gathering_by_chasing': '追涨式集结量(%)',
+        'dispersal_by_distribution': '派发式分散量(%)',
+        'dispersal_by_capitulation': '承接式分散量(%)',
+        'profit_taking_flow_ratio': '获利兑现流量占比(%)',
+        'capitulation_flow_ratio': '恐慌抛售流量占比(%)',
+        'active_winner_pressure_ratio': '活跃获利盘承压比(%)',
+        'locked_profit_pressure_ratio': '锁定利润盘承压比(%)',
+        'active_loser_pressure_ratio': '活跃套牢盘承压比(%)',
+        'locked_loss_pressure_ratio': '锁定亏损盘承压比(%)',
+        'cost_divergence': '成本分离度',
+        'cost_divergence_normalized': '标准化成本分离度',
+        'winner_loser_momentum': '盈亏动量',
+        'chip_fatigue_index': '筹码疲劳指数',
     }
     # --- 第四象限: 博弈意图 (Game-Theoretic Intent) ---
     GAME_THEORY_METRICS = {
-        'main_force_suppressive_accumulation': '主力打压吸筹占比(%)',
-        'main_force_rally_distribution': '主力拉高出货占比(%)',
-        'main_force_capitulation_distribution': '主力恐慌派发占比(%)',
-        'main_force_chasing_accumulation': '主力追涨吸筹占比(%)',
-        'retail_chasing_accumulation': '散户追涨抬轿占比(%)',
-        'peak_net_volume_flow': '主峰净成交量流向',
-        'peak_control_ratio': '筹码峰控盘比(%)',
-        'winner_avg_cost': '获利盘平均成本',
-        'winner_profit_margin': '获利盘安全垫(%)',
-        'profit_taking_urgency': '获利盘兑现紧迫度(%)',
-        'profit_realization_premium': '利润兑现溢价(%)',
-        'avg_cost_short_term': '短期持仓者平均成本',
-        'avg_cost_long_term': '长期持仓者平均成本',
-        'main_force_cost_advantage': '主力成本优势(%)', # 新增
-        'winner_conviction_index': '获利盘信念指数', # 新增
+        'suppressive_accumulation_intensity': '打压吸筹强度(%)',
+        'rally_distribution_intensity': '拉高出货强度(%)',
+        'rally_accumulation_intensity': '追涨吸筹强度(%)',
+        'panic_selling_intensity': '恐慌派发强度(%)',
+        'main_force_cost_advantage': '主力成本优势(%)',
+        'active_winner_avg_cost': '活跃获利盘均价',
+        'active_winner_profit_margin': '活跃获利盘利润垫(%)',
+        'short_term_holder_cost': '短期持仓者成本',
+        'long_term_holder_cost': '长期持仓者成本',
+        'winner_conviction_index': '获利盘信念指数',
         'chip_health_score': '筹码健康分(0-100)',
+        'main_force_control_leverage': '主力控盘杠杆(%)',
+        'loser_capitulation_pressure_index': '套牢盘投降压力指数',
+        'estimated_main_force_position_cost': '主力预估持仓成本',
+        'intraday_new_loser_pressure': '日内新增套牢盘压力',
+        'closing_auction_control_signal': '集合竞价控盘信号(%)',
+        'intraday_probe_rebound_quality': '日内试探回升质量',
     }
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
-        'chip_turnover_velocity': '筹码换手速度(JSD)',
-        'chip_entropy': '筹码熵',
-        'structural_stability_index': '结构稳定性指数',
-        'dominant_force_posture': '主导力量姿态',
+        'cost_structure_consensus_index': '成本结构共识指数',
+        'chip_cost_momentum': '筹码成本动量',
+        'structural_resilience_index': '结构韧性指数',
+        'posture_control_score': '主力姿态-控盘分',
+        'posture_action_score': '主力姿态-行动分',
     }
     CORE_METRICS = {
         **STATIC_STRUCTURE_METRICS,
         **INTRADAY_DYNAMICS_METRICS,
         **CROSS_DAY_FLOW_METRICS,
         **GAME_THEORY_METRICS,
+        **VITAL_SIGNS_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
-    BOOLEAN_FIELDS = ['is_multi_peak', 'is_chip_fault_formed']
+    INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume', 'chip_fault_status']
+    BOOLEAN_FIELDS = ['is_multi_peak']
+    # [代码修改开始]
+    # 核心修改: 将所有新的高阶复合指标加入斜率排除列表
     SLOPE_ACCEL_EXCLUSIONS = [
         # 动态归因类 (已经是变化量)
-        'concentration_increase_by_support', 'concentration_increase_by_chasing',
-        'concentration_decrease_by_distribution', 'concentration_decrease_by_capitulation',
-        # 筹码交互类 (事件驱动，非连续)
-        'main_force_suppressive_accumulation', 'retail_suppressive_accumulation',
-        'main_force_rally_distribution', 'retail_rally_distribution',
-        'main_force_capitulation_distribution', 'retail_capitulation_distribution',
-        'main_force_chasing_accumulation', 'retail_chasing_accumulation',
-        # 跨日迁徙类 (已经是变化量)
-        'short_term_profit_taking_ratio', 'long_term_chips_unlocked_ratio',
-        'short_term_capitulation_ratio', 'long_term_despair_selling_ratio',
+        'gathering_by_support', 'gathering_by_chasing',
+        'dispersal_by_distribution', 'dispersal_by_capitulation',
+        'chip_fault_status',
+        'profit_taking_flow_ratio', 'capitulation_flow_ratio',
+        'active_winner_pressure_ratio', 'locked_profit_pressure_ratio',
+        'active_loser_pressure_ratio', 'locked_loss_pressure_ratio',
+        # 战术序列类 (事件驱动，非连续)
+        'suppressive_accumulation_intensity',
+        'rally_distribution_intensity',
+        'rally_accumulation_intensity',
+        'panic_selling_intensity',
+        'main_force_cost_advantage',
+        'main_force_control_leverage',
         # 事件驱动及高波动类
-        'fault_breakthrough_intensity', 'intraday_trend_efficiency', 'am_pm_vwap_ratio',
+        'fault_traversal_momentum', 'intraday_trend_efficiency',
+        'intraday_new_loser_pressure',
+        'closing_auction_control_signal',
+        'intraday_probe_rebound_quality',
+        # 生命体征指标 (高阶复合，不适合直接求导)
+        'cost_structure_consensus_index',
+        'chip_cost_momentum',
+        'structural_resilience_index',
+        'posture_control_score',
+        'posture_action_score',
+        # 新增的静态结构复合指标
+        'loser_pain_index',
+        'structural_stability_score',
+        'cost_structure_skewness',
     ]
+    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
             vars()[name] = models.BigIntegerField(verbose_name=verbose, null=True, blank=True)
@@ -216,116 +260,92 @@ class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
             models.Index(fields=['is_chip_fault_formed']),
         ]
 
-class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
-    stock = models.ForeignKey(
-        'StockInfo',
-        on_delete=models.CASCADE,
-        related_name='advanced_chip_metrics_bj',
-        verbose_name='股票',
-        db_index=True
-    )
-    class Meta(BaseAdvancedChipMetrics.Meta):
-        abstract = False
-        verbose_name = '高级筹码指标-北交(V6.0-衍生固化)'
-        verbose_name_plural = verbose_name
-        db_table = 'stock_advanced_chip_metrics_bj'
-        unique_together = ('stock', 'trade_time')
-        indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['chip_health_score']),
-            models.Index(fields=['is_chip_fault_formed']),
-        ]
-
-# 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V6.0 · 资金博弈三体模型版】
-    - 核心革命: 废弃旧的扁平化指标体系，引入“力量格局”、“战术日志”、“战果评估”三体模型，
-                  构建从力量对比到战术意图，再到战果评估的完整分析闭环。
-    - 核心新增:
-      1. `main_force_opening_blitz`: 主力开盘闪击，衡量开盘抢筹意愿。
-      2. `main_force_closing_assault`: 主力尾盘偷袭，识别“聪明钱”行为。
-      3. `main_force_vwap_adherence`: 主力VWAP依从度，揭示交易的主动性与预期。
-      4. `flow_momentum_reversal`: 资金动能反转，捕捉日内多空力量的转折点。
+    【V18.0 · 最终评估重构版】
+    - 核心革命: 废弃旧的静态总结指标，引入“盈利质量”、“波动效率”和“收盘姿态”的动态评估模型。
+    - 核心升级:
+      1. `pnl_quality_score`: 评估主力盈利的“含金量”与“性价比”。
+      2. `volatility_asymmetry_index`: 衡量日内波动的非对称性，识别涨跌的真实动能。
+      3. `closing_price_deviation_score`: 结合收盘竞价能量，评估收盘价的真实强度。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # --- 第一体: 力量格局 (Power Structure) ---
     POWER_STRUCTURE_METRICS = {
-        'net_flow_consensus': '共识-资金净流入(万元)',
-        'main_force_net_flow_consensus': '共识-主力净流入(万元)',
-        'retail_net_flow_consensus': '共识-散户净流入(万元)',
-        'net_xl_amount_consensus': '共识-超大单净流入(万元)',
-        'net_lg_amount_consensus': '共识-大单净流入(万元)',
-        'net_md_amount_consensus': '共识-中单净流入(万元)',
-        'net_sh_amount_consensus': '共识-小单净流入(万元)',
-        'source_consistency_score': '多源一致性评分',
-        'flow_divergence_mf_vs_retail': '资金分歧度(主力-散户)',
-        'main_force_flow_intensity_ratio': '主力资金流强度比率(vs成交额)',
-        'main_force_flow_impact_ratio': '主力资金流冲击比率(vs流通市值)',
-        'trade_concentration_index': '交易集中度指数(大单/总成交)',
-        'main_force_conviction_ratio': '主力信念比率(超大单/大单)',
-        'avg_order_value_norm_price': '价格归一化平均订单价值',
+        'net_flow_calibrated': '校准后-资金净流入(万元)',
+        'main_force_net_flow_calibrated': '校准后-主力净流入(万元)',
+        'retail_net_flow_calibrated': '校准后-散户净流入(万元)',
+        'net_xl_amount_calibrated': '校准后-超大单净流入(万元)',
+        'net_lg_amount_calibrated': '校准后-大单净流入(万元)',
+        'net_md_amount_calibrated': '校准后-中单净流入(万元)',
+        'net_sh_amount_calibrated': '校准后-小单净流入(万元)',
+        'flow_credibility_index': '资金流可信度指数(0-100)',
+        'mf_retail_battle_intensity': '主力散户博弈烈度(%)',
+        'main_force_activity_ratio': '主力活跃度(%)',
+        'main_force_flow_directionality': '主力资金流向性(%)',
+        'xl_order_flow_directionality': '超大单流向性(%)',
+        'main_force_conviction_index': '主力信念指数',
+        'inferred_active_order_size': '推断活跃订单规模(元)',
+        'retail_flow_dominance_index': '散户流动性主导指数',
+        'main_force_price_impact_ratio': '主力价格冲击比率',
     }
-    # --- 第二体: 战术日志 (Tactical Log) ---
     TACTICAL_LOG_METRICS = {
-        'main_force_support_strength': '主力支撑强度',
-        'main_force_distribution_pressure': '主力派发压力',
-        'retail_capitulation_score': '散户投降分',
-        'closing_strength_index': '收盘强度指数',
-        'final_hour_momentum': '尾盘动能',
-        'aggression_index_opening': '开盘进攻性指数',
+        'dip_absorption_power': '逢低吸筹力度(%)',
+        'rally_distribution_pressure': '拉高派发压力(%)',
+        'panic_selling_cascade': '恐慌抛售级联(%)',
+        'opening_battle_result': '开盘战役结果',
+        'pre_closing_posturing': '收盘前姿态',
+        'closing_auction_ambush': '收盘伏击强度',
         'avg_cost_main_buy': '主力买入均价(PVWAP)',
         'avg_cost_main_sell': '主力卖出均价(PVWAP)',
         'avg_cost_retail_buy': '散户买入均价(PVWAP)',
         'avg_cost_retail_sell': '散户卖出均价(PVWAP)',
-        'cost_divergence_mf_vs_retail': '成本分歧度(主力买-散户卖)',
-        'market_cost_battle': '市场成本博弈差(主力买-散户买)',
-        'daily_vwap': '当日成交加权平均价',
-        # [代码新增开始]
-        'main_force_opening_blitz': '主力开盘闪击(%)',
-        'main_force_closing_assault': '主力尾盘偷袭(%)',
-        'main_force_vwap_adherence': '主力VWAP依从度(%)',
-        'flow_momentum_reversal': '资金动能反转',
-        # [代码新增结束]
+        'main_force_execution_alpha': '主力执行Alpha(%)',
+        'retail_panic_surrender_index': '散户恐慌投降指数(%)',
+        'retail_fomo_premium_index': '散户追高溢价指数(%)',
+        'main_force_t0_efficiency': '主力T+0效率(%)',
+        'vwap_structure_skew': 'VWAP结构偏离度',
+        'flow_efficiency_index': '资金效率指数',
+        'asymmetric_volume_thrust': '非对称成交量推力',
     }
-    # --- 第三体: 战果评估 (Outcome Assessment) ---
+    # 核心修改: 重构“战果评估”指标体系
     OUTCOME_ASSESSMENT_METRICS = {
-        'intraday_execution_alpha': '日内执行Alpha',
-        'main_force_intraday_profit': '主力日内盈亏(万元)',
-        'realized_profit_on_exchange': '已实现利润(T+0置换)(万元)',
-        'unrealized_pnl_on_net_change': '新增头寸浮动盈亏(万元)',
-        'pnl_matrix_confidence_score': 'P&L矩阵可信度评分',
-        'intraday_volatility': '日内波动率',
-        'close_vs_vwap_ratio': '收盘价与VWAP偏离度',
+        'execution_cost_alpha': '执行成本Alpha(%)',
+        't0_arbitrage_profit': 'T+0套利利润(万元)',
+        'positional_pnl': '持仓变动盈亏(万元)',
+        'total_trading_pnl': '总交易盈亏(万元)',
+        'pnl_quality_score': '盈利质量评分',
+        'volatility_asymmetry_index': '波动不对称指数',
+        'closing_price_deviation_score': '收盘价偏离度得分',
     }
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
     }
+    # 核心修改: 更新排除列表和浮点数列表以匹配新的战果评估指标
     SLOPE_ACCEL_EXCLUSIONS = [
-        'source_consistency_score', 'pnl_matrix_confidence_score',
-        'main_force_support_strength', 'main_force_distribution_pressure', 'retail_capitulation_score',
-        'intraday_execution_alpha', 'closing_strength_index', 'final_hour_momentum',
-        'aggression_index_opening', 'daily_vwap',
         'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
-        # [代码修改开始]
-        # 新增指标也属于事件驱动型，不适合计算导数
-        'main_force_opening_blitz', 'main_force_closing_assault',
-        'main_force_vwap_adherence', 'flow_momentum_reversal',
-        # [代码修改结束]
+        'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
+        'main_force_flow_directionality', 'xl_order_flow_directionality', 'main_force_conviction_index',
+        'retail_flow_dominance_index', 'main_force_price_impact_ratio', 'dip_absorption_power',
+        'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
+        'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
+        'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
+        'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
+        'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
+        'closing_price_deviation_score',
     ]
     FLOAT_METRICS = [
-        'source_consistency_score', 'main_force_flow_intensity_ratio', 'main_force_flow_impact_ratio',
-        'main_force_support_strength', 'main_force_distribution_pressure', 'retail_capitulation_score',
-        'intraday_execution_alpha', 'intraday_volatility', 'closing_strength_index',
-        'close_vs_vwap_ratio', 'final_hour_momentum', 'trade_concentration_index',
-        'avg_order_value_norm_price', 'main_force_conviction_ratio',
-        'pnl_matrix_confidence_score', 'aggression_index_opening',
-        # [代码修改开始]
-        'main_force_opening_blitz', 'main_force_closing_assault',
-        'main_force_vwap_adherence', 'flow_momentum_reversal',
-        # [代码修改结束]
+        'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
+        'main_force_flow_directionality', 'xl_order_flow_directionality', 'main_force_conviction_index',
+        'inferred_active_order_size', 'retail_flow_dominance_index', 'main_force_price_impact_ratio',
+        'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
+        'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
+        'main_force_execution_alpha', 'retail_panic_surrender_index',
+        'retail_fomo_premium_index', 'main_force_t0_efficiency',
+        'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
+        'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
+        'closing_price_deviation_score',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
@@ -334,10 +354,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    # 核心修改: 更新可累加列的列表
     sum_cols = [
-        'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-        'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-        'net_sh_amount_consensus', 'realized_profit_on_exchange', 'unrealized_pnl_on_net_change',
+        'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
+        'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
+        'net_sh_amount_calibrated',
+        't0_arbitrage_profit', 'positional_pnl', 'total_trading_pnl',
     ]
     for p in UNIFIED_PERIODS:
         if p > 1:
@@ -459,33 +481,34 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V3.0 · 战场动力学模型版】
-    - 核心革命: 废弃旧的现象描述指标，引入“能量密度”、“控制权”、“博弈效率”三大战场动力学核心要素，
-                  从物理学和博弈论层面，对日内结构进行根本性重构。
+    【V5.0 · 战场动力学深化版】
+    - 核心革命: 在“能量密度”维度中，引入反转韧性、高位换手意愿、开盘突袭纯度三个全新的战术指标，
+                  从能量的释放方式、方向和效率上深度刻画日内博弈。
     - 核心新增:
-      1. `normalized_intraday_volatility`: 标准化日内波动率，实现跨股票可比的能量评估。
-      2. `volume_asymmetry_index`: 成交量非对称指数，量化净买/卖盘的成交量优势。
-      3. `vwap_deviation_area`: VWAP偏离面积，衡量多空对日内定价权的掌控程度。
-      4. `trend_persistence_index`: 趋势持续性指数(Hurst)，判断日内走势是趋势市还是震荡市。
-      5. `vpa_efficiency`: 量价分析效率，评估成交量推动价格的有效性和内耗程度。
+      1. `rebound_momentum`: 反转动能。
+      2. `high_level_consolidation_volume`: 高位整固成交量占比。
+      3. `opening_period_thrust`: 开盘期推力。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # [代码修改开始]
-    # --- 第一维度: 能量密度 (Energy Density) ---
+    # --- 第一维度: 能量与战场动力学 (Energy & Battlefield Dynamics) ---
     ENERGY_DENSITY_METRICS = {
-        'normalized_intraday_volatility': '标准化日内波动率',
-        'volume_asymmetry_index': '成交量非对称指数',
-        'intraday_volume_gini': '日内成交量基尼系数',
-        'auction_volume_ratio': '集合竞价成交量占比',
+        'intraday_energy_density': '日内能量密度',
+        'intraday_thrust_purity': '日内推力纯度',
+        'volume_burstiness_index': '成交量爆裂度指数',
+        'auction_impact_score': '集合竞价冲击分',
+        # --- 新增战场动力学指标 ---
+        'rebound_momentum': '反转动能',
+        'high_level_consolidation_volume': '高位整固成交量占比',
+        'opening_period_thrust': '开盘期推力',
     }
+    # [代码修改结束]
     # --- 第二维度: 控制权 (Control) ---
     CONTROL_METRICS = {
         'vwap_deviation_area': 'VWAP偏离面积',
         'trend_persistence_index': '趋势持续性指数(Hurst)',
         'volume_weighted_time_index': '成交量加权时间指数',
         'close_vs_vpoc_ratio': '收盘价/VPOC比',
-        'auction_price_impact': '集合竞价价格冲击',
-        'auction_conviction_index': '集合竞价强度指数',
         'upper_shadow_volume_ratio': '上影线成交量占比',
         'lower_shadow_volume_ratio': '下影线成交量占比',
     }
@@ -512,14 +535,19 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **GAME_EFFICIENCY_METRICS,
         **AUXILIARY_METRICS,
     }
-    # [代码修改结束]
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = ['is_intraday_bullish_divergence', 'is_intraday_bearish_divergence']
+    # [代码修改开始]
     SLOPE_ACCEL_EXCLUSIONS = [
         'is_intraday_bullish_divergence', 'is_intraday_bearish_divergence',
-        'auction_volume_ratio', 'auction_price_impact', 'auction_conviction_index',
-        'trend_persistence_index', # Hurst指数本身是状态量，不适合求导
+        'auction_impact_score',
+        'trend_persistence_index',
+        # --- 新增排除项 ---
+        'rebound_momentum',
+        'high_level_consolidation_volume',
+        'opening_period_thrust',
     ]
+    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)

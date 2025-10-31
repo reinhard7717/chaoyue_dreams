@@ -119,10 +119,10 @@ class AdvancedChipMetricsService:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
 
-    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict) -> pd.DataFrame:
-        """【V2.6 · 探针净化版】移除硬编码的、易产生误导的静态日期探针。"""
+    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict) -> pd.DataFrame:
+        """【V2.7 · 动态战区注入版】新增对20日高低价区间的注入。"""
         # [代码修改开始]
-        # 核心修正：移除所有硬编码的、用于调试的静态日期探针，避免在生产日志中产生混淆。
+        # 核心修改: 更新方法签名以接收20日高低点映射
         # [代码修改结束]
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
@@ -140,40 +140,46 @@ class AdvancedChipMetricsService:
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
+        # [代码新增开始]
+        # 核心新增: 将20日高低点映射到合并后的DataFrame中
+        merged_df['high_20d'] = merged_df['trade_time'].map(high_20d_map)
+        merged_df['low_20d'] = merged_df['trade_time'].map(low_20d_map)
+        # [代码新增结束]
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
-    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V1.9 · 战报记录版】在计算中止时，记录并返回结构化的失败事件。"""
+    def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
+        """
+        【V2.3 · 健康分历史注入版】锻造基础指标，并为健康分计算注入历史数据。
+        - 核心升级: 接收并处理 `historical_components`，为健康分的动态百分位排名提供数据支持。
+        """
         stock_code = stock_info.stock_code
         all_metrics_list = []
-        # [代码新增开始]
-        # 核心新增：初始化一个列表，用于收集本区块内的计算失败记录
         failures_list = []
-        # [代码新增结束]
         prev_metrics = memory.copy() if memory is not None else {}
         grouped_data = merged_df.groupby('trade_time')
-        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate']
+        required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
+        # [代码新增开始]
+        # 核心新增: 如果历史组件数据存在，则预处理以便快速查询
+        hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
+        # [代码新增结束]
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
-            # [代码修改开始]
-            # 核心修正：在计算中止前，记录失败事件
             if chip_data_for_calc.empty:
                 reason = "当日源筹码分布(cyq_chips)数据缺失"
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。这将导致下一交易日的跨日指标计算失败。")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
-                # 即使数据缺失，也要更新记忆，防止记忆链完全断裂
                 prev_metrics = {
-                    'concentration_90pct': None, 'winner_avg_cost': None,
-                    'chip_distribution': chip_data_for_calc, # 传递空的DataFrame
-                    'close_price': context_data.get('close_qfq'),
-                    'prev_20d_close': context_data.get('prev_20d_close')
+                    'concentration_90pct': None, 'winner_avg_cost': None, 'chip_distribution': chip_data_for_calc,
+                    'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
+                    'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
+                    'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': None,
+                    'recent_closes_queue': [],
                 }
                 if is_first_day_in_batch: is_first_day_in_batch = False
-                continue # 跳过后续计算
-            # [代码修改结束]
+                continue
             missing_keys = [key for key in required_daily_chip_cols if key not in context_data or pd.isna(context_data[key])]
             if not chip_data_for_calc.empty and chip_data_for_calc['percent'].sum() < 0.1:
                 missing_keys.append('valid_chip_distribution')
@@ -181,25 +187,40 @@ class AdvancedChipMetricsService:
                 reason = f"缺失核心原料数据: {missing_keys}"
                 logger.warning(f"[{stock_code}] [{trade_date.date()}] 跳过筹码计算，{reason}")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
+                continue
             cyq_perf_keys = ['weight_avg', 'winner_rate', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'prev_20d_close', 'open_qfq']
             context_for_calc = {key: context_data.get(key) for key in cyq_perf_keys}
+            close_price_today = context_data.get('close_qfq')
+            recent_closes_list = prev_metrics.get('recent_closes_queue', [])
+            if len(recent_closes_list) >= 10:
+                recent_closes_list.pop(0)
+            recent_closes_list.append(close_price_today)
+            total_chip_volume_today = context_data.get('float_share', 0) * 10000
             context_for_calc.update({
-                'close_price': context_data.get('close_qfq'),
-                'high_price': context_data.get('high_qfq'),
-                'low_price': context_data.get('low_qfq'),
-                'open_price': context_data.get('open_qfq'),
-                'pre_close': context_data.get('pre_close_qfq'),
-                'daily_turnover_volume': context_data.get('vol', 0) * 100,
-                'total_chip_volume': context_data.get('float_share', 0) * 10000,
-                'stock_code': stock_code,
-                'trade_date': trade_date.date(),
-                'circ_mv': context_data.get('circ_mv'),
-                'is_first_day_in_batch': is_first_day_in_batch,
+                'close_price': close_price_today, 'high_price': context_data.get('high_qfq'),
+                'low_price': context_data.get('low_qfq'), 'open_price': context_data.get('open_qfq'),
+                'pre_close': context_data.get('pre_close_qfq'), 'daily_turnover_volume': context_data.get('vol', 0) * 100,
+                'total_chip_volume': total_chip_volume_today, 'stock_code': stock_code, 'trade_date': trade_date.date(),
+                'circ_mv': context_data.get('circ_mv'), 'is_first_day_in_batch': is_first_day_in_batch,
+                'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
+                'atr_14d': context_data.get('atr_14d'),
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
+                'prev_high_20d': prev_metrics.get('high_20d'), 'prev_low_20d': prev_metrics.get('low_20d'),
+                'prev_total_chip_volume': prev_metrics.get('total_chip_volume'),
+                'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index'),
+                'recent_10d_closes': recent_closes_list,
             })
+            # [代码新增开始]
+            # 核心新增: 将截至T-1日的所有历史组件数据注入上下文
+            if hist_comp_dict:
+                # 筛选出所有早于当前计算日期的历史数据
+                historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
+                if historical_data_for_day:
+                    context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
+            # [代码新增结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
@@ -212,20 +233,26 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
+                # [代码新增开始]
+                # 核心新增: 将当日计算出的新指标追加到历史数据中，供下一日使用
+                if 'historical_components' in context_for_calc:
+                    today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in context_for_calc['historical_components'].columns}
+                    today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
+                    hist_comp_dict.update(today_df.to_dict('index'))
+                # [代码新增结束]
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
-                'chip_distribution': chip_data_for_calc,
-                'close_price': context_data.get('close_qfq'),
-                'prev_20d_close': context_data.get('prev_20d_close')
+                'chip_distribution': chip_data_for_calc, 'close_price': context_data.get('close_qfq'),
+                'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
+                'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
+                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None,
+                'recent_closes_queue': recent_closes_list,
             }
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
-            # [代码修改开始]
-            # 核心修正：确保方法始终返回三个值
             return pd.DataFrame(), prev_metrics, failures_list
         return pd.DataFrame(all_metrics_list).set_index('trade_time'), prev_metrics, failures_list
-        # [代码修改结束]
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
