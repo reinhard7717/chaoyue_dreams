@@ -121,9 +121,7 @@ class AdvancedChipMetricsService:
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict) -> pd.DataFrame:
         """【V2.7 · 动态战区注入版】新增对20日高低价区间的注入。"""
-        # [代码修改开始]
         # 核心修改: 更新方法签名以接收20日高低点映射
-        # [代码修改结束]
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -140,11 +138,9 @@ class AdvancedChipMetricsService:
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
-        # [代码新增开始]
         # 核心新增: 将20日高低点映射到合并后的DataFrame中
         merged_df['high_20d'] = merged_df['trade_time'].map(high_20d_map)
         merged_df['low_20d'] = merged_df['trade_time'].map(low_20d_map)
-        # [代码新增结束]
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
@@ -160,10 +156,8 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
-        # [代码新增开始]
         # 核心新增: 如果历史组件数据存在，则预处理以便快速查询
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
-        # [代码新增结束]
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()

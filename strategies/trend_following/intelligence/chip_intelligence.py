@@ -45,11 +45,9 @@ class ChipIntelligence:
         all_chip_states.update(capitulation_potential_states)
         lockdown_states = self.diagnose_bottom_accumulation_lockdown(df, all_chip_states)
         all_chip_states.update(lockdown_states)
-        # [代码新增开始]
         # 新增调用：诊断主力抢筹信号
         scramble_states = self.diagnose_lockdown_scramble(df, all_chip_states)
         all_chip_states.update(scramble_states)
-        # [代码新增结束]
         return all_chip_states
 
     def diagnose_bottom_accumulation_lockdown(self, df: pd.DataFrame, current_chip_states: Dict) -> Dict[str, pd.Series]:

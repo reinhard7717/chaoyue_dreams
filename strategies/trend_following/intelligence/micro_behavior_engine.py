@@ -587,10 +587,8 @@ class MicroBehaviorEngine:
         # 建立健壮的列名处理协议，确保总能正确找到带 '_D' 后缀的列
         base_metric_name = metric_name[:-2] if metric_name.endswith('_D') else metric_name
         full_metric_name = f"{base_metric_name}_D"
-        # [代码新增开始]
         # 创建一个标准的、类型安全的全零Series作为默认值
         default_series = pd.Series(0.0, index=df.index)
-        # [代码新增结束]
 
         # 状态
         static = df.get(full_metric_name, default_series)

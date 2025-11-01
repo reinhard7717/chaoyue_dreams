@@ -61,11 +61,9 @@ class CognitiveIntelligence:
         cyclical_risk_states = self._calculate_cyclical_top_risk(df)
         self.strategy.atomic_states.update(cyclical_risk_states)
         self.strategy.atomic_states.update(self._synthesize_cognitive_expansion_engine(df))
-        # [代码新增开始]
         # 新增：调用新的战术突破确认信号引擎
         tactical_breakout_states = self._synthesize_tactical_breakout_confirmation(df)
         self.strategy.atomic_states.update(tactical_breakout_states)
-        # [代码新增结束]
         self.strategy.atomic_states['strategy_instance_ref'] = self.strategy
         bottom_context_score, top_context_score = calculate_context_scores(df, self.strategy.atomic_states)
         del self.strategy.atomic_states['strategy_instance_ref']

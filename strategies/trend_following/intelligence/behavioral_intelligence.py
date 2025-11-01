@@ -582,7 +582,6 @@ class BehavioralIntelligence:
         - 核心思想: 真正的滞涨风险 = 无效的努力 + 剧烈的内耗 + 空头的反击。
         - 核心升级: 融合基础行情、高级行为、高级资金流三大数据层，构建三维立体诊断模型。
         """
-        # [代码新增开始]
         states = {}
         signal_name = 'SCORE_RISK_VPA_STAGNATION'
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})

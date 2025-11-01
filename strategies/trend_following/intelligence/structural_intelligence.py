@@ -277,7 +277,6 @@ class StructuralIntelligence:
         【V1.0 · 新增】结构层专用的全息背离计算引擎
         - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
         """
-        # [代码新增开始]
         # 维度一：速度背离 (短期斜率 vs 长期斜率)
         slope_short = series.diff(short_p).fillna(0)
         slope_long = series.diff(long_p).fillna(0)
@@ -291,7 +290,6 @@ class StructuralIntelligence:
         # 融合：速度背离和加速度背离的加权平均
         final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
         return final_divergence_score.astype(np.float32)
-        # [代码新增结束]
 
     def _perform_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
         """

@@ -50,7 +50,6 @@ class FundFlowProbes:
         【探针 V1.0 · 派发共振版】穿透式解剖 SCORE_FF_DISTRIBUTION_RESONANCE 信号
         - 核心职责: 验证“资金流派发共振”信号的每一个公理、每一个周期的计算，确保其准确性。
         """
-        # [代码新增开始]
         print("\n" + "="*25 + f" [资金流探针] 正在启用 🌊【派发共振探针 V1.0】🌊 " + "="*25)
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states

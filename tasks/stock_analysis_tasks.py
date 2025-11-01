@@ -716,13 +716,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         atr_col_name = 'ATRr_14'
         if atr_col_name not in all_daily_data_for_lookback_df.columns:
             raise ValueError(f"[{stock_code}] ATR计算失败，未能找到列: {atr_col_name}")
-        # [代码新增开始]
         # 核心新增: 计算20日滚动最高价和最低价，为“活跃/锁定”筹码剖分模型提供动态区间
         all_daily_data_for_lookback_df['high_20d'] = all_daily_data_for_lookback_df['high_qfq'].rolling(window=20, min_periods=1).max()
         all_daily_data_for_lookback_df['low_20d'] = all_daily_data_for_lookback_df['low_qfq'].rolling(window=20, min_periods=1).min()
         high_20d_map_global = all_daily_data_for_lookback_df['high_20d'].to_dict()
         low_20d_map_global = all_daily_data_for_lookback_df['low_20d'].to_dict()
-        # [代码新增结束]
         atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
         close_map_global = all_daily_data_for_lookback_df['close_qfq'].to_dict()
         trade_dates_series_global = all_daily_data_for_lookback_df.index.sort_values().to_series().reset_index(drop=True)
@@ -748,10 +746,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, seed_daily_vwap)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
-                # [代码修改开始]
                 # 核心修改: 在调用中传递新增的20日高低点映射
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global, high_20d_map_global, low_20d_map_global)
-                # [代码修改结束]
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={})
                 all_failures.extend(seed_failures)
             else:
@@ -794,13 +790,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
                 "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
             }
-            # [代码修改开始]
             # 核心修改: 在调用中传递新增的20日高低点映射
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global
             )
-            # [代码修改结束]
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory
             )
@@ -892,7 +886,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
             for date, idx in date_index_map.items()
         }
-        # [代码新增开始]
         # 核心新增: 加载健康分计算所需的核心组件历史数据
         health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365) # 回溯约一年
         health_score_components = [
@@ -919,7 +912,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         
         # 合并历史数据
         historical_components_df = chip_hist_comp_df.join(ff_hist_comp_df, how='outer')
-        # [代码新增结束]
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
         cross_chunk_memory = {}
@@ -937,11 +929,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, seed_daily_vwap)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
-                # [代码修改开始]
                 # 核心修改: 在调用中传递新增的历史组件数据
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global, high_20d_map_global, low_20d_map_global)
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
-                # [代码修改结束]
                 all_failures.extend(seed_failures)
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
@@ -987,12 +977,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global
             )
-            # [代码修改开始]
             # 核心修改: 在调用中传递新增的历史组件数据
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
             )
-            # [代码修改结束]
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
             full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
@@ -1077,10 +1065,8 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
             start_date_structural = start_date_str
             is_incremental_chip_ff = is_incremental
             is_incremental_structural = is_incremental
-        # [代码修改开始]
         # 核心修正：在查询股票列表时，使用 exclude 方法排除所有以 .BJ 结尾的北交所股票。
         stock_codes = list(StockInfo.objects.filter(list_status='L').exclude(stock_code__endswith='.BJ').values_list('stock_code', flat=True))
-        # [代码修改结束]
         if not stock_codes:
             logger.warning("【总调度】在StockInfo中未找到任何符合条件的上市状态股票，任务终止。")
             return {"status": "skipped", "reason": "No listed stocks found."}

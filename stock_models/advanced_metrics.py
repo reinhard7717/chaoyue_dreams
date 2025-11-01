@@ -15,7 +15,6 @@ class BaseAdvancedChipMetrics(models.Model):
       4. `cost_structure_skewness`: 成本结构偏度，从统计学角度判断成本重心的偏移方向。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # [代码修改开始]
     # --- 第一象限: 静态结构 (Static Structure) ---
     STATIC_STRUCTURE_METRICS = {
         'dominant_peak_cost': '主导峰成本',
@@ -53,7 +52,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'structural_stability_score': '结构稳定性评分(0-100)',
         'cost_structure_skewness': '成本结构偏度',
     }
-    # [代码修改结束]
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
         'active_selling_pressure': '主动卖压强度(%)',
@@ -123,7 +121,6 @@ class BaseAdvancedChipMetrics(models.Model):
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume', 'chip_fault_status']
     BOOLEAN_FIELDS = ['is_multi_peak']
-    # [代码修改开始]
     # 核心修改: 将所有新的高阶复合指标加入斜率排除列表
     SLOPE_ACCEL_EXCLUSIONS = [
         # 动态归因类 (已经是变化量)
@@ -156,7 +153,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'structural_stability_score',
         'cost_structure_skewness',
     ]
-    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
             vars()[name] = models.BigIntegerField(verbose_name=verbose, null=True, blank=True)
@@ -174,10 +170,6 @@ class BaseAdvancedChipMetrics(models.Model):
     class Meta:
         abstract = True
         ordering = ['-trade_time']
-    def __str__(self):
-        if hasattr(self, 'stock') and self.stock:
-            return f"{self.stock.stock_code} - {self.trade_time}"
-        return f"AdvancedChipMetric - {self.trade_time}"
 
 class AdvancedChipMetrics_SZ(BaseAdvancedChipMetrics):
     # 唯一需要在此定义的字段是外键，因为它的 related_name 对每个表都必须是唯一的
@@ -197,7 +189,6 @@ class AdvancedChipMetrics_SZ(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 优化联合索引
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['is_chip_fault_formed']),
         ]
 
 class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
@@ -217,7 +208,6 @@ class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['is_chip_fault_formed']),
         ]
 
 class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
@@ -237,7 +227,6 @@ class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['is_chip_fault_formed']),
         ]
 
 class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
@@ -257,17 +246,34 @@ class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
         indexes = [
             models.Index(fields=['stock', 'trade_time']),
             models.Index(fields=['chip_health_score']),
-            models.Index(fields=['is_chip_fault_formed']),
+        ]
+
+class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
+    stock = models.ForeignKey(
+        'StockInfo',
+        on_delete=models.CASCADE,
+        related_name='advanced_chip_metrics_bj',
+        verbose_name='股票',
+        db_index=True
+    )
+    class Meta(BaseAdvancedChipMetrics.Meta):
+        abstract = False
+        verbose_name = '高级筹码指标-北京(V6.0-衍生固化)'
+        verbose_name_plural = verbose_name
+        db_table = 'stock_advanced_chip_metrics_bj'
+        unique_together = ('stock', 'trade_time')
+        indexes = [
+            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['chip_health_score']),
         ]
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V18.0 · 最终评估重构版】
-    - 核心革命: 废弃旧的静态总结指标，引入“盈利质量”、“波动效率”和“收盘姿态”的动态评估模型。
-    - 核心升级:
-      1. `pnl_quality_score`: 评估主力盈利的“含金量”与“性价比”。
-      2. `volatility_asymmetry_index`: 衡量日内波动的非对称性，识别涨跌的真实动能。
-      3. `closing_price_deviation_score`: 结合收盘竞价能量，评估收盘价的真实强度。
+    【V23.0 · 价值区信念版】
+    - 核心革命: 新增“价值区域信念”分析模块，通过主力净流入构建独立的成交剖面，揭示主力的真实意图。
+    - 核心新增:
+      1. `main_force_vpoc`: 主力VPOC，主力资金当天真正的火力集中点。
+      2. `mf_vpoc_premium`: 主力VPOC溢价，量化主力意图与市场行为的背离。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     POWER_STRUCTURE_METRICS = {
@@ -306,8 +312,20 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'vwap_structure_skew': 'VWAP结构偏离度',
         'flow_efficiency_index': '资金效率指数',
         'asymmetric_volume_thrust': '非对称成交量推力',
+        'vwap_control_strength': 'VWAP控制强度',
+        'main_force_vwap_guidance': '主力VWAP引导力',
+        'vwap_crossing_intensity': 'VWAP穿越烈度',
+        'upper_shadow_selling_pressure': '上影线抛压强度',
+        'lower_shadow_absorption_strength': '下影线承接强度',
+        'trend_conviction_ratio': '趋势信念比',
+        'reversal_power_index': '反转力量指数',
+        'holistic_cmf': '全局CMF',
+        'main_force_cmf': '主力CMF',
+        'cmf_divergence_score': 'CMF背离得分',
+        # --- 新增价值区域信念指标 ---
+        'main_force_vpoc': '主力VPOC',
+        'mf_vpoc_premium': '主力VPOC溢价(%)',
     }
-    # 核心修改: 重构“战果评估”指标体系
     OUTCOME_ASSESSMENT_METRICS = {
         'execution_cost_alpha': '执行成本Alpha(%)',
         't0_arbitrage_profit': 'T+0套利利润(万元)',
@@ -322,7 +340,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
     }
-    # 核心修改: 更新排除列表和浮点数列表以匹配新的战果评估指标
     SLOPE_ACCEL_EXCLUSIONS = [
         'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -334,6 +351,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
         'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
         'closing_price_deviation_score',
+        'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
+        'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
+        'trend_conviction_ratio', 'reversal_power_index',
+        'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
+        # --- 新增价值区域信念指标至排除列表 ---
+        'main_force_vpoc', 'mf_vpoc_premium',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
@@ -346,6 +369,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
         'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
         'closing_price_deviation_score',
+        'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
+        'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
+        'trend_conviction_ratio', 'reversal_power_index',
+        'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
+        # --- 新增价值区域信念指标至浮点数列表 ---
+        'mf_vpoc_premium',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
@@ -354,7 +383,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # 核心修改: 更新可累加列的列表
     sum_cols = [
         'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
         'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
@@ -481,51 +509,54 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V5.0 · 战场动力学深化版】
-    - 核心革命: 在“能量密度”维度中，引入反转韧性、高位换手意愿、开盘突袭纯度三个全新的战术指标，
-                  从能量的释放方式、方向和效率上深度刻画日内博弈。
+    【V15.0 · 高级博弈效率版】
+    - 核心革命: 在第三象限引入“背离信念得分”和“波动率偏度指数”，深度剖析日内走势的内在健康度。
     - 核心新增:
-      1. `rebound_momentum`: 反转动能。
-      2. `high_level_consolidation_volume`: 高位整固成交量占比。
-      3. `opening_period_thrust`: 开盘期推力。
+      1. `divergence_conviction_score`: 量化背离信号的强度与可信度。
+      2. `volatility_skew_index`: 衡量日内价格波动的非对称性“性格”。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # [代码修改开始]
     # --- 第一维度: 能量与战场动力学 (Energy & Battlefield Dynamics) ---
     ENERGY_DENSITY_METRICS = {
         'intraday_energy_density': '日内能量密度',
         'intraday_thrust_purity': '日内推力纯度',
         'volume_burstiness_index': '成交量爆裂度指数',
         'auction_impact_score': '集合竞价冲击分',
-        # --- 新增战场动力学指标 ---
         'rebound_momentum': '反转动能',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
-    # [代码修改结束]
-    # --- 第二维度: 控制权 (Control) ---
+    # --- 第二维度: 控制权、趋势与代理筹码动力学 (Control, Trend & Proxy Chip Dynamics) ---
     CONTROL_METRICS = {
-        'vwap_deviation_area': 'VWAP偏离面积',
-        'trend_persistence_index': '趋势持续性指数(Hurst)',
-        'volume_weighted_time_index': '成交量加权时间指数',
-        'close_vs_vpoc_ratio': '收盘价/VPOC比',
-        'upper_shadow_volume_ratio': '上影线成交量占比',
-        'lower_shadow_volume_ratio': '下影线成交量占比',
+        'trend_efficiency_ratio': '趋势效率比',
+        'pullback_depth_ratio': '回撤深度比',
+        'mean_reversion_frequency': '均值回归频率(每小时)',
+        'opening_volume_impulse': '开盘成交脉冲',
+        'midday_consolidation_level': '盘中沉寂水平',
+        'tail_volume_acceleration': '尾盘成交加速',
+        'vpoc_deviation_magnitude': 'VPOC偏离量级(ATR)',
+        'vpoc_consensus_strength': 'VPOC共识强度(%)',
+        'closing_conviction_score': '收盘信念得分',
+        'volume_profile_entropy': '成交剖面熵',
+        'intraday_pnl_imbalance': '日内盈亏失衡度',
+        'cost_dispersion_index': '成本离散指数(ATR)',
     }
     # --- 第三维度: 博弈效率 (Game Efficiency) ---
     GAME_EFFICIENCY_METRICS = {
-        'vpa_efficiency': '量价分析效率',
-        'intraday_trend_efficiency': '日内趋势效率(旧)',
-        'intraday_reversal_intensity': '日内反转强度',
-        'true_daily_cmf': '高保真CMF',
+        'upward_thrust_efficacy': '上涨推力效能',
+        'downward_absorption_efficacy': '下跌吸收效能',
+        'net_vpa_score': '净量价效能得分',
         'is_intraday_bullish_divergence': '是否存在日内底部背离',
         'is_intraday_bearish_divergence': '是否存在日内顶部背离',
+        # --- 新增指标 ---
+        'divergence_conviction_score': '背离信念得分',
+        'volatility_skew_index': '波动率偏度指数',
     }
     # --- 辅助性结构指标 (保留，但重要性降低) ---
     AUXILIARY_METRICS = {
-        'intraday_vpoc': '日内成交峰值(VPOC)',
-        'intraday_vah': '日内价值上轨(VAH)',
-        'intraday_val': '日内价值下轨(VAL)',
+        'value_area_migration': '价值区迁移度(ATR)',
+        'value_area_overlap_pct': '价值区重叠度(%)',
+        'closing_acceptance_type': '收盘接受度类型',
         'am_pm_volume_ratio': '上下午成交量比',
         'am_pm_vwap_ratio': '上下午VWAP比',
     }
@@ -537,17 +568,34 @@ class BaseAdvancedStructuralMetrics(models.Model):
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     BOOLEAN_FIELDS = ['is_intraday_bullish_divergence', 'is_intraday_bearish_divergence']
-    # [代码修改开始]
     SLOPE_ACCEL_EXCLUSIONS = [
         'is_intraday_bullish_divergence', 'is_intraday_bearish_divergence',
         'auction_impact_score',
-        'trend_persistence_index',
-        # --- 新增排除项 ---
         'rebound_momentum',
         'high_level_consolidation_volume',
         'opening_period_thrust',
+        'trend_efficiency_ratio',
+        'pullback_depth_ratio',
+        'mean_reversion_frequency',
+        'opening_volume_impulse',
+        'midday_consolidation_level',
+        'tail_volume_acceleration',
+        'vpoc_deviation_magnitude',
+        'vpoc_consensus_strength',
+        'closing_conviction_score',
+        'volume_profile_entropy',
+        'intraday_pnl_imbalance',
+        'cost_dispersion_index',
+        'upward_thrust_efficacy',
+        'downward_absorption_efficacy',
+        'net_vpa_score',
+        # --- 新增排除项 ---
+        'divergence_conviction_score',
+        'volatility_skew_index',
+        'value_area_migration',
+        'value_area_overlap_pct',
+        'closing_acceptance_type',
     ]
-    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)
