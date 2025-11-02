@@ -186,13 +186,13 @@ class AdvancedChipMetrics_SZ(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_sz'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
             models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
-            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['structural_resilience_index']), # 旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['peak_separation_ratio']), # 旗舰索引：用于快速筛选具备有利成本断层的标的
+            models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
-        # [代码修改结束]
 
 class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -208,13 +208,13 @@ class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_sh'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
             models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
-            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['structural_resilience_index']), # 旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['peak_separation_ratio']), # 旗舰索引：用于快速筛选具备有利成本断层的标的
+            models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
-        # [代码修改结束]
 
 class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -230,13 +230,13 @@ class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_cy'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
             models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
-            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['structural_resilience_index']), # 旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['peak_separation_ratio']), # 旗舰索引：用于快速筛选具备有利成本断层的标的
+            models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
-        # [代码修改结束]
 
 class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -252,13 +252,13 @@ class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_kc'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
             models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
-            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['structural_resilience_index']), # 旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['peak_separation_ratio']), # 旗舰索引：用于快速筛选具备有利成本断层的标的
+            models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
-        # [代码修改结束]
 
 class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -274,13 +274,13 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_bj'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
             models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
-            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['structural_resilience_index']), # 旗舰索引：用于快速筛选结构稳固的标的
+            models.Index(fields=['peak_separation_ratio']), # 旗舰索引：用于快速筛选具备有利成本断层的标的
+            models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
-        # [代码修改结束]
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
