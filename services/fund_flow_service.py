@@ -247,8 +247,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
-        【V21.0 · 战略精简版】
-        - 核心裁撤: 移除了对已废弃指标 `xl_order_flow_directionality` 的计算。
+        【V22.0 · 健壮性修复版】
+        - 核心修复: 修正了 `pd.to_numeric` 的错误调用，移除了无效的 `default` 参数。
+        - 核心修复: 采用 `np.nansum` 和 `np.nan_to_num` 来安全地处理可能出现的NaN值，确保计算的健壮性。
         """
         results = {}
         # --- 1. 校准共识资金流 (Calibrated Consensus) ---
@@ -284,8 +285,17 @@ class AdvancedFundFlowMetricsService:
                 battle_volume = min(abs(mf_flow), abs(retail_flow))
                 results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
         # --- 3. 主力动态 (Main Force Dynamics) ---
-        mf_buy = pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce', default=0) + pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce', default=0)
-        mf_sell = pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce', default=0) + pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce', default=0)
+        # [代码修改开始]
+        # 使用 np.nansum 安全地求和，它会将 NaN 视作 0
+        mf_buy = np.nansum([
+            pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'),
+            pd.to_numeric(daily_data_series.get('buy_elg_amount'), errors='coerce')
+        ])
+        mf_sell = np.nansum([
+            pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'),
+            pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')
+        ])
+        # [代码修改结束]
         mf_total_activity = mf_buy + mf_sell
         total_turnover_wan = turnover_amount_yuan / 10000
         if total_turnover_wan > 0:
@@ -296,8 +306,11 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_flow_directionality'] = (mf_net_calibrated / mf_total_activity) * 100
         # --- 4. 交易结构动态 (Trade Structure Dynamics) ---
         def get_directionality(buy_c, sell_c):
-            b = pd.to_numeric(daily_data_series.get(buy_c), errors='coerce', default=0)
-            s = pd.to_numeric(daily_data_series.get(sell_c), errors='coerce', default=0)
+            # [代码修改开始]
+            # 使用 np.nan_to_num 将 NaN 转换为 0
+            b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
+            s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
+            # [代码修改结束]
             return (b - s) / (b + s) if (b + s) > 0 else 0.0
         xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
         lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
