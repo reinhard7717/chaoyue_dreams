@@ -229,9 +229,8 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V2.0 · 精简版】
-        - 核心整合: 将战术序列流、高级结构、获利盘信念、主力成本优势、控盘杠杆、套牢盘压力等所有博弈意图分析逻辑内聚于此。
-        - 核心裁撤: 移除了 `estimated_main_force_position_cost` 的计算逻辑，因其假设脆弱且易产生误导。
+        【V4.0 · 反弹脉冲重构版】
+        - 核心重构: 将 `intraday_probe_rebound_quality` 升级为 `rebound_impulse_strength`，增强逻辑鲁棒性。
         """
         import datetime
         results = {}
@@ -315,28 +314,46 @@ class ChipFeatureCalculator:
             else:
                 results['intraday_new_loser_pressure'] = 0.0
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns:
-            auction_df = minute_df[minute_df['trade_time'].dt.time >= datetime.time(14, 57)]
-            if not auction_df.empty:
-                total_auction_amount = (auction_df['vol_shares'] * auction_df['minute_vwap']).sum()
-                if total_auction_amount > 0:
-                    mf_net_amount = (auction_df['main_force_buy_vol'] * auction_df['minute_vwap']).sum() - (auction_df['main_force_sell_vol'] * auction_df['minute_vwap']).sum()
-                    results['closing_auction_control_signal'] = (mf_net_amount / total_auction_amount) * 100
+            auction_start_time = datetime.time(14, 57)
+            pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
+            auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
+            atr_14d = context.get('atr_14d')
+            if not pre_auction_df.empty and not auction_df.empty and pd.notna(atr_14d) and atr_14d > 0 and pd.notna(close_price) and total_daily_vol > 0:
+                pre_auction_price = pre_auction_df['close'].iloc[-1]
+                auction_volume = auction_df['vol'].sum()
+                price_impact = (close_price - pre_auction_price) / atr_14d
+                volume_weight = np.log1p(auction_volume / total_daily_vol)
+                results['auction_battle_signal'] = price_impact * volume_weight * 100
+        # [代码修改开始]
+        # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')
-        if minute_df is not None and not minute_df.empty and pd.notna(low_price):
-            low_price_time = minute_df.loc[minute_df['low'].idxmin()]['trade_time'] if 'low' in minute_df.columns else minute_df.loc[minute_df['minute_vwap'].idxmin()]['trade_time']
-            dip_df = minute_df[minute_df['trade_time'] <= low_price_time]
-            rebound_df = minute_df[minute_df['trade_time'] > low_price_time]
-            if not dip_df.empty and not rebound_df.empty:
-                dip_total_volume = dip_df['vol_shares'].sum()
-                if dip_total_volume > 0:
-                    rebound_mf_net_vol = rebound_df['main_force_buy_vol'].sum() - rebound_df['main_force_sell_vol'].sum()
-                    results['intraday_probe_rebound_quality'] = rebound_mf_net_vol / dip_total_volume
+        high_price = context.get('high_price')
+        if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [low_price, high_price, close_price]):
+            day_range = high_price - low_price
+            if day_range > 1e-6: # 避免在横盘时除以零
+                # 找到最低点的时间索引
+                if 'low' in minute_df.columns and not minute_df['low'].empty:
+                    low_price_idx = minute_df['low'].idxmin()
+                else: # Fallback
+                    low_price_idx = minute_df['minute_vwap'].idxmin()
+                # 定义反弹阶段
+                rebound_df = minute_df.loc[low_price_idx:]
+                if not rebound_df.empty and len(rebound_df) > 1:
+                    # 计算反弹幅度
+                    price_recovery_ratio = (close_price - low_price) / day_range
+                    # 计算反弹纯度
+                    rebound_volume = rebound_df['vol_shares'].sum()
+                    if rebound_volume > 0 and 'main_force_net_vol' in rebound_df.columns:
+                        rebound_mf_net_flow = rebound_df['main_force_net_vol'].sum()
+                        rebound_purity = rebound_mf_net_flow / rebound_volume
+                        results['intraday_probe_rebound_quality'] = price_recovery_ratio * rebound_purity * 100
+        # [代码修改结束]
         return results
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 新增 · 生命体征计算单元】
-        - 核心整合: 将成本共识、成本动量、结构韧性、主力姿态等所有宏观评估逻辑内聚于此。
+        【V2.0 · 成本动量升级版】
+        - 核心重构: 将 `chip_cost_momentum` 升级为 `dominant_cost_momentum`，聚焦于市场核心成本中枢的移动。
         """
         results = {}
         # 1. 成本结构共识与筹码成本动量
@@ -346,11 +363,14 @@ class ChipFeatureCalculator:
             concentration_factor = 1.0 - np.clip(concentration_90pct, 0, 1)
             profit_factor = total_winner_rate / 100.0
             results['cost_structure_consensus_index'] = concentration_factor * profit_factor * 100
-        short_term_cost = context.get('short_term_holder_cost')
-        prev_short_term_cost = context.get('prev_short_term_holder_cost')
+        # [代码修改开始]
+        # 升级为 `dominant_cost_momentum`
+        dominant_peak_cost = context.get('dominant_peak_cost')
+        prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
         prev_atr = context.get('prev_atr_14d')
-        if all(pd.notna(v) for v in [short_term_cost, prev_short_term_cost, prev_atr]) and prev_atr > 0:
-            results['chip_cost_momentum'] = (short_term_cost - prev_short_term_cost) / prev_atr
+        if all(pd.notna(v) for v in [dominant_peak_cost, prev_dominant_peak_cost, prev_atr]) and prev_atr > 0:
+            results['dominant_cost_momentum'] = (dominant_peak_cost - prev_dominant_peak_cost) / prev_atr
+        # [代码修改结束]
         # 2. 结构韧性指数
         def normalize(value, default=0.0): return value if pd.notna(value) else default
         consensus_index = normalize(results.get('cost_structure_consensus_index'))
@@ -359,7 +379,9 @@ class ChipFeatureCalculator:
         active_winner_margin = normalize(context.get('active_winner_profit_margin'))
         winner_conviction = normalize(context.get('winner_conviction_index'))
         pressure_score = np.log1p(np.maximum(0, active_winner_margin)) * np.log1p(np.maximum(0, winner_conviction))
-        cost_momentum = normalize(results.get('chip_cost_momentum'))
+        # [代码修改开始]
+        cost_momentum = normalize(results.get('dominant_cost_momentum')) # 使用新的成本动量指标
+        # [代码修改结束]
         upward_purity = normalize(context.get('upward_impulse_purity'))
         reinforcement_score = (np.tanh(cost_momentum) + 1) * ((upward_purity / 100.0) + 1)
         if foundation_score >= 0 and pressure_score >= 0 and reinforcement_score >= 0:
@@ -380,25 +402,81 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V1.0 · 新增 · 静态结构计算单元】
-        - 核心整合: 将主导峰、集中度、压力支撑、盈亏结构、断层、分层成本、盈亏质量、结构稳定性、成本形态等所有静态分析逻辑内聚于此。
+        【V5.0 · 战区定义与补完版】
+        - 核心新增: 为 `peak_battle_intensity` 等下游指标计算并提供主峰战区范围的前置条件。
+        - 核心新增: 补完 `long_term_concentration_90pct` 的计算逻辑。
+        - 核心重构: 重构 `peak_distance_volatility_ratio` 为一个更具实战意义的波动率标准化峰距指标。
         """
         results = {}
         close_price = self.ctx.get('close_price')
-        # 1. 主导峰剖面
+        # 1. 主导峰与次峰剖面
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
-        if len(peaks) == 0 and not self.df.empty:
+        if len(peaks) > 0:
+            peaks_df = pd.DataFrame({
+                'peak_index': peaks,
+                'volume': self.df['percent'].iloc[peaks].values,
+                'cost': self.df['price'].iloc[peaks].values,
+                'prominence': properties['prominences'],
+                # [代码新增开始]
+                # 提取峰底的左右边界索引，用于精确定义战区
+                'left_ip': properties['left_ips'],
+                'right_ip': properties['right_ips'],
+                # [代码新增结束]
+            }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
+            main_peak = peaks_df.iloc[0]
+            results['dominant_peak_cost'] = main_peak['cost']
+            results['dominant_peak_volume_ratio'] = main_peak['volume']
+            # [代码新增开始]
+            # 计算并注入主峰战区范围，为下游指标提供前置条件
+            # 使用np.interp进行线性插值，获得更精确的价格边界
+            results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
+            results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
+            # [代码新增结束]
+            if len(peaks_df) > 1:
+                secondary_peak = peaks_df.iloc[1]
+                results['secondary_peak_cost'] = secondary_peak['cost']
+                if results['dominant_peak_cost'] > 0:
+                    separation = (results['dominant_peak_cost'] - results['secondary_peak_cost']) / results['dominant_peak_cost']
+                    results['peak_separation_ratio'] = separation * 100
+                if results['dominant_peak_volume_ratio'] > 0:
+                    results['peak_volume_ratio'] = (secondary_peak['volume'] / results['dominant_peak_volume_ratio']) * 100
+                atr_14d_for_ratio = self.ctx.get('atr_14d')
+                if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0:
+                    peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
+                    results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
+            else:
+                results['secondary_peak_cost'] = np.nan
+                results['peak_separation_ratio'] = np.nan
+                results['peak_volume_ratio'] = np.nan
+                results['peak_distance_volatility_ratio'] = np.nan
+        elif not self.df.empty:
             peak_idx = self.df['percent'].idxmax()
             results['dominant_peak_cost'] = self.df.loc[peak_idx, 'price']
             results['dominant_peak_volume_ratio'] = self.df.loc[peak_idx, 'percent']
-            results['peak_range_low'] = results['dominant_peak_cost'] * 0.995
-            results['peak_range_high'] = results['dominant_peak_cost'] * 1.005
-        elif len(peaks) > 0:
-            main_peak_idx = peaks[np.argmax(properties['prominences'])]
-            results['dominant_peak_cost'] = self.df.iloc[main_peak_idx]['price']
-            results['dominant_peak_volume_ratio'] = self.df.iloc[main_peak_idx]['percent']
+            results['secondary_peak_cost'] = np.nan
+            results['peak_separation_ratio'] = np.nan
+            results['peak_volume_ratio'] = np.nan
+            results['peak_distance_volatility_ratio'] = np.nan
+            # [代码新增开始]
+            # 在备用逻辑中，同样提供一个合理的默认战区范围，确保下游计算的鲁棒性
+            results['peak_range_low'] = results['dominant_peak_cost'] * 0.99
+            results['peak_range_high'] = results['dominant_peak_cost'] * 1.01
+            # [代码新增结束]
         if pd.notna(close_price) and results.get('dominant_peak_cost', 0) > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
+        dominant_peak_cost = results.get('dominant_peak_cost')
+        cost_95pct = self.ctx.get('cost_95pct')
+        cost_5pct = self.ctx.get('cost_5pct')
+        if all(pd.notna(v) for v in [dominant_peak_cost, cost_95pct, cost_5pct, close_price]) and close_price > 0:
+            peak_zone_low = dominant_peak_cost * 0.995
+            peak_zone_high = dominant_peak_cost * 1.005
+            volume_in_peak_zone = self.df[(self.df['price'] >= peak_zone_low) & (self.df['price'] <= peak_zone_high)]['percent'].sum()
+            chip_width_90pct = cost_95pct - cost_5pct
+            if chip_width_90pct > 0:
+                peak_top_density = volume_in_peak_zone / (peak_zone_high - peak_zone_low)
+                normalized_chip_width = chip_width_90pct / close_price
+                if normalized_chip_width > 0:
+                    results['dominant_peak_solidity'] = peak_top_density / normalized_chip_width
         # 2. 集中度剖面
         def _get_concentration(chip_df: pd.DataFrame):
             if chip_df.empty or chip_df['percent'].sum() < 1e-6: return None
@@ -413,14 +491,18 @@ class ChipFeatureCalculator:
         if pd.notna(close_price):
             results['winner_concentration_90pct'] = _get_concentration(self.df[self.df['price'] < close_price])
             results['loser_concentration_90pct'] = _get_concentration(self.df[self.df['price'] > close_price])
-        # 3. 动态压力支撑
+        # 3. 动态压力支撑 (升级为力矩模型)
         atr_14d = self.ctx.get('atr_14d')
         if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             zone_width = 0.5 * atr_14d
             pressure_df = self.df[(self.df['price'] > close_price) & (self.df['price'] <= close_price + zone_width)]
+            if not pressure_df.empty:
+                pressure_torque = ((pressure_df['price'] - close_price) / atr_14d * pressure_df['percent']).sum()
+                results['dynamic_pressure_index'] = pressure_torque
             support_df = self.df[(self.df['price'] >= close_price - zone_width) & (self.df['price'] < close_price)]
-            results['potential_pressure_pct'] = pressure_df['percent'].sum()
-            results['potential_support_pct'] = support_df['percent'].sum()
+            if not support_df.empty:
+                support_torque = ((close_price - support_df['price']) / atr_14d * support_df['percent']).sum()
+                results['dynamic_support_index'] = support_torque
         # 4. 盈亏结构
         if pd.notna(close_price):
             winners_df = self.df[self.df['price'] < close_price]
@@ -429,7 +511,10 @@ class ChipFeatureCalculator:
             results['total_loser_rate'] = losers_df['percent'].sum()
             if not winners_df.empty and winners_df['percent'].sum() > 0:
                 winner_avg_cost = np.average(winners_df['price'], weights=winners_df['percent'])
-                if winner_avg_cost > 0: results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100
+                if winner_avg_cost > 0:
+                    results['winner_profit_margin_avg'] = (close_price / winner_avg_cost - 1) * 100
+                    if pd.notna(results['total_winner_rate']) and pd.notna(results['winner_profit_margin_avg']):
+                        results['effective_winner_rate'] = results['total_winner_rate'] * results['winner_profit_margin_avg']
             if not losers_df.empty and losers_df['percent'].sum() > 0:
                 loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
                 if loser_avg_cost > 0: results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100
@@ -458,6 +543,10 @@ class ChipFeatureCalculator:
                 results['short_term_holder_cost'] = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
             if not long_term_chips_df.empty and long_term_chips_df['percent'].sum() > 0:
                 results['long_term_holder_cost'] = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
+                # [代码新增开始]
+                # 补完 `long_term_concentration_90pct` 的计算
+                results['long_term_concentration_90pct'] = _get_concentration(long_term_chips_df)
+                # [代码新增结束]
         # 7. 盈利亏损质量分析
         if not self.df.empty and pd.notna(close_price):
             winners_df_quality = self.df[self.df['price'] < close_price].copy()
@@ -473,9 +562,9 @@ class ChipFeatureCalculator:
                 avg_loss_margin = abs((close_price / loser_avg_cost_quality - 1) * 100) if loser_avg_cost_quality > 0 else 0
                 losers_df_quality['percent'] = (losers_df_quality['percent'] / losers_df_quality['percent'].sum()) * 100
                 losers_df_quality['cum_percent'] = losers_df_quality['percent'].cumsum()
-                cost_5pct = np.interp(5, losers_df_quality['cum_percent'], losers_df_quality['price'])
-                cost_95pct = np.interp(95, losers_df_quality['cum_percent'], losers_df_quality['price'])
-                loser_concentration = (cost_95pct - cost_5pct) / loser_avg_cost_quality if loser_avg_cost_quality > 0 else 0
+                cost_5pct_loser = np.interp(5, losers_df_quality['cum_percent'], losers_df_quality['price'])
+                cost_95pct_loser = np.interp(95, losers_df_quality['cum_percent'], losers_df_quality['price'])
+                loser_concentration = (cost_95pct_loser - cost_5pct_loser) / loser_avg_cost_quality if loser_avg_cost_quality > 0 else 0
                 results['loser_pain_index'] = avg_loss_margin * (1 - np.clip(loser_concentration, 0, 1))
         # 8. 成本分布形态分析
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
@@ -504,11 +593,10 @@ class ChipFeatureCalculator:
                 final_score = stability_raw ** (1.0 / len(scores))
                 results['structural_stability_score'] = final_score * 100
         # --- 10. 新增：近期套牢盘压力 ---
-        recent_5d_high = self.ctx.get('high_5d') # 假设此数据已通过主任务注入
-        recent_5d_low = self.ctx.get('low_5d')   # 假设此数据已通过主任务注入
-        turnover_vol_5d = self.ctx.get('turnover_vol_5d') # 假设此数据已通过主任务注入
+        recent_5d_high = self.ctx.get('high_5d')
+        recent_5d_low = self.ctx.get('low_5d')
+        turnover_vol_5d = self.ctx.get('turnover_vol_5d')
         if all(pd.notna(v) for v in [recent_5d_high, recent_5d_low, turnover_vol_5d, close_price]) and turnover_vol_5d > 0:
-            # 筛选出成本在近期交易区间内，且高于今日收盘价的筹码
             trapped_mask = (self.df['price'] > close_price) & (self.df['price'] >= recent_5d_low) & (self.df['price'] <= recent_5d_high)
             recent_trapped_percent = self.df[trapped_mask]['percent'].sum()
             total_chip_volume = self.ctx.get('total_chip_volume', 0)
@@ -517,15 +605,15 @@ class ChipFeatureCalculator:
                 results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
         # --- 11. 新增：潜在获利盘供给 ---
         if pd.notna(close_price):
-            # 筛选出成本在 [收盘价/1.05, 收盘价) 区间内的筹码
             imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
         return results
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 新增 · 日内动态计算单元】
-        - 核心整合: 将主峰动态、主动压力支撑、高级日内动态、战区交火剖析等所有日内动态分析逻辑内聚于此。
+        【V4.0 · 峰区博弈重构版】
+        - 核心激活: 依赖于静态分析单元注入的战区范围，本方法现在可以正确计算 `peak_main_force_premium` 和 `peak_mf_conviction_flow`。
+        - 核心重构: 将 `peak_dynamic_strength_ratio` 重构为峰区内买卖双方的VWAP比值，更精确地刻画多空力量平衡。
         """
         results = {}
         minute_df = context.get('minute_data')
@@ -541,16 +629,34 @@ class ChipFeatureCalculator:
                 turnover_at_peak = peak_zone_df['vol'].sum()
                 results['peak_battle_intensity'] = (turnover_at_peak / total_daily_vol) * 100
                 if turnover_at_peak > 0:
+                    # [代码修改开始]
+                    # 此处逻辑现在可以被正确执行
                     mf_net_vol_peak = (peak_zone_df['main_force_buy_vol'] - peak_zone_df['main_force_sell_vol']).sum()
                     results['peak_mf_conviction_flow'] = (mf_net_vol_peak / turnover_at_peak) * 100
+                    # [代码修改结束]
                 mf_total_vol_peak = peak_zone_df['main_force_buy_vol'].sum() + peak_zone_df['main_force_sell_vol'].sum()
                 retail_total_vol_peak = peak_zone_df['retail_buy_vol'].sum() + peak_zone_df['retail_sell_vol'].sum()
                 if mf_total_vol_peak > 0 and retail_total_vol_peak > 0:
-                    mf_amount_peak = (peak_zone_df['main_force_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['main_force_sell_vol'] * peak_zone_df['minute_vwap']).sum()
-                    retail_amount_peak = (peak_zone_df['retail_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['retail_sell_vol'] * peak_zone_df['minute_vwap']).sum()
-                    vwap_mf_peak = mf_amount_peak / mf_total_vol_peak
-                    vwap_retail_peak = retail_amount_peak / retail_total_vol_peak
+                    # [代码修改开始]
+                    # 此处逻辑现在可以被正确执行
+                    mf_total_amount_peak = (peak_zone_df['main_force_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['main_force_sell_vol'] * peak_zone_df['minute_vwap']).sum()
+                    retail_total_amount_peak = (peak_zone_df['retail_buy_vol'] * peak_zone_df['minute_vwap']).sum() + (peak_zone_df['retail_sell_vol'] * peak_zone_df['minute_vwap']).sum()
+                    vwap_mf_peak = mf_total_amount_peak / mf_total_vol_peak
+                    vwap_retail_peak = retail_total_amount_peak / retail_total_vol_peak
                     if vwap_retail_peak > 0: results['peak_main_force_premium'] = (vwap_mf_peak / vwap_retail_peak - 1) * 100
+                    # [代码修改结束]
+                # [代码新增开始]
+                # 重构 `peak_dynamic_strength_ratio` 为峰区压力平衡
+                total_buy_vol_peak = (peak_zone_df['main_force_buy_vol'] + peak_zone_df['retail_buy_vol']).sum()
+                total_sell_vol_peak = (peak_zone_df['main_force_sell_vol'] + peak_zone_df['retail_sell_vol']).sum()
+                if total_buy_vol_peak > 0 and total_sell_vol_peak > 0:
+                    buy_amount_peak = ((peak_zone_df['main_force_buy_vol'] + peak_zone_df['retail_buy_vol']) * peak_zone_df['minute_vwap']).sum()
+                    sell_amount_peak = ((peak_zone_df['main_force_sell_vol'] + peak_zone_df['retail_sell_vol']) * peak_zone_df['minute_vwap']).sum()
+                    buy_vwap_peak = buy_amount_peak / total_buy_vol_peak
+                    sell_vwap_peak = sell_amount_peak / total_sell_vol_peak
+                    if sell_vwap_peak > 0:
+                        results['peak_dynamic_strength_ratio'] = (buy_vwap_peak / sell_vwap_peak - 1) * 100
+                # [代码新增结束]
         # --- 2. 主动压力与支撑 (Active Pressure & Support) ---
         required_cols_2 = ['open', 'close', 'vol', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_2):
@@ -606,22 +712,24 @@ class ChipFeatureCalculator:
                 if total_sell_vol > 0:
                     total_sell_amount = ((minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']) * minute_df['minute_vwap']).sum()
                     results['profit_realization_quality'] = ((total_sell_amount / total_sell_vol) / prev_winner_avg_cost - 1) * 100
-            prev_loser_avg_cost = context.get('prev_loser_avg_cost')
-            if pd.notna(prev_loser_avg_cost) and prev_loser_avg_cost > 0:
-                total_buy_vol = (minute_df['main_force_buy_vol'] + minute_df['retail_buy_vol']).sum()
-                if total_buy_vol > 0:
-                    total_buy_amount = ((minute_df['main_force_buy_vol'] + minute_df['retail_buy_vol']) * minute_df['minute_vwap']).sum()
-                    results['capitulation_absorption_quality'] = ((total_buy_amount / total_buy_vol) / prev_loser_avg_cost - 1) * 100
+            panic_mask = (minute_df['close'] < minute_df['open']) & (minute_df['main_force_net_vol'] < 0)
+            panic_df = minute_df[panic_mask]
+            if not panic_df.empty:
+                panic_sell_volume = (panic_df['main_force_sell_vol'] + panic_df['retail_sell_vol']).sum()
+                if panic_sell_volume > 0:
+                    mf_absorption_volume = panic_df['main_force_buy_vol'].sum()
+                    results['capitulation_absorption_index'] = (mf_absorption_volume / panic_sell_volume) * 100
         return results
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
-        【V3.0 · 动态百分位归一化版】计算筹码结构健康分。
+        【V4.0 · 鲁棒性增强版】计算筹码结构健康分。
         - 核心革命: 引入基于真实历史数据的动态百分位排名进行归一化，实现模型自适应。
         - 核心架构: 沿用“结构稳固度”、“动能纯粹度”、“内部压力度”三维几何平均模型。
+        - 核心修复: 增强了计算的鲁棒性，当某个子指标或维度缺失时，不再导致整个健康分计算失败，而是采用中性值或忽略策略。
         """
         from scipy.stats import percentileofscore
-        results = {'chip_health_score': None}
+        results = {'chip_health_score': np.nan} # 默认值为NaN
         # 1. 定义三维模型的组件和权重(方向)
         model_dimensions = {
             'structural_soundness': {
@@ -657,29 +765,34 @@ class ChipFeatureCalculator:
             for metric, weight in dim_data['components'].items():
                 current_value = context.get(metric)
                 if current_value is None or not pd.notna(current_value) or metric not in historical_df.columns:
-                    continue # 如果当前值或历史数据缺失，则跳过
-                # 获取该指标的历史序列
+                    continue # 如果当前值或历史数据缺失，则安全跳过此子指标
                 historical_series = historical_df[metric].dropna()
                 if historical_series.empty:
                     continue
-                # 计算当前值在历史数据中的百分位排名
                 percentile = percentileofscore(historical_series, current_value, kind='rank') / 100.0
-                # 根据权重调整归一化分数
                 normalized_score = percentile if weight > 0 else (1.0 - percentile)
                 component_scores.append(normalized_score)
-            # 如果该维度有有效分数，则计算其平均分
+            # [代码修改开始]
+            # 增强鲁棒性：如果维度有有效分数，则计算其平均分；否则赋予中性分
             if component_scores:
                 dimension_scores[dim_name] = np.mean(component_scores)
+            else:
+                # 如果该维度的所有子指标都无法计算，则给予一个中性的0.5分（50分位），避免整个健康分失败
+                dimension_scores[dim_name] = 0.5
+                logger.debug(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 健康分维度 '{dim_name}' 无法计算，赋予中性分0.5。")
+            # [代码修改结束]
         # 4. 使用几何平均整合各维度得分
-        if not dimension_scores or len(dimension_scores) < len(model_dimensions):
-            return results # 如果任何一个维度无法计算，则整体健康分无效
+        if not dimension_scores:
+            return results
         final_score_raw = 1.0
+        valid_dims = 0
         for score in dimension_scores.values():
-            final_score_raw *= score
-        # 开立方根（或N次方根）
-        final_score_normalized = final_score_raw ** (1.0 / len(dimension_scores))
-        # 映射到 0-100 分
-        results['chip_health_score'] = final_score_normalized * 100
+            if pd.notna(score):
+                final_score_raw *= score
+                valid_dims += 1
+        if valid_dims > 0:
+            final_score_normalized = final_score_raw ** (1.0 / valid_dims)
+            results['chip_health_score'] = final_score_normalized * 100
         return results
 
 
