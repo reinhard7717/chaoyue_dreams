@@ -247,11 +247,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
-        【V20.0 · 新增 · 日线衍生指标统一计算核心】
-        - 核心革命: 整合所有仅依赖日线数据的分散计算方法到一个统一的计算核心中。
-        - 核心思想:
-          1. 职责单一: 本方法专注于从单日的日线数据中衍生出所有“力量结构”和“共识”相关的指标。
-          2. 逻辑内聚: 将校准共识、可信度、博弈烈度、主力动态、交易结构等计算逻辑集中管理。
+        【V21.0 · 战略精简版】
+        - 核心裁撤: 移除了对已废弃指标 `xl_order_flow_directionality` 的计算。
         """
         results = {}
         # --- 1. 校准共识资金流 (Calibrated Consensus) ---
@@ -304,7 +301,6 @@ class AdvancedFundFlowMetricsService:
             return (b - s) / (b + s) if (b + s) > 0 else 0.0
         xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
         lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
-        results['xl_order_flow_directionality'] = xl_directionality * 100
         results['main_force_conviction_index'] = ((xl_directionality + lg_directionality) / 2.0) * (1.0 - abs(xl_directionality - lg_directionality)) * 100
         # --- 5. 力量格局动态 (Power Structure Dynamics) ---
         mf_flow = results.get('main_force_net_flow_calibrated')
@@ -323,8 +319,8 @@ class AdvancedFundFlowMetricsService:
             else:
                 results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
         # --- 6. 其他日线级指标 ---
-        if total_turnover_yuan > 0:
-            results['main_force_buy_rate_consensus'] = (mf_buy * 10000 / total_turnover_yuan) * 100
+        if total_turnover_wan > 0: # 修正：使用万元为单位的成交额
+            results['main_force_buy_rate_consensus'] = (mf_buy / total_turnover_wan) * 100
         return results
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict, list]:
@@ -475,23 +471,25 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _calculate_derivatives(self, stock_code: str, consensus_df: pd.DataFrame) -> pd.DataFrame:
-        """【V3.7 · 导数协议修正版】为二阶导数（加速度）使用独立的、正确的短计算窗口。"""
+        """
+        【V4.0 · 战略精简版】为所有核心资金流指标计算斜率和加速度。
+        - 核心裁撤: 从 `sum_cols` 列表中移除了所有已废弃的 PnL 评估类及中间过程指标。
+        - 核心同步: `sum_cols` 列表已与当前模型定义严格对齐。
+        """
         derivatives_df = pd.DataFrame(index=consensus_df.index)
         import pandas_ta as ta
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedFundFlowMetrics.SLOPE_ACCEL_EXCLUSIONS
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         # 为加速度定义一个独立的、符合数学定义的短窗口
         ACCEL_WINDOW = 2
-        
+        # [代码修改开始]
+        # 根据精简后的模型定义，更新需要计算累计值的列
         sum_cols = [
-            'net_flow_consensus', 'main_force_net_flow_consensus', 'retail_net_flow_consensus',
-            'net_xl_amount_consensus', 'net_lg_amount_consensus', 'net_md_amount_consensus',
-            'net_sh_amount_consensus', 'cost_weighted_main_flow',
-            'consensus_calibrated_main_flow',
-            'consensus_flow_weighted',
-            'divergence_ts_ths', 'divergence_ts_dc', 'divergence_ths_dc',
-            'realized_profit_on_exchange', 'net_position_change_value', 'unrealized_pnl_on_net_change',
+            'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
+            'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
+            'net_sh_amount_calibrated', 'main_force_on_peak_flow',
         ]
+        # [代码修改结束]
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for p in UNIFIED_PERIODS:
             if p <= 1: continue
@@ -523,7 +521,6 @@ class AdvancedFundFlowMetricsService:
                     accel_col_name = f'{col}_accel_{p}d'
                     # 强制为加速度计算使用独立的短窗口 ACCEL_WINDOW
                     derivatives_df[accel_col_name] = ta.slope(close=slope_series.astype(float), length=ACCEL_WINDOW)
-                    
         return derivatives_df
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):

@@ -222,8 +222,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 新增 · 博弈意图计算单元】
+        【V2.0 · 精简版】
         - 核心整合: 将战术序列流、高级结构、获利盘信念、主力成本优势、控盘杠杆、套牢盘压力等所有博弈意图分析逻辑内聚于此。
+        - 核心裁撤: 移除了 `estimated_main_force_position_cost` 的计算逻辑，因其假设脆弱且易产生误导。
         """
         import datetime
         results = {}
@@ -295,11 +296,6 @@ class ChipFeatureCalculator:
         loser_concentration = context.get('loser_concentration_90pct')
         if all(pd.notna(v) for v in [loser_loss_margin, loser_concentration]):
             results['loser_capitulation_pressure_index'] = abs(loser_loss_margin) * loser_concentration
-        short_term_cost_line = context.get('short_term_holder_cost')
-        if not self.df.empty and pd.notna(short_term_cost_line):
-            foundational_chips_df = self.df[self.df['price'] < short_term_cost_line]
-            if not foundational_chips_df.empty and foundational_chips_df['percent'].sum() > 0:
-                results['estimated_main_force_position_cost'] = np.average(foundational_chips_df['price'], weights=foundational_chips_df['percent'])
         daily_volume = context.get('daily_turnover_volume')
         if minute_df is not None and not minute_df.empty and pd.notna(close_price) and daily_volume and daily_volume > 0:
             new_losers_df = minute_df[minute_df['minute_vwap'] > close_price].copy()

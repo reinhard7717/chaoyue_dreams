@@ -216,19 +216,6 @@ class AdvancedStructuralMetricsService:
             day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, base_atr_for_day, prev_day_metrics)
             # 组装最终结果
             day_metric_dict['trade_time'] = date
-            is_bullish_divergence, is_bearish_divergence = self._detect_intraday_divergence(continuous_group)
-            day_metric_dict['is_intraday_bullish_divergence'] = is_bullish_divergence
-            day_metric_dict['is_intraday_bearish_divergence'] = is_bearish_divergence
-            am_df = group[group['trade_time'].dt.time < pd.to_datetime('12:00').time()]
-            pm_df = group[group['trade_time'].dt.time >= pd.to_datetime('13:00').time()]
-            am_vol_sum = am_df['vol'].sum()
-            pm_vol_sum = pm_df['vol'].sum()
-            if am_vol_sum > 0:
-                day_metric_dict['am_pm_volume_ratio'] = pm_vol_sum / am_vol_sum
-            vwap_am = am_df['amount'].sum() / am_vol_sum if am_vol_sum > 0 else 0
-            vwap_pm = pm_df['amount'].sum() / pm_vol_sum if pm_vol_sum > 0 else 0
-            if vwap_am > 0 and vwap_pm > 0:
-                day_metric_dict['am_pm_vwap_ratio'] = (vwap_pm / vwap_am - 1) * 100
             # 更新前一日指标，为下一天计算做准备
             prev_day_metrics = {
                 'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
@@ -577,61 +564,6 @@ class AdvancedStructuralMetricsService:
         vah = vp_sorted_by_price.index[high_idx].right
         
         return vah, val
-
-    def _detect_intraday_divergence(self, group: pd.DataFrame) -> tuple:
-        """
-        【V2.3 · 优化】检测日内价格与RSI的背离
-        - 优化点: 
-            1. 使用分钟VWAP作为价格代理，更具代表性。
-            2. 引入 scipy.signal.find_peaks 进行更可靠的波峰波谷检测。
-            3. 移除冗余的 minute_vwap 计算。
-        """
-        from scipy.signal import find_peaks
-        from itertools import combinations
-        is_bullish_divergence = False
-        is_bearish_divergence = False
-        if len(group) < 30:
-            return is_bullish_divergence, is_bearish_divergence
-        # 直接使用主函数计算好的 minute_vwap
-        price_series = group['minute_vwap']
-        
-        rsi_series = ta.rsi(price_series, length=14).dropna()
-        if rsi_series.empty:
-            return is_bullish_divergence, is_bearish_divergence
-        # 对齐价格和RSI序列
-        aligned_price = price_series.loc[rsi_series.index]
-        aligned_rsi = rsi_series
-        # 使用 find_peaks 寻找波峰和波谷
-        price_low_indices, _ = find_peaks(-aligned_price.values, distance=10, prominence=0.005) # 至少间隔10分钟，显著性0.5%
-        rsi_low_indices, _ = find_peaks(-aligned_rsi.values, distance=10, prominence=1.0) # RSI显著性1.0
-        price_high_indices, _ = find_peaks(aligned_price.values, distance=10, prominence=0.005)
-        rsi_high_indices, _ = find_peaks(aligned_rsi.values, distance=10, prominence=1.0)
-        # 将索引转换为时间戳索引
-        price_lows = aligned_price.iloc[price_low_indices]
-        rsi_lows = aligned_rsi.iloc[rsi_low_indices]
-        price_highs = aligned_price.iloc[price_high_indices]
-        rsi_highs = aligned_rsi.iloc[rsi_high_indices]
-        # --- 检测底部背离 (价格创新低，RSI未创新低) ---
-        if len(price_lows) >= 2 and len(rsi_lows) >= 2:
-            for (t1, p1), (t2, p2) in combinations(price_lows.items(), 2):
-                if t2 < t1: continue
-                if p2 < p1:
-                    rsi_l1 = rsi_lows[rsi_lows.index <= t1].iloc[-1] if not rsi_lows[rsi_lows.index <= t1].empty else np.nan
-                    rsi_l2 = rsi_lows[rsi_lows.index >= t2].iloc[0] if not rsi_lows[rsi_lows.index >= t2].empty else np.nan
-                    if pd.notna(rsi_l1) and pd.notna(rsi_l2) and rsi_l2 > rsi_l1:
-                        is_bullish_divergence = True
-                        break
-        # --- 检测顶部背离 (价格创新高，RSI未创新高) ---
-        if not is_bullish_divergence and len(price_highs) >= 2 and len(rsi_highs) >= 2:
-            for (t1, p1), (t2, p2) in combinations(price_highs.items(), 2):
-                if t2 < t1: continue
-                if p2 > p1:
-                    rsi_h1 = rsi_highs[rsi_highs.index <= t1].iloc[-1] if not rsi_highs[rsi_highs.index <= t1].empty else np.nan
-                    rsi_h2 = rsi_highs[rsi_highs.index >= t2].iloc[0] if not rsi_highs[rsi_highs.index >= t2].empty else np.nan
-                    if pd.notna(rsi_h1) and pd.notna(rsi_h2) and rsi_h2 < rsi_h1:
-                        is_bearish_divergence = True
-                        break
-        return is_bullish_divergence, is_bearish_divergence
 
     def _calculate_gini(self, array: np.ndarray) -> float:
         """计算基尼系数"""
