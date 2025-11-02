@@ -604,9 +604,9 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V1.0 · 新增 · 统一行为计算引擎】
+        【V2.0 · 健壮性修复版】
         - 核心整合: 将所有分散的、依赖分钟归因资金流的高级行为指标计算逻辑内聚于此。
-        - 包含逻辑: VWAP战场、影线战役、趋势与反转、CMF博弈矩阵、价值区域信念等。
+        - 核心修复: 修正了因 `.dropna()` 导致的 `ValueError: cannot reindex on an axis with duplicate labels` 错误。
         """
         results = {}
         if minute_data.empty:
@@ -661,7 +661,15 @@ class AdvancedFundFlowMetricsService:
         # --- 4. CMF博弈矩阵 ---
         if 'minute_vwap' in minute_data.columns:
             df_cmf = minute_data.copy()
-            df_cmf[['high', 'low', 'minute_vwap']] = df_cmf[['high', 'low', 'minute_vwap']].apply(pd.to_numeric, errors='coerce').dropna()
+            # [代码修改开始]
+            # 修复 `ValueError: cannot reindex on an axis with duplicate labels` 的错误
+            # 步骤1: 将列转换为数值类型，无效值变为NaN
+            cols_to_process = ['high', 'low', 'minute_vwap']
+            for col in cols_to_process:
+                df_cmf[col] = pd.to_numeric(df_cmf[col], errors='coerce')
+            # 步骤2: 原地删除在这些关键列上包含NaN的行
+            df_cmf.dropna(subset=cols_to_process, inplace=True)
+            # [代码修改结束]
             if not df_cmf.empty:
                 price_range_cmf = df_cmf['high'] - df_cmf['low']
                 mfm = ((df_cmf['minute_vwap'] - df_cmf['low']) - (df_cmf['high'] - df_cmf['minute_vwap'])) / price_range_cmf.replace(0, np.nan)
