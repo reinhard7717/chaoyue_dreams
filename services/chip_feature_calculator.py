@@ -198,6 +198,26 @@ class ChipFeatureCalculator:
             if is_effective_day: fatigue_index *= 0.5
             else: fatigue_index += (total_daily_vol / total_chip_volume) * 100 if total_chip_volume > 0 else 0
             results['chip_fatigue_index'] = fatigue_index
+        # --- 6. 新增：筹码峰肩增长率 ---
+        prev_chip_dist = context.get('prev_chip_distribution')
+        prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
+        today_dominant_peak_cost = context.get('dominant_peak_cost')
+        if prev_chip_dist is not None and not prev_chip_dist.empty and all(pd.notna(v) for v in [prev_dominant_peak_cost, today_dominant_peak_cost]):
+            # 定义昨日的肩区
+            prev_upper_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 1.02) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 1.07)]
+            prev_lower_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 0.93) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 0.98)]
+            # 定义今日的肩区
+            today_upper_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 1.02) & (self.df['price'] <= today_dominant_peak_cost * 1.07)]
+            today_lower_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 0.93) & (self.df['price'] <= today_dominant_peak_cost * 0.98)]
+            # 计算各区筹码量
+            chip_vol_upper_yesterday = prev_upper_shoulder_df['percent'].sum()
+            chip_vol_lower_yesterday = prev_lower_shoulder_df['percent'].sum()
+            chip_vol_upper_today = today_upper_shoulder_df['percent'].sum()
+            chip_vol_lower_today = today_lower_shoulder_df['percent'].sum()
+            # 计算增长率
+            upper_growth = (chip_vol_upper_today / chip_vol_upper_yesterday - 1) * 100 if chip_vol_upper_yesterday > 0 else (100 if chip_vol_upper_today > 0 else 0)
+            lower_growth = (chip_vol_lower_today / chip_vol_lower_yesterday - 1) * 100 if chip_vol_lower_yesterday > 0 else (100 if chip_vol_lower_today > 0 else 0)
+            results['peak_shoulder_growth_rate'] = upper_growth - lower_growth
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
@@ -480,6 +500,23 @@ class ChipFeatureCalculator:
                 stability_raw = np.prod(scores)
                 final_score = stability_raw ** (1.0 / len(scores))
                 results['structural_stability_score'] = final_score * 100
+        # --- 10. 新增：近期套牢盘压力 ---
+        recent_5d_high = self.ctx.get('high_5d') # 假设此数据已通过主任务注入
+        recent_5d_low = self.ctx.get('low_5d')   # 假设此数据已通过主任务注入
+        turnover_vol_5d = self.ctx.get('turnover_vol_5d') # 假设此数据已通过主任务注入
+        if all(pd.notna(v) for v in [recent_5d_high, recent_5d_low, turnover_vol_5d, close_price]) and turnover_vol_5d > 0:
+            # 筛选出成本在近期交易区间内，且高于今日收盘价的筹码
+            trapped_mask = (self.df['price'] > close_price) & (self.df['price'] >= recent_5d_low) & (self.df['price'] <= recent_5d_high)
+            recent_trapped_percent = self.df[trapped_mask]['percent'].sum()
+            total_chip_volume = self.ctx.get('total_chip_volume', 0)
+            if total_chip_volume > 0:
+                recent_trapped_vol = (recent_trapped_percent / 100) * total_chip_volume
+                results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
+        # --- 11. 新增：潜在获利盘供给 ---
+        if pd.notna(close_price):
+            # 筛选出成本在 [收盘价/1.05, 收盘价) 区间内的筹码
+            imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
+            results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
         return results
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:

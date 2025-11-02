@@ -423,6 +423,18 @@ class AdvancedStructuralMetricsService:
                 if weighted_var > 0:
                     weighted_std = np.sqrt(weighted_var)
                     results['volatility_skew_index'] = np.average(((returns - weighted_mean) / weighted_std)**3, weights=weights)
+        # --- 4. 新增：收盘竞价摊牌分析 ---
+        auction_period_df = group[group['trade_time'].dt.time >= time(14, 57)]
+        if not auction_period_df.empty and not continuous_group.empty:
+            close_before_auction = continuous_group['close'].iloc[-1]
+            if pd.notna(close_before_auction) and close_before_auction > 0:
+                auction_price_change = (day_close / close_before_auction - 1) * 100
+                # 使用全天（连续交易时段）的平均每分钟成交量作为基准
+                avg_vol_minute_continuous = continuous_group['vol'].mean()
+                if avg_vol_minute_continuous > 0:
+                    # 竞价成交量是其时段内总成交量，为匹配每分钟基准，除以3分钟
+                    auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
+                    results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
         # 存储当天计算的VPOC/VAH/VAL，供下一天使用
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah

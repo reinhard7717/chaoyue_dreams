@@ -442,6 +442,11 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['retail_cost_beta'] = ((result_agg_df['avg_cost_retail_buy'] - safe_main_sell_cost) / safe_main_sell_cost) * 100
         else:
             result_agg_df['retail_cost_beta'] = np.nan
+        if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
+            safe_vwap = daily_vwap.replace(0, np.nan)
+            result_agg_df['flow_temperature_premium'] = (result_agg_df['avg_cost_main_buy'] / safe_vwap - 1) * 100
+        else:
+            result_agg_df['flow_temperature_premium'] = np.nan
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             t0_spread = result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']
             spread_ratio = (t0_spread / daily_vwap.replace(0, np.nan)) * 100
@@ -669,6 +674,15 @@ class AdvancedFundFlowMetricsService:
                         results['main_force_vpoc'] = mf_vpoc
                         if pd.notna(global_vpoc) and global_vpoc > 0 and pd.notna(mf_vpoc):
                             results['mf_vpoc_premium'] = (mf_vpoc / global_vpoc - 1) * 100
+        # --- 6. 新增：主力散户流动性交换分析 ---
+        if 'main_force_net_vol' in minute_data.columns and 'retail_net_vol' in minute_data.columns:
+            mf_net_series = minute_data['main_force_net_vol']
+            retail_net_series = minute_data['retail_net_vol']
+            if not mf_net_series.var() == 0 and not retail_net_series.var() == 0 and len(mf_net_series) > 1:
+                # 计算30分钟滚动相关性
+                rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
+                # 取当日滚动相关性的均值作为最终指标
+                results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
         return results
 
     def _calculate_intraday_attribution_weights(self, minute_data_for_day: pd.DataFrame, daily_data: pd.Series) -> pd.DataFrame:

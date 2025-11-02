@@ -6,23 +6,19 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V25.0 · 战术深化版】
-    - 核心革命: 在第一象限“静态结构”中，引入盈利亏损质量、结构稳定性、成本分布形态三个全新的计算维度。
-    - 核心新增:
-      1. `winner_profit_cushion`: 获利盘缓冲垫，量化多方的安全边际。
-      2. `loser_pain_index`: 套牢盘痛苦指数，评估空方的潜在投降压力。
-      3. `structural_stability_score`: 结构稳定性评分，综合评估当前筹码结构的稳固程度。
-      4. `cost_structure_skewness`: 成本结构偏度，从统计学角度判断成本重心的偏移方向。
+    【V27.0 · 战略精简版】
+    - 核心裁撤: 移除了所有基于静态筹码对主力意图进行“猜测”的指标，如dominant_peak_mf_conviction等，由动态资金流指标进行更高置信度的替代。
+    - 核心裁撤: 移除了is_multi_peak等低信息价值的布尔信号，由量化峰距的连续值指标替代。
+    - 核心裁撤: 废除了estimated_main_force_position_cost这一基于脆弱假设且极易产生误导的“圣杯”指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # --- 第一象限: 静态结构 (Static Structure) ---
+    # [代码修改开始]
     STATIC_STRUCTURE_METRICS = {
         'dominant_peak_cost': '主导峰成本',
         'dominant_peak_volume_ratio': '主导峰筹码占比(%)',
-        'dominant_peak_mf_conviction': '主导峰主力信念',
         'dominant_peak_profit_margin': '主导峰利润边际(%)',
         'dominant_peak_breadth': '主导峰宽度(%)',
-        'is_multi_peak': '是否多峰形态',
         'secondary_peak_cost': '次筹码峰成本',
         'peak_distance_volatility_ratio': '峰距波动率比',
         'peak_dynamic_strength_ratio': '动态强度比',
@@ -32,10 +28,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'short_term_concentration_90pct': '短期筹码集中度',
         'dynamic_pressure_index': '动态压力指数',
         'dynamic_support_index': '动态支撑指数',
-        'main_force_support_conviction_zone': '支撑区主力信念(%)',
         'chip_fault_magnitude': '筹码断层量级(ATR)',
         'chip_fault_blockage_ratio': '断层阻碍度(%)',
-        'chip_fault_traversal_conviction': '断层穿越信念(%)',
         'chip_fault_status': '筹码断层状态',
         'total_winner_rate': '存量总获利盘(%)',
         'total_loser_rate': '存量总套牢盘(%)',
@@ -46,12 +40,14 @@ class BaseAdvancedChipMetrics(models.Model):
         'active_loser_rate': '活跃套牢盘比例(%)',
         'locked_profit_rate': '锁定利润盘比例(%)',
         'locked_loss_rate': '锁定亏损盘比例(%)',
-        # --- 新增指标 ---
         'winner_profit_cushion': '获利盘缓冲垫(%)',
         'loser_pain_index': '套牢盘痛苦指数',
         'structural_stability_score': '结构稳定性评分(0-100)',
         'cost_structure_skewness': '成本结构偏度',
+        'recent_trapped_pressure': '近期套牢盘压力(%)',
+        'imminent_profit_taking_supply': '潜在获利盘供给(%)',
     }
+    # [代码修改结束]
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
         'active_selling_pressure': '主动卖压强度(%)',
@@ -82,8 +78,10 @@ class BaseAdvancedChipMetrics(models.Model):
         'cost_divergence_normalized': '标准化成本分离度',
         'winner_loser_momentum': '盈亏动量',
         'chip_fatigue_index': '筹码疲劳指数',
+        'peak_shoulder_growth_rate': '筹码峰肩增长率(%)',
     }
     # --- 第四象限: 博弈意图 (Game-Theoretic Intent) ---
+    # [代码修改开始]
     GAME_THEORY_METRICS = {
         'suppressive_accumulation_intensity': '打压吸筹强度(%)',
         'rally_distribution_intensity': '拉高出货强度(%)',
@@ -98,11 +96,11 @@ class BaseAdvancedChipMetrics(models.Model):
         'chip_health_score': '筹码健康分(0-100)',
         'main_force_control_leverage': '主力控盘杠杆(%)',
         'loser_capitulation_pressure_index': '套牢盘投降压力指数',
-        'estimated_main_force_position_cost': '主力预估持仓成本',
         'intraday_new_loser_pressure': '日内新增套牢盘压力',
         'closing_auction_control_signal': '集合竞价控盘信号(%)',
         'intraday_probe_rebound_quality': '日内试探回升质量',
     }
+    # [代码修改结束]
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
         'cost_structure_consensus_index': '成本结构共识指数',
@@ -119,39 +117,38 @@ class BaseAdvancedChipMetrics(models.Model):
         **VITAL_SIGNS_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    # [代码修改开始]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume', 'chip_fault_status']
-    BOOLEAN_FIELDS = ['is_multi_peak']
-    # 核心修改: 将所有新的高阶复合指标加入斜率排除列表
+    BOOLEAN_FIELDS = []
+    # [代码修改结束]
     SLOPE_ACCEL_EXCLUSIONS = [
-        # 动态归因类 (已经是变化量)
         'gathering_by_support', 'gathering_by_chasing',
         'dispersal_by_distribution', 'dispersal_by_capitulation',
         'chip_fault_status',
         'profit_taking_flow_ratio', 'capitulation_flow_ratio',
         'active_winner_pressure_ratio', 'locked_profit_pressure_ratio',
         'active_loser_pressure_ratio', 'locked_loss_pressure_ratio',
-        # 战术序列类 (事件驱动，非连续)
         'suppressive_accumulation_intensity',
         'rally_distribution_intensity',
         'rally_accumulation_intensity',
         'panic_selling_intensity',
         'main_force_cost_advantage',
         'main_force_control_leverage',
-        # 事件驱动及高波动类
         'fault_traversal_momentum', 'intraday_trend_efficiency',
         'intraday_new_loser_pressure',
         'closing_auction_control_signal',
         'intraday_probe_rebound_quality',
-        # 生命体征指标 (高阶复合，不适合直接求导)
         'cost_structure_consensus_index',
         'chip_cost_momentum',
         'structural_resilience_index',
         'posture_control_score',
         'posture_action_score',
-        # 新增的静态结构复合指标
         'loser_pain_index',
         'structural_stability_score',
         'cost_structure_skewness',
+        'recent_trapped_pressure',
+        'imminent_profit_taking_supply',
+        'peak_shoulder_growth_rate',
     ]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
@@ -186,10 +183,13 @@ class AdvancedChipMetrics_SZ(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_sz'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']), # 优化联合索引
-            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
+            models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
+            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
         ]
+        # [代码修改结束]
 
 class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -205,10 +205,13 @@ class AdvancedChipMetrics_SH(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_sh'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
+            models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
+            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
         ]
+        # [代码修改结束]
 
 class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -224,10 +227,13 @@ class AdvancedChipMetrics_CY(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_cy'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
+            models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
+            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
         ]
+        # [代码修改结束]
 
 class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -243,10 +249,13 @@ class AdvancedChipMetrics_KC(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_kc'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
+            models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
+            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
         ]
+        # [代码修改结束]
 
 class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
     stock = models.ForeignKey(
@@ -262,20 +271,23 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_chip_metrics_bj'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
-            models.Index(fields=['chip_health_score']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引：保证按股票和时间快速查询
+            models.Index(fields=['chip_health_score']), # 旗舰索引：用于快速筛选高健康分标的
+            models.Index(fields=['structural_resilience_index']), # 新增旗舰索引：用于快速筛选结构稳固的标的
         ]
+        # [代码修改结束]
 
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V23.0 · 价值区信念版】
-    - 核心革命: 新增“价值区域信念”分析模块，通过主力净流入构建独立的成交剖面，揭示主力的真实意图。
-    - 核心新增:
-      1. `main_force_vpoc`: 主力VPOC，主力资金当天真正的火力集中点。
-      2. `mf_vpoc_premium`: 主力VPOC溢价，量化主力意图与市场行为的背离。
+    【V25.0 · 战略精简版】
+    - 核心裁撤: 移除了所有作为中间计算过程的原始成本指标(avg_cost_*)，由更高阶的成本博弈指标替代。
+    - 核心裁撤: 移除了xl_order_flow_directionality，其信息已被main_force_conviction_index融合。
+    - 核心裁撤: 彻底废除所有基于脆弱假设的“结果评估”指标(如t0_arbitrage_profit, total_trading_pnl等)，聚焦于可观测的、具有预测价值的博弈行为。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
+    # [代码修改开始]
     POWER_STRUCTURE_METRICS = {
         'net_flow_calibrated': '校准后-资金净流入(万元)',
         'main_force_net_flow_calibrated': '校准后-主力净流入(万元)',
@@ -288,7 +300,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_retail_battle_intensity': '主力散户博弈烈度(%)',
         'main_force_activity_ratio': '主力活跃度(%)',
         'main_force_flow_directionality': '主力资金流向性(%)',
-        'xl_order_flow_directionality': '超大单流向性(%)',
         'main_force_conviction_index': '主力信念指数',
         'inferred_active_order_size': '推断活跃订单规模(元)',
         'retail_flow_dominance_index': '散户流动性主导指数',
@@ -301,10 +312,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'opening_battle_result': '开盘战役结果',
         'pre_closing_posturing': '收盘前姿态',
         'closing_auction_ambush': '收盘伏击强度',
-        'avg_cost_main_buy': '主力买入均价(PVWAP)',
-        'avg_cost_main_sell': '主力卖出均价(PVWAP)',
-        'avg_cost_retail_buy': '散户买入均价(PVWAP)',
-        'avg_cost_retail_sell': '散户卖出均价(PVWAP)',
         'main_force_execution_alpha': '主力执行Alpha(%)',
         'retail_panic_surrender_index': '散户恐慌投降指数(%)',
         'retail_fomo_premium_index': '散户追高溢价指数(%)',
@@ -322,60 +329,57 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'holistic_cmf': '全局CMF',
         'main_force_cmf': '主力CMF',
         'cmf_divergence_score': 'CMF背离得分',
-        # --- 新增价值区域信念指标 ---
         'main_force_vpoc': '主力VPOC',
         'mf_vpoc_premium': '主力VPOC溢价(%)',
+        'main_force_on_peak_flow': '主力在主峰区的净流入(万元)',
+        'flow_temperature_premium': '资金温度溢价(%)',
+        'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
     }
     OUTCOME_ASSESSMENT_METRICS = {
-        'execution_cost_alpha': '执行成本Alpha(%)',
-        't0_arbitrage_profit': 'T+0套利利润(万元)',
-        'positional_pnl': '持仓变动盈亏(万元)',
-        'total_trading_pnl': '总交易盈亏(万元)',
-        'pnl_quality_score': '盈利质量评分',
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_price_deviation_score': '收盘价偏离度得分',
     }
+    # [代码修改结束]
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
     }
+    # [代码修改开始]
     SLOPE_ACCEL_EXCLUSIONS = [
-        'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
-        'main_force_flow_directionality', 'xl_order_flow_directionality', 'main_force_conviction_index',
+        'main_force_flow_directionality', 'main_force_conviction_index',
         'retail_flow_dominance_index', 'main_force_price_impact_ratio', 'dip_absorption_power',
         'rally_distribution_pressure', 'panic_selling_cascade', 'opening_battle_result',
         'pre_closing_posturing', 'closing_auction_ambush', 'main_force_execution_alpha',
         'retail_panic_surrender_index', 'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
-        'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
-        'closing_price_deviation_score',
+        'volatility_asymmetry_index', 'closing_price_deviation_score',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_conviction_ratio', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
-        # --- 新增价值区域信念指标至排除列表 ---
         'main_force_vpoc', 'mf_vpoc_premium',
+        'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
     ]
     FLOAT_METRICS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
-        'main_force_flow_directionality', 'xl_order_flow_directionality', 'main_force_conviction_index',
+        'main_force_flow_directionality', 'main_force_conviction_index',
         'inferred_active_order_size', 'retail_flow_dominance_index', 'main_force_price_impact_ratio',
         'dip_absorption_power', 'rally_distribution_pressure', 'panic_selling_cascade',
         'opening_battle_result', 'pre_closing_posturing', 'closing_auction_ambush',
         'main_force_execution_alpha', 'retail_panic_surrender_index',
         'retail_fomo_premium_index', 'main_force_t0_efficiency',
         'vwap_structure_skew', 'flow_efficiency_index', 'asymmetric_volume_thrust',
-        'execution_cost_alpha', 'pnl_quality_score', 'volatility_asymmetry_index',
-        'closing_price_deviation_score',
+        'volatility_asymmetry_index', 'closing_price_deviation_score',
         'vwap_control_strength', 'main_force_vwap_guidance', 'vwap_crossing_intensity',
         'upper_shadow_selling_pressure', 'lower_shadow_absorption_strength',
         'trend_conviction_ratio', 'reversal_power_index',
         'holistic_cmf', 'main_force_cmf', 'cmf_divergence_score',
-        # --- 新增价值区域信念指标至浮点数列表 ---
         'mf_vpoc_premium',
+        'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
     ]
+    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
@@ -383,12 +387,14 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
+    # [代码修改开始]
     sum_cols = [
         'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
         'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
         'net_sh_amount_calibrated',
-        't0_arbitrage_profit', 'positional_pnl', 'total_trading_pnl',
+        'main_force_on_peak_flow',
     ]
+    # [代码修改结束]
     for p in UNIFIED_PERIODS:
         if p > 1:
             for name in sum_cols:
@@ -430,9 +436,13 @@ class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_fund_flow_metrics_sh'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
+            models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
+        # [代码修改结束]
 
 class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
@@ -449,7 +459,9 @@ class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
         db_table = 'stock_advanced_fund_flow_metrics_sz'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
+            models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
 
 class AdvancedFundFlowMetrics_CY(BaseAdvancedFundFlowMetrics):
@@ -467,7 +479,9 @@ class AdvancedFundFlowMetrics_CY(BaseAdvancedFundFlowMetrics):
         db_table = 'stock_advanced_fund_flow_metrics_cy'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
+            models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
 
 class AdvancedFundFlowMetrics_KC(BaseAdvancedFundFlowMetrics):
@@ -485,7 +499,9 @@ class AdvancedFundFlowMetrics_KC(BaseAdvancedFundFlowMetrics):
         db_table = 'stock_advanced_fund_flow_metrics_kc'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
+            models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
 
 class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
@@ -503,17 +519,17 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
         db_table = 'stock_advanced_fund_flow_metrics_bj'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
+            models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
 
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V15.0 · 高级博弈效率版】
-    - 核心革命: 在第三象限引入“背离信念得分”和“波动率偏度指数”，深度剖析日内走势的内在健康度。
-    - 核心新增:
-      1. `divergence_conviction_score`: 量化背离信号的强度与可信度。
-      2. `volatility_skew_index`: 衡量日内价格波动的非对称性“性格”。
+    【V17.0 · 战略精简版】
+    - 核心裁撤: 移除了am_pm_volume_ratio, am_pm_vwap_ratio等被更精细指标覆盖的宏观统计量。
+    - 核心裁撤: 移除了is_intraday_bullish_divergence, is_intraday_bearish_divergence等低信息价值的布尔信号，由divergence_conviction_score完全替代。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # --- 第一维度: 能量与战场动力学 (Energy & Battlefield Dynamics) ---
@@ -542,34 +558,40 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
     # --- 第三维度: 博弈效率 (Game Efficiency) ---
+    # [代码修改开始]
     GAME_EFFICIENCY_METRICS = {
         'upward_thrust_efficacy': '上涨推力效能',
         'downward_absorption_efficacy': '下跌吸收效能',
         'net_vpa_score': '净量价效能得分',
-        'is_intraday_bullish_divergence': '是否存在日内底部背离',
-        'is_intraday_bearish_divergence': '是否存在日内顶部背离',
-        # --- 新增指标 ---
         'divergence_conviction_score': '背离信念得分',
         'volatility_skew_index': '波动率偏度指数',
     }
+    # [代码修改结束]
+    # --- 第四维度: 前瞻性结构指标 (Forward-Looking Structural Indicators) ---
+    FORWARD_LOOKING_METRICS = {
+        'volatility_expansion_ratio': '波动率扩张比',
+        'price_shock_factor': '价格冲击因子(ATR标准化)',
+        'auction_showdown_score': '收盘竞价摊牌分',
+    }
     # --- 辅助性结构指标 (保留，但重要性降低) ---
+    # [代码修改开始]
     AUXILIARY_METRICS = {
         'value_area_migration': '价值区迁移度(ATR)',
         'value_area_overlap_pct': '价值区重叠度(%)',
         'closing_acceptance_type': '收盘接受度类型',
-        'am_pm_volume_ratio': '上下午成交量比',
-        'am_pm_vwap_ratio': '上下午VWAP比',
     }
+    # [代码修改结束]
     CORE_METRICS = {
         **ENERGY_DENSITY_METRICS,
         **CONTROL_METRICS,
         **GAME_EFFICIENCY_METRICS,
+        **FORWARD_LOOKING_METRICS,
         **AUXILIARY_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    BOOLEAN_FIELDS = ['is_intraday_bullish_divergence', 'is_intraday_bearish_divergence']
+    # [代码修改开始]
+    BOOLEAN_FIELDS = []
     SLOPE_ACCEL_EXCLUSIONS = [
-        'is_intraday_bullish_divergence', 'is_intraday_bearish_divergence',
         'auction_impact_score',
         'rebound_momentum',
         'high_level_consolidation_volume',
@@ -589,13 +611,16 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'upward_thrust_efficacy',
         'downward_absorption_efficacy',
         'net_vpa_score',
-        # --- 新增排除项 ---
         'divergence_conviction_score',
         'volatility_skew_index',
         'value_area_migration',
         'value_area_overlap_pct',
         'closing_acceptance_type',
+        'volatility_expansion_ratio',
+        'price_shock_factor',
+        'auction_showdown_score',
     ]
+    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)
@@ -624,9 +649,13 @@ class AdvancedStructuralMetrics_SH(BaseAdvancedStructuralMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_structural_metrics_sh'
         unique_together = ('stock', 'trade_time')
+        # [代码修改开始]
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
+            models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
+        # [代码修改结束]
 
 class AdvancedStructuralMetrics_SZ(BaseAdvancedStructuralMetrics):
     stock = models.ForeignKey(
@@ -643,7 +672,9 @@ class AdvancedStructuralMetrics_SZ(BaseAdvancedStructuralMetrics):
         db_table = 'stock_advanced_structural_metrics_sz'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
+            models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
 
 class AdvancedStructuralMetrics_CY(BaseAdvancedStructuralMetrics):
@@ -661,7 +692,9 @@ class AdvancedStructuralMetrics_CY(BaseAdvancedStructuralMetrics):
         db_table = 'stock_advanced_structural_metrics_cy'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
+            models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
 
 class AdvancedStructuralMetrics_KC(BaseAdvancedStructuralMetrics):
@@ -679,7 +712,9 @@ class AdvancedStructuralMetrics_KC(BaseAdvancedStructuralMetrics):
         db_table = 'stock_advanced_structural_metrics_kc'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
+            models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
 
 class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
@@ -697,7 +732,9 @@ class AdvancedStructuralMetrics_BJ(BaseAdvancedStructuralMetrics):
         db_table = 'stock_advanced_structural_metrics_bj'
         unique_together = ('stock', 'trade_time')
         indexes = [
-            models.Index(fields=['stock', 'trade_time']),
+            models.Index(fields=['stock', 'trade_time']), # 基石索引
+            models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
+            models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
 
 
