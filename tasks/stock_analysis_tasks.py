@@ -706,8 +706,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V30.0 · 健康分历史注入版】
-    - 核心升级: 新增对健康分核心组件历史数据的加载，为动态百分位排名提供数据支持。
+    【V31.0 · 接口协议修正版】
+    - 核心修正: 移除了对已废弃的 `_calculate_daily_vwap` 方法的所有调用。
+    - 核心修正: 调整了对 `_synthesize_and_forge_metrics` 的调用签名，使其与最新的服务层协议一致，不再需要外部传入VWAP。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -759,17 +760,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
             for date, idx in date_index_map.items()
         }
-        # 核心新增: 加载健康分计算所需的核心组件历史数据
         health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365) # 回溯约一年
         health_score_components = [
             'concentration_70pct', 'cost_divergence_normalized', 'dominant_peak_profit_margin',
             'main_force_cost_advantage', 'suppressive_accumulation_intensity', 'upward_impulse_purity',
             'active_winner_profit_margin', 'winner_conviction_index'
         ]
-        # 需要从两个模型中加载
         chip_hist_fields = [f for f in health_score_components if hasattr(ChipMetricsModel, f)]
         ff_hist_fields = [f for f in health_score_components if hasattr(FundFlowMetricsModel, f)]
-        
         @sync_to_async
         def load_historical_components(model, fields, stock_obj, start_dt):
             if not fields: return pd.DataFrame()
@@ -779,11 +777,8 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 df['trade_time'] = pd.to_datetime(df['trade_time'])
                 df = df.set_index('trade_time')
             return df
-        
         chip_hist_comp_df = await load_historical_components(ChipMetricsModel, chip_hist_fields, stock_info, health_score_hist_lookback_date)
         ff_hist_comp_df = await load_historical_components(FundFlowMetricsModel, ff_hist_fields, stock_info, health_score_hist_lookback_date)
-        
-        # 合并历史数据
         historical_components_df = chip_hist_comp_df.join(ff_hist_comp_df, how='outer')
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
@@ -798,11 +793,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs)
-                seed_daily_vwap = await fund_flow_service._calculate_daily_vwap(stock_info, seed_ff_raw_df.index)
+                # [代码移除开始]
+                # seed_daily_vwap = await fund_flow_service._calculate_daily_vwap(stock_info, seed_ff_raw_df.index)
+                # [代码移除结束]
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
-                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df, seed_daily_vwap)
+                # [代码修改开始]
+                _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df)
+                # [代码修改结束]
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
-                # 核心修改: 在调用中传递新增的历史组件数据
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global, high_20d_map_global, low_20d_map_global)
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
                 all_failures.extend(seed_failures)
@@ -838,9 +836,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
-            daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
+            # [代码移除开始]
+            # daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
+            # [代码移除结束]
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
-            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df, daily_vwap_series)
+            # [代码修改开始]
+            fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
+            # [代码修改结束]
             all_failures.extend(ff_failures)
             chip_data_dfs = {
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
@@ -850,7 +852,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global
             )
-            # 核心修改: 在调用中传递新增的历史组件数据
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
             )
