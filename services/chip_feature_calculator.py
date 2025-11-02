@@ -14,22 +14,29 @@ class ChipFeatureCalculator:
     - 逻辑注入: 新增了成交量微观结构和筹码集中度动态归因的计算逻辑。
     """
     def __init__(self, daily_chips_df: pd.DataFrame, context_data: dict):
+        """
+        【V12.0 · 类型净化版】
+        - 核心重构: 建立“数据净化协议”，在入口处将所有可能为Decimal的上下文数据强制转换为float，根除类型不匹配错误。
+        """
         self.df = daily_chips_df.reset_index(drop=True)
         self.ctx = context_data
         if not self.df.empty:
             percent_sum = self.df['percent'].sum()
             if not np.isclose(percent_sum, 100.0) and percent_sum > 0:
                 self.df['percent'] = (self.df['percent'] / percent_sum) * 100.0
-        # 增加 prev_winner_avg_cost 用于计算获利盘行为指标
-        cyq_perf_fields = [
-            'total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'prev_20d_close',
-            'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg', 'winner_rate',
-            'prev_concentration_90pct', 'prev_winner_avg_cost'
+        # [代码修改开始]
+        # 建立一个全面的列表，用于将所有从外部注入的、可能为Decimal类型的字段统一转换为float
+        decimal_to_float_fields = [
+            'total_chip_volume', 'daily_turnover_volume', 'close_price', 'high_price', 'low_price', 'open_price',
+            'pre_close', 'prev_20d_close', 'circ_mv', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct',
+            'cost_95pct', 'weight_avg', 'winner_rate', 'prev_concentration_90pct', 'prev_winner_avg_cost',
+            'prev_total_chip_volume', # 导致错误的根源字段
+            'prev_high_20d', 'prev_low_20d', 'prev_day_20d_ago_close'
         ]
-        
-        for key in cyq_perf_fields:
+        for key in decimal_to_float_fields:
             if key in self.ctx and isinstance(self.ctx[key], Decimal):
                 self.ctx[key] = float(self.ctx[key])
+        # [代码修改结束]
         self._prepare_minute_data_features()
 
     def calculate_all_metrics(self) -> dict:
