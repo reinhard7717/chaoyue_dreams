@@ -31,8 +31,8 @@ class AdvancedStructuralMetricsService:
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
-        【V1.2 · 原料审计版】高级结构与行为指标预计算总指挥
-        - 核心升级: 在锻造指标前，增加对分钟级原料数据的存在性校验。
+        【V1.3 · 异步改造版】高级结构与行为指标预计算总指挥
+        - 核心修复: 使用 await 调用改造后的异步锻造引擎 _forge_advanced_structural_metrics。
         """
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
@@ -61,7 +61,6 @@ class AdvancedStructuralMetricsService:
             if chunk_dates.empty:
                 continue
             minute_data_map = await self._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            # 审计分钟数据是否覆盖了区块内的所有日期
             processed_dates_in_chunk = set(minute_data_map.keys())
             required_dates_in_chunk = set(chunk_dates.date)
             missing_dates = required_dates_in_chunk - processed_dates_in_chunk
@@ -71,10 +70,10 @@ class AdvancedStructuralMetricsService:
             if not minute_data_map:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何分钟数据，跳过整个区块。")
                 continue
-            
-            # 将 stock_code 传递给锻造引擎
-            chunk_new_metrics_df = self._forge_advanced_structural_metrics(minute_data_map, stock_code)
-            
+            # [代码修改开始]
+            # 修复：使用 await 调用异步改造后的锻造引擎
+            chunk_new_metrics_df = await self._forge_advanced_structural_metrics(minute_data_map, stock_code)
+            # [代码修改结束]
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
@@ -158,12 +157,13 @@ class AdvancedStructuralMetricsService:
         minute_df['date'] = minute_df['trade_time'].dt.date
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 
-    def _forge_advanced_structural_metrics(self, minute_data_map: dict, stock_code: str) -> pd.DataFrame:
+    async def _forge_advanced_structural_metrics(self, minute_data_map: dict, stock_code: str) -> pd.DataFrame:
+        # [代码修改开始]
         """
-        【V17.0 · 计算核心整合版】
-        - 核心重构: 废弃所有零散的计算方法，引入统一的计算引擎 `_compute_all_structural_metrics`。
-        - 核心思想: 本方法负责数据准备与调度，将所有核心计算逻辑内聚到单一引擎中，实现指挥链扁平化。
+        【V17.1 · 异步改造版】
+        - 核心修复: 将此方法改造为异步函数，并使用 sync_to_async 封装所有阻塞的数据库查询，解决 SynchronousOnlyOperation 错误。
         """
+        # [代码修改结束]
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
@@ -176,7 +176,10 @@ class AdvancedStructuralMetricsService:
             trade_time__gte=history_start_date,
             trade_time__lte=max(all_dates)
         ).values('trade_time', 'high', 'low', 'open', 'close', 'pre_close', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq').order_by('trade_time')
-        daily_df = pd.DataFrame.from_records(list(daily_data_qs))
+        # [代码修改开始]
+        # 修复：使用 sync_to_async 封装阻塞的数据库查询
+        daily_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_data_qs))
+        # [代码修改结束]
         if daily_df.empty:
             logger.warning(f"[{stock_code}] 无法加载日线行情数据，部分指标无法计算。")
             return pd.DataFrame()
@@ -187,7 +190,10 @@ class AdvancedStructuralMetricsService:
             trade_time__gte=history_start_date,
             trade_time__lte=max(all_dates)
         ).values('trade_time', 'turnover_rate_f').order_by('trade_time')
-        daily_basic_df = pd.DataFrame.from_records(list(daily_basic_qs))
+        # [代码修改开始]
+        # 修复：使用 sync_to_async 封装阻塞的数据库查询
+        daily_basic_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_basic_qs))
+        # [代码修改结束]
         if not daily_basic_df.empty:
             daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
             daily_basic_df = daily_basic_df.set_index('trade_time')
@@ -212,11 +218,8 @@ class AdvancedStructuralMetricsService:
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
-            # 调用统一计算引擎
             day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, base_atr_for_day, prev_day_metrics)
-            # 组装最终结果
             day_metric_dict['trade_time'] = date
-            # 更新前一日指标，为下一天计算做准备
             prev_day_metrics = {
                 'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
                 'vah': day_metric_dict.pop('_today_vah', np.nan),
