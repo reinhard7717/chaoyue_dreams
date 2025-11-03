@@ -237,8 +237,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V6.1 · 竞价意图探针部署版】
-        - 核心新增: 部署探针B，用于检查 `last_minute_snapshot` 的接收状态，并明确打印出竞价逻辑的执行路径。
+        【V7.0 · 竞价解构版】
+        - 核心重构: 放弃对盘口快照的依赖，改为解构15:00分钟K线，计算全新的 `auction_intent_signal` 和 `auction_closing_position`。
+        - 核心优化: 确保在任何情况下（有或无竞价成交），这两个指标都有明确的、可用于策略的输出（有效值或中性值0）。
         """
         import datetime
         results = {}
@@ -322,48 +323,37 @@ class ChipFeatureCalculator:
             else:
                 results['intraday_new_loser_pressure'] = 0.0
         # [代码修改开始]
-        # 5. 集合竞价博弈信号 (重构版)
+        # 5. 集合竞价解构 (重构版)
         atr_14d = context.get('atr_14d')
-        results['auction_battle_signal'] = np.nan
-        results['auction_intent_signal'] = np.nan
-        results['auction_pressure_ratio'] = np.nan
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
-        print(f"[{stock_code}][{trade_date}] [探针B-接收检查] 'last_minute_snapshot' 接收状态: {'存在' if 'last_minute_snapshot' in context else '缺失'}")
+        results['auction_intent_signal'] = 0.0 # 默认为中性值0
+        results['auction_closing_position'] = 0.0 # 默认为中性值0
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
-            # 场景一：尾盘有成交
-            if not pre_auction_df.empty and not auction_df.empty and total_daily_vol > 0:
-                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支1: 尾盘有成交。")
+            # 必须存在连续交易时段，才能有基准价
+            if not pre_auction_df.empty:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
-                auction_volume = auction_df['vol'].sum()
-                price_impact = (close_price - pre_auction_price) / atr_14d
-                volume_weight = np.log1p(auction_volume / total_daily_vol)
-                results['auction_battle_signal'] = price_impact * volume_weight * 100
-            # 场景二：尾盘无成交，分析最后一分钟盘口快照
-            elif 'last_minute_snapshot' in context:
-                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支2: 尾盘无成交，但找到 'last_minute_snapshot'。")
-                snapshot = context['last_minute_snapshot']
-                bid_vol = snapshot.get('bid_vol1', 0)
-                ask_vol = snapshot.get('ask_vol1', 0)
-                bid_price = snapshot.get('bid_price1', 0)
-                ask_price = snapshot.get('ask_price1', 0)
-                if bid_vol > 0 and ask_vol > 0 and bid_price > 0 and ask_price > 0:
-                    log_bid_power = np.log1p(bid_vol * bid_price)
-                    log_ask_power = np.log1p(ask_vol * ask_price)
-                    total_power = log_bid_power + log_ask_power
-                    if total_power > 0:
-                        results['auction_intent_signal'] = ((log_bid_power - log_ask_power) / total_power) * 100
-                    mid_price = (bid_price + ask_price) / 2
-                    results['auction_pressure_ratio'] = ((close_price - mid_price) / atr_14d) * 100
-                else:
-                    print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 分支2内部跳过: snapshot数据不完整。")
-            else:
-                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支3: 竞价信号计算跳过(尾盘无成交且无snapshot)。")
-        else:
-            print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 竞价信号计算跳过: 基础数据(分钟/收盘价/ATR)不满足。")
+                # 场景一：尾盘集合竞价有成交
+                if not auction_df.empty and 'vol' in auction_df.columns and auction_df['vol'].sum() > 0:
+                    auction_bar = auction_df.iloc[0] # 竞价数据合并在第一行
+                    auction_volume = auction_bar['vol']
+                    # 计算竞价意图信号
+                    if total_daily_vol > 0:
+                        price_impact = (close_price - pre_auction_price) / atr_14d
+                        volume_weight = np.log1p(auction_volume / total_daily_vol)
+                        results['auction_intent_signal'] = price_impact * volume_weight * 100
+                    # 计算竞价收盘位置
+                    auction_high = auction_bar['high']
+                    auction_low = auction_bar['low']
+                    auction_range = auction_high - auction_low
+                    if auction_range > 1e-6:
+                        position = (close_price - auction_low) / auction_range
+                        results['auction_closing_position'] = (position * 2 - 1) * 100
+                    elif close_price >= auction_high:
+                        results['auction_closing_position'] = 100.0
+                    else:
+                        results['auction_closing_position'] = -100.0
         # [代码修改结束]
         # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')

@@ -6,14 +6,12 @@ import pandas as pd
 # 筹码高级指标模型
 class BaseAdvancedChipMetrics(models.Model):
     """
-    【V32.0 · 结构洞察增强版】
-    - 核心重构: 新增 `peak_separation_intensity` 和 `peak_fusion_indicator`，用于在任何市场状态下精细刻画筹码峰结构。
-    - 核心重构: 新增 `auction_intent_signal` 和 `auction_pressure_ratio`，用于在尾盘无成交时洞察主力竞价意图。
-    - 核心优化: 将所有新指标加入衍生计算排除列表，聚焦其作为状态特征的价值。
+    【V32.1 · 竞价信号重构版】
+    - 核心重构: 基于15:00分钟线，重构 `auction_intent_signal`，并用 `auction_closing_position` 替代原 `auction_pressure_ratio`。
+    - 核心优化: 更新模型定义与衍生计算排除列表，以匹配新的竞价信号体系。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
     # --- 第一象限: 静态结构 (Static Structure) ---
-    # [代码修改开始]
     STATIC_STRUCTURE_METRICS = {
         'dominant_peak_cost': '主导峰成本',
         'dominant_peak_volume_ratio': '主导峰筹码占比(%)',
@@ -21,8 +19,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'dominant_peak_solidity': '主峰稳固度',
         'secondary_peak_cost': '次筹码峰成本',
         'peak_separation_ratio': '峰群分离度(%)',
-        'peak_separation_intensity': '峰间分离强度', # 新增
-        'peak_fusion_indicator': '峰间融合指标', # 新增
+        'peak_separation_intensity': '峰间分离强度',
+        'peak_fusion_indicator': '峰间融合指标',
         'peak_volume_ratio': '峰群量能比(%)',
         'peak_distance_volatility_ratio': '波动率标准化峰距',
         'winner_concentration_90pct': '获利盘集中度',
@@ -49,7 +47,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'recent_trapped_pressure': '近期套牢盘压力(%)',
         'imminent_profit_taking_supply': '潜在获利盘供给(%)',
     }
-    # [代码修改结束]
     # --- 第二象限: 内部动态 (Intraday Dynamics) ---
     INTRADAY_DYNAMICS_METRICS = {
         'active_selling_pressure': '主动卖压强度(%)',
@@ -100,9 +97,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'main_force_control_leverage': '主力控盘杠杆(%)',
         'loser_capitulation_pressure_index': '套牢盘投降压力指数',
         'intraday_new_loser_pressure': '日内新增套牢盘压力',
-        'auction_battle_signal': '集合竞价博弈信号',
-        'auction_intent_signal': '虚拟竞价意图信号', # 新增
-        'auction_pressure_ratio': '虚拟竞价压力比', # 新增
+        'auction_intent_signal': '竞价意图信号', # 重构
+        'auction_closing_position': '竞价收盘位置(-100~100)', # 新增，替代 auction_pressure_ratio
         'intraday_probe_rebound_quality': '日内试探回升质量',
     }
     # [代码修改结束]
@@ -139,7 +135,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'main_force_control_leverage',
         'fault_traversal_momentum', 'intraday_trend_efficiency',
         'intraday_new_loser_pressure',
-        'auction_battle_signal',
+        'auction_intent_signal', # 重构
+        'auction_closing_position', # 新增
         'intraday_probe_rebound_quality',
         'structural_consensus_score',
         'dominant_cost_momentum',
@@ -156,10 +153,8 @@ class BaseAdvancedChipMetrics(models.Model):
         'dominant_peak_solidity',
         'peak_distance_volatility_ratio',
         'peak_dynamic_strength_ratio',
-        'peak_separation_intensity', # 新增
-        'peak_fusion_indicator', # 新增
-        'auction_intent_signal', # 新增
-        'auction_pressure_ratio', # 新增
+        'peak_separation_intensity',
+        'peak_fusion_indicator',
     ]
     # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
