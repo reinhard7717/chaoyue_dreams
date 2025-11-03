@@ -143,8 +143,8 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V2.0 · 疲劳度探针植入版】
-        - 核心新增: 植入探针，监控 `chip_fatigue_index` 的迭代计算过程。
+        【V2.1 · 生产就绪版】
+        - 核心修改: 移除所有调试探针。
         """
         results = {}
         minute_df = context.get('minute_data')
@@ -207,11 +207,6 @@ class ChipFeatureCalculator:
             if turnover_rate > 0: results['winner_loser_momentum'] = status_change_net_flow_pct / turnover_rate
         # --- 5. 博弈疲劳度 (Game Fatigue) ---
         prev_fatigue_index, recent_closes = context.get('prev_chip_fatigue_index', 0.0), context.get('recent_10d_closes')
-        # [探针2-开始]
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
-        print(f"[{stock_code}][{trade_date}] [探针2-疲劳度侦察] prev_fatigue_index: {prev_fatigue_index}, recent_closes: {recent_closes}, close_price: {close_price}, total_chip_volume: {total_chip_volume}, total_daily_vol: {total_daily_vol}")
-        # [探针2-结束]
         if all(pd.notna(v) for v in [prev_fatigue_index, close_price, total_chip_volume, total_daily_vol]) and recent_closes is not None and len(recent_closes) >= 9:
             is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
             fatigue_index = prev_fatigue_index * 0.98
@@ -242,8 +237,8 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V5.0 · 竞价探针植入版】
-        - 核心新增: 植入探针，监控 `auction_battle_signal` 的计算过程，揭示尾盘数据稀疏问题。
+        【V5.1 · 生产就绪版】
+        - 核心修改: 移除所有调试探针。
         """
         import datetime
         results = {}
@@ -331,11 +326,6 @@ class ChipFeatureCalculator:
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
             atr_14d = context.get('atr_14d')
-            # [探针3-开始]
-            stock_code = context.get('stock_code', 'N/A')
-            trade_date = context.get('trade_date', 'N/A')
-            print(f"[{stock_code}][{trade_date}] [探针3-竞价侦察] minute_df is present: {minute_df is not None}, pre_auction_df shape: {pre_auction_df.shape if not pre_auction_df.empty else 'Empty'}, auction_df shape: {auction_df.shape if not auction_df.empty else 'Empty'}, atr_14d: {atr_14d}, close_price: {close_price}, total_daily_vol: {total_daily_vol}")
-            # [探针3-结束]
             if not pre_auction_df.empty and not auction_df.empty and pd.notna(atr_14d) and atr_14d > 0 and pd.notna(close_price) and total_daily_vol > 0:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
                 auction_volume = auction_df['vol'].sum()
