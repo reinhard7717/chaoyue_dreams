@@ -171,7 +171,7 @@ class AdvancedChipMetricsService:
                     'concentration_90pct': None, 'winner_avg_cost': None, 'chip_distribution': chip_data_for_calc,
                     'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
                     'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
-                    'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': None,
+                    'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': 0.0, # 修复：提供默认值
                     'recent_closes_queue': [], 'dominant_peak_cost': None, 'atr_14d': None,
                 }
                 if is_first_day_in_batch: is_first_day_in_batch = False
@@ -244,7 +244,7 @@ class AdvancedChipMetricsService:
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
                 'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
-                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None,
+                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else 0.0, # 修复：确保传递有效值
                 'recent_closes_queue': recent_closes_list,
                 'atr_14d': context_data.get('atr_14d'),
             }

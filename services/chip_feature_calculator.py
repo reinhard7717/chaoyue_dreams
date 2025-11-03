@@ -375,11 +375,9 @@ class ChipFeatureCalculator:
         # 1. 成本结构共识与筹码成本动量
         concentration_90pct = context.get('concentration_90pct')
         total_winner_rate = context.get('total_winner_rate')
-        # [探针4-开始]
         stock_code = context.get('stock_code', 'N/A')
         trade_date = context.get('trade_date', 'N/A')
         print(f"[{stock_code}][{trade_date}] [探针4-共识度侦察] concentration_90pct: {concentration_90pct}, total_winner_rate: {total_winner_rate}")
-        # [探针4-结束]
         # [代码修改开始]
         # 增强鲁棒性：如果集中度指标为空，则赋予一个中性值，而不是让计算失败
         if pd.notna(total_winner_rate):
@@ -426,18 +424,16 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V8.0 · 二级探针部署版】
-        - 核心新增: 部署二级探针(Probe 1.1)，深入峰群计算内部，监控峰距指标的原始输入。
+        【V9.0 · 终极探针部署版】
+        - 核心新增: 部署终极探针(Probe 1.2)，在函数返回前检查峰距指标的最终状态，锁定BUG。
         """
         results = {}
         close_price = self.ctx.get('close_price')
         # 1. 主导峰与次峰剖面
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
-        # [探针1-开始]
         stock_code = self.ctx.get('stock_code', 'N/A')
         trade_date = self.ctx.get('trade_date', 'N/A')
         print(f"[{stock_code}][{trade_date}] [探针1-峰群侦察] 发现 {len(peaks)} 个显著筹码峰。")
-        # [探针1-结束]
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks,
@@ -455,16 +451,14 @@ class ChipFeatureCalculator:
             if len(peaks_df) > 1:
                 secondary_peak = peaks_df.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
-                # [探针1.1-开始]
                 atr_14d_for_ratio = self.ctx.get('atr_14d')
-                print(f"[{stock_code}][{trade_date}] [探针1.1-峰距详查] dominant_peak_cost: {results['dominant_peak_cost']}, secondary_peak_cost: {results['secondary_peak_cost']}, dominant_peak_volume_ratio: {results['dominant_peak_volume_ratio']}, secondary_peak_volume: {secondary_peak['volume']}, atr_14d: {atr_14d_for_ratio}")
-                # [探针1.1-结束]
-                if results['dominant_peak_cost'] > 0:
+                print(f"[{stock_code}][{trade_date}] [探针1.1-峰距详查] dominant_peak_cost: {results.get('dominant_peak_cost')}, secondary_peak_cost: {results.get('secondary_peak_cost')}, dominant_peak_volume_ratio: {results.get('dominant_peak_volume_ratio')}, secondary_peak_volume: {secondary_peak.get('volume')}, atr_14d: {atr_14d_for_ratio}")
+                if results.get('dominant_peak_cost') is not None and results.get('dominant_peak_cost') > 0:
                     separation = (results['dominant_peak_cost'] - results['secondary_peak_cost']) / results['dominant_peak_cost']
                     results['peak_separation_ratio'] = separation * 100
-                if results['dominant_peak_volume_ratio'] > 0:
+                if results.get('dominant_peak_volume_ratio') is not None and results.get('dominant_peak_volume_ratio') > 0:
                     results['peak_volume_ratio'] = (secondary_peak['volume'] / results['dominant_peak_volume_ratio']) * 100
-                if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0:
+                if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0 and results.get('dominant_peak_cost') is not None and results.get('secondary_peak_cost') is not None:
                     peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
                     results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
             else:
@@ -625,6 +619,10 @@ class ChipFeatureCalculator:
         if pd.notna(close_price):
             imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
+        # [代码修改开始]
+        # 部署终极探针，在函数返回前检查关键指标的最终状态
+        print(f"[{stock_code}][{trade_date}] [探针1.2-终极状态] peak_separation_ratio: {results.get('peak_separation_ratio')}, peak_distance_volatility_ratio: {results.get('peak_distance_volatility_ratio')}")
+        # [代码修改结束]
         return results
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
