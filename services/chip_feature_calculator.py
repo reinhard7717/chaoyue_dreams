@@ -237,9 +237,8 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.0 · 竞价解构版】
-        - 核心重构: 放弃对盘口快照的依赖，改为解构15:00分钟K线，计算全新的 `auction_intent_signal` 和 `auction_closing_position`。
-        - 核心优化: 确保在任何情况下（有或无竞价成交），这两个指标都有明确的、可用于策略的输出（有效值或中性值0）。
+        【V7.1 · 生产就绪版】
+        - 核心优化: 移除所有与 `last_minute_snapshot` 相关的调试探针。
         """
         import datetime
         results = {}
@@ -323,7 +322,7 @@ class ChipFeatureCalculator:
             else:
                 results['intraday_new_loser_pressure'] = 0.0
         # [代码修改开始]
-        # 5. 集合竞价解构 (重构版)
+        # 5. 集合竞价解构 (移除探针的生产就绪版)
         atr_14d = context.get('atr_14d')
         results['auction_intent_signal'] = 0.0 # 默认为中性值0
         results['auction_closing_position'] = 0.0 # 默认为中性值0

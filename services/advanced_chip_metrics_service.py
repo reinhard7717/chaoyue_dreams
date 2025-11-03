@@ -264,16 +264,11 @@ class AdvancedChipMetricsService:
 
     def _enhance_minute_data_fallback(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.1 · 竞价隔离版】当资金流数据缺失时，提供一个基础的分钟数据增强。
-        - 核心修复: 过滤掉集合竞价时段的数据。
+        【V1.2 · 竞价数据保全版】当资金流数据缺失时，提供一个基础的分钟数据增强。
+        - 核心修复: 移除对集合竞价时段的错误过滤，确保包含15:00竞价数据的完整分钟线被传递给下游计算器。
         """
         if minute_df.empty: return minute_df
         df = minute_df.copy()
-        # 过滤集合竞价时段
-        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
-        df = df[df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME].copy()
-        if df.empty: return df
-        
         df['amount_yuan'] = pd.to_numeric(df['amount'], errors='coerce')
         df['vol_shares'] = pd.to_numeric(df['vol'], errors='coerce')
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
