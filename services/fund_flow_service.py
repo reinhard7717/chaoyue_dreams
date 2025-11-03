@@ -247,8 +247,9 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_daily_derived_metrics(self, daily_data_series: pd.Series) -> dict:
         """
-        【V23.1 · 价格冲击比率增强版】
-        - 核心新增: 实现了 main_force_price_impact_ratio 的计算逻辑。
+        【V23.2 · 幽灵笔误修复版】
+        - 核心修复: 将错误的 'pct_chg' 修正为正确的 'pct_change'，确保能从数据流中正确获取涨跌幅。
+        - 新增探针: 在 flow_efficiency_index 计算前植入探针，监控所有输入参数的状态。
         """
         results = {}
         consensus_map = {
@@ -313,24 +314,26 @@ class AdvancedFundFlowMetricsService:
                 divergence_penalty = 1 if np.sign(mf_flow) != np.sign(retail_flow) and mf_flow != 0 and retail_flow != 0 else 0
                 results['retail_flow_dominance_index'] = np.sign(retail_flow) * dominance_ratio * (1 + divergence_penalty) * 100
         # [代码修改开始]
-        # --- 新增：主力价格冲击比率 (Main Force Price Impact Ratio) ---
-        pct_change = pd.to_numeric(daily_data_series.get('pct_chg'), errors='coerce')
+        # 修复：将错误的 'pct_chg' 修正为正确的 'pct_change'
+        pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
+        # [代码修改结束]
         if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
-            # 将主力净流入标准化
             standardized_mf_flow = mf_flow / total_turnover_wan
-            # 计算价格变动与标准化流量的比率
-            if abs(standardized_mf_flow) > 1e-6: # 避免除以零
+            if abs(standardized_mf_flow) > 1e-6:
                 results['main_force_price_impact_ratio'] = (pct_change / 100) / standardized_mf_flow
             else:
-                # 如果流量为零，但价格有变动，则冲击为无穷大；否则为零
                 results['main_force_price_impact_ratio'] = 0.0 if pct_change == 0 else np.inf * np.sign(pct_change)
         else:
             results['main_force_price_impact_ratio'] = 0.0
-        # [代码修改结束]
         if total_turnover_wan > 0:
             results['main_force_buy_rate_consensus'] = (mf_buy / total_turnover_wan) * 100
         results['flow_efficiency_index'] = 0.0
         circ_mv = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce')
+        # [代码修改开始]
+        # 探针：检查 flow_efficiency_index 的所有输入参数
+        date_str = daily_data_series.name.strftime('%Y-%m-%d')
+        print(f"DEBUG PROBE (EFFICIENCY): [{date_str}] circ_mv={circ_mv}, mf_flow={mf_flow}, pct_change={pct_change}")
+        # [代码修改结束]
         if pd.notna(circ_mv) and circ_mv > 0 and pd.notna(mf_flow) and pd.notna(pct_change):
             flow_input = mf_flow / circ_mv
             if abs(flow_input) > 1e-9:
