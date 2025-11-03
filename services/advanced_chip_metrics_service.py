@@ -149,8 +149,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.2 · 记忆链修复版】
-        - 核心修复: 确保 `chip_fatigue_index` 被正确存入跨日记忆，修复其迭代计算。
+        【V3.3 · 记忆种子注入版】
+        - 核心修复: 为 `chip_fatigue_index` 的跨日记忆提供一个 0.0 的默认“种子”值，彻底修复其迭代计算链。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -209,7 +209,10 @@ class AdvancedChipMetricsService:
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
                 'prev_high_20d': prev_metrics.get('high_20d'), 'prev_low_20d': prev_metrics.get('low_20d'),
                 'prev_total_chip_volume': prev_metrics.get('total_chip_volume'),
-                'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index'),
+                # [代码修改开始]
+                # 修复记忆链：为疲劳度指数提供一个 0.0 的默认“种子”值
+                'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index', 0.0),
+                # [代码修改结束]
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
             })
@@ -233,8 +236,6 @@ class AdvancedChipMetricsService:
                     today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in context_for_calc['historical_components'].columns}
                     today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                     hist_comp_dict.update(today_df.to_dict('index'))
-            # [代码修改开始]
-            # 修复记忆链：确保 `chip_fatigue_index` 被正确传递
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -243,11 +244,10 @@ class AdvancedChipMetricsService:
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
                 'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
-                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None, # 修复：保存当日疲劳指数
+                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None,
                 'recent_closes_queue': recent_closes_list,
                 'atr_14d': context_data.get('atr_14d'),
             }
-            # [代码修改结束]
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics, failures_list

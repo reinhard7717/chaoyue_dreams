@@ -368,8 +368,8 @@ class ChipFeatureCalculator:
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         """
-        【V3.1 · 共识度探针植入版】
-        - 核心新增: 植入探针，监控 `structural_consensus_score` 的计算过程。
+        【V3.2 · 共识度鲁棒性增强版】
+        - 核心修复: 增强 `structural_consensus_score` 的计算鲁棒性，当上游集中度指标为空时，采用中性值替代。
         """
         results = {}
         # 1. 成本结构共识与筹码成本动量
@@ -380,10 +380,17 @@ class ChipFeatureCalculator:
         trade_date = context.get('trade_date', 'N/A')
         print(f"[{stock_code}][{trade_date}] [探针4-共识度侦察] concentration_90pct: {concentration_90pct}, total_winner_rate: {total_winner_rate}")
         # [探针4-结束]
-        if all(pd.notna(v) for v in [concentration_90pct, total_winner_rate]):
-            concentration_factor = 1.0 - np.clip(concentration_90pct, 0, 1)
+        # [代码修改开始]
+        # 增强鲁棒性：如果集中度指标为空，则赋予一个中性值，而不是让计算失败
+        if pd.notna(total_winner_rate):
+            if pd.notna(concentration_90pct):
+                concentration_factor = 1.0 - np.clip(concentration_90pct, 0, 1)
+            else:
+                # 当上游集中度为空时（例如市场极端行情），赋予一个中性值0.5
+                concentration_factor = 0.5
             profit_factor = total_winner_rate / 100.0
             results['structural_consensus_score'] = concentration_factor * profit_factor * 100
+        # [代码修改结束]
         # 升级为 `dominant_cost_momentum`
         dominant_peak_cost = context.get('dominant_peak_cost')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
@@ -398,7 +405,7 @@ class ChipFeatureCalculator:
         active_winner_margin = normalize(context.get('active_winner_profit_margin'))
         winner_conviction = normalize(context.get('winner_conviction_index'))
         pressure_score = np.log1p(np.maximum(0, active_winner_margin)) * np.log1p(np.maximum(0, winner_conviction))
-        cost_momentum = normalize(results.get('dominant_cost_momentum')) # 使用新的成本动量指标
+        cost_momentum = normalize(results.get('dominant_cost_momentum'))
         upward_purity = normalize(context.get('upward_impulse_purity'))
         reinforcement_score = (np.tanh(cost_momentum) + 1) * ((upward_purity / 100.0) + 1)
         if foundation_score >= 0 and pressure_score >= 0 and reinforcement_score >= 0:
@@ -419,8 +426,8 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V7.0 · 峰群探针植入版】
-        - 核心新增: 植入探针，监控 `find_peaks` 的结果，解释峰距指标为空的原因。
+        【V8.0 · 二级探针部署版】
+        - 核心新增: 部署二级探针(Probe 1.1)，深入峰群计算内部，监控峰距指标的原始输入。
         """
         results = {}
         close_price = self.ctx.get('close_price')
@@ -446,20 +453,21 @@ class ChipFeatureCalculator:
             results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
             results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
             if len(peaks_df) > 1:
-                # 仅当存在至少两个峰时，才计算峰距相关指标
                 secondary_peak = peaks_df.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
+                # [探针1.1-开始]
+                atr_14d_for_ratio = self.ctx.get('atr_14d')
+                print(f"[{stock_code}][{trade_date}] [探针1.1-峰距详查] dominant_peak_cost: {results['dominant_peak_cost']}, secondary_peak_cost: {results['secondary_peak_cost']}, dominant_peak_volume_ratio: {results['dominant_peak_volume_ratio']}, secondary_peak_volume: {secondary_peak['volume']}, atr_14d: {atr_14d_for_ratio}")
+                # [探针1.1-结束]
                 if results['dominant_peak_cost'] > 0:
                     separation = (results['dominant_peak_cost'] - results['secondary_peak_cost']) / results['dominant_peak_cost']
                     results['peak_separation_ratio'] = separation * 100
                 if results['dominant_peak_volume_ratio'] > 0:
                     results['peak_volume_ratio'] = (secondary_peak['volume'] / results['dominant_peak_volume_ratio']) * 100
-                atr_14d_for_ratio = self.ctx.get('atr_14d')
                 if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0:
                     peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
                     results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
             else:
-                # 这是预期行为：单峰结构下，峰距指标自然为空
                 results['secondary_peak_cost'] = np.nan
                 results['peak_separation_ratio'] = np.nan
                 results['peak_volume_ratio'] = np.nan
