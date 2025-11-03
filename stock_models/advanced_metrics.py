@@ -286,15 +286,14 @@ class AdvancedChipMetrics_BJ(BaseAdvancedChipMetrics):
             models.Index(fields=['dominant_peak_solidity']), # 新增旗舰索引：用于快速筛选成本高度集中的标的
         ]
 
+# 资金高级指标模型
 class BaseAdvancedFundFlowMetrics(models.Model):
     """
-    【V25.0 · 战略精简版】
-    - 核心裁撤: 移除了所有作为中间计算过程的原始成本指标(avg_cost_*)，由更高阶的成本博弈指标替代。
-    - 核心裁撤: 移除了xl_order_flow_directionality，其信息已被main_force_conviction_index融合。
-    - 核心裁撤: 彻底废除所有基于脆弱假设的“结果评估”指标(如t0_arbitrage_profit, total_trading_pnl等)，聚焦于可观测的、具有预测价值的博弈行为。
+    【V33.0 · 核心博弈指标增强版】
+    - 核心新增: 实现了 flow_temperature_premium, main_force_on_peak_flow 的计算逻辑。
+    - 核心优化: 调整模型字段定义，以承载新的指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # [代码修改开始]
     POWER_STRUCTURE_METRICS = {
         'net_flow_calibrated': '校准后-资金净流入(万元)',
         'main_force_net_flow_calibrated': '校准后-主力净流入(万元)',
@@ -312,8 +311,9 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_price_impact_ratio': '主力价格冲击比率',
     }
+    # [代码修改开始]
     TACTICAL_LOG_METRICS = {
-        'dip_absorption_power': '逢低吸筹力度(%)',
+        'dip_absorption_power': '逢低吸筹力度',
         'rally_distribution_pressure': '拉高派发压力(%)',
         'panic_selling_cascade': '恐慌抛售级联(%)',
         'opening_battle_result': '开盘战役结果',
@@ -338,21 +338,20 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'cmf_divergence_score': 'CMF背离得分',
         'main_force_vpoc': '主力VPOC',
         'mf_vpoc_premium': '主力VPOC溢价(%)',
-        'main_force_on_peak_flow': '主力在主峰区的净流入(万元)',
-        'flow_temperature_premium': '资金温度溢价(%)',
+        'main_force_on_peak_flow': '主力在主峰区的净流入(万元)', # 新增
+        'flow_temperature_premium': '资金温度溢价(%)', # 新增
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
     }
+    # [代码修改结束]
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_price_deviation_score': '收盘价偏离度得分',
     }
-    # [代码修改结束]
     CORE_METRICS = {
         **POWER_STRUCTURE_METRICS,
         **TACTICAL_LOG_METRICS,
         **OUTCOME_ASSESSMENT_METRICS,
     }
-    # [代码修改开始]
     SLOPE_ACCEL_EXCLUSIONS = [
         'flow_credibility_index', 'mf_retail_battle_intensity', 'main_force_activity_ratio',
         'main_force_flow_directionality', 'main_force_conviction_index',
@@ -386,7 +385,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'mf_vpoc_premium',
         'flow_temperature_premium', 'mf_retail_liquidity_swap_corr',
     ]
-    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in FLOAT_METRICS:
             vars()[name] = models.FloatField(verbose_name=verbose, null=True, blank=True)
@@ -399,7 +397,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
         'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
         'net_sh_amount_calibrated',
-        'main_force_on_peak_flow',
+        'main_force_on_peak_flow', # 新增：将峰区净流入加入可累加列
     ]
     # [代码修改结束]
     for p in UNIFIED_PERIODS:

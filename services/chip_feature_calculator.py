@@ -423,17 +423,14 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.0 · 结构洞察增强版】
-        - 核心重构: 引入“潜在次峰引力点(PSGP)”逻辑，重构 `secondary_peak_cost` 和 `peak_separation_ratio`，使其在单峰模式下依然有效。
-        - 核心新增: 新增 `peak_separation_intensity` (峰间分离强度) 和 `peak_fusion_indicator` (峰间融合指标)，提供更精细的结构判断。
+        【V11.1 · 断层指标鲁棒性增强版】
+        - 核心优化: 为 `chip_fault_blockage_ratio` 增加默认值0.0，确保在无断层时该指标有明确输出，而非NULL。
         """
         results = {}
         close_price = self.ctx.get('close_price')
         atr_14d = self.ctx.get('atr_14d')
-        # [代码修改开始]
         # 1. 主导峰与潜在次峰引力点(PSGP)剖面
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
-        # 初始化所有相关指标
         results.update({
             'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
             'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
@@ -441,7 +438,6 @@ class ChipFeatureCalculator:
             'peak_separation_intensity': np.nan, 'peak_fusion_indicator': np.nan
         })
         if not self.df.empty:
-            # 步骤A: 确定主导峰
             if len(peaks) > 0:
                 peaks_df = pd.DataFrame({
                     'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
@@ -455,15 +451,13 @@ class ChipFeatureCalculator:
                 results['dominant_peak_volume_ratio'] = main_peak['volume']
                 results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
                 results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
-            else: # 如果 find_peaks 没找到，则使用全局最大值作为主峰
+            else:
                 main_peak_idx = self.df['percent'].idxmax()
                 main_peak_cost = self.df.loc[main_peak_idx, 'price']
                 results['dominant_peak_cost'] = main_peak_cost
                 results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
                 results['peak_range_low'] = main_peak_cost * 0.99
                 results['peak_range_high'] = main_peak_cost * 1.01
-            # 步骤B: 寻找潜在次峰引力点 (PSGP)
-            # 挖掉主峰及其邻近区域（例如主峰左右各5%的范围）
             peak_width = max(1, int(len(self.df) * 0.05))
             exclusion_start = max(0, main_peak_idx - peak_width)
             exclusion_end = min(len(self.df), main_peak_idx + peak_width)
@@ -472,26 +466,20 @@ class ChipFeatureCalculator:
                 psgp_idx = remaining_chips_df['percent'].idxmax()
                 psgp_cost = remaining_chips_df.loc[psgp_idx, 'price']
                 psgp_volume = remaining_chips_df.loc[psgp_idx, 'percent']
-                results['secondary_peak_cost'] = psgp_cost # 使用PSGP成本填充
-                # 步骤C: 计算新的分离度和融合度指标
+                results['secondary_peak_cost'] = psgp_cost
                 if pd.notna(main_peak_cost) and main_peak_cost > 0:
-                    # 原始分离度，作为兼容性保留
                     separation = abs(main_peak_cost - psgp_cost) / main_peak_cost
                     results['peak_separation_ratio'] = separation * 100
-                    # 峰谷筹码量
                     valley_df = self.df.loc[min(main_peak_idx, psgp_idx):max(main_peak_idx, psgp_idx)]
                     valley_chip_percent = valley_df['percent'].sum() - results['dominant_peak_volume_ratio'] - psgp_volume
-                    # 峰间分离强度 (考虑了谷底筹码的惩罚)
-                    fusion_penalty = np.tanh(valley_chip_percent / 10) # 谷底筹码越多，惩罚越大
+                    fusion_penalty = np.tanh(valley_chip_percent / 10)
                     results['peak_separation_intensity'] = results['peak_separation_ratio'] * (1 - fusion_penalty)
-                    # 峰间融合指标 (谷底筹码越多、双峰越接近，则融合度越高)
                     results['peak_fusion_indicator'] = (1 - separation) * (1 + fusion_penalty) * 100
                 if pd.notna(results['dominant_peak_volume_ratio']) and results['dominant_peak_volume_ratio'] > 0:
                     results['peak_volume_ratio'] = (psgp_volume / results['dominant_peak_volume_ratio']) * 100
                 if pd.notna(atr_14d) and atr_14d > 0:
                     peak_distance = abs(main_peak_cost - psgp_cost)
                     results['peak_distance_volatility_ratio'] = peak_distance / atr_14d
-        # [代码修改结束]
         if pd.notna(close_price) and results.get('dominant_peak_cost', 0) > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
         dominant_peak_cost = results.get('dominant_peak_cost')
@@ -554,14 +542,18 @@ class ChipFeatureCalculator:
                 results['active_loser_rate'] = self.df[active_mask & (self.df['price'] > close_price)]['percent'].sum()
                 results['locked_profit_rate'] = self.df[~active_mask & (self.df['price'] < close_price)]['percent'].sum()
                 results['locked_loss_rate'] = self.df[~active_mask & (self.df['price'] > close_price)]['percent'].sum()
-        # 5. 断层动态
+        # [代码修改开始]
+        # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
+        results['chip_fault_blockage_ratio'] = 0.0 # 新增：为指标设置默认值0.0
         if pd.notna(peak_cost) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             magnitude = (close_price - peak_cost) / atr_14d
             results['chip_fault_magnitude'] = magnitude
             fault_zone_low, fault_zone_high = sorted([peak_cost, close_price])
             fault_zone_df = self.df[(self.df['price'] > fault_zone_low) & (self.df['price'] < fault_zone_high)]
-            if not fault_zone_df.empty: results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum()
+            if not fault_zone_df.empty:
+                results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum() # 仅在有断层时覆盖默认值
+        # [代码修改结束]
         # 6. 分层成本
         high_20d, low_20d = self.ctx.get('high_20d'), self.ctx.get('low_20d')
         if pd.notna(high_20d) and pd.notna(low_20d):
