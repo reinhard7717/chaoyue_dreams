@@ -706,9 +706,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V33.0 · 健康分补给线修复版】
-    - 核心修复: 修正历史成分加载逻辑，不再加载不存在的`concentration_70pct`，改为加载其原始成分并即时计算。
-    - 核心修复: 建立跨区块的历史数据传递机制，确保健康分计算的参照系能在任务执行过程中动态增长。
+    【V33.1 · 补给线修复版】
+    - 核心修复: 在调用资金流服务前，将 atr_14d 数据注入到 fund_flow_raw_df 中，修复下游指标计算对ATR的依赖。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -767,15 +766,12 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             for date, idx in date_index_map.items()
         }
         health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365) # 回溯约一年
-        # [代码修改开始]
-        # 修复“幽灵原料”：不再加载不存在的 concentration_70pct，改为加载其原始构成要素
         health_score_components = [
-            'cost_15pct', 'cost_85pct', 'weight_avg_cost', # concentration_70pct 的原始构成
+            'cost_15pct', 'cost_85pct', 'weight_avg_cost',
             'cost_divergence_normalized', 'dominant_peak_profit_margin',
             'main_force_cost_advantage', 'suppressive_accumulation_intensity', 'upward_impulse_purity',
             'active_winner_profit_margin', 'winner_conviction_index'
         ]
-        # [代码修改结束]
         chip_hist_fields = [f for f in health_score_components if hasattr(ChipMetricsModel, f)]
         ff_hist_fields = [f for f in health_score_components if hasattr(FundFlowMetricsModel, f)]
         @sync_to_async
@@ -789,14 +785,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return df
         chip_hist_comp_df = await load_historical_components(ChipMetricsModel, chip_hist_fields, stock_info, health_score_hist_lookback_date)
         ff_hist_comp_df = await load_historical_components(FundFlowMetricsModel, ff_hist_fields, stock_info, health_score_hist_lookback_date)
-        # [代码修改开始]
-        # 修复“幽灵原料”：在加载完历史数据后，即时计算出历史的 concentration_70pct
         if not chip_hist_comp_df.empty and all(c in chip_hist_comp_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
-            # 确保分母不为0
             valid_mask = chip_hist_comp_df['weight_avg_cost'] > 0
             chip_hist_comp_df.loc[valid_mask, 'concentration_70pct'] = \
                 (chip_hist_comp_df.loc[valid_mask, 'cost_85pct'] - chip_hist_comp_df.loc[valid_mask, 'cost_15pct']) / chip_hist_comp_df.loc[valid_mask, 'weight_avg_cost']
-        # [代码修改结束]
         historical_components_df = chip_hist_comp_df.join(ff_hist_comp_df, how='outer')
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
@@ -811,6 +803,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs)
+                # [代码修改开始]
+                # 修复：为播种数据注入ATR
+                if not seed_ff_raw_df.empty:
+                    seed_ff_raw_df['atr_14d'] = seed_ff_raw_df.index.map(atr_map_global)
+                # [代码修改结束]
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df)
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
@@ -852,6 +849,10 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
+            # [代码修改开始]
+            # 修复：为当前区块数据注入ATR
+            fund_flow_raw_df['atr_14d'] = fund_flow_raw_df.index.map(atr_map_global)
+            # [代码修改结束]
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
             all_failures.extend(ff_failures)
@@ -868,19 +869,14 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
-            # [代码修改开始]
-            # 修复“记忆断层”：将当前区块计算出的新指标追加到历史数据中，为下一个区块提供更新的参照系
             if not chunk_core_metrics_df.empty:
-                # 仅提取健康分计算所需的列，避免内存膨胀
                 new_hist_data = chunk_core_metrics_df[chunk_core_metrics_df.columns.intersection(health_score_components)]
                 if not new_hist_data.empty:
                     historical_components_df = pd.concat([historical_components_df, new_hist_data]).sort_index()
-                    # 再次即时计算 concentration_70pct，确保新加入的数据也被处理
                     if all(c in historical_components_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
                         valid_mask = historical_components_df['weight_avg_cost'] > 0
                         historical_components_df.loc[valid_mask, 'concentration_70pct'] = \
                             (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
-            # [代码修改结束]
             full_sequence_for_derivatives = pd.concat([context_df, chunk_core_metrics_df]).sort_index()
             ff_derivatives = fund_flow_service._calculate_derivatives(stock_code, full_sequence_for_derivatives)
             chip_derivatives = chip_service._calculate_derivatives(full_sequence_for_derivatives)
