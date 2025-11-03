@@ -660,8 +660,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.8 · 核心战场分析增强版】
-        - 核心新增: 实现了 main_force_on_peak_flow 的计算逻辑。
+        【V3.9 · 坐标系修复版】
+        - 核心修复: 使用 numpy.argmin/argmax 替换 pandas.idxmin/idxmax，以获取正确的整数位置索引，根除 'int' 与 'datetime.date' 的比较错误。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -720,7 +720,10 @@ class AdvancedFundFlowMetricsService:
             day_range = day_high - day_low
             if day_range > 0:
                 is_v_shape = (day_close - day_open) > 0
-                turn_point_idx = minute_data['low'].idxmin() if is_v_shape else minute_data['high'].idxmax()
+                # [代码修改开始]
+                # 修复：使用 np.argmin/argmax 获取整数位置，而不是 idxmin/idxmax 获取索引标签
+                turn_point_idx = np.argmin(minute_data['low'].values) if is_v_shape else np.argmax(minute_data['high'].values)
+                # [代码修改结束]
                 if 0 < turn_point_idx < len(minute_data) - 1:
                     initial_phase = minute_data.iloc[:turn_point_idx]
                     reversal_phase = minute_data.iloc[turn_point_idx:]
@@ -747,24 +750,19 @@ class AdvancedFundFlowMetricsService:
                 if df_cmf['main_force_net_vol'].abs().sum() > 0:
                     results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
                 results['cmf_divergence_score'] = results.get('main_force_cmf', 0.0) - results.get('holistic_cmf', 0.0)
-        # [代码修改开始]
-        # --- 5. VPOC核心战场分析 (main_force_on_peak_flow) ---
         results['main_force_on_peak_flow'] = 0.0
         if 'main_force_net_vol' in minute_data.columns and pd.notna(day_close):
             vp_global = minute_data.groupby(pd.cut(minute_data['minute_vwap'], bins=30))['vol_shares'].sum()
             if not vp_global.empty:
                 vpoc_interval = vp_global.idxmax()
                 global_vpoc_price = vpoc_interval.mid
-                # 筛选出在VPOC价格区间内的分钟数据
                 peak_zone_df = minute_data[
                     (minute_data['minute_vwap'] >= vpoc_interval.left) &
                     (minute_data['minute_vwap'] < vpoc_interval.right)
                 ]
                 if not peak_zone_df.empty:
-                    # 计算该区域的主力净流入量，并转换为金额（万元）
                     mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
                     results['main_force_on_peak_flow'] = (mf_net_vol_on_peak * global_vpoc_price) / 10000
-                # (此部分逻辑与原有的 mf_vpoc_premium 计算相关，予以保留和整合)
                 mf_net_buy_df = minute_data[minute_data['main_force_net_vol'] > 0]
                 if not mf_net_buy_df.empty:
                     vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30))['main_force_net_vol'].sum()
@@ -773,7 +771,6 @@ class AdvancedFundFlowMetricsService:
                         results['main_force_vpoc'] = mf_vpoc
                         if pd.notna(global_vpoc_price) and global_vpoc_price > 0 and pd.notna(mf_vpoc):
                             results['mf_vpoc_premium'] = (mf_vpoc / global_vpoc_price - 1) * 100
-        # [代码修改结束]
         if 'main_force_net_vol' in minute_data.columns and 'retail_net_vol' in minute_data.columns:
             mf_net_series = minute_data['main_force_net_vol']
             retail_net_series = minute_data['retail_net_vol']
