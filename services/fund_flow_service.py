@@ -333,9 +333,7 @@ class AdvancedFundFlowMetricsService:
         return results
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict, list]:
-        """
-        【V6.5 · 职责净化版】移除已废弃的 aggression_index_opening 计算逻辑。
-        """
+        """【V6.6 · 数据完整性修复版】移除对连续交易时段的错误过滤。"""
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index), {}, []
         results = {}
@@ -353,14 +351,16 @@ class AdvancedFundFlowMetricsService:
             missing_cols = [col for col in required_daily_fund_flow_cols if col not in daily_data or pd.isna(daily_data[col])]
             if missing_cols:
                 reason = f"缺失资金流原料数据: {missing_cols}"
-                print(f"[{stock_code}] [{date.date()}] 跳过概率成本计算，{reason}")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(date.date()), 'reason': reason})
                 continue
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
-            minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
-            if minute_data_continuous.empty:
+            # [代码修改开始]
+            # 移除对 is_continuous_trading 的过滤，确保完整的分钟数据（包含竞价）被用于归因计算。
+            # minute_data_continuous = minute_data_full[minute_data_full['is_continuous_trading']].copy()
+            if minute_data_full.empty:
                 continue
-            minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_continuous, daily_data)
+            minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_full, daily_data)
+            # [代码修改结束]
             day_results = {'trade_time': date}
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
@@ -386,7 +386,6 @@ class AdvancedFundFlowMetricsService:
             p_dist = minute_data_for_day['vol_shares'].fillna(0).values / minute_data_for_day['vol_shares'].sum() if minute_data_for_day['vol_shares'].sum() > 0 else np.zeros(len(minute_data_for_day))
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
-            # 核心修正：移除已废弃的 aggression_index_opening 计算逻辑
             day_results['minute_data_attributed'] = minute_data_for_day
             results[date] = day_results
         if not results:
@@ -759,18 +758,16 @@ class AdvancedFundFlowMetricsService:
         return df
 
     def _group_minute_data_from_df(self, minute_df: pd.DataFrame):
-        """【V1.4 · 竞价隔离版】从预加载的DataFrame构建按日分组的数据。"""
+        """【V1.5 · 数据完整性修复版】从预加载的DataFrame构建按日分组的数据。"""
         if minute_df is None or minute_df.empty:
             return None
         df = minute_df.copy()
         df.sort_values('trade_time', inplace=True)
         df['trade_time'] = pd.to_datetime(df['trade_time'])
-        # 强制转换为北京时间，以便进行时间过滤
         if df['trade_time'].dt.tz is None:
             df['trade_time'] = df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
         else:
             df['trade_time'] = df['trade_time'].dt.tz_convert('Asia/Shanghai')
-        
         df['date'] = df['trade_time'].dt.date
         df[['amount', 'vol']] = df[['amount', 'vol']].apply(pd.to_numeric, errors='coerce')
         df['amount_yuan'] = df['amount']
@@ -778,10 +775,6 @@ class AdvancedFundFlowMetricsService:
         df['minute_vwap'] = df['amount_yuan'] / df['vol_shares'].replace(0, np.nan)
         daily_total_vol = df.groupby('date')['vol_shares'].transform('sum')
         df['vol_weight'] = df['vol_shares'] / daily_total_vol.replace(0, np.nan)
-        # 标记集合竞价时段
-        CONTINUOUS_TRADING_END_TIME = time(14, 57, 0)
-        df['is_continuous_trading'] = df['trade_time'].dt.time < CONTINUOUS_TRADING_END_TIME
-        
         return df.set_index('date')
 
     async def _load_historical_metrics(self, model, stock_info, end_date):

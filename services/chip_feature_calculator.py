@@ -236,17 +236,12 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
-        """
-        【V7.2 · 接收确认探针部署版】
-        - 核心新增: 部署探针3，用于双重确认计算器实际接收到的分钟数据内容。
-        """
+        """【V7.3 · 生产就绪版】移除所有诊断探针。"""
         import datetime
         results = {}
         minute_df = context.get('minute_data')
         total_daily_vol = context.get('daily_turnover_volume')
         close_price = context.get('close_price')
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
         # 1. 战术序列流 (Intraday Tactical Flow)
         required_cols_1 = ['minute_vwap', 'main_force_net_vol', 'vol']
         if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
@@ -328,12 +323,7 @@ class ChipFeatureCalculator:
         results['auction_intent_signal'] = 0.0
         results['auction_closing_position'] = 0.0
         # [代码修改开始]
-        # 探针 3: 确认计算器实际接收到的分钟数据内容
-        if minute_df is not None and not minute_df.empty:
-            max_time_received = minute_df['trade_time'].max().time()
-            print(f"[{stock_code}][{trade_date}] [探针3-接收确认] 计算器收到分钟数据, 最晚时间: {max_time_received}")
-        else:
-            print(f"[{stock_code}][{trade_date}] [探针3-接收确认] 计算器收到空的分钟数据")
+        # 移除所有探针，恢复生产逻辑
         # [代码修改结束]
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
