@@ -207,8 +207,8 @@ class AdvancedFundFlowMetricsService:
         
     def _synthesize_and_forge_metrics(self, stock_code: str, merged_df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V20.2 · 冗余清理版】
-        - 核心修复: 移除本方法中冗余的 daily_vwap 计算，将其全权委托给下游的 _calculate_probabilistic_costs 方法，确保单一数据源。
+        【V20.3 · VWAP固化修复版】
+        - 核心修复: 彻底修复VWAP传递链。在probabilistic_costs计算后，立即将返回的VWAP固化到主数据流result_df_day中，确保其能被下游的advanced_behavioral_metrics正确获取。
         """
         all_metrics_list = []
         attributed_minute_map = {}
@@ -221,7 +221,7 @@ class AdvancedFundFlowMetricsService:
             has_daily_flow_data = 'buy_sm_vol' in daily_data.columns and pd.notna(daily_data['buy_sm_vol'].iloc[0])
             if not has_daily_flow_data:
                 reason = "日线资金流数据缺失"
-                print(f"[资金流服务] [{stock_code}] [{trade_date.date()}] 跳过计算，原因：{reason}")
+                print(f"DEBUG PROBE: [{stock_code}] [{trade_date.date()}] 跳过，原因: {reason}")
                 all_failures.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': f"[资金流服务] {reason}"})
                 continue
             result_df_day = daily_data.copy()
@@ -232,12 +232,12 @@ class AdvancedFundFlowMetricsService:
                 pvwap_costs_df, day_attributed_minute_map, pvwap_failures = self._calculate_probabilistic_costs(result_df_day, minute_df_daily_grouped, stock_code)
                 all_failures.extend(pvwap_failures)
                 if not pvwap_costs_df.empty:
-                    result_df_day = result_df_day.join(pvwap_costs_df)
-                    attributed_minute_map.update(day_attributed_minute_map)
                     # [代码修改开始]
-                    # 修复：将带有完整成本和VWAP信息的数据帧传递给行为指标计算
-                    advanced_behavioral_df = self._calculate_advanced_behavioral_metrics(result_df_day, day_attributed_minute_map)
+                    # 修复：将包含VWAP的成本数据合并到主数据流
+                    result_df_day = result_df_day.join(pvwap_costs_df)
                     # [代码修改结束]
+                    attributed_minute_map.update(day_attributed_minute_map)
+                    advanced_behavioral_df = self._calculate_advanced_behavioral_metrics(result_df_day, day_attributed_minute_map)
                     result_df_day = result_df_day.join(advanced_behavioral_df)
             all_metrics_list.append(result_df_day)
         if not all_metrics_list:
@@ -344,8 +344,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_probabilistic_costs(self, daily_df: pd.DataFrame, minute_df_grouped: pd.DataFrame, stock_code: str) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V6.8 · VWAP源头修复版】
-        - 核心修复: 在本方法内部（数据处理的源头）计算 daily_vwap，并将其注入到 daily_data Series 中，确保下游所有函数（如权重计算、成本聚合）都能获取到可靠的VWAP值。
+        【V6.9 · VWAP源头固化版】
+        - 核心修复: 在本方法内部计算daily_vwap，并将其作为返回DataFrame的一部分，确保VWAP值能被上游调用者接收和使用。
         """
         if minute_df_grouped is None:
             return pd.DataFrame(index=daily_df.index), {}, []
@@ -369,13 +369,14 @@ class AdvancedFundFlowMetricsService:
             minute_data_full = minute_df_grouped.loc[[date_key]].copy()
             if minute_data_full.empty:
                 continue
-            # [代码修改开始]
-            # 修复：在此处（分钟数据处理的最源头）计算日内VWAP，并将其添加到当天的日线数据序列中
             daily_vwap_from_minute = (minute_data_full['amount_yuan'].sum() / minute_data_full['vol_shares'].sum()) if minute_data_full['vol_shares'].sum() > 0 else np.nan
             daily_data['daily_vwap'] = daily_vwap_from_minute
-            # [代码修改结束]
             minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_full, daily_data)
             day_results = {'trade_time': date}
+            # [代码修改开始]
+            # 修复：将计算出的VWAP直接存入结果字典，以便最终成为DataFrame的一列
+            day_results['daily_vwap'] = daily_vwap_from_minute
+            # [代码修改结束]
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
                 db_vol_key = f'{direction}_{size}_vol'
@@ -401,32 +402,22 @@ class AdvancedFundFlowMetricsService:
             q_dist = np.full_like(p_dist, 1.0 / len(p_dist)) if len(p_dist) > 0 else np.array([])
             day_results['volume_profile_jsd_vs_uniform'] = jensenshannon(p_dist, q_dist)**2 if p_dist.size > 0 and q_dist.size > 0 else np.nan
             day_results['minute_data_attributed'] = minute_data_for_day
-            # [代码修改开始]
-            # 修复：将包含VWAP的日线数据也存入结果，以便后续聚合
-            day_results['daily_data_with_vwap'] = daily_data
-            # [代码修改结束]
             results[date] = day_results
         if not results:
             return pd.DataFrame(), {}, failures_list
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
-        # [代码修改开始]
-        # 修复：从结果中提取出带有VWAP的日线数据，用于聚合成本计算
-        daily_df_with_vwap_list = [res.pop('daily_data_with_vwap') for date, res in results.items() if 'daily_data_with_vwap' in res]
-        if not daily_df_with_vwap_list:
-            return pd.DataFrame(), attributed_minute_map, failures_list
-        daily_df_with_vwap = pd.DataFrame(daily_df_with_vwap_list)
-        daily_df_with_vwap.set_index(pd.to_datetime(daily_df_with_vwap.index), inplace=True)
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # 修复：将带有VWAP的数据帧传递给聚合成本计算函数
-        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df_with_vwap)
+        # [代码修改开始]
+        # 修复：现在pvwap_df自身就包含了daily_vwap列，直接将其传递给下游即可
+        aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
         # [代码修改结束]
         final_df = pvwap_df.join(aggregate_costs_df)
         return final_df, attributed_minute_map, failures_list
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.5 · 主力T+0效率增强版】
-        - 核心新增: 实现了 main_force_t0_efficiency 的计算逻辑。
+        【V3.6 · 诊断探针植入版】
+        - 核心新增: 植入探针，检查T+0效率计算的各个输入环节。
         """
         temp_df = pvwap_df.copy()
         vol_cols = [
@@ -463,7 +454,10 @@ class AdvancedFundFlowMetricsService:
         result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
         result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
         result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
-        daily_vwap = daily_df.get('daily_vwap')
+        # [代码修改开始]
+        # 修复：从pvwap_df中获取VWAP，因为现在它被作为源头注入了
+        daily_vwap = pvwap_df.get('daily_vwap')
+        # [代码修改结束]
         if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
             result_agg_df['main_force_cost_alpha'] = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap) * 100
@@ -500,8 +494,6 @@ class AdvancedFundFlowMetricsService:
             alpha_sell = ((result_agg_df['avg_cost_main_sell'] - safe_vwap) / safe_vwap).fillna(0)
             weighted_alpha = (alpha_buy * mf_buy_vol + alpha_sell * mf_sell_vol)
             result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
-        # [代码修改开始]
-        # --- 新增：主力T+0效率 (Main Force T+0 Efficiency) ---
         result_agg_df['main_force_t0_efficiency'] = 0.0
         mf_buy_amount = np.nansum([
             pd.to_numeric(temp_df.get('buy_lg_amount'), errors='coerce'),
@@ -511,16 +503,17 @@ class AdvancedFundFlowMetricsService:
             pd.to_numeric(temp_df.get('sell_lg_amount'), errors='coerce'),
             pd.to_numeric(temp_df.get('sell_elg_amount'), errors='coerce')
         ], axis=0)
-        # T+0交易量近似为买卖量的较小值
         t0_vol = pd.min(mf_buy_vol, mf_sell_vol) if isinstance(mf_buy_vol, pd.Series) else min(mf_buy_vol, mf_sell_vol)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
-            # 计算T+0总利润（元）
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
-            # 主力总活动金额（元）
             total_mf_amount = (mf_buy_amount + mf_sell_amount) * 10000
-            # 计算效率：总利润 / 总活动金额
+            # [代码修改开始]
+            # 探针：检查T+0效率计算的输入
+            if not temp_df.empty:
+                date_str = temp_df.index[0].strftime('%Y-%m-%d')
+                print(f"DEBUG PROBE (T0 EFF): [{date_str}] t0_profit={t0_profit.iloc[0] if isinstance(t0_profit, pd.Series) else t0_profit}, total_mf_amount={total_mf_amount.iloc[0] if isinstance(total_mf_amount, pd.Series) else total_mf_amount}")
+            # [代码修改结束]
             result_agg_df['main_force_t0_efficiency'] = (t0_profit / np.where(total_mf_amount == 0, np.nan, total_mf_amount)) * 100
-        # [代码修改结束]
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
@@ -660,8 +653,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.10 · 寻址模式修复版】
-        - 核心修复: 将 .loc 寻址修改为 .iloc，以匹配 np.argmin/argmax 返回的整数位置索引，根除 KeyError。
+        【V3.11 · 诊断探针植入版】
+        - 核心新增: 植入探针，检查关键输入参数 daily_vwap 和 atr 是否有效。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -672,11 +665,21 @@ class AdvancedFundFlowMetricsService:
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
         day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
+        # [代码修改开始]
+        # 探针：检查关键输入参数
+        date_str = daily_data.name.strftime('%Y-%m-%d')
+        print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] daily_vwap={daily_vwap}, atr={atr}")
+        # [代码修改结束]
         results['vwap_control_strength'] = 0.0
         results['main_force_vwap_guidance'] = 0.0
         results['vwap_crossing_intensity'] = 0.0
         results['vwap_structure_skew'] = 0.0
-        if all(pd.notna(v) for v in [daily_vwap, daily_total_volume, atr]) and daily_total_volume > 0 and atr > 0:
+        # [代码修改开始]
+        # 探针：检查核心卫兵条件
+        gatekeeper_condition = all(pd.notna(v) for v in [daily_vwap, daily_total_volume, atr]) and daily_total_volume > 0 and atr > 0
+        print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] Gatekeeper Condition Passed: {gatekeeper_condition}")
+        if gatekeeper_condition:
+        # [代码修改结束]
             price_deviation_value = (minute_data['minute_vwap'] - daily_vwap) * minute_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
             price_dev_series = minute_data['minute_vwap'] - daily_vwap
@@ -726,11 +729,8 @@ class AdvancedFundFlowMetricsService:
                     reversal_phase = minute_data.iloc[turn_point_idx:]
                     vol_initial, vol_reversal = initial_phase['vol_shares'].sum(), reversal_phase['vol_shares'].sum()
                     if vol_initial > 0 and vol_reversal > 0:
-                        # [代码修改开始]
-                        # 修复：使用 .iloc 按整数位置查找，而不是 .loc 按标签查找
                         turn_point_vwap = minute_data['minute_vwap'].iloc[turn_point_idx]
                         price_recovery = abs(day_close - turn_point_vwap) / day_range
-                        # [代码修改结束]
                         vol_shift = np.log1p(vol_reversal / vol_initial)
                         reversal_mf_net_vol = reversal_phase['main_force_net_vol'].sum()
                         reversal_conviction = reversal_mf_net_vol / vol_reversal if vol_reversal > 0 else 0
@@ -789,7 +789,7 @@ class AdvancedFundFlowMetricsService:
         results['retail_panic_surrender_index'] = 0.0
         results['volatility_asymmetry_index'] = 0.0
         continuous_trading_df = minute_data[minute_data['trade_time'].dt.time < time(14, 57)].copy()
-        if not continuous_trading_df.empty and all(pd.notna(v) for v in [day_open, day_close, day_high, day_low, atr, daily_vwap]) and atr > 0:
+        if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
             if not up_minutes.empty and not down_minutes.empty:
