@@ -237,8 +237,9 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V5.1 · 生产就绪版】
-        - 核心修改: 移除所有调试探针。
+        【V6.0 · 竞价意图重构版】
+        - 核心重构: 引入“虚拟竞价博弈”逻辑，在尾盘无成交时，通过分析最后一分钟盘口快照计算新的 `auction_intent_signal` 和 `auction_pressure_ratio`。
+        - 核心优化: 将原 `auction_battle_signal` 作为有成交时的优先信号，形成互补。
         """
         import datetime
         results = {}
@@ -297,7 +298,7 @@ class ChipFeatureCalculator:
             if mf_total_vol > 0 and retail_total_vol > 0:
                 mf_total_amount = (minute_df['main_force_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['main_force_sell_vol'] * minute_df['minute_vwap']).sum()
                 retail_total_amount = (minute_df['retail_buy_vol'] * minute_df['minute_vwap']).sum() + (minute_df['retail_sell_vol'] * minute_df['minute_vwap']).sum()
-                vwap_mf = mf_total_amount / mf_total_vol
+                vwap_mf = mf_total_amount / retail_total_amount
                 vwap_retail = retail_total_amount / retail_total_vol
                 if vwap_mf > 0: results['main_force_cost_advantage'] = (vwap_retail / vwap_mf - 1) * 100
         required_cols_4_2 = ['main_force_buy_vol', 'main_force_sell_vol']
@@ -321,34 +322,52 @@ class ChipFeatureCalculator:
                     results['intraday_new_loser_pressure'] = (new_loser_vol / daily_volume) * avg_loss_rate * 100
             else:
                 results['intraday_new_loser_pressure'] = 0.0
-        if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns:
+        # [代码修改开始]
+        # 5. 集合竞价博弈信号 (重构版)
+        atr_14d = context.get('atr_14d')
+        results['auction_battle_signal'] = np.nan
+        results['auction_intent_signal'] = np.nan
+        results['auction_pressure_ratio'] = np.nan
+        if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
-            atr_14d = context.get('atr_14d')
-            if not pre_auction_df.empty and not auction_df.empty and pd.notna(atr_14d) and atr_14d > 0 and pd.notna(close_price) and total_daily_vol > 0:
+            # 场景一：尾盘有成交
+            if not pre_auction_df.empty and not auction_df.empty and total_daily_vol > 0:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
                 auction_volume = auction_df['vol'].sum()
                 price_impact = (close_price - pre_auction_price) / atr_14d
                 volume_weight = np.log1p(auction_volume / total_daily_vol)
                 results['auction_battle_signal'] = price_impact * volume_weight * 100
+            # 场景二：尾盘无成交，分析最后一分钟盘口快照 (需要上游提供 'last_minute_snapshot' context)
+            elif 'last_minute_snapshot' in context:
+                snapshot = context['last_minute_snapshot']
+                bid_vol = snapshot.get('bid_vol1', 0)
+                ask_vol = snapshot.get('ask_vol1', 0)
+                bid_price = snapshot.get('bid_price1', 0)
+                ask_price = snapshot.get('ask_price1', 0)
+                if bid_vol > 0 and ask_vol > 0 and bid_price > 0 and ask_price > 0:
+                    log_bid_power = np.log1p(bid_vol * bid_price)
+                    log_ask_power = np.log1p(ask_vol * ask_price)
+                    total_power = log_bid_power + log_ask_power
+                    if total_power > 0:
+                        results['auction_intent_signal'] = ((log_bid_power - log_ask_power) / total_power) * 100
+                    mid_price = (bid_price + ask_price) / 2
+                    results['auction_pressure_ratio'] = ((close_price - mid_price) / atr_14d) * 100
+        # [代码修改结束]
         # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')
         high_price = context.get('high_price')
         if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [low_price, high_price, close_price]):
             day_range = high_price - low_price
             if day_range > 1e-6: # 避免在横盘时除以零
-                # 找到最低点的时间索引
                 if 'low' in minute_df.columns and not minute_df['low'].empty:
                     low_price_idx = minute_df['low'].idxmin()
                 else: # Fallback
                     low_price_idx = minute_df['minute_vwap'].idxmin()
-                # 定义反弹阶段
                 rebound_df = minute_df.loc[low_price_idx:]
                 if not rebound_df.empty and len(rebound_df) > 1:
-                    # 计算反弹幅度
                     price_recovery_ratio = (close_price - low_price) / day_range
-                    # 计算反弹纯度
                     rebound_volume = rebound_df['vol_shares'].sum()
                     if rebound_volume > 0 and 'main_force_net_vol' in rebound_df.columns:
                         rebound_mf_net_flow = rebound_df['main_force_net_vol'].sum()
@@ -411,51 +430,74 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V10.0 · 逻辑覆盖修复版】
-        - 核心修复: 重构峰群计算逻辑，修复因错误 `else` 分支导致的多峰股票峰距指标被覆盖为空的BUG。
+        【V11.0 · 结构洞察增强版】
+        - 核心重构: 引入“潜在次峰引力点(PSGP)”逻辑，重构 `secondary_peak_cost` 和 `peak_separation_ratio`，使其在单峰模式下依然有效。
+        - 核心新增: 新增 `peak_separation_intensity` (峰间分离强度) 和 `peak_fusion_indicator` (峰间融合指标)，提供更精细的结构判断。
         """
         results = {}
         close_price = self.ctx.get('close_price')
-        # 1. 主导峰与次峰剖面
-        peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
+        atr_14d = self.ctx.get('atr_14d')
         # [代码修改开始]
-        # 修复逻辑覆盖BUG：将峰距指标的初始化提前，并只在满足条件时赋值
-        results['secondary_peak_cost'] = np.nan
-        results['peak_separation_ratio'] = np.nan
-        results['peak_volume_ratio'] = np.nan
-        results['peak_distance_volatility_ratio'] = np.nan
-        if len(peaks) > 0:
-            peaks_df = pd.DataFrame({
-                'peak_index': peaks,
-                'volume': self.df['percent'].iloc[peaks].values,
-                'cost': self.df['price'].iloc[peaks].values,
-                'prominence': properties['prominences'],
-                'left_ip': properties['left_ips'],
-                'right_ip': properties['right_ips'],
-            }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
-            main_peak = peaks_df.iloc[0]
-            results['dominant_peak_cost'] = main_peak['cost']
-            results['dominant_peak_volume_ratio'] = main_peak['volume']
-            results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
-            results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
-            if len(peaks_df) > 1:
-                secondary_peak = peaks_df.iloc[1]
-                results['secondary_peak_cost'] = secondary_peak['cost']
-                if results.get('dominant_peak_cost') is not None and results.get('dominant_peak_cost') > 0:
-                    separation = (results['dominant_peak_cost'] - results['secondary_peak_cost']) / results['dominant_peak_cost']
+        # 1. 主导峰与潜在次峰引力点(PSGP)剖面
+        peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
+        # 初始化所有相关指标
+        results.update({
+            'dominant_peak_cost': np.nan, 'dominant_peak_volume_ratio': np.nan,
+            'secondary_peak_cost': np.nan, 'peak_separation_ratio': np.nan,
+            'peak_volume_ratio': np.nan, 'peak_distance_volatility_ratio': np.nan,
+            'peak_separation_intensity': np.nan, 'peak_fusion_indicator': np.nan
+        })
+        if not self.df.empty:
+            # 步骤A: 确定主导峰
+            if len(peaks) > 0:
+                peaks_df = pd.DataFrame({
+                    'peak_index': peaks, 'volume': self.df['percent'].iloc[peaks].values,
+                    'cost': self.df['price'].iloc[peaks].values, 'prominence': properties['prominences'],
+                    'left_ip': properties['left_ips'], 'right_ip': properties['right_ips'],
+                }).sort_values(by='prominence', ascending=False).reset_index(drop=True)
+                main_peak = peaks_df.iloc[0]
+                main_peak_cost = main_peak['cost']
+                main_peak_idx = int(main_peak['peak_index'])
+                results['dominant_peak_cost'] = main_peak_cost
+                results['dominant_peak_volume_ratio'] = main_peak['volume']
+                results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
+                results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
+            else: # 如果 find_peaks 没找到，则使用全局最大值作为主峰
+                main_peak_idx = self.df['percent'].idxmax()
+                main_peak_cost = self.df.loc[main_peak_idx, 'price']
+                results['dominant_peak_cost'] = main_peak_cost
+                results['dominant_peak_volume_ratio'] = self.df.loc[main_peak_idx, 'percent']
+                results['peak_range_low'] = main_peak_cost * 0.99
+                results['peak_range_high'] = main_peak_cost * 1.01
+            # 步骤B: 寻找潜在次峰引力点 (PSGP)
+            # 挖掉主峰及其邻近区域（例如主峰左右各5%的范围）
+            peak_width = max(1, int(len(self.df) * 0.05))
+            exclusion_start = max(0, main_peak_idx - peak_width)
+            exclusion_end = min(len(self.df), main_peak_idx + peak_width)
+            remaining_chips_df = self.df.drop(self.df.index[exclusion_start:exclusion_end])
+            if not remaining_chips_df.empty:
+                psgp_idx = remaining_chips_df['percent'].idxmax()
+                psgp_cost = remaining_chips_df.loc[psgp_idx, 'price']
+                psgp_volume = remaining_chips_df.loc[psgp_idx, 'percent']
+                results['secondary_peak_cost'] = psgp_cost # 使用PSGP成本填充
+                # 步骤C: 计算新的分离度和融合度指标
+                if pd.notna(main_peak_cost) and main_peak_cost > 0:
+                    # 原始分离度，作为兼容性保留
+                    separation = abs(main_peak_cost - psgp_cost) / main_peak_cost
                     results['peak_separation_ratio'] = separation * 100
-                if results.get('dominant_peak_volume_ratio') is not None and results.get('dominant_peak_volume_ratio') > 0:
-                    results['peak_volume_ratio'] = (secondary_peak['volume'] / results['dominant_peak_volume_ratio']) * 100
-                atr_14d_for_ratio = self.ctx.get('atr_14d')
-                if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0 and results.get('dominant_peak_cost') is not None and results.get('secondary_peak_cost') is not None:
-                    peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
-                    results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
-        elif not self.df.empty:
-            peak_idx = self.df['percent'].idxmax()
-            results['dominant_peak_cost'] = self.df.loc[peak_idx, 'price']
-            results['dominant_peak_volume_ratio'] = self.df.loc[peak_idx, 'percent']
-            results['peak_range_low'] = results['dominant_peak_cost'] * 0.99
-            results['peak_range_high'] = results['dominant_peak_cost'] * 1.01
+                    # 峰谷筹码量
+                    valley_df = self.df.loc[min(main_peak_idx, psgp_idx):max(main_peak_idx, psgp_idx)]
+                    valley_chip_percent = valley_df['percent'].sum() - results['dominant_peak_volume_ratio'] - psgp_volume
+                    # 峰间分离强度 (考虑了谷底筹码的惩罚)
+                    fusion_penalty = np.tanh(valley_chip_percent / 10) # 谷底筹码越多，惩罚越大
+                    results['peak_separation_intensity'] = results['peak_separation_ratio'] * (1 - fusion_penalty)
+                    # 峰间融合指标 (谷底筹码越多、双峰越接近，则融合度越高)
+                    results['peak_fusion_indicator'] = (1 - separation) * (1 + fusion_penalty) * 100
+                if pd.notna(results['dominant_peak_volume_ratio']) and results['dominant_peak_volume_ratio'] > 0:
+                    results['peak_volume_ratio'] = (psgp_volume / results['dominant_peak_volume_ratio']) * 100
+                if pd.notna(atr_14d) and atr_14d > 0:
+                    peak_distance = abs(main_peak_cost - psgp_cost)
+                    results['peak_distance_volatility_ratio'] = peak_distance / atr_14d
         # [代码修改结束]
         if pd.notna(close_price) and results.get('dominant_peak_cost', 0) > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
@@ -487,7 +529,6 @@ class ChipFeatureCalculator:
             results['winner_concentration_90pct'] = _get_concentration(self.df[self.df['price'] < close_price])
             results['loser_concentration_90pct'] = _get_concentration(self.df[self.df['price'] > close_price])
         # 3. 动态压力支撑 (升级为力矩模型)
-        atr_14d = self.ctx.get('atr_14d')
         if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             zone_width = 0.5 * atr_14d
             pressure_df = self.df[(self.df['price'] > close_price) & (self.df['price'] <= close_price + zone_width)]
