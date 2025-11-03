@@ -149,8 +149,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.9 · 生产就绪版】
-        - 核心优化: 移除所有与 `last_minute_snapshot` 相关的调试探针。
+        【V4.0 · 全链路穿透探针部署版】
+        - 核心新增: 部署探针1和2，监控数据源选择路径及数据内容的完整性。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -227,15 +227,22 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
+            # [代码修改开始]
+            # 探针 1 & 2: 检查数据源选择路径及数据内容的完整性
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
+                print(f"[{stock_code}][{trade_date.date()}] [探针1-数据源检查] 使用 '主补给线' (fund_flow_attributed_minute_map)")
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
+                print(f"[{stock_code}][{trade_date.date()}] [探针1-数据源检查] 使用 '备用补给线' (minute_data_map + fallback)")
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-            context_for_calc['minute_data'] = enhanced_minute_data
-            # [代码修改开始]
-            # 移除探针A
+            if not enhanced_minute_data.empty:
+                max_time = enhanced_minute_data['trade_time'].max().time()
+                print(f"[{stock_code}][{trade_date.date()}] [探针2-数据内容审查] 注入计算器前, 分钟数据最晚时间: {max_time}")
+            else:
+                print(f"[{stock_code}][{trade_date.date()}] [探针2-数据内容审查] 注入计算器前, 分钟数据为空")
             # [代码修改结束]
+            context_for_calc['minute_data'] = enhanced_minute_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:

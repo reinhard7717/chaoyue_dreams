@@ -237,14 +237,16 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.1 · 生产就绪版】
-        - 核心优化: 移除所有与 `last_minute_snapshot` 相关的调试探针。
+        【V7.2 · 接收确认探针部署版】
+        - 核心新增: 部署探针3，用于双重确认计算器实际接收到的分钟数据内容。
         """
         import datetime
         results = {}
         minute_df = context.get('minute_data')
         total_daily_vol = context.get('daily_turnover_volume')
         close_price = context.get('close_price')
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
         # 1. 战术序列流 (Intraday Tactical Flow)
         required_cols_1 = ['minute_vwap', 'main_force_net_vol', 'vol']
         if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
@@ -321,28 +323,31 @@ class ChipFeatureCalculator:
                     results['intraday_new_loser_pressure'] = (new_loser_vol / daily_volume) * avg_loss_rate * 100
             else:
                 results['intraday_new_loser_pressure'] = 0.0
-        # [代码修改开始]
-        # 5. 集合竞价解构 (移除探针的生产就绪版)
+        # 5. 集合竞价解构
         atr_14d = context.get('atr_14d')
-        results['auction_intent_signal'] = 0.0 # 默认为中性值0
-        results['auction_closing_position'] = 0.0 # 默认为中性值0
+        results['auction_intent_signal'] = 0.0
+        results['auction_closing_position'] = 0.0
+        # [代码修改开始]
+        # 探针 3: 确认计算器实际接收到的分钟数据内容
+        if minute_df is not None and not minute_df.empty:
+            max_time_received = minute_df['trade_time'].max().time()
+            print(f"[{stock_code}][{trade_date}] [探针3-接收确认] 计算器收到分钟数据, 最晚时间: {max_time_received}")
+        else:
+            print(f"[{stock_code}][{trade_date}] [探针3-接收确认] 计算器收到空的分钟数据")
+        # [代码修改结束]
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
-            # 必须存在连续交易时段，才能有基准价
             if not pre_auction_df.empty:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
-                # 场景一：尾盘集合竞价有成交
                 if not auction_df.empty and 'vol' in auction_df.columns and auction_df['vol'].sum() > 0:
-                    auction_bar = auction_df.iloc[0] # 竞价数据合并在第一行
+                    auction_bar = auction_df.iloc[0]
                     auction_volume = auction_bar['vol']
-                    # 计算竞价意图信号
                     if total_daily_vol > 0:
                         price_impact = (close_price - pre_auction_price) / atr_14d
                         volume_weight = np.log1p(auction_volume / total_daily_vol)
                         results['auction_intent_signal'] = price_impact * volume_weight * 100
-                    # 计算竞价收盘位置
                     auction_high = auction_bar['high']
                     auction_low = auction_bar['low']
                     auction_range = auction_high - auction_low
@@ -353,16 +358,15 @@ class ChipFeatureCalculator:
                         results['auction_closing_position'] = 100.0
                     else:
                         results['auction_closing_position'] = -100.0
-        # [代码修改结束]
         # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')
         high_price = context.get('high_price')
         if minute_df is not None and not minute_df.empty and all(pd.notna(v) for v in [low_price, high_price, close_price]):
             day_range = high_price - low_price
-            if day_range > 1e-6: # 避免在横盘时除以零
+            if day_range > 1e-6:
                 if 'low' in minute_df.columns and not minute_df['low'].empty:
                     low_price_idx = minute_df['low'].idxmin()
-                else: # Fallback
+                else:
                     low_price_idx = minute_df['minute_vwap'].idxmin()
                 rebound_df = minute_df.loc[low_price_idx:]
                 if not rebound_df.empty and len(rebound_df) > 1:
