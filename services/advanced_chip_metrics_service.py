@@ -149,31 +149,27 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.6 · 历史参照系重建增强版】
-        - 核心修复: 重建历史成分的传递与生长逻辑，确保在区块内部(intra-chunk)也能动态更新历史参照系。
-        - 核心修复: 增加硬编码的后备列名，以应对上游任务在冷启动时未提供列结构的缺陷，这是当前问题的直接原因。
-        - 核心新增: 部署“补给线”级全链路探针(Probe 1.0, 1.1, 1.2, 1.3)，彻底监控历史参照系的创建、接收、准备和生长全过程。
+        【V3.7 · 生产就绪版】
+        - 核心优化: 移除所有调试探针，代码恢复生产状态。
+        - 核心固化: 保留并优化了历史参照系的动态生长逻辑，确保健康分计算的长期稳定。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
         prev_metrics = memory.copy() if memory is not None else {}
         # [代码修改开始]
-        # 修复：无论历史数据是否为空，都初始化一个字典用于在区块内动态生长
-        hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
-        # 修复：获取历史成分的列名，即使DataFrame为空
-        hist_comp_cols = historical_components.columns if historical_components is not None and not historical_components.columns.empty else None
-        # 部署探针1.0: 检查是否启用后备方案
-        if hist_comp_cols is None:
-            # 修复：增加硬编码的后备列名，以应对上游任务在冷启动时未提供列结构的缺陷
+        # 固化历史参照系的处理逻辑
+        hist_comp_cols = None
+        if historical_components is not None and not historical_components.columns.empty:
+            hist_comp_cols = historical_components.columns
+        else:
+            # 后备方案：如果上游未提供列结构（例如冷启动），则硬编码一个
             hist_comp_cols = pd.Index([
                 'concentration_70pct', 'cost_divergence_normalized', 'dominant_peak_profit_margin',
                 'main_force_cost_advantage', 'suppressive_accumulation_intensity', 'upward_impulse_purity',
                 'active_winner_profit_margin', 'winner_conviction_index'
             ])
-            print(f"[{stock_code}][区块开始] [探针1.0-后备方案] 启用硬编码的历史成分列。")
-        # 部署探针1.1: 确认历史参照系的接收状态
-        print(f"[{stock_code}][区块开始] [探针1.1-补给线检查] historical_components 接收状态 - Shape: {historical_components.shape if historical_components is not None else 'None'}, Columns: {list(hist_comp_cols) if hist_comp_cols is not None else 'None'}")
+        hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         # [代码修改结束]
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
@@ -232,19 +228,13 @@ class AdvancedChipMetricsService:
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
             })
             # [代码修改开始]
-            # 修复：为当天的计算准备正确的历史数据切片
-            if hist_comp_cols is not None and not hist_comp_cols.empty:
-                # 从动态增长的 hist_comp_dict 中获取截至昨天的数据
-                historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
-                if historical_data_for_day:
-                    context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
-                else:
-                    # 如果是第一天，则创建一个空的DataFrame，但带有正确的列结构
-                    context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # 部署探针1.2: 确认传递给计算器的历史数据状态
-            hist_data_in_context = context_for_calc.get('historical_components')
-            hist_data_status = f"Shape: {hist_data_in_context.shape}" if hist_data_in_context is not None else "未装载"
-            print(f"[{stock_code}][{trade_date.date()}] [探针1.2-弹药装载检查] historical_components 状态: {hist_data_status}")
+            # 固化：为当天的计算准备正确的历史数据切片
+            historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
+            if historical_data_for_day:
+                context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
+            else:
+                # 如果是第一天，则创建一个空的DataFrame，但带有正确的列结构
+                context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
             # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
@@ -259,14 +249,10 @@ class AdvancedChipMetricsService:
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
                 # [代码修改开始]
-                # 修复：无条件地尝试更新动态增长的历史字典
-                if hist_comp_cols is not None and not hist_comp_cols.empty:
-                    # 从当日计算结果中提取历史成分所需指标
-                    today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
-                    today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
-                    hist_comp_dict.update(today_df.to_dict('index'))
-                    # 部署探针1.3: 监控历史字典的生长状态
-                    print(f"[{stock_code}][{trade_date.date()}] [探针1.3-记忆生长检查] hist_comp_dict size: {len(hist_comp_dict)}")
+                # 固化：无条件地尝试更新动态增长的历史字典
+                today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
+                today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
+                hist_comp_dict.update(today_df.to_dict('index'))
                 # [代码修改结束]
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
