@@ -403,8 +403,8 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.3 · 资金温度溢价增强版】
-        - 核心新增: 实现了 flow_temperature_premium 的计算逻辑。
+        【V3.4 · 健壮性修复版】
+        - 核心修复: 使用 np.nansum 替换原有的 .fillna(0) + ... 结构，以同时兼容DataFrame（多日）和Series（单日）输入，根除 'numpy.float64' object has no attribute 'fillna' 错误。
         """
         temp_df = pvwap_df.copy()
         vol_cols = [
@@ -412,13 +412,11 @@ class AdvancedFundFlowMetricsService:
             'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
         ]
         existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
-        # [代码修改开始]
         agg_cols = [
             'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
             'main_force_cost_alpha', 'retail_cost_beta', 'main_force_t0_spread_ratio',
             'main_force_execution_alpha', 'main_force_t0_efficiency', 'flow_temperature_premium'
         ]
-        # [代码修改结束]
         if not existing_vol_cols:
             return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
         temp_df = temp_df.join(daily_df[existing_vol_cols])
@@ -428,7 +426,15 @@ class AdvancedFundFlowMetricsService:
             for cost_col, vol_col in zip(cost_cols, vol_cols):
                 if cost_col in temp_df.columns and vol_col in temp_df.columns:
                     cost = temp_df[cost_col]
-                    volume_shares = pd.to_numeric(temp_df[vol_col], errors='coerce').fillna(0) * 100
+                    # [代码修改开始]
+                    # 修复：确保 volume_shares 即使在单行Series输入时也能正确处理
+                    volume_data = temp_df[vol_col]
+                    if isinstance(volume_data, pd.Series):
+                        volume_shares = pd.to_numeric(volume_data, errors='coerce').fillna(0) * 100
+                    else: # 标量情况
+                        volume_shares = pd.to_numeric(volume_data, errors='coerce')
+                        volume_shares = 0 if pd.isna(volume_shares) else volume_shares * 100
+                    # [代码修改结束]
                     value_contribution = (cost * volume_shares).fillna(0)
                     numerator += value_contribution
                     denominator += volume_shares.where(cost.notna(), 0)
@@ -449,13 +455,10 @@ class AdvancedFundFlowMetricsService:
             result_agg_df['retail_cost_beta'] = ((result_agg_df['avg_cost_retail_buy'] - safe_main_sell_cost) / safe_main_sell_cost) * 100
         else:
             result_agg_df['retail_cost_beta'] = np.nan
-        # [代码修改开始]
-        # 新增：计算资金温度溢价 (Flow Temperature Premium)
         result_agg_df['flow_temperature_premium'] = 0.0
         if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
             result_agg_df['flow_temperature_premium'] = (result_agg_df['avg_cost_main_buy'] / safe_vwap - 1) * 100
-        # [代码修改结束]
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             t0_spread = result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']
             spread_ratio = (t0_spread / daily_vwap.replace(0, np.nan)) * 100
@@ -463,23 +466,43 @@ class AdvancedFundFlowMetricsService:
         else:
             result_agg_df['main_force_t0_spread_ratio'] = np.nan
         result_agg_df['main_force_execution_alpha'] = 0.0
-        mf_buy_vol = (pd.to_numeric(temp_df.get('buy_lg_vol'), errors='coerce').fillna(0) + pd.to_numeric(temp_df.get('buy_elg_vol'), errors='coerce').fillna(0)) * 100
-        mf_sell_vol = (pd.to_numeric(temp_df.get('sell_lg_vol'), errors='coerce').fillna(0) + pd.to_numeric(temp_df.get('sell_elg_vol'), errors='coerce').fillna(0)) * 100
+        # [代码修改开始]
+        # 修复：使用 np.nansum 替换 .fillna(0) 和 + 的组合，以兼容标量和Series输入
+        mf_buy_vol = np.nansum([
+            pd.to_numeric(temp_df.get('buy_lg_vol'), errors='coerce'),
+            pd.to_numeric(temp_df.get('buy_elg_vol'), errors='coerce')
+        ], axis=0) * 100
+        mf_sell_vol = np.nansum([
+            pd.to_numeric(temp_df.get('sell_lg_vol'), errors='coerce'),
+            pd.to_numeric(temp_df.get('sell_elg_vol'), errors='coerce')
+        ], axis=0) * 100
+        # [代码修改结束]
         total_mf_vol = mf_buy_vol + mf_sell_vol
         if daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
             alpha_buy = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap).fillna(0)
             alpha_sell = ((result_agg_df['avg_cost_main_sell'] - safe_vwap) / safe_vwap).fillna(0)
             weighted_alpha = (alpha_buy * mf_buy_vol + alpha_sell * mf_sell_vol)
-            result_agg_df['main_force_execution_alpha'] = (weighted_alpha / total_mf_vol.replace(0, np.nan)) * 100
+            # 修复分母为0的情况
+            result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
         result_agg_df['main_force_t0_efficiency'] = 0.0
-        mf_buy_amount = (pd.to_numeric(temp_df.get('buy_lg_amount'), errors='coerce').fillna(0) + pd.to_numeric(temp_df.get('buy_elg_amount'), errors='coerce').fillna(0))
-        mf_sell_amount = (pd.to_numeric(temp_df.get('sell_lg_amount'), errors='coerce').fillna(0) + pd.to_numeric(temp_df.get('sell_elg_amount'), errors='coerce').fillna(0))
-        t0_vol = pd.min(mf_buy_vol, mf_sell_vol)
+        # [代码修改开始]
+        # 修复：同样使用 np.nansum 修复金额计算
+        mf_buy_amount = np.nansum([
+            pd.to_numeric(temp_df.get('buy_lg_amount'), errors='coerce'),
+            pd.to_numeric(temp_df.get('buy_elg_amount'), errors='coerce')
+        ], axis=0)
+        mf_sell_amount = np.nansum([
+            pd.to_numeric(temp_df.get('sell_lg_amount'), errors='coerce'),
+            pd.to_numeric(temp_df.get('sell_elg_amount'), errors='coerce')
+        ], axis=0)
+        # [代码修改结束]
+        t0_vol = pd.min(mf_buy_vol, mf_sell_vol) if isinstance(mf_buy_vol, pd.Series) else min(mf_buy_vol, mf_sell_vol)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
             total_mf_amount = mf_buy_amount + mf_sell_amount
-            result_agg_df['main_force_t0_efficiency'] = (t0_profit / (total_mf_amount * 10000).replace(0, np.nan)) * 100
+            # 修复分母为0的情况
+            result_agg_df['main_force_t0_efficiency'] = (t0_profit / np.where(total_mf_amount == 0, np.nan, total_mf_amount * 10000)) * 100
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
         return result_agg_df
