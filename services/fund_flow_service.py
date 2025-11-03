@@ -660,8 +660,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.9 · 坐标系修复版】
-        - 核心修复: 使用 numpy.argmin/argmax 替换 pandas.idxmin/idxmax，以获取正确的整数位置索引，根除 'int' 与 'datetime.date' 的比较错误。
+        【V3.10 · 寻址模式修复版】
+        - 核心修复: 将 .loc 寻址修改为 .iloc，以匹配 np.argmin/argmax 返回的整数位置索引，根除 KeyError。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -720,16 +720,17 @@ class AdvancedFundFlowMetricsService:
             day_range = day_high - day_low
             if day_range > 0:
                 is_v_shape = (day_close - day_open) > 0
-                # [代码修改开始]
-                # 修复：使用 np.argmin/argmax 获取整数位置，而不是 idxmin/idxmax 获取索引标签
                 turn_point_idx = np.argmin(minute_data['low'].values) if is_v_shape else np.argmax(minute_data['high'].values)
-                # [代码修改结束]
                 if 0 < turn_point_idx < len(minute_data) - 1:
                     initial_phase = minute_data.iloc[:turn_point_idx]
                     reversal_phase = minute_data.iloc[turn_point_idx:]
                     vol_initial, vol_reversal = initial_phase['vol_shares'].sum(), reversal_phase['vol_shares'].sum()
                     if vol_initial > 0 and vol_reversal > 0:
-                        price_recovery = abs(day_close - minute_data.loc[turn_point_idx, 'minute_vwap']) / day_range
+                        # [代码修改开始]
+                        # 修复：使用 .iloc 按整数位置查找，而不是 .loc 按标签查找
+                        turn_point_vwap = minute_data['minute_vwap'].iloc[turn_point_idx]
+                        price_recovery = abs(day_close - turn_point_vwap) / day_range
+                        # [代码修改结束]
                         vol_shift = np.log1p(vol_reversal / vol_initial)
                         reversal_mf_net_vol = reversal_phase['main_force_net_vol'].sum()
                         reversal_conviction = reversal_mf_net_vol / vol_reversal if vol_reversal > 0 else 0
