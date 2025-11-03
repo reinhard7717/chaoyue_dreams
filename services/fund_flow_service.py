@@ -652,8 +652,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.12 · 深度侦察探针植入版】
-        - 核心新增: 植入深度探针，检查 continuous_trading_df 的生成过程，定位战场范围判断失误的根本原因。
+        【V3.13 · 分析语义终极修复版】
+        - 核心修复: 将所有行为指标的默认值从 0.0 修改为 np.nan。这能从根本上区分“指标值为零”和“指标因条件不满足而未计算”这两种情况，对于下游的量化分析和模型训练至关重要。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -664,14 +664,36 @@ class AdvancedFundFlowMetricsService:
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
         day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
-        date_str = daily_data.name.strftime('%Y-%m-%d')
-        print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] daily_vwap={daily_vwap}, atr={atr}")
-        results['vwap_control_strength'] = 0.0
-        results['main_force_vwap_guidance'] = 0.0
-        results['vwap_crossing_intensity'] = 0.0
-        results['vwap_structure_skew'] = 0.0
+        # [代码修改开始]
+        # 修复：将所有指标的默认值从 0.0 改为 np.nan，以保证分析语义的正确性
+        results['vwap_control_strength'] = np.nan
+        results['main_force_vwap_guidance'] = np.nan
+        results['vwap_crossing_intensity'] = np.nan
+        results['vwap_structure_skew'] = np.nan
+        results['opening_battle_result'] = np.nan
+        results['upper_shadow_selling_pressure'] = np.nan
+        results['lower_shadow_absorption_strength'] = np.nan
+        results['reversal_power_index'] = np.nan
+        results['trend_conviction_ratio'] = np.nan
+        results['holistic_cmf'] = np.nan
+        results['main_force_cmf'] = np.nan
+        results['cmf_divergence_score'] = np.nan
+        results['main_force_on_peak_flow'] = np.nan
+        results['main_force_vpoc'] = np.nan
+        results['mf_vpoc_premium'] = np.nan
+        results['mf_retail_liquidity_swap_corr'] = np.nan
+        results['asymmetric_volume_thrust'] = np.nan
+        results['closing_auction_ambush'] = np.nan
+        results['closing_price_deviation_score'] = np.nan
+        results['dip_absorption_power'] = np.nan
+        results['rally_distribution_pressure'] = np.nan
+        results['panic_selling_cascade'] = np.nan
+        results['pre_closing_posturing'] = np.nan
+        results['retail_fomo_premium_index'] = np.nan
+        results['retail_panic_surrender_index'] = np.nan
+        results['volatility_asymmetry_index'] = np.nan
+        # [代码修改结束]
         gatekeeper_condition = all(pd.notna(v) for v in [daily_vwap, daily_total_volume, atr]) and daily_total_volume > 0 and atr > 0
-        print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] Gatekeeper Condition Passed: {gatekeeper_condition}")
         if gatekeeper_condition:
             price_deviation_value = (minute_data['minute_vwap'] - daily_vwap) * minute_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
@@ -679,14 +701,15 @@ class AdvancedFundFlowMetricsService:
             mf_net_flow_series = minute_data['main_force_net_vol']
             if not price_dev_series.var() == 0 and not mf_net_flow_series.var() == 0 and len(price_dev_series) > 1:
                 correlation = price_dev_series.corr(mf_net_flow_series)
-                results['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else 0.0
+                # [代码修改开始]
+                results['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else np.nan
+                # [代码修改结束]
             position_vs_vwap = np.sign(minute_data['minute_vwap'] - daily_vwap)
             crossings = position_vs_vwap.diff().ne(0)
             results['vwap_crossing_intensity'] = minute_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
             twap = minute_data['minute_vwap'].mean()
             if pd.notna(twap) and twap > 0:
                 results['vwap_structure_skew'] = (daily_vwap - twap) / twap * 100
-        results['opening_battle_result'] = 0.0
         opening_battle_df = minute_data[(minute_data['trade_time'].dt.time >= time(9, 30)) & (minute_data['trade_time'].dt.time <= time(9, 45))]
         if not opening_battle_df.empty and len(opening_battle_df) > 1 and pd.notna(atr) and atr > 0:
             price_gain = (opening_battle_df['close'].iloc[-1] - opening_battle_df['open'].iloc[0]) / atr
@@ -694,8 +717,6 @@ class AdvancedFundFlowMetricsService:
             if battle_amount > 0:
                 mf_power = opening_battle_df['main_force_net_vol'].sum() * opening_battle_df['minute_vwap'].mean() / battle_amount
                 results['opening_battle_result'] = np.sign(price_gain) * np.sqrt(abs(price_gain)) * (1 + mf_power) * 100
-        results['upper_shadow_selling_pressure'] = 0.0
-        results['lower_shadow_absorption_strength'] = 0.0
         if all(pd.notna(v) for v in [day_open, day_close, day_high, day_low]):
             body_high, body_low = max(day_open, day_close), min(day_open, day_close)
             upper_shadow_df = minute_data[minute_data['high'] > body_high]
@@ -706,8 +727,6 @@ class AdvancedFundFlowMetricsService:
             if not lower_shadow_df.empty and lower_shadow_df['vol_shares'].sum() > 0:
                 mf_net_flow = lower_shadow_df['main_force_net_vol'].sum()
                 results['lower_shadow_absorption_strength'] = mf_net_flow / lower_shadow_df['vol_shares'].sum()
-        results['reversal_power_index'] = 0.0
-        results['trend_conviction_ratio'] = 0.0
         if len(minute_data) >= 10 and all(pd.notna(v) for v in [day_open, day_close, day_high, day_low, atr]) and daily_total_volume > 0 and atr > 0:
             mf_activity_ratio = (minute_data['main_force_buy_vol'].sum() + minute_data['main_force_sell_vol'].sum()) / daily_total_volume
             if mf_activity_ratio > 0:
@@ -744,7 +763,6 @@ class AdvancedFundFlowMetricsService:
                 if df_cmf['main_force_net_vol'].abs().sum() > 0:
                     results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
                 results['cmf_divergence_score'] = results.get('main_force_cmf', 0.0) - results.get('holistic_cmf', 0.0)
-        results['main_force_on_peak_flow'] = 0.0
         if 'main_force_net_vol' in minute_data.columns and pd.notna(day_close):
             vp_global = minute_data.groupby(pd.cut(minute_data['minute_vwap'], bins=30))['vol_shares'].sum()
             if not vp_global.empty:
@@ -771,21 +789,7 @@ class AdvancedFundFlowMetricsService:
             if not mf_net_series.var() == 0 and not retail_net_series.var() == 0 and len(mf_net_series) > 1:
                 rolling_corr = mf_net_series.rolling(window=30).corr(retail_net_series)
                 results['mf_retail_liquidity_swap_corr'] = rolling_corr.mean()
-        results['asymmetric_volume_thrust'] = 0.0
-        results['closing_auction_ambush'] = 0.0
-        results['closing_price_deviation_score'] = 0.0
-        results['dip_absorption_power'] = 0.0
-        results['rally_distribution_pressure'] = 0.0
-        results['panic_selling_cascade'] = 0.0
-        results['pre_closing_posturing'] = 0.0
-        results['retail_fomo_premium_index'] = 0.0
-        results['retail_panic_surrender_index'] = 0.0
-        results['volatility_asymmetry_index'] = 0.0
         continuous_trading_df = minute_data[minute_data['trade_time'].dt.time < time(14, 57)].copy()
-        # [新增探针]
-        print(f"DEBUG PROBE (DEEP DIVE): [{date_str}] minute_data shape: {minute_data.shape}, time range: {minute_data['trade_time'].min()} -> {minute_data['trade_time'].max()}")
-        print(f"DEBUG PROBE (DEEP DIVE): [{date_str}] continuous_trading_df shape: {continuous_trading_df.shape}")
-        # [新增探针结束]
         if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
@@ -798,7 +802,7 @@ class AdvancedFundFlowMetricsService:
                     upward_efficacy = (up_price_change / up_vol) if up_vol > 0 else 0
                     downward_resistance = (down_vol / down_price_change) if down_price_change > 0 else np.inf
                     log_thrust_ratio = np.log(upward_efficacy * atr) - np.log(downward_resistance * atr)
-                    results['asymmetric_volume_thrust'] = log_thrust_ratio if np.isfinite(log_thrust_ratio) else 0.0
+                    results['asymmetric_volume_thrust'] = log_thrust_ratio if np.isfinite(log_thrust_ratio) else np.nan
                 avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
                 avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                 if avg_up_speed > 0 and avg_down_speed > 0:
@@ -810,7 +814,7 @@ class AdvancedFundFlowMetricsService:
                 force_balance_factor = minute_data['main_force_net_vol'].sum() / daily_total_volume if daily_total_volume > 0 else 0
                 results['closing_price_deviation_score'] = (0.5 * range_pos_factor + 0.3 * value_dev_factor + 0.2 * force_balance_factor) * 100
             auction_df = minute_data[minute_data['trade_time'].dt.time >= time(14, 57)]
-            if not auction_df.empty:
+            if not auction_df.empty and not continuous_trading_df.empty:
                 pre_auction_close = continuous_trading_df['close'].iloc[-1]
                 auction_vol = auction_df['vol_shares'].sum()
                 avg_minute_vol = continuous_trading_df['vol_shares'].mean()
