@@ -711,13 +711,13 @@ class ChipFeatureCalculator:
 
     def _calculate_chip_structure_health_score(self, context: dict) -> dict:
         """
-        【V4.0 · 鲁棒性增强版】计算筹码结构健康分。
-        - 核心革命: 引入基于真实历史数据的动态百分位排名进行归一化，实现模型自适应。
-        - 核心架构: 沿用“结构稳固度”、“动能纯粹度”、“内部压力度”三维几何平均模型。
-        - 核心修复: 增强了计算的鲁棒性，当某个子指标或维度缺失时，不再导致整个健康分计算失败，而是采用中性值或忽略策略。
+        【V4.1 · 健康分三级探针部署版】
+        - 核心新增: 部署探针2和探针3，全面监控健康分计算的数据流。
         """
         from scipy.stats import percentileofscore
         results = {'chip_health_score': np.nan} # 默认值为NaN
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
         # 1. 定义三维模型的组件和权重(方向)
         model_dimensions = {
             'structural_soundness': {
@@ -743,12 +743,23 @@ class ChipFeatureCalculator:
         }
         # 2. 获取历史数据
         historical_df = context.get('historical_components')
+        # [代码修改开始]
+        # 部署探针2：检查历史数据是否成功抵达计算器
+        hist_data_status = f"Shape: {historical_df.shape}" if historical_df is not None and not historical_df.empty else "未接收或为空"
+        print(f"[{stock_code}][{trade_date}] [探针2-前线接收检查] historical_components 状态: {hist_data_status}")
+        # [代码修改结束]
         if historical_df is None or historical_df.empty:
             logger.debug(f"[{context.get('stock_code')}] [{context.get('trade_date')}] 健康分计算跳过，因缺少历史数据进行动态归一化。")
             return results
         dimension_scores = {}
         # 3. 逐个维度计算得分
         for dim_name, dim_data in model_dimensions.items():
+            # [代码修改开始]
+            # 部署探针3：检查当前维度所需的所有子指标的当日值
+            print(f"[{stock_code}][{trade_date}] [探针3-原料清单检查] 维度 '{dim_name}' 所需原料:")
+            for metric in dim_data['components'].keys():
+                print(f"  - {metric}: {context.get(metric)}")
+            # [代码修改结束]
             component_scores = []
             for metric, weight in dim_data['components'].items():
                 current_value = context.get(metric)

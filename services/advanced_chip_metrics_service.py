@@ -149,8 +149,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.3 · 记忆种子注入版】
-        - 核心修复: 为 `chip_fatigue_index` 的跨日记忆提供一个 0.0 的默认“种子”值，彻底修复其迭代计算链。
+        【V3.4 · 健康分探针部署版】
+        - 核心新增: 部署探针1，检查历史数据是否成功注入计算上下文。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -217,6 +217,12 @@ class AdvancedChipMetricsService:
                 historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
                 if historical_data_for_day:
                     context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
+            # [代码修改开始]
+            # 部署探针1：检查历史数据是否成功装载到上下文中
+            hist_data_in_context = context_for_calc.get('historical_components')
+            hist_data_status = f"Shape: {hist_data_in_context.shape}" if hist_data_in_context is not None and not hist_data_in_context.empty else "未装载或为空"
+            print(f"[{stock_code}][{trade_date.date()}] [探针1-弹药装载检查] historical_components 状态: {hist_data_status}")
+            # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
