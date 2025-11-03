@@ -31,8 +31,8 @@ class AdvancedStructuralMetricsService:
 
     async def run_precomputation(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
-        【V1.3 · 异步改造版】高级结构与行为指标预计算总指挥
-        - 核心修复: 使用 await 调用改造后的异步锻造引擎 _forge_advanced_structural_metrics。
+        【V1.4 · 战区修正版】高级结构与行为指标预计算总指挥
+        - 核心修复: 严格区分“处理起始日”与“回溯起始日”，修复了当指定start_date_str时，处理范围错误地从更早的回溯日期开始的重大BUG。
         """
         stock_info, MetricsModel, is_incremental_final, last_metric_date, fetch_start_date = await self._initialize_context(
             stock_code, is_incremental, start_date_str
@@ -43,12 +43,19 @@ class AdvancedStructuralMetricsService:
             all_dates_qs = DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         else:
-            rollback_start_date = fetch_start_date if fetch_start_date else start_date_str
-            if rollback_start_date:
-                await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=rollback_start_date).delete)()
+            # [代码修改开始]
+            # 修复：明确定义处理起始日。如果用户指定了start_date_str，则以此为准；否则，使用基于数据库最新记录推算出的fetch_start_date。
+            processing_start_date = start_date_str if start_date_str else fetch_start_date
+            # 修复：回滚操作也应严格遵守用户指定的起始日期。
+            if start_date_str:
+                await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=start_date_str).delete)()
+            elif last_metric_date: # 仅在自动增量模式下，基于最后记录日期进行小范围回滚
+                await sync_to_async(MetricsModel.objects.filter(stock=stock_info, trade_time__gte=last_metric_date).delete)()
             DailyModel = get_daily_data_model_by_code(stock_code)
-            all_dates_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=fetch_start_date).values_list('trade_time', flat=True).order_by('trade_time')
+            # 修复：使用正确的 processing_start_date 来确定需要计算和保存的日期范围。
+            all_dates_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=processing_start_date).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
+            # [代码修改结束]
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] [结构指标] 没有需要处理的日期，任务结束。")
             return 0
@@ -70,10 +77,7 @@ class AdvancedStructuralMetricsService:
             if not minute_data_map:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 无任何分钟数据，跳过整个区块。")
                 continue
-            # [代码修改开始]
-            # 修复：使用 await 调用异步改造后的锻造引擎
             chunk_new_metrics_df = await self._forge_advanced_structural_metrics(minute_data_map, stock_code)
-            # [代码修改结束]
             all_new_core_metrics_df = pd.concat([all_new_core_metrics_df, chunk_new_metrics_df])
         if all_new_core_metrics_df.empty:
             logger.info(f"[{stock_code}] [结构指标] 未能计算出任何新的核心指标，任务结束。")
@@ -158,28 +162,26 @@ class AdvancedStructuralMetricsService:
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 
     async def _forge_advanced_structural_metrics(self, minute_data_map: dict, stock_code: str) -> pd.DataFrame:
-        # [代码修改开始]
         """
-        【V17.1 · 异步改造版】
-        - 核心修复: 将此方法改造为异步函数，并使用 sync_to_async 封装所有阻塞的数据库查询，解决 SynchronousOnlyOperation 错误。
+        【V17.2 · 武器原料升级版】
+        - 核心升级: 增加短、中、长三种周期的ATR计算，为下游的波动率扩张比指标提供必要的“武器原料”。
         """
-        # [代码修改结束]
         if not minute_data_map:
             return pd.DataFrame()
         daily_metrics = []
         all_dates = sorted(minute_data_map.keys())
         from stock_models.time_trade import StockDailyBasic
         DailyModel = get_daily_data_model_by_code(stock_code)
-        history_start_date = min(all_dates) - timedelta(days=50)
+        # [代码修改开始]
+        # 修复：将回溯期从50天扩大到100天，以满足长周期ATR(50)的计算需要
+        history_start_date = min(all_dates) - timedelta(days=100)
+        # [代码修改结束]
         daily_data_qs = DailyModel.objects.filter(
             stock__stock_code=stock_code,
             trade_time__gte=history_start_date,
             trade_time__lte=max(all_dates)
-        ).values('trade_time', 'high', 'low', 'open', 'close', 'pre_close', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq').order_by('trade_time')
-        # [代码修改开始]
-        # 修复：使用 sync_to_async 封装阻塞的数据库查询
+        ).values('trade_time', 'high', 'low', 'open', 'close', 'pre_close', 'high_qfq', 'low_qfq', 'open_qfq', 'close_qfq', 'pre_close_qfq').order_by('trade_time')
         daily_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_data_qs))
-        # [代码修改结束]
         if daily_df.empty:
             logger.warning(f"[{stock_code}] 无法加载日线行情数据，部分指标无法计算。")
             return pd.DataFrame()
@@ -190,16 +192,20 @@ class AdvancedStructuralMetricsService:
             trade_time__gte=history_start_date,
             trade_time__lte=max(all_dates)
         ).values('trade_time', 'turnover_rate_f').order_by('trade_time')
-        # [代码修改开始]
-        # 修复：使用 sync_to_async 封装阻塞的数据库查询
         daily_basic_df = pd.DataFrame.from_records(await sync_to_async(list)(daily_basic_qs))
-        # [代码修改结束]
         if not daily_basic_df.empty:
             daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
             daily_basic_df = daily_basic_df.set_index('trade_time')
             daily_df = daily_df.join(daily_basic_df, how='left')
-        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True)
-        base_atr = daily_df['ATRr_14']
+        # [代码修改开始]
+        # 新增：计算短、中、长三个周期的ATR
+        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=5, append=True, col_names=('ATR_5',))
+        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True, col_names=('ATR_14',))
+        daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=50, append=True, col_names=('ATR_50',))
+        atr_5 = daily_df['ATR_5']
+        atr_14 = daily_df['ATR_14']
+        atr_50 = daily_df['ATR_50']
+        # [代码修改结束]
         prev_day_metrics = {}
         for date, group in minute_data_map.items():
             if group.empty or len(group) < 10:
@@ -207,7 +213,12 @@ class AdvancedStructuralMetricsService:
                 continue
             try:
                 daily_series_for_day = daily_df.loc[date]
-                base_atr_for_day = base_atr.get(date)
+                # [代码修改开始]
+                # 修复：传递所有周期的ATR
+                atr_5_for_day = atr_5.get(date)
+                atr_14_for_day = atr_14.get(date)
+                atr_50_for_day = atr_50.get(date)
+                # [代码修改结束]
             except KeyError:
                 logger.warning(f"[{stock_code}] [{date}] 无法找到对应的日线数据或ATR，跳过当天计算。")
                 continue
@@ -218,13 +229,16 @@ class AdvancedStructuralMetricsService:
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
-            day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, base_atr_for_day, prev_day_metrics)
+            # [代码修改开始]
+            # 修复：将所有需要的ATR传递给计算引擎
+            day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics)
+            # [代码修改结束]
             day_metric_dict['trade_time'] = date
             prev_day_metrics = {
                 'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
                 'vah': day_metric_dict.pop('_today_vah', np.nan),
                 'val': day_metric_dict.pop('_today_val', np.nan),
-                'atr_14d': base_atr_for_day
+                'atr_14d': atr_14_for_day
             }
             daily_metrics.append(day_metric_dict)
         if not daily_metrics:
@@ -232,38 +246,52 @@ class AdvancedStructuralMetricsService:
         result_df = pd.DataFrame(daily_metrics)
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
-    def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, base_atr_for_day: float, prev_day_metrics: dict) -> dict:
+    def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
+        # [代码修改开始]
         """
-        【V1.0 · 新增 · 统一结构计算引擎】
-        - 核心整合: 将所有分散的结构指标计算逻辑内聚于此，形成一个自包含的、职责单一的计算核心。
-        - 包含逻辑: 能量密度、战场动力学、趋势、成交节律、VPOC、代理筹码、量价效能、高级博弈效率、价值区动态等。
+        【V2.0 · 尖端武器实装版】
+        - 核心新增: 实现 auction_impact_score, price_shock_factor, volatility_expansion_ratio 三大指标的全新、精细化计算逻辑。
+        - 核心修复: 修正函数签名以接收多周期的ATR数据。
         """
+        # [代码修改结束]
         results = {}
+        # [代码修改开始]
+        # 新增：初始化新指标，确保即使计算失败也有占位符
+        results['auction_impact_score'] = np.nan
+        results['price_shock_factor'] = np.nan
+        results['volatility_expansion_ratio'] = np.nan
+        # [代码修改结束]
         total_volume = group['vol'].sum()
         total_volume_safe = total_volume if total_volume > 0 else np.nan
-        day_open, day_high, day_low, day_close = group['open'].iloc[0], group['high'].max(), group['low'].min(), group['close'].iloc[-1]
+        day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
+            daily_series_for_day.get('open_qfq'), daily_series_for_day.get('high_qfq'),
+            daily_series_for_day.get('low_qfq'), daily_series_for_day.get('close_qfq'),
+            daily_series_for_day.get('pre_close_qfq')
+        )
         # --- 1. 能量密度与战场动力学 ---
-        # 能量密度
-        if pd.notna(base_atr_for_day) and base_atr_for_day > 0:
+        if pd.notna(atr_14) and atr_14 > 0:
             turnover_rate = pd.to_numeric(daily_series_for_day.get('turnover_rate_f'), errors='coerce')
             if pd.notna(turnover_rate):
-                results['intraday_energy_density'] = np.log1p(turnover_rate) / base_atr_for_day
-        # 推力纯度
+                results['intraday_energy_density'] = np.log1p(turnover_rate) / atr_14
         thrust_vector = (group['close'] - group['open']) * group['vol']
         absolute_energy = abs(group['close'] - group['open']) * group['vol']
         total_energy = absolute_energy.sum()
         if total_energy > 0:
             results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
-        # 成交量爆裂度
         results['volume_burstiness_index'] = self._calculate_gini(group['vol'].values)
-        # 集合竞价冲击
+        # [代码修改开始]
+        # 重构：开盘竞价冲击分 (auction_impact_score)
         auction_df = group[group['trade_time'].dt.time < time(9, 30)]
-        if not auction_df.empty and pd.notna(base_atr_for_day) and base_atr_for_day > 0:
+        if not auction_df.empty and all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             auction_vol = auction_df['vol'].sum()
-            auction_range = auction_df['high'].max() - auction_df['low'].min()
-            if total_volume > 0:
-                results['auction_impact_score'] = (auction_range / base_atr_for_day) * (auction_vol / total_volume)
-        # 战场动力学
+            avg_minute_vol = continuous_group['vol'].mean()
+            if pd.notna(avg_minute_vol) and avg_minute_vol > 0:
+                # 价格跳空能量：开盘价与昨收价的差距，用ATR标准化
+                price_jump_energy = (day_open_qfq - pre_close_qfq) / atr_14
+                # 成交量异常度：竞价成交量相对于盘中平均成交量的倍数，取对数平滑
+                volume_anomaly = np.log1p(auction_vol / avg_minute_vol)
+                results['auction_impact_score'] = price_jump_energy * volume_anomaly
+        # [代码修改结束]
         low_idx = group['low'].idxmin()
         if low_idx > 0 and low_idx < len(group) - 1:
             falling_phase = group.iloc[:low_idx+1]
@@ -272,9 +300,9 @@ class AdvancedStructuralMetricsService:
             vwap_rebound = (rebounding_phase['amount']).sum() / rebounding_phase['vol'].sum() if rebounding_phase['vol'].sum() > 0 else np.nan
             if pd.notna(vwap_fall) and pd.notna(vwap_rebound) and vwap_fall > 0 and total_volume > 0:
                 results['rebound_momentum'] = (vwap_rebound / vwap_fall - 1) * (rebounding_phase['vol'].sum() / total_volume) * 100
-        price_range = day_high - day_low
+        price_range = day_high_qfq - day_low_qfq
         if price_range > 0 and total_volume > 0:
-            high_level_threshold = day_high - 0.25 * price_range
+            high_level_threshold = day_high_qfq - 0.25 * price_range
             results['high_level_consolidation_volume'] = group[group['high'] >= high_level_threshold]['vol'].sum() / total_volume
         opening_period_df = group[group['trade_time'].dt.time < time(9, 59, 59)]
         if not opening_period_df.empty:
@@ -283,9 +311,8 @@ class AdvancedStructuralMetricsService:
             if opening_absolute_energy.sum() > 0:
                 results['opening_period_thrust'] = opening_thrust_vector.sum() / opening_absolute_energy.sum()
         # --- 2. 趋势、节律与代理筹码 ---
-        # 趋势动力学
-        if (day_high - day_low) > 0:
-            if day_close > day_open:
+        if (day_high_qfq - day_low_qfq) > 0:
+            if day_close_qfq > day_open_qfq:
                 running_max = group['high'].cummax()
                 results['pullback_depth_ratio'] = ((running_max - group['low']) / running_max).max()
             else:
@@ -293,11 +320,10 @@ class AdvancedStructuralMetricsService:
                 results['pullback_depth_ratio'] = ((group['high'] - running_min) / running_min).max()
         total_path = group['close'].diff().abs().sum()
         if total_path > 0:
-            results['trend_efficiency_ratio'] = abs(day_close - day_open) / total_path
+            results['trend_efficiency_ratio'] = abs(day_close_qfq - day_open_qfq) / total_path
         vwap_ma20 = continuous_group['minute_vwap'].rolling(window=20, min_periods=1).mean()
         position = np.sign(continuous_group['minute_vwap'] - vwap_ma20)
         results['mean_reversion_frequency'] = position.diff().ne(0).sum() / 4.0
-        # 成交节律
         opening_df_rhythm = group[group['trade_time'].dt.time < time(10, 0)]
         midday_df_rhythm = group[(group['trade_time'].dt.time >= time(10, 0)) & (group['trade_time'].dt.time < time(14, 30))]
         tail_df_rhythm = group[group['trade_time'].dt.time >= time(14, 30)]
@@ -314,8 +340,7 @@ class AdvancedStructuralMetricsService:
         avg_vol_pre_tail = pre_tail_df['vol'].mean() if not pre_tail_df.empty else 0
         if avg_vol_tail > 0 and avg_vol_pre_tail > 0:
             results['tail_volume_acceleration'] = avg_vol_tail / avg_vol_pre_tail
-        # 代理筹码动力学
-        daily_vwap = group['amount'].sum() / total_volume if total_volume > 0 else day_close
+        daily_vwap = group['amount'].sum() / total_volume if total_volume > 0 else day_close_qfq
         if total_volume > 0:
             vp_proxy = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
             vp_prob = vp_proxy[vp_proxy > 0] / total_volume
@@ -323,28 +348,26 @@ class AdvancedStructuralMetricsService:
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
                 max_entropy = np.log2(len(vp_prob))
                 results['volume_profile_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
-            winners_vol = continuous_group[continuous_group['minute_vwap'] < day_close]['vol'].sum()
-            losers_vol = continuous_group[continuous_group['minute_vwap'] > day_close]['vol'].sum()
+            winners_vol = continuous_group[continuous_group['minute_vwap'] < day_close_qfq]['vol'].sum()
+            losers_vol = continuous_group[continuous_group['minute_vwap'] > day_close_qfq]['vol'].sum()
             if (winners_vol + losers_vol) > 0:
                 results['intraday_pnl_imbalance'] = (winners_vol - losers_vol) / (winners_vol + losers_vol)
-            if pd.notna(base_atr_for_day) and base_atr_for_day > 0:
+            if pd.notna(atr_14) and atr_14 > 0:
                 weighted_variance = ((continuous_group['minute_vwap'] - daily_vwap)**2 * continuous_group['vol']).sum() / total_volume
-                results['cost_dispersion_index'] = np.sqrt(weighted_variance) / base_atr_for_day
+                results['cost_dispersion_index'] = np.sqrt(weighted_variance) / atr_14
         # --- 3. VPOC、价值区与博弈效率 ---
-        # VPOC
         vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
         vpoc_interval = vp.idxmax() if not vp.empty else np.nan
-        today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close
+        today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
         vpoc_volume_ratio = vp.max() / continuous_group['vol'].sum() if not vp.empty and continuous_group['vol'].sum() > 0 else 0
-        if pd.notna(base_atr_for_day) and base_atr_for_day > 0:
-            deviation_magnitude = (day_close - today_vpoc) / base_atr_for_day
+        if pd.notna(atr_14) and atr_14 > 0:
+            deviation_magnitude = (day_close_qfq - today_vpoc) / atr_14
             results['vpoc_deviation_magnitude'] = deviation_magnitude
             results['vpoc_consensus_strength'] = vpoc_volume_ratio
             tail_period_df = group[group['trade_time'].dt.time >= time(14, 45)]
             if not tail_period_df.empty and not continuous_group.empty and continuous_group['vol'].mean() > 0:
                 tail_force_factor = np.log1p(tail_period_df['vol'].mean() / continuous_group['vol'].mean())
                 results['closing_conviction_score'] = deviation_magnitude * tail_force_factor
-        # 价值区动态
         today_vah, today_val = self._calculate_value_area(vp, continuous_group['vol'].sum(), vpoc_interval)
         prev_vpoc, prev_atr = prev_day_metrics.get('vpoc'), prev_day_metrics.get('atr_14d')
         if all(pd.notna(v) for v in [today_vpoc, prev_vpoc, prev_atr]) and prev_atr > 0:
@@ -353,29 +376,27 @@ class AdvancedStructuralMetricsService:
         if all(pd.notna(v) for v in [today_vah, today_val, prev_vah, prev_val]) and (today_vah - today_val) > 0:
             overlap_width = max(0, min(today_vah, prev_vah) - max(today_val, prev_val))
             results['value_area_overlap_pct'] = (overlap_width / (today_vah - today_val)) * 100
-        if all(pd.notna(v) for v in [day_close, today_vpoc, today_vah, today_val]):
-            if day_close > today_vah: results['closing_acceptance_type'] = 2
-            elif day_close > today_vpoc: results['closing_acceptance_type'] = 1
-            elif day_close < today_val: results['closing_acceptance_type'] = -2
-            elif day_close < today_vpoc: results['closing_acceptance_type'] = -1
+        if all(pd.notna(v) for v in [day_close_qfq, today_vpoc, today_vah, today_val]):
+            if day_close_qfq > today_vah: results['closing_acceptance_type'] = 2
+            elif day_close_qfq > today_vpoc: results['closing_acceptance_type'] = 1
+            elif day_close_qfq < today_val: results['closing_acceptance_type'] = -2
+            elif day_close_qfq < today_vpoc: results['closing_acceptance_type'] = -1
             else: results['closing_acceptance_type'] = 0
-        # 量价效能
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
         if not up_minutes.empty and up_minutes['vol'].sum() > 0 and pd.notna(total_volume_safe):
-            normalized_price_gain = up_minutes['price_diff'].sum() / day_open
+            normalized_price_gain = up_minutes['price_diff'].sum() / day_open_qfq
             normalized_volume_cost = up_minutes['vol'].sum() / total_volume_safe
             if normalized_volume_cost > 0: results['upward_thrust_efficacy'] = normalized_price_gain / normalized_volume_cost
         down_minutes = continuous_group[continuous_group['price_diff'] < 0]
         if not down_minutes.empty and abs(down_minutes['price_diff']).sum() > 0 and pd.notna(total_volume_safe):
-            normalized_price_drop = abs(down_minutes['price_diff']).sum() / day_open
+            normalized_price_drop = abs(down_minutes['price_diff']).sum() / day_open_qfq
             normalized_volume_cost = down_minutes['vol'].sum() / total_volume_safe
             if normalized_price_drop > 0: results['downward_absorption_efficacy'] = normalized_volume_cost / normalized_price_drop
         up_eff, down_eff = results.get('upward_thrust_efficacy'), results.get('downward_absorption_efficacy')
         if all(pd.notna(v) for v in [up_eff, down_eff]) and up_eff > 0 and down_eff > 0:
             results['net_vpa_score'] = np.log(up_eff / down_eff)
-        # 高级博弈效率
-        if len(continuous_group) >= 30 and pd.notna(base_atr_for_day) and base_atr_for_day > 0:
+        if len(continuous_group) >= 30 and pd.notna(atr_14) and atr_14 > 0:
             from scipy.signal import find_peaks
             from itertools import combinations
             price_series = continuous_group['minute_vwap']
@@ -393,7 +414,7 @@ class AdvancedStructuralMetricsService:
                             try:
                                 r1 = aligned_rsi.iloc[rsi_low_indices[np.abs(rsi_low_indices - i1).argmin()]]
                                 r2 = aligned_rsi.iloc[rsi_low_indices[np.abs(rsi_low_indices - i2).argmin()]]
-                                if r2 > r1: bullish_strengths.append(((aligned_price.iloc[i1] - aligned_price.iloc[i2]) / base_atr_for_day) * (r2 - r1))
+                                if r2 > r1: bullish_strengths.append(((aligned_price.iloc[i1] - aligned_price.iloc[i2]) / atr_14) * (r2 - r1))
                             except IndexError: continue
                 if len(price_high_indices) >= 2 and len(rsi_high_indices) >= 2:
                     for i1, i2 in combinations(price_high_indices, 2):
@@ -401,7 +422,7 @@ class AdvancedStructuralMetricsService:
                             try:
                                 r1 = aligned_rsi.iloc[rsi_high_indices[np.abs(rsi_high_indices - i1).argmin()]]
                                 r2 = aligned_rsi.iloc[rsi_high_indices[np.abs(rsi_high_indices - i2).argmin()]]
-                                if r2 < r1: bearish_strengths.append(((aligned_price.iloc[i2] - aligned_price.iloc[i1]) / base_atr_for_day) * (r2 - r1))
+                                if r2 < r1: bearish_strengths.append(((aligned_price.iloc[i2] - aligned_price.iloc[i1]) / atr_14) * (r2 - r1))
                             except IndexError: continue
                 if bullish_strengths: results['divergence_conviction_score'] = max(bullish_strengths)
                 elif bearish_strengths: results['divergence_conviction_score'] = min(bearish_strengths)
@@ -413,19 +434,27 @@ class AdvancedStructuralMetricsService:
                 if weighted_var > 0:
                     weighted_std = np.sqrt(weighted_var)
                     results['volatility_skew_index'] = np.average(((returns - weighted_mean) / weighted_std)**3, weights=weights)
-        # --- 4. 新增：收盘竞价摊牌分析 ---
+        # --- 4. 前瞻性与收盘博弈分析 ---
         auction_period_df = group[group['trade_time'].dt.time >= time(14, 57)]
         if not auction_period_df.empty and not continuous_group.empty:
             close_before_auction = continuous_group['close'].iloc[-1]
             if pd.notna(close_before_auction) and close_before_auction > 0:
-                auction_price_change = (day_close / close_before_auction - 1) * 100
-                # 使用全天（连续交易时段）的平均每分钟成交量作为基准
+                auction_price_change = (day_close_qfq / close_before_auction - 1) * 100
                 avg_vol_minute_continuous = continuous_group['vol'].mean()
                 if avg_vol_minute_continuous > 0:
-                    # 竞价成交量是其时段内总成交量，为匹配每分钟基准，除以3分钟
                     auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
                     results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
-        # 存储当天计算的VPOC/VAH/VAL，供下一天使用
+        # [代码修改开始]
+        # 新增：价格冲击因子 (price_shock_factor)
+        if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
+            true_range = max(day_high_qfq, pre_close_qfq) - min(day_low_qfq, pre_close_qfq)
+            shock = true_range / atr_14
+            direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
+            results['price_shock_factor'] = shock * direction
+        # 新增：波动率扩张比 (volatility_expansion_ratio)
+        if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
+            results['volatility_expansion_ratio'] = atr_5 / atr_50
+        # [代码修改结束]
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
