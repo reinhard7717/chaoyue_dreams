@@ -1010,6 +1010,64 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
         logger.error(f"【总调度】任务分发过程中发生严重错误: {e}", exc_info=True)
         raise self.retry(exc=e, countdown=300, max_retries=3)
 
+
+@celery_app.task(bind=True, name='tasks.stock_analysis_tasks.test_precompute_and_verify_structural_metrics', queue='SaveHistoryData_TimeTrade')
+def test_precompute_and_verify_structural_metrics(self):
+    # [代码新增开始]
+    """
+    【V1.0 · 新增】用于测试结构指标计算并验证其完整性的独立任务。
+    - 核心职责:
+      1. 针对特定股票（'000001.SZ'）和特定起始日期（'2025-05-01'）触发一次性的高级结构指标计算。
+      2. 计算完成后，查询数据库中该股票的最新一条结构指标记录。
+      3. 检查并打印出最新记录中所有值为空（None/NaN）的字段，以供调试和验证。
+    """
+    from asgiref.sync import async_to_sync
+    from utils.model_helpers import get_advanced_structural_metrics_model_by_code
+    from stock_models.stock_basic import StockInfo
+    import pandas as pd
+    def run_test():
+        stock_code = '000001.SZ'
+        start_date_str = '2025-05-01'
+        print(f"--- [结构指标测试任务] 开始执行计算，股票: {stock_code}, 日期: {start_date_str} ---")
+        # 直接调用目标任务函数以同步执行，并等待其完成
+        precompute_advanced_structural_metrics_for_stock(stock_code=stock_code, is_incremental=True, start_date_str=start_date_str)
+        print("--- [结构指标测试任务] 计算执行完毕，开始验证数据... ---")
+        # --- 验证阶段 ---
+        StructuralMetricsModel = get_advanced_structural_metrics_model_by_code(stock_code)
+        # 使用同步方式查询数据库
+        try:
+            stock_info = StockInfo.objects.get(stock_code=stock_code)
+            latest_metric = StructuralMetricsModel.objects.filter(stock=stock_info).order_by('-trade_time').first()
+        except StockInfo.DoesNotExist:
+            print(f"--- [结构指标测试任务] 验证失败：未找到股票 {stock_code}。 ---")
+            return
+        except Exception as e:
+            print(f"--- [结构指标测试任务] 数据库查询失败: {e} ---")
+            return
+        if not latest_metric:
+            print("--- [结构指标测试任务] 验证失败：未在数据库中找到最新的结构指标记录。 ---")
+            return
+        latest_date = latest_metric.trade_time
+        print(f"--- [结构指标测试任务] 开始验证最新日期 {latest_date} 的数据完整性 ---")
+        data = latest_metric.__dict__
+        empty_fields = []
+        for field, value in data.items():
+            # 忽略Django内部字段和外键ID
+            if field.startswith('_') or field.endswith('_id'):
+                continue
+            # 检查 None 或 NaN
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                empty_fields.append(field)
+        if not empty_fields:
+            print(f"--- [结构指标测试任务] 验证通过！最新记录 ({latest_date}) 中没有发现空字段。 ---")
+        else:
+            print(f"--- [结构指标测试任务] 警告！在最新记录 ({latest_date}) 中发现以下空字段：---")
+            for field in sorted(empty_fields):
+                print(f"  - {field}")
+    # 直接运行同步的测试逻辑
+    run_test()
+    # [代码新增结束]
+
 # =================================================================
 # =================== 行业轮动预计算 ==================
 # =================================================================
