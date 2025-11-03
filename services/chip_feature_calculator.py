@@ -143,8 +143,8 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V1.0 · 新增 · 跨日流转计算单元】
-        - 核心整合: 将控制权转移、流量质量、成本分离度、情绪惯性、博弈疲劳度等所有跨日分析逻辑内聚于此。
+        【V2.0 · 疲劳度探针植入版】
+        - 核心新增: 植入探针，监控 `chip_fatigue_index` 的迭代计算过程。
         """
         results = {}
         minute_df = context.get('minute_data')
@@ -207,6 +207,11 @@ class ChipFeatureCalculator:
             if turnover_rate > 0: results['winner_loser_momentum'] = status_change_net_flow_pct / turnover_rate
         # --- 5. 博弈疲劳度 (Game Fatigue) ---
         prev_fatigue_index, recent_closes = context.get('prev_chip_fatigue_index', 0.0), context.get('recent_10d_closes')
+        # [探针2-开始]
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
+        print(f"[{stock_code}][{trade_date}] [探针2-疲劳度侦察] prev_fatigue_index: {prev_fatigue_index}, recent_closes: {recent_closes}, close_price: {close_price}, total_chip_volume: {total_chip_volume}, total_daily_vol: {total_daily_vol}")
+        # [探针2-结束]
         if all(pd.notna(v) for v in [prev_fatigue_index, close_price, total_chip_volume, total_daily_vol]) and recent_closes is not None and len(recent_closes) >= 9:
             is_effective_day = (close_price >= max(recent_closes)) or (close_price <= min(recent_closes))
             fatigue_index = prev_fatigue_index * 0.98
@@ -237,8 +242,8 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V4.0 · 反弹脉冲重构版】
-        - 核心重构: 将 `intraday_probe_rebound_quality` 升级为 `rebound_impulse_strength`，增强逻辑鲁棒性。
+        【V5.0 · 竞价探针植入版】
+        - 核心新增: 植入探针，监控 `auction_battle_signal` 的计算过程，揭示尾盘数据稀疏问题。
         """
         import datetime
         results = {}
@@ -326,6 +331,11 @@ class ChipFeatureCalculator:
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
             atr_14d = context.get('atr_14d')
+            # [探针3-开始]
+            stock_code = context.get('stock_code', 'N/A')
+            trade_date = context.get('trade_date', 'N/A')
+            print(f"[{stock_code}][{trade_date}] [探针3-竞价侦察] minute_df is present: {minute_df is not None}, pre_auction_df shape: {pre_auction_df.shape if not pre_auction_df.empty else 'Empty'}, auction_df shape: {auction_df.shape if not auction_df.empty else 'Empty'}, atr_14d: {atr_14d}, close_price: {close_price}, total_daily_vol: {total_daily_vol}")
+            # [探针3-结束]
             if not pre_auction_df.empty and not auction_df.empty and pd.notna(atr_14d) and atr_14d > 0 and pd.notna(close_price) and total_daily_vol > 0:
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
                 auction_volume = auction_df['vol'].sum()
@@ -358,35 +368,37 @@ class ChipFeatureCalculator:
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         """
-        【V3.0 · 命名统一与记忆修复版】
-        - 核心修复: 将 `cost_structure_consensus_index` 重命名为 `structural_consensus_score`，与模型保持一致。
-        - 核心修复: 使用由服务层注入的 `prev_atr_14d`，正确计算 `dominant_cost_momentum`。
+        【V3.1 · 共识度探针植入版】
+        - 核心新增: 植入探针，监控 `structural_consensus_score` 的计算过程。
         """
         results = {}
         # 1. 成本结构共识与筹码成本动量
         concentration_90pct = context.get('concentration_90pct')
         total_winner_rate = context.get('total_winner_rate')
+        # [探针4-开始]
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
+        print(f"[{stock_code}][{trade_date}] [探针4-共识度侦察] concentration_90pct: {concentration_90pct}, total_winner_rate: {total_winner_rate}")
+        # [探针4-结束]
         if all(pd.notna(v) for v in [concentration_90pct, total_winner_rate]):
             concentration_factor = 1.0 - np.clip(concentration_90pct, 0, 1)
             profit_factor = total_winner_rate / 100.0
-            # 修复命名不匹配问题
             results['structural_consensus_score'] = concentration_factor * profit_factor * 100
-        # 修复 `dominant_cost_momentum` 计算，使用正确的昨日ATR
+        # 升级为 `dominant_cost_momentum`
         dominant_peak_cost = context.get('dominant_peak_cost')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
-        prev_atr = context.get('prev_atr_14d') # 使用由服务层注入的昨日ATR
+        prev_atr = context.get('prev_atr_14d')
         if all(pd.notna(v) for v in [dominant_peak_cost, prev_dominant_peak_cost, prev_atr]) and prev_atr > 0:
             results['dominant_cost_momentum'] = (dominant_peak_cost - prev_dominant_peak_cost) / prev_atr
         # 2. 结构韧性指数
         def normalize(value, default=0.0): return value if pd.notna(value) else default
-        # 使用正确的指标名称
         consensus_index = normalize(results.get('structural_consensus_score'))
         peak_profit_margin = normalize(context.get('dominant_peak_profit_margin'))
         foundation_score = np.log1p(consensus_index) * np.log1p(np.maximum(0, peak_profit_margin))
         active_winner_margin = normalize(context.get('active_winner_profit_margin'))
         winner_conviction = normalize(context.get('winner_conviction_index'))
         pressure_score = np.log1p(np.maximum(0, active_winner_margin)) * np.log1p(np.maximum(0, winner_conviction))
-        cost_momentum = normalize(results.get('dominant_cost_momentum'))
+        cost_momentum = normalize(results.get('dominant_cost_momentum')) # 使用新的成本动量指标
         upward_purity = normalize(context.get('upward_impulse_purity'))
         reinforcement_score = (np.tanh(cost_momentum) + 1) * ((upward_purity / 100.0) + 1)
         if foundation_score >= 0 and pressure_score >= 0 and reinforcement_score >= 0:
@@ -407,14 +419,18 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V6.0 · 短期集中度补完版】
-        - 核心新增: 补完 `short_term_concentration_90pct` 的计算逻辑。
-        - 核心激活: `structural_stability_score` 的计算逻辑现在可以被正确执行。
+        【V7.0 · 峰群探针植入版】
+        - 核心新增: 植入探针，监控 `find_peaks` 的结果，解释峰距指标为空的原因。
         """
         results = {}
         close_price = self.ctx.get('close_price')
         # 1. 主导峰与次峰剖面
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
+        # [探针1-开始]
+        stock_code = self.ctx.get('stock_code', 'N/A')
+        trade_date = self.ctx.get('trade_date', 'N/A')
+        print(f"[{stock_code}][{trade_date}] [探针1-峰群侦察] 发现 {len(peaks)} 个显著筹码峰。")
+        # [探针1-结束]
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks,
@@ -430,6 +446,7 @@ class ChipFeatureCalculator:
             results['peak_range_low'] = np.interp(main_peak['left_ip'], self.df.index, self.df['price'])
             results['peak_range_high'] = np.interp(main_peak['right_ip'], self.df.index, self.df['price'])
             if len(peaks_df) > 1:
+                # 仅当存在至少两个峰时，才计算峰距相关指标
                 secondary_peak = peaks_df.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
                 if results['dominant_peak_cost'] > 0:
@@ -442,6 +459,7 @@ class ChipFeatureCalculator:
                     peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
                     results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
             else:
+                # 这是预期行为：单峰结构下，峰距指标自然为空
                 results['secondary_peak_cost'] = np.nan
                 results['peak_separation_ratio'] = np.nan
                 results['peak_volume_ratio'] = np.nan
@@ -535,10 +553,7 @@ class ChipFeatureCalculator:
             long_term_chips_df = self.df[~active_zone_mask]
             if not short_term_chips_df.empty and short_term_chips_df['percent'].sum() > 0:
                 results['short_term_holder_cost'] = np.average(short_term_chips_df['price'], weights=short_term_chips_df['percent'])
-                # [代码新增开始]
-                # 补完 `short_term_concentration_90pct` 的计算
                 results['short_term_concentration_90pct'] = _get_concentration(short_term_chips_df)
-                # [代码新增结束]
             if not long_term_chips_df.empty and long_term_chips_df['percent'].sum() > 0:
                 results['long_term_holder_cost'] = np.average(long_term_chips_df['price'], weights=long_term_chips_df['percent'])
                 results['long_term_concentration_90pct'] = _get_concentration(long_term_chips_df)
@@ -573,7 +588,6 @@ class ChipFeatureCalculator:
                 skewness = skew(unweighted_sample)
                 results['cost_structure_skewness'] = -skewness
         # 9. 结构稳定性评估
-        # 此处逻辑现在可以被正确执行，因为 `concentration_70pct` 已由上游方法注入
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')
         winner_profit_cushion_stability = results.get('winner_profit_cushion')

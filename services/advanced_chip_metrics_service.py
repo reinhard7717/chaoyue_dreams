@@ -149,8 +149,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.1 · 战场记忆增强版】
-        - 核心修复: 修正跨日记忆传递，确保 `prev_atr_14d` 被正确传递，修复 `dominant_cost_momentum` 计算。
+        【V3.2 · 记忆链修复版】
+        - 核心修复: 确保 `chip_fatigue_index` 被正确存入跨日记忆，修复其迭代计算。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -172,7 +172,7 @@ class AdvancedChipMetricsService:
                     'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
                     'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
                     'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': None,
-                    'recent_closes_queue': [], 'prev_dominant_peak_cost': None, 'atr_14d': None,
+                    'recent_closes_queue': [], 'dominant_peak_cost': None, 'atr_14d': None,
                 }
                 if is_first_day_in_batch: is_first_day_in_batch = False
                 continue
@@ -211,10 +211,7 @@ class AdvancedChipMetricsService:
                 'prev_total_chip_volume': prev_metrics.get('total_chip_volume'),
                 'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index'),
                 'recent_10d_closes': recent_closes_list,
-                # [代码新增开始]
-                # 注入昨日ATR，修复 `dominant_cost_momentum` 计算
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
-                # [代码新增结束]
             })
             if hist_comp_dict:
                 historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
@@ -236,7 +233,8 @@ class AdvancedChipMetricsService:
                     today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in context_for_calc['historical_components'].columns}
                     today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                     hist_comp_dict.update(today_df.to_dict('index'))
-            # 增强跨日记忆，将当日ATR存入，供下一日使用
+            # [代码修改开始]
+            # 修复记忆链：确保 `chip_fatigue_index` 被正确传递
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
@@ -245,10 +243,11 @@ class AdvancedChipMetricsService:
                 'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
                 'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
-                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None,
+                'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None, # 修复：保存当日疲劳指数
                 'recent_closes_queue': recent_closes_list,
-                'atr_14d': context_data.get('atr_14d'), # 新增：保存当日ATR
+                'atr_14d': context_data.get('atr_14d'),
             }
+            # [代码修改结束]
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:
             return pd.DataFrame(), prev_metrics, failures_list
