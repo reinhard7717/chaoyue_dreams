@@ -368,16 +368,13 @@ class ChipFeatureCalculator:
 
     def _compute_vital_sign_metrics(self, context: dict) -> dict:
         """
-        【V3.2 · 共识度鲁棒性增强版】
+        【V3.3 · 共识度鲁棒性增强版】
         - 核心修复: 增强 `structural_consensus_score` 的计算鲁棒性，当上游集中度指标为空时，采用中性值替代。
         """
         results = {}
         # 1. 成本结构共识与筹码成本动量
         concentration_90pct = context.get('concentration_90pct')
         total_winner_rate = context.get('total_winner_rate')
-        stock_code = context.get('stock_code', 'N/A')
-        trade_date = context.get('trade_date', 'N/A')
-        print(f"[{stock_code}][{trade_date}] [探针4-共识度侦察] concentration_90pct: {concentration_90pct}, total_winner_rate: {total_winner_rate}")
         # [代码修改开始]
         # 增强鲁棒性：如果集中度指标为空，则赋予一个中性值，而不是让计算失败
         if pd.notna(total_winner_rate):
@@ -424,16 +421,19 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V9.0 · 终极探针部署版】
-        - 核心新增: 部署终极探针(Probe 1.2)，在函数返回前检查峰距指标的最终状态，锁定BUG。
+        【V10.0 · 逻辑覆盖修复版】
+        - 核心修复: 重构峰群计算逻辑，修复因错误 `else` 分支导致的多峰股票峰距指标被覆盖为空的BUG。
         """
         results = {}
         close_price = self.ctx.get('close_price')
         # 1. 主导峰与次峰剖面
         peaks, properties = find_peaks(self.df['percent'], prominence=0.1, width=1)
-        stock_code = self.ctx.get('stock_code', 'N/A')
-        trade_date = self.ctx.get('trade_date', 'N/A')
-        print(f"[{stock_code}][{trade_date}] [探针1-峰群侦察] 发现 {len(peaks)} 个显著筹码峰。")
+        # [代码修改开始]
+        # 修复逻辑覆盖BUG：将峰距指标的初始化提前，并只在满足条件时赋值
+        results['secondary_peak_cost'] = np.nan
+        results['peak_separation_ratio'] = np.nan
+        results['peak_volume_ratio'] = np.nan
+        results['peak_distance_volatility_ratio'] = np.nan
         if len(peaks) > 0:
             peaks_df = pd.DataFrame({
                 'peak_index': peaks,
@@ -451,31 +451,22 @@ class ChipFeatureCalculator:
             if len(peaks_df) > 1:
                 secondary_peak = peaks_df.iloc[1]
                 results['secondary_peak_cost'] = secondary_peak['cost']
-                atr_14d_for_ratio = self.ctx.get('atr_14d')
-                print(f"[{stock_code}][{trade_date}] [探针1.1-峰距详查] dominant_peak_cost: {results.get('dominant_peak_cost')}, secondary_peak_cost: {results.get('secondary_peak_cost')}, dominant_peak_volume_ratio: {results.get('dominant_peak_volume_ratio')}, secondary_peak_volume: {secondary_peak.get('volume')}, atr_14d: {atr_14d_for_ratio}")
                 if results.get('dominant_peak_cost') is not None and results.get('dominant_peak_cost') > 0:
                     separation = (results['dominant_peak_cost'] - results['secondary_peak_cost']) / results['dominant_peak_cost']
                     results['peak_separation_ratio'] = separation * 100
                 if results.get('dominant_peak_volume_ratio') is not None and results.get('dominant_peak_volume_ratio') > 0:
                     results['peak_volume_ratio'] = (secondary_peak['volume'] / results['dominant_peak_volume_ratio']) * 100
+                atr_14d_for_ratio = self.ctx.get('atr_14d')
                 if pd.notna(atr_14d_for_ratio) and atr_14d_for_ratio > 0 and results.get('dominant_peak_cost') is not None and results.get('secondary_peak_cost') is not None:
                     peak_distance = abs(results['dominant_peak_cost'] - results['secondary_peak_cost'])
                     results['peak_distance_volatility_ratio'] = peak_distance / atr_14d_for_ratio
-            else:
-                results['secondary_peak_cost'] = np.nan
-                results['peak_separation_ratio'] = np.nan
-                results['peak_volume_ratio'] = np.nan
-                results['peak_distance_volatility_ratio'] = np.nan
         elif not self.df.empty:
             peak_idx = self.df['percent'].idxmax()
             results['dominant_peak_cost'] = self.df.loc[peak_idx, 'price']
             results['dominant_peak_volume_ratio'] = self.df.loc[peak_idx, 'percent']
-            results['secondary_peak_cost'] = np.nan
-            results['peak_separation_ratio'] = np.nan
-            results['peak_volume_ratio'] = np.nan
-            results['peak_distance_volatility_ratio'] = np.nan
             results['peak_range_low'] = results['dominant_peak_cost'] * 0.99
             results['peak_range_high'] = results['dominant_peak_cost'] * 1.01
+        # [代码修改结束]
         if pd.notna(close_price) and results.get('dominant_peak_cost', 0) > 0:
             results['dominant_peak_profit_margin'] = (close_price / results['dominant_peak_cost'] - 1) * 100
         dominant_peak_cost = results.get('dominant_peak_cost')
@@ -619,10 +610,6 @@ class ChipFeatureCalculator:
         if pd.notna(close_price):
             imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()
-        # [代码修改开始]
-        # 部署终极探针，在函数返回前检查关键指标的最终状态
-        print(f"[{stock_code}][{trade_date}] [探针1.2-终极状态] peak_separation_ratio: {results.get('peak_separation_ratio')}, peak_distance_volatility_ratio: {results.get('peak_distance_volatility_ratio')}")
-        # [代码修改结束]
         return results
 
     def _compute_intraday_dynamics_metrics(self, context: dict) -> dict:
