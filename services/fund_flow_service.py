@@ -650,8 +650,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.13 · 分析语义终极修复版】
-        - 核心修复: 将所有行为指标的默认值从 0.0 修改为 np.nan。这能从根本上区分“指标值为零”和“指标因条件不满足而未计算”这两种情况，对于下游的量化分析和模型训练至关重要。
+        【V3.14 · 量纲修正终极版】
+        - 核心修复: 彻底重构 asymmetric_volume_thrust 的计算公式，使其在数学量纲上保持一致和严谨。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -662,8 +662,6 @@ class AdvancedFundFlowMetricsService:
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
         day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
-        # [代码修改开始]
-        # 修复：将所有指标的默认值从 0.0 改为 np.nan，以保证分析语义的正确性
         results['vwap_control_strength'] = np.nan
         results['main_force_vwap_guidance'] = np.nan
         results['vwap_crossing_intensity'] = np.nan
@@ -690,7 +688,6 @@ class AdvancedFundFlowMetricsService:
         results['retail_fomo_premium_index'] = np.nan
         results['retail_panic_surrender_index'] = np.nan
         results['volatility_asymmetry_index'] = np.nan
-        # [代码修改结束]
         gatekeeper_condition = all(pd.notna(v) for v in [daily_vwap, daily_total_volume, atr]) and daily_total_volume > 0 and atr > 0
         if gatekeeper_condition:
             price_deviation_value = (minute_data['minute_vwap'] - daily_vwap) * minute_data['vol_shares']
@@ -699,9 +696,7 @@ class AdvancedFundFlowMetricsService:
             mf_net_flow_series = minute_data['main_force_net_vol']
             if not price_dev_series.var() == 0 and not mf_net_flow_series.var() == 0 and len(price_dev_series) > 1:
                 correlation = price_dev_series.corr(mf_net_flow_series)
-                # [代码修改开始]
                 results['main_force_vwap_guidance'] = correlation if pd.notna(correlation) else np.nan
-                # [代码修改结束]
             position_vs_vwap = np.sign(minute_data['minute_vwap'] - daily_vwap)
             crossings = position_vs_vwap.diff().ne(0)
             results['vwap_crossing_intensity'] = minute_data.loc[crossings, 'vol_shares'].sum() / daily_total_volume
@@ -796,11 +791,15 @@ class AdvancedFundFlowMetricsService:
                 up_vol = up_minutes['vol_shares'].sum()
                 down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
                 down_vol = down_minutes['vol_shares'].sum()
-                if up_vol > 0 and down_price_change > 0:
-                    upward_efficacy = (up_price_change / up_vol) if up_vol > 0 else 0
-                    downward_resistance = (down_vol / down_price_change) if down_price_change > 0 else np.inf
-                    log_thrust_ratio = np.log(upward_efficacy * atr) - np.log(downward_resistance * atr)
-                    results['asymmetric_volume_thrust'] = log_thrust_ratio if np.isfinite(log_thrust_ratio) else np.nan
+                # [代码修改开始]
+                # 修复：重构公式，确保量纲一致性
+                if up_vol > 0 and down_vol > 0:
+                    upward_efficacy = up_price_change / up_vol
+                    downward_efficacy = down_price_change / down_vol
+                    if downward_efficacy > 1e-9: # 避免除以零
+                        thrust_ratio = upward_efficacy / downward_efficacy
+                        results['asymmetric_volume_thrust'] = np.log(thrust_ratio) if thrust_ratio > 0 else -np.log(-thrust_ratio) if thrust_ratio < 0 else 0.0
+                # [代码修改结束]
                 avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
                 avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                 if avg_up_speed > 0 and avg_down_speed > 0:
