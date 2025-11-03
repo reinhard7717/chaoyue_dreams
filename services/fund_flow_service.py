@@ -132,9 +132,9 @@ class AdvancedFundFlowMetricsService:
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
         # [代码修改开始]
         """
-        【V2.0 · 瘦身重构版】
+        【V2.1 · 冲突解决版】
         - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
-        - 核心职责: 仅负责合并多个资金流数据源，并与标准化的 `base_daily_df` 进行最终连接。
+        - 核心修复: 在合并前，主动检查并移除与 `base_daily_df` 的重叠列，根除 'columns overlap' 错误。
         """
         # [代码修改结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
@@ -173,12 +173,15 @@ class AdvancedFundFlowMetricsService:
             for right_df in other_flow_dfs:
                 merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
-        merged_df = merged_df.drop(columns=['close'], errors='ignore')
-        # [代码修改开始]
-        # 架构升级：直接与上游传入的、已处理好冲突的 base_daily_df 合并
         if not base_daily_df.empty:
+            # [代码修改开始]
+            # 修复：在合并前，主动检查并移除与 base_daily_df 的重叠列，根除 'columns overlap' 错误。
+            overlap_cols = merged_df.columns.intersection(base_daily_df.columns)
+            if not overlap_cols.empty:
+                # 从资金流合并的DataFrame中丢弃重叠列，以 base_daily_df 的数据为准
+                merged_df = merged_df.drop(columns=overlap_cols)
             merged_df = merged_df.join(base_daily_df, how='left')
-        # [代码修改结束]
+            # [代码修改结束]
         return merged_df
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):

@@ -812,8 +812,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
             seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
-            # [代码修改开始]
-            # 架构升级：在播种阶段同样建立中央数据枢纽
             if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
                 seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
                 seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
@@ -832,7 +830,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
                 all_failures.extend(seed_failures)
-            # [代码修改结束]
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -856,32 +853,25 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因数据缺失被跳过。")
                 all_failures.extend(chunk_missing_records)
                 continue
-            # [代码修改开始]
-            # 架构升级：建立区块内的“中央数据枢纽”
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
             daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
-            # 预先处理列冲突
             overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
             base_daily_df = daily_df.join(daily_basic_df.drop(columns=overlap_cols), how='left')
             base_daily_df['atr_14d'] = base_daily_df.index.map(atr_map_global)
             ff_data_dfs = {"tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"]}
             fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=base_daily_df)
-            # [代码修改结束]
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
             all_failures.extend(ff_failures)
-            # [代码修改开始]
-            # 架构升级：向筹码服务分发标准化的“弹药”
             chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            # [代码修改结束]
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
             )
