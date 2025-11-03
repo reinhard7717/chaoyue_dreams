@@ -149,8 +149,8 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.8 · 竞价意图探针部署版】
-        - 核心新增: 部署探针A，用于检查 `last_minute_snapshot` 是否在调用计算器前被成功注入。
+        【V3.9 · 生产就绪版】
+        - 核心优化: 移除所有与 `last_minute_snapshot` 相关的调试探针。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -234,9 +234,7 @@ class AdvancedChipMetricsService:
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
             context_for_calc['minute_data'] = enhanced_minute_data
             # [代码修改开始]
-            # 部署探针A: 检查 'last_minute_snapshot' 是否在调用计算器前被注入
-            snapshot_status = "存在" if 'last_minute_snapshot' in context_for_calc else "缺失"
-            print(f"[{stock_code}][{trade_date.date()}] [探针A-供应检查] 'last_minute_snapshot' 在注入前状态: {snapshot_status}")
+            # 移除探针A
             # [代码修改结束]
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
