@@ -638,7 +638,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
     for name, df in data_dfs.items():
         if df is None or df.empty:
             if 'fund_flow_ths' in name or 'fund_flow_dc' in name:
-                logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
+                # logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
                 data_dfs[name] = pd.DataFrame()
                 continue
             logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
