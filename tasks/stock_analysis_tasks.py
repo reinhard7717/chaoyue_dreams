@@ -711,10 +711,17 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
+    # [代码修改开始]
     """
-    【V33.1 · 补给线修复版】
-    - 核心修复: 在调用资金流服务前，将 atr_14d 数据注入到 fund_flow_raw_df 中，修复下游指标计算对ATR的依赖。
+    【V34.0 · 中央枢纽重构版】
+    - 核心重构: 将本任务升级为“数据准备与分发司令部”，统一处理基础数据，根除下游服务间的数据冲突。
+    - 核心流程:
+      1. 统一加载所有原始数据。
+      2. 预先合并日线行情和日线基本面数据，创建干净、无冲突的 `base_daily_df`。
+      3. 将 `base_daily_df` 作为标准“弹药”分发给资金流和筹码服务。
+      4. 改造对下游服务的调用接口，以适应新的数据分发模式。
     """
+    # [代码修改结束]
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
@@ -805,24 +812,27 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if seed_date:
             seed_chunk_dates = pd.DatetimeIndex([pd.to_datetime(seed_date)])
             seed_data_dfs = await _load_all_sources_unified(stock_info, DailyModel, seed_chunk_dates)
-            if not seed_data_dfs["cyq_chips"].empty and not seed_data_dfs["daily_data"].empty:
-                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
-                seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
-                seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs)
-                # [代码修改开始]
-                # 修复：为播种数据注入ATR
-                if not seed_ff_raw_df.empty:
-                    seed_ff_raw_df['atr_14d'] = seed_ff_raw_df.index.map(atr_map_global)
-                # [代码修改结束]
+            # [代码修改开始]
+            # 架构升级：在播种阶段同样建立中央数据枢纽
+            if not seed_data_dfs["daily_data"].empty and not seed_data_dfs["daily_basic"].empty:
+                seed_daily_df = seed_data_dfs["daily_data"].set_index(pd.to_datetime(seed_data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
+                seed_daily_basic_df = seed_data_dfs["daily_basic"].set_index(pd.to_datetime(seed_data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
+                overlap_cols = seed_daily_df.columns.intersection(seed_daily_basic_df.columns)
+                seed_base_daily_df = seed_daily_df.join(seed_daily_basic_df.drop(columns=overlap_cols), how='left')
+                seed_base_daily_df['atr_14d'] = seed_base_daily_df.index.map(atr_map_global)
+                seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"]}
+                seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs, base_daily_df=seed_base_daily_df)
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df)
-                seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
+                seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "cyq_perf": seed_data_dfs["cyq_perf"]}
                 seed_chip_raw_df = chip_service._preprocess_and_merge_data(
-                    stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
+                    stock_code, seed_chip_data_dfs, seed_base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
+                seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
                 all_failures.extend(seed_failures)
+            # [代码修改结束]
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -846,30 +856,32 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因数据缺失被跳过。")
                 all_failures.extend(chunk_missing_records)
                 continue
-            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
-            ff_data_dfs = {
-                "tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"],
-                "daily": data_dfs["daily_data"], "daily_basic": data_dfs["daily_basic"],
-            }
-            fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs)
+            # [代码修改开始]
+            # 架构升级：建立区块内的“中央数据枢纽”
+            daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
+            daily_basic_df = data_dfs["daily_basic"].set_index(pd.to_datetime(data_dfs["daily_basic"]['trade_time'])).drop(columns='trade_time')
+            # 预先处理列冲突
+            overlap_cols = daily_df.columns.intersection(daily_basic_df.columns)
+            base_daily_df = daily_df.join(daily_basic_df.drop(columns=overlap_cols), how='left')
+            base_daily_df['atr_14d'] = base_daily_df.index.map(atr_map_global)
+            ff_data_dfs = {"tushare": data_dfs["fund_flow_tushare"], "ths": data_dfs["fund_flow_ths"], "dc": data_dfs["fund_flow_dc"]}
+            fund_flow_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=ff_data_dfs, base_daily_df=base_daily_df)
+            # [代码修改结束]
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
-            # [代码修改开始]
-            # 修复：为当前区块数据注入ATR
-            fund_flow_raw_df['atr_14d'] = fund_flow_raw_df.index.map(atr_map_global)
-            # [代码修改结束]
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
             all_failures.extend(ff_failures)
-            chip_data_dfs = {
-                "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
-                "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
-            }
+            # [代码修改开始]
+            # 架构升级：向筹码服务分发标准化的“弹药”
+            chip_data_dfs = {"cyq_chips": data_dfs["cyq_chips"], "cyq_perf": data_dfs["cyq_perf"]}
             chip_raw_df = chip_service._preprocess_and_merge_data(
-                stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
+                stock_code, chip_data_dfs, base_daily_df, close_map_global, date_20d_ago_map_global, atr_map_global,
                 high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
+            minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
+            # [代码修改结束]
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
             )

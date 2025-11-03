@@ -129,8 +129,14 @@ class AdvancedFundFlowMetricsService:
                 fetch_start_date = None
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
-    async def _load_and_merge_sources(self, stock_info, data_dfs: dict):
-        # 移除所有探针性质的print语句
+    async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
+        # [代码修改开始]
+        """
+        【V2.0 · 瘦身重构版】
+        - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
+        - 核心职责: 仅负责合并多个资金流数据源，并与标准化的 `base_daily_df` 进行最终连接。
+        """
+        # [代码修改结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -168,15 +174,11 @@ class AdvancedFundFlowMetricsService:
                 merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         merged_df = merged_df.drop(columns=['close'], errors='ignore')
-        daily_dfs_to_join = []
-        if not data_dfs['daily'].empty:
-            daily_df = data_dfs['daily'].set_index(pd.to_datetime(data_dfs['daily']['trade_time'])).drop(columns='trade_time')
-            daily_dfs_to_join.append(daily_df)
-        if not data_dfs['daily_basic'].empty:
-            daily_basic_df = data_dfs['daily_basic'].set_index(pd.to_datetime(data_dfs['daily_basic']['trade_time'])).drop(columns='trade_time')
-            daily_dfs_to_join.append(daily_basic_df)
-        if daily_dfs_to_join:
-            merged_df = merged_df.join(daily_dfs_to_join, how='left')
+        # [代码修改开始]
+        # 架构升级：直接与上游传入的、已处理好冲突的 base_daily_df 合并
+        if not base_daily_df.empty:
+            merged_df = merged_df.join(base_daily_df, how='left')
+        # [代码修改结束]
         return merged_df
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):

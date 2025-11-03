@@ -119,20 +119,22 @@ class AdvancedChipMetricsService:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
 
-    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict, high_5d_map: dict, low_5d_map: dict, turnover_vol_5d_map: dict) -> pd.DataFrame:
-        """【V3.0 · 5日窗口注入版】新增对5日高低价及成交量区间的注入。"""
-        # 核心修改: 更新方法签名以接收5日窗口数据映射
+    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, base_daily_df: pd.DataFrame, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict, high_5d_map: dict, low_5d_map: dict, turnover_vol_5d_map: dict) -> pd.DataFrame:
+        # [代码修改开始]
+        """
+        【V4.0 · 瘦身重构版】
+        - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
+        - 核心职责: 仅负责合并筹码特有数据源（CYQ、CYQPerf），并与标准化的 `base_daily_df` 进行最终连接。
+        """
         cyq_chips_df = data_dfs['cyq_chips'].copy()
-        daily_data_df = data_dfs['daily_data'].copy()
-        daily_basic_df = data_dfs['daily_basic'].copy()
         cyq_perf_df = data_dfs['cyq_perf'].copy()
-        for df in [cyq_chips_df, daily_data_df, daily_basic_df, cyq_perf_df]:
-            df['trade_time'] = pd.to_datetime(df['trade_time'])
-        daily_data_df.set_index('trade_time', inplace=True)
-        daily_basic_df.set_index('trade_time', inplace=True)
+        cyq_chips_df['trade_time'] = pd.to_datetime(cyq_chips_df['trade_time'])
+        cyq_perf_df['trade_time'] = pd.to_datetime(cyq_perf_df['trade_time'])
         cyq_perf_df.drop(columns=['id', 'stock_id'], errors='ignore', inplace=True)
         cyq_perf_df.set_index('trade_time', inplace=True)
-        daily_combined_df = daily_data_df.join([daily_basic_df, cyq_perf_df], how='left')
+        # 架构升级：直接与上游传入的 base_daily_df 合并，不再自行处理 daily_data 和 daily_basic
+        daily_combined_df = base_daily_df.join(cyq_perf_df, how='left')
+        # [代码修改结束]
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
@@ -140,7 +142,6 @@ class AdvancedChipMetricsService:
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
         merged_df['high_20d'] = merged_df['trade_time'].map(high_20d_map)
         merged_df['low_20d'] = merged_df['trade_time'].map(low_20d_map)
-        # 核心新增: 将5日窗口数据映射到合并后的DataFrame中
         merged_df['high_5d'] = merged_df['trade_time'].map(high_5d_map)
         merged_df['low_5d'] = merged_df['trade_time'].map(low_5d_map)
         merged_df['turnover_vol_5d'] = merged_df['trade_time'].map(turnover_vol_5d_map)
