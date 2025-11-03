@@ -329,11 +329,6 @@ class AdvancedFundFlowMetricsService:
             results['main_force_buy_rate_consensus'] = (mf_buy / total_turnover_wan) * 100
         results['flow_efficiency_index'] = 0.0
         circ_mv = pd.to_numeric(daily_data_series.get('circ_mv'), errors='coerce')
-        # [代码修改开始]
-        # 探针：检查 flow_efficiency_index 的所有输入参数
-        date_str = daily_data_series.name.strftime('%Y-%m-%d')
-        print(f"DEBUG PROBE (EFFICIENCY): [{date_str}] circ_mv={circ_mv}, mf_flow={mf_flow}, pct_change={pct_change}")
-        # [代码修改结束]
         if pd.notna(circ_mv) and circ_mv > 0 and pd.notna(mf_flow) and pd.notna(pct_change):
             flow_input = mf_flow / circ_mv
             if abs(flow_input) > 1e-9:
