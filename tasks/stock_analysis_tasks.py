@@ -594,7 +594,10 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     return stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental, lookback_start_date, process_start_date, save_start_date
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
-    """【V1.5 · 精确加载协议版】修正函数签名，接收确切的日期列表，并使用 `__in` 查询。"""
+    """
+    【V1.6 · 弹药补给版】
+    - 核心修复: 在 all_daily_fields 中增加 'pct_change' 字段，为下游的 flow_efficiency_index 计算提供必要的“弹药”。
+    """
     from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
     # 核心修正: 内部函数 get_data_async 的查询方式从范围查询(gte/lte)升级为列表查询(in)。
     @sync_to_async(thread_sensitive=True)
@@ -603,9 +606,12 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
+    # [代码修改开始]
+    # 修复：增加 pct_change 字段，为下游计算提供数据
     all_daily_fields = (
-        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq'
+        'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
+    # [代码修改结束]
     all_daily_basic_fields = (
         'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
     )
