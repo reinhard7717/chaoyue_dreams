@@ -530,22 +530,20 @@ class AdvancedFundFlowMetrics_BJ(BaseAdvancedFundFlowMetrics):
 # 结构与行为高级指标模型
 class BaseAdvancedStructuralMetrics(models.Model):
     """
-    【V17.0 · 战略精简版】
-    - 核心裁撤: 移除了am_pm_volume_ratio, am_pm_vwap_ratio等被更精细指标覆盖的宏观统计量。
-    - 核心裁撤: 移除了is_intraday_bullish_divergence, is_intraday_bearish_divergence等低信息价值的布尔信号，由divergence_conviction_score完全替代。
+    【V18.0 · 战场分析仪实装版】
+    - 核心新增: 引入 trend_quality_score, closing_momentum_index, volume_structure_skew 三大高级结构指标，深度剖析日内走势质量。
+    - 核心优化: 更新指标分组与衍生计算排除列表，以集成新指标。
     """
     trade_time = models.DateField(verbose_name='交易日期', db_index=True)
-    # --- 第一维度: 能量与战场动力学 (Energy & Battlefield Dynamics) ---
     ENERGY_DENSITY_METRICS = {
         'intraday_energy_density': '日内能量密度',
         'intraday_thrust_purity': '日内推力纯度',
         'volume_burstiness_index': '成交量爆裂度指数',
-        'auction_impact_score': '集合竞价冲击分',
+        'auction_impact_score': '开盘缺口强度',
         'rebound_momentum': '反转动能',
         'high_level_consolidation_volume': '高位整固成交量占比',
         'opening_period_thrust': '开盘期推力',
     }
-    # --- 第二维度: 控制权、趋势与代理筹码动力学 (Control, Trend & Proxy Chip Dynamics) ---
     CONTROL_METRICS = {
         'trend_efficiency_ratio': '趋势效率比',
         'pullback_depth_ratio': '回撤深度比',
@@ -560,8 +558,6 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'intraday_pnl_imbalance': '日内盈亏失衡度',
         'cost_dispersion_index': '成本离散指数(ATR)',
     }
-    # --- 第三维度: 博弈效率 (Game Efficiency) ---
-    # [代码修改开始]
     GAME_EFFICIENCY_METRICS = {
         'upward_thrust_efficacy': '上涨推力效能',
         'downward_absorption_efficacy': '下跌吸收效能',
@@ -569,30 +565,35 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'divergence_conviction_score': '背离信念得分',
         'volatility_skew_index': '波动率偏度指数',
     }
-    # [代码修改结束]
-    # --- 第四维度: 前瞻性结构指标 (Forward-Looking Structural Indicators) ---
     FORWARD_LOOKING_METRICS = {
         'volatility_expansion_ratio': '波动率扩张比',
         'price_shock_factor': '价格冲击因子(ATR标准化)',
         'auction_showdown_score': '收盘竞价摊牌分',
     }
-    # --- 辅助性结构指标 (保留，但重要性降低) ---
-    # [代码修改开始]
+    # [代码新增开始]
+    # 新增：V18.0 战场分析仪指标
+    ADVANCED_BATTLEFIELD_METRICS = {
+        'trend_quality_score': '趋势质量分',
+        'closing_momentum_index': '收盘动能指数',
+        'volume_structure_skew': '成交结构偏度',
+    }
+    # [代码新增结束]
     AUXILIARY_METRICS = {
         'value_area_migration': '价值区迁移度(ATR)',
         'value_area_overlap_pct': '价值区重叠度(%)',
         'closing_acceptance_type': '收盘接受度类型',
     }
-    # [代码修改结束]
     CORE_METRICS = {
         **ENERGY_DENSITY_METRICS,
         **CONTROL_METRICS,
         **GAME_EFFICIENCY_METRICS,
         **FORWARD_LOOKING_METRICS,
+        # [代码新增开始]
+        **ADVANCED_BATTLEFIELD_METRICS,
+        # [代码新增结束]
         **AUXILIARY_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # [代码修改开始]
     BOOLEAN_FIELDS = []
     SLOPE_ACCEL_EXCLUSIONS = [
         'auction_impact_score',
@@ -622,8 +623,12 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volatility_expansion_ratio',
         'price_shock_factor',
         'auction_showdown_score',
+        # [代码新增开始]
+        'trend_quality_score',
+        'closing_momentum_index',
+        'volume_structure_skew',
+        # [代码新增结束]
     ]
-    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:
             vars()[name] = models.BooleanField(verbose_name=verbose, default=False)

@@ -249,17 +249,19 @@ class AdvancedStructuralMetricsService:
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
         # [代码修改开始]
         """
-        【V2.0 · 尖端武器实装版】
-        - 核心新增: 实现 auction_impact_score, price_shock_factor, volatility_expansion_ratio 三大指标的全新、精细化计算逻辑。
-        - 核心修复: 修正函数签名以接收多周期的ATR数据。
+        【V3.0 · 战场分析仪实装版】
+        - 核心新增: 实现 trend_quality_score, closing_momentum_index, volume_structure_skew 三大高级结构指标的计算逻辑。
+        - 核心优化: 初始化新指标，确保即使计算失败也有默认值。
         """
-        # [代码修改结束]
         results = {}
-        # [代码修改开始]
-        # 新增：初始化新指标，确保即使计算失败也有占位符
+        # 初始化所有可能计算的指标，防止因条件不满足而缺失字段
         results['auction_impact_score'] = np.nan
         results['price_shock_factor'] = np.nan
         results['volatility_expansion_ratio'] = np.nan
+        # 新增：初始化V18.0新增的战场分析仪指标
+        results['trend_quality_score'] = np.nan
+        results['closing_momentum_index'] = np.nan
+        results['volume_structure_skew'] = np.nan
         # [代码修改结束]
         total_volume = group['vol'].sum()
         total_volume_safe = total_volume if total_volume > 0 else np.nan
@@ -279,19 +281,8 @@ class AdvancedStructuralMetricsService:
         if total_energy > 0:
             results['intraday_thrust_purity'] = thrust_vector.sum() / total_energy
         results['volume_burstiness_index'] = self._calculate_gini(group['vol'].values)
-        # [代码修改开始]
-        # 重构：开盘竞价冲击分 (auction_impact_score)
-        auction_df = group[group['trade_time'].dt.time < time(9, 30)]
-        if not auction_df.empty and all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
-            auction_vol = auction_df['vol'].sum()
-            avg_minute_vol = continuous_group['vol'].mean()
-            if pd.notna(avg_minute_vol) and avg_minute_vol > 0:
-                # 价格跳空能量：开盘价与昨收价的差距，用ATR标准化
-                price_jump_energy = (day_open_qfq - pre_close_qfq) / atr_14
-                # 成交量异常度：竞价成交量相对于盘中平均成交量的倍数，取对数平滑
-                volume_anomaly = np.log1p(auction_vol / avg_minute_vol)
-                results['auction_impact_score'] = price_jump_energy * volume_anomaly
-        # [代码修改结束]
+        if all(pd.notna(v) for v in [day_open_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
+            results['auction_impact_score'] = (day_open_qfq - pre_close_qfq) / atr_14
         low_idx = group['low'].idxmin()
         if low_idx > 0 and low_idx < len(group) - 1:
             falling_phase = group.iloc[:low_idx+1]
@@ -384,12 +375,12 @@ class AdvancedStructuralMetricsService:
             else: results['closing_acceptance_type'] = 0
         continuous_group['price_diff'] = continuous_group['close'] - continuous_group['open']
         up_minutes = continuous_group[continuous_group['price_diff'] > 0]
-        if not up_minutes.empty and up_minutes['vol'].sum() > 0 and pd.notna(total_volume_safe):
+        if not up_minutes.empty and up_minutes['vol'].sum() > 0 and pd.notna(total_volume_safe) and day_open_qfq > 0:
             normalized_price_gain = up_minutes['price_diff'].sum() / day_open_qfq
             normalized_volume_cost = up_minutes['vol'].sum() / total_volume_safe
             if normalized_volume_cost > 0: results['upward_thrust_efficacy'] = normalized_price_gain / normalized_volume_cost
         down_minutes = continuous_group[continuous_group['price_diff'] < 0]
-        if not down_minutes.empty and abs(down_minutes['price_diff']).sum() > 0 and pd.notna(total_volume_safe):
+        if not down_minutes.empty and abs(down_minutes['price_diff']).sum() > 0 and pd.notna(total_volume_safe) and day_open_qfq > 0:
             normalized_price_drop = abs(down_minutes['price_diff']).sum() / day_open_qfq
             normalized_volume_cost = down_minutes['vol'].sum() / total_volume_safe
             if normalized_price_drop > 0: results['downward_absorption_efficacy'] = normalized_volume_cost / normalized_price_drop
@@ -444,17 +435,57 @@ class AdvancedStructuralMetricsService:
                 if avg_vol_minute_continuous > 0:
                     auction_volume_multiple = (auction_period_df['vol'].sum() / 3) / avg_vol_minute_continuous
                     results['auction_showdown_score'] = auction_price_change * np.log1p(auction_volume_multiple)
-        # [代码修改开始]
-        # 新增：价格冲击因子 (price_shock_factor)
         if all(pd.notna(v) for v in [day_high_qfq, day_low_qfq, pre_close_qfq, atr_14]) and atr_14 > 0:
             true_range = max(day_high_qfq, pre_close_qfq) - min(day_low_qfq, pre_close_qfq)
             shock = true_range / atr_14
             direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
             results['price_shock_factor'] = shock * direction
-        # 新增：波动率扩张比 (volatility_expansion_ratio)
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
-        # [代码修改结束]
+        # [代码新增开始]
+        # --- 5. 新增：V18.0 战场分析仪指标 ---
+        if not continuous_group.empty and len(continuous_group) > 1:
+            # 5.1 趋势质量分 (trend_quality_score)
+            from scipy.stats import linregress
+            vwap_series = continuous_group['minute_vwap'].dropna()
+            if len(vwap_series) > 2:
+                # 线性度
+                x = np.arange(len(vwap_series))
+                slope, intercept, r_value, p_value, std_err = linregress(x, vwap_series)
+                linearity = r_value**2
+                # 回撤控制度
+                vwap_max = vwap_series.max()
+                vwap_min = vwap_series.min()
+                vwap_range = vwap_max - vwap_min
+                if vwap_range > 0:
+                    if day_close_qfq > day_open_qfq: # 上涨日
+                        pullback_control = ((vwap_series - vwap_min) / vwap_range).mean()
+                    else: # 下跌或横盘日
+                        pullback_control = ((vwap_max - vwap_series) / vwap_range).mean()
+                    trend_quality = linearity * pullback_control
+                    direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
+                    results['trend_quality_score'] = trend_quality * direction
+            # 5.2 收盘动能指数 (closing_momentum_index)
+            tail_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 0)]
+            if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
+                vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
+                vwap_full = (continuous_group['amount'].sum() / continuous_group['vol'].sum()) if continuous_group['vol'].sum() > 0 else np.nan
+                if all(pd.notna(v) for v in [vwap_tail, vwap_full]):
+                    momentum_deviation = (vwap_tail - vwap_full) / atr_14
+                    vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
+                    results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
+            # 5.3 成交结构偏度 (volume_structure_skew)
+            open_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time < time(10, 0)]
+            mid_rhythm_df = continuous_group[(continuous_group['trade_time'].dt.time >= time(10, 0)) & (continuous_group['trade_time'].dt.time < time(14, 30))]
+            tail_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 30)]
+            if not open_rhythm_df.empty and not mid_rhythm_df.empty and not tail_rhythm_df.empty:
+                avg_vol_open = open_rhythm_df['vol'].mean()
+                avg_vol_mid = mid_rhythm_df['vol'].mean()
+                avg_vol_tail = tail_rhythm_df['vol'].mean()
+                avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
+                if avg_vol_ends > 0:
+                    results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
+        # [代码新增结束]
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val
