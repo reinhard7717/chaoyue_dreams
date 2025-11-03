@@ -416,23 +416,31 @@ class AdvancedFundFlowMetricsService:
 
     def _calculate_aggregate_pvwap_costs(self, pvwap_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.6 · 诊断探针植入版】
-        - 核心新增: 植入探针，检查T+0效率计算的各个输入环节。
+        【V3.7 · 弹药型号修复版】
+        - 核心修复: 在合并数据时，同时补充成交量(_vol)和成交额(_amount)列，根除T+0效率分母为零的错误。
         """
         temp_df = pvwap_df.copy()
-        vol_cols = [
+        # [代码修改开始]
+        # 修复：同时定义需要补充的成交量和成交额列
+        cols_to_join = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
-            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol'
+            'buy_lg_vol', 'sell_lg_vol', 'buy_elg_vol', 'sell_elg_vol',
+            'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount',
+            'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount'
         ]
-        existing_vol_cols = [col for col in vol_cols if col in daily_df.columns]
+        existing_cols_to_join = [col for col in cols_to_join if col in daily_df.columns]
+        # [代码修改结束]
         agg_cols = [
             'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
             'main_force_cost_alpha', 'retail_cost_beta', 'main_force_t0_spread_ratio',
             'main_force_execution_alpha', 'main_force_t0_efficiency', 'flow_temperature_premium'
         ]
-        if not existing_vol_cols:
+        if not existing_cols_to_join:
             return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
-        temp_df = temp_df.join(daily_df[existing_vol_cols])
+        # [代码修改开始]
+        # 修复：合并所有需要的列
+        temp_df = temp_df.join(daily_df[existing_cols_to_join])
+        # [代码修改结束]
         def weighted_avg_cost(cost_cols, vol_cols):
             numerator = pd.Series(0.0, index=temp_df.index)
             denominator = pd.Series(0.0, index=temp_df.index)
@@ -454,10 +462,7 @@ class AdvancedFundFlowMetricsService:
         result_agg_df['avg_cost_main_sell'] = weighted_avg_cost(['avg_cost_lg_sell', 'avg_cost_elg_sell'], ['sell_lg_vol', 'sell_elg_vol'])
         result_agg_df['avg_cost_retail_buy'] = weighted_avg_cost(['avg_cost_sm_buy', 'avg_cost_md_buy'], ['buy_sm_vol', 'buy_md_vol'])
         result_agg_df['avg_cost_retail_sell'] = weighted_avg_cost(['avg_cost_sm_sell', 'avg_cost_md_sell'], ['sell_sm_vol', 'sell_md_vol'])
-        # [代码修改开始]
-        # 修复：从pvwap_df中获取VWAP，因为现在它被作为源头注入了
         daily_vwap = pvwap_df.get('daily_vwap')
-        # [代码修改结束]
         if 'avg_cost_main_buy' in result_agg_df.columns and daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
             result_agg_df['main_force_cost_alpha'] = ((safe_vwap - result_agg_df['avg_cost_main_buy']) / safe_vwap) * 100
@@ -507,12 +512,6 @@ class AdvancedFundFlowMetricsService:
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
             total_mf_amount = (mf_buy_amount + mf_sell_amount) * 10000
-            # [代码修改开始]
-            # 探针：检查T+0效率计算的输入
-            if not temp_df.empty:
-                date_str = temp_df.index[0].strftime('%Y-%m-%d')
-                print(f"DEBUG PROBE (T0 EFF): [{date_str}] t0_profit={t0_profit.iloc[0] if isinstance(t0_profit, pd.Series) else t0_profit}, total_mf_amount={total_mf_amount.iloc[0] if isinstance(total_mf_amount, pd.Series) else total_mf_amount}")
-            # [代码修改结束]
             result_agg_df['main_force_t0_efficiency'] = (t0_profit / np.where(total_mf_amount == 0, np.nan, total_mf_amount)) * 100
         if 'market_cost_battle_premium' in result_agg_df.columns:
             result_agg_df = result_agg_df.drop(columns=['market_cost_battle_premium'])
@@ -653,8 +652,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.11 · 诊断探针植入版】
-        - 核心新增: 植入探针，检查关键输入参数 daily_vwap 和 atr 是否有效。
+        【V3.12 · 深度侦察探针植入版】
+        - 核心新增: 植入深度探针，检查 continuous_trading_df 的生成过程，定位战场范围判断失误的根本原因。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -665,21 +664,15 @@ class AdvancedFundFlowMetricsService:
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
         day_high, day_low = daily_data.get('high_qfq'), daily_data.get('low_qfq')
-        # [代码修改开始]
-        # 探针：检查关键输入参数
         date_str = daily_data.name.strftime('%Y-%m-%d')
         print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] daily_vwap={daily_vwap}, atr={atr}")
-        # [代码修改结束]
         results['vwap_control_strength'] = 0.0
         results['main_force_vwap_guidance'] = 0.0
         results['vwap_crossing_intensity'] = 0.0
         results['vwap_structure_skew'] = 0.0
-        # [代码修改开始]
-        # 探针：检查核心卫兵条件
         gatekeeper_condition = all(pd.notna(v) for v in [daily_vwap, daily_total_volume, atr]) and daily_total_volume > 0 and atr > 0
         print(f"DEBUG PROBE (BEHAVIORAL): [{date_str}] Gatekeeper Condition Passed: {gatekeeper_condition}")
         if gatekeeper_condition:
-        # [代码修改结束]
             price_deviation_value = (minute_data['minute_vwap'] - daily_vwap) * minute_data['vol_shares']
             results['vwap_control_strength'] = price_deviation_value.sum() / (atr * daily_total_volume)
             price_dev_series = minute_data['minute_vwap'] - daily_vwap
@@ -789,6 +782,10 @@ class AdvancedFundFlowMetricsService:
         results['retail_panic_surrender_index'] = 0.0
         results['volatility_asymmetry_index'] = 0.0
         continuous_trading_df = minute_data[minute_data['trade_time'].dt.time < time(14, 57)].copy()
+        # [新增探针]
+        print(f"DEBUG PROBE (DEEP DIVE): [{date_str}] minute_data shape: {minute_data.shape}, time range: {minute_data['trade_time'].min()} -> {minute_data['trade_time'].max()}")
+        print(f"DEBUG PROBE (DEEP DIVE): [{date_str}] continuous_trading_df shape: {continuous_trading_df.shape}")
+        # [新增探针结束]
         if not continuous_trading_df.empty and gatekeeper_condition:
             up_minutes = continuous_trading_df[continuous_trading_df['close'] > continuous_trading_df['open']]
             down_minutes = continuous_trading_df[continuous_trading_df['close'] < continuous_trading_df['open']]
