@@ -237,9 +237,8 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V6.0 · 竞价意图重构版】
-        - 核心重构: 引入“虚拟竞价博弈”逻辑，在尾盘无成交时，通过分析最后一分钟盘口快照计算新的 `auction_intent_signal` 和 `auction_pressure_ratio`。
-        - 核心优化: 将原 `auction_battle_signal` 作为有成交时的优先信号，形成互补。
+        【V6.1 · 竞价意图探针部署版】
+        - 核心新增: 部署探针B，用于检查 `last_minute_snapshot` 的接收状态，并明确打印出竞价逻辑的执行路径。
         """
         import datetime
         results = {}
@@ -328,19 +327,24 @@ class ChipFeatureCalculator:
         results['auction_battle_signal'] = np.nan
         results['auction_intent_signal'] = np.nan
         results['auction_pressure_ratio'] = np.nan
+        stock_code = context.get('stock_code', 'N/A')
+        trade_date = context.get('trade_date', 'N/A')
+        print(f"[{stock_code}][{trade_date}] [探针B-接收检查] 'last_minute_snapshot' 接收状态: {'存在' if 'last_minute_snapshot' in context else '缺失'}")
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
             auction_df = minute_df[minute_df['trade_time'].dt.time >= auction_start_time]
             # 场景一：尾盘有成交
             if not pre_auction_df.empty and not auction_df.empty and total_daily_vol > 0:
+                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支1: 尾盘有成交。")
                 pre_auction_price = pre_auction_df['close'].iloc[-1]
                 auction_volume = auction_df['vol'].sum()
                 price_impact = (close_price - pre_auction_price) / atr_14d
                 volume_weight = np.log1p(auction_volume / total_daily_vol)
                 results['auction_battle_signal'] = price_impact * volume_weight * 100
-            # 场景二：尾盘无成交，分析最后一分钟盘口快照 (需要上游提供 'last_minute_snapshot' context)
+            # 场景二：尾盘无成交，分析最后一分钟盘口快照
             elif 'last_minute_snapshot' in context:
+                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支2: 尾盘无成交，但找到 'last_minute_snapshot'。")
                 snapshot = context['last_minute_snapshot']
                 bid_vol = snapshot.get('bid_vol1', 0)
                 ask_vol = snapshot.get('ask_vol1', 0)
@@ -354,6 +358,12 @@ class ChipFeatureCalculator:
                         results['auction_intent_signal'] = ((log_bid_power - log_ask_power) / total_power) * 100
                     mid_price = (bid_price + ask_price) / 2
                     results['auction_pressure_ratio'] = ((close_price - mid_price) / atr_14d) * 100
+                else:
+                    print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 分支2内部跳过: snapshot数据不完整。")
+            else:
+                print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 进入分支3: 竞价信号计算跳过(尾盘无成交且无snapshot)。")
+        else:
+            print(f"[{stock_code}][{trade_date}] [探针B-逻辑路径] 竞价信号计算跳过: 基础数据(分钟/收盘价/ATR)不满足。")
         # [代码修改结束]
         # 升级为 `rebound_impulse_strength` 逻辑，赋值给 `intraday_probe_rebound_quality`
         low_price = context.get('low_price')

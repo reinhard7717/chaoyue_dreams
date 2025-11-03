@@ -149,28 +149,23 @@ class AdvancedChipMetricsService:
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V3.7 · 生产就绪版】
-        - 核心优化: 移除所有调试探针，代码恢复生产状态。
-        - 核心固化: 保留并优化了历史参照系的动态生长逻辑，确保健康分计算的长期稳定。
+        【V3.8 · 竞价意图探针部署版】
+        - 核心新增: 部署探针A，用于检查 `last_minute_snapshot` 是否在调用计算器前被成功注入。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
         prev_metrics = memory.copy() if memory is not None else {}
-        # [代码修改开始]
-        # 固化历史参照系的处理逻辑
         hist_comp_cols = None
         if historical_components is not None and not historical_components.columns.empty:
             hist_comp_cols = historical_components.columns
         else:
-            # 后备方案：如果上游未提供列结构（例如冷启动），则硬编码一个
             hist_comp_cols = pd.Index([
                 'concentration_70pct', 'cost_divergence_normalized', 'dominant_peak_profit_margin',
                 'main_force_cost_advantage', 'suppressive_accumulation_intensity', 'upward_impulse_purity',
                 'active_winner_profit_margin', 'winner_conviction_index'
             ])
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
-        # [代码修改结束]
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
@@ -227,33 +222,31 @@ class AdvancedChipMetricsService:
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
             })
-            # [代码修改开始]
-            # 固化：为当天的计算准备正确的历史数据切片
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
-                # 如果是第一天，则创建一个空的DataFrame，但带有正确的列结构
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # [代码修改结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
             context_for_calc['minute_data'] = enhanced_minute_data
+            # [代码修改开始]
+            # 部署探针A: 检查 'last_minute_snapshot' 是否在调用计算器前被注入
+            snapshot_status = "存在" if 'last_minute_snapshot' in context_for_calc else "缺失"
+            print(f"[{stock_code}][{trade_date.date()}] [探针A-供应检查] 'last_minute_snapshot' 在注入前状态: {snapshot_status}")
+            # [代码修改结束]
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
             if daily_metrics:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
-                # [代码修改开始]
-                # 固化：无条件地尝试更新动态增长的历史字典
                 today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in hist_comp_cols}
                 today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                 hist_comp_dict.update(today_df.to_dict('index'))
-                # [代码修改结束]
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
