@@ -247,22 +247,17 @@ class AdvancedStructuralMetricsService:
         return result_df.set_index(pd.to_datetime(result_df['trade_time']))
 
     def _compute_all_structural_metrics(self, group: pd.DataFrame, continuous_group: pd.DataFrame, daily_series_for_day: pd.Series, atr_5: float, atr_14: float, atr_50: float, prev_day_metrics: dict) -> dict:
-        # [代码修改开始]
         """
-        【V3.0 · 战场分析仪实装版】
-        - 核心新增: 实现 trend_quality_score, closing_momentum_index, volume_structure_skew 三大高级结构指标的计算逻辑。
-        - 核心优化: 初始化新指标，确保即使计算失败也有默认值。
+        【V3.1 · 分箱鲁棒性增强版】
+        - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
         """
         results = {}
-        # 初始化所有可能计算的指标，防止因条件不满足而缺失字段
         results['auction_impact_score'] = np.nan
         results['price_shock_factor'] = np.nan
         results['volatility_expansion_ratio'] = np.nan
-        # 新增：初始化V18.0新增的战场分析仪指标
         results['trend_quality_score'] = np.nan
         results['closing_momentum_index'] = np.nan
         results['volume_structure_skew'] = np.nan
-        # [代码修改结束]
         total_volume = group['vol'].sum()
         total_volume_safe = total_volume if total_volume > 0 else np.nan
         day_open_qfq, day_high_qfq, day_low_qfq, day_close_qfq, pre_close_qfq = (
@@ -333,7 +328,10 @@ class AdvancedStructuralMetricsService:
             results['tail_volume_acceleration'] = avg_vol_tail / avg_vol_pre_tail
         daily_vwap = group['amount'].sum() / total_volume if total_volume > 0 else day_close_qfq
         if total_volume > 0:
-            vp_proxy = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
+            # [代码修改开始]
+            # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
+            vp_proxy = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
+            # [代码修改结束]
             vp_prob = vp_proxy[vp_proxy > 0] / total_volume
             if not vp_prob.empty:
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
@@ -347,7 +345,10 @@ class AdvancedStructuralMetricsService:
                 weighted_variance = ((continuous_group['minute_vwap'] - daily_vwap)**2 * continuous_group['vol']).sum() / total_volume
                 results['cost_dispersion_index'] = np.sqrt(weighted_variance) / atr_14
         # --- 3. VPOC、价值区与博弈效率 ---
-        vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20))['vol'].sum()
+        # [代码修改开始]
+        # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
+        vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
+        # [代码修改结束]
         vpoc_interval = vp.idxmax() if not vp.empty else np.nan
         today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
         vpoc_volume_ratio = vp.max() / continuous_group['vol'].sum() if not vp.empty and continuous_group['vol'].sum() > 0 else 0
@@ -442,18 +443,14 @@ class AdvancedStructuralMetricsService:
             results['price_shock_factor'] = shock * direction
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
-        # [代码新增开始]
         # --- 5. 新增：V18.0 战场分析仪指标 ---
         if not continuous_group.empty and len(continuous_group) > 1:
-            # 5.1 趋势质量分 (trend_quality_score)
             from scipy.stats import linregress
             vwap_series = continuous_group['minute_vwap'].dropna()
             if len(vwap_series) > 2:
-                # 线性度
                 x = np.arange(len(vwap_series))
                 slope, intercept, r_value, p_value, std_err = linregress(x, vwap_series)
                 linearity = r_value**2
-                # 回撤控制度
                 vwap_max = vwap_series.max()
                 vwap_min = vwap_series.min()
                 vwap_range = vwap_max - vwap_min
@@ -465,7 +462,6 @@ class AdvancedStructuralMetricsService:
                     trend_quality = linearity * pullback_control
                     direction = np.sign(day_close_qfq - day_open_qfq) if day_close_qfq != day_open_qfq else 1
                     results['trend_quality_score'] = trend_quality * direction
-            # 5.2 收盘动能指数 (closing_momentum_index)
             tail_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 0)]
             if not tail_df.empty and pd.notna(atr_14) and atr_14 > 0 and total_volume_safe > 0:
                 vwap_tail = (tail_df['amount'].sum() / tail_df['vol'].sum()) if tail_df['vol'].sum() > 0 else np.nan
@@ -474,7 +470,6 @@ class AdvancedStructuralMetricsService:
                     momentum_deviation = (vwap_tail - vwap_full) / atr_14
                     vol_ratio_tail = tail_df['vol'].sum() / total_volume_safe
                     results['closing_momentum_index'] = momentum_deviation * np.log1p(vol_ratio_tail)
-            # 5.3 成交结构偏度 (volume_structure_skew)
             open_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time < time(10, 0)]
             mid_rhythm_df = continuous_group[(continuous_group['trade_time'].dt.time >= time(10, 0)) & (continuous_group['trade_time'].dt.time < time(14, 30))]
             tail_rhythm_df = continuous_group[continuous_group['trade_time'].dt.time >= time(14, 30)]
@@ -485,7 +480,6 @@ class AdvancedStructuralMetricsService:
                 avg_vol_ends = (avg_vol_open + avg_vol_tail) / 2
                 if avg_vol_ends > 0:
                     results['volume_structure_skew'] = avg_vol_mid / avg_vol_ends
-        # [代码新增结束]
         results['_today_vpoc'] = today_vpoc
         results['_today_vah'] = today_vah
         results['_today_val'] = today_val

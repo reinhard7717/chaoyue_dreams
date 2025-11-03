@@ -655,8 +655,8 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.14 · 量纲修正终极版】
-        - 核心修复: 彻底重构 asymmetric_volume_thrust 的计算公式，使其在数学量纲上保持一致和严谨。
+        【V3.15 · 分箱鲁棒性增强版】
+        - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
         """
         from scipy.signal import find_peaks
         results = {}
@@ -762,7 +762,10 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
                 results['cmf_divergence_score'] = results.get('main_force_cmf', 0.0) - results.get('holistic_cmf', 0.0)
         if 'main_force_net_vol' in minute_data.columns and pd.notna(day_close):
-            vp_global = minute_data.groupby(pd.cut(minute_data['minute_vwap'], bins=30))['vol_shares'].sum()
+            # [代码修改开始]
+            # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
+            vp_global = minute_data.groupby(pd.cut(minute_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
+            # [代码修改结束]
             if not vp_global.empty:
                 vpoc_interval = vp_global.idxmax()
                 global_vpoc_price = vpoc_interval.mid
@@ -775,7 +778,10 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_on_peak_flow'] = (mf_net_vol_on_peak * global_vpoc_price) / 10000
                 mf_net_buy_df = minute_data[minute_data['main_force_net_vol'] > 0]
                 if not mf_net_buy_df.empty:
-                    vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30))['main_force_net_vol'].sum()
+                    # [代码修改开始]
+                    # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
+                    vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
+                    # [代码修改结束]
                     if not vp_mf.empty:
                         mf_vpoc = vp_mf.idxmax().mid
                         results['main_force_vpoc'] = mf_vpoc
@@ -796,15 +802,12 @@ class AdvancedFundFlowMetricsService:
                 up_vol = up_minutes['vol_shares'].sum()
                 down_price_change = (down_minutes['open'] - down_minutes['close']).sum()
                 down_vol = down_minutes['vol_shares'].sum()
-                # [代码修改开始]
-                # 修复：重构公式，确保量纲一致性
                 if up_vol > 0 and down_vol > 0:
                     upward_efficacy = up_price_change / up_vol
                     downward_efficacy = down_price_change / down_vol
                     if downward_efficacy > 1e-9: # 避免除以零
                         thrust_ratio = upward_efficacy / downward_efficacy
                         results['asymmetric_volume_thrust'] = np.log(thrust_ratio) if thrust_ratio > 0 else -np.log(-thrust_ratio) if thrust_ratio < 0 else 0.0
-                # [代码修改结束]
                 avg_up_speed = up_price_change / len(up_minutes) if len(up_minutes) > 0 else 0
                 avg_down_speed = down_price_change / len(down_minutes) if len(down_minutes) > 0 else 0
                 if avg_up_speed > 0 and avg_down_speed > 0:
