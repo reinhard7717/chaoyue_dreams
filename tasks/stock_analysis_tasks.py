@@ -706,9 +706,10 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V31.0 · 接口协议修正版】
-    - 核心修正: 移除了对已废弃的 `_calculate_daily_vwap` 方法的所有调用。
-    - 核心修正: 调整了对 `_synthesize_and_forge_metrics` 的调用签名，使其与最新的服务层协议一致，不再需要外部传入VWAP。
+    【V32.0 · 全数据注入修复版】
+    - 核心修复: 注入5日窗口数据(高点/低点/成交量)，修复 `recent_trapped_pressure` 计算。
+    - 核心修复: 修正跨日记忆传递逻辑，确保 `dominant_peak_cost` 和 `chip_distribution` 被正确传递，修复 `peak_shoulder_growth_rate` 计算。
+    - 核心修复: 修正分钟数据传递逻辑，修复 `auction_battle_signal` 计算。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -740,7 +741,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             stock=stock_info,
             trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
-        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq').order_by('trade_time')
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'vol').order_by('trade_time') # 新增 vol
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -750,6 +751,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             raise ValueError(f"[{stock_code}] ATR计算失败，未能找到列: {atr_col_name}")
         all_daily_data_for_lookback_df['high_20d'] = all_daily_data_for_lookback_df['high_qfq'].rolling(window=20, min_periods=1).max()
         all_daily_data_for_lookback_df['low_20d'] = all_daily_data_for_lookback_df['low_qfq'].rolling(window=20, min_periods=1).min()
+        # 计算5日窗口数据，为 `recent_trapped_pressure` 提供前置条件
+        all_daily_data_for_lookback_df['high_5d'] = all_daily_data_for_lookback_df['high_qfq'].rolling(window=5, min_periods=1).max()
+        all_daily_data_for_lookback_df['low_5d'] = all_daily_data_for_lookback_df['low_qfq'].rolling(window=5, min_periods=1).min()
+        all_daily_data_for_lookback_df['turnover_vol_5d'] = all_daily_data_for_lookback_df['vol'].rolling(window=5, min_periods=1).sum() * 100 # 转换为股
+        high_5d_map_global = all_daily_data_for_lookback_df['high_5d'].to_dict()
+        low_5d_map_global = all_daily_data_for_lookback_df['low_5d'].to_dict()
+        turnover_vol_5d_map_global = all_daily_data_for_lookback_df['turnover_vol_5d'].to_dict()
         high_20d_map_global = all_daily_data_for_lookback_df['high_20d'].to_dict()
         low_20d_map_global = all_daily_data_for_lookback_df['low_20d'].to_dict()
         atr_map_global = all_daily_data_for_lookback_df[atr_col_name].to_dict()
@@ -793,15 +801,16 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
                 seed_ff_data_dfs = {"tushare": seed_data_dfs["fund_flow_tushare"], "ths": seed_data_dfs["fund_flow_ths"], "dc": seed_data_dfs["fund_flow_dc"], "daily": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"]}
                 seed_ff_raw_df = await fund_flow_service._load_and_merge_sources(stock_info, data_dfs=seed_ff_data_dfs)
-                # [代码移除开始]
-                # seed_daily_vwap = await fund_flow_service._calculate_daily_vwap(stock_info, seed_ff_raw_df.index)
-                # [代码移除结束]
                 fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, seed_ff_raw_df.index)
-                # [代码修改开始]
                 _, seed_ff_minute_map, _ = fund_flow_service._synthesize_and_forge_metrics(stock_code, seed_ff_raw_df)
-                # [代码修改结束]
                 seed_chip_data_dfs = {"cyq_chips": seed_data_dfs["cyq_chips"], "daily_data": seed_data_dfs["daily_data"], "daily_basic": seed_data_dfs["daily_basic"], "cyq_perf": seed_data_dfs["cyq_perf"]}
-                seed_chip_raw_df = chip_service._preprocess_and_merge_data(stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global, high_20d_map_global, low_20d_map_global)
+                # [代码修改开始]
+                # 注入5日窗口数据
+                seed_chip_raw_df = chip_service._preprocess_and_merge_data(
+                    stock_code, seed_chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
+                    high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
+                )
+                # [代码修改结束]
                 _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
                 all_failures.extend(seed_failures)
             else:
@@ -836,21 +845,17 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if fund_flow_raw_df.empty:
                 logger.warning(f"[{stock_code}] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 资金流原始数据为空，跳过。")
                 continue
-            # [代码移除开始]
-            # daily_vwap_series = await fund_flow_service._calculate_daily_vwap(stock_info, fund_flow_raw_df.index)
-            # [代码移除结束]
             fund_flow_service._minute_df_daily_grouped = await fund_flow_service._get_daily_grouped_minute_data(stock_info, fund_flow_raw_df.index)
-            # [代码修改开始]
             fund_flow_metrics_df, fund_flow_attributed_minute_map, ff_failures = fund_flow_service._synthesize_and_forge_metrics(stock_code, fund_flow_raw_df)
-            # [代码修改结束]
             all_failures.extend(ff_failures)
             chip_data_dfs = {
                 "cyq_chips": data_dfs["cyq_chips"], "daily_data": data_dfs["daily_data"],
                 "daily_basic": data_dfs["daily_basic"], "cyq_perf": data_dfs["cyq_perf"],
             }
+            # 注入5日窗口数据
             chip_raw_df = chip_service._preprocess_and_merge_data(
                 stock_code, chip_data_dfs, close_map_global, date_20d_ago_map_global, atr_map_global,
-                high_20d_map_global, low_20d_map_global
+                high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
             )
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
                 stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
@@ -885,7 +890,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
     except Exception as e:
         logger.error(f"--- CATCHING EXCEPTION in precompute_advanced_chips_for_stock (merged task) for {stock_code}: {e}", exc_info=True)
         raise
-    
+
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_all_stocks_advanced_metrics', queue='celery')
 def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_incremental: bool = True):
     """

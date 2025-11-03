@@ -119,9 +119,9 @@ class AdvancedChipMetricsService:
                 raise ValueError(f"[审计失败] 核心数据源 '{name}' 在日期范围 {start_date.date()} to {end_date.date()} 为空！")
         return data_dfs
 
-    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict) -> pd.DataFrame:
-        """【V2.7 · 动态战区注入版】新增对20日高低价区间的注入。"""
-        # 核心修改: 更新方法签名以接收20日高低点映射
+    def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict, high_5d_map: dict, low_5d_map: dict, turnover_vol_5d_map: dict) -> pd.DataFrame:
+        """【V3.0 · 5日窗口注入版】新增对5日高低价及成交量区间的注入。"""
+        # 核心修改: 更新方法签名以接收5日窗口数据映射
         cyq_chips_df = data_dfs['cyq_chips'].copy()
         daily_data_df = data_dfs['daily_data'].copy()
         daily_basic_df = data_dfs['daily_basic'].copy()
@@ -138,16 +138,19 @@ class AdvancedChipMetricsService:
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)
         merged_df['prev_20d_close'] = merged_df['prev_20d_trade_time'].map(close_map)
         merged_df['atr_14d'] = merged_df['trade_time'].map(atr_map)
-        # 核心新增: 将20日高低点映射到合并后的DataFrame中
         merged_df['high_20d'] = merged_df['trade_time'].map(high_20d_map)
         merged_df['low_20d'] = merged_df['trade_time'].map(low_20d_map)
+        # 核心新增: 将5日窗口数据映射到合并后的DataFrame中
+        merged_df['high_5d'] = merged_df['trade_time'].map(high_5d_map)
+        merged_df['low_5d'] = merged_df['trade_time'].map(low_5d_map)
+        merged_df['turnover_vol_5d'] = merged_df['trade_time'].map(turnover_vol_5d_map)
         merged_df.drop(columns=['prev_20d_trade_time'], inplace=True)
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
         """
-        【V2.3 · 健康分历史注入版】锻造基础指标，并为健康分计算注入历史数据。
-        - 核心升级: 接收并处理 `historical_components`，为健康分的动态百分位排名提供数据支持。
+        【V3.1 · 战场记忆增强版】
+        - 核心修复: 修正跨日记忆传递，确保 `prev_atr_14d` 被正确传递，修复 `dominant_cost_momentum` 计算。
         """
         stock_code = stock_info.stock_code
         all_metrics_list = []
@@ -156,21 +159,20 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
-        # 核心新增: 如果历史组件数据存在，则预处理以便快速查询
         hist_comp_dict = historical_components.to_dict('index') if historical_components is not None and not historical_components.empty else {}
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
             if chip_data_for_calc.empty:
                 reason = "当日源筹码分布(cyq_chips)数据缺失"
-                logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。这将导致下一交易日的跨日指标计算失败。")
+                logger.warning(f"[{stock_code}] [{trade_date.date()}] 预警：{reason}。")
                 failures_list.append({'stock_code': stock_code, 'trade_date': str(trade_date.date()), 'reason': reason})
                 prev_metrics = {
                     'concentration_90pct': None, 'winner_avg_cost': None, 'chip_distribution': chip_data_for_calc,
                     'close_price': context_data.get('close_qfq'), 'prev_20d_close': context_data.get('prev_20d_close'),
                     'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
                     'total_chip_volume': context_data.get('float_share', 0) * 10000, 'chip_fatigue_index': None,
-                    'recent_closes_queue': [],
+                    'recent_closes_queue': [], 'prev_dominant_peak_cost': None, 'atr_14d': None,
                 }
                 if is_first_day_in_batch: is_first_day_in_batch = False
                 continue
@@ -198,23 +200,26 @@ class AdvancedChipMetricsService:
                 'circ_mv': context_data.get('circ_mv'), 'is_first_day_in_batch': is_first_day_in_batch,
                 'high_20d': context_data.get('high_20d'), 'low_20d': context_data.get('low_20d'),
                 'atr_14d': context_data.get('atr_14d'),
+                'high_5d': context_data.get('high_5d'), 'low_5d': context_data.get('low_5d'),
+                'turnover_vol_5d': context_data.get('turnover_vol_5d'),
                 'prev_concentration_90pct': prev_metrics.get('concentration_90pct'),
                 'prev_winner_avg_cost': prev_metrics.get('winner_avg_cost'),
                 'prev_chip_distribution': prev_metrics.get('chip_distribution'),
+                'prev_dominant_peak_cost': prev_metrics.get('dominant_peak_cost'),
                 'prev_day_20d_ago_close': prev_metrics.get('prev_20d_close'),
                 'prev_high_20d': prev_metrics.get('high_20d'), 'prev_low_20d': prev_metrics.get('low_20d'),
                 'prev_total_chip_volume': prev_metrics.get('total_chip_volume'),
                 'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index'),
                 'recent_10d_closes': recent_closes_list,
+                # [代码新增开始]
+                # 注入昨日ATR，修复 `dominant_cost_momentum` 计算
+                'prev_atr_14d': prev_metrics.get('atr_14d'),
+                # [代码新增结束]
             })
-            # [代码新增开始]
-            # 核心新增: 将截至T-1日的所有历史组件数据注入上下文
             if hist_comp_dict:
-                # 筛选出所有早于当前计算日期的历史数据
                 historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
                 if historical_data_for_day:
                     context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
-            # [代码新增结束]
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
@@ -227,21 +232,22 @@ class AdvancedChipMetricsService:
                 daily_metrics['trade_time'] = trade_date
                 daily_metrics['prev_20d_close'] = context_data.get('prev_20d_close')
                 all_metrics_list.append(daily_metrics)
-                # [代码新增开始]
-                # 核心新增: 将当日计算出的新指标追加到历史数据中，供下一日使用
                 if 'historical_components' in context_for_calc:
                     today_metrics_for_hist = {k: [daily_metrics.get(k)] for k in context_for_calc['historical_components'].columns}
                     today_df = pd.DataFrame(today_metrics_for_hist, index=[trade_date])
                     hist_comp_dict.update(today_df.to_dict('index'))
-                # [代码新增结束]
+            # 增强跨日记忆，将当日ATR存入，供下一日使用
             prev_metrics = {
                 'concentration_90pct': daily_metrics.get('concentration_90pct') if daily_metrics else None,
                 'winner_avg_cost': daily_metrics.get('winner_avg_cost') if daily_metrics else None,
-                'chip_distribution': chip_data_for_calc, 'close_price': context_data.get('close_qfq'),
+                'chip_distribution': chip_data_for_calc,
+                'dominant_peak_cost': daily_metrics.get('dominant_peak_cost') if daily_metrics else None,
+                'close_price': context_data.get('close_qfq'),
                 'prev_20d_close': context_data.get('prev_20d_close'), 'high_20d': context_data.get('high_20d'),
                 'low_20d': context_data.get('low_20d'), 'total_chip_volume': total_chip_volume_today,
                 'chip_fatigue_index': daily_metrics.get('chip_fatigue_index') if daily_metrics else None,
                 'recent_closes_queue': recent_closes_list,
+                'atr_14d': context_data.get('atr_14d'), # 新增：保存当日ATR
             }
             if is_first_day_in_batch: is_first_day_in_batch = False
         if not all_metrics_list:

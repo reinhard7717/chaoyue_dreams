@@ -439,13 +439,11 @@ class AdvancedFundFlowMetrics_SH(BaseAdvancedFundFlowMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_fund_flow_metrics_sh'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引
             models.Index(fields=['main_force_price_impact_ratio']), # 新增旗舰索引：筛选主力控盘效率
             models.Index(fields=['mf_retail_battle_intensity']), # 新增旗舰索引：筛选多空博弈烈度
         ]
-        # [代码修改结束]
 
 class AdvancedFundFlowMetrics_SZ(BaseAdvancedFundFlowMetrics):
     stock = models.ForeignKey(
@@ -652,13 +650,11 @@ class AdvancedStructuralMetrics_SH(BaseAdvancedStructuralMetrics):
         verbose_name_plural = verbose_name
         db_table = 'stock_advanced_structural_metrics_sh'
         unique_together = ('stock', 'trade_time')
-        # [代码修改开始]
         indexes = [
             models.Index(fields=['stock', 'trade_time']), # 基石索引
             models.Index(fields=['intraday_energy_density']), # 新增旗舰索引：筛选市场活跃度
             models.Index(fields=['divergence_conviction_score']), # 新增旗舰索引：筛选潜在反转信号
         ]
-        # [代码修改结束]
 
 class AdvancedStructuralMetrics_SZ(BaseAdvancedStructuralMetrics):
     stock = models.ForeignKey(

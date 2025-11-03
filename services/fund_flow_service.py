@@ -285,7 +285,6 @@ class AdvancedFundFlowMetricsService:
                 battle_volume = min(abs(mf_flow), abs(retail_flow))
                 results['mf_retail_battle_intensity'] = np.sign(mf_flow) * (battle_volume / (turnover_amount_yuan / 10000)) * 100
         # --- 3. 主力动态 (Main Force Dynamics) ---
-        # [代码修改开始]
         # 使用 np.nansum 安全地求和，它会将 NaN 视作 0
         mf_buy = np.nansum([
             pd.to_numeric(daily_data_series.get('buy_lg_amount'), errors='coerce'),
@@ -295,7 +294,6 @@ class AdvancedFundFlowMetricsService:
             pd.to_numeric(daily_data_series.get('sell_lg_amount'), errors='coerce'),
             pd.to_numeric(daily_data_series.get('sell_elg_amount'), errors='coerce')
         ])
-        # [代码修改结束]
         mf_total_activity = mf_buy + mf_sell
         total_turnover_wan = turnover_amount_yuan / 10000
         if total_turnover_wan > 0:
@@ -306,11 +304,9 @@ class AdvancedFundFlowMetricsService:
                 results['main_force_flow_directionality'] = (mf_net_calibrated / mf_total_activity) * 100
         # --- 4. 交易结构动态 (Trade Structure Dynamics) ---
         def get_directionality(buy_c, sell_c):
-            # [代码修改开始]
             # 使用 np.nan_to_num 将 NaN 转换为 0
             b = np.nan_to_num(pd.to_numeric(daily_data_series.get(buy_c), errors='coerce'))
             s = np.nan_to_num(pd.to_numeric(daily_data_series.get(sell_c), errors='coerce'))
-            # [代码修改结束]
             return (b - s) / (b + s) if (b + s) > 0 else 0.0
         xl_directionality = get_directionality('buy_elg_amount', 'sell_elg_amount')
         lg_directionality = get_directionality('buy_lg_amount', 'sell_lg_amount')
@@ -495,14 +491,12 @@ class AdvancedFundFlowMetricsService:
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
         # 为加速度定义一个独立的、符合数学定义的短窗口
         ACCEL_WINDOW = 2
-        # [代码修改开始]
         # 根据精简后的模型定义，更新需要计算累计值的列
         sum_cols = [
             'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
             'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
             'net_sh_amount_calibrated', 'main_force_on_peak_flow',
         ]
-        # [代码修改结束]
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for p in UNIFIED_PERIODS:
             if p <= 1: continue
@@ -661,7 +655,6 @@ class AdvancedFundFlowMetricsService:
         # --- 4. CMF博弈矩阵 ---
         if 'minute_vwap' in minute_data.columns:
             df_cmf = minute_data.copy()
-            # [代码修改开始]
             # 修复 `ValueError: cannot reindex on an axis with duplicate labels` 的错误
             # 步骤1: 将列转换为数值类型，无效值变为NaN
             cols_to_process = ['high', 'low', 'minute_vwap']
@@ -669,7 +662,6 @@ class AdvancedFundFlowMetricsService:
                 df_cmf[col] = pd.to_numeric(df_cmf[col], errors='coerce')
             # 步骤2: 原地删除在这些关键列上包含NaN的行
             df_cmf.dropna(subset=cols_to_process, inplace=True)
-            # [代码修改结束]
             if not df_cmf.empty:
                 price_range_cmf = df_cmf['high'] - df_cmf['low']
                 mfm = ((df_cmf['minute_vwap'] - df_cmf['low']) - (df_cmf['high'] - df_cmf['minute_vwap'])) / price_range_cmf.replace(0, np.nan)
