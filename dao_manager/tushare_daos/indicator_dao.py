@@ -125,15 +125,8 @@ class IndicatorDAO(BaseDAO):
 
     async def get_history_ohlcv_df(self, stock_code: str, time_level: Union[TimeLevel, str], limit: int = 1000, trade_time: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
-        【V118.10 DAO层终极修复版】
-        - 核心修复: 修正了当 trade_time 为 None 或空字符串时，时间过滤器不生效的致命缺陷。
-        - 新逻辑:
-          1.  如果 trade_time 有效，则应用 lte (小于等于) 过滤器，用于历史回溯。
-          2.  如果 trade_time 无效（None或空字符串），则不应用任何时间过滤器，
-              结合 order_by('-trade_time')[:limit] 来获取最新的N条数据。
-        - 收益: 确保了无论是否提供截止时间，DAO层都能正确、高效地返回所需的数据，
-                彻底解决了“阿尔法猎手”全量数据获取失败的根本问题。
-        - 关键统一分钟线模型选择逻辑，并确保返回的DataFrame已完全标准化。
+        【V118.11 模型字段适配修复版】
+        - 核心修复: 重构字段选择逻辑，为日线、周/月线、分钟线分别指定正确的查询字段列表，根除因分钟线模型缺少'pre_close'字段而导致的 FieldError 异常。
         """
         time_level_str = time_level.value if isinstance(time_level, TimeLevel) else str(time_level).lower()
         stock = await self.stock_basic_dao.get_stock_by_code(stock_code)
@@ -142,65 +135,57 @@ class IndicatorDAO(BaseDAO):
             return None
         try:
             ModelClass: Optional[Type[models.Model]] = None
-            # 使用 model_helpers 中的辅助函数
             if time_level_str == "d":
                 ModelClass = get_daily_data_model_by_code(stock_code)
             elif time_level_str == "w": ModelClass = StockWeeklyData
             elif time_level_str == "m": ModelClass = StockMonthlyData
-            else: # 分钟线模型选择
+            else:
                 ModelClass = get_minute_data_model_by_code_and_timelevel(stock_code, time_level_str)
-
             if not ModelClass:
                 logger.error(f"未能为 {stock_code} 在时间级别 {time_level_str} 找到对应的数据库模型。")
                 return None
-            
             model_name = ModelClass._meta.db_table
             qs = ModelClass.objects.filter(stock=stock)
-            if trade_time: # 只有当 trade_time 真实存在时，才添加时间过滤
+            if trade_time:
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            
-            # 统一字段名，确保分钟线数据也使用 'open', 'high', 'low', 'close', 'volume'
-            # 并且对于分钟线，字段名就是 open, high, low, close
+            # [代码修改开始]
+            # 修复：为不同时间级别的数据模型定义精确的字段列表
             if time_level_str == "d":
                 fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq', 'vol', 'amount']
                 rename_map = {'open_qfq': 'open', 'high_qfq': 'high', 'low_qfq': 'low', 'close_qfq': 'close', 'pre_close_qfq': 'pre_close', 'vol': 'volume'}
-            else: # W, M, and minute levels
+            elif time_level_str in ["w", "m"]:
+                # 周线和月线模型包含 pre_close 字段
                 fields = ['trade_time', 'open', 'high', 'low', 'close', 'pre_close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
-
+            else:
+                # 分钟线模型不包含 pre_close 字段
+                fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
+                rename_map = {'vol': 'volume'}
+            # [代码修改结束]
             limited_qs = qs.order_by('-trade_time')[:limit]
-            
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
-            
             if not data_values:
                 logger.warning(f"数据库未返回任何数据 for {stock_code} {time_level_str} from table {model_name}")
                 return None
-            
             df = pd.DataFrame.from_records(data_values)
-            df = df.iloc[::-1].reset_index(drop=True) # 确保时间升序
+            df = df.iloc[::-1].reset_index(drop=True)
             df.rename(columns=rename_map, inplace=True)
-            
             if 'trade_time' not in df.columns:
                 logger.error(f"查询结果缺少 'trade_time' 列: {stock_code} {time_level_str}")
                 return None
-            
-            # DAO 应该返回一个完全准备好的 DataFrame，包括正确的 DatetimeIndex
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True, errors='coerce')
             df.dropna(subset=['trade_time'], inplace=True)
             df.set_index('trade_time', inplace=True)
-            
             if df.empty:
                 logger.warning(f"处理时间索引后 DataFrame 为空: {stock_code} {time_level_str}")
                 return None
-            
             required_cols = ['open', 'high', 'low', 'close', 'volume']
             if not all(col in df.columns for col in required_cols):
                 missing = [col for col in required_cols if col not in df.columns]
                 logger.error(f"DataFrame 缺少必要列: {missing}, 实际列: {df.columns.tolist()}")
                 return None
-            
             return df
         except Exception as e:
             logger.error(f"从数据库获取并转换 {stock_code} {time_level_str} 数据失败: {e}", exc_info=True)
