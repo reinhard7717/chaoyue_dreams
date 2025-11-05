@@ -1120,17 +1120,29 @@ class IndicatorCalculator:
 
     async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
-        【V1.0 · 新增】计算日内VWAP偏离度积分指数。
+        【V1.1 · VWAP自计算修复版】计算日内VWAP偏离度积分指数。
+        - 核心修复: 在方法内部增加VWAP的计算逻辑，使其不再依赖外部传入已计算好的'vwap'列。
         - 指标含义: 将分钟线的收盘价与VWAP的偏离度在日内累加，反映全天多空力量的真实对比。
         """
-        required_cols = ['close', 'vwap']
+        # [代码修改开始]
+        required_cols = ['close', 'amount', 'volume']
         if df_minute is None or df_minute.empty or not all(c in df_minute.columns for c in required_cols):
-            logger.warning("计算日内VWAP偏离指数失败：分钟数据缺少 'close' 或 'vwap' 列。")
+            logger.warning("计算日内VWAP偏离指数失败：分钟数据缺少 'close', 'amount' 或 'volume' 列。")
             return None
         try:
             def _sync_calc():
+                df = df_minute.copy()
+                # 核心修复：如果 'vwap' 列不存在，则动态计算
+                if 'vwap' not in df.columns:
+                    # 确保 amount 和 volume 是数值类型
+                    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+                    df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+                    # 计算VWAP，处理成交量为0的情况
+                    df['vwap'] = df['amount'] / df['volume'].replace(0, np.nan)
+                    # 使用前一个有效值填充VWAP的NaN值，以处理无成交的分钟
+                    df['vwap'].fillna(method='ffill', inplace=True)
                 # 1. 计算每分钟的VWAP偏离度
-                vwap_deviation = (df_minute['close'] - df_minute['vwap']) / df_minute['vwap'].replace(0, np.nan)
+                vwap_deviation = (df['close'] - df['vwap']) / df['vwap'].replace(0, np.nan)
                 # 2. 按天重采样，并对日内偏离度进行求和（积分）
                 daily_integral = vwap_deviation.resample('D').sum()
                 # 3. 构建并返回结果
@@ -1140,6 +1152,7 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
+        # [代码修改结束]
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
