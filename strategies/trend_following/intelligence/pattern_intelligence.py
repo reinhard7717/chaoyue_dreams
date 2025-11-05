@@ -86,27 +86,41 @@ class PatternIntelligence:
 
     def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 超级原子信号版】形态公理二：诊断“反转”
+        【V2.1 · 探针植入版】形态公理二：诊断“反转”
         - 核心升级: 废弃对RSI/MACD的间接推断，直接使用“对手盘衰竭指数”
                       (`counterparty_exhaustion_index_D`)作为核心判断依据。
-                      正分代表卖方衰竭（看涨反转），负分代表买方衰竭（看跌反转）。
+        - 调试升级: 植入探针，检查原始输入信号的数据质量。
         """
         print("    -- [形态公理二: 反转] 正在使用 '对手盘衰竭指数' 进行诊断...")
+        # [代码修改开始]
         # 直接获取衡量对手盘是否力竭的超级原子信号
         raw_reversal_score = df.get('counterparty_exhaustion_index_D', pd.Series(0, index=df.index))
+        
+        # --- [探针] ---
+        print("        [探针-反转公理] 检查 'counterparty_exhaustion_index_D' 数据:")
+        if 'counterparty_exhaustion_index_D' in df.columns and not df['counterparty_exhaustion_index_D'].isnull().all():
+            print(f"        -> 数据存在且不全为NaN。最后5个值:\n{df['counterparty_exhaustion_index_D'].iloc[-5:].to_string()}")
+            # 使用.describe()提供更全面的统计信息，并用.to_string()保证格式
+            print(f"        -> 统计信息:\n{df['counterparty_exhaustion_index_D'].describe().to_string()}")
+        else:
+            print("        -> 数据不存在或全为NaN/0，使用默认值0。")
+        # --- [探针结束] ---
         
         # 使用双极归一化进行最终裁决，使其与其他公理分值范围对齐
         reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
         print(f"    -- [形态公理二: 反转] 诊断完成，最新分值: {reversal_score.iloc[-1]:.4f}")
         return reversal_score.astype(np.float32)
+        # [代码修改结束]
 
     def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.0 · 超级原子信号版】形态公理三：诊断“突破”
+        【V2.1 · 探针植入版】形态公理三：诊断“突破”
         - 核心升级: 废弃对BBW等能量指标的间接推断，直接使用经过“质量审查”的
                       “突破质量分”(`breakout_quality_score_D`)作为核心判断依据。
+        - 调试升级: 植入探针，检查突破方向、突破质量分和最终原始分。
         """
         print("    -- [形态公理三: 突破] 正在使用 '突破质量分' 进行诊断...")
+        # [代码修改开始]
         # 1. 突破方向判断 (逻辑保留)
         is_breakout_up = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
         is_breakout_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
@@ -115,11 +129,26 @@ class PatternIntelligence:
         # 2. 获取突破质量分 (新的超级原子信号)
         breakout_quality = df.get('breakout_quality_score_D', pd.Series(0, index=df.index))
 
+        # --- [探针] ---
+        print("        [探针-突破公理] 检查中间变量:")
+        print(f"        -> 最后5个突破方向(breakout_direction):\n{breakout_direction.iloc[-5:].to_string()}")
+        if 'breakout_quality_score_D' in df.columns and not df['breakout_quality_score_D'].isnull().all():
+            print(f"        -> 'breakout_quality_score_D' 数据存在。最后5个值:\n{breakout_quality.iloc[-5:].to_string()}")
+            print(f"        -> 突破质量分统计信息:\n{breakout_quality.describe().to_string()}")
+        else:
+            print("        -> 'breakout_quality_score_D' 数据不存在或全为NaN/0。")
+        # --- [探针结束] ---
+
         # 3. 融合：突破方向 * 突破质量
-        # 只有当突破发生时(direction非0)，质量分才起作用
         raw_breakout_score = breakout_direction * breakout_quality
+        
+        # --- [探针] ---
+        print(f"        [探针-突破公理] 检查融合后的原始分:")
+        print(f"        -> 最后5个原始突破分(raw_breakout_score):\n{raw_breakout_score.iloc[-5:].to_string()}")
+        # --- [探针结束] ---
         
         # 使用双极归一化进行最终裁决
         breakout_score = normalize_to_bipolar(raw_breakout_score, df.index, window=norm_window)
         print(f"    -- [形态公理三: 突破] 诊断完成，最新分值: {breakout_score.iloc[-1]:.4f}")
         return breakout_score.astype(np.float32)
+        # [代码修改结束]
