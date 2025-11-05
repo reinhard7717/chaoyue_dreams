@@ -535,7 +535,6 @@ class IndicatorService:
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
         
-        # [代码修改开始]
         # 无条件加载高级筹码指标，因为它们是许多高级分析的基础
         async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
@@ -582,7 +581,6 @@ class IndicatorService:
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, limit)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged(stock_code, trade_time, base_needed_bars))
-        # [代码修改结束]
 
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
@@ -780,7 +778,6 @@ class IndicatorService:
         df_for_calc = df.copy()
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
-        # [代码修改开始]
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
@@ -793,14 +790,12 @@ class IndicatorService:
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
             'breakout_quality_score': self.calculator.calculate_breakout_quality_score, # 新增：突破质量分方法映射
         }
-        # [代码修改结束]
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
             if isinstance(result_data, pd.Series): result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # [代码修改开始]
         # 增加 'breakout_quality_score' 到有序计算列表，确保其在依赖项之后计算
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
@@ -808,7 +803,6 @@ class IndicatorService:
             'fibonacci_levels',
             'breakout_quality_score' # 新增：加入计算序列
         ]
-        # [代码修改结束]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue

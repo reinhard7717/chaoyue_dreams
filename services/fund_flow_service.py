@@ -976,7 +976,6 @@ class AdvancedFundFlowMetricsService:
         【V2.2 · 索引修复版】从数据库加载并净化历史高级资金流指标。
         - 核心修复: 修正 set_index 的用法，确保 trade_time 列在成为索引后被正确移除。
         """
-        # [代码修改开始]
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
@@ -994,7 +993,6 @@ class AdvancedFundFlowMetricsService:
             for col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-        # [代码修改结束]
 
 
 

@@ -384,19 +384,28 @@ class CognitiveIntelligence:
         return {'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD': posterior_prob.astype(np.float32)}
 
     def _deduce_energy_compression_breakout(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """【V1.1 · 斐波那契周期版】贝叶斯推演：“能量压缩爆发”剧本"""
+        """
+        【V1.2 · 元特征增强版】贝叶斯推演：“能量压缩爆发”剧本
+        - 核心升级: 引入样本熵(SAMPLE_ENTROPY)作为核心证据。真正的能量压缩，其物理本质是市场进入了高度有序、可预测的状态（低熵）。
+        """
         print("    -- [剧本推演] 能量压缩爆发...")
         # --- 1. 收集证据 ---
-        # 证据1: 波动率被压缩到极致 (周期从120修正为144)
+        # 证据1: 波动率被压缩到极致
         bbw = self._get_atomic_score('BBW_21_2.0_D', 0.1)
         volatility_compression = 1 - normalize_score(bbw, self.strategy.df_indicators.index, 144)
-        # 证据2: 成交量极度萎缩 (周期从120修正为144)
+        # 证据2: 成交量极度萎缩
         volume_atrophy = 1 - normalize_score(self._get_atomic_score('volume_D'), self.strategy.df_indicators.index, 144)
-        # 证据3: 筹码高度锁定
-        chip_lockdown = self._get_atomic_score('SCORE_CHIP_LOCKDOWN_DEGREE', 0.0)
+        # 证据3 (新增): 市场进入低熵有序状态
+        entropy_col = next((col for col in self.strategy.df_indicators.columns if col.startswith('SAMPLE_ENTROPY_')), None)
+        if entropy_col:
+            entropy = self._get_atomic_score(entropy_col, 1.0)
+            # 熵越低，分数越高
+            orderliness_score = 1 - normalize_score(entropy, self.strategy.df_indicators.index, 144)
+        else:
+            orderliness_score = pd.Series(0.5, index=self.strategy.df_indicators.index)
         # --- 2. 计算似然度 ---
-        evidence_scores = np.stack([volatility_compression.values, volume_atrophy.values, chip_lockdown.values], axis=0)
-        evidence_weights = np.array([0.4, 0.3, 0.3])
+        evidence_scores = np.stack([volatility_compression.values, volume_atrophy.values, orderliness_score.values], axis=0)
+        evidence_weights = np.array([0.3, 0.3, 0.4]) # 提升有序性证据的权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)

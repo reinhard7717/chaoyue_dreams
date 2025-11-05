@@ -300,7 +300,6 @@ class AdvancedChipMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """从数据库加载历史高级筹码指标。"""
-        # [代码修改开始]
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
@@ -316,7 +315,6 @@ class AdvancedChipMetricsService:
                 # 此处的 if col != 'trade_time' 检查现在是多余但无害的
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
-        # [代码修改结束]
 
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V2.2 · 导数定律统一版】修正加速度计算窗口，与资金流服务保持一致。"""

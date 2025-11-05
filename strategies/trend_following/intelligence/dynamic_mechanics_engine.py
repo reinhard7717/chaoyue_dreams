@@ -71,31 +71,53 @@ class DynamicMechanicsEngine:
         return momentum_score.astype(np.float32)
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V2.0 · 双极性重构版】力学公理二：诊断“惯性”"""
+        """
+        【V2.1 · 元特征增强版】力学公理二：诊断“惯性”
+        - 核心升级: 引入分形维度(FRACTAL_DIMENSION)作为新证据。一个真正的惯性趋势，不仅需要序列记忆(Hurst)，其路径也必须是相对平滑的（低分形维度）。
+        """
         # 证据1: ADX (趋势强度)
         adx_strength = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         # 证据2: PDI vs NDI (趋势方向)
         adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float) * 2 - 1 # 映射到 [-1, 1]
         # 证据3: Hurst指数 (序列记忆性)
-        hurst = df.get('hurst_120d_D', pd.Series(0.5, index=df.index)).fillna(0.5)
+        hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
+        hurst = df.get(hurst_col, pd.Series(0.5, index=df.index)).fillna(0.5)
         hurst_bipolar = (hurst - 0.5) * 2 # 映射到 [-1, 1]
-        # 构造一个融合了强度、方向、记忆性的原始双极性序列
-        raw_bipolar_series = adx_strength * adx_direction * hurst_bipolar
+        # 证据4 (新增): 分形维度 (路径平滑度) - 分形维度越低，路径越平滑，趋势性越强
+        fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), None)
+        if fractal_col:
+            # 分形维度通常在[1, 2]之间，我们希望它越接近1越好，因此用 (2 - D)
+            fractal_dim = df.get(fractal_col, pd.Series(1.5, index=df.index)).fillna(1.5)
+            fractal_smoothness = normalize_score(2.0 - fractal_dim, df.index, norm_window)
+        else:
+            fractal_smoothness = pd.Series(0.5, index=df.index)
+        # 融合: 强度 * 方向 * 记忆性 * 平滑度
+        raw_bipolar_series = adx_strength * adx_direction * hurst_bipolar * fractal_smoothness
         # 使用双极归一化引擎进行最终裁决
         inertia_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
         return inertia_score.astype(np.float32)
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V2.0 · 双极性重构版】力学公理三：诊断“稳定性” (低波动性)"""
-        # 构造一个原始波动率序列，值越大波动越剧烈
+        """
+        【V2.1 · 元特征增强版】力学公理三：诊断“稳定性”
+        - 核心升级: 引入波动率的不稳定性(VOLATILITY_INSTABILITY_INDEX)作为新证据。一个真正稳定的结构，不仅波动率要低，波动率本身也不能剧烈变化。
+        """
+        # 证据1: 波动率大小 (越小越好)
         bbw = df.get('BBW_21_2.0_D', pd.Series(0.0, index=df.index))
         atr_pct = df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / df['close_D']
         raw_volatility = bbw + atr_pct
-        # 构造一个原始双极性序列，我们希望波动率越低越好，因此取其负值
-        # 这样，低波动 -> 正输入 -> 正双极分；高波动 -> 负输入 -> 负双极分
-        raw_bipolar_series = -raw_volatility
-        # 使用双极归一化引擎进行最终裁决
-        stability_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
+        volatility_level_score = 1 - normalize_score(raw_volatility, df.index, norm_window)
+        # 证据2 (新增): 波动率的稳定性 (波动率的波动率，越小越好)
+        vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), None)
+        if vol_instability_col:
+            vol_of_vol = df.get(vol_instability_col, pd.Series(0.0, index=df.index))
+            volatility_stability_score = 1 - normalize_score(vol_of_vol, df.index, norm_window)
+        else:
+            volatility_stability_score = pd.Series(0.5, index=df.index)
+        # 融合两大证据
+        raw_stability_score = (volatility_level_score * volatility_stability_score).pow(0.5)
+        # 转换为双极性分数：高稳定性为正，低稳定性为负
+        stability_score = (raw_stability_score * 2 - 1).clip(-1, 1)
         return stability_score.astype(np.float32)
 
     def _diagnose_axiom_energy(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

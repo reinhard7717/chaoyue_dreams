@@ -1124,7 +1124,6 @@ class IndicatorCalculator:
         - 核心修复: 动态查找以 'close', 'amount', 'volume' 开头的列名，以适配上游服务可能添加的时间周期后缀（如 'close_60'）。
         - 核心修复: 在方法内部增加VWAP的计算逻辑，使其不再依赖外部传入已计算好的'vwap'列。
         """
-        # [代码修改开始]
         if df_minute is None or df_minute.empty:
             logger.warning("计算日内VWAP偏离指数失败：输入的分钟数据DataFrame为空。")
             return None
@@ -1161,7 +1160,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
             return None
-        # [代码修改结束]
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
@@ -1169,7 +1167,6 @@ class IndicatorCalculator:
         - 核心修复: 动态查找以 'high', 'low', 'close', 'open', 'volume' 开头的列名，以适配上游服务可能添加的时间周期后缀。
         - 指标含义: 通过分析买卖效率，判断趋势推动方是否“油尽灯枯”。
         """
-        # [代码修改开始]
         if df_minute is None or df_minute.empty:
             logger.warning("计算对手盘衰竭指数失败：输入的分钟数据DataFrame为空。")
             return None
@@ -1208,7 +1205,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数时发生错误: {e}", exc_info=True)
             return None
-        # [代码修改结束]
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
@@ -1216,7 +1212,6 @@ class IndicatorCalculator:
         - 核心修复: 移除所有对 '_D' 后缀的硬编码依赖，改为动态构建无后缀的列名进行计算，使其成为一个纯粹的计算函数。
         - 指标含义: 对每日的K线进行“突破潜力”的质量审查，为形态突破公理提供依据。
         """
-        # [代码修改开始]
         if df_daily is None or df_daily.empty:
             logger.warning("计算突破质量分失败：输入的日线数据DataFrame为空。")
             return None
@@ -1256,7 +1251,6 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算突破质量分时发生错误: {e}", exc_info=True)
             return None
-        # [代码修改结束]
 
 
 

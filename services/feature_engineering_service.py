@@ -149,7 +149,6 @@ class FeatureEngineeringService:
           - SAMPLE_ENTROPY: 市场可预测性，衡量价格序列的“信息熵”，值越低越有序。
           - VOLATILITY_INSTABILITY_INDEX: 波动率稳定性，衡量波动率自身的波动，是状态切换的前兆。
         """
-        # [代码修改开始]
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
@@ -257,7 +256,6 @@ class FeatureEngineeringService:
 
         all_dfs[timeframe] = df
         return all_dfs
-        # [代码修改结束]
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
@@ -267,7 +265,6 @@ class FeatureEngineeringService:
                       将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
         - 逻辑强化: 细化了盘整、吸筹、突破、派发等模式的判断条件，引入更多高级筹码、资金流和VPA效率指标进行多因子共振确认。
         """
-        # [代码修改开始]
         timeframe = 'D' # 模式识别的核心战场在日线
         if timeframe not in all_dfs:
             return all_dfs
@@ -369,14 +366,12 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         logger.info("高级模式识别引擎(V3.2 势能分析集成与逻辑强化版)分析完成。")
         return all_dfs
-        # [代码修改结束]
 
     async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
         【V2.1 · 均线势能命名优化版】均线系统势能分析引擎
         - 核心优化: 确保输出的均线势能指标列名具有明确的前缀，避免出现 'None_' 导致的数据引用问题。
         """
-        # [代码修改开始]
         if not params.get('enabled', False):
             return all_dfs
         
@@ -450,7 +445,6 @@ class FeatureEngineeringService:
                     logger.error(f"计算均线系统势能时发生错误({output_prefix}_{timeframe}): {e}", exc_info=True)
 
         return all_dfs
-        # [代码修改结束]
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
@@ -521,7 +515,6 @@ class FeatureEngineeringService:
         - 核心修复: 移除了对 breakout_quality_score 的计算调用。该指标的计算已归位到 IndicatorService 的主流程中，以解决列名后缀不匹配的问题。
         - 核心职责: 根据配置，调用计算器中新增的、依赖分钟数据的“超级原子信号”算法，并将其集成到日线数据中。
         """
-        # [代码修改开始]
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
         if not params.get('enabled', False):
             return all_dfs
@@ -555,7 +548,6 @@ class FeatureEngineeringService:
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
-        # [代码修改结束]
 
 
 
