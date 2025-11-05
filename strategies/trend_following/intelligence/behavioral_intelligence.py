@@ -204,97 +204,63 @@ class BehavioralIntelligence:
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V3.0 · 共振健康度三体模型版】信号动态计算引擎
-        - 核心错误修复: 解决了 'RESONANCE_HEALTH_D' 不存在的 KeyError。
-        - 核心逻辑重构: 废弃旧的、未实现的健康度概念，引入基于“内在动能”、“内部一致性”、“环境适应性”三大支柱的全新 RESONANCE_HEALTH_D 计算模型。
-        - 新增信号:
-          - RESONANCE_HEALTH_D: [0, 1] 的健康度分数，评估共振信号的质量与可持续性。
-          - RESONANCE_OPPORTUNITY_D: [0, 1] 的机会分，由“看涨共振分 * 健康度”得出，代表高质量的看涨机会。
-          - RESONANCE_RISK_D: [0, 1] 的风险分，由“看跌共振分 * (1-健康度)”得出，代表高质量的看跌风险。
+        【V4.0 · 职责重塑版】信号动态计算引擎
+        - 核心错误修复: 彻底剥离了对其他情报层终极共振信号的依赖，解决了因执行时序错乱导致的信号获取失败问题。
+        - 核心逻辑重构: 遵循“职责分离”原则，本方法现在只聚焦于为【本模块生产的】纯粹行为原子信号注入动态因子（动量、潜力、推力）。
+                        不再计算跨领域的 RESONANCE_HEALTH_D 等信号。
         """
         # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_dyn = get_param_value(p_conf.get('signal_dynamics_params'), {})
         momentum_span = get_param_value(p_dyn.get('momentum_span'), 5)
         potential_window = get_param_value(p_dyn.get('potential_window'), 120)
-
-        # --- 步骤一: 计算基础的看涨/看跌共振分 ---
-        bullish_sources = [
-            self._get_atomic_score(df, 'SCORE_FOUNDATION_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_STRUCTURE_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_CHIP_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_FF_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_DYN_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_MICRO_BULLISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_PATTERN_BULLISH_RESONANCE')
-        ]
-        bearish_sources = [
-            self._get_atomic_score(df, 'SCORE_FOUNDATION_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_STRUCTURE_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_CHIP_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_FF_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_DYN_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_MICRO_BEARISH_RESONANCE'),
-            self._get_atomic_score(df, 'SCORE_PATTERN_BEARISH_RESONANCE')
-        ]
         
-        # 使用几何平均法融合，要求所有领域都不能太差
-        safe_bullish_scores = np.maximum(np.stack([s.values for s in bullish_sources]), 1e-9)
-        resonance_bullish = pd.Series(np.exp(np.mean(np.log(safe_bullish_scores), axis=0)), index=df.index)
-        
-        safe_bearish_scores = np.maximum(np.stack([s.values for s in bearish_sources]), 1e-9)
-        resonance_bearish = pd.Series(np.exp(np.mean(np.log(safe_bearish_scores), axis=0)), index=df.index)
-
         dynamics_df = pd.DataFrame(index=df.index)
-        dynamics_df['RESONANCE_BULLISH_D'] = resonance_bullish.astype(np.float32)
-        dynamics_df['RESONANCE_BEARISH_D'] = resonance_bearish.astype(np.float32)
 
-        # --- 步骤二: 计算共振健康度 (RESONANCE_HEALTH_D) ---
-        
-        # 支柱一: 内在动能 (Intrinsic Dynamics)
-        velocity = resonance_bullish.diff(momentum_span).fillna(0)
-        acceleration = velocity.diff(1).fillna(0)
-        norm_velocity = normalize_score(velocity, df.index, potential_window)
-        norm_acceleration = normalize_score(acceleration, df.index, potential_window)
-        intrinsic_dynamics_score = (norm_velocity * 0.4 + norm_acceleration * 0.6).clip(0, 1)
+        # 定义需要计算动态因子的本模块原子信号列表
+        # 这些信号必须是由 _diagnose_behavioral_axioms 产出的
+        atomic_signals_to_enhance = [
+            'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
+            'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
+            'SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION',
+            'SCORE_BEHAVIOR_VOLUME_BURST',
+            'SCORE_BEHAVIOR_VOLUME_APATHY',
+            'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
+            'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
+            'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
+            'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
+            'SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE',
+            'SCORE_OPPORTUNITY_LOCKUP_RALLY',
+            'SCORE_OPPORTUNITY_SELLING_EXHAUSTION',
+            'SCORE_RISK_STAGNATION',
+            'SCORE_RISK_LIQUIDITY_DRAIN'
+        ]
 
-        # 支柱二: 内部一致性 (Internal Cohesion)
-        # 计算所有看涨源信号的滚动标准差，标准差越小，一致性越高
-        bullish_sources_df = pd.concat(bullish_sources, axis=1)
-        rolling_std = bullish_sources_df.rolling(window=momentum_span, axis=0).std().mean(axis=1)
-        # 归一化后取反，得到一致性分数
-        internal_cohesion_score = (1 - normalize_score(rolling_std, df.index, potential_window)).clip(0, 1)
+        print("  -> 正在为以下行为原子信号计算动态因子:")
+        for signal_name in atomic_signals_to_enhance:
+            if signal_name in self.strategy.atomic_states:
+                print(f"     - {signal_name}")
+                signal_series = self.strategy.atomic_states[signal_name]
+                
+                # 计算动量 (Momentum)
+                momentum = signal_series.diff(momentum_span).fillna(0)
+                norm_momentum = normalize_score(momentum, df.index, potential_window)
+                dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum.astype(np.float32)
 
-        # 支柱三: 环境适应性 (Environmental Adaptability)
-        fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), None)
-        entropy_col = next((col for col in df.columns if col.startswith('SAMPLE_ENTROPY_')), None)
-        vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), None)
-        
-        complexity_score = normalize_score(df[fractal_col], df.index, potential_window, ascending=False) if fractal_col else pd.Series(0.5, index=df.index)
-        predictability_score = normalize_score(df[entropy_col], df.index, potential_window, ascending=False) if entropy_col else pd.Series(0.5, index=df.index)
-        stability_score = normalize_score(df[vol_instability_col], df.index, potential_window, ascending=False) if vol_instability_col else pd.Series(0.5, index=df.index)
-        environmental_support_score = (complexity_score * predictability_score * stability_score).pow(1/3).clip(0, 1)
+                # 计算潜力 (Potential) - 长期变化趋势
+                potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series)
+                norm_potential = normalize_score(potential, df.index, potential_window)
+                dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential.astype(np.float32)
 
-        # 融合三体模型，得到最终健康度
-        health_weights = {'dynamics': 0.5, 'cohesion': 0.3, 'environment': 0.2}
-        resonance_health = (
-            intrinsic_dynamics_score * health_weights['dynamics'] +
-            internal_cohesion_score * health_weights['cohesion'] +
-            environmental_support_score * health_weights['environment']
-        ).fillna(0.5).clip(0, 1)
-        
-        dynamics_df['RESONANCE_HEALTH_D'] = resonance_health.astype(np.float32)
+                # 计算推力 (Thrust) - 短期变化加速度
+                thrust = momentum.diff(1).fillna(0)
+                norm_thrust = normalize_score(thrust, df.index, potential_window)
+                dynamics_df[f'THRUST_{signal_name}'] = norm_thrust.astype(np.float32)
+            else:
+                print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
 
-        # --- 步骤三: 计算最终的机会与风险信号 ---
-        # 机会 = 看涨共振 * 健康度
-        dynamics_df['RESONANCE_OPPORTUNITY_D'] = (dynamics_df['RESONANCE_BULLISH_D'] * dynamics_df['RESONANCE_HEALTH_D']).astype(np.float32)
-        # 风险 = 看跌共振 (健康度在这里可以理解为风险确认度，暂不引入反向健康度，保持模型简洁)
-        dynamics_df['RESONANCE_RISK_D'] = dynamics_df['RESONANCE_BEARISH_D'].astype(np.float32)
-
-        # --- 步骤四: 合并DataFrame ---
-        # 确保只合并新计算出的、且真实存在的列，避免KeyError
-        new_cols = ['RESONANCE_OPPORTUNITY_D', 'RESONANCE_RISK_D', 'RESONANCE_HEALTH_D', 'RESONANCE_BULLISH_D']
-        final_df = pd.concat([df, dynamics_df[new_cols]], axis=1)
+        # 将新计算的动态因子合并到主DataFrame中
+        final_df = pd.concat([df, dynamics_df], axis=1)
         
         return final_df
         # [代码修改结束]
