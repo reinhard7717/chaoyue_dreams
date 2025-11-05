@@ -1210,24 +1210,41 @@ class IndicatorCalculator:
             return None
         # [代码修改结束]
 
-    async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, volume_ma_period: int, volume_multiplier: float, weights: dict) -> Optional[pd.DataFrame]:
+    async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.0 · 新增】计算突破质量分。
+        【V1.1 · 职责重置修复版】计算突破质量分。
+        - 核心修复: 移除所有对 '_D' 后缀的硬编码依赖，改为动态构建无后缀的列名进行计算，使其成为一个纯粹的计算函数。
         - 指标含义: 对每日的K线进行“突破潜力”的质量审查，为形态突破公理提供依据。
         """
-        required_cols = ['volume_D', f'VOL_MA_{volume_ma_period}_D', 'main_force_net_flow_consensus_D', 'concentration_90pct_D']
-        if df_daily is None or df_daily.empty or not all(c in df_daily.columns for c in required_cols):
-            logger.warning(f"计算突破质量分失败：日线数据缺少必要列 {required_cols}。")
+        # [代码修改开始]
+        if df_daily is None or df_daily.empty:
+            logger.warning("计算突破质量分失败：输入的日线数据DataFrame为空。")
             return None
         try:
             def _sync_calc():
                 df = df_daily.copy()
+                # 从参数中动态获取配置
+                volume_ma_period = params.get('volume_ma_period', 21)
+                volume_multiplier = params.get('volume_multiplier', 1.5)
+                weights = params.get('weights', {'volume': 0.4, 'main_force_flow': 0.4, 'chip_concentration': 0.2})
+                # 动态构建无后缀的列名
+                required_cols = [
+                    'volume',
+                    f'VOL_MA_{volume_ma_period}',
+                    'main_force_net_flow_consensus',
+                    'concentration_90pct'
+                ]
+                # 检查所需列是否存在
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                if missing_cols:
+                    logger.warning(f"计算突破质量分失败：日线数据缺少必要列 {missing_cols}。可用列: {df.columns.tolist()}")
+                    return None
                 # 证据1: 成交量确认
-                volume_confirm = (df['volume_D'] > df[f'VOL_MA_{volume_ma_period}_D'] * volume_multiplier).astype(float)
+                volume_confirm = (df['volume'] > df[f'VOL_MA_{volume_ma_period}'] * volume_multiplier).astype(float)
                 # 证据2: 主力资金确认
-                flow_confirm = (df['main_force_net_flow_consensus_D'] > 0).astype(float)
-                # 证据3: 筹码结构确认
-                chip_confirm = (df['concentration_90pct_D'].diff().fillna(0) > 0).astype(float)
+                flow_confirm = (df['main_force_net_flow_consensus'] > 0).astype(float)
+                # 证据3: 筹码结构确认 (筹码集中度恶化为负向信号)
+                chip_confirm = (df['concentration_90pct'].diff().fillna(0) < 0).astype(float)
                 # 加权融合
                 quality_score = (
                     volume_confirm * weights.get('volume', 0.4) +
@@ -1239,6 +1256,7 @@ class IndicatorCalculator:
         except Exception as e:
             logger.error(f"计算突破质量分时发生错误: {e}", exc_info=True)
             return None
+        # [代码修改结束]
 
 
 

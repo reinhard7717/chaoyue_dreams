@@ -847,8 +847,8 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.11 · MA支持版】根据配置为指定时间周期计算所有技术指标。
-        - 核心增加对 'ma' (简单移动平均线) 的计算支持。
+        【V110.12 · 突破质量分整合版】根据配置为指定时间周期计算所有技术指标。
+        - 核心增加对 'breakout_quality_score' 的计算支持和流程编排。
         """
         if not config:
             return df
@@ -859,8 +859,9 @@ class IndicatorService:
         df_for_calc = df.copy()
         if 'close' in df_for_calc.columns:
             df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
+        # [代码修改开始]
         indicator_method_map = {
-            'ma': self.calculator.calculate_ma, # 增加 MA 计算方法映射
+            'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
             'coppock': self.calculator.calculate_coppock, 'rsi': self.calculator.calculate_rsi, 'macd': self.calculator.calculate_macd,
             'dmi': self.calculator.calculate_dmi, 'roc': self.calculator.calculate_roc, 'boll_bands_and_width': self.calculator.calculate_boll_bands_and_width,
@@ -869,19 +870,24 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
+            'breakout_quality_score': self.calculator.calculate_breakout_quality_score, # 新增：突破质量分方法映射
         }
+        # [代码修改结束]
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
             if isinstance(result_data, pd.Series): result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # 增加 'ma' 到有序计算列表
+        # [代码修改开始]
+        # 增加 'breakout_quality_score' 到有序计算列表，确保其在依赖项之后计算
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
-            'fibonacci_levels'
+            'fibonacci_levels',
+            'breakout_quality_score' # 新增：加入计算序列
         ]
+        # [代码修改结束]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
@@ -914,10 +920,17 @@ class IndicatorService:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
+                    # [代码修改开始]
+                    # 增加对 breakout_quality_score 的处理逻辑
+                    if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison', 'breakout_quality_score']:
+                        # 这些方法接收整个参数字典
                         result_df = await method_to_call(df=df_for_calc, params=sub_config)
                         merge_results(result_df, df_for_calc)
-                        break
+                        # breakout_quality_score 通常只有一个配置，处理完后跳出内层循环
+                        if indicator_name == 'breakout_quality_score':
+                            break
+                        continue # 对于其他两个，也继续外层循环
+                    # [代码修改结束]
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
