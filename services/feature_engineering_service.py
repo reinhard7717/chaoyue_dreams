@@ -200,10 +200,11 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.1 · 势能分析集成版】高级模式识别信号生产线
+        【V3.2 · 势能分析集成与逻辑强化版】高级模式识别信号生产线
         - 核心升级: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
         - 解决方案: 直接集成并使用我们最先进的“均线系统势能分析”三大核心指标（张力、有序性、压缩速率），
                       将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
+        - 逻辑强化: 细化了盘整、吸筹、突破、派发等模式的判断条件，引入更多高级筹码、资金流和VPA效率指标进行多因子共振确认。
         """
         # [代码修改开始]
         timeframe = 'D' # 模式识别的核心战场在日线
@@ -215,23 +216,25 @@ class FeatureEngineeringService:
         #    我们直接使用新数据模型中的精确列名，并集成均线势能指标。
         required_cols = [
             # 基础数据
-            'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D',
+            'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
             # 新版高级筹码指标
             'chip_health_score_D', 'structural_resilience_index_D', 'suppressive_accumulation_intensity_D',
-            'rally_distribution_intensity_D', 'winner_conviction_index_D',
+            'rally_distribution_intensity_D', 'winner_conviction_index_D', 'cost_structure_skewness_D',
+            'dominant_peak_solidity_D',
             # 新版高级资金流指标
             'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
-            'main_force_on_peak_flow_D', 'flow_efficiency_index_D',
+            'main_force_on_peak_flow_D', 'flow_efficiency_index_D', 'main_force_flow_directionality_D',
             # 新版均线系统势能指标 (核心升级)
-            'MA_POTENTIAL_TENSION_INDEX_SHORT_D',
-            'MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D',
-            'MA_POTENTIAL_COMPRESSION_RATE_SHORT_D'
+            'MA_POTENTIAL_TENSION_INDEX_D', # 修正列名，移除_SHORT
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D', # 修正列名，移除_SHORT
+            'MA_POTENTIAL_COMPRESSION_RATE_D', # 修正列名，移除_SHORT
+            # VPA效率指标
+            'VPA_EFFICIENCY_D'
         ]
         
         # 严格检查数据完整性
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            # 增加调试信息，打印所有可用列，方便定位问题
             print(f"高级模式识别引擎缺少关键数据: {missing_cols}，模块已跳过！")
             print("当前可用的列名包括:")
             print(df.columns.tolist())
@@ -242,46 +245,59 @@ class FeatureEngineeringService:
         # 【状态一：高势能盘整 (High-Potential Consolidation)】
         # 定义：均线系统被高度压缩（弹簧压紧），但方向尚不明朗。这是变盘的温床。
         # 证据a: 高张力。均线张力指数处于历史低位（值越小，张力越高）。
-        cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_SHORT_D'] < df['MA_POTENTIAL_TENSION_INDEX_SHORT_D'].rolling(60).quantile(0.20)
+        cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_D'] < df['MA_POTENTIAL_TENSION_INDEX_D'].rolling(60).quantile(0.20)
         # 证据b: 低有序度。均线系统处于纠缠状态，多空方向不明。
-        cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'].abs() < 0.5
-        # 证据c: 结构健康。筹码结构未崩溃。
-        cond_struct_healthy = df['chip_health_score_D'] > 50
-        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy
+        cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].abs() < 0.5
+        # 证据c: 结构健康。筹码健康分和结构韧性指数保持在较高水平，或稳步提升。
+        cond_struct_healthy = (df['chip_health_score_D'] > 50) & (df['structural_resilience_index_D'] > 0)
+        # 证据d: 价格波动收缩。布林带宽度处于低位。
+        cond_low_volatility = df['BBW_21_2.0_D'] < df['BBW_21_2.0_D'].rolling(60).quantile(0.25)
+        # 证据e: 趋势强度弱。ADX 指标低于25。
+        cond_weak_trend = df['ADX_14_D'] < 25
+        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend
 
         # 【状态二：吸筹进行时 (Accumulation in Progress)】
         # 定义：在高势能盘整中，出现主力资金吸筹迹象，且能量正在进一步积蓄。
         # 证据a: 能量正在压缩。均线压缩速率为负，表明弹簧正在被进一步压紧。
-        cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_SHORT_D'] < 0
+        cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_D'] < 0
         # 证据b: 主力隐蔽吸筹。通过打压或逢低吸纳的方式。
         cond_main_force_accum = (df['suppressive_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5)
         # 证据c: 主力在关键区域加仓。
         cond_peak_flow_positive = df['main_force_on_peak_flow_D'].rolling(3).mean() > 0
-        df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive)
+        # 证据d: VPA效率良好。在价格波动不大的情况下，VPA效率仍能保持中等水平，说明买盘效率高。
+        cond_vpa_efficient_accum = df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.5)
+        df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive) & cond_vpa_efficient_accum
 
         # 【状态三：高质效突破 (High-Quality Breakout)】
         # 定义：前期积蓄了巨大势能，现由主力资金点燃，向上释放能量。
         # 证据a: 突破前期高势能盘整。前一日处于“高势能盘整期”。
         cond_was_consolidating = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].shift(1).fillna(False)
         # 证据b: 势能向上释放。均线有序性评分由负或零显著转正，代表多头排列形成。
-        cond_orderliness_turn_up = (df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'] > 0.8) & (df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'].diff() > 0.3)
-        # 证据c: 主力强力点火。主力资金当日大幅净流入，且执行效率高（Alpha为正）。
-        cond_main_force_ignition = (df['main_force_net_flow_calibrated_D'] > 0) & (df['main_force_execution_alpha_D'] > 0)
-        # 证据d: 价量配合。当日为放量阳线。
-        cond_price_volume_confirm = (df['pct_change_D'] > 0.01) & (df['volume_D'] > df['VOL_MA_21_D'])
+        cond_orderliness_turn_up = (df['MA_POTENTIAL_ORDERLINESS_SCORE_D'] > 0.8) & (df['MA_POTENTIAL_ORDERLINESS_SCORE_D'].diff() > 0.3)
+        # 证据c: 主力强力点火。主力资金当日大幅净流入，且执行效率高（Alpha为正），资金流向性强。
+        cond_main_force_ignition = (df['main_force_net_flow_calibrated_D'] > 0) & \
+                                   (df['main_force_execution_alpha_D'] > 0) & \
+                                   (df['main_force_flow_directionality_D'] > 0.6) # 资金流向性强
+        # 证据d: 价量配合。当日为放量阳线，且VPA效率极高。
+        cond_price_volume_confirm = (df['pct_change_D'] > 0.01) & \
+                                    (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
+                                    (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9)) # VPA效率极高
         df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm
 
         # 【状态四：派发嫌疑 (Distribution Suspected)】
         # 定义：上涨乏力，或在盘整中，出现主力资金悄然出货的迹象。
         # 证据a: 拉高出货。价格上涨，但“拉高出货强度”指标显著为正。
         cond_rally_dist = (df['pct_change_D'] > 0) & (df['rally_distribution_intensity_D'] > 0.5)
-        # 证据b: 主力资金连续净流出。
-        cond_main_force_outflow = df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0
+        # 证据b: 主力资金连续净流出，且资金流向性为负。
+        cond_main_force_outflow = (df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0) & \
+                                  (df['main_force_flow_directionality_D'] < -0.3) # 资金流向性为负
         # 证据c: 获利盘信念动摇。获利盘信念指数开始下降。
         cond_winner_conviction_drop = df['winner_conviction_index_D'].diff() < 0
         # 证据d: 结构韧性下降。
         cond_resilience_drop = df['structural_resilience_index_D'].diff() < 0
-        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop)
+        # 证据e: VPA效率低下。价格上涨但VPA效率低，说明拉升吃力，抛压大。
+        cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
+        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
 
         # --- 3. 【信号整合与输出】 ---
         pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
@@ -290,75 +306,76 @@ class FeatureEngineeringService:
                 df[col] = df[col].fillna(False).astype(bool)
         
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.1 势能分析集成版)分析完成。")
+        logger.info("高级模式识别引擎(V3.2 势能分析集成与逻辑强化版)分析完成。")
         return all_dfs
         # [代码修改结束]
 
     async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.0 · A股博弈论重铸版】均线系统势能分析引擎
-        - 核心升级: 废弃旧版简单的离散系数(CV)算法，重铸为包含三个核心维度（张力、有序性、压缩速率）的势能分析体系。
-        - 指标体系:
-          1. 均线张力指数 (MA_TENSION_INDEX): (Max(MAs) - Min(MAs)) / ATR，波动率标准化的能量“压缩程度”。值越小，势能越大。
-          2. 均线有序性评分 (MA_ORDERLINESS_SCORE): Spearman等级相关系数，衡量均线排列的有序性。+1为完美多头排列，-1为空头，0为纠缠。
-          3. 均线压缩速率 (MA_COMPRESSION_RATE): 张力指数的短期斜率，衡量能量是在“积蓄”还是在“释放”。负值代表正在压缩，是变盘前兆。
+        【V2.1 · 均线势能命名优化版】均线系统势能分析引擎
+        - 核心优化: 确保输出的均线势能指标列名具有明确的前缀，避免出现 'None_' 导致的数据引用问题。
         """
+        # [代码修改开始]
+        if not params.get('enabled', False):
+            return all_dfs
+        
         for conv_config in params.get('configs', []):
             periods = conv_config.get('periods', [])
             if not periods:
                 continue
-            output_prefix = conv_config.get('output_column_prefix')
+            
+            # 确保 output_prefix 有一个默认值，例如 'MA_POTENTIAL'
+            output_prefix = conv_config.get('output_column_prefix', 'MA_POTENTIAL')
+            
             for timeframe in conv_config.get('apply_on', []):
                 if timeframe not in all_dfs or all_dfs[timeframe].empty:
                     continue
+                
                 df = all_dfs[timeframe]
+                
                 # 1. 【军火库点验】: 确认计算所需的核心数据
                 ma_cols = [f"EMA_{p}_{timeframe}" for p in periods]
                 # ATR周期通常与均线簇中的中位数或平均周期相关，这里我们硬编码一个常用的14
                 atr_col = f"ATR_14_{timeframe}" 
                 required_cols = ma_cols + [atr_col]
+                
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
                     logger.warning(f"均线系统势能分析失败({output_prefix}_{timeframe})：缺少核心数据列 {missing_cols}")
                     continue
+
                 try:
                     ma_df = df[ma_cols]
+                    
                     # 2. 【计算势能大小】: 均线张力指数 (MA_TENSION_INDEX)
                     ma_range = ma_df.max(axis=1) - ma_df.min(axis=1)
                     atr = df[atr_col].replace(0, np.nan)
                     tension_index = ma_range / atr
                     tension_col_name = f"{output_prefix}_TENSION_INDEX_{timeframe}"
                     df[tension_col_name] = tension_index.fillna(0)
+
                     # 3. 【计算势能方向】: 均线有序性评分 (MA_ORDERLINESS_SCORE)
-                    def _calculate_spearman(window_data):
-                        # window_data 是一个 numpy 数组，每行是一组均线值
-                        # 我们需要计算每一行的spearman相关性
-                        # 注意：pandas的rolling.apply(raw=True)传递的是一维数组，所以我们需要reshape
-                        if window_data.ndim == 1:
-                            window_data = window_data.reshape(-1, len(periods))
-                        # scipy.stats.spearmanr 更稳定，但为了避免增加新依赖，这里用pandas实现
-                        # 对每一行（每一天）的均线值进行排名
-                        rank_y = pd.DataFrame(window_data, columns=periods).rank(axis=1)
-                        # 均线周期的排名是固定的
-                        rank_x = pd.Series(periods).rank()
-                        # 计算相关性
-                        # 使用 .corrwith() 进行行式相关性计算
-                        # 这里简化处理，直接在小窗口上计算，对于单日评分，我们直接计算
-                        # 注意：rolling().apply() 每次只处理一个窗口，返回一个标量。我们需要一个能处理单行数据的函数
-                        return pd.Series(window_data).corr(pd.Series(periods), method='spearman')
-                    # 为了性能，我们不使用rolling apply，而是直接向量化计算当天的值
-                    # 创建一个与ma_df形状相同的DataFrame，其中填充了均线周期
-                    periods_df = pd.DataFrame(np.tile(periods, (len(df), 1)), index=df.index, columns=ma_df.columns)
-                    # 计算两组数据的等级
-                    rank_x = periods_df.rank(axis=1, method='first')
-                    rank_y = ma_df.rank(axis=1, method='first')
+                    periods_series = pd.Series(periods)
+                    # 创建一个DataFrame，其中每一行都是均线周期列表，用于与ma_df进行逐行排名比较
+                    periods_repeated_df = pd.DataFrame([periods_series.values] * len(df), index=df.index, columns=ma_df.columns)
+
+                    # 计算两组数据的等级。使用 'average' 方法处理并列排名。
+                    rank_x = periods_repeated_df.rank(axis=1, method='average')
+                    rank_y = ma_df.rank(axis=1, method='average')
+
                     # 计算Spearman相关性
                     # Spearman rho = 1 - 6 * sum(d^2) / (n * (n^2 - 1))
                     d_sq = (rank_x - rank_y).pow(2).sum(axis=1)
                     n = len(periods)
-                    spearman_corr = 1 - (6 * d_sq) / (n * (n**2 - 1))
+                    # 处理 n <= 1 的情况，避免除以零或产生无意义的结果
+                    if n <= 1:
+                        spearman_corr = pd.Series(np.nan, index=df.index)
+                    else:
+                        spearman_corr = 1 - (6 * d_sq) / (n * (n**2 - 1))
+
                     orderliness_col_name = f"{output_prefix}_ORDERLINESS_SCORE_{timeframe}"
                     df[orderliness_col_name] = spearman_corr.fillna(0)
+
                     # 4. 【计算势能变化率】: 均线压缩速率 (MA_COMPRESSION_RATE)
                     # 使用5日线性回归斜率来衡量压缩速率，负值表示正在压缩
                     compression_rate = df.ta.linreg(close=df[tension_col_name], length=5, slope=True)
@@ -367,8 +384,10 @@ class FeatureEngineeringService:
                     if isinstance(compression_rate, pd.DataFrame):
                         compression_rate = compression_rate.iloc[:, 0]
                     df[compression_col_name] = compression_rate.fillna(0)
+
                 except Exception as e:
                     logger.error(f"计算均线系统势能时发生错误({output_prefix}_{timeframe}): {e}", exc_info=True)
+
         return all_dfs
         # [代码修改结束]
 
