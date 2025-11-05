@@ -1120,14 +1120,12 @@ class IndicatorCalculator:
 
     async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
-        【V1.2 · 动态列名适配版】计算日内VWAP偏离度积分指数。
-        - 核心修复: 动态查找以 'close', 'amount', 'volume' 开头的列名，以适配上游服务可能添加的时间周期后缀（如 'close_60'）。
-        - 核心修复: 在方法内部增加VWAP的计算逻辑，使其不再依赖外部传入已计算好的'vwap'列。
+        【V1.3 · 命名规范修复版】计算日内VWAP偏离度积分指数。
+        - 核心修复: 为输出列名增加 '_D' 后缀，以符合系统命名规范，确保下游模块能正确消费。
         """
         if df_minute is None or df_minute.empty:
             logger.warning("计算日内VWAP偏离指数失败：输入的分钟数据DataFrame为空。")
             return None
-        # 动态查找列名，适配可能存在的后缀（如 _60）
         close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
         amount_col = next((c for c in df_minute.columns if c.startswith('amount')), None)
         volume_col = next((c for c in df_minute.columns if c.startswith('volume')), None)
@@ -1139,22 +1137,18 @@ class IndicatorCalculator:
         try:
             def _sync_calc():
                 df = df_minute.copy()
-                # 动态查找或计算 vwap 列
                 vwap_col = next((c for c in df.columns if c.startswith('vwap')), None)
                 if vwap_col is None:
-                    # 如果 'vwap' 列不存在，则使用动态发现的列名进行计算
                     temp_amount = pd.to_numeric(df[amount_col], errors='coerce')
                     temp_volume = pd.to_numeric(df[volume_col], errors='coerce')
-                    # 创建一个临时的、无后缀的vwap列用于计算
                     df['vwap_temp'] = temp_amount / temp_volume.replace(0, np.nan)
                     df['vwap_temp'].fillna(method='ffill', inplace=True)
-                    vwap_col = 'vwap_temp' # 指定使用这个临时列
-                # 1. 计算每分钟的VWAP偏离度
+                    vwap_col = 'vwap_temp'
                 vwap_deviation = (df[close_col] - df[vwap_col]) / df[vwap_col].replace(0, np.nan)
-                # 2. 按天重采样，并对日内偏离度进行求和（积分）
                 daily_integral = vwap_deviation.resample('D').sum()
-                # 3. 构建并返回结果
-                result_df = pd.DataFrame({'intraday_vwap_div_index': daily_integral})
+                # [代码修改开始]
+                result_df = pd.DataFrame({'intraday_vwap_div_index_D': daily_integral})
+                # [代码修改结束]
                 return result_df.dropna()
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
@@ -1163,14 +1157,12 @@ class IndicatorCalculator:
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V1.1 · 动态列名适配版】计算对手盘衰竭指数。
-        - 核心修复: 动态查找以 'high', 'low', 'close', 'open', 'volume' 开头的列名，以适配上游服务可能添加的时间周期后缀。
-        - 指标含义: 通过分析买卖效率，判断趋势推动方是否“油尽灯枯”。
+        【V1.2 · 命名规范修复版】计算对手盘衰竭指数。
+        - 核心修复: 为输出列名增加 '_D' 后缀，以符合系统命名规范。
         """
         if df_minute is None or df_minute.empty:
             logger.warning("计算对手盘衰竭指数失败：输入的分钟数据DataFrame为空。")
             return None
-        # 动态查找列名
         high_col = next((c for c in df_minute.columns if c.startswith('high')), None)
         low_col = next((c for c in df_minute.columns if c.startswith('low')), None)
         close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
@@ -1184,23 +1176,20 @@ class IndicatorCalculator:
         try:
             def _sync_calc():
                 df = df_minute.copy()
-                # 1. 估算主动性买卖盘量
                 price_range = (df[high_col] - df[low_col]).replace(0, np.nan)
                 bull_power = (df[close_col] - df[low_col]) / price_range
                 bear_power = (df[high_col] - df[close_col]) / price_range
                 df['active_buy_vol'] = df[volume_col] * bull_power.fillna(0.5)
                 df['active_sell_vol'] = df[volume_col] * bear_power.fillna(0.5)
-                # 2. 计算买卖效率
                 df['buy_efficiency'] = price_range / df['active_buy_vol'].replace(0, np.nan)
                 df['sell_efficiency'] = price_range / df['active_sell_vol'].replace(0, np.nan)
-                # 3. 按天聚合效率
                 daily_efficiency = df[['buy_efficiency', 'sell_efficiency']].resample('D').mean()
-                # 4. 判断衰竭状态（效率创近期新低）
                 buy_exhaustion = (daily_efficiency['buy_efficiency'] <= daily_efficiency['buy_efficiency'].rolling(efficiency_window).min()).astype(float)
                 sell_exhaustion = (daily_efficiency['sell_efficiency'] <= daily_efficiency['sell_efficiency'].rolling(efficiency_window).min()).astype(float)
-                # 5. 合成双极性指数：正分代表卖方衰竭，负分代表买方衰竭
                 exhaustion_index = sell_exhaustion - buy_exhaustion
-                return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
+                # [代码修改开始]
+                return pd.DataFrame({'counterparty_exhaustion_index_D': exhaustion_index})
+                # [代码修改结束]
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数时发生错误: {e}", exc_info=True)
@@ -1208,9 +1197,8 @@ class IndicatorCalculator:
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.1 · 职责重置修复版】计算突破质量分。
-        - 核心修复: 移除所有对 '_D' 后缀的硬编码依赖，改为动态构建无后缀的列名进行计算，使其成为一个纯粹的计算函数。
-        - 指标含义: 对每日的K线进行“突破潜力”的质量审查，为形态突破公理提供依据。
+        【V1.2 · 命名规范修复版】计算突破质量分。
+        - 核心修复: 为输出列名增加 '_D' 后缀，以符合系统命名规范。
         """
         if df_daily is None or df_daily.empty:
             logger.warning("计算突破质量分失败：输入的日线数据DataFrame为空。")
@@ -1218,7 +1206,6 @@ class IndicatorCalculator:
         try:
             def _sync_calc():
                 df = df_daily.copy()
-                # 从参数中动态获取配置
                 volume_ma_period = params.get('volume_ma_period', 21)
                 volume_multiplier = params.get('volume_multiplier', 1.5)
                 weights = params.get('weights', {'volume': 0.4, 'main_force_flow': 0.4, 'chip_concentration': 0.2})
@@ -1229,24 +1216,21 @@ class IndicatorCalculator:
                     'main_force_net_flow_consensus',
                     'concentration_90pct'
                 ]
-                # 检查所需列是否存在
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
                     logger.warning(f"计算突破质量分失败：日线数据缺少必要列 {missing_cols}。可用列: {df.columns.tolist()}")
                     return None
-                # 证据1: 成交量确认
                 volume_confirm = (df['volume'] > df[f'VOL_MA_{volume_ma_period}'] * volume_multiplier).astype(float)
-                # 证据2: 主力资金确认
                 flow_confirm = (df['main_force_net_flow_consensus'] > 0).astype(float)
-                # 证据3: 筹码结构确认 (筹码集中度恶化为负向信号)
                 chip_confirm = (df['concentration_90pct'].diff().fillna(0) < 0).astype(float)
-                # 加权融合
                 quality_score = (
                     volume_confirm * weights.get('volume', 0.4) +
                     flow_confirm * weights.get('main_force_flow', 0.4) +
                     chip_confirm * weights.get('chip_concentration', 0.2)
                 )
-                return pd.DataFrame({'breakout_quality_score': quality_score})
+                # [代码修改开始]
+                return pd.DataFrame({'breakout_quality_score_D': quality_score})
+                # [代码修改结束]
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
             logger.error(f"计算突破质量分时发生错误: {e}", exc_info=True)
