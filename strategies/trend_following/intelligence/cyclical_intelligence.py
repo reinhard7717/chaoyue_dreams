@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 from scipy.fft import rfft, rfftfreq
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class CyclicalIntelligence:
     def __init__(self, strategy_instance):
@@ -152,7 +152,7 @@ class CyclicalIntelligence:
         hurst_memory_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=hurst_period, sensitivity=0.1)
         states['SCORE_CYCLICAL_HURST_MEMORY'] = hurst_memory_score
         # 将双极性分数分解为互斥的单极性“政权”分
-        trend_regime_score, reversion_regime_score = utils.bipolar_to_exclusive_unipolar(hurst_memory_score)
+        trend_regime_score, reversion_regime_score = bipolar_to_exclusive_unipolar(hurst_memory_score)
         states['SCORE_CYCLICAL_HURST_TREND_REGIME'] = trend_regime_score
         states['SCORE_CYCLICAL_HURST_REVERSION_REGIME'] = reversion_regime_score
         return states
