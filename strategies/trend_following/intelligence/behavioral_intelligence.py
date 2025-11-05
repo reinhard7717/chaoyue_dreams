@@ -104,6 +104,23 @@ class BehavioralIntelligence:
     # ==============================================================================
     # 以下为新增的原子信号中心和降级的原子诊断引擎
     # ==============================================================================
+    def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
+        """
+        【V1.0 · 新增】安全地从原子状态库或主数据帧中获取分数。
+        - 核心职责: 统一信号获取路径，优先从 self.strategy.atomic_states 获取，
+                      若无则从主数据帧 df 获取，最后提供默认值，确保数据流的稳定性。
+        """
+        # [代码新增开始]
+        if name in self.strategy.atomic_states:
+            return self.strategy.atomic_states[name]
+        elif name in df.columns:
+            return df[name]
+        else:
+            # 打印警告信息，便于调试
+            print(f"     -> [行为情报引擎警告] 信号 '{name}' 不存在，使用默认值 {default}。")
+            return pd.Series(default, index=df.index)
+        # [代码新增结束]
+
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V3.0 · 职责净化版】原子信号中心
