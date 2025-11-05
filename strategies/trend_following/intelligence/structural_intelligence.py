@@ -120,27 +120,30 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.1 · 斐波那契周期版】结构公理三：诊断“结构稳定性”
-        - 核心升级: 将长期MA“盾”的周期从(60, 120)修正为斐波那契数(55, 144)。
+        【V2.2 · 物理直观重构版】结构公理三：诊断“结构稳定性”
+        - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
         - 诊断维度:
-          1. 能量积蓄度 (Energy Accumulation): 短期EMA收敛与BBW收缩程度。
+          1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
           2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
           3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
         """
+        # [代码修改开始]
         print("    -- [结构公理三: 结构稳定性] 正在诊断均线收敛度、长期支撑与趋势健康度...")
         # --- 证据1: 能量积蓄度 (Energy Accumulation) ---
-        ma_conv_col = 'MA_CONV_CV_SHORT_D'
         bbw_col = 'BBW_21_2.0_D'
-        if ma_conv_col not in df.columns or bbw_col not in df.columns:
-            print(f"诊断结构稳定性失败：缺少 '{ma_conv_col}' 或 '{bbw_col}' 列。")
+        if bbw_col not in df.columns:
+            print(f"诊断结构稳定性失败：缺少核心列 '{bbw_col}'。")
             return pd.Series(0.0, index=df.index)
-        convergence_score = 1 - normalize_score(df[ma_conv_col], df.index, norm_window, ascending=True)
-        volatility_score = 1 - normalize_score(df[bbw_col], df.index, norm_window, ascending=True)
-        energy_accumulation_score = (convergence_score * volatility_score).fillna(0.5)
+        
+        # BBW越小，波动率越低，能量积蓄度越高。因此使用 1 - normalize_score。
+        energy_accumulation_score = 1 - normalize_score(df[bbw_col], df.index, norm_window, ascending=True)
+        energy_accumulation_score = energy_accumulation_score.fillna(0.5)
+
         # --- 证据2 & 3: 基石支撑度 & 长期趋势健康度 (MA as Shield) ---
-        long_term_ma_periods = [55, 144] # 使用MA而非EMA作为成本线, 周期从[60, 120]修正为[55, 144]
+        long_term_ma_periods = [55, 144] # 使用MA而非EMA作为成本线
         required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
         required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods]
+        
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("诊断结构稳定性失败：缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df.index)
@@ -152,6 +155,7 @@ class StructuralIntelligence:
                 support_score = normalize_score(df['close_D'] - df[f'MA_{p}_D'], df.index, norm_window).clip(0, 1)
                 support_scores.append(support_score)
             foundation_support_score = np.mean(support_scores, axis=0)
+            
             # 证据3: 长期趋势健康度 - 关键MA的斜率是否为正
             health_scores = []
             for p in long_term_ma_periods:
@@ -159,13 +163,17 @@ class StructuralIntelligence:
                 health_score = normalize_score(df[f'SLOPE_5_MA_{p}_D'], df.index, norm_window).clip(0, 1)
                 health_scores.append(health_score)
             long_term_trend_health_score = np.mean(health_scores, axis=0)
+            
             # 融合基石支撑与长期趋势健康度
-            foundation_health_score = (foundation_support_score * long_term_trend_health_score)**0.5
+            foundation_health_score = (pd.Series(foundation_support_score, index=df.index) * pd.Series(long_term_trend_health_score, index=df.index)).pow(0.5)
+
         # --- 最终融合 ---
         # 融合能量积蓄度与长期结构健康度
         # 当长期结构健康时(foundation_health_score高)，能量的积蓄(energy_accumulation_score高)才是有效的看涨信号
         raw_stability_score = (energy_accumulation_score * foundation_health_score).fillna(0.5)
+        
         # 转换为双极性分数：高稳定性为正，低稳定性为负
         stability_score = (raw_stability_score * 2 - 1).clip(-1, 1)
         print(f"    -- [结构公理三: 结构稳定性] 诊断完成，最新分值: {stability_score.iloc[-1]:.4f}")
         return stability_score.astype(np.float32)
+        # [代码修改结束]

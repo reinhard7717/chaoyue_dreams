@@ -34,17 +34,6 @@
         "price_source": "close",
         "volume_source": "volume"
       },
-      "ma_convergence": {
-        "enabled": true,
-        "description": "计算均线收敛度，为高级模式识别提供输入。",
-        "configs": [
-          {
-            "apply_on": ["D"],
-            "periods": [5, 8, 13, 21],
-            "output_column_name": "MA_CONV_CV_SHORT_D"
-          }
-        ]
-      },
       "consolidation_period": {
         "enabled": true,
         "description": "识别价格盘整期，为突破战术提供上下文。",
