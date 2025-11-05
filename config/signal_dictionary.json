@@ -603,6 +603,32 @@
             "description": "【V8.0 · 公理化版】基于四大筹码公理，形成的静态看跌共振分。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
+        "RESONANCE_BULLISH_D": {
+            "cn_name": "【行为】原始看涨共振",
+            "category": "内部计分-行为",
+            "type": "context",
+            "description": "【V3.0 · 内部】融合所有原子情报层看涨共振信号的原始几何平均值，是计算健康度的基础。"
+        },
+        "RESONANCE_HEALTH_D": {
+            "cn_name": "【行为】共振健康度",
+            "category": "内部计分-行为",
+            "type": "context",
+            "description": "【V3.0 · 三体模型】基于“内在动能”、“内部一致性”、“环境适应性”三大支柱，评估共振信号质量的综合健康分。"
+        },
+        "RESONANCE_OPPORTUNITY_D": {
+            "cn_name": "【行为】高质量看涨机会",
+            "category": "行为层-机会",
+            "type": "dynamic",
+            "score": 500,
+            "description": "【V3.0 · 终极信号】由“原始看涨共振分 * 共振健康度”得出，代表经过质量审查的高可靠性看涨机会。"
+        },
+        "RESONANCE_RISK_D": {
+            "cn_name": "【行为】高质量看跌风险",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -800,
+            "description": "【V3.0 · 终极信号】融合所有原子情报层看跌共振信号的几何平均值，代表综合的看跌风险。"
+        },
         "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
             "cn_name": "【行为】看涨共振",
             "category": "内部计分-行为",
