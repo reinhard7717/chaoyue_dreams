@@ -373,10 +373,11 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
-        【V1.1 · 接口适配修复版】形态增强信号编排器
-        - 核心修复: 修正对 calculate_breakout_quality_score 的调用方式，将多个独立参数合并为一个 `params` 字典传入，以匹配目标方法的签名。
-        - 核心职责: 根据配置，调用计算器中新增的“超级原子信号”算法，并将其集成到日线数据中。
+        【V1.2 · 职责净化修复版】形态增强信号编排器
+        - 核心修复: 移除了对 breakout_quality_score 的计算调用。该指标的计算已归位到 IndicatorService 的主流程中，以解决列名后缀不匹配的问题。
+        - 核心职责: 根据配置，调用计算器中新增的、依赖分钟数据的“超级原子信号”算法，并将其集成到日线数据中。
         """
+        # [代码修改开始]
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
         if not params.get('enabled', False):
             return all_dfs
@@ -394,16 +395,7 @@ class FeatureEngineeringService:
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
             tasks.append(calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
-        # 任务3: 突破质量分
-        quality_params = params.get('breakout_quality', {})
-        if quality_params.get('enabled'):
-            # [代码修改开始]
-            # 修复：将多个独立参数合并为一个 `params` 字典传入，以匹配目标方法的签名
-            tasks.append(calculator.calculate_breakout_quality_score(
-                df_daily,
-                quality_params
-            ))
-            # [代码修改结束]
+        # 任务3: 突破质量分 (已从此方法中移除，其计算逻辑已整合到上游的 IndicatorService 主流程中)
         if not tasks:
             return all_dfs
         results = await asyncio.gather(*tasks)
@@ -414,10 +406,12 @@ class FeatureEngineeringService:
                 df_daily = df_daily.join(res_df, how='left')
         # 对新合并的列进行前向填充，保证数据连续性
         new_cols = [col for res_df in results if res_df is not None for col in res_df.columns]
-        df_daily[new_cols] = df_daily[new_cols].ffill()
+        if new_cols: # 增加判断，只有在有新列时才执行填充
+            df_daily[new_cols] = df_daily[new_cols].ffill()
         all_dfs['D'] = df_daily
-        logger.info("形态增强信号计算完成并已集成。")
+        logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
+        # [代码修改结束]
 
 
 
