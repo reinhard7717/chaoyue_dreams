@@ -373,37 +373,47 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.0 情报锻造中心版】为策略准备数据的统一入口。
-        此版本将调用重构后的核心数据准备函数。
+        【V8.1 · 均线势能生产调度版】为策略准备数据的统一入口。
+        - 核心升级: 在特征工程流程中，正式调度新增的 `calculate_ma_potential_metrics` 方法，
+                    确保在高级模式识别引擎运行前，生产出其必需的“均线势能”系列指标。
         """
+        # [代码修改开始]
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
         # --- 新增步骤: 【形态增强信号计算】 ---
-        # 在计算斜率之前，先计算依赖分钟数据的高级形态信号
         all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config, self.calculator)
         # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
-        # --- 步骤 3: 【VPA效率指标计算】 - 修正顺序，提前计算 ---
-        # 解释：高级模式识别依赖VPA效率指标，因此必须先计算VPA。
+        # --- 步骤 3: 【VPA效率指标计算】 ---
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
-        # --- 步骤 4: 计算均线收敛度和盘整期，作为高级模式识别的前置步骤 ---
+        
+        # --- 步骤 4: 计算均线收敛度、势能和盘整期，作为高级模式识别的前置步骤 ---
+        # 旧的均线收敛度计算（如果仍然需要）
         ma_conv_params = indicators_config.get('ma_convergence', {})
         if ma_conv_params.get('enabled', False):
+            # 注意：旧的 calculate_ma_convergence 方法可能与新的势能指标有重叠，建议未来整合或废弃
             all_dfs = await self.feature_service.calculate_ma_convergence(all_dfs, ma_conv_params)
+        
+        # 【核心新增】调用新的均线势能指标生产线
+        ma_potential_params = indicators_config.get('ma_potential_metrics', {})
+        if ma_potential_params.get('enabled', False):
+            all_dfs = await self.feature_service.calculate_ma_potential_metrics(all_dfs, ma_potential_params)
+            
+        # 盘整期计算
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
-        # --- 步骤 5: 【斜率计算】 - 修正步骤编号 ---
-        # 此刻，hurst_60d_D, price_cv_60d_D 等列已经存在，可以安全地计算它们的斜率了
+            
+        # --- 步骤 5: 【斜率计算】 ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
-        # --- 步骤 6: 【加速度计算】 - 修正步骤编号 ---
+        # --- 步骤 6: 【加速度计算】 ---
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
         # 在所有基础特征和衍生特征计算完毕后，调用高级模式识别引擎
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # --- 步骤 7: 【上下文信息注入】 - 修正步骤编号 ---
+        # --- 步骤 7: 【上下文信息注入】 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         df_daily = all_dfs['D']
@@ -416,7 +426,6 @@ class IndicatorService:
             if not hm_signals_df.empty:
                 df_daily = df_daily.merge(hm_signals_df, left_index=True, right_index=True, how='left')
                 for col in hm_signals_df.columns: df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                # print(f"    - [游资信号注入] 已将游资原子信号列注入日线数据。")
         # 注入市场情绪信号
         sentiment_params = self._find_params_recursively(config, 'market_sentiment_params')
         if sentiment_params and sentiment_params.get('enabled', False):
@@ -431,58 +440,40 @@ class IndicatorService:
         four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
-            # print(f"    - [行业背景注入] 检测到行业生命周期评分已启用，调用上下文服务进行数据融合...")
-            # 调用 ContextualAnalysisService 的融合引擎
             industry_lifecycle_df = await self.context_service.prepare_fused_industry_signals(
                 stock_code, start_date, end_date, industry_params
             )
             if not industry_lifecycle_df.empty:
-                # 使用 left join，以 df_daily 的索引为准
                 df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
-                # 向前填充，确保每个交易日都有行业状态
                 for col in industry_lifecycle_df.columns:
-                    # 对所有新注入的列进行填充
                     df_daily[col] = df_daily[col].ffill().fillna(0)
-                # print(f"    - [行业背景注入] 成功注入融合后的行业生命周期数据。")
             else:
                 print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的融合行业生命周期数据。")
         # --- 注入KPL题材热度信号 ---
         kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
         if kpl_params and kpl_params.get('enabled', False):
-            # print(f"    - [KPL题材热度注入] 检测到KPL题材分析已启用，开始注入热度分...")
-            # 调用 contextual_analysis_service 的新方法
             kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
                 stock_code, start_date, end_date, kpl_params
             )
-            # 增加调试信息，检查返回的DataFrame状态
-            # print(f"    - [KPL题材热度注入-调试] 收到KPL热度DataFrame，行数: {len(kpl_hotness_df)}，索引类型: {type(kpl_hotness_df.index)}")
             if not kpl_hotness_df.empty:
-                # 修改代码: 在合并前，强制将kpl_hotness_df的索引转换为带UTC时区的DatetimeIndex，以匹配df_daily
                 kpl_hotness_df.index = pd.to_datetime(kpl_hotness_df.index, utc=True)
-                # 使用 left join，以 df_daily 的索引为准
                 df_daily = df_daily.merge(kpl_hotness_df, left_index=True, right_index=True, how='left')
-                # 默认用0填充没有热度的日期
                 df_daily['THEME_HOTNESS_SCORE_D'].fillna(0, inplace=True)
-                # print(f"    - [KPL题材热度注入] 成功注入KPL题材热度分。")
             else:
-                # 即使没有数据，也要确保列存在，值为0
                 df_daily['THEME_HOTNESS_SCORE_D'] = 0.0
                 print(f"    - [KPL题材热度注入] 未能获取到 {stock_code} 的KPL题材热度数据，该项得分将为0。")
         # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
-            # print(f"    - [配置信息] 检测到聪明钱分析已启用，开始生成协同信号...")
             smart_money_signals_df = await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
             if not smart_money_signals_df.empty:
                 smart_money_signals_df.index = pd.to_datetime(smart_money_signals_df.index, utc=True)
                 df_daily = df_daily.merge(smart_money_signals_df, left_index=True, right_index=True, how='left')
                 for col in smart_money_signals_df.columns:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
-                # print(f"    - [聪明钱注入] 已将游资与机构协同信号注入日线数据。")
         all_dfs['D'] = df_daily
-        #  调用军械库清单生成器 ▼▼▼
-        # self._log_final_data_columns(all_dfs)
         return all_dfs
+        # [代码修改结束]
 
     async def _prepare_base_data_and_indicators(
         self,

@@ -549,6 +549,78 @@ class FeatureEngineeringService:
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
 
+    async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 新增】均线系统势能分析引擎
+        - 核心职责: 根据 ma_potential_metrics 配置，计算均线系统的“张力”、“有序度”、“压缩率”三大核心势能指标。
+        """
+        # [代码新增开始]
+        if not params.get('enabled', False):
+            return all_dfs
+        
+        for timeframe in params.get('apply_on', []):
+            if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
+                continue
+            
+            df = all_dfs[timeframe]
+            
+            # 从配置中获取参数
+            ma_periods = params.get('ma_periods', [])
+            ma_type = params.get('ma_type', 'EMA')
+            tension_short_period = params.get('tension_short_period', 5)
+            tension_long_period = params.get('tension_long_period', 55)
+            norm_window = params.get('norm_window', 55)
+            
+            # 1. 【军火库点验】: 确认计算所需的核心数据
+            ma_cols = [f"{ma_type}_{p}_{timeframe}" for p in ma_periods]
+            tension_cols = [f"{ma_type}_{tension_short_period}_{timeframe}", f"{ma_type}_{tension_long_period}_{timeframe}"]
+            atr_col = f"ATR_14_{timeframe}" # 使用ATR进行波动率归一化
+            required_cols = list(set(ma_cols + tension_cols + [atr_col]))
+            
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                logger.warning(f"均线系统势能分析失败({timeframe})：缺少核心数据列 {missing_cols}")
+                continue
+
+            try:
+                # 2. 【计算势能大小】: 均线张力指数 (MA_POTENTIAL_TENSION_INDEX)
+                # 逻辑: (短期均线 - 长期均线) / ATR，衡量偏离程度相对于真实波动的比率，更具可比性
+                tension_range = df[f"{ma_type}_{tension_short_period}_{timeframe}"] - df[f"{ma_type}_{tension_long_period}_{timeframe}"]
+                atr = df[atr_col].replace(0, np.nan)
+                raw_tension_index = tension_range / atr
+                # 对原始张力进行双极性归一化，得到[-1, 1]的分数
+                tension_index_series = raw_tension_index.rolling(window=norm_window).apply(lambda x: (x[-1] - x.mean()) / (x.std() + 1e-9) if len(x) > 1 else 0, raw=False).fillna(0).clip(-3, 3) / 3
+                df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = tension_index_series.astype(np.float32)
+
+                # 3. 【计算势能方向】: 均线有序性评分 (MA_POTENTIAL_ORDERLINESS_SCORE)
+                # 逻辑: 使用Spearman秩相关系数衡量均线周期顺序与均线值大小顺序的一致性
+                ma_df = df[ma_cols]
+                periods_series = pd.Series(ma_periods)
+                rank_x = periods_series.rank(method='average') # 周期排名
+                # 逐行计算Spearman相关性
+                def spearman_corr(row):
+                    rank_y = row.rank(method='average')
+                    d_sq = ((rank_x - rank_y.values)**2).sum()
+                    n = len(ma_periods)
+                    if n <= 1: return 0.0
+                    return 1 - (6 * d_sq) / (n * (n**2 - 1))
+                
+                orderliness_score = ma_df.apply(spearman_corr, axis=1)
+                df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_score.fillna(0).astype(np.float32)
+
+                # 4. 【计算势能变化率】: 均线压缩率 (MA_POTENTIAL_COMPRESSION_RATE)
+                # 逻辑: 计算均线簇的标准差，并用ATR进行归一化，然后取其倒数作为压缩率
+                ma_std = ma_df.std(axis=1)
+                normalized_std = ma_std / atr
+                # 归一化后取反，标准差越小（越压缩），得分越高
+                compression_rate = 1 - (normalized_std.rolling(window=norm_window).rank(pct=True)).fillna(0.5)
+                df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
+
+            except Exception as e:
+                logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
+        
+        return all_dfs
+        # [代码新增结束]
 
 
 
