@@ -7,111 +7,119 @@ from strategies.trend_following.utils import get_params_block, get_param_value, 
 
 class PatternIntelligence:
     """
-    【V5.0 · 四象限重构版】形态智能引擎
-    - 核心重构: 废弃旧的“四维聚变”模型，全面升级为与其他情报模块统一的“四象限动态分析法”。
-    - 收益: 实现了信号逻辑的清晰、统一和可解释性，彻底解决了信号命名与含义不符的问题。
+    【V6.0 · 三大公理重构版】形态智能引擎
+    - 核心升级: 废弃旧的复杂模型，引入基于形态演化本质的“背离、反转、突破”三大公理。
+                使引擎更聚焦、逻辑更清晰、信号更纯粹。
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 四象限重构版】形态分析总指挥
-        - 核心重构: 废弃旧的“四维聚变”逻辑，全面升级为基于“双极性快照+四象限动态分析”的统一模型。
+        【V7.0 · 超级原子信号版】形态分析总指挥
+        - 核心升级: 指挥旗下三大公理诊断引擎，全面转向消费新一代的、经过深度提炼的
+                      “超级原子信号”，包括“日内VWAP偏离度积分指数”、“对手盘衰竭指数”
+                      和“突破质量分”，极大提升了形态识别的准确性和可靠性。
         """
-
-        states = {}
-        p = get_params_block(self.strategy, 'pattern_params', {})
-        if not get_param_value(p.get('enabled'), True):
+        print("启动【V7.0 · 超级原子信号版】形态分析...")
+        all_states = {}
+        p_conf = get_params_block(self.strategy, 'pattern_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            print("形态智能引擎已在配置中禁用，跳过。")
             return {}
-        weights = get_param_value(p.get('fusion_weights'), {})
-        norm_window = 60
+        
+        norm_window = get_param_value(p_conf.get('norm_window'), 60)
 
-        # 步骤一：计算双极性“形态健康度”快照分
-        price_slope = df.get('SLOPE_5_close_D', pd.Series(0, index=df.index))
-        rsi_slope = df.get('SLOPE_5_RSI_13_D', pd.Series(0, index=df.index))
-        macd_slope = df.get('SLOPE_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        rsi_accel = df.get('ACCEL_5_RSI_13_D', pd.Series(0, index=df.index))
-        macd_accel = df.get('ACCEL_5_MACDh_13_34_8_D', pd.Series(0, index=df.index))
-        bbw_slope = df.get('SLOPE_5_BBW_21_2.0_D', pd.Series(0, index=df.index))
-        
-        # 看涨证据
-        bullish_rsi_div = (price_slope < 0) & (rsi_slope > 0)
-        bullish_macd_div = (price_slope < 0) & (macd_slope > 0)
-        bullish_divergence = np.maximum(bullish_rsi_div, bullish_macd_div).astype(float)
-        bullish_reversal_accel = (normalize_score(rsi_accel.clip(lower=0), df.index, norm_window) * normalize_score(macd_accel.clip(lower=0), df.index, norm_window))**0.5
-        bullish_breakout = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
-        
-        # 看跌证据
-        bearish_rsi_div = (price_slope > 0) & (rsi_slope < 0)
-        bearish_macd_div = (price_slope > 0) & (macd_slope < 0)
-        bearish_divergence = np.maximum(bearish_rsi_div, bearish_macd_div).astype(float)
-        bearish_reversal_accel = (normalize_score(rsi_accel.clip(upper=0).abs(), df.index, norm_window) * normalize_score(macd_accel.clip(upper=0).abs(), df.index, norm_window))**0.5
-        bearish_breakdown = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
-        
-        # 能量催化剂 (中性)
-        energy_catalyst = normalize_score(bbw_slope.clip(lower=0), df.index, norm_window)
-        
-        # 融合看涨/看跌快照分
-        bullish_snapshot = (
-            bullish_divergence * weights.get('divergence', 0.3) +
-            bullish_reversal_accel * weights.get('momentum_reversal', 0.4) +
-            bullish_breakout * weights.get('structural_breakout', 0.3)
-        ) * energy_catalyst
-        
-        bearish_snapshot = (
-            bearish_divergence * weights.get('divergence', 0.3) +
-            bearish_reversal_accel * weights.get('momentum_reversal', 0.4) +
-            bearish_breakdown * weights.get('structural_breakout', 0.3)
-        ) * energy_catalyst
-        
-        bipolar_snapshot = (bullish_snapshot - bearish_snapshot).clip(-1, 1)
-        
-        # 步骤二：分离为纯粹的看涨/看跌健康分，并计算静态共振信号
-        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_snapshot)
-        states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
-        states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        
-        # 步骤三：计算四象限动态信号
-        bull_divergence = self._calculate_holographic_divergence_pattern(bullish_resonance, 5, 21, norm_window)
-        bullish_acceleration = bull_divergence.clip(0, 1)
-        top_reversal = (bull_divergence.clip(-1, 0) * -1)
-        
-        bear_divergence = self._calculate_holographic_divergence_pattern(bearish_resonance, 5, 21, norm_window)
-        bearish_acceleration = bear_divergence.clip(0, 1)
-        bottom_reversal = (bear_divergence.clip(-1, 0) * -1)
-        
-        # 步骤四：赋值给命名准确的终极信号
-        states['SCORE_PATTERN_BULLISH_ACCELERATION'] = bullish_acceleration.astype(np.float32)
-        states['SCORE_PATTERN_TOP_REVERSAL'] = top_reversal.astype(np.float32)
-        states['SCORE_PATTERN_BEARISH_ACCELERATION'] = bearish_acceleration.astype(np.float32)
-        states['SCORE_PATTERN_BOTTOM_REVERSAL'] = bottom_reversal.astype(np.float32)
-        
-        # 步骤五：重铸战术反转信号
-        states['SCORE_PATTERN_TACTICAL_REVERSAL'] = (bullish_resonance * top_reversal).clip(0, 1).astype(np.float32)
-        
-        return states
-        
+        # --- 步骤一: 诊断三大公理 ---
+        print("工序一: 正在诊断三大形态公理...")
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        axiom_reversal = self._diagnose_axiom_reversal(df, norm_window)
+        axiom_breakout = self._diagnose_axiom_breakout(df, norm_window)
 
-    def _calculate_holographic_divergence_pattern(self, series: pd.Series, short_p: int, long_p: int, norm_window: int) -> pd.Series:
+        all_states['SCORE_PATTERN_AXIOM_DIVERGENCE'] = axiom_divergence
+        all_states['SCORE_PATTERN_AXIOM_REVERSAL'] = axiom_reversal
+        all_states['SCORE_PATTERN_AXIOM_BREAKOUT'] = axiom_breakout
+
+        # --- 步骤二: 融合三大公理，合成终极信号 ---
+        print("工序二: 正在合成终极形态共振信号...")
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
+            'divergence': 0.4, 'reversal': 0.4, 'breakout': 0.2
+        })
+        
+        bipolar_health = (
+            axiom_divergence * axiom_weights['divergence'] +
+            axiom_reversal * axiom_weights['reversal'] +
+            axiom_breakout * axiom_weights['breakout']
+        ).clip(-1, 1)
+
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
+        all_states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance
+        all_states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance
+
+        print(f"【V7.0 · 超级原子信号版】形态分析完成。最终看涨共振分: {bullish_resonance.iloc[-1]:.4f}, 看跌共振分: {bearish_resonance.iloc[-1]:.4f}")
+        return all_states
+
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】形态层专用的全息背离计算引擎
-        - 战略意义: 洞察多时间维度的“结构性背离”，输出一个[-1, 1]的双极性背离分数。
+        【V2.0 · 超级原子信号版】形态公理一：诊断“背离”
+        - 核心升级: 废弃对RSI/MACD的间接依赖，直接使用更可靠的“日内VWAP偏离度积分指数”
+                      (`intraday_vwap_div_index_D`)作为核心动量信号，以捕捉更真实的价势背离。
         """
-        # 维度一：速度背离 (短期斜率 vs 长期斜率)
-        slope_short = series.diff(short_p).fillna(0)
-        slope_long = series.diff(long_p).fillna(0)
-        velocity_divergence = slope_short - slope_long
-        velocity_divergence_score = normalize_to_bipolar(velocity_divergence, series.index, norm_window)
-        
-        # 维度二：加速度背离 (短期加速度 vs 长期加速度)
-        accel_short = slope_short.diff(short_p).fillna(0)
-        accel_long = slope_long.diff(long_p).fillna(0)
-        acceleration_divergence = accel_short - accel_long
-        acceleration_divergence_score = normalize_to_bipolar(acceleration_divergence, series.index, norm_window)
-        
-        # 融合：速度背离和加速度背离的加权平均
-        final_divergence_score = (velocity_divergence_score * 0.6 + acceleration_divergence_score * 0.4).clip(-1, 1)
-        return final_divergence_score.astype(np.float32)
+        print("    -- [形态公理一: 背离] 正在使用 '日内VWAP偏离度积分指数' 进行诊断...")
+        price_slope = df.get('SLOPE_13_close_D', pd.Series(0, index=df.index))
+        # 获取新的超级原子信号的斜率
+        momentum_slope = df.get('SLOPE_13_intraday_vwap_div_index_D', pd.Series(0, index=df.index))
 
+        # 看涨背离：价格下跌，但日内真实力量（VWAP偏离积分）在增强
+        bullish_divergence_strength = ((price_slope < 0) & (momentum_slope > 0)).astype(float)
 
+        # 看跌背离：价格上涨，但日内真实力量在减弱
+        bearish_divergence_strength = ((price_slope > 0) & (momentum_slope < 0)).astype(float)
+
+        # 融合成双极性分数
+        raw_divergence_score = bullish_divergence_strength - bearish_divergence_strength
+        
+        # 使用双极归一化进行最终裁决
+        divergence_score = normalize_to_bipolar(raw_divergence_score, df.index, window=norm_window)
+        print(f"    -- [形态公理一: 背离] 诊断完成，最新分值: {divergence_score.iloc[-1]:.4f}")
+        return divergence_score.astype(np.float32)
+
+    def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V2.0 · 超级原子信号版】形态公理二：诊断“反转”
+        - 核心升级: 废弃对RSI/MACD的间接推断，直接使用“对手盘衰竭指数”
+                      (`counterparty_exhaustion_index_D`)作为核心判断依据。
+                      正分代表卖方衰竭（看涨反转），负分代表买方衰竭（看跌反转）。
+        """
+        print("    -- [形态公理二: 反转] 正在使用 '对手盘衰竭指数' 进行诊断...")
+        # 直接获取衡量对手盘是否力竭的超级原子信号
+        raw_reversal_score = df.get('counterparty_exhaustion_index_D', pd.Series(0, index=df.index))
+        
+        # 使用双极归一化进行最终裁决，使其与其他公理分值范围对齐
+        reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
+        print(f"    -- [形态公理二: 反转] 诊断完成，最新分值: {reversal_score.iloc[-1]:.4f}")
+        return reversal_score.astype(np.float32)
+
+    def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V2.0 · 超级原子信号版】形态公理三：诊断“突破”
+        - 核心升级: 废弃对BBW等能量指标的间接推断，直接使用经过“质量审查”的
+                      “突破质量分”(`breakout_quality_score_D`)作为核心判断依据。
+        """
+        print("    -- [形态公理三: 突破] 正在使用 '突破质量分' 进行诊断...")
+        # 1. 突破方向判断 (逻辑保留)
+        is_breakout_up = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
+        is_breakout_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        breakout_direction = is_breakout_up - is_breakout_down
+
+        # 2. 获取突破质量分 (新的超级原子信号)
+        breakout_quality = df.get('breakout_quality_score_D', pd.Series(0, index=df.index))
+
+        # 3. 融合：突破方向 * 突破质量
+        # 只有当突破发生时(direction非0)，质量分才起作用
+        raw_breakout_score = breakout_direction * breakout_quality
+        
+        # 使用双极归一化进行最终裁决
+        breakout_score = normalize_to_bipolar(raw_breakout_score, df.index, window=norm_window)
+        print(f"    -- [形态公理三: 突破] 诊断完成，最新分值: {breakout_score.iloc[-1]:.4f}")
+        return breakout_score.astype(np.float32)

@@ -376,12 +376,14 @@ class IndicatorService:
         【V8.0 情报锻造中心版】为策略准备数据的统一入口。
         此版本将调用重构后的核心数据准备函数。
         """
-        # print(f"--- [数据准备V8.0-情报锻造中心] 开始为 {stock_code} 准备数据... ---")
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
             return {}
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
+        # --- 新增步骤: 【形态增强信号计算】 ---
+        # 在计算斜率之前，先计算依赖分钟数据的高级形态信号
+        all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config, self.calculator)
         # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
         all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # --- 步骤 3: 【VPA效率指标计算】 - 修正顺序，提前计算 ---
@@ -498,12 +500,17 @@ class IndicatorService:
                     存在性能开销。新版将所有待合并的补充DataFrame预处理后存入列表，最后通过一次 `df.join()` 
                     操作完成所有合并。这减少了中间对象的创建，提高了数据合并阶段的执行效率和内存使用效率。
         """
-        # 更新版本号和日志信息
-        # print(f"--- [数据准备V8.10] 开始为 {stock_code} 准备基础数据与指标 ---")
-        
         # --- 步骤 1: 解析配置，确定需要计算的时间周期 ---
         # 从策略配置文件中，找出所有需要生成指标的时间周期（如 'D', 'W', 'M'）
         required_tfs = self._discover_required_timeframes_from_config(config)
+        # 新增逻辑：检查是否需要为形态增强信号获取分钟数据
+        pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
+        if pattern_enhancement_params.get('enabled', False):
+            minute_tf = pattern_enhancement_params.get('minute_level_tf')
+            if minute_tf:
+                required_tfs.add(minute_tf)
+                logger.info(f"检测到形态增强信号已启用，已将分钟周期 '{minute_tf}' 加入数据获取计划。")
+
         if not required_tfs:
             # 如果配置中没有任何时间周期要求，则直接返回空字典，终止处理
             print("    - [配置读取] 未发现任何需要的时间周期，处理终止。")

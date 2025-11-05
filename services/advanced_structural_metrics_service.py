@@ -172,10 +172,8 @@ class AdvancedStructuralMetricsService:
         all_dates = sorted(minute_data_map.keys())
         from stock_models.time_trade import StockDailyBasic
         DailyModel = get_daily_data_model_by_code(stock_code)
-        # [代码修改开始]
         # 修复：将回溯期从50天扩大到100天，以满足长周期ATR(50)的计算需要
         history_start_date = min(all_dates) - timedelta(days=100)
-        # [代码修改结束]
         daily_data_qs = DailyModel.objects.filter(
             stock__stock_code=stock_code,
             trade_time__gte=history_start_date,
@@ -197,7 +195,6 @@ class AdvancedStructuralMetricsService:
             daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
             daily_basic_df = daily_basic_df.set_index('trade_time')
             daily_df = daily_df.join(daily_basic_df, how='left')
-        # [代码修改开始]
         # 新增：计算短、中、长三个周期的ATR
         daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=5, append=True, col_names=('ATR_5',))
         daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True, col_names=('ATR_14',))
@@ -205,7 +202,6 @@ class AdvancedStructuralMetricsService:
         atr_5 = daily_df['ATR_5']
         atr_14 = daily_df['ATR_14']
         atr_50 = daily_df['ATR_50']
-        # [代码修改结束]
         prev_day_metrics = {}
         for date, group in minute_data_map.items():
             if group.empty or len(group) < 10:
@@ -345,10 +341,8 @@ class AdvancedStructuralMetricsService:
                 weighted_variance = ((continuous_group['minute_vwap'] - daily_vwap)**2 * continuous_group['vol']).sum() / total_volume
                 results['cost_dispersion_index'] = np.sqrt(weighted_variance) / atr_14
         # --- 3. VPOC、价值区与博弈效率 ---
-        # [代码修改开始]
         # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
         vp = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
-        # [代码修改结束]
         vpoc_interval = vp.idxmax() if not vp.empty else np.nan
         today_vpoc = vpoc_interval.mid if pd.notna(vpoc_interval) else day_close_qfq
         vpoc_volume_ratio = vp.max() / continuous_group['vol'].sum() if not vp.empty and continuous_group['vol'].sum() > 0 else 0

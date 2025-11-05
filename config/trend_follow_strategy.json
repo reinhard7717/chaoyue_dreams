@@ -53,11 +53,36 @@
         "vol_ma_period": 55,
         "bbw_quantile": 0.25,
         "roc_threshold": 5.0
+      },
+      "pattern_enhancement_signals": {
+        "enabled": true,
+        "description": "【V1.0 · 新增】为形态公理提供更高维度的“超级原子信号”。",
+        "minute_level_tf": "60",
+        "intraday_vwap_divergence": {
+          "enabled": true,
+          "description": "计算日内VWAP偏离度积分，作为更真实的日内动量指标。"
+        },
+        "counterparty_exhaustion": {
+          "enabled": true,
+          "description": "计算对手盘衰竭指数，衡量趋势推动方的能量消耗。",
+          "efficiency_window": 21
+        },
+        "breakout_quality": {
+          "enabled": true,
+          "description": "对突破行为进行“质量审查”，过滤假突破。",
+          "volume_ma_period": 21,
+          "volume_multiplier": 1.5,
+          "weights": {
+            "volume": 0.4,
+            "main_force_flow": 0.4,
+            "chip_concentration": 0.2
+          }
+        }
       }
     },
     "slope_params": {
       "enabled": true,
-      "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的斜率计算。",
+      "说明": "【V242.0 · 矛与盾适配版】为所有情报引擎的公理模型提供必需的斜率指标。",
       "series_to_slope": {
         "close_D": [1, 5, 13, 21, 55],
         "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21],
@@ -70,67 +95,70 @@
         "ADX_14_D": [1, 5, 13, 21, 55],
         "MACDh_13_34_8_D": [1, 5, 13, 21, 55],
         "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
-        "energy_ratio_D": [5],
-        "peak_cost_D": [1, 5, 13, 21, 55],
-        "concentration_90pct_D": [1, 5, 13, 21, 55],
-        "concentration_70pct_D": [1, 5, 13, 21, 55],
-        "peak_control_ratio_D": [1, 5, 13, 21, 55],
-        "peak_stability_D": [1, 5, 13, 21, 55],
-        "cost_divergence_D": [1, 5, 13, 21, 55],
-        "winner_profit_margin_D": [1, 5, 13, 21, 55],
-        "chip_fault_strength_D": [1, 5, 13, 21, 55],
-        "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "chip_health_score_D": [1, 5, 13, 21, 55],
-        "profit_taking_urgency_D": [1, 5, 13, 21, 55],
-        "profit_realization_premium_D": [1, 5, 13, 21, 55],
-        "intraday_volume_gini_D": [1, 5, 13, 21, 55],
-        "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
-        "retail_capitulation_distribution_D": [5, 13, 21, 55],
-        "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
-        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55],
         "EMA_55_D": [5, 13, 55],
         "EMA_89_D": [5, 13, 89],
         "EMA_144_D": [5, 13, 21],
-        "EMA_233_D": [5, 13, 21]
+        "EMA_233_D": [5, 13, 21],
+        "说明_structure_axioms": "--- 新增：为结构稳定性公理(盾)提供支持 ---",
+        "MA_55_D": [5],
+        "MA_144_D": [5],
+        "说明_chip_axioms": "--- 新增：为筹码四大公理提供支持 ---",
+        "short_term_concentration_90pct_D": [5, 13, 21, 55],
+        "long_term_concentration_90pct_D": [5, 13, 21, 55],
+        "winner_concentration_90pct_D": [5, 13, 21, 55],
+        "total_winner_rate_D": [5, 13, 21, 55],
+        "cost_divergence_normalized_D": [5, 13, 21, 55],
+        "winner_loser_momentum_D": [5, 13, 21, 55],
+        "winner_conviction_index_D": [5, 13, 21, 55],
+        "loser_pain_index_D": [5, 13, 21, 55],
+        "chip_fatigue_index_D": [5, 13, 21, 55],
+        "dominant_peak_solidity_D": [5, 13, 21, 55],
+        "dominant_peak_cost_D": [5, 13, 21, 55],
+        "说明_pattern_axioms": "--- 新增：为形态三大公理提供支持 ---",
+        "intraday_vwap_div_index_D": [5, 13, 21],
+        "counterparty_exhaustion_index_D": [5, 13, 21],
+        "breakout_quality_score_D": [5, 13, 21]
       }
     },
     "accel_params": {
       "enabled": true,
-      "说明": "【V240.0 净化版】移除了所有由 AdvancedFundFlowMetricsService 预计算的资金流指标的加速度计算。",
+      "说明": "【V241.0 · 公理适配版】新增为筹码四大公理服务的原始信号加速度计算。",
       "series_to_accel": {
         "close_D": [1, 5, 13, 21, 55], "EMA_5_D": [5], "EMA_13_D": [13], "EMA_21_D": [21],
         "EMA_5_W": [5], "EMA_13_W": [13], "EMA_21_W": [21], "EMA_55_W": [55],
         "volume_D": [1, 5, 13, 21, 55], "BBW_21_2.0_D": [1, 5, 13], "RSI_13_D": [1, 5, 13, 21, 55],
         "CMF_21_D": [1, 5, 13, 21, 55], "ATR_14_D": [1, 5, 13, 21, 55], "ADX_14_D": [1, 5, 13, 21, 55],
         "MACDh_13_34_8_D": [1, 5, 13, 21, 55], "VPA_EFFICIENCY_D": [1, 5, 13, 21, 55],
-        "peak_cost_D": [1, 5, 13, 21, 55], "concentration_90pct_D": [1, 5, 13, 21, 55], "concentration_70pct_D": [1, 5, 13, 21, 55],
-        "peak_control_ratio_D": [1, 5, 13, 21, 55], "peak_stability_D": [1, 5, 13, 21, 55], "cost_divergence_D": [1, 5, 13, 21, 55],
-        "winner_profit_margin_D": [1, 5, 13, 21, 55],
-        "chip_fault_strength_D": [1, 5, 13, 21, 55], "chip_fault_vacuum_percent_D": [1, 5, 13, 21, 55],
-        "chip_health_score_D": [1, 5, 13, 21, 55],
-        "profit_taking_urgency_D": [1, 5, 13, 21, 55],
-        "profit_realization_premium_D": [1, 5, 13, 21, 55],
-        "intraday_volume_gini_D": [1, 5, 13, 21, 55],
-        "volume_weighted_time_index_D": [1, 5, 13, 21, 55],
-        "retail_capitulation_distribution_D": [5, 13, 21, 55],
-        "intraday_execution_alpha_D": [1, 5, 13, 21, 55],
-        "am_pm_vwap_ratio_D": [1, 5, 13, 21, 55],
         "EMA_55_D": [5, 13, 55],
         "EMA_89_D": [5, 13, 89],
         "EMA_144_D": [5, 13, 21],
-        "EMA_233_D": [5, 13, 21]
+        "EMA_233_D": [5, 13, 21],
+        "说明_chip_axioms": "--- 新增：为筹码四大公理提供支持 ---",
+        "short_term_concentration_90pct_D": [5, 13, 21, 55],
+        "long_term_concentration_90pct_D": [5, 13, 21, 55],
+        "winner_concentration_90pct_D": [5, 13, 21, 55],
+        "total_winner_rate_D": [5, 13, 21, 55],
+        "cost_divergence_normalized_D": [5, 13, 21, 55],
+        "winner_loser_momentum_D": [5, 13, 21, 55],
+        "winner_conviction_index_D": [5, 13, 21, 55],
+        "loser_pain_index_D": [5, 13, 21, 55],
+        "chip_fatigue_index_D": [5, 13, 21, 55],
+        "dominant_peak_solidity_D": [5, 13, 21, 55],
+        "dominant_peak_cost_D": [5, 13, 21, 55]
       }
     }
   },
   "cyclical_analysis_params": {
     "enabled": true,
-    "说明": "【V1.0】周期情报分析引擎参数，用于FFT分析。",
+    "说明": "【V2.0 · 双星系统版】周期情报分析引擎参数，用于FFT和Hurst分析。",
     "fft_window": 128,
     "comment_fft_window": "FFT计算窗口，单位：日。建议为2的幂，如64, 128, 256。",
     "top_n_cycles": 3,
     "comment_top_n_cycles": "分析最强的N个周期，用于计算周期性得分。",
     "detrend_method": "linear",
-    "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。"
+    "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。",
+    "hurst_period": 144,
+    "comment_hurst_period": "【新增】Hurst指数计算窗口，单位：日。"
   },
   "strategy_params": {
     "trend_follow": {
@@ -366,16 +394,17 @@
         "support_tolerance_pct": 0.015,
         "confluence_bonus_factor": 0.3,
         "sbc_threshold_pct": 0.05,
-        "despair_periods": { "short": [21, 5], "mid": [60, 21], "long": [250, 60] },
+        "despair_periods": { "short": [21, 5], "mid": [55, 21], "long": [233, 55] },
         "despair_weights": { "short": 0.2, "mid": 0.3, "long": 0.5 }
       },
       "process_intelligence_params": {
-        "comment": "【过程情报引擎 V2.1 · 战略升维版】配置块。引入'两阶段诊断'和'自适应物理模型'。",
+        "comment": "【过程情报引擎 V4.0 · 希格斯场分析法】配置块。核心元分析已从线性回归升级为'关系位移/关系动量'模型，以捕捉非线性变化。",
         "std_window": 21,
         "meta_window": 5,
         "norm_window": 55,
         "bipolar_sensitivity": 1.0,
         "meta_score_weights": [0.6, 0.4],
+        "说明_meta_score_weights": "【V4.0 希格斯场】权重数组，分别对应[关系位移(Displacement), 关系动量(Momentum)]",
         "diagnostics": [
           {
             "name": "PROCESS_META_PV_REL_BULLISH_TURN",
@@ -552,6 +581,47 @@
             "signal_B": "main_force_net_flow_consensus_D", "source_B": "df", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "description": "【逻辑修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金净流入变化-日内盈亏变化)，正分代表流量为正而盈亏为负，即'亏钱买入'。"
+          },
+          {
+            "name": "PROCESS_META_STOCK_SECTOR_SYNC",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "consensus",
+            "signal_A": "close_D", "source_A": "df", "change_type_A": "pct",
+            "signal_B": "industry_strength_rank_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "description": "【新增·龙头苏醒】诊断个股与所属板块强弱排名的同步性。正分代表个股上涨伴随板块排名提升。"
+          },
+          {
+            "name": "PROCESS_META_HOT_SECTOR_COOLING",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "consensus",
+            "signal_A": "THEME_HOTNESS_SCORE_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "net_flow_calibrated_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": -1.0,
+            "description": "【新增·板块轮动】诊断热门板块的冷却迹象。正分代表热度下降且资金流出。"
+          },
+          {
+            "name": "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "relationship_type": "divergence",
+            "signal_A": "SLOPE_5_close_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "SLOPE_5_MACDh_13_34_8_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": 1.0,
+            "description": "【新增·强弩之末】诊断价格趋势与动量趋势的背离。正分代表价格涨而动能跌（顶背离）。"
+          },
+          {
+            "name": "PROCESS_META_WINNER_CONVICTION_DECAY",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "diagnosis_mode": "direct_confirmation",
+            "relationship_type": "consensus",
+            "signal_A": "winner_conviction_index_D", "source_A": "df", "change_type_A": "diff",
+            "signal_B": "winner_conviction_index_D", "source_B": "df", "change_type_B": "diff",
+            "signal_b_factor_k": -1.0,
+            "description": "【新增·强弩之末】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
           }
         ]
       },
@@ -643,14 +713,6 @@
           "window": 5
         }
       },
-      "capitulation_reversal_params": {
-        "enabled": true,
-        "description": "【V2.0 · 迁移版】恐慌盘投降反转剧本的参数。此块将被迁移到 playbook_engine_params。",
-        "norm_window": 55,
-        "logistic_k": 0.1,
-        "logistic_x0": 50.0,
-        "final_score_exponent": 1.0
-      },
       "deceptive_flow_params": {
         "enabled": true,
         "description": "【V1.0】伪装散户吸筹诊断引擎参数。",
@@ -673,18 +735,13 @@
       },
       "pattern_params": {
         "enabled": true,
-        "description": "【V4.0 · 四维聚变版】形态智能引擎参数。基于“背离、反转、突破、跃迁”四维融合。",
-        "fusion_weights": {
-          "description": "看涨/看跌形态的四维融合权重。",
-          "divergence": 0.3,
-          "momentum_reversal": 0.3,
-          "structural_breakout": 0.2,
-          "energy_transition": 0.2
-        },
-        "continuation_params": {
-          "description": "看涨/看跌延续形态的识别参数。",
-          "rsi_threshold": 55,
-          "adx_threshold": 20
+        "description": "【V7.0 · 三大公理版】形态智能引擎参数。基于“背离、反转、突破”三大公理融合。",
+        "norm_window": 55,
+        "axiom_weights": {
+          "description": "融合三大形态公理时的权重。",
+          "divergence": 0.4,
+          "reversal": 0.4,
+          "breakout": 0.2
         }
       },
       "consolidation_breakout_params": {
@@ -716,181 +773,83 @@
       },
       "behavioral_dynamics_params": {
         "enabled": true,
-        "description": "【V23.1 · 双通道净值版】此模块现在只定义特定于行为领域的支柱权重和回声窗口。",
-        "reversal_echo_window": 3,
-        "pillar_weights": {
-          "price": 0.4, "volume": 0.3, "kline": 0.3
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V3.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
-        },
-        "supreme_fusion_params": {
-          "description": "【顶层神谕融合】最高神谕融合引擎的参数，用于融合多个动态原子信号。",
-          "fusion_weights": {
-            "description": "各原子底部信号在加权几何平均中的权重。",
-            "BOTTOM_FORMATION": 0.4,
-            "REBOUND_REVERSAL": 0.4,
-            "BULLISH_EXHAUSTION_REVERSAL": 0.2
-          },
-          "synergy_bonus_factor": 0.5
-        },
+        "description": "【V24.0 · 四大公理版】行为情报引擎参数。聚焦于价、量、时、空四大行为公理。",
         "mtf_normalization_params": {
-          "description": "【V1.0 · 新增】多时间框架(MTF)归一化引擎的权重配置。",
+          "description": "【V1.0】多时间框架(MTF)自适应归一化引擎的权重配置。",
           "default_weights": {
             "description": "默认权重，适用于大多数常规指标，侧重中短期动态。",
-            "weights": {
-              "5": 0.4,
-              "13": 0.3,
-              "21": 0.2,
-              "55": 0.1
-            }
+            "weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
           },
-          "volatility_weights": {
-            "description": "波动率指标专属权重，侧重中长期结构。",
-            "weights": {
-              "21": 0.5,
-              "55": 0.3,
-              "89": 0.2
-            }
+          "long_term_weights": {
+            "description": "长周期权重，适用于需要更长历史上下文的指标。",
+            "weights": { "21": 0.5, "55": 0.3, "89": 0.2 }
           }
+        },
+        "signal_dynamics_params": {
+          "description": "【V2.0】信号场论引擎参数，用于计算动量、推力等动态因子。",
+          "momentum_span": 5,
+          "potential_window": 120
+        },
+        "ultimate_signal_params": {
+          "description": "【V4.0】行为领域终极信号合成器参数。"
         }
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V602.0 · 四公理版】定义了基于“聚散、吸派、转移、峰健康”四大核心公理的新筹码引擎参数。",
+        "description": "【V8.0 · 四大公理版】定义了基于“聚散、成本、心态、形态”四大核心公理的新筹码引擎参数。",
         "tf_fusion_weights": {
-          "description": "【全息共振】在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
-          "1": 0.1,
+          "description": "【全息共振】在融合多时间级别(MTF)的公理分数时，赋予不同周期的权重。",
           "5": 0.4,
           "13": 0.3,
-          "21": 0.15,
-          "55": 0.05
+          "21": 0.2,
+          "55": 0.1
         },
         "axiom_weights": {
-          "description": "融合四大物理公理时的权重。",
+          "description": "融合四大筹码公理时的权重。",
           "concentration": 0.3,
-          "accumulation": 0.3,
-          "power_transfer": 0.25,
-          "peak_integrity": 0.15
-        },
-        "ma_trend_context_weights": {
-          "description": "【V2.0 · 四维趋势上下文版】为筹码引擎专用的四维趋势上下文评估提供权重。",
-          "alignment": 0.3,
-          "velocity": 0.2,
-          "acceleration": 0.2,
-          "meta_dynamics": 0.3
-        },
-        "relational_meta_analysis_params": {
-          "description": "【元分析贯穿协议】关系元分析参数，贯穿于每个核心公理的诊断过程。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
-        },
-        "context_modulation_params": {
-          "description": "上下文感知模块，用于增强或抑制筹码信号。",
-          "bottom_context_factor": 0.5,
-          "top_context_factor": 0.5
+          "cost_structure": 0.3,
+          "holder_sentiment": 0.2,
+          "peak_integrity": 0.2
         }
       },
       "dynamic_mechanics_params": {
-        "enabled": true, 
-        "description": "【V12.2 · 五大支柱版】新增“能量跃迁”支柱，用于捕捉市场能量的相变时刻。",
-        "pillar_weights": {
-          "volatility": 0.25, "efficiency": 0.25, "momentum": 0.2, "inertia": 0.2, "energy_transition": 0.1
-        },
-        "ma_health_fusion_weights": {
-          "description": "【五维均线健康度】五维均线健康度加权融合权重。关系分是核心。",
-          "alignment": 0.15,
-          "slope": 0.15,
-          "accel": 0.2,
-          "relational": 0.25,
-          "meta_dynamics": 0.25
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V2.0 · 双通道净值版】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+        "enabled": true,
+        "description": "【V5.0 · 四大公理版】定义了基于“动量、惯性、稳定性、能量”四大力学公理的引擎参数。",
+        "norm_window": 55,
+        "axiom_weights": {
+          "description": "融合四大力学公理时的权重。",
+          "momentum": 0.3,
+          "inertia": 0.3,
+          "stability": 0.2,
+          "energy": 0.2
         }
       },
       "foundation_ultimate_params": {
         "enabled": true,
-        "description": "【V14.4 · 职责净化版】基础情报引擎参数。已移除所有与抛压分析相关的配置。",
-        "pillar_weights": {
-          "ema": 0.3, "rsi": 0.25, "macd": 0.25, "cmf": 0.2
+        "description": "【V6.0 · 四大公理版】定义了基于“趋势、摆动、流体、波动”四大基础公理的引擎参数。",
+        "norm_window": 55,
+        "axiom_weights": {
+          "description": "融合四大基础公理时的权重。",
+          "trend": 0.4,
+          "oscillator": 0.2,
+          "flow": 0.3,
+          "volatility": 0.1
         },
         "ma_health_fusion_weights": {
-          "description": "【V2.0 · 五维元动力版】五维均线健康度加权融合权重。",
-          "alignment": 0.15,
-          "slope": 0.15,
-          "accel": 0.2,
-          "relational": 0.25,
-          "meta_dynamics": 0.25
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V2.1 · 名称规范化】关系元分析。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "description": "【趋势公理内部使用】EMA结构健康度融合权重。",
+          "alignment": 0.5,
+          "slope": 0.5
         }
       },
       "fund_flow_ultimate_params": {
         "enabled": true,
-        "description": "【V4.1 · 三公理版】资金流引擎已与筹码引擎哲学对齐，基于“聚散”、“转移”和“内部结构”三大物理公理。",
-        "periods": [1, 5, 13, 21, 55],
+        "description": "【V5.0 · 三大公理版】定义了基于“共识、信念、存量”三大资金流公理的引擎参数。",
+        "norm_window": 55,
         "axiom_weights": {
-          "description": "【权重调整】提升'内部结构'(聪明钱)的权重，使其成为决策核心。",
-          "concentration": 0.3,
-          "power_transfer": 0.3,
-          "internal_structure": 0.4
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V2.0 · 阿瑞斯之怒协议】关系元分析。采用(状态*权重)+(速度*权重)+(加速度*权重)的加法模型，突出动态变化。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【赫斯提亚的壁炉】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
-        },
-        "context_modulation_params": {
-          "description": "上下文感知模块，用于增强或抑制资金流信号。",
-          "bottom_context_factor": 0.5,
-          "top_context_factor": 0.5
-        },
-        "ma_trend_context_weights": {
-            "description": "【波塞冬的三叉戟】为资金流引擎专用的三维趋势上下文评估提供权重。",
-            "alignment": 0.4,
-            "velocity": 0.3,
-            "meta_dynamics": 0.3
-        },
-        "tf_weights": {
-          "description": "在融合多时间级别(MTF)的核心公理分数时，赋予不同周期的权重。短期动态更重要。",
-          "1": 0.1,
-          "5": 0.4,
-          "13": 0.3,
-          "21": 0.15,
-          "55": 0.05
+          "description": "融合三大资金流公理时的权重。",
+          "consensus": 0.5,
+          "conviction": 0.3,
+          "increment": 0.2
         }
       },
       "micro_behavior_params": {
@@ -926,30 +885,13 @@
       },
       "structural_ultimate_params": {
         "enabled": true,
-        "description": "【V20.0 · 配置同步版】定义了基于“趋势完整性、MTF协同、结构突破、结构稳定性”四大核心支柱的新结构引擎参数。",
-        "pillar_weights": {
-          "trend_integrity": 0.4,
+        "description": "【V4.0 · 矛与盾融合版】定义了基于“趋势形态、多周期协同、结构稳定性”三大核心公理的新结构引擎参数。",
+        "norm_window": 55,
+        "axiom_weights": {
+          "description": "融合三大结构公理时的权重。",
+          "trend_form": 0.5,
           "mtf_cohesion": 0.3,
-          "breakout_potential": 0.15,
-          "structural_stability": 0.15
-        },
-        "ma_health_fusion_weights": {
-          "description": "【五维均线健康度】五维均线健康度加权融合权重。元动力和关系分是核心。",
-          "alignment": 0.15,
-          "slope": 0.15,
-          "accel": 0.2,
-          "relational": 0.25,
-          "meta_dynamics": 0.25
-        },
-        "relational_meta_analysis_params": {
-          "description": "【V2.0 · 状态主导版】关系元分析。采用状态主导的权重。",
-          "state_weight": 0.6,
-          "velocity_weight": 0.2,
-          "acceleration_weight": 0.2
-        },
-        "neutral_zone_threshold": {
-          "value": 0.1,
-          "description": "【中性区阈值】健康度中性区阈值，绝对值低于此值的分数将被视为中性(0)。"
+          "stability": 0.2
         }
       },
       "cognitive_intelligence_params": {
@@ -970,12 +912,6 @@
             "fund_flow_health": 0.2,
             "chip_health": 0.2
           }
-        },
-        "relational_meta_analysis_params": {
-          "description": "对“领域共识”进行关系元分析，分析共识形成的速度与加速度。",
-          "state_weight": 0.3,
-          "velocity_weight": 0.3,
-          "acceleration_weight": 0.4
         },
         "neutral_zone_threshold": {
           "value": 0.1,
@@ -1030,6 +966,52 @@
             "fusion_method": "arithmetic",
             "description": "明确为流动性陷阱信号配置使用算术平均融合，以提高稳健性。"
           }
+        },
+        "playbook_synergies": {
+          "description": "【V3.0 · 时空一体版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
+          "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
+            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
+            "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
+          },
+          "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
+            "synergistic": ["SCORE_STRUCTURE_BULLISH_RESONANCE", "SCORE_FF_BULLISH_RESONANCE"],
+            "risk": ["COGNITIVE_RISK_EXHAUSTED_CROSSBOW"]
+          },
+          "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
+            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
+            "risk": []
+          },
+          "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
+            "synergistic": ["SCORE_STRUCTURE_BEARISH_RESONANCE"],
+            "risk": []
+          },
+          "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
+            "synergistic": ["PROCESS_META_STOCK_SECTOR_SYNC", "SCORE_STRUCTURE_BULLISH_RESONANCE"],
+            "risk": ["PROCESS_META_HOT_SECTOR_COOLING"]
+          },
+          "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
+            "synergistic": ["PROCESS_META_HOT_SECTOR_COOLING"],
+            "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
+          },
+          "COGNITIVE_RISK_EXHAUSTED_CROSSBOW": {
+            "synergistic": ["PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE", "PROCESS_META_WINNER_CONVICTION_DECAY"],
+            "risk": []
+          },
+          "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
+            "synergistic": ["SCORE_DYN_AXIOM_STABILITY"],
+            "risk": []
+          }
+        },
+        "relational_meta_analysis_params": {
+          "description": "【V3.0 · 时空一体版】认知层专属的关系元分析引擎参数，新增了空间维度分析的配置。",
+          "periods": [5, 13, 21, 55],
+          "period_weights": {"5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1},
+          "state_weight": 0.3,
+          "velocity_weight": 0.3,
+          "acceleration_weight": 0.4,
+          "corr_window": 21,
+          "corr_slope_window": 5,
+          "synergy_force_weight": 0.3
         }
       },
       "intraday_behavior_engine_params": {

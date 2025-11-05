@@ -1118,6 +1118,92 @@ class IndicatorCalculator:
             logger.error(f"计算 EOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
+    async def calculate_intraday_vwap_divergence_index(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 · 新增】计算日内VWAP偏离度积分指数。
+        - 指标含义: 将分钟线的收盘价与VWAP的偏离度在日内累加，反映全天多空力量的真实对比。
+        """
+        required_cols = ['close', 'vwap']
+        if df_minute is None or df_minute.empty or not all(c in df_minute.columns for c in required_cols):
+            logger.warning("计算日内VWAP偏离指数失败：分钟数据缺少 'close' 或 'vwap' 列。")
+            return None
+        try:
+            def _sync_calc():
+                # 1. 计算每分钟的VWAP偏离度
+                vwap_deviation = (df_minute['close'] - df_minute['vwap']) / df_minute['vwap'].replace(0, np.nan)
+                # 2. 按天重采样，并对日内偏离度进行求和（积分）
+                daily_integral = vwap_deviation.resample('D').sum()
+                # 3. 构建并返回结果
+                result_df = pd.DataFrame({'intraday_vwap_div_index': daily_integral})
+                return result_df.dropna()
+            return await asyncio.to_thread(_sync_calc)
+        except Exception as e:
+            logger.error(f"计算日内VWAP偏离指数时发生错误: {e}", exc_info=True)
+            return None
+
+    async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 · 新增】计算对手盘衰竭指数。
+        - 指标含义: 通过分析买卖效率，判断趋势推动方是否“油尽灯枯”。
+        """
+        required_cols = ['high', 'low', 'close', 'open', 'volume']
+        if df_minute is None or df_minute.empty or not all(c in df_minute.columns for c in required_cols):
+            logger.warning("计算对手盘衰竭指数失败：分钟数据缺少必要列。")
+            return None
+        try:
+            def _sync_calc():
+                df = df_minute.copy()
+                # 1. 估算主动性买卖盘量
+                price_range = (df['high'] - df['low']).replace(0, np.nan)
+                bull_power = (df['close'] - df['low']) / price_range
+                bear_power = (df['high'] - df['close']) / price_range
+                df['active_buy_vol'] = df['volume'] * bull_power.fillna(0.5)
+                df['active_sell_vol'] = df['volume'] * bear_power.fillna(0.5)
+                # 2. 计算买卖效率
+                df['buy_efficiency'] = price_range / df['active_buy_vol'].replace(0, np.nan)
+                df['sell_efficiency'] = price_range / df['active_sell_vol'].replace(0, np.nan)
+                # 3. 按天聚合效率
+                daily_efficiency = df[['buy_efficiency', 'sell_efficiency']].resample('D').mean()
+                # 4. 判断衰竭状态（效率创近期新低）
+                buy_exhaustion = (daily_efficiency['buy_efficiency'] <= daily_efficiency['buy_efficiency'].rolling(efficiency_window).min()).astype(float)
+                sell_exhaustion = (daily_efficiency['sell_efficiency'] <= daily_efficiency['sell_efficiency'].rolling(efficiency_window).min()).astype(float)
+                # 5. 合成双极性指数：正分代表卖方衰竭，负分代表买方衰竭
+                exhaustion_index = sell_exhaustion - buy_exhaustion
+                return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
+            return await asyncio.to_thread(_sync_calc)
+        except Exception as e:
+            logger.error(f"计算对手盘衰竭指数时发生错误: {e}", exc_info=True)
+            return None
+
+    async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, volume_ma_period: int, volume_multiplier: float, weights: dict) -> Optional[pd.DataFrame]:
+        """
+        【V1.0 · 新增】计算突破质量分。
+        - 指标含义: 对每日的K线进行“突破潜力”的质量审查，为形态突破公理提供依据。
+        """
+        required_cols = ['volume_D', f'VOL_MA_{volume_ma_period}_D', 'main_force_net_flow_consensus_D', 'concentration_90pct_D']
+        if df_daily is None or df_daily.empty or not all(c in df_daily.columns for c in required_cols):
+            logger.warning(f"计算突破质量分失败：日线数据缺少必要列 {required_cols}。")
+            return None
+        try:
+            def _sync_calc():
+                df = df_daily.copy()
+                # 证据1: 成交量确认
+                volume_confirm = (df['volume_D'] > df[f'VOL_MA_{volume_ma_period}_D'] * volume_multiplier).astype(float)
+                # 证据2: 主力资金确认
+                flow_confirm = (df['main_force_net_flow_consensus_D'] > 0).astype(float)
+                # 证据3: 筹码结构确认
+                chip_confirm = (df['concentration_90pct_D'].diff().fillna(0) > 0).astype(float)
+                # 加权融合
+                quality_score = (
+                    volume_confirm * weights.get('volume', 0.4) +
+                    flow_confirm * weights.get('main_force_flow', 0.4) +
+                    chip_confirm * weights.get('chip_concentration', 0.2)
+                )
+                return pd.DataFrame({'breakout_quality_score': quality_score})
+            return await asyncio.to_thread(_sync_calc)
+        except Exception as e:
+            logger.error(f"计算突破质量分时发生错误: {e}", exc_info=True)
+            return None
 
 
 

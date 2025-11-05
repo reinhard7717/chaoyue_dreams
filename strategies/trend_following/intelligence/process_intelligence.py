@@ -124,9 +124,9 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V3.0.0 · 门控分析版】对“关系分”进行元分析，输出分数。
-        - 核心升级: 新增 'gated_meta_analysis' 诊断模式。在该模式下，会先计算完整的动态分数，
-                      然后在最后一步使用一个“情境门”进行过滤，确保信号只在最相关的市场环境下激活。
+        【V4.0.0 · 希格斯场分析法】对“关系分”进行元分析，输出分数。
+        - 核心革命: 废除基于线性回归(linreg)的“趋势/加速度”模型，引入全新的“关系位移/关系动量”模型。
+                      这使得引擎能更灵敏地捕捉关系的非线性变化和“势”的拐点，更符合A股特性。
         - 核心修复: 再次强调并修正“加速度”计算的致命逻辑错误。加速度是速度(trend)的一阶导数，
                       必须使用 relationship_trend.diff(1) 进行计算。
         """
@@ -144,26 +144,35 @@ class ProcessIntelligence:
         if diagnosis_mode == 'direct_confirmation':
             meta_score = relationship_score
         else:
-            relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-            # 最终校准：加速度是速度(trend)的一阶导数，必须使用 diff(1)
-            relationship_accel = relationship_trend.diff(1).fillna(0)
-            bipolar_trend_strength = normalize_to_bipolar(
-                series=relationship_trend,
+            # --- “希格斯场”分析法核心实现 ---
+            # 1. 计算“关系位移”(Displacement)，取代旧的“趋势”(Trend)
+            # 它衡量关系分在meta_window周期内的净变化量，更真实地反映短期变化。
+            relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
+            
+            # 2. 计算“关系动量”(Momentum)，取代旧的“加速度”(Acceleration)
+            # 它是“关系位移”的一阶导数，衡量关系变化本身的速度，即“势”的变化。
+            relationship_momentum = relationship_displacement.diff(1).fillna(0)
+
+            # 3. 将“位移”和“动量”归一化为双极性强度分
+            bipolar_displacement_strength = normalize_to_bipolar(
+                series=relationship_displacement,
                 target_index=df_index,
                 window=self.norm_window,
                 sensitivity=self.bipolar_sensitivity
             )
-            bipolar_accel_strength = normalize_to_bipolar(
-                series=relationship_accel,
+            bipolar_momentum_strength = normalize_to_bipolar(
+                series=relationship_momentum,
                 target_index=df_index,
                 window=self.norm_window,
                 sensitivity=self.bipolar_sensitivity
             )
-            trend_weight = self.meta_score_weights[0]
-            accel_weight = self.meta_score_weights[1]
-            meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+            
+            # 4. 融合“位移”与“动量”，得到最终的元分析分数
+            displacement_weight = self.meta_score_weights[0]
+            momentum_weight = self.meta_score_weights[1]
+            meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
         
-        # --- 情境门控逻辑 ---
+        # --- 情境门控逻辑 (保持不变) ---
         if diagnosis_mode == 'gated_meta_analysis':
             gate_condition_config = config.get('gate_condition', {})
             gate_type = gate_condition_config.get('type')
@@ -186,9 +195,8 @@ class ProcessIntelligence:
 
     def _diagnose_split_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】分裂型元关系诊断器
-        - 核心职责: 将一个双极性的元分析分数，在源头分裂为两个互斥的单极性信号：机会与风险。
-        - 收益: 彻底解决了下游计分和报告的逻辑混乱问题，使信号意图更纯粹。
+        【V2.0 · 希格斯场分析法】分裂型元关系诊断器
+        - 核心升级: 同步采用全新的“关系位移/关系动量”模型进行核心计算。
         """
         states = {}
         output_names = config.get('output_names', {})
@@ -202,23 +210,24 @@ class ProcessIntelligence:
         if relationship_score.empty:
             return {}
         # 步骤2: 对关系分进行动态元分析，得到最终的双极性 meta_score
-        relationship_trend = ta.linreg(relationship_score, length=self.meta_window).fillna(0)
-        relationship_accel = relationship_trend.diff(1).fillna(0)
-        bipolar_trend_strength = normalize_to_bipolar(
-            series=relationship_trend,
+        # --- “希格斯场”分析法核心实现 ---
+        relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
+        relationship_momentum = relationship_displacement.diff(1).fillna(0)
+        bipolar_displacement_strength = normalize_to_bipolar(
+            series=relationship_displacement,
             target_index=df.index,
             window=self.norm_window,
             sensitivity=self.bipolar_sensitivity
         )
-        bipolar_accel_strength = normalize_to_bipolar(
-            series=relationship_accel,
+        bipolar_momentum_strength = normalize_to_bipolar(
+            series=relationship_momentum,
             target_index=df.index,
             window=self.norm_window,
             sensitivity=self.bipolar_sensitivity
         )
-        trend_weight = self.meta_score_weights[0]
-        accel_weight = self.meta_score_weights[1]
-        meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
+        displacement_weight = self.meta_score_weights[0]
+        momentum_weight = self.meta_score_weights[1]
+        meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
         meta_score = meta_score.clip(-1, 1)
         # 步骤3: 信号分裂
         # 机会信号: 只取正向部分，代表机会强度

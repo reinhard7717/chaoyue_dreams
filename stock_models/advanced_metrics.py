@@ -588,9 +588,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         **CONTROL_METRICS,
         **GAME_EFFICIENCY_METRICS,
         **FORWARD_LOOKING_METRICS,
-        # [代码新增开始]
         **ADVANCED_BATTLEFIELD_METRICS,
-        # [代码新增结束]
         **AUXILIARY_METRICS,
     }
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
@@ -623,11 +621,9 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'volatility_expansion_ratio',
         'price_shock_factor',
         'auction_showdown_score',
-        # [代码新增开始]
         'trend_quality_score',
         'closing_momentum_index',
         'volume_structure_skew',
-        # [代码新增结束]
     ]
     for name, verbose in CORE_METRICS.items():
         if name in BOOLEAN_FIELDS:

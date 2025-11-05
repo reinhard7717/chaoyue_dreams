@@ -322,9 +322,7 @@ class ChipFeatureCalculator:
         atr_14d = context.get('atr_14d')
         results['auction_intent_signal'] = 0.0
         results['auction_closing_position'] = 0.0
-        # [代码修改开始]
         # 移除所有探针，恢复生产逻辑
-        # [代码修改结束]
         if minute_df is not None and not minute_df.empty and 'trade_time' in minute_df.columns and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             auction_start_time = datetime.time(14, 57)
             pre_auction_df = minute_df[minute_df['trade_time'].dt.time < auction_start_time]
@@ -377,7 +375,6 @@ class ChipFeatureCalculator:
         # 1. 成本结构共识与筹码成本动量
         concentration_90pct = context.get('concentration_90pct')
         total_winner_rate = context.get('total_winner_rate')
-        # [代码修改开始]
         # 增强鲁棒性：如果集中度指标为空，则赋予一个中性值，而不是让计算失败
         if pd.notna(total_winner_rate):
             if pd.notna(concentration_90pct):
@@ -387,7 +384,6 @@ class ChipFeatureCalculator:
                 concentration_factor = 0.5
             profit_factor = total_winner_rate / 100.0
             results['structural_consensus_score'] = concentration_factor * profit_factor * 100
-        # [代码修改结束]
         # 升级为 `dominant_cost_momentum`
         dominant_peak_cost = context.get('dominant_peak_cost')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
@@ -542,7 +538,6 @@ class ChipFeatureCalculator:
                 results['active_loser_rate'] = self.df[active_mask & (self.df['price'] > close_price)]['percent'].sum()
                 results['locked_profit_rate'] = self.df[~active_mask & (self.df['price'] < close_price)]['percent'].sum()
                 results['locked_loss_rate'] = self.df[~active_mask & (self.df['price'] > close_price)]['percent'].sum()
-        # [代码修改开始]
         # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
         results['chip_fault_blockage_ratio'] = 0.0 # 新增：为指标设置默认值0.0
@@ -553,7 +548,6 @@ class ChipFeatureCalculator:
             fault_zone_df = self.df[(self.df['price'] > fault_zone_low) & (self.df['price'] < fault_zone_high)]
             if not fault_zone_df.empty:
                 results['chip_fault_blockage_ratio'] = fault_zone_df['percent'].sum() # 仅在有断层时覆盖默认值
-        # [代码修改结束]
         # 6. 分层成本
         high_20d, low_20d = self.ctx.get('high_20d'), self.ctx.get('low_20d')
         if pd.notna(high_20d) and pd.notna(low_20d):

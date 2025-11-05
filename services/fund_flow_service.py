@@ -130,13 +130,11 @@ class AdvancedFundFlowMetricsService:
         return stock_info, MetricsModel, is_incremental, last_metric_date, fetch_start_date
         
     async def _load_and_merge_sources(self, stock_info, data_dfs: dict, base_daily_df: pd.DataFrame):
-        # [代码修改开始]
         """
         【V2.1 · 冲突解决版】
         - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
         - 核心修复: 在合并前，主动检查并移除与 `base_daily_df` 的重叠列，根除 'columns overlap' 错误。
         """
-        # [代码修改结束]
         def standardize_and_prepare(df: pd.DataFrame, source: str) -> pd.DataFrame:
             if df.empty: return df
             df['trade_time'] = pd.to_datetime(df['trade_time'])
@@ -318,10 +316,8 @@ class AdvancedFundFlowMetricsService:
                 dominance_ratio = abs(retail_flow) / total_opinionated_flow
                 divergence_penalty = 1 if np.sign(mf_flow) != np.sign(retail_flow) and mf_flow != 0 and retail_flow != 0 else 0
                 results['retail_flow_dominance_index'] = np.sign(retail_flow) * dominance_ratio * (1 + divergence_penalty) * 100
-        # [代码修改开始]
         # 修复：将错误的 'pct_chg' 修正为正确的 'pct_change'
         pct_change = pd.to_numeric(daily_data_series.get('pct_change'), errors='coerce')
-        # [代码修改结束]
         if pd.notna(pct_change) and pd.notna(mf_flow) and total_turnover_wan > 0:
             standardized_mf_flow = mf_flow / total_turnover_wan
             if abs(standardized_mf_flow) > 1e-6:
@@ -410,10 +406,8 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame(), {}, failures_list
         attributed_minute_map = {date: res.pop('minute_data_attributed') for date, res in results.items() if 'minute_data_attributed' in res}
         pvwap_df = pd.DataFrame.from_dict(results, orient='index').set_index('trade_time')
-        # [代码修改开始]
         # 修复：现在pvwap_df自身就包含了daily_vwap列，直接将其传递给下游即可
         aggregate_costs_df = self._calculate_aggregate_pvwap_costs(pvwap_df, daily_df)
-        # [代码修改结束]
         final_df = pvwap_df.join(aggregate_costs_df)
         return final_df, attributed_minute_map, failures_list
 
@@ -423,7 +417,6 @@ class AdvancedFundFlowMetricsService:
         - 核心修复: 在合并数据时，同时补充成交量(_vol)和成交额(_amount)列，根除T+0效率分母为零的错误。
         """
         temp_df = pvwap_df.copy()
-        # [代码修改开始]
         # 修复：同时定义需要补充的成交量和成交额列
         cols_to_join = [
             'buy_sm_vol', 'sell_sm_vol', 'buy_md_vol', 'sell_md_vol',
@@ -432,7 +425,6 @@ class AdvancedFundFlowMetricsService:
             'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount'
         ]
         existing_cols_to_join = [col for col in cols_to_join if col in daily_df.columns]
-        # [代码修改结束]
         agg_cols = [
             'avg_cost_main_buy', 'avg_cost_main_sell', 'avg_cost_retail_buy', 'avg_cost_retail_sell',
             'main_force_cost_alpha', 'retail_cost_beta', 'main_force_t0_spread_ratio',
@@ -440,10 +432,8 @@ class AdvancedFundFlowMetricsService:
         ]
         if not existing_cols_to_join:
             return pd.DataFrame(columns=agg_cols, index=pvwap_df.index)
-        # [代码修改开始]
         # 修复：合并所有需要的列
         temp_df = temp_df.join(daily_df[existing_cols_to_join])
-        # [代码修改结束]
         def weighted_avg_cost(cost_cols, vol_cols):
             numerator = pd.Series(0.0, index=temp_df.index)
             denominator = pd.Series(0.0, index=temp_df.index)

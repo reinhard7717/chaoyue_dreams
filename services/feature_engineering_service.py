@@ -371,6 +371,51 @@ class FeatureEngineeringService:
         all_dfs[timeframe] = df
         return all_dfs
 
+    async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
+        """
+        【V1.0 · 新增】形态增强信号编排器
+        - 核心职责: 根据配置，调用计算器中新增的“超级原子信号”算法，并将其集成到日线数据中。
+        """
+        params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
+        if not params.get('enabled', False):
+            return all_dfs
+        df_daily = all_dfs.get('D')
+        if df_daily is None or df_daily.empty:
+            return all_dfs
+        minute_tf = params.get('minute_level_tf', '60')
+        df_minute = all_dfs.get(minute_tf)
+        tasks = []
+        # 任务1: 日内VWAP偏离指数
+        vwap_params = params.get('intraday_vwap_divergence', {})
+        if vwap_params.get('enabled') and df_minute is not None:
+            tasks.append(calculator.calculate_intraday_vwap_divergence_index(df_minute))
+        # 任务2: 对手盘衰竭指数
+        exhaustion_params = params.get('counterparty_exhaustion', {})
+        if exhaustion_params.get('enabled') and df_minute is not None:
+            tasks.append(calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
+        # 任务3: 突破质量分
+        quality_params = params.get('breakout_quality', {})
+        if quality_params.get('enabled'):
+            tasks.append(calculator.calculate_breakout_quality_score(
+                df_daily,
+                quality_params.get('volume_ma_period', 21),
+                quality_params.get('volume_multiplier', 1.5),
+                quality_params.get('weights', {})
+            ))
+        if not tasks:
+            return all_dfs
+        results = await asyncio.gather(*tasks)
+        for res_df in results:
+            if res_df is not None and not res_df.empty:
+                # 将结果的索引标准化，以确保能与日线数据正确合并
+                res_df.index = pd.to_datetime(res_df.index, utc=True).normalize()
+                df_daily = df_daily.join(res_df, how='left')
+        # 对新合并的列进行前向填充，保证数据连续性
+        new_cols = [col for res_df in results if res_df is not None for col in res_df.columns]
+        df_daily[new_cols] = df_daily[new_cols].ffill()
+        all_dfs['D'] = df_daily
+        logger.info("形态增强信号计算完成并已集成。")
+        return all_dfs
 
 
 

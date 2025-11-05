@@ -3,14 +3,13 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_unified_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class MicroBehaviorEngine:
     """
-    微观行为诊断引擎
-    - 核心职责: 诊断微观层面的、复杂的、但又非常具体的市场行为模式。
-                这些模式通常是多个基础信号的精巧组合，用于识别主力的特定意图。
-    - 来源: 从臃肿的 CognitiveIntelligence 模块中拆分而来。
+    【V2.0 · 三大公理重构版】
+    - 核心升级: 废弃旧的复杂诊断模型，引入基于主力微观操盘本质的“伪装、试探、效率”三大公理。
+                使引擎更聚焦、逻辑更清晰、信号更纯粹。
     """
     def __init__(self, strategy_instance):
         """
@@ -25,626 +24,130 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 调用链修复版】微观行为诊断引擎总指挥
-        - 核心修复: 修正了内部数据流。现在每当一个子模块计算出新信号，
-                      都会立即更新到全局的 self.strategy.atomic_states 中，
-                      确保后续调用的模块能获取到最新的情报。
-        - 核心修复: 修正了对亢奋事件诊断方法的调用，确保调用的是新的双极性信号方法。
+        【V5.0 · 三大公理重构版】微观行为诊断引擎总指挥
+        - 核心流程:
+          1. 并行诊断三大公理，生成纯粹的微观行为原子信号。
+          2. 融合三大公理，合成终极的微观共振信号。
         """
+        print("启动【V5.0 · 三大公理重构版】微观行为诊断...")
         all_states = {}
-        def update_states(new_states: Dict[str, pd.Series]):
-            if new_states:
-                all_states.update(new_states)
-                self.strategy.atomic_states.update(new_states)
-        update_states(self.synthesize_early_momentum_ignition(df))
-        update_states(self.diagnose_deceptive_retail_flow(df))
-        update_states(self.synthesize_microstructure_dynamics(df))
-        update_states(self._synthesize_profit_taking_pressure_risk(df))
-        update_states(self.diagnose_hermes_gambit(df))
-        update_states(self._diagnose_consolidation_breakout(df))
-        early_ignition_score = all_states.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'))
-        update_states(self.synthesize_reversal_reliability_score(
-            df, early_ignition_score=early_ignition_score
-        ))
-
-        # 修正调用，确保调用的是新的双极性信号方法
-        update_states(self.synthesize_bipolar_euphoric_event(df))
+        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            print("微观行为引擎已在配置中禁用，跳过。")
+            return {}
         
+        norm_window = get_param_value(p_conf.get('norm_window'), 55)
+
+        # --- 步骤一: 诊断三大公理 ---
+        print("工序一: 正在诊断三大微观行为公理...")
+        axiom_deception = self._diagnose_axiom_deception(df, norm_window)
+        axiom_probe = self._diagnose_axiom_probe(df, norm_window)
+        axiom_efficiency = self._diagnose_axiom_efficiency(df, norm_window)
+
+        all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
+        all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
+        all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
+
+        # --- 步骤二: 融合三大公理，合成终极信号 ---
+        print("工序二: 正在合成终极微观共振信号...")
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
+            'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3
+        })
+        
+        # 构造一个融合了所有公理的原始双极性健康分
+        bipolar_health = (
+            axiom_deception * axiom_weights['deception'] +
+            axiom_probe * axiom_weights['probe'] +
+            axiom_efficiency * axiom_weights['efficiency']
+        ).clip(-1, 1)
+
+        # 分解为互斥的单极性共振分
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
+        all_states['SCORE_MICRO_BULLISH_RESONANCE'] = bullish_resonance
+        all_states['SCORE_MICRO_BEARISH_RESONANCE'] = bearish_resonance
+
+        print("【V5.0 · 三大公理重构版】微观行为诊断完成。")
         return all_states
 
-    def synthesize_early_momentum_ignition(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V9.1 · 商神杖激活版】早期动能点火诊断模块
-        """
-        states = {}
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {}) # 读取微观行为模块的专属配置
-        # 步骤一：计算原始的、纯粹的微观行为分数
-        candle_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        body_size = (df['close_D'] - df['open_D']).clip(lower=0)
-        body_strength_score = (body_size / candle_range).fillna(0.0)
-        position_in_range_score = ((df['close_D'] - df['low_D']) / candle_range).fillna(0.0)
-        momentum_strength_score = (df['pct_change_D'] / 0.10).clip(0, 1).fillna(0.0)
-        raw_ignition_score = (body_strength_score * position_in_range_score * momentum_strength_score)
-        # 步骤二：获取均线趋势上下文分数
-        # 调用全新的、功能更强大的四维均线健康度评估引擎
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        # 步骤三：构建融合了趋势上下文的“瞬时关系快照分”
-        # 核心思想：只有在健康的均线结构下发生的点火，才是有效的点火。
-        snapshot_score = raw_ignition_score * ma_health_score # 使用新的 ma_health_score
-        # 步骤四：对快照分进行关系元分析，得到最终的动态调制分数
-        final_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-        states['COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION'] = final_score.astype(np.float32)
-        return states
-
-    def diagnose_deceptive_retail_flow(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V6.0 · 筹码升维版】隐秘吸筹诊断引擎
-        - 核心升维: 对“筹码归集”支柱的诊断，从单一的“斜率”维度，升维至“状态+速度+加速度”三位一体的四维时空分析，
-                      与筹码情报引擎的分析范式完全对齐，极大提升了对真实筹码集中的识别能力。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'deceptive_flow_params', {})
-        if not get_param_value(p.get('enabled'), True): return states
-        periods = [5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        deception_scores_by_period = {}
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            def get_fused_pillar_score(metric_name: str, ascending: bool, period_t: int, period_c: int) -> pd.Series:
-                tactical_score = normalize_score(df.get(metric_name), df.index, window=period_t, ascending=ascending)
-                context_score = normalize_score(df.get(metric_name), df.index, window=period_c, ascending=ascending)
-                return (tactical_score * context_score)**0.5
-            disguise_score = get_fused_pillar_score(f'trade_granularity_impact_D', ascending=False, period_t=p_tactical, period_c=p_context)
-            
-            # 对“筹码归集”支柱进行三位一体升维
-            chip_metric = 'concentration_90pct_D'
-            chip_static = df.get(chip_metric, 0)
-            chip_slope = df.get(f'SLOPE_{p_tactical}_{chip_metric}', 0)
-            chip_accel = df.get(f'ACCEL_{p_tactical}_{chip_metric}', 0)
-            # 战术层
-            tactical_chip_static = normalize_score(chip_static, df.index, p_tactical, ascending=True)
-            tactical_chip_slope = normalize_score(chip_slope, df.index, p_tactical, ascending=True)
-            tactical_chip_accel = normalize_score(chip_accel, df.index, p_tactical, ascending=True)
-            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
-            # 上下文层
-            context_chip_static = normalize_score(chip_static, df.index, p_context, ascending=True)
-            context_chip_slope = normalize_score(chip_slope, df.index, p_context, ascending=True)
-            context_chip_accel = normalize_score(chip_accel, df.index, p_context, ascending=True)
-            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
-            accumulation_score = (tactical_chip_quality * context_chip_quality)**0.5
-            
-
-            vpa_inefficiency = get_fused_pillar_score('VPA_EFFICIENCY_D', ascending=False, period_t=p_tactical, period_c=p_context)
-            price_stagnation = 1.0 - get_fused_pillar_score(df.get(f'SLOPE_{p_tactical}_close_D', pd.Series(0, index=df.index)).abs(), ascending=True, period_t=p_tactical, period_c=p_context)
-            suppression_score = (vpa_inefficiency * price_stagnation)**0.5
-            cost_advantage_score = get_fused_pillar_score('main_buy_cost_advantage_D', ascending=False, period_t=p_tactical, period_c=p_context)
-            snapshot_score = (disguise_score * accumulation_score * suppression_score * cost_advantage_score)**(1/4)
-            period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-            deception_scores_by_period[p_tactical] = period_score
-        final_fused_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                final_fused_score += deception_scores_by_period.get(p_tactical, 0.0) * weight
-        states['SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION'] = final_fused_score.clip(0, 1).astype(np.float32)
-        return states
-
-    def diagnose_hermes_gambit(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V5.0 · 资金流升维版】“赫尔墨斯诡计”诊断引擎 (压单吸筹识别)
-        - 核心升维: 对“表象矛盾”证据链中主力资金流出信号进行四维质量评估。
-        """
-        states = {}
-        periods = [1, 5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        hermes_scores_by_period = {}
-        for i, p in enumerate(sorted_periods):
-            context_p = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p
-            # --- 证据1: 表象矛盾 (分层计算) ---
-            # 使用四维质量评估主力资金流出
-            # 主力资金流出质量 (MFNF, ascending=False)
-            main_force_outflow_quality = self._calculate_4d_metric_quality(
-                df, 'main_force_net_flow_consensus', p, context_p, ascending=False
-            )
-            # 资金源分歧度 (发散度越高越好，ascending=True)
-            tactical_div_ts_ths = normalize_score(df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)), df.index, window=p, ascending=True)
-            tactical_div_ts_dc = normalize_score(df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)), df.index, window=p, ascending=True)
-            context_div_ts_ths = normalize_score(df.get('divergence_ts_ths_D', pd.Series(0, index=df.index)), df.index, window=context_p, ascending=True)
-            context_div_ts_dc = normalize_score(df.get('divergence_ts_dc_D', pd.Series(0, index=df.index)), df.index, window=context_p, ascending=True)
-            fused_source_divergence = (np.maximum(tactical_div_ts_ths, tactical_div_ts_dc) * np.maximum(context_div_ts_ths, context_div_ts_dc))**0.5
-            # 融合：高质量的流出表象 * 高质量的分歧
-            contradiction_flow_score = (main_force_outflow_quality * fused_source_divergence)**0.5
-            
-            # --- 证据2: 价量矛盾 (分层计算) ---
-            tactical_volume_spike = normalize_score(df['volume_D'], df.index, window=p, ascending=True)
-            tactical_price_stagnation = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, window=p, ascending=True)
-            tactical_contradiction_pv = (tactical_volume_spike * tactical_price_stagnation)**0.5
-            context_volume_spike = normalize_score(df['volume_D'], df.index, window=context_p, ascending=True)
-            context_price_stagnation = 1.0 - normalize_score(df['pct_change_D'].abs(), df.index, window=context_p, ascending=True)
-            context_contradiction_pv = (context_volume_spike * context_price_stagnation)**0.5
-            contradiction_pv_score = (tactical_contradiction_pv * context_contradiction_pv)**0.5
-            # --- 证据3: 结果矛盾 (筹码集中度上升，已在筹码升维中修改) ---
-            chip_metric = 'concentration_90pct'
-            chip_static = df.get(f'{chip_metric}_D', 0)
-            chip_slope = df.get(f'SLOPE_{p}_{chip_metric}_D', 0)
-            chip_accel = df.get(f'ACCEL_{p}_{chip_metric}_D', 0)
-            tactical_chip_static = normalize_score(chip_static, df.index, p, ascending=True)
-            tactical_chip_slope = normalize_score(chip_slope, df.index, p, ascending=True)
-            tactical_chip_accel = normalize_score(chip_accel, df.index, p, ascending=True)
-            tactical_chip_quality = (tactical_chip_static * tactical_chip_slope * tactical_chip_accel)**(1/3)
-            context_chip_static = normalize_score(chip_static, df.index, context_p, ascending=True)
-            context_chip_slope = normalize_score(df.get(f'SLOPE_{context_p}_{chip_metric}_D', 0), df.index, context_p, ascending=True)
-            context_chip_accel = normalize_score(df.get(f'ACCEL_{context_p}_{chip_metric}_D', 0), df.index, context_p, ascending=True)
-            context_chip_quality = (context_chip_static * context_chip_slope * context_chip_accel)**(1/3)
-            chip_concentration_rising_score = (tactical_chip_quality * context_chip_quality)**0.5
-            # --- 证据4: 环境矛盾 (静态上下文，无需分层) ---
-            trend_quality_context = self._get_atomic_score(df, 'COGNITIVE_SCORE_TREND_QUALITY', 0.5)
-            # --- 最终融合，生成“瞬时关系快照分” ---
-            hermes_gambit_snapshot = (
-                contradiction_flow_score *
-                contradiction_pv_score *
-                chip_concentration_rising_score *
-                trend_quality_context
-            )**(1/4)
-            # --- 对快照分进行关系元分析，捕捉其动态变化 ---
-            final_period_score = self._perform_micro_behavior_relational_meta_analysis(df, hermes_gambit_snapshot)
-            hermes_scores_by_period[p] = final_period_score
-        # --- 跨周期融合，生成最终信号 ---
-        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.1, 55: 0.1} # 赋予中短期更高的权重
-        final_fused_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
-                final_fused_score += hermes_scores_by_period.get(p, 0.0) * weight
-        states['SCORE_MICRO_HERMES_GAMBIT'] = final_fused_score.clip(0, 1).astype(np.float32)
-        return states
-
-    def synthesize_reversal_reliability_score(self, df: pd.DataFrame, early_ignition_score: pd.Series) -> Dict[str, pd.Series]:
-        """
-        【V6.0 · 分层印证版】高质量战备可靠性诊断引擎
-        - 核心升级: 引入“分层动态印证”框架。对构成可靠性的核心原子信号（如位置、超卖、趋势潜力）进行分层验证，提升最终信号的稳健性。
-        """
-        states = {}
-        p = get_params_block(self.strategy, 'reversal_reliability_params', {})
-        if not get_param_value(p.get('enabled'), True):
-            return states
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        # 引入分层印证框架
-        periods = [5, 13, 21, 55] # 此处使用稍长周期
-        sorted_periods = sorted(periods)
-        reliability_scores_by_period = {}
-        # 静态信号，循环外计算
-        chip_accumulation_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
-        chip_reversal_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BOTTOM_REVERSAL')
-        conviction_strengthening_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING')
-        shareholder_turnover_score = np.maximum.reduce([chip_accumulation_score.values, chip_reversal_score.values, conviction_strengthening_score.values])
-        shareholder_quality_score = pd.Series(shareholder_turnover_score, index=df.index, dtype=np.float32)
-        states['SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT'] = shareholder_quality_score
-        vol_compression_score = get_unified_score(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
-        if len(early_ignition_score) != len(df.index):
-            early_ignition_score = early_ignition_score.reindex(df.index, fill_value=0.0)
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            # --- 背景分 (分层计算) ---
-            tactical_price_pos = 1.0 - normalize_score(df['close_D'], df.index, window=p_tactical, ascending=True)
-            tactical_rsi_w = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=p_tactical, ascending=False)
-            tactical_background = np.maximum(tactical_price_pos, tactical_rsi_w)
-            context_price_pos = 1.0 - normalize_score(df['close_D'], df.index, window=p_context, ascending=True)
-            context_rsi_w = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=p_context, ascending=False)
-            context_background = np.maximum(context_price_pos, context_rsi_w)
-            background_score = (tactical_background * context_background)**0.5
-            # --- 趋势潜力分 (分层计算) ---
-            fft_trend_score = self._get_atomic_score(df, 'SCORE_TRENDING_REGIME_FFT', 0.0)
-            fft_trend_slope = fft_trend_score.diff(5).fillna(0)
-            tactical_trend_potential = normalize_score(fft_trend_slope.clip(lower=0), df.index, window=p_tactical, ascending=True)
-            context_trend_potential = normalize_score(fft_trend_slope.clip(lower=0), df.index, window=p_context, ascending=True)
-            trend_potential_score = (tactical_trend_potential * context_trend_potential)**0.5
-            # --- 重新组装 ---
-            ignition_weights = get_param_value(p.get('ignition_weights'), {'early': 0.5, 'vol': 0.2, 'potential': 0.3})
-            ignition_confirmation_score = ((early_ignition_score ** ignition_weights['early']) * (vol_compression_score ** ignition_weights['vol']) * (trend_potential_score ** ignition_weights['potential']))
-            main_reliability_weights = get_param_value(p.get('main_reliability_weights'), {'shareholder': 0.5, 'ignition': 0.5})
-            main_score = ((shareholder_quality_score ** main_reliability_weights['shareholder']) * (ignition_confirmation_score ** main_reliability_weights['ignition']))
-            bonus_factor = get_param_value(p.get('reversal_reliability_bonus_factor'), 0.5)
-            raw_reliability_score = (main_score * (1 + background_score * bonus_factor)).clip(0, 1)
-            snapshot_score = raw_reliability_score * ma_health_score
-            period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-            reliability_scores_by_period[p_tactical] = period_score
-        # --- 跨周期融合 ---
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        final_fused_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                final_fused_score += reliability_scores_by_period.get(p_tactical, 0.0) * weight
-        states['COGNITIVE_SCORE_REVERSAL_RELIABILITY'] = final_fused_score.clip(0, 1).astype(np.float32)
-        # 临时保留部分原子信号输出
-        states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = background_score.astype(np.float32) if 'background_score' in locals() else pd.Series(0.0, index=df.index)
-        states['INTERNAL_SCORE_TREND_POTENTIAL'] = trend_potential_score.astype(np.float32) if 'trend_potential_score' in locals() else pd.Series(0.0, index=df.index)
-        states['SCORE_IGNITION_CONFIRMATION'] = ignition_confirmation_score.astype(np.float32) if 'ignition_confirmation_score' in locals() else pd.Series(0.0, index=df.index)
+    def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """【V1.0 · 新增】微观行为公理一：诊断“伪装与欺骗”"""
+        # 核心逻辑：寻找“表象”与“实质”的背离
+        # 证据1: 资金流表象 vs 筹码实质
+        # 表象：主力资金净流出
+        main_force_outflow = -df.get('main_force_net_flow_calibrated_D', 0).clip(upper=0)
+        # 实质：筹码仍在集中
+        chip_concentration_increase = df.get('SLOPE_5_concentration_90pct_D', 0).clip(lower=0)
         
-        return states
+        flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
 
-    def synthesize_microstructure_dynamics(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V14.0 · 双星归位版】市场微观结构动态诊断引擎
-        - 核心重构: 彻底废除原有的非对称、易冲突的逻辑。
-                      1. 创建一个统一的、双极性的“权力转移”动态分。
-                      2. 将此双极性分数拆分为两个绝对互斥的看涨机会和看跌风险信号。
-                      3. 将原有的复杂风险逻辑剥离至独立的 `_synthesize_profit_taking_pressure_risk` 引擎。
-        """
-        states = {}
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        recent_reversal_context = self._get_atomic_score(df, 'SCORE_CONTEXT_RECENT_REVERSAL', 0.0)
-        risk_suppression_factor = (1.0 - recent_reversal_context).clip(0, 1)
-        periods = [5, 13, 21, 55]
-        sorted_periods = sorted(periods)
+        # 证据2: 交易颗粒度表象 vs 订单实质
+        # 表象：交易颗粒度变小（伪装成散户）
+        granularity_decrease = -df.get('SLOPE_5_inferred_active_order_size_D', 0).clip(upper=0)
+        # 实质：主力控盘度提升
+        control_increase = df.get('SLOPE_5_main_force_control_leverage_D', 0).clip(lower=0)
+
+        granularity_vs_control_deception = granularity_decrease * control_increase
+
+        # 融合两大欺骗证据
+        raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
         
-        # 全新的、统一的、对称的逻辑
-        power_shift_scores = {}
-        conviction_scores = {}
-        granularity_impact_metric = 'trade_granularity_impact_D'
-        concentration_metric = 'trade_concentration_index_D'
-        conviction_metric = 'main_force_conviction_ratio_D'
+        # 使用双极归一化进行最终裁决
+        deception_score = normalize_to_bipolar(raw_deception_score, df.index, window=norm_window)
+        return deception_score.astype(np.float32)
 
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-
-            # --- 1. 计算纯粹的“权力转移”双极性分数 ---
-            # 证据(UP): 颗粒度/集中度提升
-            granularity_up = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=True)
-            dominance_up = normalize_score(df.get(f'SLOPE_{p_tactical}_{concentration_metric}'), df.index, window=p_tactical, ascending=True)
-            evidence_up = (granularity_up * dominance_up)**0.5
-            
-            # 证据(DOWN): 颗粒度/集中度下降
-            granularity_down = normalize_score(df.get(f'SLOPE_{p_tactical}_{granularity_impact_metric}'), df.index, window=p_tactical, ascending=False)
-            dominance_down = normalize_score(df.get(f'SLOPE_{p_tactical}_{concentration_metric}'), df.index, window=p_tactical, ascending=False)
-            evidence_down = (granularity_down * dominance_down)**0.5
-
-            # 生成双极性分数: 正代表权力流向主力，负代表流向散户
-            bipolar_power_shift_snapshot = evidence_up - evidence_down
-            power_shift_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, bipolar_power_shift_snapshot)
-
-            # --- 2. 计算纯粹的“主力信念”双极性分数 ---
-            conviction_up = normalize_score(df.get(f'SLOPE_{p_tactical}_{conviction_metric}'), df.index, window=p_tactical, ascending=True)
-            conviction_down = normalize_score(df.get(f'SLOPE_{p_tactical}_{conviction_metric}'), df.index, window=p_tactical, ascending=False)
-            bipolar_conviction_snapshot = conviction_up - conviction_down
-            conviction_scores[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, bipolar_conviction_snapshot)
-
-        # --- 跨周期融合 ---
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        def fuse_bipolar_scores(score_dict):
-            final_score = pd.Series(0.0, index=df.index)
-            total_weight = sum(tf_weights.get(p, 0) for p in periods)
-            if total_weight > 0:
-                for p in periods:
-                    weight = tf_weights.get(p, 0) / total_weight
-                    final_score += score_dict.get(p, 0.0) * weight
-            return final_score.clip(-1, 1) # 确保结果在[-1, 1]
-
-        final_bipolar_power_shift = fuse_bipolar_scores(power_shift_scores)
-        final_bipolar_conviction = fuse_bipolar_scores(conviction_scores)
-
-        # --- 拆分为两个互斥的单极信号 ---
-        # 权力转移
-        states['COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE'] = (final_bipolar_power_shift.clip(lower=0) * ma_health_score).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL'] = (final_bipolar_power_shift.clip(upper=0).abs() * (1 - ma_health_score) * risk_suppression_factor).astype(np.float32)
+    def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """【V1.0 · 新增】微观行为公理二：诊断“试探与确认”"""
+        # 核心逻辑：分析带长影线的K线背后的真实意图
+        total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         
-        # 主力信念
-        states['COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING'] = (final_bipolar_conviction.clip(lower=0) * ma_health_score).astype(np.float32)
-        states['COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING'] = (final_bipolar_conviction.clip(upper=0).abs() * (1 - ma_health_score) * risk_suppression_factor).astype(np.float32)
+        # 证据1: 上影线试探 (正分)
+        # 表象：长上影线
+        upper_shadow_ratio = ((df['high_D'] - np.maximum(df['open_D'], df['close_D'])) / total_range).fillna(0)
+        # 实质：主力资金并未净流出
+        main_force_not_outflow = df.get('main_force_net_flow_calibrated_D', 0).clip(lower=0)
         
-        return states
+        probe_up_score = upper_shadow_ratio * main_force_not_outflow
 
-    def _synthesize_profit_taking_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V6.0 · 燃料转化协议版】“利润兑现压力”风险诊断引擎
-        - 核心升级: 签署“燃料转化协议”。当存在吸收或锁仓机会时，利润兑现压力不再是简单被削弱，
-                      而是被彻底归零，其全部能量100%转化为“燃料”，用于增强对应的机会信号。
-                      这解决了风险信号“阴魂不散”的逻辑矛盾。
-        """
-        states = {}
-        signal_name = 'COGNITIVE_RISK_PROFIT_TAKING_PRESSURE'
-        periods = [1, 5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        pressure_scores_by_period = {}
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            urgency_quality = self._calculate_4d_metric_quality(
-                df, 'profit_taking_urgency_D', p_tactical, p_context, ascending=True
-            )
-            premium_quality = self._calculate_4d_metric_quality(
-                df, 'profit_realization_premium_D', p_tactical, p_context, ascending=True
-            )
-            snapshot_score = (urgency_quality * premium_quality)**0.5
-            pressure_scores_by_period[p_tactical] = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-        tf_weights = {1: 0.1, 5: 0.4, 13: 0.3, 21: 0.15, 55: 0.05}
-        raw_fused_risk_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p in periods:
-                weight = tf_weights.get(p, 0) / total_weight
-                raw_fused_risk_score += pressure_scores_by_period.get(p, 0.0) * weight
-        # --- 燃料转化机制 ---
-        absorption_reversal_opp = self._get_atomic_score(df, 'SCORE_OPPORTUNITY_ABSORPTION_REVERSAL', 0.0)
-        chip_lockdown_opp = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
-        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL_PRE_ENHANCEMENT'] = absorption_reversal_opp.copy()
-        states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN_PRE_ENHANCEMENT'] = chip_lockdown_opp.copy()
-        suppression_shield = np.maximum(absorption_reversal_opp.values, chip_lockdown_opp.values)
+        # 证据2: 下影线试探 (正分)
+        # 表象：长下影线
+        lower_shadow_ratio = ((np.minimum(df['open_D'], df['close_D']) - df['low_D']) / total_range).fillna(0)
+        # 实质：主力资金净流入
+        main_force_inflow = df.get('main_force_net_flow_calibrated_D', 0).clip(lower=0)
 
-        # 实施“燃料转化协议”
-        # 1. 如果护盾存在，风险强制归零；否则，保留原始风险。
-        final_risk_with_context = np.where(suppression_shield > 0, 0.0, raw_fused_risk_score.values)
-        # 2. 如果护盾存在，全部原始风险都转化为燃料；否则，燃料为零。
-        fuel_generated = np.where(suppression_shield > 0, raw_fused_risk_score.values, 0.0)
-        states[signal_name] = pd.Series(final_risk_with_context, index=df.index).clip(0, 1).astype(np.float32)
-        
-        total_opp_strength = absorption_reversal_opp.values + chip_lockdown_opp.values
-        safe_total_opp_strength = np.where(total_opp_strength == 0, 1.0, total_opp_strength)
-        absorption_weight = absorption_reversal_opp.values / safe_total_opp_strength
-        lockdown_weight = chip_lockdown_opp.values / safe_total_opp_strength
-        enhanced_absorption_opp = (absorption_reversal_opp + fuel_generated * absorption_weight).clip(0, 1)
-        enhanced_lockdown_opp = (chip_lockdown_opp + fuel_generated * lockdown_weight).clip(0, 1)
-        states['SCORE_OPPORTUNITY_ABSORPTION_REVERSAL'] = enhanced_absorption_opp.astype(np.float32)
-        states['SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN'] = enhanced_lockdown_opp.astype(np.float32)
-        return states
+        probe_down_score = lower_shadow_ratio * main_force_inflow
 
-    def synthesize_bipolar_euphoric_event(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V9.0 · 双极性重构版】亢奋事件诊断引擎
-        - 核心重构: 废除风险和机会双信号输出。引入单一的双极性信号，彻底解决重复计分问题。
-        - 新逻辑:
-          1. 计算原始的“亢奋事件”分。
-          2. 构建“看涨上下文护盾”。
-          3. 最终输出一个[-1, 1]的双极性信号：
-             - 护盾强 -> 信号为正 (机会)
-             - 护盾弱 -> 信号为负 (风险)
-        """
-        states = {}
+        # 证据3: 诱多式突破 (负分)
+        # 表象：突破近期高点
+        breakout_high = (df['close_D'] > df['high_D'].rolling(21).max().shift(1)).astype(float)
+        # 实质：主力资金并未跟进
+        main_force_not_inflow = -df.get('main_force_net_flow_calibrated_D', 0).clip(upper=0)
 
-        # 1. 重命名信号以反映其双极性特性
-        signal_name = 'COGNITIVE_BIPOLAR_EUPHORIC_EVENT'
-        
-        p_risk = get_params_block(self.strategy, 'euphoric_risk_params', {})
-        if not get_param_value(p_risk.get('enabled'), True):
-            return states
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        epsilon = 1e-9
-        periods = [5, 13, 21, 55]
-        sorted_periods = sorted(periods)
-        euphoric_scores_by_period = {}
-        ma_health_score = self._calculate_ma_health(df, p_conf, 55)
-        for i, p_tactical in enumerate(sorted_periods):
-            p_context = sorted_periods[i + 1] if i + 1 < len(sorted_periods) else p_tactical
-            tactical_bias = normalize_score(df.get(f'BIAS_{p_tactical}_D', pd.Series(0.5, index=df.index)).abs(), df.index, window=p_tactical, ascending=True)
-            tactical_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_tactical}_D', df['volume_D']) + epsilon)).fillna(1.0)
-            tactical_vol_spike = normalize_score(tactical_vol_ratio, df.index, window=p_tactical, ascending=True)
-            tactical_atr_ratio = (df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / (df['close_D'] + epsilon)).fillna(0.0)
-            tactical_volatility = normalize_score(tactical_atr_ratio, df.index, window=p_tactical, ascending=True)
-            context_bias = normalize_score(df.get(f'BIAS_{p_context}_D', pd.Series(0.5, index=df.index)).abs(), df.index, window=p_context, ascending=True)
-            context_vol_ratio = (df['volume_D'] / (df.get(f'VOL_MA_{p_context}_D', df['volume_D']) + epsilon)).fillna(1.0)
-            context_vol_spike = normalize_score(context_vol_ratio, df.index, window=p_context, ascending=True)
-            context_atr_ratio = (df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / (df['close_D'] + epsilon)).fillna(0.0)
-            context_volatility = normalize_score(context_atr_ratio, df.index, window=p_context, ascending=True)
-            bias_score = (tactical_bias * context_bias)**0.5
-            volume_spike_score = (tactical_vol_spike * context_vol_spike)**0.5
-            volatility_score = (tactical_volatility * context_volatility)**0.5
-            total_range = (df['high_D'] - df['low_D']).replace(0, epsilon)
-            upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['open_D'])).clip(lower=0)
-            upthrust_score = (upper_shadow / total_range).clip(0, 1).fillna(0.0)
-            ma55 = df.get('EMA_55_D', df['close_D'])
-            rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-            wave_channel_height = (rolling_high_55d - ma55).replace(0, epsilon)
-            stretch_from_ma55_score = ((df['close_D'] - ma55) / wave_channel_height).clip(0, 1).fillna(0.5)
-            ma55_is_rising = (ma55 > ma55.shift(3)).astype(float)
-            bias_55d = df.get('BIAS_55_D', pd.Series(0.5, index=df.index))
-            price_is_near_ma55 = (bias_55d.abs() < 0.15).astype(float)
-            bbw_d = df.get('BBW_21_2.0_D', pd.Series(0.5, index=df.index))
-            volatility_was_low = (bbw_d.shift(1) < bbw_d.rolling(60).quantile(0.3)).astype(float)
-            safe_launch_context_score = (ma55_is_rising * price_is_near_ma55 * volatility_was_low)
-            raw_risk_factors = (bias_score * volume_spike_score * volatility_score * upthrust_score)**(1/4)
-            raw_euphoric_risk_score = (raw_risk_factors * stretch_from_ma55_score * (1 - safe_launch_context_score))
-            snapshot_score = raw_euphoric_risk_score * ma_health_score
-            period_score = self._perform_micro_behavior_relational_meta_analysis(df, snapshot_score)
-            euphoric_scores_by_period[p_tactical] = period_score
-        tf_weights = {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}
-        dynamic_raw_euphoric_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.get(p, 0) for p in periods)
-        if total_weight > 0:
-            for p_tactical in periods:
-                weight = tf_weights.get(p_tactical, 0) / total_weight
-                dynamic_raw_euphoric_score += euphoric_scores_by_period.get(p_tactical, 0.0) * weight
-        bottom_zone_context = self._get_atomic_score(df, 'SCORE_CONTEXT_DEEP_BOTTOM_ZONE', 0.0)
-        chip_lockdown_context = self._get_atomic_score(df, 'SCORE_CHIP_BOTTOM_ACCUMULATION_LOCKDOWN', 0.0)
-        winner_conviction_raw = self._get_atomic_score(df, 'PROCESS_WINNER_CONVICTION_DYNAMICS', 0.0)
-        winner_conviction_context = (winner_conviction_raw.clip(-1, 1) * 0.5 + 0.5)
-        bullish_context_shield = (
-            bottom_zone_context *
-            chip_lockdown_context *
-            winner_conviction_context
-        )**(1/3)
+        fake_breakout_score = breakout_high * main_force_not_inflow
 
-        # 2. 将护盾分[0, 1]映射为调制器[-1, 1]
-        shield_modulator = (bullish_context_shield * 2) - 1
-        # 3. 计算最终的双极性信号
-        bipolar_euphoric_score = (dynamic_raw_euphoric_score * shield_modulator).clip(-1, 1)
-        # 4. 存储唯一的双极性信号，废除旧的双信号
-        states[signal_name] = bipolar_euphoric_score.astype(np.float32)
-        
-        return states
+        # 融合所有试探行为
+        raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
 
-    def _perform_micro_behavior_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
-        """
-        【V5.3 · 加速度校准版】微观行为专用的关系元分析核心引擎
-        - 核心修复: 修正了“加速度”计算的致命逻辑错误。加速度是速度的一阶导数，
-                      因此其计算应为 relationship_trend.diff(1)，而不是错误的 diff(meta_window)。
-        """
-        p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
-        p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
-        w_state = get_param_value(p_meta.get('state_weight'), 0.6)
-        w_velocity = get_param_value(p_meta.get('velocity_weight'), 0.2)
-        w_acceleration = get_param_value(p_meta.get('acceleration_weight'), 0.2)
-        norm_window = 55
-        meta_window = 5
-        bipolar_sensitivity = 1.0
-        bipolar_snapshot = snapshot_score.clip(0, 1)
-        relationship_trend = bipolar_snapshot.diff(meta_window).fillna(0)
-        velocity_score = normalize_to_bipolar(
-            series=relationship_trend, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
+        # 使用双极归一化进行最终裁决
+        probe_score = normalize_to_bipolar(raw_probe_score, df.index, window=norm_window)
+        return probe_score.astype(np.float32)
 
-        # 致命错误修复：加速度是速度(trend)的一阶导数，应使用 diff(1)
-        relationship_accel = relationship_trend.diff(1).fillna(0)
-        
-        acceleration_score = normalize_to_bipolar(
-            series=relationship_accel, target_index=df.index,
-            window=norm_window, sensitivity=bipolar_sensitivity
-        )
-        bullish_state = bipolar_snapshot.clip(0, 1)
-        bullish_velocity = velocity_score.clip(0, 1)
-        bullish_acceleration = acceleration_score.clip(0, 1)
-        total_bullish_force = (
-            bullish_state * w_state +
-            bullish_velocity * w_velocity +
-            bullish_acceleration * w_acceleration
-        )
-        bearish_state = (bipolar_snapshot.clip(-1, 0) * -1)
-        bearish_velocity = (velocity_score.clip(-1, 0) * -1)
-        bearish_acceleration = (acceleration_score.clip(-1, 0) * -1)
-        total_bearish_force = (
-            bearish_state * w_state +
-            bearish_velocity * w_velocity +
-            bearish_acceleration * w_acceleration
-        )
-        net_force = (total_bullish_force - total_bearish_force).clip(-1, 1)
-        final_bipolar_score = np.where(bipolar_snapshot >= 0, net_force.clip(lower=0), net_force.clip(upper=0))
-        final_unipolar_score = (pd.Series(final_bipolar_score, index=df.index) + 1) / 2.0
-        return final_unipolar_score.astype(np.float32)
+    def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """【V1.0 · 新增】微观行为公理三：诊断“成本与效率”"""
+        # 核心逻辑：衡量“投入”与“产出”的比率
+        # 投入：成交额放大程度
+        amount_ma = df['amount_D'].rolling(norm_window).mean().replace(0, np.nan)
+        amount_input = (df['amount_D'] / amount_ma).fillna(1.0)
 
-    def _calculate_ma_health(self, df: pd.DataFrame, params: dict, norm_window: int) -> pd.Series:
-        """
-        【V1.4 · 双极性输出版】“赫尔墨斯的商神杖”四维均线健康度评估引擎
-        - 核心升级: 遵循统一范式，输出一个[-1, 1]的双极性健康分。
-                      +1 代表极度看涨，-1 代表极度看跌，0 代表中性。
-        """
-        p_ma_health = get_param_value(params.get('ma_health_fusion_weights'), {})
-        weights = {
-            'alignment': get_param_value(p_ma_health.get('alignment'), 0.15),
-            'slope': get_param_value(p_ma_health.get('slope'), 0.15),
-            'accel': get_param_value(p_ma_health.get('accel'), 0.2),
-            'relational': get_param_value(p_ma_health.get('relational'), 0.5)
-        }
-        ma_periods = [5, 13, 21, 55]
-        ma_cols = [f'EMA_{p}_D' for p in ma_periods]
-        if not all(col in df.columns for col in ma_cols):
-            return pd.Series(0.0, index=df.index, dtype=np.float32) # 默认返回0.0 (中性)
-        ma_values = np.stack([df[col].values for col in ma_cols], axis=0)
-        # 1. 排列健康度 (Alignment Health)
-        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
-        bear_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float) for i in range(len(ma_periods) - 1)]
-        bull_alignment_health = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
-        bear_alignment_health = np.mean(bear_alignment_scores, axis=0) if bear_alignment_scores else np.full(len(df.index), 0.5)
-        # 2. 速度健康度 (Slope Health)
-        slope_cols = [f'SLOPE_5_{col}' for col in ma_cols]
-        if all(col in df.columns for col in slope_cols):
-            normalized_slopes = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in slope_cols]
-            slope_health = np.mean(np.stack(normalized_slopes, axis=0), axis=0)
-        else:
-            slope_health = np.full(len(df.index), 0.0)
-        # 3. 加速度健康度 (Accel Health)
-        accel_cols = [f'ACCEL_5_{col}' for col in ma_cols]
-        if all(col in df.columns for col in accel_cols):
-            normalized_accels = [normalize_to_bipolar(df[col], df.index, norm_window).values for col in accel_cols]
-            accel_health = np.mean(np.stack(normalized_accels, axis=0), axis=0)
-        else:
-            accel_health = np.full(len(df.index), 0.0)
-        # 4. 关系健康度 (Relational Health)
-        ma_std = np.std(ma_values / df['close_D'].values[:, np.newaxis].T, axis=0)
-        relational_health_raw = 1.0 - normalize_score(pd.Series(ma_std, index=df.index), df.index, norm_window, ascending=True).values
-        relational_health = (relational_health_raw * 2 - 1).clip(-1, 1) # 转换为双极性
-        # 5. 融合：排列分单独计算，其余为双极性
-        # 融合逻辑：将排列分转换为双极性，然后进行加权平均
-        bipolar_alignment = bull_alignment_health - bear_alignment_health
-        scores = np.stack([bipolar_alignment, slope_health, accel_health, relational_health], axis=0)
-        weights_array = np.array(list(weights.values()))
-        weights_array /= weights_array.sum()
-        # 使用加权算术平均进行融合
-        final_score_values = np.sum(scores * weights_array[:, np.newaxis], axis=0)
-        return pd.Series(final_score_values, index=df.index, dtype=np.float32).clip(-1, 1)
+        # 产出：价格变化幅度
+        price_output = df['pct_change_D'].abs() * 100 # 乘以100放大
 
-    def _calculate_4d_metric_quality(self, df: pd.DataFrame, metric_name: str, p: int, context_p: int, ascending: bool) -> pd.Series:
-        """
-        【V1.3 · 类型安全修复版】计算原子指标的四维质量分。
-        - 核心修复: 将 df.get() 的默认返回值从原始类型 0 修正为 pd.Series(0.0, index=df.index)，
-                      从根本上解决了当上游指标缺失时，导致下游 normalize_score 函数因类型不匹配而崩溃的致命错误。
-        """
-        # 建立健壮的列名处理协议，确保总能正确找到带 '_D' 后缀的列
-        base_metric_name = metric_name[:-2] if metric_name.endswith('_D') else metric_name
-        full_metric_name = f"{base_metric_name}_D"
-        # 创建一个标准的、类型安全的全零Series作为默认值
-        default_series = pd.Series(0.0, index=df.index)
+        # 效率 = 产出 / 投入
+        # 为了避免除以0，并处理方向，我们使用更稳健的公式
+        # 效率分 = 价格变化方向 * (价格变化幅度 - k * 成交额放大程度)
+        # 正价格变化，但成交额放大过多，效率分也可能为负（滞涨）
+        k = 0.1 # 调节系数
+        raw_efficiency_score = np.sign(df['pct_change_D']) * (price_output - k * amount_input)
 
-        # 状态
-        static = df.get(full_metric_name, default_series)
-        # 速度 (战术层)
-        slope = df.get(f'SLOPE_{p}_{full_metric_name}', default_series)
-        # 加速度 (战术层)
-        accel = df.get(f'ACCEL_{p}_{full_metric_name}', default_series)
-        
-        # 战术层 (p)
-        tactical_static = normalize_score(static, df.index, p, ascending=ascending)
-        tactical_slope = normalize_score(slope, df.index, p, ascending=ascending)
-        tactical_accel = normalize_score(accel, df.index, p, ascending=ascending)
-        tactical_quality = (tactical_static * tactical_slope * tactical_accel)**(1/3)
-        # 战略/上下文层 (context_p)
-        context_static = normalize_score(static, df.index, context_p, ascending=ascending)
-
-        # 使用类型安全的默认值
-        context_slope = normalize_score(df.get(f'SLOPE_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
-        context_accel = normalize_score(df.get(f'ACCEL_{context_p}_{full_metric_name}', default_series), df.index, context_p, ascending=ascending)
-        
-        context_quality = (context_static * context_slope * context_accel)**(1/3)
-        # 最终融合 (战术 * 战略)
-        return (tactical_quality * context_quality)**0.5
-
-    def _diagnose_consolidation_breakout(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 新增】“结构性盘整突破”诊断引擎
-        - 核心逻辑: 识别价格在经历充分盘整后，放量向上突破盘整区间的关键结构性事件。
-        """
-        #
-        states = {}
-        signal_name = 'SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT'
-        p_conf = get_params_block(self.strategy, 'consolidation_breakout_params', {})
-        if not get_param_value(p_conf.get('enabled'), True):
-            return states
-        min_duration = get_param_value(p_conf.get('min_consolidation_duration'), 5)
-        vol_ma_period = get_param_value(p_conf.get('volume_confirmation_ma_period'), 21)
-        min_closing_strength = get_param_value(p_conf.get('min_closing_strength'), 0.7)
-        # 证据1: 战备状态 (处于盘整期且持续时间足够)
-        is_consolidating = df.get('is_consolidation_D', pd.Series(0, index=df.index)) == 1
-        duration_met = df.get('dynamic_consolidation_duration_D', pd.Series(0, index=df.index)) >= min_duration
-        setup_condition = is_consolidating & duration_met
-        # 证据2: 突破信号 (收盘价突破盘整上轨)
-        breakout_condition = df['close_D'] > df.get('dynamic_consolidation_high_D', pd.Series(np.inf, index=df.index))
-        # 证据3: 力量确认 (成交量 & 收盘强度)
-        vol_ma_col = f'VOL_MA_{vol_ma_period}_D'
-        volume_confirmation = df['volume_D'] > df.get(vol_ma_col, pd.Series(np.inf, index=df.index))
-        closing_strength = df.get('closing_strength_index_D', pd.Series(0.0, index=df.index)) > min_closing_strength
-        confirmation_condition = volume_confirmation & closing_strength
-        # 融合所有条件，生成瞬时快照分
-        snapshot_score = (setup_condition & breakout_condition & confirmation_condition).astype(float)
-        # 对快照分进行关系元分析，得到最终的动态信号
-        final_signal_dict = self._perform_micro_behavior_relational_meta_analysis(df=df, snapshot_score=snapshot_score)
-        states[signal_name] = final_signal_dict
-        return states
-        
-
-
-
+        # 使用双极归一化进行最终裁决
+        efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
+        return efficiency_score.astype(np.float32)

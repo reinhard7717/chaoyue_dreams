@@ -120,7 +120,6 @@ class AdvancedChipMetricsService:
         return data_dfs
 
     def _preprocess_and_merge_data(self, stock_code: str, data_dfs: dict, base_daily_df: pd.DataFrame, close_map: dict, date_20d_ago_map: dict, atr_map: dict, high_20d_map: dict, low_20d_map: dict, high_5d_map: dict, low_5d_map: dict, turnover_vol_5d_map: dict) -> pd.DataFrame:
-        # [代码修改开始]
         """
         【V4.0 · 瘦身重构版】
         - 核心重构: 剥离日线和基础面数据的合并逻辑，改为接收由上游任务统一准备好的 `base_daily_df`。
@@ -134,7 +133,6 @@ class AdvancedChipMetricsService:
         cyq_perf_df.set_index('trade_time', inplace=True)
         # 架构升级：直接与上游传入的 base_daily_df 合并，不再自行处理 daily_data 和 daily_basic
         daily_combined_df = base_daily_df.join(cyq_perf_df, how='left')
-        # [代码修改结束]
         merged_df = pd.merge(cyq_chips_df, daily_combined_df.reset_index(), on='trade_time', how='right')
         merged_df.sort_values(by=['trade_time', 'price'], inplace=True)
         merged_df['prev_20d_trade_time'] = merged_df['trade_time'].map(date_20d_ago_map)

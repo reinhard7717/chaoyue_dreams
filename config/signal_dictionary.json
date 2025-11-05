@@ -2,71 +2,6 @@
     "score_type_map": {
         "说明": "【V86.0 · 过程感知版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。新增并正确配置了所有 process 类型信号。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
-        "SCORE_REVERSAL_OFFENSE": {
-            "cn_name": "【汇总】反转进攻分",
-            "category": "内部计分",
-            "type": "subtotal",
-            "description": "基于高可靠性反转信号计算的核心进攻分数。"
-        },
-        "SCORE_RESONANCE_OFFENSE": {
-            "cn_name": "【汇总】共振进攻分",
-            "category": "内部计分",
-            "type": "subtotal",
-            "description": "基于趋势共振信号计算的辅助进攻分数。"
-        },
-        "SCORE_PLAYBOOK_SYNERGY": {
-            "cn_name": "【汇总】剧本协同分",
-            "category": "内部计分",
-            "type": "subtotal",
-            "description": "第三层：剧本协同奖励分的汇总得分。"
-        },
-        "SCORE_FF_AXIOM_INTERNAL_STRUCTURE": {
-            "cn_name": "【内部】FF-内部结构分",
-            "category": "内部计分-资金流",
-            "type": "context",
-            "description": "【资金流公理三】诊断资金流内部结构（超大单/大单 vs 中单/小单）的健康度。正分代表大资金吸筹，负分代表大资金派发。"
-        },
-        "SCORE_CHIP_MTF_PEAK_INTEGRITY": {
-            "cn_name": "【内部】MTF-筹码峰健康度",
-            "category": "内部计分-筹码",
-            "type": "context",
-            "description": "【筹码公理四】多时间级别(MTF)的筹码峰健康度动态分。这是一个字典，key为周期，value为该周期的动态分。评估核心筹码阵地的稳固性、控制力及攻防状态。"
-        },
-        "SCORE_BEHAVIOR_SMART_INTRADAY_TRADING": {
-            "cn_name": "【行为】日内聪明钱交易",
-            "category": "行为层-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "【B级战术信号】融合了日内执行Alpha、收盘强度、午后动能和趋势效率，高精度识别由专业交易者主导的、具有持续性的上涨行为。"
-        },
-        "SCORE_ATOMIC_STORM_BORN_POWER": {
-            "cn_name": "【内部】风暴降生之力",
-            "category": "内部计分-过程",
-            "type": "context",
-            "description": "关系动力双核之一：衡量V型反转的博弈强度，融合了“权力转移”和“投降仪式”。"
-        },
-        "SCORE_ATOMIC_STILL_WATERS_POWER": {
-            "cn_name": "【内部】静水流深之力",
-            "category": "内部计分-过程",
-            "type": "context",
-            "description": "关系动力双核之一：衡量盘整吸筹的博弈强度，融合了“隐秘吸筹”和“赢家信念”。"
-        },
-        "COGNITIVE_RISK_COMPREHENSIVE_TOP": {
-        "cn_name": "【认知风险】综合顶部风险",
-        "category": "认知层-风险",
-        "type": "risk",
-        "penalty_weight": -1000,
-        "context_role": "top_risk",
-        "description": "【V6.0 三柱-神盾架构版】终极顶部风险裁决引擎。融合了“亢奋/高潮”、“派发/背叛”、“结构/周期”三大风险支柱，并引入“趋势韧性神盾”进行动态抑制。只有在趋势本身脆弱时，顶部风险信号才会被放大。"
-        },
-        "COGNITIVE_RISK_MAIN_FORCE_HIGH_COST_VS_DISTRIBUTION": {
-            "cn_name": "【认知风险】主力高成本追涨 vs 高位派发",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1000,
-            "context_role": "top_risk",
-            "description": "【V1.0 主力意图对决版】通过对决“主力追高买入的决心”与“主力拉高派发的背叛”，来判断顶部风险。只有当派发意图强于追高意图时，才会产生风险信号。"
-        },
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
             "category": "战术层-风险",
@@ -97,53 +32,91 @@
             "type": "context",
             "description": "【盖亚基石】动态计算出的、位于当前价格下方的最强MA支撑位。它是所有多头战术的最后防线和止损基准。"
         },
-        "SCORE_VOL_PRICE_IGNITION_STATE": {
-            "cn_name": "【内部】量价点火状态",
-            "category": "内部计分-基础",
+        "SCORE_STRUCT_AXIOM_TREND_FORM": {
+            "cn_name": "【结构公理】趋势形态",
+            "category": "结构层-原子",
             "type": "context",
-            "description": "【原子信号】量价齐升的静态得分。"
+            "description": "【结构公理一】诊断市场当前的趋势形态。正分代表健康的多头排列，负分代表危险的空头排列。"
         },
-        "SCORE_VOL_PRICE_IGNITION_DYNAMIC": {
-            "cn_name": "【内部】量价点火动态",
-            "category": "内部计分-基础",
+        "SCORE_STRUCT_AXIOM_MTF_COHESION": {
+            "cn_name": "【结构公理】多周期协同",
+            "category": "结构层-原子",
             "type": "context",
-            "description": "【原子信号】量价齐升的动态趋势分。"
+            "description": "【结构公理二】诊断不同时间周期的结构是否一致。正分代表大小周期协同看涨，负分代表协同看跌或冲突。"
         },
-        "SCORE_VOL_PRICE_PANIC_RISK_STATE": {
-            "cn_name": "【内部】恐慌抛售状态",
-            "category": "内部计分-基础",
+        "SCORE_STRUCT_AXIOM_STABILITY": {
+            "cn_name": "【结构公理】结构稳定性",
+            "category": "结构层-原子",
             "type": "context",
-            "description": "【原子风险】量价齐跌的静态风险分。"
+            "description": "【结构公理三】诊断当前价格结构的稳定性。正分代表高稳定性（收敛、有支撑），负分代表低稳定性（发散、无支撑）。"
         },
-        "SCORE_VOL_PRICE_PANIC_RISK_DYNAMIC": {
-            "cn_name": "【内部】恐慌抛售动态",
-            "category": "内部计分-基础",
+        "SCORE_PATTERN_AXIOM_DIVERGENCE": {
+            "cn_name": "【形态公理】背离",
+            "category": "形态层-原子",
             "type": "context",
-            "description": "【原子风险】量价齐跌的动态趋势风险分。"
+            "description": "【形态公理一】基于超级原子信号，诊断价格与真实动量之间的背离。正分代表看涨背离，负分代表看跌背离。"
         },
-        "SCORE_VOL_COMPRESSION_STATE": {
-            "cn_name": "【内部】波动率压缩状态",
-            "category": "内部计分-基础",
+        "SCORE_PATTERN_AXIOM_REVERSAL": {
+            "cn_name": "【形态公理】反转",
+            "category": "形态层-原子",
             "type": "context",
-            "description": "【原子信号】波动率压缩的静态得分。"
+            "description": "【形态公理二】基于超级原子信号，诊断趋势反转的潜力。正分代表卖方衰竭（看涨反转），负分代表买方衰竭（看跌反转）。"
         },
-        "SCORE_VOL_COMPRESSION_DYNAMIC": {
-            "cn_name": "【内部】波动率压缩动态",
-            "category": "内部计分-基础",
+        "SCORE_PATTERN_AXIOM_BREAKOUT": {
+            "cn_name": "【形态公理】突破",
+            "category": "形态层-原子",
             "type": "context",
-            "description": "【原子信号】波动率压缩的动态趋势分。"
+            "description": "【形态公理三】基于超级原子信号，诊断结构性突破的质量。正分代表高质量的向上突破，负分代表向下突破。"
         },
-        "SCORE_VOL_EXPANSION_RISK_STATE": {
-            "cn_name": "【内部】波动率扩张风险状态",
-            "category": "内部计分-基础",
+        "SCORE_MICRO_AXIOM_DECEPTION": {
+            "cn_name": "【微观公理】伪装与欺骗",
+            "category": "微观行为-原子",
             "type": "context",
-            "description": "【原子风险】波动率扩张的静态风险分。"
+            "description": "【微观公理一】诊断主力资金“表里不一”的欺骗行为。正分代表伪装吸筹，负分代表伪装派发。"
         },
-        "SCORE_VOL_EXPANSION_RISK_DYNAMIC": {
-            "cn_name": "【内部】波动率扩张风险动态",
-            "category": "内部计分-基础",
+        "SCORE_MICRO_AXIOM_PROBE": {
+            "cn_name": "【微观公理】试探与确认",
+            "category": "微观行为-原子",
             "type": "context",
-            "description": "【原子风险】波动率扩张的动态趋势风险分。"
+            "description": "【微观公理二】诊断主力利用长影线进行试盘的真实意图。正分代表向上或向下试探，负分代表诱多式假突破。"
+        },
+        "SCORE_MICRO_AXIOM_EFFICIENCY": {
+            "cn_name": "【微观公理】成本与效率",
+            "category": "微观行为-原子",
+            "type": "context",
+            "description": "【微观公理三】诊断主力操盘的效率。正分代表“价涨量缩”式的高效拉升，负分代表“价涨量增”式的滞涨或派发。"
+        },
+        "SCORE_INTRADAY_AXIOM_ATTACK": {
+            "cn_name": "【日内公理】攻击强度",
+            "category": "日内行为-原子",
+            "type": "context",
+            "description": "【日内公理一】诊断分钟级别K线的攻击强度。正分代表多头攻击，负分代表空头攻击。"
+        },
+        "SCORE_INTRADAY_AXIOM_CONTROL": {
+            "cn_name": "【日内公理】控制能力",
+            "category": "日内行为-原子",
+            "type": "context",
+            "description": "【日内公理二】诊断多空双方对日内VWAP的控制能力。正分代表多头控盘，负分代表空头控盘。"
+        },
+        "SCORE_INTRADAY_AXIOM_TURNING": {
+            "cn_name": "【日内公理】博弈转折",
+            "category": "日内行为-原子",
+            "type": "context",
+            "description": "【日内公理三】诊断分钟级别KDJ的超买/超卖区转折信号。正分代表看涨转折，负分代表看跌转折。"
+        },
+        "说明_fusion_intelligence": "--- 融合层信号 (Fusion Intelligence) ---",
+        "FUSION_BIPOLAR_LIQUIDITY_DYNAMICS": {
+            "cn_name": "【融合】流动性博弈动态",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【三体博弈模型】融合“价量效能”、“权势转移”、“流动性状态”三大维度，输出[-1, 1]的双极性分数。正分代表健康的、主力主导的看涨流动性；负分代表混乱的、主力派发的看跌流动性。"
+        },
+        "FUSION_RISK_DISTRIBUTION_PRESSURE": {
+            "cn_name": "【融合风险】派发压力",
+            "category": "融合层-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "description": "【三体博弈模型】基于“主力卖、散户买”的资金流背离，识别主力在高位派发筹码的风险。"
         },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
@@ -161,50 +134,81 @@
             "description": "【入场神谕】由先知引擎预测的，在恐慌抛售末期的潜在V型反转机会。"
         },
         "说明_atomic_and_tactical": "--- 原子与战术信号 ---",
-        "SCORE_CHIP_HADES_TRAP": {
-            "cn_name": "【筹码风险】底部诱多派发",
-            "category": "筹码层-风险",
-            "type": "risk",
-            "penalty_weight": -600,
-            "description": "【战术风险】在潜在的底部反转区域，如果同时出现强烈的派发迹象，则构成“哈迪斯陷阱”，是诱多风险信号。"
-        },
-        "SCORE_CHIP_LOCKDOWN_SCRAMBLE": {
-            "cn_name": "【筹码】锁仓抢筹",
-            "category": "筹码层-机会",
-            "type": "dynamic",
-            "score": 600,
-            "description": "【B级战术信号】在“底部锁仓”的前提下，进一步确认主力当天存在不计成本的抢筹行为（如成本优势、净流入、信念增强、亏钱买入），是即将拉升的高确定性信号。"
-        },
-        "SCORE_CHIP_PB_RALLY_ACCUMULATION": {
-            "cn_name": "【筹码】拉升吸筹剧本",
-            "category": "筹码层-机会",
+        "SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM": {
+            "cn_name": "【行为】价格上涨动能",
+            "category": "行为层-原子",
             "type": "context",
-            "description": "【战术信号】识别在上升趋势中，筹码依然在集中，且获利盘惜售的行为。"
+            "description": "【行为公理一】纯粹衡量价格上涨的动能强度，基于当日涨跌幅进行自适应归一化。"
         },
-        "SCORE_GAP_SUPPORT_ACTIVE": {
-            "cn_name": "【行为】缺口支撑",
-            "category": "行为层-机会",
+        "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM": {
+            "cn_name": "【行为】价格下跌动能",
+            "category": "行为层-原子",
             "type": "context",
-            "description": "【原子信号】量化未回补的向上跳空缺口作为支撑的强度和有效性。"
+            "description": "【行为公理一】纯粹衡量价格下跌的动能强度，基于当日跌幅的绝对值进行自适应归一化。"
         },
-        "SCORE_RISK_SELLING_PRESSURE_UPPER_SHADOW": {
-            "cn_name": "【行为风险】上影线抛压风险",
+        "SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION": {
+            "cn_name": "【行为风险】价格超买",
             "category": "行为层-风险",
             "type": "risk",
-            "penalty_weight": -200,
-            "description": "【逻辑重铸】精确量化由'长上影线'和'放量'共同构成的日内抛压风险。上影线越长、成交量越大，风险分越高，是衡量日内多空博弈中卖方力量的精准指标。"
+            "penalty_weight": -300,
+            "description": "【行为公理一】基于价格与长期均线的乖离率，衡量价格位置的超买风险。"
         },
-        "SCORE_UPPER_SHADOW_INTENT_DIAGNOSIS": {
-            "cn_name": "【行为】上影线意图诊断",
-            "category": "行为层-环境",
+        "SCORE_BEHAVIOR_VOLUME_BURST": {
+            "cn_name": "【行为】成交量爆发",
+            "category": "行为层-原子",
             "type": "context",
-            "description": "【V2.0 · 主力审判版】诊断长上影线背后的主力绝对意图，剔除散户行为干扰。正分代表主力看涨（洗盘吸筹），负分代表主力看跌（派发）。融合了主力净流向、筹码变化和主力盈亏三大核心证据。"
+            "description": "【行为公理二】基于量比，衡量市场活跃度的爆发程度。"
         },
-        "SCORE_PRICE_POSITION_IN_RANGE": {
-            "cn_name": "【行为】收盘价位置",
-            "category": "行为层-环境",
+        "SCORE_BEHAVIOR_VOLUME_APATHY": {
+            "cn_name": "【行为】成交量冷漠",
+            "category": "行为层-原子",
             "type": "context",
-            "description": "【原子信号】量化收盘价在当日K线振幅中的相对位置，[0, 1] 区间，越高代表收盘越强势。"
+            "description": "【行为公理二】基于换手率，衡量市场情绪的冷漠程度和流动性的收缩状态。"
+        },
+        "SCORE_BEHAVIOR_UPWARD_EFFICIENCY": {
+            "cn_name": "【行为】上涨效率",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【行为公理三】基于VPA（量价分析），衡量价格上涨的效率。高分代表上涨轻松，低分代表上涨费力（滞涨）。"
+        },
+        "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE": {
+            "cn_name": "【行为】下跌抵抗",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【行为公理三】基于VPA（量价分析），衡量价格下跌时遇到的抵抗强度。高分代表下跌费力（抵抗强），低分代表下跌顺畅。"
+        },
+        "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL": {
+            "cn_name": "【行为】日内多头控制力",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【行为公理四】基于VWAP（成交量加权平均价），衡量日内多头对盘面的控制强度。"
+        },
+        "SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION": {
+            "cn_name": "【行为】下影线吸收强度",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【行为公理四】纯粹衡量下影线所代表的日内承接和反击力量。"
+        },
+        "SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE": {
+            "cn_name": "【行为风险】上影线抛压",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -400,
+            "description": "【行为公理四】纯粹衡量上影线所代表的日内抛售压力。"
+        },
+        "SCORE_OPPORTUNITY_SELLING_EXHAUSTION": {
+            "cn_name": "【行为机会】卖盘衰竭",
+            "category": "行为层-机会",
+            "type": "positional",
+            "score": 400,
+            "description": "【衍生信号】融合了“价跌”、“量缩”和“下跌抵抗”三大证据，识别卖盘力量耗尽的潜在反转点。"
+        },
+        "SCORE_RISK_STAGNATION": {
+            "cn_name": "【行为风险】滞涨风险",
+            "category": "行为层-风险",
+            "type": "risk",
+            "penalty_weight": -700,
+            "description": "【衍生信号】融合了“价涨”、“量增”和“上涨费力”三大证据，识别多头力量衰竭的滞涨风险。"
         },
         "SCORE_BOARD_EARTH_HEAVEN": {
             "cn_name": "【行为】地天板",
@@ -219,41 +223,35 @@
             "penalty_weight": -2000,
             "description": "【原子风险】识别“天地板”模式的风险强度。"
         },
-        "SCORE_RISK_UPTHRUST_DISTRIBUTION": {
-            "cn_name": "【行为风险】上冲派发",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -700,
-            "description": "【原子风险】识别高位放量但收盘疲弱的上冲派发行为。"
-        },
-        "SCORE_RISK_VPA_STAGNATION": {
-            "cn_name": "【行为风险】VPA滞涨",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -600,
-            "description": "【原子风险】识别成交量巨大但价格停滞不前的风险，通常是多空分歧加剧或派发的信号。"
-        },
-        "SCORE_BULLISH_EXHAUSTION_REVERSAL": {
-            "cn_name": "【行为】卖盘衰竭反转",
-            "category": "行为层-机会",
-            "type": "positional",
-            "score": 350,
-            "description": "【原子信号】融合了成交量枯竭、底部支撑、看涨背离和竞价强度，是识别卖盘力量耗尽后反转的复合信号。"
-        },
-        "SCORE_FOUNDATION_CHIP_FAULT_BREAKOUT": {
-            "cn_name": "【内部】筹码断层潜力",
-            "category": "内部计分-基础",
-            "type": "context",
-            "description": "【V2.0 · 角色变更】基于筹码断层的强度和真空范围，评估潜在的突破潜力。此信号不直接计分，仅作为上层认知引擎的原始输入。"
-        },
-        "SCORE_TACTICAL_BREAKOUT_CONFIRMATION": {
-            "cn_name": "【认知】战术突破确认",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 750,
-            "description": "【A级战术信号】融合结构、点火、风险、环境四维一体，高精度捕捉筹码断层突破的“完美风暴”买点。"
-        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
+        "PROCESS_META_STOCK_SECTOR_SYNC": {
+            "cn_name": "【过程】个股板块同步",
+            "category": "过程层-战略",
+            "type": "process",
+            "scoring_mode": "bipolar",
+            "description": "【龙头苏醒】诊断个股与所属板块强弱排名的同步性。正分代表个股上涨伴随板块排名提升。"
+        },
+        "PROCESS_META_HOT_SECTOR_COOLING": {
+            "cn_name": "【过程】热门板块冷却",
+            "category": "过程层-战略",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【板块轮动】诊断热门板块的冷却迹象。正分代表热度下降且资金流出。"
+        },
+        "PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE": {
+            "cn_name": "【过程】价势顶背离",
+            "category": "过程层-战略",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【强弩之末】诊断价格趋势与动量趋势的背离。正分代表价格涨而动能跌（顶背离）。"
+        },
+        "PROCESS_META_WINNER_CONVICTION_DECAY": {
+            "cn_name": "【过程】赢家信念衰减",
+            "category": "过程层-战略",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【强弩之末】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
+        },
         "PROCESS_META_PV_REL_BULLISH_TURN": {
             "cn_name": "【过程】价量关系看涨拐点",
             "category": "过程层-基础",
@@ -401,307 +399,109 @@
             "description": "诊断主力买入成本的变化率是否超越价格本身的变化率。正分代表主力在加速、追高买入。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
-        "COGNITIVE_SCORE_REVERSAL_RELIABILITY": {
-            "cn_name": "【认知】反转可靠性",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 1200,
-            "description": "【S级战略信号】融合深度价值区、股东换血、趋势企稳三大要素，综合评估当前底部反转的可靠程度，是策略转向的核心依据。"
+        "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
+            "cn_name": "【认知剧本】主力打压吸筹",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】主力通过打压价格，在下跌过程中吸收恐慌盘的战术剧本上演的后验概率。"
         },
-        "COGNITIVE_SCORE_BOTTOM_REVERSAL_RESONANCE": {
-            "cn_name": "【认知】多域反转共振",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 800,
-            "context_role": "bottom_opportunity",
-            "description": "【A级主战信号】多个核心领域的底部反转信号形成共振，是最高级别的战略拐点信号。"
+        "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
+            "cn_name": "【认知剧本】主力拉升抢筹",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】主力通过快速拉升价格，不计成本抢夺筹码的战术剧本上演的后验概率。"
         },
-        "COGNITIVE_SCORE_STATE_PROCESS_SYNERGY": {
-            "cn_name": "【认知】状态过程协同",
-            "category": "认知层-机会",
+        "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
+            "cn_name": "【认知剧本】恐慌投降反转",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】市场在经历恐慌性抛售后，出现V型反转的战术剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
+            "cn_name": "【认知风险】高位派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "description": "【贝叶斯推演】主力在价格高位，通过放量滞涨等手段向散户派发筹码的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
+            "cn_name": "【认知剧本】龙头苏醒",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】沉寂已久的龙头股被主力资金重新激活，并率先突破关键阻力位的“苏醒”剧本上演的后验概率。"
+        },
+        "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
+            "cn_name": "【认知剧本】板块轮动先锋",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】资金从旧热点流出，并率先挖掘冷门板块中个股的“轮动切换”剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_EXHAUSTED_CROSSBOW": {
+            "cn_name": "【认知风险】高位强弩之末",
+            "category": "认知层-风险",
+            "type": "risk",
+            "description": "【贝叶斯推演】主升浪末期，价格虽在高位但内在上涨动能已严重衰竭的“最后疯狂”风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
+            "cn_name": "【认知剧本】能量压缩爆发",
+            "category": "认知层-剧本",
+            "type": "playbook",
+            "description": "【贝叶斯推演】股价波动率和成交量被压缩到极致，即将发生能量剧烈释放的“临界状态”剧本上演的后验概率。"
+        },
+        "COGNITIVE_FORGED_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
+            "cn_name": "【锻造剧本】主力打压吸筹",
+            "category": "认知层-锻造",
             "type": "dynamic",
-            "score": 700,
-            "description": "【A级主战信号】融合所有领域的“状态分”和“过程分”，代表状态与过程的协同共振强度。"
+            "score": 480,
+            "description": "对“主力打压吸筹”剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION": {
-            "cn_name": "【认知风险】亢奋加速",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -3000,
-            "context_role": "top_risk",
-            "description": "【圣杯版】智慧型亢奋风险。仅当趋势进入“高度成熟”阶段后，市场的快速加速才会被视为危险的力竭信号。在趋势早期，此风险会被有效抑制。"
-        },
-        "COGNITIVE_ULTIMATE_BULLISH_CONFIRMATION": {
-            "cn_name": "【认知】终极看涨确认",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 400,
-            "description": "【B级战术信号】融合结构与形态，对看涨趋势的最终确认。"
-        },
-        "COGNITIVE_ULTIMATE_BEARISH_CONFIRMATION": {
-            "cn_name": "【认知风险】终极看跌确认",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -800,
-            "context_role": "top_risk",
-            "description": "【B级冲突信号】融合结构与形态，对看跌趋势的最终确认，是强烈的风险信号。"
-        },
-        "COGNITIVE_ULTIMATE_BOTTOM_CONFIRMATION": {
-            "cn_name": "【认知】终极底部确认",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 1000,
-            "context_role": "bottom_opportunity",
-            "description": "【A级主战信号】融合结构与形态，对底部的最终确认。"
-        },
-        "COGNITIVE_ULTIMATE_TOP_CONFIRMATION": {
-            "cn_name": "【认知风险】终极顶部确认",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1200,
-            "context_role": "top_risk",
-            "description": "【B级冲突信号】融合结构与形态，对顶部的最终确认，是强烈的风险信号。"
-        },
-        "COGNITIVE_SCORE_TREND_ACCELERATION_CASCADE": {
-            "cn_name": "【认知】趋势加速级联",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 800,
-            "description": "【A级主战信号】诊断看涨共振是否正在形成“时序级联”和“领域级联”，是识别趋势进入主升浪的王牌信号。"
-        },
-        "COGNITIVE_SCORE_CHIMERA_CONFLICT": {
-            "cn_name": "【认知风险】奇美拉冲突",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -100,
-            "description": "【战神阿瑞斯版】量化“牛熊冲突”的激烈程度。融合了“信号冲突”（看涨/看跌信号同时高企）和“资金流分歧冲突”（多源资金流数据互相矛盾）两大维度。高分代表市场极度混乱和不可预测，是强烈的风险信号。"
-        },
-        "COGNITIVE_SCORE_ALPHA_WOLF_LEADERSHIP": {
-            "cn_name": "【认知】龙头引领行业上涨",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 500,
-            "description": "【领袖信号】识别并奖励那些作为龙头引领整个行业板块进入上升周期的“领头狼”股票。"
-        },
-        "COGNITIVE_SCORE_CONTRARIAN_DEFIANCE": {
-            "cn_name": "【认知】行业逆境个股走强",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 450,
-            "context_role": "bottom_opportunity",
-            "description": "【逆境信号】识别在行业逆境中，自身却表现出顽强生命力（如主力吸筹、股东换手）的“盗火者”。"
-        },
-        "COGNITIVE_SCORE_SENTIMENT_IGNITION": {
-            "cn_name": "【认知】情绪与技术共振",
-            "category": "认知层-机会",
+        "COGNITIVE_FORGED_PLAYBOOK_CHASING_ACCUMULATION": {
+            "cn_name": "【锻造剧本】主力拉升抢筹",
+            "category": "认知层-锻造",
             "type": "dynamic",
             "score": 600,
-            "description": "【共振信号】捕捉技术上形成突破，同时市场上又具备极高题材热度和良好情绪的“戴维斯双击”时刻。"
+            "description": "对“主力拉升抢筹”剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_RISK_OLD_GUARD_RETREAT": {
-            "cn_name": "【认知风险】长期获利盘高位派发",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1800,
-            "context_role": "top_risk",
-            "description": "【领先风险】识别在价格高位时，长期获利盘（旧神）开始悄然解锁并派发的迹象，是比资金净流出更领先的顶部信号。"
-        },
-        "COGNITIVE_RISK_HECATE_CROSSROADS": {
-            "cn_name": "【认知风险】多源信号冲突",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2200,
-            "description": "【混乱风险】量化市场的“极度不可预测性”。当多源数据严重冲突、信号真伪难辨时发出警报，建议降低仓位。"
-        },
-        "COGNITIVE_SCORE_DRAGON_HEAD_AWAKENING": {
-            "cn_name": "【认知】龙头股放量涨停",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 800,
-            "description": "【A股特供】捕捉沉寂已久的行业龙头以爆发性方式（如放量涨停）苏醒的时刻，是“王者归来”的黄金信号。"
-        },
-        "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": {
-            "cn_name": "【认知风险】散户狂热与主力撤退",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2500,
-            "context_role": "top_risk",
-            "description": "【A股特供】识别价格上涨末期，散户非理性追高而主力资金悄然派发的“牛市陷阱”，是极高优先级的风险预警。"
-        },
-        "COGNITIVE_SCORE_POLICY_CATALYST_IGNITION": {
-            "cn_name": "【认知】政策驱动高开走强",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 700,
-            "description": "【A股特供】识别由重大利好（通常体现为大幅高开）驱动的、具备极强市场共识的趋势起点。"
-        },
-        "COGNITIVE_SCORE_ICE_FIRE_REVERSAL": {
-            "cn_name": "【认知】跌停板强势反转",
-            "category": "认知层-机会",
+        "COGNITIVE_FORGED_PLAYBOOK_CAPITULATION_REVERSAL": {
+            "cn_name": "【锻造剧本】恐慌投降反转",
+            "category": "认知层-锻造",
             "type": "positional",
-            "score": 950,
-            "context_role": "bottom_opportunity",
-            "description": "【A股特供】识别股价触及跌停后，在主力资金强力介入下完成的V型反转，是“不破不立”的终极反转信号。"
+            "score": 900,
+            "description": "对“恐慌投降反转”剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_SCORE_FLOWER_OF_DESPAIR": {
-            "cn_name": "【认知】绝望情绪下的反转",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 850,
-            "context_role": "bottom_opportunity",
-            "description": "【行为增强】在市场极度悲观（高亏损比例、散户投降）时出现的行为反转信号，是高确定性的底部信号。"
-        },
-        "COGNITIVE_SCORE_CONVICTION_SOLIDIFICATION": {
-            "cn_name": "【认知】盈利盘惜售",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 400,
-            "description": "【行为增强】识别在健康趋势中，盈利盘利润丰厚但了结意愿低下的“惜售”状态，是趋势可持续的强确认信号。"
-        },
-        "COGNITIVE_SCORE_COST_BARRIER": {
-            "cn_name": "【认知】主力构建成本优势",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 500,
-            "description": "【行为增强】确认“日内聪明钱”的交易行为是否成功构建了相对散户的成本优势，是战略建仓的有力证据。"
-        },
-        "COGNITIVE_RISK_HARVEST_CONFIRMATION": {
-            "cn_name": "【认知风险】上冲派发利润兑现",
+        "COGNITIVE_FORGED_RISK_DISTRIBUTION_AT_HIGH": {
+            "cn_name": "【锻造风险】高位派发",
             "category": "认知层-风险",
             "type": "risk",
             "penalty_weight": -1500,
-            "context_role": "top_risk",
-            "description": "【行为增强】确认“上冲派发”的行为模式是否伴随着真实的利润兑现，是高置信度的顶部风险信号。"
+            "description": "对“高位派发”风险剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_SCORE_DRAGON_IN_ABYSS": {
-            "cn_name": "【认知】吸筹后压盘蓄势",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 750,
-            "context_role": "bottom_opportunity",
-            "description": "【筹码增强】捕捉主力吸筹完成、价格被压制、波动率降至冰点的“突破前夜”黄金战机。"
-        },
-        "COGNITIVE_SCORE_AEGIS_PLATFORM": {
-            "cn_name": "【认知】筹码峰平台支撑",
-            "category": "认知层-机会",
+        "COGNITIVE_FORGED_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
+            "cn_name": "【锻造剧本】龙头苏醒",
+            "category": "认知层-锻造",
             "type": "dynamic",
-            "score": 450,
-            "description": "【筹码增强】确认价格正将一个健康的筹码峰作为坚实的平台进行盘整，是稳固的趋势中继或底部信号。"
-        },
-        "COGNITIVE_RISK_SIREN_SONG": {
-            "cn_name": "【认知风险】拉高诱多派发",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2600,
-            "context_role": "top_risk",
-            "description": "【筹码增强】识别在筹码派发背景下，主力利用散户狂热情绪，在虚假拉升中完成“收割”的极高风险信号。"
-        },
-        "COGNITIVE_SCORE_FAULT_VACUUM_THRUST": {
-            "cn_name": "【认知】真空加速",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 650,
-            "description": "【筹码增强】确认筹码断层突破是一次高效率、高确定性的“真空加速”突破，预示后续可能有快速拉升。"
-        },
-        "COGNITIVE_SCORE_COST_MOAT": {
-            "cn_name": "【认知】主力低成本吸筹",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 550,
-            "description": "【资金流增强】资金流健康 + 主力买入成本低廉 + 订单质量高 = 高质量的战略性吸筹信号。"
-        },
-        "COGNITIVE_RISK_LIQUIDITY_TRAP": {
-            "cn_name": "【认知风险】流动性陷阱",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1200,
-            "context_role": "top_risk",
-            "description": "【V5.0 · 逻辑重铸版】融合“主力持续出逃”、“收缩盘整”和“买盘真空”三大核心证据，精准识别“主力想卖、无人想买、市场不活跃”的危险状态。"
-        },
-        "COGNITIVE_SCORE_UPSTREAM_SWIMMER": {
-            "cn_name": "【认知】恐慌中逆势吸筹",
-            "category": "认知层-机会",
-            "type": "positional",
             "score": 800,
-            "context_role": "bottom_opportunity",
-            "description": "【资金流增强】资金流逆转 + 价格下跌 + 情绪恐慌 + 散户割肉 = 高确定性的战略抄底信号。"
+            "description": "对“龙头苏醒”剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": {
-            "cn_name": "【认知风险】T+0套利压力",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1000,
-            "context_role": "top_risk",
-            "description": "【资金流增强】资金流恶化 + 主力T+0套利活跃 + 日内利润兑现 = 强烈的短期派发风险。"
-        },
-        "COGNITIVE_SCORE_COUNTERATTACK_ON_BEDROCK": {
-            "cn_name": "【认知】主力在技术底背驰买入",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 700,
-            "context_role": "bottom_opportunity",
-            "description": "【基础增强】确认技术指标反转是由主力资金主导的战略性反击，而非普通技术反弹。"
-        },
-        "COGNITIVE_SCORE_MAIN_ENGINE_IGNITION": {
-            "cn_name": "【认知】主力主导的放量突破",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 600,
-            "description": "【基础增强】确认量价点火是由主力驱动的、高效率的趋势启动，而非散户追高引发的虚火。"
-        },
-        "COGNITIVE_SCORE_COILED_SPRING": {
-            "cn_name": "【认知】波动压缩期主力吸筹",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 750,
-            "context_role": "bottom_opportunity",
-            "description": "【基础增强】捕捉波动率压缩至极致，且主力在期间隐秘吸筹的“突破前夜”黄金战机。"
-        },
-        "COGNITIVE_RISK_DAM_BREACH": {
-            "cn_name": "【认知风险】关键支撑破位",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2800,
-            "context_role": "top_risk",
-            "description": "【基础增强】确认恐慌抛售已击穿下方所有关键支撑，可能引发系统性、不可逆的崩盘风险。"
-        },
-        "COGNITIVE_SCORE_FORTRESS_TREND": {
-            "cn_name": "【认知】筹码稳固的健康趋势",
-            "category": "认知层-机会",
+        "COGNITIVE_FORGED_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
+            "cn_name": "【锻造剧本】板块轮动先锋",
+            "category": "认知层-锻造",
             "type": "dynamic",
             "score": 500,
-            "description": "【结构增强】确认健康的结构趋势是否由一个强大、稳定且盈利丰厚的筹码堡垒所支撑。"
+            "description": "对“板块轮动先锋”剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_SCORE_THRONE_USURPATION": {
-            "cn_name": "【认知】底部主力与散户换手",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 900,
-            "context_role": "bottom_opportunity",
-            "description": "【结构增强】确认结构性底部伴随着散户的绝望投降和主力的强势接管，是高确定性的权力交接信号。"
-        },
-        "COGNITIVE_RISK_OLYMPUS_CRUMBLING": {
-            "cn_name": "【认知风险】结构顶部派发",
+        "COGNITIVE_FORGED_RISK_EXHAUSTED_CROSSBOW": {
+            "cn_name": "【锻造风险】高位强弩之末",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -2700,
-            "context_role": "top_risk",
-            "description": "【结构增强】确认结构性顶部伴随着主力派发和散户接盘的末日景象。"
+            "penalty_weight": -2500,
+            "description": "对“高位强弩之末”风险剧本的后验概率进行时空锻造后的动态分数。"
         },
-        "COGNITIVE_SCORE_BREAKOUT_VALIDATION": {
-            "cn_name": "【认知】突破后主力资金确认",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 600,
-            "description": "【结构增强】验证结构性突破是由主力主导，且新入场资金立即浮盈，是高质量的突破确认信号。"
-        },
-        "COGNITIVE_SCORE_TACTICAL_SUPPRESSION": {
-            "cn_name": "【认知】战术性打压",
-            "category": "认知层-机会",
+        "COGNITIVE_FORGED_PLAYBOOK_ENERGY_COMPRESSION": {
+            "cn_name": "【锻造剧本】能量压缩爆发",
+            "category": "认知层-锻造",
             "type": "positional",
-            "score": 480,
-            "context_role": "bottom_opportunity",
-            "description": "【B级战术信号】在短期派发和价格下跌的表象下，通过交叉验证发现主力仍在吸收恐慌盘且长期信念坚定，是典型的“打压吸筹”战术动作。"
+            "score": 750,
+            "description": "对“能量压缩爆发”剧本的后验概率进行时空锻造后的动态分数。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",
@@ -710,14 +510,6 @@
             "penalty_weight": -500,
             "context_role": "top_risk",
             "description": "融合了主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。"
-        },
-        "COGNITIVE_SCORE_TRUE_RETREAT_RISK": {
-            "cn_name": "【认知风险】真实撤退",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2500,
-            "context_role": "top_risk",
-            "description": "【重大风险】在短期派发和价格下跌的表象下，通过交叉验证发现趋势质量恶化、无人接盘且长期信念动摇，是典型的主力“真实撤退”风险信号。"
         },
         "COGNITIVE_BULLISH_SCORE": {
             "cn_name": "【认知】看涨总分",
@@ -737,140 +529,18 @@
             "type": "context",
             "description": "融合了年内价格位置和周线RSI超卖，评估当前是否处于深度价值区域。"
         },
-        "SCORE_SHAREHOLDER_QUALITY_IMPROVEMENT": {
-            "cn_name": "【内部】股东质量改善",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "融合了筹码共振、筹码反转和主力信念加强，评估股东结构是否正在向积极方向转变。"
-        },
-        "INTERNAL_SCORE_TREND_POTENTIAL": {
-            "cn_name": "【内部】趋势潜力分",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "基于FFT趋势能量的斜率，评估市场从周期性向趋势性转变的潜力。"
-        },
-        "SCORE_IGNITION_CONFIRMATION": {
-            "cn_name": "【内部】点火确认分",
-            "category": "内部计分-上下文",
-            "type": "context",
-            "description": "融合了早期动能、波动率压缩和趋势潜力，评估点火信号的确认强度。"
-        },
-        "COGNITIVE_SCORE_TREND_QUALITY": {
-            "cn_name": "【认知】趋势质量分",
-            "category": "认知层-环境",
-            "type": "context",
-            "description": "融合七大维度（行为、筹码、资金流、结构、力学、Hurst、FFT）健康度，综合评估当前趋势的质量与可持续性。"
-        },
-        "COGNITIVE_SCORE_PULLBACK_HEALTHY": {
-            "cn_name": "【认知】健康回踩",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 250,
-            "context_role": "bottom_opportunity",
-            "description": "【B级战术信号】在建设性背景下，出现缩量、温和下跌，且筹码稳定、周期配合的回踩行为。"
-        },
-        "COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE": {
-            "cn_name": "【认知】打压回踩",
-            "category": "认知层-机会",
-            "type": "positional",
-            "score": 300,
-            "context_role": "bottom_opportunity",
-            "description": "【B级战术信号】在建设性背景下，出现放量、急跌的洗盘式回踩行为，通常是强庄所为。"
-        },
-        "COGNITIVE_SCORE_IGNITION_RESONANCE": {
-            "cn_name": "【认知】多域点火共振",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "多个核心领域的“点火”信号形成共振，是最高级别的进攻信号。"
-        },
-        "COGNITIVE_SCORE_INDUSTRY_SYNERGY_OFFENSE": {
-            "cn_name": "【认知】行业协同进攻",
-            "category": "认知层-机会",
-            "type": "dynamic",
-            "score": 200,
-            "description": "行业景气周期与个股进攻信号形成共振，是“戴维斯双击”的体现。"
-        },
-        "COGNITIVE_INTERNAL_TREND_MATURITY": {
-            "cn_name": "【内部】趋势成熟度",
-            "category": "内部计分-认知",
-            "type": "context",
-            "description": "【圣杯】量化当前趋势的“年龄”，衡量价格偏离长期均线的程度。作为“亢奋加速”风险的理智熔断器。"
-        },
-        "COGNITIVE_FUSED_RISK_SCORE": {
-            "cn_name": "【认知】融合风险总分",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": 1.0,
-            "description": "融合了筹码、行为、资金流、结构等多个维度的风险信号，并经过动态加权和共振惩罚后得到的最终风险总分。"
-        },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
-        "COGNITIVE_BIPOLAR_EUPHORIC_EVENT": {
-            "cn_name": "【认知】双极性亢奋事件",
-            "category": "认知层-动态",
-            "type": "process",
-            "score": 700,
-            "penalty_weight": -3000,
-            "scoring_mode": "bipolar",
-            "description": "【V1.0 · 双极性重构版】亢奋事件的最终裁决信号。正值代表在强看涨上下文下的点火机会，负值代表在弱看涨上下文下的力竭风险。计分引擎会根据其正负分别应用加分或罚分。"
-        },
-        "SCORE_MICRO_HERMES_GAMBIT": {
-            "cn_name": "【微观】压单吸筹",
-            "category": "微观行为-机会",
-            "type": "positional",
-            "score": 550,
-            "context_role": "bottom_opportunity",
-            "description": "【B级战术信号】识别主力“大单卖出压价，再拆单接回”的洗盘吸筹行为。融合了资金流结构矛盾、价量矛盾、筹码结果矛盾和宏观环境矛盾四大证据链，是高置信度的底部或中继吸筹信号。"
-        },
-        "COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION": {
-            "cn_name": "【微观】早期动能点火",
-            "category": "微观行为-机会",
+        "SCORE_MICRO_BULLISH_RESONANCE": {
+            "cn_name": "【微观】看涨共振",
+            "category": "内部计分-微观行为",
             "type": "dynamic",
-            "score": 200,
-            "description": "纯粹的“大阳线质量分”，融合K线实体、位置、动能，捕捉“东风初起”的精确时点。"
+            "description": "【V5.0 · 公理化版】基于“伪装、试探、效率”三大微观行为公理，形成的看涨共振分。"
         },
-        "SCORE_COGNITIVE_DECEPTIVE_RETAIL_ACCUMULATION": {
-            "cn_name": "【微观】伪装散户吸筹",
-            "category": "微观行为-机会",
-            "type": "dynamic",
-            "score": 450,
-            "description": "【B级战术信号】四维交叉验证信号，高置信度识别主力通过分单进行隐蔽吸筹的行为。"
-        },
-        "COGNITIVE_SCORE_OPP_POWER_SHIFT_TO_MAIN_FORCE": {
-            "cn_name": "【微观机会】主导权转移(主力)",
-            "category": "微观行为-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "【逻辑重构】基于交易颗粒度与集中度动态，量化市场主导权向主力转移的强度。与“主导权转移(散户)”信号互斥。"
-        },
-        "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": {
-            "cn_name": "【微观风险】主导权转移(散户)",
-            "category": "微观行为-风险",
+        "SCORE_MICRO_BEARISH_RESONANCE": {
+            "cn_name": "【微观】看跌共振",
+            "category": "内部计分-微观行为",
             "type": "risk",
-            "penalty_weight": -700,
-            "description": "【逻辑重构】基于交易颗粒度与集中度动态，量化市场主导权向散户转移的强度。与“主导权转移(主力)”信号互斥。"
-        },
-        "COGNITIVE_SCORE_OPP_MAIN_FORCE_CONVICTION_STRENGTHENING": {
-            "cn_name": "【微观机会】主力信念加强",
-            "category": "微观行为-机会",
-            "type": "dynamic",
-            "score": 400,
-            "description": "【逻辑重构】核心主力(特大单)的买入意愿正在加速增强，是趋势健康和即将加速的强确认信号。与“主力信念瓦解”信号互斥。"
-        },
-        "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": {
-            "cn_name": "【微观风险】主力信念瓦解",
-            "category": "微观行为-风险",
-            "type": "risk",
-            "penalty_weight": -900,
-            "description": "【逻辑重构】核心主力(特大单)的买入意愿正在加速衰减，是比资金净流出更灵敏的顶部预警信号。与“主力信念加强”信号互斥。"
-        },
-        "COGNITIVE_RISK_PROFIT_TAKING_PRESSURE": {
-            "cn_name": "【微观风险】利润兑现压力",
-            "category": "微观行为-风险",
-            "type": "risk",
-            "penalty_weight": -1200,
-            "context_role": "top_risk",
-            "description": "【V6.0 · 燃料转化协议版】融合主力T+0套利和战略派发两大证据链。当存在吸收或锁仓机会时，此风险将被彻底归零，其全部能量将转化为燃料，用于增强机会信号。"
+            "description": "【V5.0 · 公理化版】基于三大微观行为公理，形成的看跌共振分。"
         },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",
@@ -878,636 +548,235 @@
             "type": "context",
             "description": "用于恐慌抛售战备计算的内部支柱分，衡量成交量的萎缩程度。"
         },
-        "SCORE_SETUP_CHIP_RESONANCE_READY": {
-            "cn_name": "【战备】筹码共振就绪",
-            "category": "战法-环境",
-            "type": "context",
-            "description": "“筹码价格滞后”剧本的战备信号，表示筹码共振、价格受压、波动压缩的状态已就绪。"
-        },
         "说明_tactic_engine": "--- 战术引擎信号 (Tactic Engine) ---",
-        "SCORE_SETUP_PANIC_SELLING": {
-            "cn_name": "【战法】恐慌抛售备战",
-            "category": "战法-环境",
-            "type": "process",
-            "scoring_mode": "unipolar",
-            "description": "【先知的低语】融合价格大幅下跌、成交量放大、筹码结构崩溃等特征，识别出适合V型反转的“恐慌抛售日”战备状态，为常规信号提供加分。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_V_REVERSAL_ACE": {
-            "cn_name": "【战法】V型反转王牌",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "在确认的“恐慌抛售日”之后，由当日强劲的“显性反转K线”确认的最高确定性V型反转剧本。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_CHIP_PRICE_LAG": {
-            "cn_name": "【战法】筹码价格滞后",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "在筹码高度共振、价格被压制的战备状态后，由温和点火信号确认的黄金突破口。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_CAPITULATION_REVERSAL": {
-            "cn_name": "【战法】恐慌投降反转",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "在“恐慌投降潜力”的背景下，由行为层反转信号确认的剧本。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": {
-            "cn_name": "【战法】极致压缩突破",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "在波动率极致压缩后，由高强度的压缩突破信号确认。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_BREAKOUT_EVE": {
-            "cn_name": "【战法】突破前夕",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "在平台和波动率双重压缩的突破前夕，由最高级别的点火共振信号确认。具体分值由计分引擎定义。"
-        },
-        "SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY": {
-            "cn_name": "【战法】均值回归买入",
-            "category": "战法-机会",
-            "type": "playbook",
-            "description": "融合了震荡市环境和价格位置的最终均值回归买入剧本分数。具体分值由计分引擎定义。"
-        },
         "说明_intraday_behavior_engine": "--- 日内行为引擎信号 (IntradayBehavior Engine) ---",
-        "SCORE_INTRADAY_EFFICIENCY_DYNAMICS": {
-            "cn_name": "【日内】攻击效率动态",
-            "category": "日内行为-机会",
-            "type": "context",
-            "description": "基于EOM指标的元分析，衡量日内价量攻击效率的动态变化。正分表示效率提升。"
-        },
-        "SCORE_INTRADAY_CONSISTENCY_DYNAMICS": {
-            "cn_name": "【日内】趋势一致性动态",
-            "category": "日内行为-机会",
-            "type": "context",
-            "description": "基于TRIX指标的元分析，衡量日内趋势的平滑动能变化。正分表示动能增强。"
-        },
-        "SCORE_INTRADAY_BREAKOUT_POTENTIAL": {
-            "cn_name": "【日内】突破潜力",
-            "category": "日内行为-机会",
-            "type": "context",
-            "description": "基于Squeeze指标的元分析，衡量日内波动率压缩与释放的动态。正分表示突破潜力增加。"
-        },
-        "SCORE_INTRADAY_BOTTOM_REVERSAL_DYNAMICS": {
-            "cn_name": "【日内】底部反转动态",
-            "category": "日内行为-机会",
-            "type": "context",
-            "description": "基于KDJ超卖和金叉的元分析，衡量日内底部反转的动态强度。正分表示反转正在形成。"
-        },
-        "SCORE_INTRADAY_TOP_REVERSAL_DYNAMICS": {
-            "cn_name": "【日内风险】顶部反转动态",
-            "category": "日内行为-风险",
-            "type": "risk",
-            "description": "基于KDJ超买和死叉的元分析，衡量日内顶部反转的动态强度。正分表示顶部风险正在形成。"
-        },
         "说明_playbook_engine": "--- 剧本引擎信号 (Playbook Engine) ---",
-        "PLAYBOOK_V_REVERSAL_ACE": {
-            "cn_name": "【剧本】V型反转王牌",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“V型反转王牌”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT": {
-            "cn_name": "【剧本】黄金结构突破",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“黄金结构突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_PERFECT_STORM_BOTTOM": {
-            "cn_name": "【剧本】完美风暴-底",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“完美风暴底部”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_CRUISE_PIT_REVERSAL": {
-            "cn_name": "【剧本】巡航黄金坑",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“巡航深坑反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": {
-            "cn_name": "【剧本】巡航回踩确认",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“巡航回踩反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": {
-            "cn_name": "【剧本】极致压缩突破",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“极致压缩突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_BREAKOUT_EVE": {
-            "cn_name": "【剧本】突破前夕",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“突破前夕”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_CHIP_PRICE_LAG": {
-            "cn_name": "【剧本】筹码价格滞后",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“筹码价格滞后”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_CAPITULATION_REVERSAL": {
-            "cn_name": "【剧本】恐慌投降反转",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“恐慌投降反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_ASCENT_PIT_REVERSAL": {
-            "cn_name": "【剧本】初升浪黄金坑",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“初升浪深坑反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": {
-            "cn_name": "【剧本】初升浪回踩确认",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“初升浪回踩反转”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": {
-            "cn_name": "【剧本】常规压缩突破",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“常规压缩突破”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_MEAN_REVERSION_GRID": {
-            "cn_name": "【剧本】均值回归网格",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“均值回归网格”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
-        "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": {
-            "cn_name": "【剧本】周期底捞",
-            "category": "剧本-机会",
-            "type": "playbook",
-            "description": "执行“周期底捞”剧本。具体分值由 strategy_params.four_layer_scoring_params.playbook_synergy_scoring 定义。"
-        },
         "说明_chip_intelligence": "--- 筹码层-内部信号 ---",
-        "SCORE_CHIP_MTF_CONCENTRATION": {
-            "cn_name": "【内部】MTF-聚散动态分",
-            "category": "内部计分-筹码",
+        "SCORE_CHIP_CLEANLINESS": {
+            "cn_name": "【筹码】筹码干净度",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理一】多时间级别(MTF)的筹码“聚散”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对纯静态的“集中度快照分”进行三维分析得出。"
+            "description": "【超级原子信号】量化筹码结构的“干净”程度，即上方套牢盘和短期获利盘的综合压力。分值越高，代表上方阻力越小，结构越干净。"
         },
-        "SCORE_CHIP_MTF_ACCUMULATION": {
-            "cn_name": "【内部】MTF-主力吸派分",
-            "category": "内部计分-筹码",
+        "SCORE_CHIP_LOCKDOWN_DEGREE": {
+            "cn_name": "【筹码】筹码锁定度",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理二】多时间级别(MTF)的主力“吸筹/派发”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对双极性的“行动快照分”进行三维分析得出。"
+            "description": "【超级原子信号】量化市场中总的不愿交易的筹码比例（盈利锁定+亏损锁定）。分值越高，代表筹码锁定越好，浮筹越少。"
         },
-        "SCORE_CHIP_MTF_POWER_TRANSFER": {
-            "cn_name": "【内部】MTF-权力转移分",
-            "category": "内部计分-筹码",
+        "SCORE_CHIP_AXIOM_CONCENTRATION": {
+            "cn_name": "【筹码公理】聚散动态",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "【筹码公理三】多时间级别(MTF)的筹码“转移方向”动态分。这是一个字典，key为周期，value为该周期的动态分。由关系元分析引擎对双极性的“转移快照分”进行三维分析得出。"
+            "description": "【筹码公理一】诊断筹码是趋向集中还是分散。正分代表集中，负分代表分散。"
         },
-        "SCORE_CHIP_TRUE_ACCUMULATION": {
-            "cn_name": "【筹码】真实吸筹",
-            "category": "筹码层-机会",
+        "SCORE_CHIP_AXIOM_COST_STRUCTURE": {
+            "cn_name": "【筹码公理】成本结构",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "融合了拉升吸筹和打压吸筹的综合信号，代表主力真实的筹码收集意图。"
+            "description": "【筹码公理二】诊断成本结构是否健康。正分代表获利盘稳固、成本收敛，负分代表套牢盘压力大、成本发散。"
         },
-        "SCORE_CHIP_PLAYBOOK_RALLY_ACCUMULATION": {
-            "cn_name": "【筹码】拉升吸筹",
-            "category": "筹码层-机会",
+        "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": {
+            "cn_name": "【筹码公理】持股心态",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "在上升趋势中，筹码依然在集中，且获利盘惜售。"
+            "description": "【筹码公理三】诊断市场整体持股心态。正分代表赢家惜售、输家躺平，负分代表信念动摇、恐慌抛售。"
         },
-        "SCORE_CHIP_PLAYBOOK_SUPPRESS_ACCUMULATION": {
-            "cn_name": "【筹码】打压吸筹",
-            "category": "筹码层-机会",
+        "SCORE_CHIP_AXIOM_PEAK_INTEGRITY": {
+            "cn_name": "【筹码公理】筹码峰形态",
+            "category": "筹码层-原子",
             "type": "context",
-            "description": "在下跌或盘整趋势中，筹码逆势集中。"
-        },
-        "SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION": {
-            "cn_name": "【行为】收缩盘整",
-            "category": "行为层-环境",
-            "type": "context",
-            "description": "【V2.0 · MTF三支柱版】融合“物理收缩度”、“结构健康度”和“主力吸筹度”三大支柱，并基于多时间框架分析，精准识别具备向上突破潜力的“卧龙”形态。"
-        },
-        "SCORE_OPPORTUNITY_LOCKUP_RALLY": {
-            "cn_name": "【行为】锁仓惜售拉升",
-            "category": "行为层-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "【V2.0 · MTF四象限版】基于多时间框架分析，识别在健康趋势中，因获利盘惜售、浮筹稀少而导致的“价涨量缩”的健康上涨模式。"
-        },
-        "SCORE_RISK_LIQUIDITY_DRAIN": {
-            "cn_name": "【行为风险】流动性流失风险",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -600,
-            "description": "【V3.0 · MTF四象限版】基于多时间框架分析，识别“价跌量增”的恐慌抛售风险场景。在弱势趋势中，此风险会被放大。"
-        },
-        "SCORE_VOL_WEAKENING_DROP": {
-            "cn_name": "【行为】缩量下跌(卖盘衰竭)",
-            "category": "行为层-机会",
-            "type": "context",
-            "description": "【V2.0 · MTF四象限版】基于多时间框架分析，识别在健康趋势中，因卖盘衰竭导致的“价跌量缩”现象，是潜在的“黄金坑”买点信号。"
-        },
-        "SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL": {
-            "cn_name": "【筹码】恐慌投降潜力",
-            "category": "筹码层-机会",
-            "type": "context",
-            "description": "【V4.4 · 成交量能核证版】基于筹码分布和行为，诊断市场是否具备“恐慌投降后反转”的潜力。成交量确认支柱已升级为“相对爆发强度”与“绝对换手水平”的双重核证，能更精准地识别剔除市值影响的真实恐慌放量。"
+            "description": "【筹码公理四】诊断主筹码峰的稳固性。正分代表筹码峰形成有效支撑，负分代表其构成压力。"
         },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
-        "SCORE_CHIP_BULLISH_ACCELERATION": {
-            "cn_name": "【筹码】看涨加速",
+        "SCORE_CHIP_BULLISH_RESONANCE": {
+            "cn_name": "【筹码】看涨共振",
             "category": "内部计分-筹码",
             "type": "dynamic",
-            "description": "【V7.0 · 状态信号版】对“筹码看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_CHIP_BEARISH_ACCELERATION": {
-            "cn_name": "【筹码】看跌加速",
-            "category": "内部计分-筹码",
-            "type": "risk",
-            "description": "【V7.0 · 状态信号版】对“筹码看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
+            "description": "【V8.0 · 公理化版】基于“聚散、成本、心态、形态”四大筹码公理，形成的静态看涨共振分。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
             "cn_name": "【筹码】看跌共振",
             "category": "内部计分-筹码",
             "type": "risk",
-            "description": "【V7.0 · 状态信号版】基于四大核心公理，在多时间级别上形成的“全息看跌共振”信号。作为中间状态供认知层融合。"
-        },
-        "SCORE_CHIP_BOTTOM_REVERSAL": {
-            "cn_name": "【筹码】底部反转",
-            "category": "内部计分-筹码",
-            "type": "positional",
-            "description": "【V7.0 · 状态信号版】对“筹码看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_CHIP_TACTICAL_REVERSAL": {
-            "cn_name": "【筹码】战术反转",
-            "category": "内部计分-筹码",
-            "type": "dynamic",
-            "description": "【V7.0 · 状态信号版】识别“强看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_CHIP_TOP_REVERSAL": {
-            "cn_name": "【筹码】顶部反转",
-            "category": "内部计分-筹码",
-            "type": "risk",
-            "description": "【V7.0 · 状态信号版】对“筹码看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_CHIP_BULLISH_RESONANCE": {
-            "cn_name": "【筹码】看涨共振",
-            "category": "内部计分-筹码",
-            "type": "dynamic",
-            "description": "【V7.0 · 状态信号版】基于三大核心公理，在多时间级别上形成的“全息看涨共振”信号。作为中间状态供认知层融合。"
+            "description": "【V8.0 · 公理化版】基于四大筹码公理，形成的静态看跌共振分。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
-        "SCORE_BEHAVIOR_BULLISH_ACCELERATION": {
-            "cn_name": "【行为】看涨加速",
-            "category": "内部计分-行为",
-            "type": "dynamic",
-            "description": "【V30.0 · 状态信号版】对“行为看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_BEHAVIOR_BEARISH_ACCELERATION": {
-            "cn_name": "【行为】看跌加速",
-            "category": "内部计分-行为",
-            "type": "risk",
-            "description": "【V30.0 · 状态信号版】对“行为看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_BEHAVIOR_BOTTOM_REVERSAL": {
-            "cn_name": "【行为】底部反转",
-            "category": "内部计分-行为",
-            "type": "positional",
-            "description": "【V30.0 · 状态信号版】对“行为看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_BEHAVIOR_TACTICAL_REVERSAL": {
-            "cn_name": "【行为】战术反转",
-            "category": "内部计分-行为",
-            "type": "dynamic",
-            "description": "【V30.0 · 状态信号版】识别“强行为看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_BEHAVIOR_TOP_REVERSAL": {
-            "cn_name": "【行为】顶部反转",
-            "category": "内部计分-行为",
-            "type": "risk",
-            "description": "【V30.0 · 状态信号版】对“行为看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
         "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
             "cn_name": "【行为】看涨共振",
             "category": "内部计分-行为",
             "type": "dynamic",
-            "description": "【V30.0 · 状态信号版】基于高保真微观结构信号，在多周期上形成的看涨共振。作为中间状态供认知层融合。"
+            "description": "【V5.0 · 公理化版】基于“价、量、关系、形态”四大行为公理，形成的看涨共振分。"
         },
         "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
             "cn_name": "【行为】看跌共振",
             "category": "内部计分-行为",
             "type": "risk",
-            "description": "【V30.0 · 状态信号版】基于高保真微观结构信号，在多周期上形成的看跌共振。作为中间状态供认知层融合。"
+            "description": "【V5.0 · 公理化版】基于四大行为公理，形成的看跌共振分。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
-        "SCORE_FF_BULLISH_ACCELERATION": {
-            "cn_name": "【资金流】看涨加速",
-            "category": "内部计分-资金流",
-            "type": "dynamic",
-            "description": "【V5.0 · 状态信号版】对“资金流看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FF_BEARISH_ACCELERATION": {
-            "cn_name": "【资金流】看跌加速",
-            "category": "内部计分-资金流",
-            "type": "risk",
-            "description": "【V5.0 · 状态信号版】对“资金流看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FF_BOTTOM_REVERSAL": {
-            "cn_name": "【资金流】底部反转",
-            "category": "内部计分-资金流",
-            "type": "positional",
-            "description": "【V5.0 · 状态信号版】对“资金流看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FF_TACTICAL_REVERSAL": {
-            "cn_name": "【资金流】战术反转",
-            "category": "内部计分-资金流",
-            "type": "dynamic",
-            "description": "【V5.0 · 状态信号版】识别“强资金流看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_FF_TOP_REVERSAL": {
-            "cn_name": "【资金流】顶部反转",
-            "category": "内部计分-资金流",
-            "type": "risk",
-            "description": "【V5.0 · 状态信号版】对“资金流看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
         "SCORE_FF_BULLISH_RESONANCE": {
             "cn_name": "【资金流】看涨共振",
             "category": "内部计分-资金流",
             "type": "dynamic",
-            "description": "【V5.0 · 状态信号版】基于“共识”和“信念”意图的资金流支柱在所有周期上形成看涨共振。作为中间状态供认知层融合。"
+            "description": "【V21.0 · 公理化版】基于“共识、信念、存量”三大资金流公理，形成的看涨共振分。"
         },
         "SCORE_FF_BEARISH_RESONANCE": {
-            "cn_name": "【资金流】派发共振",
+            "cn_name": "【资金流】看跌共振",
             "category": "内部计分-资金流",
             "type": "risk",
-            "description": "【V5.0 · 状态信号版】基于三大核心公理，在所有周期上形成的资金派发共振。作为中间状态供认知层融合。"
+            "description": "【V21.0 · 公理化版】基于三大资金流公理，形成的看跌共振分。"
+        },
+        "SCORE_FF_AXIOM_CONSENSUS": {
+            "cn_name": "【资金流公理】共识与分歧",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【资金流公理一】诊断“聪明钱”与“情绪钱”的博弈方向。正分代表共识吸筹（主力买、散户卖），负分代表共识派发（主力卖、散户买）。"
+        },
+        "SCORE_FF_AXIOM_CONVICTION": {
+            "cn_name": "【资金流公理】信念与决心",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【资金流公理二】诊断主力资金行动的坚决程度。正分代表信念坚定（追高买入、T0套利少），负分代表信念动摇（成本优势减弱、T0套利多）。"
+        },
+        "SCORE_FF_AXIOM_INCREMENT": {
+            "cn_name": "【资金流公理】存量博弈",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【资金流公理三】诊断市场资金的增量变化。正分代表增量资金入场，负分代表存量资金消耗或流出。"
         },
         "说明_structural_ultimate": "--- 结构层-终极信号 (现为内部状态) ---",
-        "SCORE_STRUCTURE_BULLISH_ACCELERATION": {
-            "cn_name": "【结构】看涨加速",
-            "category": "内部计分-结构",
-            "type": "dynamic",
-            "description": "【V22.0 · 状态信号版】对“结构看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_STRUCTURE_BEARISH_ACCELERATION": {
-            "cn_name": "【结构】看跌加速",
-            "category": "内部计分-结构",
-            "type": "risk",
-            "description": "【V22.0 · 状态信号版】对“结构看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
         "SCORE_STRUCTURE_BULLISH_RESONANCE": {
             "cn_name": "【结构】看涨共振",
             "category": "内部计分-结构",
             "type": "dynamic",
-            "description": "【V22.0 · 状态信号版】基于四大支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
+            "description": "【V4.0 · 公理化版】基于“趋势形态、多周期协同、结构稳定性”三大结构公理，形成的看涨共振分。"
         },
         "SCORE_STRUCTURE_BEARISH_RESONANCE": {
             "cn_name": "【结构】看跌共振",
             "category": "内部计分-结构",
             "type": "risk",
-            "description": "【V22.0 · 状态信号版】基于四大支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
-        },
-        "SCORE_STRUCTURE_BOTTOM_REVERSAL": {
-            "cn_name": "【结构】底部反转",
-            "category": "内部计分-结构",
-            "type": "positional",
-            "description": "【V22.0 · 状态信号版】对“结构看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_STRUCTURE_TACTICAL_REVERSAL": {
-            "cn_name": "【结构】战术反转",
-            "category": "内部计分-结构",
-            "type": "dynamic",
-            "description": "【V22.0 · 状态信号版】识别“强结构看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_STRUCTURE_TOP_REVERSAL": {
-            "cn_name": "【结构】顶部反转",
-            "category": "内部计分-结构",
-            "type": "risk",
-            "description": "【V22.0 · 状态信号版】对“结构看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_STRUCTURAL_FAULT_BREAKTHROUGH": {
-            "cn_name": "【结构】结构性断层突破",
-            "category": "结构层-机会",
-            "type": "dynamic",
-            "score": 450,
-            "description": "【B级战术信号】识别价格强势突破筹码真空区的关键结构性事件。融合了突破强度、断层质量、成交量和收盘强度四重证据，预示着后续可能出现快速拉升。"
-        },
-        "SCORE_STRUCTURAL_CONSOLIDATION_BREAKOUT": {
-            "cn_name": "【结构】结构性盘整突破",
-            "category": "结构层-机会",
-            "type": "dynamic",
-            "score": 420,
-            "description": "【B级战术信号】识别价格在经历充分盘整后，放量向上突破盘整区间的关键结构性事件，是经典的趋势启动信号。"
+            "description": "【V4.0 · 公理化版】基于三大结构公理，形成的看跌共振分。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 (现为内部状态) ---",
-        "SCORE_DYN_BULLISH_ACCELERATION": {
-            "cn_name": "【力学】看涨加速",
-            "category": "内部计分-力学",
-            "type": "dynamic",
-            "description": "【V18.0 · 状态信号版】对“力学看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
+        "SCORE_DYN_AXIOM_MOMENTUM": {
+            "cn_name": "【力学公理】动量",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理一】诊断价格运动的速度和方向。正分代表看涨动能，负分代表看跌动能。"
         },
-        "SCORE_DYN_BEARISH_ACCELERATION": {
-            "cn_name": "【力学】看跌加速",
-            "category": "内部计分-力学",
-            "type": "risk",
-            "description": "【V18.0 · 状态信号版】对“力学看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
+        "SCORE_DYN_AXIOM_INERTIA": {
+            "cn_name": "【力学公理】惯性",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理二】诊断当前趋势的自我维持能力。正分代表趋势惯性强，负分代表均值回归倾向强。"
+        },
+        "SCORE_DYN_AXIOM_STABILITY": {
+            "cn_name": "【力学公理】稳定性",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理三】诊断价格运动的稳定性。正分代表低波动（稳定），负分代表高波动（不稳定）。"
+        },
+        "SCORE_DYN_AXIOM_ENERGY": {
+            "cn_name": "【力学公理】能量",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理四】诊断推动价格运动的“燃料”是否充足。正分代表健康的能量支持，负分代表能量衰竭或背离。"
         },
         "SCORE_DYN_BULLISH_RESONANCE": {
             "cn_name": "【力学】看涨共振",
             "category": "内部计分-力学",
             "type": "dynamic",
-            "description": "【V18.0 · 状态信号版】基于五大力学支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
+            "description": "【V5.0 · 公理化版】基于“动量、惯性、稳定性、能量”四大力学公理，形成的看涨共振分。"
         },
         "SCORE_DYN_BEARISH_RESONANCE": {
             "cn_name": "【力学】看跌共振",
             "category": "内部计分-力学",
             "type": "risk",
-            "description": "【V18.0 · 状态信号版】基于五大力学支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
-        },
-        "SCORE_DYN_BOTTOM_REVERSAL": {
-            "cn_name": "【力学】底部反转",
-            "category": "内部计分-力学",
-            "type": "positional",
-            "description": "【V18.0 · 状态信号版】对“力学看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_DYN_TACTICAL_REVERSAL": {
-            "cn_name": "【力学】战术反转",
-            "category": "内部计分-力学",
-            "type": "dynamic",
-            "description": "【V18.0 · 状态信号版】识别“强力学看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_DYN_TOP_REVERSAL": {
-            "cn_name": "【力学】顶部反转",
-            "category": "内部计分-力学",
-            "type": "risk",
-            "description": "【V18.0 · 状态信号版】对“力学看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
+            "description": "【V5.0 · 公理化版】基于四大力学公理，形成的看跌共振分。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 (现为内部状态) ---",
-        "SCORE_FOUNDATION_BULLISH_ACCELERATION": {
-            "cn_name": "【基础】看涨加速",
-            "category": "内部计分-基础",
-            "type": "dynamic",
-            "description": "【V17.0 · 状态信号版】对“基础看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FOUNDATION_BEARISH_ACCELERATION": {
-            "cn_name": "【基础】看跌加速",
-            "category": "内部计分-基础",
-            "type": "risk",
-            "description": "【V17.0 · 状态信号版】对“基础看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {
             "cn_name": "【基础】看涨共振",
             "category": "内部计分-基础",
             "type": "dynamic",
-            "description": "【V17.0 · 状态信号版】基于四大基础支柱，形成的静态看涨共振分。作为中间状态供认知层融合。"
+            "description": "【V6.0 · 公理化版】基于“趋势、摆动、流体、波动”四大基础公理，形成的看涨共振分。"
         },
         "SCORE_FOUNDATION_BEARISH_RESONANCE": {
             "cn_name": "【基础】看跌共振",
             "category": "内部计分-基础",
             "type": "risk",
-            "description": "【V17.0 · 状态信号版】基于四大基础支柱，形成的静态看跌共振分。作为中间状态供认知层融合。"
+            "description": "【V6.0 · 公理化版】基于四大基础公理，形成的看跌共振分。"
         },
-        "SCORE_FOUNDATION_BOTTOM_REVERSAL": {
-            "cn_name": "【基础】底部反转",
-            "category": "内部计分-基础",
-            "type": "positional",
-            "description": "【V17.0 · 状态信号版】对“基础看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FOUNDATION_TACTICAL_REVERSAL": {
-            "cn_name": "【基础】战术反转",
-            "category": "内部计分-基础",
-            "type": "dynamic",
-            "description": "【V17.0 · 状态信号版】识别“强基础看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_FOUNDATION_TOP_REVERSAL": {
-            "cn_name": "【基础】顶部反转",
-            "category": "内部计分-基础",
-            "type": "risk",
-            "description": "【V17.0 · 状态信号版】对“基础看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_FOUNDATION_BOTTOM_CONFIRMED": {
-            "cn_name": "【基础战术】底部确认",
-            "category": "基础层-机会",
-            "type": "dynamic",
-            "score": 300,
-            "description": "【战术信号】基于盖亚基石协议，在关键支撑位连续N日站稳后触发的确认信号，代表阵地已巩固。"
-        },
-        "SCORE_FOUNDATION_VOL_COMPRESSION_OPP": {
-            "cn_name": "【基础战术】波动压缩机会",
-            "category": "基础层-机会",
-            "type": "dynamic",
-            "score": 350,
-            "description": "【战术信号】融合了波动率压缩的“状态”与“动态”，是强烈的突破前夕机会信号。"
-        },
-        "SCORE_FOUNDATION_VOL_EXPANSION_RISK": {
-            "cn_name": "【基础战术风险】波动扩张风险",
-            "category": "基础层-风险",
-            "type": "risk",
-            "penalty_weight": -400,
-            "description": "【战术信号】融合了波动率扩张的“状态”与“动态”，是强烈的顶部或破位风险信号。"
-        },
-        "SCORE_FOUNDATION_IGNITION_CONFIRMATION": {
-            "cn_name": "【基础战术】量价点火确认",
-            "category": "基础层-机会",
-            "type": "dynamic",
-            "score": 320,
-            "description": "【战术信号】融合了量价点火的“状态”与“动态”，是强烈的上涨确认信号。"
-        },
-        "SCORE_MAIN_FORCE_ABSORPTION_DYNAMIC": {
-            "cn_name": "【基础战术】主力吸收动态分",
-            "category": "基础层-环境",
+        "SCORE_FOUNDATION_AXIOM_TREND": {
+            "cn_name": "【基础公理】趋势",
+            "category": "基础层-原子",
             "type": "context",
-            "description": "【V2.1 · 名称规范化】量化主力在市场抛压中吸收筹码的动态健康度。不仅评估当前的吸收强度（状态），更评估其变化趋势（速度和加速度）。一个高且正在增长的分数，代表主力吸收意愿极其坚决且在不断增强。"
+            "description": "【基础公理一】基于EMA和MACD，诊断市场是否存在结构化的趋势。正分代表健康的多头趋势，负分代表空头趋势。"
         },
-        "SCORE_RISK_PANIC_SELLING": {
-            "cn_name": "【基础战术风险】恐慌抛售风险",
-            "category": "基础层-风险",
-            "type": "risk",
-            "penalty_weight": -400,
-            "description": "【V2.2 · 广义抛压版】经过主力行为审判后的最终抛售风险。当主力吸收强度超过'审判阈值'时，此风险将被强制归零，并嬗变为'吸收反转机会'。"
-        },
-        "SCORE_OPPORTUNITY_ABSORPTION_REVERSAL": {
-            "cn_name": "【行为战术】吸收反转",
-            "category": "行为层-机会",
-            "type": "dynamic",
-            "score": 500,
-            "description": "【V1.1 · 名称规范化】由抛压分析协议创造的强力买入机会信号。当市场出现广义抛压（价跌或长上影），且主力吸收强度超过'审判阈值'时触发。分数越高，代表抛压越大、吸收越坚决。"
-        },
-        "SCORE_RISK_VPA_VOLUME_ACCELERATING": {
-            "cn_name": "【内部】VPA成交量加速风险因子",
-            "category": "内部计分-基础",
+        "SCORE_FOUNDATION_AXIOM_OSCILLATOR": {
+            "cn_name": "【基础公理】摆动",
+            "category": "基础层-原子",
             "type": "context",
-            "description": "【原子风险因子】纯粹量化成交量动态的“失控”程度。此信号本身不直接计分，而是作为原始证据，供上层风险融合引擎（如fused_risk_scoring）进行综合审判。"
+            "description": "【基础公理二】基于RSI，诊断市场情绪的超买超卖状态。正分代表超买，负分代表超卖。"
+        },
+        "SCORE_FOUNDATION_AXIOM_FLOW": {
+            "cn_name": "【基础公理】流体",
+            "category": "基础层-原子",
+            "type": "context",
+            "description": "【基础公理三】基于CMF，诊断资金流的方向和强度。正分代表资金流入，负分代表资金流出。"
+        },
+        "SCORE_FOUNDATION_AXIOM_VOLATILITY": {
+            "cn_name": "【基础公理】波动",
+            "category": "基础层-原子",
+            "type": "context",
+            "description": "【基础公理四】基于BBW和ATR，诊断市场的波动性状态。正分代表波动收敛（稳定），负分代表波动放大（不稳定）。"
         },
         "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
-        "SCORE_PATTERN_BULLISH_ACCELERATION": {
-            "cn_name": "【形态】看涨加速",
-            "category": "内部计分-形态",
-            "type": "dynamic",
-            "description": "【V6.0 · 状态信号版】对“形态看涨共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_PATTERN_BEARISH_ACCELERATION": {
-            "cn_name": "【形态】看跌加速",
-            "category": "内部计分-形态",
-            "type": "risk",
-            "description": "【V6.0 · 状态信号版】对“形态看跌共振分”进行关系元分析，捕捉其“正向加速度”。作为中间状态供认知层融合。"
-        },
         "SCORE_PATTERN_BULLISH_RESONANCE": {
             "cn_name": "【形态】看涨共振",
             "category": "内部计分-形态",
             "type": "dynamic",
-            "description": "【V6.0 · 状态信号版】基于四大维度，形成的静态看涨共振分。作为中间状态供认知层融合。"
+            "description": "【V7.0 · 公理化版】基于“背离、反转、突破”三大形态公理，形成的看涨共振分。"
         },
         "SCORE_PATTERN_BEARISH_RESONANCE": {
             "cn_name": "【形态】看跌共振",
             "category": "内部计分-形态",
             "type": "risk",
-            "description": "【V6.0 · 状态信号版】基于四大维度，形成的静态看跌共振分。作为中间状态供认知层融合。"
-        },
-        "SCORE_PATTERN_BOTTOM_REVERSAL": {
-            "cn_name": "【形态】底部反转",
-            "category": "内部计分-形态",
-            "type": "positional",
-            "description": "【V6.0 · 状态信号版】对“形态看跌共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
-        },
-        "SCORE_PATTERN_TACTICAL_REVERSAL": {
-            "cn_name": "【形态】战术反转",
-            "category": "内部计分-形态",
-            "type": "dynamic",
-            "description": "【V6.0 · 状态信号版】识别“强形态看涨共振”背景下的“顶部反转（回调）”事件。作为中间状态供认知层融合。"
-        },
-        "SCORE_PATTERN_TOP_REVERSAL": {
-            "cn_name": "【形态】顶部反转",
-            "category": "内部计分-形态",
-            "type": "risk",
-            "description": "【V6.0 · 状态信号版】对“形态看涨共振分”进行关系元分析，捕捉其从增长到衰退的“负向加速度”。作为中间状态供认知层融合。"
+            "description": "【V7.0 · 公理化版】基于三大形态公理，形成的看跌共振分。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
-        "SCORE_UNIVERSAL_BOTTOM_PATTERN": {
-            "cn_name": "【内部】通用底部形态",
-            "category": "内部计分-行为",
-            "type": "context",
-            "description": "融合了“磨底形态”和“探底回升”的原子级底部形态信号，是所有“底部反转”终极信号的形态基础。"
-        },
-        "SCORE_CONTEXT_RECENT_REVERSAL": {
-            "cn_name": "【内部】反转回声",
-            "category": "内部计分-行为",
-            "type": "context",
-            "description": "【回声机制】将瞬时的底部形态信号转化为一个持续数日的上下文状态，解决系统的“健忘症”问题。"
-        },
         "说明_cyclical_intelligence": "--- 周期层信号 (Cyclical Intelligence) ---",
-        "SCORE_TRENDING_REGIME_FFT": {
+        "SCORE_CYCLICAL_FFT_TREND_REGIME": {
             "cn_name": "【周期】FFT趋势政权",
             "category": "周期层-环境",
             "type": "context",
-            "description": "基于FFT分析，量化价格序列中的长周期趋势能量占比。"
+            "description": "【周期公理一】基于FFT分析，量化价格序列中的长周期趋势能量占比。"
         },
-        "SCORE_CYCLICAL_REGIME": {
+        "SCORE_CYCLICAL_FFT_CYCLE_REGIME": {
             "cn_name": "【周期】FFT周期政权",
             "category": "周期层-环境",
             "type": "context",
-            "description": "基于FFT分析，量化价格序列中的主导周期性能量占比。"
+            "description": "【周期公理一】基于FFT分析，量化价格序列中的主导周期性能量占比。"
+        },
+        "SCORE_CYCLICAL_HURST_MEMORY": {
+            "cn_name": "【周期】Hurst记忆性",
+            "category": "周期层-环境",
+            "type": "context",
+            "description": "【周期公理二】基于Hurst指数，输出[-1, 1]的双极性分数。正分代表趋势记忆性，负分代表均值回归记忆性。"
+        },
+        "SCORE_CYCLICAL_HURST_TREND_REGIME": {
+            "cn_name": "【周期】Hurst趋势政权",
+            "category": "周期层-环境",
+            "type": "context",
+            "description": "【周期公理二】从Hurst记忆性分数中分解出的单极性趋势分 [0, 1]。"
+        },
+        "SCORE_CYCLICAL_HURST_REVERSION_REGIME": {
+            "cn_name": "【周期】Hurst均值回归政权",
+            "category": "周期层-环境",
+            "type": "context",
+            "description": "【周期公理二】从Hurst记忆性分数中分解出的单极性均值回归分 [0, 1]。"
         },
         "DOMINANT_CYCLE_PERIOD": {
             "cn_name": "【周期】主导周期",
@@ -1526,31 +795,6 @@
             "category": "周期层-环境",
             "type": "context",
             "description": "当前价格在主导周期中所处的位置，-1代表波谷，+1代表波峰。"
-        },
-        "SCORE_VOL_COMPRESSION": {
-            "cn_name": "【基础】波动率压缩",
-            "category": "基础层-环境",
-            "type": "context",
-            "description": "日线和周线BBW均处于低位，且仍在收缩，是最高级别的波动率压缩信号。"
-        },
-        "SCORE_VOL_EXPANSION": {
-            "cn_name": "【基础】波动率扩张",
-            "category": "基础层-环境",
-            "type": "context",
-            "description": "日线和周线BBW均处于高位，且仍在扩张，是最高级别的波动率扩张信号。"
-        },
-        "SCORE_VOL_BREAKOUT_POTENTIAL": {
-            "cn_name": "【基础】波动率突破潜力",
-            "category": "基础层-机会",
-            "type": "positional",
-            "description": "波动率高度压缩且市场处于趋势政权，是向上突破的绝佳温床。"
-        },
-        "SCORE_VOL_BREAKDOWN_RISK": {
-            "cn_name": "【基础风险】波动率崩溃风险",
-            "category": "基础层-风险",
-            "type": "risk",
-            "penalty_weight": -100,
-            "description": "波动率高度扩张且市场处于震荡政权，是向下崩溃的高风险状态。"
         },
         "SCORE_TRENDING_REGIME": {
             "cn_name": "【市场状态】趋势市得分",

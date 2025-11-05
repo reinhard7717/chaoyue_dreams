@@ -20,6 +20,7 @@ from strategies.kline_pattern_recognizer import KlinePatternRecognizer
 from .intelligence.pattern_intelligence import PatternIntelligence
 from .intelligence.process_intelligence import ProcessIntelligence
 from .intelligence.predictive_intelligence import PredictiveIntelligence
+from .intelligence.fusion_intelligence import FusionIntelligence
 from strategies.trend_following.utils import get_params_block, calculate_holographic_dynamics, get_param_value, calculate_context_scores, normalize_score, normalize_to_bipolar, _calculate_gaia_bedrock_support, _calculate_historical_low_support, get_unified_score
 
 class IntelligenceLayer:
@@ -48,6 +49,7 @@ class IntelligenceLayer:
         self.pattern_intel = PatternIntelligence(strategy_instance)
         self.cyclical_intel = CyclicalIntelligence(self.strategy)
         self.process_intel = ProcessIntelligence(self.strategy)
+        self.fusion_intel = FusionIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
         self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
@@ -59,10 +61,11 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V418.0 · 职责净化版】情报层总指挥官
-        - 核心重构: 移除了所有“合成”与“决策”相关的调用（如微观行为合成、上下文计算），
-                      使其回归“诊断”这一纯粹职责：生成所有基础的原子状态。
-        - 作战流程: 运行所有诊断引擎，填充 self.strategy.atomic_states。
+        【V420.0 · 三层金字塔架构版】情报层总指挥官
+        - 核心重构: 引入三阶段情报生成流程：
+                      1. 专业层诊断: 生成所有领域内的基础原子信号。
+                      2. 融合层诊断: 基于原子信号，进行跨域融合分析。
+                      3. 认知层诊断: 基于所有信号，进行顶层认知合成。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -72,11 +75,10 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        # print("  -> [指挥链] 正在执行: 基础层 & 专业层情报生成...")
+        # --- 阶段一：专业情报层诊断，生成原子信号 ---
+        print("情报金字塔[第一层]: 专业情报层诊断开始...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        base_process_states = self.process_intel.run_process_diagnostics(task_type_filter='base')
-        update_states(base_process_states)
-        self._ignite_relational_dynamics_engine()
+        update_states(self.process_intel.run_process_diagnostics(task_type_filter='base'))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -84,10 +86,19 @@ class IntelligenceLayer:
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
-        strategy_process_states = self.process_intel.run_process_diagnostics(task_type_filter='strategy')
-        update_states(strategy_process_states)
-        # print("  -> [指挥链] 所有基础诊断完成，原子状态已生成。")
-        return self.strategy.atomic_states # 返回生成的原子状态
+        update_states(self.process_intel.run_process_diagnostics(task_type_filter='strategy'))
+        print("情报金字塔[第一层]: 专业情报层诊断完成。")
+        # --- 阶段二：融合情报层诊断，生成跨域融合信号 ---
+        print("情报金字塔[第二层]: 融合情报层诊断开始...")
+        update_states(self.fusion_intel.run_fusion_diagnostics())
+        print("情报金字塔[第二层]: 融合情报层诊断完成。")
+        # --- 阶段三：关系动力引擎与认知层合成 ---
+        print("情报金字塔[第三层]: 认知决策层诊断开始...")
+        self._ignite_relational_dynamics_engine()
+        # 认知层现在消费所有已生成的信号
+        self.cognitive_intel.synthesize_cognitive_scores(df, {})
+        print("情报金字塔[第三层]: 认知决策层诊断完成。")
+        return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):
         """
