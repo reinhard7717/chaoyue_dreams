@@ -81,7 +81,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'peak_shoulder_growth_rate': '筹码峰肩增长率(%)',
     }
     # --- 第四象限: 博弈意图 (Game-Theoretic Intent) ---
-    # [代码修改开始]
     GAME_THEORY_METRICS = {
         'suppressive_accumulation_intensity': '打压吸筹强度(%)',
         'rally_distribution_intensity': '拉高出货强度(%)',
@@ -101,7 +100,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'auction_closing_position': '竞价收盘位置(-100~100)', # 新增，替代 auction_pressure_ratio
         'intraday_probe_rebound_quality': '日内试探回升质量',
     }
-    # [代码修改结束]
     # --- 第五象限: 生命体征 (Vital Signs) ---
     VITAL_SIGNS_METRICS = {
         'structural_consensus_score': '结构共识分',
@@ -120,7 +118,6 @@ class BaseAdvancedChipMetrics(models.Model):
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
     INTEGER_FIELDS = ['peak_volume', 'pressure_above_volume', 'support_below_volume']
     BOOLEAN_FIELDS = []
-    # [代码修改开始]
     SLOPE_ACCEL_EXCLUSIONS = [
         'gathering_by_support', 'gathering_by_chasing',
         'dispersal_by_distribution', 'dispersal_by_capitulation',
@@ -156,7 +153,6 @@ class BaseAdvancedChipMetrics(models.Model):
         'peak_separation_intensity',
         'peak_fusion_indicator',
     ]
-    # [代码修改结束]
     for name, verbose in CORE_METRICS.items():
         if name in INTEGER_FIELDS:
             vars()[name] = models.BigIntegerField(verbose_name=verbose, null=True, blank=True)
@@ -311,7 +307,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'retail_flow_dominance_index': '散户流动性主导指数',
         'main_force_price_impact_ratio': '主力价格冲击比率',
     }
-    # [代码修改开始]
     TACTICAL_LOG_METRICS = {
         'dip_absorption_power': '逢低吸筹力度',
         'rally_distribution_pressure': '拉高派发压力(%)',
@@ -342,7 +337,6 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'flow_temperature_premium': '资金温度溢价(%)', # 新增
         'mf_retail_liquidity_swap_corr': '主力散户流动性交换相关性',
     }
-    # [代码修改结束]
     OUTCOME_ASSESSMENT_METRICS = {
         'volatility_asymmetry_index': '波动不对称指数',
         'closing_price_deviation_score': '收盘价偏离度得分',
@@ -392,14 +386,12 @@ class BaseAdvancedFundFlowMetrics(models.Model):
             vars()[name] = models.DecimalField(max_digits=22, decimal_places=6, verbose_name=verbose, null=True, blank=True)
     main_force_buy_rate_consensus = models.DecimalField(max_digits=10, decimal_places=6, verbose_name='共识-主力买入率(%)', null=True, blank=True)
     UNIFIED_PERIODS = [1, 5, 13, 21, 55]
-    # [代码修改开始]
     sum_cols = [
         'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
         'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
         'net_sh_amount_calibrated',
         'main_force_on_peak_flow', # 新增：将峰区净流入加入可累加列
     ]
-    # [代码修改结束]
     for p in UNIFIED_PERIODS:
         if p > 1:
             for name in sum_cols:

@@ -973,9 +973,10 @@ class AdvancedFundFlowMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
-        【V2.1 · 数据类型净化版】从数据库加载并净化历史高级资金流指标。
-        - 核心修正: 在加载后立即将所有数值列转换为float，防止后续拼接时产生object类型污染。
+        【V2.2 · 索引修复版】从数据库加载并净化历史高级资金流指标。
+        - 核心修复: 修正 set_index 的用法，确保 trade_time 列在成为索引后被正确移除。
         """
+        # [代码修改开始]
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedFundFlowMetrics.CORE_METRICS.keys())
@@ -987,14 +988,13 @@ class AdvancedFundFlowMetricsService:
             return pd.DataFrame.from_records(qs.values(*required_cols))
         df = await get_data()
         if not df.empty:
-            df = df.set_index(pd.to_datetime(df['trade_time']))
-            # 在数据源头进行类型净化，杜绝object类型污染
-            # 遍历所有非索引列，将它们强制转换为float类型，无法转换的将变为NaN
+            # 修复：分两步操作，先转换类型，再用列名设置索引，确保 'trade_time' 列被正确移除
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df = df.set_index('trade_time')
             for col in df.columns:
-                if col != 'trade_time': # trade_time已经是索引了
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+        # [代码修改结束]
 
 
 

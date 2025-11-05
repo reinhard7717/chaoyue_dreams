@@ -606,12 +606,10 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
         qs = model.objects.filter(stock=stock_info_obj, **{f'{date_field}__in': dates_list})
         return pd.DataFrame.from_records(qs.values(*fields) if fields else qs.values())
     chip_model = get_cyq_chips_model_by_code(stock_info.stock_code)
-    # [代码修改开始]
     # 修复：增加 pct_change 字段，为下游计算提供数据
     all_daily_fields = (
         'trade_time', 'close', 'amount', 'vol', 'close_qfq', 'high_qfq', 'low_qfq', 'open_qfq', 'pre_close_qfq', 'pct_change'
     )
-    # [代码修改结束]
     all_daily_basic_fields = (
         'trade_time', 'circ_mv', 'turnover_rate', 'float_share'
     )
@@ -711,7 +709,6 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @celery_app.task(bind=True, name='tasks.stock_analysis_tasks.precompute_advanced_chips_for_stock', queue='SaveHistoryData_TimeTrade')
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
-    # [代码修改开始]
     """
     【V34.0 · 中央枢纽重构版】
     - 核心重构: 将本任务升级为“数据准备与分发司令部”，统一处理基础数据，根除下游服务间的数据冲突。
@@ -721,7 +718,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
       3. 将 `base_daily_df` 作为标准“弹药”分发给资金流和筹码服务。
       4. 改造对下游服务的调用接口，以适应新的数据分发模式。
     """
-    # [代码修改结束]
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService

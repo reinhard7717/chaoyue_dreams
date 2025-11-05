@@ -300,6 +300,7 @@ class AdvancedChipMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """从数据库加载历史高级筹码指标。"""
+        # [代码修改开始]
         @sync_to_async
         def get_data():
             core_metric_cols = list(BaseAdvancedChipMetrics.CORE_METRICS.keys())
@@ -308,11 +309,14 @@ class AdvancedChipMetricsService:
             return pd.DataFrame.from_records(qs.values(*required_cols))
         df = await get_data()
         if not df.empty:
-            df = df.set_index(pd.to_datetime(df['trade_time']))
+            # 修复：分两步操作，先转换类型，再用列名设置索引，确保 'trade_time' 列被正确移除
+            df['trade_time'] = pd.to_datetime(df['trade_time'])
+            df = df.set_index('trade_time')
             for col in df.columns:
-                if col != 'trade_time':
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                # 此处的 if col != 'trade_time' 检查现在是多余但无害的
+                df[col] = pd.to_numeric(df[col], errors='coerce')
         return df
+        # [代码修改结束]
 
     def _calculate_derivatives(self, consensus_df: pd.DataFrame) -> pd.DataFrame:
         """【V2.2 · 导数定律统一版】修正加速度计算窗口，与资金流服务保持一致。"""
