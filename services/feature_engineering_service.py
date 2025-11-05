@@ -200,11 +200,10 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.0 · A股博弈论重铸版】高级模式识别信号生产线
-        - 核心升级: 彻底废弃基于旧数据模型的简单模式识别逻辑。
-        - 解决方案: 作为一名精通A股特性的量化大师，本函数将利用我们最先进的“高级筹码”与“高级资金流”指标，
-                      通过多因子共振，构建一系列直指A股博弈本质的、可供策略直接使用的复合信号。
-                      这不再是简单的形态识别，而是对市场背后多空力量、主力意图的深度洞察。
+        【V3.1 · 势能分析集成版】高级模式识别信号生产线
+        - 核心升级: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
+        - 解决方案: 直接集成并使用我们最先进的“均线系统势能分析”三大核心指标（张力、有序性、压缩速率），
+                      将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
         """
         # [代码修改开始]
         timeframe = 'D' # 模式识别的核心战场在日线
@@ -213,73 +212,64 @@ class FeatureEngineeringService:
         df = all_dfs[timeframe]
         
         # 1. 【军火库点验】: 确认新一代核心武器（列名）已部署
-        #    我们直接使用新数据模型中的精确列名，不再依赖模糊的旧名称。
+        #    我们直接使用新数据模型中的精确列名，并集成均线势能指标。
         required_cols = [
             # 基础数据
             'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D',
-            # 波动与趋势类
-            'BBW_21_2.0_D', 'ATR_14_D', 'MA_CONV_CV_SHORT_D',
             # 新版高级筹码指标
             'chip_health_score_D', 'structural_resilience_index_D', 'suppressive_accumulation_intensity_D',
-            'rally_distribution_intensity_D', 'winner_conviction_index_D', 'cost_structure_skewness_D',
-            'dominant_peak_solidity_D',
+            'rally_distribution_intensity_D', 'winner_conviction_index_D',
             # 新版高级资金流指标
             'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
             'main_force_on_peak_flow_D', 'flow_efficiency_index_D',
-            # 复合指标
-            'breakout_quality_score_D'
+            # 新版均线系统势能指标 (核心升级)
+            'MA_POTENTIAL_TENSION_INDEX_SHORT_D',
+            'MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D',
+            'MA_POTENTIAL_COMPRESSION_RATE_SHORT_D'
         ]
         
-        # 动态查找ADX列，因为其周期参数可能变化
-        adx_col = next((col for col in df.columns if col.startswith('ADX_')), None)
-        if adx_col:
-            required_cols.append(adx_col)
-        else:
-            logger.warning("模式识别引擎：未找到 ADX 列，部分趋势判断的准确性会受影响。")
-            
         # 严格检查数据完整性
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
-            logger.warning(f"高级模式识别引擎缺少关键数据: {missing_cols}，模块已跳过！请检查数据加载流程。")
+            # 增加调试信息，打印所有可用列，方便定位问题
+            print(f"高级模式识别引擎缺少关键数据: {missing_cols}，模块已跳过！")
+            print("当前可用的列名包括:")
+            print(df.columns.tolist())
             return all_dfs
 
-        # --- 2. 【战场状态定义】: 基于多因子共振，定义核心市场状态 ---
+        # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
 
-        # 【状态一：健康盘整期 (Healthy Consolidation)】
-        # 定义：波动收缩，趋势不明，但筹码结构稳固，无明显派发迹象。
-        # 证据a: 波动性收缩 (经典理论)。布林带宽度或均线收敛度处于低位。
-        cond_low_volatility = (df['BBW_21_2.0_D'] < df['BBW_21_2.0_D'].rolling(60).quantile(0.25)) | (df['MA_CONV_CV_SHORT_D'] < 0.01)
-        # 证据b: 趋势不明 (经典理论)。ADX 指标低于25。
-        cond_no_trend = (df[adx_col] < 25) if adx_col else pd.Series(True, index=df.index)
-        # 证据c: 结构稳固 (A股特色)。筹码健康分和结构韧性指数保持在较高水平，或稳步提升。
-        cond_struct_stable = (df['chip_health_score_D'] > 60) & (df['structural_resilience_index_D'] > 0)
-        # 证据d: 无明显派发 (A股特色)。“拉高出货强度”指标为0或负数。
-        cond_no_distribution = df['rally_distribution_intensity_D'] <= 0
-        df['IS_HEALTHY_CONSOLIDATION_D'] = cond_low_volatility & cond_no_trend & cond_struct_stable & cond_no_distribution
+        # 【状态一：高势能盘整 (High-Potential Consolidation)】
+        # 定义：均线系统被高度压缩（弹簧压紧），但方向尚不明朗。这是变盘的温床。
+        # 证据a: 高张力。均线张力指数处于历史低位（值越小，张力越高）。
+        cond_high_tension = df['MA_POTENTIAL_TENSION_INDEX_SHORT_D'] < df['MA_POTENTIAL_TENSION_INDEX_SHORT_D'].rolling(60).quantile(0.20)
+        # 证据b: 低有序度。均线系统处于纠缠状态，多空方向不明。
+        cond_low_orderliness = df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'].abs() < 0.5
+        # 证据c: 结构健康。筹码结构未崩溃。
+        cond_struct_healthy = df['chip_health_score_D'] > 50
+        df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy
 
         # 【状态二：吸筹进行时 (Accumulation in Progress)】
-        # 定义：在盘整或小幅下跌中，主力资金有明显、隐蔽的吸筹动作。
-        # 证据a: 打压吸筹。价格下跌，但“打压吸筹强度”指标为正。
-        cond_suppressive_accum = (df['pct_change_D'] < 0.01) & (df['suppressive_accumulation_intensity_D'] > 0)
-        # 证据b: 逢低吸筹。价格触及低点，但“逢低吸筹力度”指标显著。
-        cond_dip_absorption = df['dip_absorption_power_D'] > 0.5
-        # 证据c: 主峰区加仓。主力在主筹码峰区域持续净流入。
+        # 定义：在高势能盘整中，出现主力资金吸筹迹象，且能量正在进一步积蓄。
+        # 证据a: 能量正在压缩。均线压缩速率为负，表明弹簧正在被进一步压紧。
+        cond_compressing = df['MA_POTENTIAL_COMPRESSION_RATE_SHORT_D'] < 0
+        # 证据b: 主力隐蔽吸筹。通过打压或逢低吸纳的方式。
+        cond_main_force_accum = (df['suppressive_accumulation_intensity_D'] > 0) | (df['dip_absorption_power_D'] > 0.5)
+        # 证据c: 主力在关键区域加仓。
         cond_peak_flow_positive = df['main_force_on_peak_flow_D'].rolling(3).mean() > 0
-        # 证据d: 筹码持续集中。成本结构偏度向右偏（正值增大或负值减小），且主峰稳固度提升。
-        cond_chips_concentrating = (df['cost_structure_skewness_D'].diff() > 0) & (df['dominant_peak_solidity_D'].diff() > 0)
-        df['IS_ACCUMULATION_D'] = df['IS_HEALTHY_CONSOLIDATION_D'] & (cond_suppressive_accum | cond_dip_absorption | cond_peak_flow_positive | cond_chips_concentrating)
+        df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive)
 
         # 【状态三：高质效突破 (High-Quality Breakout)】
-        # 定义：价格突破盘整区，并得到资金、效率和主力行为的多重确认。
-        # 证据a: 突破前期盘整。前一日处于“健康盘整期”。
-        cond_was_consolidating = df['IS_HEALTHY_CONSOLIDATION_D'].shift(1).fillna(False)
-        # 证据b: 突破质量分确认。我们专为此设计的复合指标发出信号。
-        cond_quality_score = df['breakout_quality_score_D'] > 0.6
-        # 证据c: 主力执行Alpha为正。主力买入均价优于市场，显示其主动性和控盘能力。
-        cond_positive_alpha = df['main_force_execution_alpha_D'] > 0
-        # 证据d: 资金效率高。少量资金就能撬动较大涨幅。
-        cond_flow_efficient = df['flow_efficiency_index_D'] > df['flow_efficiency_index_D'].rolling(21).quantile(0.75)
-        df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_quality_score & cond_positive_alpha & cond_flow_efficient
+        # 定义：前期积蓄了巨大势能，现由主力资金点燃，向上释放能量。
+        # 证据a: 突破前期高势能盘整。前一日处于“高势能盘整期”。
+        cond_was_consolidating = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'].shift(1).fillna(False)
+        # 证据b: 势能向上释放。均线有序性评分由负或零显著转正，代表多头排列形成。
+        cond_orderliness_turn_up = (df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'] > 0.8) & (df['MA_POTENTIAL_ORDERLINESS_SCORE_SHORT_D'].diff() > 0.3)
+        # 证据c: 主力强力点火。主力资金当日大幅净流入，且执行效率高（Alpha为正）。
+        cond_main_force_ignition = (df['main_force_net_flow_calibrated_D'] > 0) & (df['main_force_execution_alpha_D'] > 0)
+        # 证据d: 价量配合。当日为放量阳线。
+        cond_price_volume_confirm = (df['pct_change_D'] > 0.01) & (df['volume_D'] > df['VOL_MA_21_D'])
+        df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm
 
         # 【状态四：派发嫌疑 (Distribution Suspected)】
         # 定义：上涨乏力，或在盘整中，出现主力资金悄然出货的迹象。
@@ -289,16 +279,18 @@ class FeatureEngineeringService:
         cond_main_force_outflow = df['main_force_net_flow_calibrated_D'].rolling(3).sum() < 0
         # 证据c: 获利盘信念动摇。获利盘信念指数开始下降。
         cond_winner_conviction_drop = df['winner_conviction_index_D'].diff() < 0
-        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (df['IS_HEALTHY_CONSOLIDATION_D'] & cond_main_force_outflow & cond_winner_conviction_drop)
+        # 证据d: 结构韧性下降。
+        cond_resilience_drop = df['structural_resilience_index_D'].diff() < 0
+        df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop)
 
         # --- 3. 【信号整合与输出】 ---
-        pattern_cols = ['IS_HEALTHY_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.0 A股博弈论版)分析完成。")
+        logger.info("高级模式识别引擎(V3.1 势能分析集成版)分析完成。")
         return all_dfs
         # [代码修改结束]
 
