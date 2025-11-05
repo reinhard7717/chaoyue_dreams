@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple, Any
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, bipolar_to_exclusive_unipolar
 
 class FundFlowIntelligence:
     def __init__(self, strategy_instance):
