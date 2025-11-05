@@ -80,6 +80,15 @@
         }
       }
     },
+    "meta_feature_params": {
+      "enabled": true,
+      "description": "【V1.0 · 新增】元特征计算参数，用于诊断市场的混沌、分形与信息熵。",
+      "hurst_window": 144,
+      "fractal_dimension_window": 100,
+      "sample_entropy_window": 10,
+      "sample_entropy_tolerance_ratio": 0.2,
+      "volatility_instability_window": 21
+    },
     "slope_params": {
       "enabled": true,
       "说明": "【V242.0 · 矛与盾适配版】为所有情报引擎的公理模型提供必需的斜率指标。",

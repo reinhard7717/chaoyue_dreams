@@ -141,62 +141,123 @@ class FeatureEngineeringService:
 
     async def calculate_meta_features(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V2.2 性能优化版】元特征计算车间
-        - 核心职责: 计算如Hurst指数、价格变异系数等描述价格序列统计特性的“元特征”。
-        - 优化: 重构了Hurst指数的计算逻辑。通过直接在原始Series上使用.rolling().apply()并设置min_periods，
-                避免了.dropna()和.reindex()的开销，显著提升了计算效率并减少了内存占用。
+        【V3.0 · 物理洞察重铸版】元特征计算车间
+        - 核心升级: 废弃旧的简单指标，引入分形维度、样本熵、波动率不稳定性等一系列能够深度刻画市场混沌、分形与信息熵的“元特征”。
+        - 解决方案: 所有计算周期均由配置文件中的 'meta_feature_params' 驱动，实现完全的参数化。
+        - 新增指标:
+          - FRACTAL_DIMENSION: 市场复杂度，衡量价格曲线的“粗糙度”，值越高越无序。
+          - SAMPLE_ENTROPY: 市场可预测性，衡量价格序列的“信息熵”，值越低越有序。
+          - VOLATILITY_INSTABILITY_INDEX: 波动率稳定性，衡量波动率自身的波动，是状态切换的前兆。
         """
-        timeframe = 'D' # 元特征通常在日线级别计算
+        # [代码修改开始]
+        timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
+        
         df = all_dfs[timeframe]
         suffix = f"_{timeframe}"
-        # --- 1. 计算Hurst指数：衡量时间序列的长期记忆性 ---
-        # Hurst > 0.5: 趋势性（涨的后面更可能涨，跌的后面更可能跌）
-        # Hurst < 0.5: 均值回归性（涨的后面更可能跌，跌的后面更可能涨）
-        # Hurst = 0.5: 随机游走
-        hurst_window = 120
+        
+        params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
+        if not params.get('enabled', False):
+            return all_dfs
+
+        close_col = f'close{suffix}'
+        if close_col not in df.columns:
+            logger.warning(f"元特征计算缺少核心列 '{close_col}'，模块已跳过。")
+            return all_dfs
+        
+        source_series = df[close_col]
+        if isinstance(source_series, pd.DataFrame):
+            source_series = source_series.iloc[:, 0]
+
+        # --- 1. Hurst 指数 (市场记忆性) ---
+        hurst_window = params.get('hurst_window', 120)
         hurst_col = f'hurst_{hurst_window}d{suffix}'
-        close_col_suffixed = f'close{suffix}'
-        if close_col_suffixed in df.columns and hurst_col not in df.columns:
+        if hurst_col not in df.columns and len(source_series.dropna()) >= hurst_window:
             try:
-                source_series = df[close_col_suffixed]
-                # 兼容源数据可能为DataFrame的情况
-                if isinstance(source_series, pd.DataFrame):
-                    source_series = source_series.iloc[:, 0]
-                # 优化Hurst计算逻辑
-                # 先检查数据量是否足够进行至少一次计算
-                if len(source_series.dropna()) >= hurst_window:
-                    # 直接在原始Series上进行滚动计算，避免了创建中间Series(.dropna())和昂贵的reindex操作
-                    # min_periods=hurst_window 确保只在窗口数据完整时才调用函数，行为与原逻辑一致
-                    # raw=True 将numpy数组传递给apply函数，获得最佳性能
-                    hurst_values = source_series.rolling(window=hurst_window, min_periods=hurst_window).apply(hurst_exponent, raw=True)
-                    df[hurst_col] = hurst_values
-                else:
-                    # 如果数据量不足，则整列填充为NaN
-                    df[hurst_col] = np.nan
+                df[hurst_col] = source_series.rolling(window=hurst_window, min_periods=hurst_window).apply(hurst_exponent, raw=True)
             except Exception as e:
-                logger.error(f"赫斯特指数计算过程中发生未知错误: {e}")
+                logger.error(f"赫斯特指数(周期{hurst_window})计算失败: {e}")
                 df[hurst_col] = np.nan
-        # --- 2. 计算价格变异系数(CV)：衡量价格的相对波动程度 ---
-        cv_window = 60
-        cv_col = f'price_cv_{cv_window}d{suffix}'
-        if close_col_suffixed in df.columns and cv_col not in df.columns:
-            source_series = df[close_col_suffixed]
-            if isinstance(source_series, pd.DataFrame):
-                source_series = source_series.iloc[:, 0]
-            # 使用向量化操作计算：标准差 / 均值
-            price_mean = source_series.rolling(cv_window).mean()
-            price_std = source_series.rolling(cv_window).std()
-            df[cv_col] = price_std / (price_mean + 1e-9) # 加一个极小值防止除以零
-        # --- 3. 计算多空能量比：下方支撑 / 上方压力 ---
-        energy_col = f'energy_ratio{suffix}'
-        support_col = f'support_below{suffix}'
-        pressure_col = f'pressure_above{suffix}'
-        if support_col in df.columns and pressure_col in df.columns and energy_col not in df.columns:
-            df[energy_col] = df[support_col] / (df[pressure_col] + 1e-6)
+
+        # --- 2. 分形维度 (市场复杂度) ---
+        def _higuchi_fractal_dimension(x, k_max):
+            L = []
+            x_len = len(x)
+            for k in range(1, k_max + 1):
+                Lk = 0
+                for m in range(k):
+                    # 创建子序列
+                    series = x[m::k]
+                    if len(series) < 2: continue
+                    # 计算子序列长度
+                    Lk += np.sum(np.abs(np.diff(series))) * (x_len - 1) / ((x_len - m) // k * k)
+                L.append(np.log(Lk / k) if Lk > 0 else 0)
+            # 对log-log图进行线性回归
+            k_range_log = np.log(np.arange(1, k_max + 1))
+            # 过滤掉无效的L值
+            valid_indices = [i for i, val in enumerate(L) if val != 0]
+            if len(valid_indices) < 2: return np.nan
+            slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
+            return slope
+
+        fd_window = params.get('fractal_dimension_window', 100)
+        fd_col = f'FRACTAL_DIMENSION_{fd_window}d{suffix}'
+        if fd_col not in df.columns and len(source_series.dropna()) >= fd_window:
+            try:
+                k_max = int(np.sqrt(fd_window))
+                df[fd_col] = source_series.rolling(window=fd_window).apply(lambda x: _higuchi_fractal_dimension(x, k_max), raw=True)
+            except Exception as e:
+                logger.error(f"分形维度(周期{fd_window})计算失败: {e}")
+                df[fd_col] = np.nan
+
+        # --- 3. 样本熵 (市场可预测性) ---
+        def _sample_entropy(x, m, r):
+            n = len(x)
+            # 构造模板
+            templates = np.array([x[i:i+m] for i in range(n - m + 1)])
+            # 计算模板间距离
+            dist = np.max(np.abs(templates[:, np.newaxis] - templates), axis=2)
+            # 统计匹配数
+            A = np.sum(dist < r) - n # 减去自身匹配
+            templates_plus_1 = np.array([x[i:i+m+1] for i in range(n - m)])
+            dist_plus_1 = np.max(np.abs(templates_plus_1[:, np.newaxis] - templates_plus_1), axis=2)
+            B = np.sum(dist_plus_1 < r) - (n - m)
+            if A == 0 or B == 0: return np.nan
+            return -np.log(B / A)
+
+        se_window = params.get('sample_entropy_window', 10)
+        se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
+        se_col = f'SAMPLE_ENTROPY_{se_window}d{suffix}'
+        if se_col not in df.columns and len(source_series.dropna()) >= se_window + 1:
+            try:
+                log_returns = np.log(source_series / source_series.shift(1)).dropna()
+                rolling_std = log_returns.rolling(window=se_window).std()
+                # 使用 apply 结合 lambda 来传递动态的 r
+                entropy_values = []
+                for i in range(len(log_returns) - se_window + 1):
+                    window_data = log_returns.iloc[i:i+se_window].values
+                    r = rolling_std.iloc[i+se_window-1] * se_tol_ratio
+                    if pd.isna(r) or r == 0:
+                        entropy_values.append(np.nan)
+                        continue
+                    entropy_values.append(_sample_entropy(window_data, m=2, r=r))
+                # 对齐结果到原始DataFrame
+                df[se_col] = pd.Series(entropy_values, index=log_returns.index[se_window-1:]).reindex(df.index)
+            except Exception as e:
+                logger.error(f"样本熵(周期{se_window})计算失败: {e}")
+                df[se_col] = np.nan
+
+        # --- 4. 波动率不稳定性 (状态切换前兆) ---
+        vi_window = params.get('volatility_instability_window', 21)
+        vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
+        atr_col = f'ATR_14{suffix}' # 依赖于ATR
+        if atr_col in df.columns and vi_col not in df.columns:
+            df[vi_col] = df[atr_col].rolling(window=vi_window).std()
+
         all_dfs[timeframe] = df
         return all_dfs
+        # [代码修改结束]
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
