@@ -373,7 +373,8 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0 · 新增】形态增强信号编排器
+        【V1.1 · 接口适配修复版】形态增强信号编排器
+        - 核心修复: 修正对 calculate_breakout_quality_score 的调用方式，将多个独立参数合并为一个 `params` 字典传入，以匹配目标方法的签名。
         - 核心职责: 根据配置，调用计算器中新增的“超级原子信号”算法，并将其集成到日线数据中。
         """
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -396,12 +397,13 @@ class FeatureEngineeringService:
         # 任务3: 突破质量分
         quality_params = params.get('breakout_quality', {})
         if quality_params.get('enabled'):
+            # [代码修改开始]
+            # 修复：将多个独立参数合并为一个 `params` 字典传入，以匹配目标方法的签名
             tasks.append(calculator.calculate_breakout_quality_score(
                 df_daily,
-                quality_params.get('volume_ma_period', 21),
-                quality_params.get('volume_multiplier', 1.5),
-                quality_params.get('weights', {})
+                quality_params
             ))
+            # [代码修改结束]
         if not tasks:
             return all_dfs
         results = await asyncio.gather(*tasks)

@@ -481,7 +481,7 @@ class IndicatorService:
                 # print(f"    - [聪明钱注入] 已将游资与机构协同信号注入日线数据。")
         all_dfs['D'] = df_daily
         #  调用军械库清单生成器 ▼▼▼
-        self._log_final_data_columns(all_dfs)
+        # self._log_final_data_columns(all_dfs)
         return all_dfs
 
     async def _prepare_base_data_and_indicators(
