@@ -402,57 +402,49 @@
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "cn_name": "【认知剧本】主力打压吸筹",
             "category": "认知层-剧本",
-            "type": "dynamic",
-            "score": 480,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过打压价格吸筹的战术剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
             "cn_name": "【认知剧本】主力拉升抢筹",
             "category": "认知层-剧本",
-            "type": "dynamic",
-            "score": 600,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过快速拉升抢夺筹码的战术剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
             "cn_name": "【认知剧本】恐慌投降反转",
             "category": "认知层-剧本",
-            "type": "positional",
-            "score": 900,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演市场在恐慌抛售后V型反转的战术剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
             "cn_name": "【认知风险】高位派发",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -1500,
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力在高位派发筹码的风险剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
             "cn_name": "【认知剧本】龙头苏醒",
             "category": "认知层-剧本",
-            "type": "dynamic",
-            "score": 800,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演龙头股被主力资金重新激活并率先突破的“苏醒”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
             "cn_name": "【认知剧本】板块轮动先锋",
             "category": "认知层-剧本",
-            "type": "dynamic",
-            "score": 500,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_TREND_EXHAUSTION": {
             "cn_name": "【认知风险】趋势衰竭",
             "category": "认知层-风险",
             "type": "risk",
-            "penalty_weight": -2500,
             "description": "【贝叶斯推演 V2.1】基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
             "cn_name": "【认知剧本】能量压缩爆发",
             "category": "认知层-剧本",
-            "type": "positional",
-            "score": 750,
+            "type": "playbook",
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {

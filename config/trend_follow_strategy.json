@@ -1057,31 +1057,18 @@
           "description": "行业生命周期评分参数"
         },
         "playbook_synergy_scoring": {
-          "说明": "【剧本协同分 V2.0 · 动态剧本版】剧本作为独立的战术加分项。移除了冗余的锻造信号，直接对动态剧本进行计分。",
+          "说明": "【剧本协同分 V3.0 · 独立计分版】每个剧本作为独立的战术加分项，其原始概率分将乘以这里的配置分数。",
           "positive_signals": {
-            "说明_S级": "--- S级 (王牌) ---",
             "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": 900,
-            "PLAYBOOK_PRIME_STRUCTURE_BREAKOUT": 850,
-            "说明_A级": "--- A级 (核心) ---",
             "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": 800,
             "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": 750,
-            "PLAYBOOK_PERFECT_STORM_BOTTOM": 750,
-            "PLAYBOOK_CRUISE_PIT_REVERSAL": 650,
-            "说明_B级": "--- B级 (助推) ---",
             "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": 600,
-            "PLAYBOOK_CRUISE_PULLBACK_REVERSAL": 550,
             "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": 500,
-            "PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION": 500,
-            "PLAYBOOK_BREAKOUT_EVE": 450,
-            "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": 480,
-            "PLAYBOOK_CHIP_PRICE_LAG": 420,
-            "说明_C级": "--- C级 (战术) ---",
-            "PLAYBOOK_ASCENT_PIT_REVERSAL": 350,
-            "PLAYBOOK_ASCENT_PULLBACK_REVERSAL": 280,
-            "PLAYBOOK_NORMAL_SQUEEZE_BREAKOUT": 220,
-            "PLAYBOOK_CYCLICAL_BOTTOM_FISHING": 200,
-            "说明_D级": "--- D级 (另类) ---",
-            "PLAYBOOK_MEAN_REVERSION_GRID": 150
+            "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": 480
+          },
+          "negative_signals": {
+            "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": -1500,
+            "COGNITIVE_RISK_TREND_EXHAUSTION": -2500
           }
         },
         "judgment_params": {
