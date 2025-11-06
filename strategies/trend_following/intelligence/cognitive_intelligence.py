@@ -106,8 +106,8 @@ class CognitiveIntelligence:
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 战略剧本库版】融合与裁决模块
-        - 核心升级: 扩充融合列表，将所有新增的看涨和看跌剧本纳入最终裁决。
+        【V3.1 · 信号净化版】融合与裁决模块
+        - 核心修改: 更新了看跌剧本的名称，从 'EXHAUSTED_CROSSBOW' 更新为 'TREND_EXHAUSTION'。
         """
         states = {}
         df_index = self.strategy.df_indicators.index
@@ -123,11 +123,13 @@ class CognitiveIntelligence:
         bullish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bullish_playbooks]
         cognitive_bullish_score = np.maximum.reduce([s.values for s in bullish_scores])
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df_index, dtype=np.float32)
+        # [代码修改开始]
         # 融合所有看跌剧本的“锻造后”分数
         bearish_playbooks = [
             'COGNITIVE_FORGED_RISK_DISTRIBUTION_AT_HIGH',
-            'COGNITIVE_FORGED_RISK_EXHAUSTED_CROSSBOW',
+            'COGNITIVE_FORGED_RISK_TREND_EXHAUSTION',
         ]
+        # [代码修改结束]
         bearish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bearish_playbooks]
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
@@ -323,18 +325,18 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING': posterior_prob.astype(np.float32)}
 
-    def _deduce_exhausted_crossbow_at_peak(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+    def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 拐点精确打击版】贝叶斯推演：“高位强弩之末”风险剧本
-        - 核心升级: 将“筹码结构”证据从判断“发散状态”升级为捕捉“由集中转向发散的拐点”，
-                      极大提升了对趋势末期微妙变化的敏感度。
+        【V2.1 · 信号净化版】贝叶斯推演：“趋势衰竭”风险剧本
+        - 核心修改: 重命名方法和输出信号，使用更专业的术语。
         - 证据链:
           1. 价势背离: 价格与动量加速度发生背离 (PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE)。
           2. 信念动摇: 赢家信念开始动摇 (PROCESS_META_WINNER_CONVICTION_DECAY)。
           3. 效率衰竭: 出现放量滞涨 (VPA_EFFICIENCY_D)。
           4. 筹码拐点: 筹码集中度斜率转负，开始发散 (SLOPE_5_long_term_concentration_90pct_D)。
         """
-        print("    -- [剧本推演] 高位强弩之末风险 (拐点精确打击)...")
+        # [代码修改开始]
+        print("    -- [剧本推演] 趋势衰竭风险 (拐点精确打击)...")
         # --- 1. 收集证据 ---
         # 证据1: 价格与动量加速度发生背离
         divergence = self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0)
@@ -343,9 +345,7 @@ class CognitiveIntelligence:
         # 证据3: 出现放量滞涨
         stagnation = (1 - normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55)).clip(0, 1)
         # 证据4: 筹码集中度出现拐点 (逻辑升级)
-        # 我们直接捕捉集中度斜率转为负值的时刻，这比判断状态更精确
         concentration_slope = self._get_atomic_score('SLOPE_5_long_term_concentration_90pct_D', 0.0)
-        # 斜率越负，代表发散越快，证据强度越高。归一化后作为[0,1]的证据分。
         chip_distribution_evidence = normalize_score(concentration_slope.clip(upper=0).abs(), self.strategy.df_indicators.index, 55)
         # --- 2. 计算似然度 ---
         evidence_scores = np.stack([divergence.values, winner_conviction_decay.values, stagnation.values, chip_distribution_evidence.values], axis=0)
@@ -357,7 +357,8 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
         # --- 4. 计算后验概率 ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        return {'COGNITIVE_RISK_EXHAUSTED_CROSSBOW': posterior_prob.astype(np.float32)}
+        return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
+        # [代码修改结束]
 
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """【V1.1 · 斐波那契周期版】贝叶斯推演：“板块轮动先锋”剧本"""

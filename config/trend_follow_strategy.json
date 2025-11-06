@@ -617,12 +617,10 @@
             "name": "PROCESS_META_WINNER_CONVICTION_DECAY",
             "type": "meta_analysis",
             "task_type": "base",
-            "diagnosis_mode": "direct_confirmation",
-            "relationship_type": "consensus",
-            "signal_A": "winner_conviction_index_D", "source_A": "df", "change_type_A": "diff",
-            "signal_B": "winner_conviction_index_D", "source_B": "df", "change_type_B": "diff",
-            "signal_b_factor_k": -1.0,
-            "description": "【新增·强弩之末】诊断赢家信念的衰减。正分代表赢家信念指数正在下降。"
+            "signal_type": "decay_analysis",
+            "source_signal": "winner_conviction_index_D",
+            "source_type": "df",
+            "comment": "【V2.0 · 逻辑重铸】诊断赢家信念的衰减。使用专属的衰减分析器，直接计算信号的负向变化。"
           }
         ]
       },
@@ -969,14 +967,14 @@
           }
         },
         "playbook_synergies": {
-          "description": "【V3.0 · 时空一体版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
+          "description": "【V3.1 · 信号净化版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
           "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
             "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
           },
           "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
             "synergistic": ["SCORE_STRUCTURE_BULLISH_RESONANCE", "SCORE_FF_BULLISH_RESONANCE"],
-            "risk": ["COGNITIVE_RISK_EXHAUSTED_CROSSBOW"]
+            "risk": ["COGNITIVE_RISK_TREND_EXHAUSTION"]
           },
           "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
             "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
@@ -994,7 +992,7 @@
             "synergistic": ["PROCESS_META_HOT_SECTOR_COOLING"],
             "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
           },
-          "COGNITIVE_RISK_EXHAUSTED_CROSSBOW": {
+          "COGNITIVE_RISK_TREND_EXHAUSTION": {
             "synergistic": ["PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE", "PROCESS_META_WINNER_CONVICTION_DECAY"],
             "risk": []
           },

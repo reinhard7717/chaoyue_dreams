@@ -40,10 +40,8 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V3.0.0 · 统一引擎版】运行所有在配置中定义的元分析诊断任务。
-        - 核心升级: 统一了 'meta_analysis' 和 'strategy_sync' 的处理流程，
-                      所有关系诊断任务现在都由唯一的、更先进的 _diagnose_meta_relationship 引擎处理。
-                      移除了过时的 _diagnose_strategy_sync 和 _calculate_strategy_sync_relationship 方法。
+        【V3.1.0 · 衰减分析版】运行所有在配置中定义的元分析诊断任务。
+        - 核心升级: 新增对 'decay_analysis' 任务类型的支持，调用专属的信号衰减计算引擎。
         """
         all_process_states = {}
         df = self.strategy.df_indicators
@@ -68,6 +66,11 @@ class ProcessIntelligence:
                     split_states = self._diagnose_split_meta_relationship(df, config)
                     if split_states:
                         all_process_states.update(split_states)
+                # 新增路由到衰减分析器
+                elif custom_signal_type == 'decay_analysis':
+                    decay_states = self._diagnose_signal_decay(df, config)
+                    if decay_states:
+                        all_process_states.update(decay_states)
                 else:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
@@ -267,6 +270,44 @@ class ProcessIntelligence:
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
         return relationship_score.clip(-1, 1)
 
+    def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】信号衰减诊断器
+        - 核心职责: 专门用于计算单个信号的负向变化（衰减）强度。
+        - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
+        - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
+        """
+        # [代码新增开始]
+        signal_name = config.get('name')
+        source_signal_name = config.get('source_signal')
+        source_type = config.get('source_type', 'df')
+        df_index = df.index
+
+        if not source_signal_name:
+            print(f"        -> [衰减分析] 警告: 缺少 'source_signal' 配置。")
+            return {}
+
+        # 获取源信号
+        if source_type == 'atomic_states':
+            source_series = self.strategy.atomic_states.get(source_signal_name)
+        else:
+            source_series = df.get(source_signal_name)
+
+        if source_series is None:
+            print(f"        -> [衰减分析] 警告: 缺少源信号 '{source_signal_name}'。")
+            return {}
+
+        # 1. 计算信号的一阶差分（变化）
+        signal_change = source_series.diff(1).fillna(0)
+        
+        # 2. 只保留负值（衰减），并取绝对值
+        decay_magnitude = signal_change.clip(upper=0).abs()
+        
+        # 3. 归一化衰减幅度
+        decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
+        
+        return {signal_name: decay_score.astype(np.float32)}
+        # [代码新增结束]
 
 
 
