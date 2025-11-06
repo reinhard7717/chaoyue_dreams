@@ -624,31 +624,60 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
-        【V1.0 · 新增】突破质量分计算专用通道
-        - 核心职责: 在确保所有依赖项都计算完毕后，调用计算器生成突破质量分，并将其集成到日线数据中。
+        【V2.0 · 标准化车间修复版】突破质量分计算专用通道
+        - 核心修复: 彻底解决因列名后缀混乱导致的生产失败问题。引入“标准化车间”逻辑：
+                    1. 定义一个无后缀的“原材料清单”。
+                    2. 遍历清单，智能地从输入的日线DataFrame中查找对应的、可能带后缀的原材料列。
+                    3. 构建一个全新的、列名完全标准化的 `df_standardized` DataFrame。
+                    4. 将这个100%符合规格的DataFrame送入计算器，确保生产成功。
         """
-        # [代码新增开始]
+        # [代码修改开始]
         if not params.get('enabled', False):
             return all_dfs
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
+        
         df_daily = all_dfs[timeframe]
-        # 注意：此时传入的 df_daily 的列名是带后缀的，我们需要先剥离后缀以供 calculator 使用
-        df_for_calc = df_daily.copy()
-        df_for_calc.columns = [c.removesuffix(f'_{timeframe}') for c in df_for_calc.columns]
-        # 调用计算器
-        result_df = await calculator.calculate_breakout_quality_score(df_daily=df_for_calc, params=params)
+        
+        # 步骤1: 定义一个无后缀的“原材料清单”
+        required_materials = [
+            'volume', 'VOL_MA_21', 'main_force_flow_directionality',
+            'open', 'high', 'low', 'close',
+            'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
+        ]
+        
+        # 步骤2: 构建一个全新的、列名完全标准化的 DataFrame
+        df_standardized = pd.DataFrame(index=df_daily.index)
+        
+        missing_materials = []
+        for material in required_materials:
+            # 智能查找原材料列（可能带后缀，也可能不带）
+            source_col_with_suffix = f"{material}_{timeframe}"
+            if source_col_with_suffix in df_daily.columns:
+                df_standardized[material] = df_daily[source_col_with_suffix]
+            elif material in df_daily.columns: # 兼容某些列可能没有后缀的情况
+                df_standardized[material] = df_daily[material]
+            else:
+                missing_materials.append(material)
+        
+        # 如果缺少任何原材料，则停产并报告
+        if missing_materials:
+            print(f"调试信息: 突破质量分生产线停产，缺少标准化原材料: {missing_materials}")
+            return all_dfs
+            
+        # 步骤3: 将100%符合规格的DataFrame送入计算器
+        result_df = await calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
+        
         if result_df is not None and not result_df.empty:
-            # 将结果合并回原始的、带后缀的日线DataFrame
-            # result_df 的列名已经是 'breakout_quality_score_D'，无需再加后缀
+            # 将生产出的成品合并回主数据流
             df_daily = df_daily.join(result_df, how='left')
-            # 对新合并的列进行前向填充
             df_daily[result_df.columns] = df_daily[result_df.columns].ffill()
             all_dfs[timeframe] = df_daily
             logger.info("突破质量分计算完成并已集成。")
+            
         return all_dfs
-        # [代码新增结束]
+        # [代码修改结束]
 
 
 
