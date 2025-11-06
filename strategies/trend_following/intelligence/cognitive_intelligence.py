@@ -202,8 +202,8 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 动态证据版】贝叶斯推演：“恐慌投降反转”剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        【V3.2 · 军备换装版】贝叶斯推演：“恐慌投降反转”剧本
+        - 核心修复: 将证据 'SCORE_MICRO_PANIC_ABSORPTION' 替换为现代化的 'SCORE_MICRO_BULLISH_RESONANCE'。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
@@ -213,7 +213,10 @@ class CognitiveIntelligence:
         volume_spike = (self._get_atomic_score('volume_D') / vol_ma55.replace(0, 1.0)).fillna(1.0)
         volume_evidence = self._forge_dynamic_evidence(normalize_score(volume_spike, self.strategy.df_indicators.index, 55))
         process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0).clip(lower=0))
-        micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_PANIC_ABSORPTION', 0.0).clip(lower=0))
+        # [代码修改开始]
+        # 使用 'SCORE_MICRO_BULLISH_RESONANCE' 替换废弃的 'SCORE_MICRO_PANIC_ABSORPTION'
+        micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_BULLISH_RESONANCE', 0.0).clip(lower=0))
+        # [代码修改结束]
         # --- 2. 计算似然度 P(证据 | 恐慌反转) ---
         evidence_scores = np.stack([
             upward_pressure.values, price_rebound_evidence.values, volume_evidence.values,
@@ -260,15 +263,18 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 动态证据版】贝叶斯推演：“龙头苏醒”剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        【V1.2 · 军备换装版】贝叶斯推演：“龙头苏醒”剧本
+        - 核心修复: 将证据 'relative_strength_vs_index_D' 替换为更精准的 'industry_strength_rank_D'。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         breakout_quality = self._forge_dynamic_evidence(self._get_atomic_score('breakout_quality_score_D', 0.0))
         sector_sync = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
-        relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('relative_strength_vs_index_D', 0.0), self.strategy.df_indicators.index, 55))
+        # [代码修改开始]
+        # 使用 'industry_strength_rank_D' 替换不存在的 'relative_strength_vs_index_D'
+        relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('industry_strength_rank_D', 0.5), self.strategy.df_indicators.index, 55))
+        # [代码修改结束]
         # --- 2. 计算似然度 ---
         evidence_scores = np.stack([capital_confrontation.values, breakout_quality.values, sector_sync.values, relative_strength.values], axis=0)
         evidence_weights = np.array([0.3, 0.3, 0.2, 0.2])
@@ -307,12 +313,15 @@ class CognitiveIntelligence:
 
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 动态证据版】贝叶斯推演：“板块轮动先锋”剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        【V1.3 · 军备换装版】贝叶斯推演：“板块轮动先锋”剧本
+        - 核心修复: 将证据 'FUSION_SECTOR_NET_FLOW_SCORE' 替换为现代化的 'SCORE_FF_BULLISH_RESONANCE'。
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
-        sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('FUSION_SECTOR_NET_FLOW_SCORE', 0.0).clip(lower=0))
+        # [代码修改开始]
+        # 使用 'SCORE_FF_BULLISH_RESONANCE' 替换废弃的 'FUSION_SECTOR_NET_FLOW_SCORE'，并使用 _get_atomic_score 获取
+        sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_BULLISH_RESONANCE', 0.0).clip(lower=0))
+        # [代码修改结束]
         price_position = self._forge_dynamic_evidence(1 - normalize_score(self._get_atomic_score('BIAS_144_D', 0.0), self.strategy.df_indicators.index, 144))
         chip_cleanliness = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0))
         hot_sector_cooling = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_HOT_SECTOR_COOLING', 0.0))
