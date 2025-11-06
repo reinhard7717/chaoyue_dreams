@@ -55,12 +55,17 @@ class JudgmentLayer:
 
     def _get_human_readable_summary(self, details_df: pd.DataFrame) -> pd.Series:
         """
-        【V5.1 · 记忆烙印协议版】
-        - 核心升级: 在生成的信号字典中，增加 'internal_name' 字段，烙印下信号的内部名称。
-        - 收益: 为下游的法医探针提供了精确识别信号元数据的能力，是修复“宙斯之雷”探针偏差的关键一步。
+        【V5.2 · 统一情报总线版】
+        - 核心修复: 在查找原始分(raw_score)时，不再只依赖 atomic_states。
+                      同样建立一个临时的“统一情报总线”来合并 atomic_states 和 playbook_states，
+                      确保任何来源的信号都能被正确回溯。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        atomic = self.strategy.atomic_states
+        # [代码修改开始]
+        # 建立统一情报总线，确保能回溯所有来源的信号
+        all_available_signals = self.strategy.atomic_states.copy()
+        all_available_signals.update(self.strategy.playbook_states)
+        # [代码修改结束]
         df = self.strategy.df_indicators
         details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
         def generate_summary_for_day(row):
@@ -71,12 +76,15 @@ class JudgmentLayer:
                 meta = score_map.get(signal_name, {})
                 is_risk = contribution < 0
                 raw_score_source = meta.get('raw_score_source', signal_name)
-                raw_score = atomic.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
+                # [代码修改开始]
+                # 从统一情报总线查找原始分
+                raw_score = all_available_signals.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
+                # [代码修改结束]
                 base_score_key = 'penalty_weight' if is_risk else 'score'
                 base_score = meta.get(base_score_key, 0)
                 signal_dict = {
                     'name': meta.get('cn_name', signal_name),
-                    'internal_name': signal_name, # 新增(V5.1): 烙印下信号的内部名称
+                    'internal_name': signal_name,
                     'score': int(round(contribution)),
                     'raw_score': raw_score,
                     'base_score': base_score
