@@ -314,25 +314,24 @@ class CognitiveIntelligence:
 
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 军备换装版】贝叶斯推演：“板块轮动先锋”剧本
-        - 核心修复: 将证据 'FUSION_SECTOR_NET_FLOW_SCORE' 替换为现代化的 'SCORE_FF_BULLISH_RESONANCE'。
+        【V1.4 · 信号源修复版】贝叶斯推演：“板块轮动先锋”剧本
+        - 核心修复: 将证据 'SCORE_FF_BULLISH_RESONANCE' 的获取方式从 _get_fused_score 修正为正确的 _get_atomic_score，
+                      因为它是一个原子/基础情报信号，而非融合层信号。
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
-        # --- 1. 收集并锻造所有相关证据 ---
-        # 使用 'SCORE_FF_BULLISH_RESONANCE' 替换废弃的 'FUSION_SECTOR_NET_FLOW_SCORE'，并使用 _get_atomic_score 获取
-        sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_BULLISH_RESONANCE', 0.0).clip(lower=0))
+        # [代码修改开始]
+        # 使用 _get_atomic_score 获取基础情报信号，而不是 _get_fused_score
+        sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BULLISH_RESONANCE', 0.0).clip(lower=0))
+        # [代码修改结束]
         price_position = self._forge_dynamic_evidence(1 - normalize_score(self._get_atomic_score('BIAS_144_D', 0.0), self.strategy.df_indicators.index, 144))
         chip_cleanliness = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0))
         hot_sector_cooling = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_HOT_SECTOR_COOLING', 0.0))
-        # --- 2. 计算似然度 ---
         evidence_scores = np.stack([sector_flow.values, price_position.values, chip_cleanliness.values, hot_sector_cooling.values], axis=0)
         evidence_weights = np.array([0.4, 0.2, 0.2, 0.2])
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
-        # --- 3. 获取先验概率 ---
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD': posterior_prob.astype(np.float32)}
 

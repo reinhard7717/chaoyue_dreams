@@ -59,10 +59,13 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V422.0 · 指挥链修复版】情报层总指挥官
-        - 核心修复: 修正了对 cognitive_intel.synthesize_cognitive_scores 的调用方式。
-                      该方法现在会直接更新 self.strategy.playbook_states，不再需要通过 update_states 包装，
-                      从而解决了剧本信号被错误存入 atomic_states 的问题。
+        【V423.0 · 指挥链重建版】情报层总指挥官
+        - 核心重构: 彻底重组了引擎的调用顺序，以修复因执行时序错乱导致的情报真空问题。
+        - 新作战时序:
+          1. 阶段一 (基础原子层): 运行所有独立的情报引擎，生产各自领域的原子及共振信号。
+          2. 阶段二 (过程关系层): 在基础信号完备后，运行过程引擎，诊断信号间的动态关系。
+          3. 阶段三 (融合态势层): 在共振信号完备后，运行融合引擎，提炼宏观战场态势。
+          4. 阶段四 (认知推演层): 在所有前置情报就绪后，运行认知引擎，生成最终战术剧本。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -72,9 +75,10 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        # --- 阶段一：专业情报层诊断，生成原子信号 ---
+        # [代码修改开始]
+        # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
+        # 这些引擎相对独立，主要生产各自领域的原子和共振信号
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
-        update_states(self.process_intel.run_process_diagnostics(task_type_filter='base'))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         update_states(self.foundation_intel.run_foundation_analysis_command())
@@ -83,13 +87,15 @@ class IntelligenceLayer:
         update_states(self.fund_flow_intel.diagnose_fund_flow_states(df))
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
-        update_states(self.process_intel.run_process_diagnostics(task_type_filter='strategy'))
-        # --- 阶段二：融合情报层诊断，生成跨域融合信号 ---
+        # --- 阶段二：过程关系情报层 (Process & Relational Layer) ---
+        # 此层消费阶段一的信号，诊断它们之间的动态关系。将两次调用合并为一次。
+        update_states(self.process_intel.run_process_diagnostics(task_type_filter=None))
+        # --- 阶段三：融合态势情报层 (Fusion & Situational Layer) ---
+        # 此层消费阶段一的共振信号，提炼为战场态势
         update_states(self.fusion_intel.run_fusion_diagnostics())
-        # --- 阶段三：关系动力引擎与认知层合成 ---
+        # --- 阶段四：认知推演层 (Cognitive & Playbook Layer) ---
+        # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终剧本
         self._ignite_relational_dynamics_engine()
-        # [代码修改开始]
-        # 直接调用认知引擎，它会自行更新 self.strategy.playbook_states
         self.cognitive_intel.synthesize_cognitive_scores(df)
         # [代码修改结束]
         return self.strategy.atomic_states
