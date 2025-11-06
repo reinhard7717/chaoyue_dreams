@@ -624,57 +624,68 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
-        【V2.0 · 标准化车间修复版】突破质量分计算专用通道
-        - 核心修复: 彻底解决因列名后缀混乱导致的生产失败问题。引入“标准化车间”逻辑：
-                    1. 定义一个无后缀的“原材料清单”。
-                    2. 遍历清单，智能地从输入的日线DataFrame中查找对应的、可能带后缀的原材料列。
-                    3. 构建一个全新的、列名完全标准化的 `df_standardized` DataFrame。
-                    4. 将这个100%符合规格的DataFrame送入计算器，确保生产成功。
+        【V2.1 · 深度探针植入版】突破质量分计算专用通道
+        - 核心升级: 在“标准化车间”内部植入深度探针，监控从原材料检验、标准化处理到成品验收的全过程，以捕获“静默失败”的根本原因。
         """
         # [代码修改开始]
+        print("    [BQS生产线] 启动突破质量分(Breakout Quality Score)计算通道...")
         if not params.get('enabled', False):
+            print("    [BQS生产线] -> 状态: 配置中禁用，跳过。")
             return all_dfs
+        
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
+            print("    [BQS生产线] -> 状态: 缺少必需的日线数据(D)，生产中止。")
             return all_dfs
         
         df_daily = all_dfs[timeframe]
         
-        # 步骤1: 定义一个无后缀的“原材料清单”
+        # --- [探针-1: 原材料清单核对] ---
+        print("        [探针-BQS-1] 正在核对原材料清单...")
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
             'open', 'high', 'low', 'close',
             'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
         ]
+        print(f"        -> 清单: {required_materials}")
         
-        # 步骤2: 构建一个全新的、列名完全标准化的 DataFrame
         df_standardized = pd.DataFrame(index=df_daily.index)
-        
         missing_materials = []
+        
         for material in required_materials:
-            # 智能查找原材料列（可能带后缀，也可能不带）
             source_col_with_suffix = f"{material}_{timeframe}"
             if source_col_with_suffix in df_daily.columns:
                 df_standardized[material] = df_daily[source_col_with_suffix]
-            elif material in df_daily.columns: # 兼容某些列可能没有后缀的情况
+            elif material in df_daily.columns:
                 df_standardized[material] = df_daily[material]
             else:
                 missing_materials.append(material)
         
-        # 如果缺少任何原材料，则停产并报告
         if missing_materials:
-            print(f"调试信息: 突破质量分生产线停产，缺少标准化原材料: {missing_materials}")
+            print(f"    [BQS生产线] -> 状态: 生产停产！缺少标准化原材料: {missing_materials}")
             return all_dfs
-            
-        # 步骤3: 将100%符合规格的DataFrame送入计算器
+        
+        print("        [探针-BQS-1] -> 结果: 所有原材料均已找到。")
+        
+        # --- [探针-2: 标准化成品检验] ---
+        print("        [探针-BQS-2] 正在检验送入计算器的标准化数据规格...")
+        print(f"        -> 标准化列名: {df_standardized.columns.tolist()}")
+        
+        # 将100%符合规格的DataFrame送入计算器
+        print("    [BQS生产线] 正在调用核心计算器...")
         result_df = await calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
         
+        # --- [探针-3: 计算器产出验收] ---
+        print("        [探针-BQS-3] 正在验收计算器产出...")
         if result_df is not None and not result_df.empty:
-            # 将生产出的成品合并回主数据流
+            print("        -> 验收结果: 成功！计算器返回了有效的DataFrame。")
             df_daily = df_daily.join(result_df, how='left')
             df_daily[result_df.columns] = df_daily[result_df.columns].ffill()
             all_dfs[timeframe] = df_daily
-            logger.info("突破质量分计算完成并已集成。")
+            print("    [BQS生产线] -> 状态: 生产完成，成品已集成。")
+        else:
+            print("        -> 验收结果: 失败！计算器返回了None或空DataFrame。这是导致最终信号缺失的直接原因！")
+            print("    [BQS生产线] -> 状态: 生产失败，无成品产出。")
             
         return all_dfs
         # [代码修改结束]
