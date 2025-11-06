@@ -885,7 +885,78 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
     s_bear = (bipolar_score.clip(-1, 0) * -1)
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
 
+def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
+    """
+    【V1.0 · 新增】多时间框架(MTF)自适应归一化引擎
+    - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行百分位排名归一化，并加权融合，
+                  最终产出一个综合了多周期动态的、在[0, 1]区间的标准分数。
+    - 依赖: normalize_score
+    """
+    if tf_weights is None:
+        tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
+    
+    # 兼容两种配置格式: {'weights': {...}} 或直接 {...}
+    if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
+        valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
+    else:
+        valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+    
+    if not valid_weights or series is None or series.empty:
+        return pd.Series(0.5, index=target_index, dtype=np.float32)
+        
+    final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
+    total_weight = sum(valid_weights.values())
+    
+    if total_weight <= 0:
+        return pd.Series(0.5, index=target_index, dtype=np.float32)
+        
+    for period_str, weight in valid_weights.items():
+        try:
+            period = int(period_str)
+            # 调用基础的单周期归一化工具
+            period_score = normalize_score(series, target_index, window=period, ascending=ascending)
+            final_score += period_score * (weight / total_weight)
+        except (ValueError, TypeError) as e:
+            print(f"警告: 在 get_adaptive_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
+            continue
+            
+    return final_score.clip(0, 1)
 
+def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict = None, sensitivity: float = 1.0) -> pd.Series:
+    """
+    【V1.0 · 新增】多时间框架(MTF)自适应双极性归一化引擎
+    - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行Z-score和tanh归一化，并加权融合，
+                  最终产出一个综合了多周期动态的、在[-1, 1]区间的标准分数。
+    - 依赖: normalize_to_bipolar
+    """
+    if tf_weights is None:
+        tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
+
+    if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
+        valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
+    else:
+        valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
+
+    if not valid_weights or series is None or series.empty:
+        return pd.Series(0.0, index=target_index, dtype=np.float32)
+
+    final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
+    total_weight = sum(valid_weights.values())
+
+    if total_weight <= 0:
+        return pd.Series(0.0, index=target_index, dtype=np.float32)
+
+    for period_str, weight in valid_weights.items():
+        try:
+            period = int(period_str)
+            # 调用基础的双极性归一化工具
+            period_score = normalize_to_bipolar(series, target_index, window=period, sensitivity=sensitivity)
+            final_score += period_score * (weight / total_weight)
+        except (ValueError, TypeError) as e:
+            print(f"警告: 在 get_adaptive_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
+            continue
+            
+    return final_score.clip(-1, 1)
 
 
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score
+from strategies.trend_following.utils import get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score
 
 class FusionIntelligence:
     """
@@ -17,16 +17,6 @@ class FusionIntelligence:
     """
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
-        # 动态加载自适应归一化引擎，避免循环导入
-        # 注意：新的融合层应尽量减少对其他层内部方法的依赖，此处为兼容旧设计保留
-        # 理想情况下，应将 normalize_score 等工具放在更通用的 utils 中
-        try:
-            behavioral_intel = self.strategy.intelligence_layer.behavioral_intel
-            self._get_adaptive_mtf_normalized_score = behavioral_intel._get_adaptive_mtf_normalized_score
-        except AttributeError:
-            # 提供一个备用方案，以防 behavioral_intel 尚未初始化或结构变化
-            print("警告: 无法从 BehavioralIntelligence 动态加载归一化方法，将使用本地备用实现。")
-            self._get_adaptive_mtf_normalized_score = self._normalize_score_local_fallback
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """安全地从原子状态库中获取分数，处理缺失情况。"""
@@ -38,23 +28,6 @@ class FusionIntelligence:
         else:
             # print(f"    -> [融合层警告] 信号 '{name}' 不存在，使用默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
-
-    def _normalize_score_local_fallback(self, series: pd.Series, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
-        """
-        一个本地的、简化的自适应归一化备用方法。
-        """
-        if tf_weights is None:
-            tf_weights = {'weights': {21: 1.0}} # 简化为单一周期
-        valid_weights = tf_weights.get('weights', tf_weights)
-        final_score = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(valid_weights.values())
-        if total_weight <= 0:
-            return pd.Series(0.5, index=series.index, dtype=np.float32)
-        for period_str, weight in valid_weights.items():
-            period = int(period_str)
-            period_score = normalize_score(series, series.index, window=period, ascending=ascending)
-            final_score += period_score * (weight / total_weight)
-        return final_score.clip(0, 1)
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """

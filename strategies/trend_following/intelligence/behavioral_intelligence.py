@@ -5,7 +5,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
-from strategies.trend_following.utils import get_params_block, get_param_value, create_persistent_state, normalize_score, normalize_to_bipolar, calculate_holographic_dynamics, calculate_context_scores
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score
 
 class BehavioralIntelligence:
     """
@@ -144,64 +144,6 @@ class BehavioralIntelligence:
         # ... 其他纯行为诊断引擎的调用 ...
         return atomic_signals
 
-    def _get_adaptive_mtf_normalized_score(self, series: pd.Series, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
-        """
-        【V3.0 · 标准化重构版】
-        - 核心重构: 废弃自定义的Sigmoid归一化，全面转向调用 utils.normalize_score 标准工具。
-                      本方法现在作为多时间框架(MTF)融合的专用封装器。
-        """
-        if tf_weights is None:
-            tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-        if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
-            valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
-        else:
-            valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-        if not valid_weights or series.empty:
-            return pd.Series(0.5, index=series.index, dtype=np.float32)
-        final_score = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(valid_weights.values())
-        if total_weight <= 0:
-            return pd.Series(0.5, index=series.index, dtype=np.float32)
-        for period_str, weight in valid_weights.items():
-            try:
-                period = int(period_str)
-                # 调用标准归一化工具
-                period_score = normalize_score(series, series.index, window=period, ascending=ascending)
-                final_score += period_score * (weight / total_weight)
-            except (ValueError, TypeError) as e:
-                print(f"警告: 在 _get_adaptive_mtf_normalized_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
-                continue
-        return final_score.clip(0, 1)
-
-    def _get_adaptive_mtf_normalized_bipolar_score(self, series: pd.Series, tf_weights: Dict = None, sensitivity: float = 1.0) -> pd.Series:
-        """
-        【V3.0 · 标准化重构版】
-        - 核心重构: 废弃自定义实现，全面转向调用 utils.normalize_to_bipolar 标准工具。
-                      本方法现在作为多时间框架(MTF)融合的专用封装器。
-        """
-        if tf_weights is None:
-            tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-        if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
-            valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
-        else:
-            valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-        if not valid_weights or series.empty:
-            return pd.Series(0.0, index=series.index, dtype=np.float32)
-        final_score = pd.Series(0.0, index=series.index, dtype=np.float32)
-        total_weight = sum(valid_weights.values())
-        if total_weight <= 0:
-            return pd.Series(0.0, index=series.index, dtype=np.float32)
-        for period_str, weight in valid_weights.items():
-            try:
-                period = int(period_str)
-                # 调用标准双极性归一化工具
-                period_score = normalize_to_bipolar(series, series.index, window=period, sensitivity=sensitivity)
-                final_score += period_score * (weight / total_weight)
-            except (ValueError, TypeError) as e:
-                print(f"警告: 在 _get_adaptive_mtf_normalized_bipolar_score 中跳过无效的周期配置: '{period_str}'. 错误: {e}")
-                continue
-        return final_score.clip(-1, 1)
-
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         【V4.0 · 职责重塑版】信号动态计算引擎
@@ -277,9 +219,9 @@ class BehavioralIntelligence:
         shadow_dominance = df.get('shadow_dominance_D', 0.0) # 这是一个[-1, 1]的指标
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
         # --- 支柱二: 战术执行 (The Tactical Execution) - 操盘效率与决心 ---
-        vpa_eff_bipolar = self._get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', 0.5))
-        vwap_ctrl_bipolar = self._get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', 0.5))
-        trend_purity_bipolar = self._get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', 0.5))
+        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', 0.5))
+        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', 0.5))
+        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', 0.5))
         bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
         pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
         # --- 最终融合: 两大纯行为支柱加权 ---
@@ -307,28 +249,28 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('volatility_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         # --- 公理一: 价格行为 (Price Action) ---
-        price_upward_momentum = self._get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), ascending=True, tf_weights=default_weights)
+        price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = price_upward_momentum.astype(np.float32)
-        price_downward_momentum = self._get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), ascending=True, tf_weights=default_weights)
+        price_downward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = price_downward_momentum.astype(np.float32)
-        bias_risk = self._get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), ascending=True, tf_weights=long_term_weights)
+        bias_risk = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), ascending=True, tf_weights=long_term_weights)
         states['SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION'] = bias_risk.astype(np.float32)
         # --- 公理二: 量能行为 (Volume Action) ---
-        volume_burst = self._get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), ascending=True, tf_weights=default_weights)
+        volume_burst = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = volume_burst.astype(np.float32)
-        volume_apathy = self._get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), ascending=False, tf_weights=long_term_weights)
+        volume_apathy = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), ascending=False, tf_weights=long_term_weights)
         states['SCORE_BEHAVIOR_VOLUME_APATHY'] = volume_apathy.astype(np.float32)
         # --- 公理三: 价量关系 (Price-Volume Relation) ---
-        upward_efficiency = self._get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True, tf_weights=default_weights)
+        upward_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency.astype(np.float32)
-        downward_resistance = self._get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=False, tf_weights=default_weights)
+        downward_resistance = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=False, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance.astype(np.float32)
         # --- 公理四: 日内形态 (Intraday Form) ---
-        intraday_bull_control = self._get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True, tf_weights=default_weights)
+        intraday_bull_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control.astype(np.float32)
-        lower_shadow_absorption = self._get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), ascending=True, tf_weights=default_weights)
+        lower_shadow_absorption = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_absorption.astype(np.float32)
-        upper_shadow_pressure = self._get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), ascending=True, tf_weights=default_weights)
+        upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = upper_shadow_pressure.astype(np.float32)
         # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
@@ -355,9 +297,9 @@ class BehavioralIntelligence:
         df = self.strategy.df_indicators
         # --- 步骤一: 评估承接质量 (Absorption Quality) ---
         # 证据1.1: 承接效率 (VPA)
-        absorption_efficiency = self._get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True)
+        absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True)
         # 证据1.2: 承接控制力 (VWAP)
-        absorption_control = self._get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True)
+        absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True)
         # 证据1.3: 承接意图 (从-1,1映射到0,1)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
         # 融合得到承接质量，体现“三位一体”
