@@ -61,9 +61,10 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V421.0 · 指挥链修复版】情报层总指挥官
-        - 核心修复: 在诊断序列中加入了对微观行为引擎 (micro_behavior_engine) 的调用，
-                      解决了因引擎静默导致认知层无法获取 'SCORE_MICRO_BULLISH_RESONANCE' 信号的致命BUG。
+        【V422.0 · 指挥链修复版】情报层总指挥官
+        - 核心修复: 修正了对 cognitive_intel.synthesize_cognitive_scores 的调用方式。
+                      该方法现在会直接更新 self.strategy.playbook_states，不再需要通过 update_states 包装，
+                      从而解决了剧本信号被错误存入 atomic_states 的问题。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -77,7 +78,6 @@ class IntelligenceLayer:
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.process_intel.run_process_diagnostics(task_type_filter='base'))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
-        # 激活静默的微观行为引擎，确保其在行为引擎之后、融合引擎之前运行
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
@@ -90,7 +90,10 @@ class IntelligenceLayer:
         update_states(self.fusion_intel.run_fusion_diagnostics())
         # --- 阶段三：关系动力引擎与认知层合成 ---
         self._ignite_relational_dynamics_engine()
-        update_states(self.cognitive_intel.synthesize_cognitive_scores(df))
+        # [代码修改开始]
+        # 直接调用认知引擎，它会自行更新 self.strategy.playbook_states
+        self.cognitive_intel.synthesize_cognitive_scores(df)
+        # [代码修改结束]
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):

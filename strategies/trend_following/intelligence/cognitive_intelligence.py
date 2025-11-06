@@ -46,18 +46,21 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V24.0 · 透明计分版】总指挥
+        【V25.0 · 状态归位版】总指挥
         - 核心重构: 废弃了最终的融合步骤 `_fuse_and_adjudicate_playbooks`。
         - 新流程: 引擎的最终输出是所有独立的、经过动态证据锻造的剧本后验概率。
-                      计分逻辑完全交由上层计分引擎处理，确保了每个剧本分数的透明可追溯。
+        - 状态归位: 不再污染 atomic_states，而是将所有剧本信号直接存入专属的 self.strategy.playbook_states。
         """
-        print("启动【V24.0 · 透明计分版】认知推演引擎...")
-        all_cognitive_states = {}
+        print("启动【V25.0 · 状态归位版】认知推演引擎...")
+        # [代码修改开始]
+        # 清空旧的剧本状态，确保每次运行都是全新的
+        self.strategy.playbook_states = {}
         
         # --- 步骤一: 建立先验信念 (逻辑不变) ---
         print("  -- [认知层] 步骤一: 正在建立先验信念...")
         priors = self._establish_prior_beliefs()
-        all_cognitive_states.update(priors)
+        # 先验概率作为中间计算结果，可以放入原子状态供调试
+        self.strategy.atomic_states.update(priors)
         
         # --- 步骤二: 并行推演所有战术剧本，直接获得“动态后验概率” ---
         print("  -- [认知层] 步骤二: 正在进行贝叶斯推演，获取动态后验概率...")
@@ -71,12 +74,14 @@ class CognitiveIntelligence:
         playbook_scores.update(self._deduce_trend_exhaustion_risk(priors))
         playbook_scores.update(self._deduce_energy_compression_breakout(priors))
         
-        all_cognitive_states.update(playbook_scores)
-        self.strategy.atomic_states.update(playbook_scores)
+        # 将所有计算出的剧本信号存入其专属的状态库
+        self.strategy.playbook_states.update(playbook_scores)
         
         # --- 步骤三: (已废弃) 不再进行融合，直接输出独立剧本信号 ---
-        print(f"【V24.0 · 透明计分版】分析完成，生成 {len(all_cognitive_states)} 个认知信号。")
-        return all_cognitive_states
+        print(f"【V25.0 · 状态归位版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
+        # 返回剧本信号，供 intelligence_layer 可能的日志记录或其他用途，但不用于更新 atomic_states
+        return self.strategy.playbook_states
+        # [代码修改结束]
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
