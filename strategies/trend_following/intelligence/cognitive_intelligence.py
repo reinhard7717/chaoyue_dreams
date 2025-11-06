@@ -99,32 +99,40 @@ class CognitiveIntelligence:
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 信号净化版】融合与裁决模块
-        - 核心修改: 更新了看跌剧本的名称，从 'EXHAUSTED_CROSSBOW' 更新为 'TREND_EXHAUSTION'。
+        【V3.2 · 指挥链修复版】融合与裁决模块
+        - 核心修复: 将引用的信号名称从废弃的 'COGNITIVE_FORGED_...' 修正为 'COGNITIVE_PLAYBOOK_...' 和 'COGNITIVE_RISK_...'，
+                      重新连接了信号融合的指挥链。
         """
+        # [代码修改开始]
         states = {}
         df_index = self.strategy.df_indicators.index
-        # 融合所有看涨剧本的“锻造后”分数
+        
+        # 融合所有看涨剧本的分数
         bullish_playbooks = [
-            'COGNITIVE_FORGED_PLAYBOOK_SUPPRESSIVE_ACCUMULATION',
-            'COGNITIVE_FORGED_PLAYBOOK_CHASING_ACCUMULATION',
-            'COGNITIVE_FORGED_PLAYBOOK_CAPITULATION_REVERSAL',
-            'COGNITIVE_FORGED_PLAYBOOK_LEADING_DRAGON_AWAKENING',
-            'COGNITIVE_FORGED_PLAYBOOK_SECTOR_ROTATION_VANGUARD',
-            'COGNITIVE_FORGED_PLAYBOOK_ENERGY_COMPRESSION',
+            'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION',
+            'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION',
+            'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL',
+            'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING',
+            'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD',
+            'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION',
         ]
         bullish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bullish_playbooks]
+        # 取所有看涨剧本中的最高分作为当天的看涨总分
         cognitive_bullish_score = np.maximum.reduce([s.values for s in bullish_scores])
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df_index, dtype=np.float32)
-        # 融合所有看跌剧本的“锻造后”分数
+        
+        # 融合所有看跌剧本的分数
         bearish_playbooks = [
-            'COGNITIVE_FORGED_RISK_DISTRIBUTION_AT_HIGH',
-            'COGNITIVE_FORGED_RISK_TREND_EXHAUSTION',
+            'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH',
+            'COGNITIVE_RISK_TREND_EXHAUSTION',
         ]
         bearish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bearish_playbooks]
+        # 取所有看跌剧本中的最高分作为当天的看跌总分
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
+        
         return states
+        # [代码修改结束]
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
