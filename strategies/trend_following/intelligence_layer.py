@@ -61,11 +61,9 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V420.0 · 三层金字塔架构版】情报层总指挥官
-        - 核心重构: 引入三阶段情报生成流程：
-                      1. 专业层诊断: 生成所有领域内的基础原子信号。
-                      2. 融合层诊断: 基于原子信号，进行跨域融合分析。
-                      3. 认知层诊断: 基于所有信号，进行顶层认知合成。
+        【V420.1 · 调用修复版】情报层总指挥官
+        - 核心修复: 修正了对 cognitive_intel.synthesize_cognitive_scores 的调用，移除了多余的参数，
+                      并遵循标准的 update_states 模式，解决了 TypeError。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -95,8 +93,10 @@ class IntelligenceLayer:
         # --- 阶段三：关系动力引擎与认知层合成 ---
         print("情报金字塔[第三层]: 认知决策层诊断开始...")
         self._ignite_relational_dynamics_engine()
-        # 认知层现在消费所有已生成的信号
-        self.cognitive_intel.synthesize_cognitive_scores(df, {})
+        # [代码修改开始]
+        # 修正调用，移除多余的第二个参数 {}，并使用 update_states 统一模式
+        update_states(self.cognitive_intel.synthesize_cognitive_scores(df))
+        # [代码修改结束]
         print("情报金字塔[第三层]: 认知决策层诊断完成。")
         return self.strategy.atomic_states
 

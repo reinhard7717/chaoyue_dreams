@@ -44,15 +44,10 @@ class TrendFollowStrategy:
 
     def apply_strategy(self, all_dfs: Dict[str, pd.DataFrame], start_date_str: Optional[str] = None) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
-        【V410.0 · 拂晓总攻版】
-        - 核心修复: 修复了指挥链中的数据流断裂问题。现在每一步关键计算后，
-                      都会立即将结果注入全局的 atomic_states，确保下游引擎能获取到最新的情报。
-        - 新指挥链:
-          1. 基础诊断 -> 注入
-          2. 上下文分析 -> 注入
-          3. 微观合成 -> 注入
-          4. 认知合成 -> 注入
-          5. 攻防决策
+        【V411.0 · 指挥链修复版】
+        - 核心重构: 移除了对认知层 `synthesize_cognitive_scores` 的越级、冗余调用。
+                      现在完全依赖 `intelligence_layer.run_all_diagnostics()` 来统一完成所有情报生成，
+                      恢复了清晰的指挥链，并从根源上解决了调用冲突问题。
         """
         self.params = self.unified_config
         df_daily = all_dfs.get('D')
@@ -60,25 +55,24 @@ class TrendFollowStrategy:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
 
-        # 步骤1: 情报层完成所有基础诊断，生成完整的 atomic_states
+        # [代码修改开始]
+        # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
         self.intelligence_layer.run_all_diagnostics()
-        # 步骤2: 基于完整的诊断结果，进行上下文分析，并【立即注入】atomic_states
+        
+        # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
         self.atomic_states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = bottom_context_score
         self.atomic_states['SCORE_CONTEXT_TOP_ZONE'] = top_context_score
-        # 步骤3: 基于诊断和上下文，进行微观行为合成（如亢奋嬗变），并【立即注入】atomic_states
-        micro_behavior_states = self.intelligence_layer.cognitive_intel.micro_behavior_engine.run_micro_behavior_synthesis(self.df_indicators)
-        self.atomic_states.update(micro_behavior_states)
-        # 步骤4: 执行顶层认知合成，生成综合风险等最终认知信号 (其内部会自动更新atomic_states)
-        self.intelligence_layer.cognitive_intel.synthesize_cognitive_scores(self.df_indicators, pullback_enhancements={})
-        # 步骤5: 执行攻防决策与模拟
         
+        # 步骤3: 执行攻防决策与模拟
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,
             top_context_score
         )
+        # [代码修改结束]
+        
         self.df_indicators['entry_score'] = entry_score
         risk_details_df = self.warning_layer.run_all_warnings()
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
