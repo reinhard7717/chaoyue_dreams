@@ -1157,93 +1157,127 @@ class IndicatorCalculator:
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V1.3 · 健壮性加固版】计算对手盘衰竭指数。
-        - 核心修复: 在计算买卖效率后，增加了 .fillna() 处理，以防止因分钟级别无波动或零成交量导致的NaN值污染整个计算链，确保最终结果的稳定性。
+        【V2.0 · 量价能量转换重铸版】计算对手盘衰竭指数。
+        - 核心思想: 衰竭的本质是能量投入与价格产出的失配。本方法通过量化“能量转换效率”来识别衰竭。
+        - 计算逻辑:
+          1. 在分钟级别计算“定向推力” ( (close-open)*volume )。
+          2. 在日级别聚合“定向推力”和“总能量” ( range*volume )。
+          3. 计算“能量转换效率” = 每日总推力 / 每日总能量。
+          4. 识别衰竭：当价格与转换效率发生背离时（如价涨而效率降），判定为衰竭。
         """
-        if df_minute is None or df_minute.empty:
-            logger.warning("计算对手盘衰竭指数失败：输入的分钟数据DataFrame为空。")
+        if df_minute is None or df_minute.empty or len(df_minute) < 10: # 需要少量数据来计算
             return None
-        high_col = next((c for c in df_minute.columns if c.startswith('high')), None)
-        low_col = next((c for c in df_minute.columns if c.startswith('low')), None)
-        close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
-        open_col = next((c for c in df_minute.columns if c.startswith('open')), None)
-        volume_col = next((c for c in df_minute.columns if c.startswith('volume')), None)
-        required_cols_map = {'high': high_col, 'low': low_col, 'close': close_col, 'open': open_col, 'volume': volume_col}
-        missing_cols = [k for k, v in required_cols_map.items() if v is None]
-        if missing_cols:
-            logger.warning(f"计算对手盘衰竭指数失败：分钟数据缺少必要列: {missing_cols}。")
+        # 动态查找列名
+        open_col = next((c for c in df_minute.columns if c.startswith('open')), 'open')
+        high_col = next((c for c in df_minute.columns if c.startswith('high')), 'high')
+        low_col = next((c for c in df_minute.columns if c.startswith('low')), 'low')
+        close_col = next((c for c in df_minute.columns if c.startswith('close')), 'close')
+        volume_col = next((c for c in df_minute.columns if c.startswith('volume')), 'volume')
+        
+        required_cols = [open_col, high_col, low_col, close_col, volume_col]
+        if not all(c in df_minute.columns for c in required_cols):
+            logger.warning(f"计算对手盘衰竭指数失败：分钟数据缺少必要列: {required_cols}。")
             return None
+            
         try:
             def _sync_calc():
                 df = df_minute.copy()
-                price_range = (df[high_col] - df[low_col]).replace(0, np.nan)
-                bull_power = (df[close_col] - df[low_col]) / price_range
-                bear_power = (df[high_col] - df[close_col]) / price_range
-                df['active_buy_vol'] = df[volume_col] * bull_power.fillna(0.5)
-                df['active_sell_vol'] = df[volume_col] * bear_power.fillna(0.5)
-                # [代码修改开始]
-                # 计算买卖效率，并用fillna处理可能因零成交量产生的inf和NaN，增强稳健性
-                df['buy_efficiency'] = (price_range / df['active_buy_vol'].replace(0, np.nan)).fillna(method='ffill').fillna(0)
-                df['sell_efficiency'] = (price_range / df['active_sell_vol'].replace(0, np.nan)).fillna(method='ffill').fillna(0)
-                # 按天聚合效率，聚合前填充NaN，避免NaN污染聚合结果
-                daily_efficiency = df[['buy_efficiency', 'sell_efficiency']].fillna(0).resample('D').mean()
-                # [代码修改结束]
-                buy_exhaustion = (daily_efficiency['buy_efficiency'] <= daily_efficiency['buy_efficiency'].rolling(efficiency_window).min()).astype(float)
-                sell_exhaustion = (daily_efficiency['sell_efficiency'] <= daily_efficiency['sell_efficiency'].rolling(efficiency_window).min()).astype(float)
-                exhaustion_index = sell_exhaustion - buy_exhaustion
+                # 1. 计算分钟级别的“定向推力”和“总能量”
+                df['directional_thrust'] = (df[close_col] - df[open_col]) * df[volume_col]
+                df['total_energy'] = (df[high_col] - df[low_col]) * df[volume_col]
+                
+                # 2. 按日聚合
+                daily_agg = df.resample('D').agg(
+                    daily_thrust=('directional_thrust', 'sum'),
+                    daily_energy=('total_energy', 'sum'),
+                    pct_change=('close', lambda x: (x.iloc[-1] / x.iloc[0] - 1) if len(x) > 0 else 0)
+                )
+                
+                # 3. 计算能量转换效率，并处理除零问题
+                daily_agg['conversion_efficiency'] = (daily_agg['daily_thrust'] / daily_agg['daily_energy'].replace(0, np.nan)).fillna(0)
+                
+                # 4. 识别衰竭
+                # 将效率归一化到[-1, 1]区间，以便比较
+                efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
+                
+                # 买方衰竭（看跌信号）：价格上涨，但能量转换效率低于近期均值
+                is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
+                
+                # 卖方衰竭（看涨信号）：价格下跌，但能量转换效率高于近期均值（说明下跌阻力大，空头效率低）
+                is_selling_exhaustion = (daily_agg['pct_change'] < 0) & (efficiency_zscore > 0.5)
+                
+                # 5. 合成双极性分数
+                exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
+                
                 return pd.DataFrame({'counterparty_exhaustion_index_D': exhaustion_index})
+
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算对手盘衰竭指数时发生错误: {e}", exc_info=True)
+            logger.error(f"计算对手盘衰竭指数(V2.0)时发生错误: {e}", exc_info=True)
             return None
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V1.3 · 数据模式适配版】计算突破质量分。
-        - 核心修复: 更新了内部依赖的列名，以匹配当前数据管道提供的最新指标。
-                    - 'main_force_net_flow_consensus' -> 'main_force_net_flow_calibrated'
-                    - 'concentration_90pct' -> 'short_term_concentration_90pct'
+        【V2.0 · 五维审查重铸版】计算突破质量分。
+        - 核心思想: 真突破是能量、主导者、形态、结构、效率五个维度的共振。
+        - 计算逻辑:
+          1. 能量输入: 成交量冲击力。
+          2. 主导力量: 主力资金流向性。
+          3. 价格形态: K线实体强度。
+          4. 筹码结构: 筹码突破效率。
+          5. 攻击效率: VPA价量效率。
+          对五维得分进行加权融合，得到最终的突破质量分。
         """
         if df_daily is None or df_daily.empty:
-            logger.warning("计算突破质量分失败：输入的日线数据DataFrame为空。")
             return None
         try:
             def _sync_calc():
                 df = df_daily.copy()
-                volume_ma_period = params.get('volume_ma_period', 21)
-                volume_multiplier = params.get('volume_multiplier', 1.5)
-                weights = params.get('weights', {'volume': 0.4, 'main_force_flow': 0.4, 'chip_concentration': 0.2})
                 # [代码修改开始]
-                # 动态构建与当前数据模式匹配的、无后缀的列名
+                # 修正：方法接收的df_daily列名已带后缀，因此查找时也需要带后缀
+                weights = params.get('weights', {'volume': 0.2, 'driver': 0.3, 'price_action': 0.1, 'chips': 0.2, 'efficiency': 0.2})
                 required_cols = [
-                    'volume',
-                    f'VOL_MA_{volume_ma_period}',
-                    'main_force_net_flow_calibrated', # 修正：使用校准后的主力净流入
-                    'short_term_concentration_90pct'  # 修正：使用短期筹码集中度
+                    'volume_D', 'VOL_MA_21_D', 'main_force_flow_directionality_D',
+                    'open_D', 'high_D', 'low_D', 'close_D',
+                    'total_winner_rate_D', 'dominant_peak_solidity_D', 'VPA_EFFICIENCY_D'
                 ]
-                # [代码修改结束]
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
-                    print(f"调试信息: 计算突破质量分失败，日线数据缺少必要列 {missing_cols}。")
-                    # logger.warning(f"计算突破质量分失败：日线数据缺少必要列 {missing_cols}。可用列: {df.columns.tolist()}")
+                    print(f"调试信息: 计算突破质量分(V2.0)失败，缺少必要列: {missing_cols}。")
                     return None
-                # [代码修改开始]
-                # 证据1: 成交量确认
-                volume_confirm = (df['volume'] > df[f'VOL_MA_{volume_ma_period}'] * volume_multiplier).astype(float)
-                # 证据2: 主力资金确认
-                flow_confirm = (df['main_force_net_flow_calibrated'] > 0).astype(float)
-                # 证据3: 筹码结构确认 (筹码越集中，突破质量越高，因此价差为负代表集中度提升)
-                chip_confirm = (df['short_term_concentration_90pct'].diff().fillna(0) < 0).astype(float)
-                # [代码修改结束]
+                
+                # 维度一：能量输入 (0-1分)
+                volume_ratio = df['volume_D'] / df['VOL_MA_21_D'].replace(0, np.nan)
+                score_volume = volume_ratio.rolling(60).rank(pct=True).fillna(0.5)
+
+                # 维度二：主导力量 (天然是-1到1分，映射到0-1)
+                score_driver = (df['main_force_flow_directionality_D'].fillna(0) + 1) / 2
+
+                # 维度三：价格形态 (0-1分)
+                price_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
+                score_price_action = ((df['close_D'] - df['open_D']) / price_range).fillna(0).clip(0, 1)
+
+                # 维度四：筹码结构 (0-1分)
+                winner_rate_gain = df['total_winner_rate_D'].diff().fillna(0)
+                chip_breakthrough_eff = winner_rate_gain * df['dominant_peak_solidity_D']
+                score_chips = chip_breakthrough_eff.rolling(60).rank(pct=True).fillna(0.5)
+
+                # 维度五：攻击效率 (0-1分)
+                score_efficiency = df['VPA_EFFICIENCY_D'].rolling(60).rank(pct=True).fillna(0.5)
+                
+                # 加权融合
                 quality_score = (
-                    volume_confirm * weights.get('volume', 0.4) +
-                    flow_confirm * weights.get('main_force_flow', 0.4) +
-                    chip_confirm * weights.get('chip_concentration', 0.2)
+                    score_volume * weights['volume'] +
+                    score_driver * weights['driver'] +
+                    score_price_action * weights['price_action'] +
+                    score_chips * weights['chips'] +
+                    score_efficiency * weights['efficiency']
                 )
+                # [代码修改结束]
                 return pd.DataFrame({'breakout_quality_score_D': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算突破质量分时发生错误: {e}", exc_info=True)
+            logger.error(f"计算突破质量分(V2.0)时发生错误: {e}", exc_info=True)
             return None
 
 
