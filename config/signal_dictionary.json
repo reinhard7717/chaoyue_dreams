@@ -633,13 +633,13 @@
             "cn_name": "【行为】看涨共振",
             "category": "内部计分-行为",
             "type": "dynamic",
-            "description": "【V5.0 · 公理化版】基于“价、量、关系、形态”四大行为公理，形成的看涨共振分。"
+            "description": "【V5.0 · 范式统一版】基于“价、量、关系、形态”四大行为公理，形成的看涨共振分。"
         },
         "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
             "cn_name": "【行为】看跌共振",
             "category": "内部计分-行为",
             "type": "risk",
-            "description": "【V5.0 · 公理化版】基于四大行为公理，形成的看跌共振分。"
+            "description": "【V5.0 · 范式统一版】基于四大行为公理，形成的看跌共振分。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
         "SCORE_FF_BULLISH_RESONANCE": {

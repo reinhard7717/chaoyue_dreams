@@ -59,47 +59,46 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 行为领域终极合成器】
-        - 核心思想: 职责聚焦。只消费本模块生产的纯粹“行为原子信号”及其动态因子。
-        - 核心升级:
-          - 健康度: 基于“价量关系”和“日内形态”的健康度，合成行为层面的趋势健康分。
-          - 机会度: 基于“价格动能”和“量能状态”，并由动态因子放大，合成行为层面的机会脉冲。
+        【V5.0 · 范式统一版】行为领域终极合成器
+        - 核心重构: 废弃旧的健康度/机会度模型，全面转向“双极性健康分 -> 共振分”的标准范式，
+                      以解决下游引擎的信号失联问题。
+        - 新逻辑:
+          1. 分别计算“看涨健康度”与“看跌健康度”。
+          2. 合成为一个双极性的“行为健康总分”。
+          3. 使用标准工具分裂为互斥的“看涨共振分”和“看跌共振分”。
         """
-        print("开始执行【V4.0 · 行为领域终极合成器】...")
+        # [代码修改开始]
+        print("开始执行【V5.0 · 范式统一版】行为领域终极合成器...")
         states = {}
-        p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
-        ultimate_params = get_param_value(p_behavior.get('ultimate_signal_params'), {})
-        # --- 1. 行为健康度 (Behavioral Health) ---
-        # 健康的行为 = 上涨有效率 + 下跌有抵抗 + 日内多头能控盘
-        health_score = (
+        
+        # 1. 计算看涨健康度 (Bullish Health)
+        # 证据: 上涨有效率 * 下跌有抵抗 * 日内多头能控盘
+        bullish_health = (
             atomic_signals.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df.index)) *
             atomic_signals.get('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', pd.Series(0.5, index=df.index)) *
             atomic_signals.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.5, index=df.index))
         ).pow(1/3)
-        # 使用“战场动能”对其进行微调
-        battlefield_momentum = atomic_signals.get('SCORE_CONTEXT_BATTLEFIELD_MOMENTUM', pd.Series(0.0, index=df.index))
-        battlefield_modulator = 1.0 + (battlefield_momentum.fillna(0) * 0.25)
-        final_health_score = (health_score * battlefield_modulator).clip(0, 1)
-        states['SCORE_BEHAVIOR_HEALTH'] = final_health_score.astype(np.float32)
-        # --- 2. 行为机会度 (Behavioral Opportunity) ---
-        # 机会 = 明确的机会信号（缩量上涨/缩量止跌）的最大值
-        static_opportunity_score = np.maximum(
-            atomic_signals.get('SCORE_OPPORTUNITY_LOCKUP_RALLY', pd.Series(0.0, index=df.index)),
-            atomic_signals.get('SCORE_OPPORTUNITY_SELLING_EXHAUSTION', pd.Series(0.0, index=df.index))
+
+        # 2. 计算看跌健康度 (Bearish Health / Risk)
+        # 证据: 取“滞涨风险”和“流动性流失风险”中的最大值
+        bearish_health = np.maximum(
+            atomic_signals.get('SCORE_RISK_STAGNATION', pd.Series(0.0, index=df.index)),
+            atomic_signals.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
         )
-        # 动态放大器: 融合所有动态因子
-        opp_momentum_cols = [c for c in df.columns if c.startswith('MOMENTUM_SCORE_OPPORTUNITY')]
-        opp_thrust_cols = [c for c in df.columns if c.startswith('THRUST_SCORE_OPPORTUNITY')]
-        avg_opp_momentum = df[opp_momentum_cols].mean(axis=1).fillna(0) if opp_momentum_cols else pd.Series(0.0, index=df.index)
-        avg_opp_thrust = df[opp_thrust_cols].mean(axis=1).fillna(0) if opp_thrust_cols else pd.Series(0.0, index=df.index)
-        impulse_synergy = np.tanh((avg_opp_momentum + avg_opp_thrust) * 100)
-        resonance_amplifier = 1 + np.tanh(df.get('RESONANCE_BULLISH_D', 0) * 50)
-        battlefield_amplifier = (1.0 + battlefield_momentum.fillna(0)).clip(lower=0)
-        # 最终合成
-        final_opportunity_score = static_opportunity_score * resonance_amplifier * battlefield_amplifier * (1 + impulse_synergy)
-        states['SCORE_BEHAVIOR_OPPORTUNITY'] = (final_opportunity_score / 4.0).clip(0, 1).astype(np.float32)
-        print("【行为领域终极合成器】诊断完成。")
+
+        # 3. 合成双极性行为健康总分
+        bipolar_behavioral_health = (bullish_health - bearish_health).clip(-1, 1)
+
+        # 4. 分裂为标准的看涨/看跌共振信号
+        from .utils import bipolar_to_exclusive_unipolar
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
+
+        states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        
+        print("【V5.0 · 范式统一版】行为领域终极合成器诊断完成。")
         return states
+        # [代码修改结束]
 
     # ==============================================================================
     # 以下为新增的原子信号中心和降级的原子诊断引擎
