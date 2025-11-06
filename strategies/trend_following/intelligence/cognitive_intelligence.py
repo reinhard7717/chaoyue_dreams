@@ -18,13 +18,35 @@ class CognitiveIntelligence:
         # 认知层不再需要依赖其他引擎的内部方法，实现完全解耦
 
     def _get_fused_score(self, name: str, default: float = 0.0) -> pd.Series:
-        """安全地从原子状态库中获取由融合层提供的态势分数。"""
+        """
+        【V1.1 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
+        - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
+        """
+        # [代码修改开始]
         # 认知层只消费融合层和原子层的信号
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
         else:
-            # print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，使用默认值 {default}。")
+            print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
+        # [代码修改结束]
+
+    def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
+        """
+        【V2.1 · 真理探针版】安全地从原子状态库或主数据帧中获取信号。
+        - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
+        """
+        # [代码修改开始]
+        # 优先从原子状态库获取，因为那里可能有经过处理的信号
+        if name in self.strategy.atomic_states:
+            return self.strategy.atomic_states[name]
+        # 如果没有，再从主数据帧获取原始指标
+        elif name in self.strategy.df_indicators.columns:
+            return self.strategy.df_indicators[name]
+        else:
+            print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
+            return pd.Series(default, index=self.strategy.df_indicators.index)
+        # [代码修改结束]
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -80,21 +102,6 @@ class CognitiveIntelligence:
         prior_reversal = (market_pressure.abs() * (1 - market_regime.abs())).pow(0.5)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
         return states
-
-    def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
-        """
-        【V2.0 · 统一信号获取版】
-        安全地从原子状态库或主数据帧中获取信号。
-        """
-        # 优先从原子状态库获取，因为那里可能有经过处理的信号
-        if name in self.strategy.atomic_states:
-            return self.strategy.atomic_states[name]
-        # 如果没有，再从主数据帧获取原始指标
-        elif name in self.strategy.df_indicators.columns:
-            return self.strategy.df_indicators[name]
-        else:
-            # print(f"    -> [认知层警告] 信号 '{name}' 不存在，使用默认值 {default}。")
-            return pd.Series(default, index=self.strategy.df_indicators.index)
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """

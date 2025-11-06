@@ -77,24 +77,28 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.4.0 · 赫拉敕令版】
-        - 核心革命: 签署“赫拉的敕令”，废除单一计算模型。引入 `relationship_type` 配置，
-                      为 "consensus" (共识) 和 "divergence" (背离) 两种关系类型提供专属的、
-                      不可混淆的计算公式，彻底解决了公式错配的根本性问题。
+        【V2.5.0 · 真理探针版】
+        - 核心升级: 植入真理探针，当获取不到依赖的原子信号时，打印明确警告。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
-        # 新增 relationship_type 的读取
-        relationship_type = config.get('relationship_type', 'consensus') # 默认为共识
+        relationship_type = config.get('relationship_type', 'consensus')
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
+            # [代码修改开始]
+            series = None
             if source_type == 'atomic_states':
-                return self.strategy.atomic_states.get(signal_name)
-            return df.get(signal_name)
+                series = self.strategy.atomic_states.get(signal_name)
+            else:
+                series = df.get(signal_name)
+            
+            if series is None:
+                print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
+            return series
+            # [代码修改结束]
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
-            print(f"        -> [元分析] 警告: 缺少原始信号 '{signal_a_name}' 或 '{signal_b_name}'。")
             return pd.Series(dtype=np.float32)
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if change_type == 'diff':
@@ -105,12 +109,9 @@ class ProcessIntelligence:
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
         thrust_b = normalize_to_bipolar(change_b, df_index, self.std_window, self.bipolar_sensitivity)
         signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        # 根据关系类型执行不同的计算法则
         if relationship_type == 'divergence':
-            # 背离法则：衡量B动量在多大程度上“战胜”了A动量
             relationship_score = (signal_b_factor_k * thrust_b - momentum_a) / (signal_b_factor_k + 1)
-        else: # 默认为 'consensus'
-            # 共识法则：计算A和B动量的加权平均值
+        else:
             relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
         relationship_score = relationship_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a

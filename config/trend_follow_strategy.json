@@ -1056,21 +1056,6 @@
           "enabled": true,
           "description": "行业生命周期评分参数"
         },
-        "playbook_synergy_scoring": {
-          "说明": "【剧本协同分 V3.0 · 独立计分版】每个剧本作为独立的战术加分项，其原始概率分将乘以这里的配置分数。",
-          "positive_signals": {
-            "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": 900,
-            "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": 800,
-            "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": 750,
-            "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": 600,
-            "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": 500,
-            "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": 480
-          },
-          "negative_signals": {
-            "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": -1500,
-            "COGNITIVE_RISK_TREND_EXHAUSTION": -2500
-          }
-        },
         "judgment_params": {
           "enabled": true,
           "final_score_threshold": { "value": 400 },
