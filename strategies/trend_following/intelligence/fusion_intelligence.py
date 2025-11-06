@@ -82,32 +82,51 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】冶炼“趋势质量” (Trend Quality)
-        - 核心思想: 一个高质量的A股趋势，必须是多领域共识的结果。
-        - 证据链: 融合所有原子情报层的“看涨/看跌共振分”，形成全息共识。
+        【V1.1 · 级联探针版】冶炼“趋势质量” (Trend Quality)
+        - 探针植入: 打印其依赖的所有领域共振分，以诊断融合结果为中性的根源。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
-        # 定义所有领域的共振信号源
         resonance_sources = [
             'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS', 
             'CHIP', 'FUND_FLOW', 'MICRO_BEHAVIOR'
         ]
         bullish_scores = []
         bearish_scores = []
+        
+        # [代码新增开始]
+        # --- 级联探针: 融合层 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            if self.strategy.df_indicators.index.tz:
+                probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz)
+            else:
+                probe_date = probe_date_naive
+            print(f"    -> [融合层探针] @ {probe_date.date()} 检查趋势质量的证据链:")
+        # [代码新增结束]
+
         for source in resonance_sources:
-            # 动态构建信号名，例如 'SCORE_FOUNDATION_BULLISH_RESONANCE'
             bull_signal_name = f'SCORE_{source}_BULLISH_RESONANCE'
             bear_signal_name = f'SCORE_{source}_BEARISH_RESONANCE'
-            bullish_scores.append(self._get_atomic_score(bull_signal_name, 0.5).values)
-            bearish_scores.append(self._get_atomic_score(bear_signal_name, 0.5).values)
-        # 使用几何平均数进行融合，要求所有领域都不能太差
-        # 加一个极小值避免log(0)
+            bull_score_series = self._get_atomic_score(bull_signal_name, 0.5)
+            bear_score_series = self._get_atomic_score(bear_signal_name, 0.5)
+            bullish_scores.append(bull_score_series.values)
+            bearish_scores.append(bear_score_series.values)
+            
+            # [代码新增开始]
+            if probe_date and probe_date in bull_score_series.index:
+                bull_val = bull_score_series.loc[probe_date]
+                bear_val = bear_score_series.loc[probe_date]
+                print(f"       - {source:<18s} | 看涨共振: {bull_val:.4f} | 看跌共振: {bear_val:.4f}")
+            # [代码新增结束]
+
         safe_bullish_scores = np.maximum(np.stack(bullish_scores), 1e-9)
         holistic_bullish_consensus = np.exp(np.mean(np.log(safe_bullish_scores), axis=0))
         safe_bearish_scores = np.maximum(np.stack(bearish_scores), 1e-9)
         holistic_bearish_consensus = np.exp(np.mean(np.log(safe_bearish_scores), axis=0))
-        # 最终裁决: 生成双极性趋势质量分
         bipolar_quality = (pd.Series(holistic_bullish_consensus, index=self.strategy.df_indicators.index) - 
                            pd.Series(holistic_bearish_consensus, index=self.strategy.df_indicators.index)).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)

@@ -168,11 +168,10 @@ class CognitiveIntelligence:
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.1 · 动态证据版】贝叶斯推演：“主力拉升抢筹”剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        【V3.2 · 级联探针版】贝叶斯推演：“主力拉升抢筹”剧本
+        - 探针植入: 打印本剧本所依赖的先验概率和计算出的似然度，以诊断后验概率为零的原因。
         """
         print("    -- [剧本推演] 主力拉升抢筹 (动态证据)...")
-        # --- 1. 收集并锻造所有相关证据 ---
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         price_change_bipolar = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(price_change_bipolar.clip(lower=0))
@@ -181,7 +180,6 @@ class CognitiveIntelligence:
         conviction_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
         process_evidence = (urgency_evidence * conviction_evidence).pow(0.5)
         chip_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
-        # --- 2. 计算似然度 P(证据 | 拉升抢筹) ---
         evidence_scores = np.stack([
             capital_confrontation.values, price_rising_evidence.values, efficiency_evidence.values,
             process_evidence.values, chip_evidence.values
@@ -191,9 +189,22 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
-        # --- 3. 获取先验概率 P(趋势) ---
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 (最终信号分) ---
+        
+        # [代码新增开始]
+        # --- 级联探针: 认知层 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date = pd.to_datetime(probe_dates_str[0])
+            if self.strategy.df_indicators.index.tz:
+                probe_date = probe_date.tz_localize(self.strategy.df_indicators.index.tz)
+            if probe_date in likelihood.index:
+                print(f"      -> [认知层探针] @ {probe_date.date()} for '主力拉升抢筹':")
+                print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
+                print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
+        # [代码新增结束]
+
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
 
