@@ -207,20 +207,21 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 军备换装版】贝叶斯推演：“恐慌投降反转”剧本
-        - 核心修复: 将证据 'SCORE_MICRO_PANIC_ABSORPTION' 替换为现代化的 'SCORE_MICRO_BULLISH_RESONANCE'。
+        【V3.3 · 命名协议修复版】贝叶斯推演：“恐慌投降反转”剧本
+        - 核心修复: 将证据 'SCORE_MICRO_BULLISH_RESONANCE' 修正为 'SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE'，
+                      以符合统一命名协议。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
-        # --- 1. 收集并锻造所有相关证据 ---
         upward_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(lower=0))
         price_rebound_evidence = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('dip_absorption_power_D'), self.strategy.df_indicators.index, 55))
         vol_ma55 = self._get_atomic_score('VOL_MA_55_D', 1.0)
         volume_spike = (self._get_atomic_score('volume_D') / vol_ma55.replace(0, 1.0)).fillna(1.0)
         volume_evidence = self._forge_dynamic_evidence(normalize_score(volume_spike, self.strategy.df_indicators.index, 55))
         process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0).clip(lower=0))
-        # 使用 'SCORE_MICRO_BULLISH_RESONANCE' 替换废弃的 'SCORE_MICRO_PANIC_ABSORPTION'
-        micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_BULLISH_RESONANCE', 0.0).clip(lower=0))
-        # --- 2. 计算似然度 P(证据 | 恐慌反转) ---
+        # [代码修改开始]
+        # 修正信号名称以符合统一命名协议
+        micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE', 0.0).clip(lower=0))
+        # [代码修改结束]
         evidence_scores = np.stack([
             upward_pressure.values, price_rebound_evidence.values, volume_evidence.values,
             process_evidence.values, micro_evidence.values
@@ -230,9 +231,7 @@ class CognitiveIntelligence:
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
-        # --- 3. 获取先验概率 P(反转) ---
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 (最终信号分) ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL': posterior_prob.astype(np.float32)}
 
