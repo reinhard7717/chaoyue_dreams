@@ -434,13 +434,8 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.14 · 命名协议强制执行版】
-        - 核心重构: 重建数据处理流水线，解决外部数据合并后缺少时间周期后缀的致命缺陷。
-        - 新流程:
-          1. 所有补充数据（高级筹码、资金流等）合并到主数据帧后。
-          2. 立即对所有新合并的、且没有后缀的列，强制添加 '_D' 后缀。
-          3. 将这个完全标准化的DataFrame传递给下游指标计算函数。
-        - 收益: 确保了进入指标计算层的所有数据都带有明确的时间周期标识，彻底修复了“数据契约撕毁”问题。
+        【V8.15 · 全流程命名协议同步版】
+        - 核心修复: 同步修复了 resample 聚合规则，使其能够正确处理已添加 '_D' 后缀的日线数据列名。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -565,8 +560,6 @@ class IndicatorService:
             cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
-        # --- 命名协议强制执行 ---
-        # 在所有数据合并后，但在传递给指标计算器之前，强制为所有没有后缀的列添加 '_D' 后缀。
         rename_map_daily = {
             col: f"{col}_D"
             for col in df_daily_master.columns
@@ -578,15 +571,17 @@ class IndicatorService:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
+                    # [代码修改开始]
+                    # 修复聚合规则，使其使用带 '_D' 后缀的列名
                     aggregation_rules = {
                         'open_D': 'first', 'high_D': 'max', 'low_D': 'min', 'close_D': 'last', 'volume_D': 'sum'
                     }
-                    # 动态构建聚合规则
+                    # [代码修改结束]
                     for col in df_daily.columns:
                         if col not in aggregation_rules:
                             if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
                                 aggregation_rules[col] = 'sum'
-                            else: # 默认使用最后一个值
+                            else:
                                 aggregation_rules[col] = 'last'
                     if 'turnover_rate_D' in aggregation_rules:
                         aggregation_rules['turnover_rate_D'] = 'mean'
@@ -622,57 +617,40 @@ class IndicatorService:
 
     def _calculate_synthetic_weekly_indicators(self, df_daily: pd.DataFrame, df_weekly: pd.DataFrame) -> pd.DataFrame:
         """
-        【V8.2 健壮性修复与调试增强版】高级指标合成室
-        专门用于从日线数据中，为周线数据合成那些依赖日内过程的复杂指标。
-        - 核心修复: 增加了对 `ta.rma` 返回值为 None 的检查。当周线数据不足以计算RSI时，
-                    程序不再崩溃，而是将周线RSI列填充为NaN，显著提高了对短历史数据股票的处理能力。
-        - 调试增强: 根据用户要求，在RSI计算失败时，增加 `print` 调试信息输出。
+        【V8.3 · 命名协议同步版】高级指标合成室
+        - 核心修复: 更新内部逻辑，使其使用带有 '_D' 后缀的日线列名进行计算，以适应上游的标准化流程。
         """
-        # print("      -> [高级指标合成室] 正在合成周线CMF等复杂指标...")
         synthetic_indicators = pd.DataFrame(index=df_weekly.index)
+        # [代码修改开始]
         # --- 1. 合成周线CMF (Chaikin Money Flow) ---
-        # 步骤1.1: 在日线上计算每日的“资金流乘数” (Money Flow Multiplier)
-        mfm = ((df_daily['close'] - df_daily['low']) - (df_daily['high'] - df_daily['close'])) / (df_daily['high'] - df_daily['low'])
-        mfm = mfm.fillna(0) # 用0填充NaN值
-        # 步骤1.2: 计算每日的“资金流成交量” (Money Flow Volume)
-        daily_mfv = mfm * df_daily['volume']
-        # 步骤1.3: 将“日资金流成交量”和“日成交量”按周进行求和
+        # 使用带 '_D' 后缀的列名
+        mfm = ((df_daily['close_D'] - df_daily['low_D']) - (df_daily['high_D'] - df_daily['close_D'])) / (df_daily['high_D'] - df_daily['low_D'])
+        mfm = mfm.fillna(0)
+        daily_mfv = mfm * df_daily['volume_D']
         weekly_mfv_sum = daily_mfv.resample('W-FRI').sum()
-        weekly_volume_sum = df_daily['volume'].resample('W-FRI').sum()
-        # 步骤1.4: 在周线级别上，计算最终的21周CMF
+        weekly_volume_sum = df_daily['volume_D'].resample('W-FRI').sum()
         cmf_period = 21
         cmf_numerator = weekly_mfv_sum.rolling(window=cmf_period).sum()
         cmf_denominator = weekly_volume_sum.rolling(window=cmf_period).sum()
-        # 避免除以零的错误
         synthetic_indicators['CMF_21_W'] = np.divide(cmf_numerator, cmf_denominator, out=np.full_like(cmf_numerator, np.nan), where=cmf_denominator!=0)
         # --- 2. 合成周线RSI (Relative Strength Index) ---
-        # 步骤2.1: 在日线上计算每日的价格变动
-        delta = df_daily['close'].diff()
-        # 步骤2.2: 分离每日的上涨(gain)和下跌(loss)
+        # 使用带 '_D' 后缀的列名
+        delta = df_daily['close_D'].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
-        # 步骤2.3: 将每日的上涨和下跌按周进行求和
         weekly_gain_sum = gain.resample('W-FRI').sum()
         weekly_loss_sum = loss.resample('W-FRI').sum()
-        # 步骤2.4: 在周线级别上，计算最终的13周RSI
         rsi_period = 13
-        # 使用 pandas_ta 的 rma (Wilder's Moving Average) 来计算平均增益和平均损失，这是计算RSI的标准方法
         avg_gain = ta.rma(weekly_gain_sum, length=rsi_period)
         avg_loss = ta.rma(weekly_loss_sum, length=rsi_period)
-        # 增加对None值的健壮性检查，防止因数据不足导致程序崩溃
         if avg_gain is None or avg_loss is None:
-            print(f"调试信息: 合成周线RSI失败，因为 avg_gain 或 avg_loss 为 None。通常是由于周线数据不足 {rsi_period} 条所致。") # 增加调试信息输出
-            # 确保即使计算失败，列也存在，值为NaN，保证下游数据结构一致性
+            print(f"调试信息: 合成周线RSI失败，因为 avg_gain 或 avg_loss 为 None。通常是由于周线数据不足 {rsi_period} 条所致。")
             synthetic_indicators['RSI_13_W'] = np.nan
         else:
-            # 步骤2.5: 计算相对强度(RS) - 现在这部分代码是安全的
-            # 加上一个极小值防止除以零
             rs = avg_gain / (avg_loss + 1e-9) 
-            # 步骤2.6: 计算RSI
             rsi = 100 - (100 / (1 + rs))
-            # 将结果添加到DataFrame中
             synthetic_indicators['RSI_13_W'] = rsi
-        # print("      -> [高级指标合成室] 合成完成。")
+        # [代码修改结束]
         return synthetic_indicators
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
