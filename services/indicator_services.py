@@ -434,9 +434,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.16 · 孤儿计算修复版】
-        - 核心修复: 重新引入了 'pct_change_D' 的计算逻辑。在上游对 'close' 列强制添加 '_D' 后缀后，
-                      该方法现在负责从新的 'close_D' 列计算出 'pct_change_D'，解决了下游引擎的 KeyError。
+        【V8.17 · 重采样命名协议修复版】
+        - 核心修复: 解决了从日线重采样（resample）到周/月线时，列名未被正确更新（如 close_D 未变为 close_W）的致命缺陷。
+        - 新流程: 在 resample 之后，立即对新生成的 DataFrame 进行列名重命名，将 '_D' 后缀替换为目标时间周期后缀（如 '_W'）。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -567,12 +567,8 @@ class IndicatorService:
             if not col.endswith(('_D', '_W', '_M')) and not any(col.endswith(f'_{i}') for i in range(100))
         }
         df_daily_master.rename(columns=rename_map_daily, inplace=True)
-        # [代码新增开始]
-        # --- 孤儿计算修复：重新引入 pct_change_D 的计算 ---
-        # 在 close 列被重命名为 close_D 之后，立即计算其百分比变化。
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
-        # [代码新增结束]
         raw_dfs['D'] = df_daily_master
         if resample_map:
             df_daily = raw_dfs['D']
@@ -593,6 +589,12 @@ class IndicatorService:
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
                     if not df_resampled.empty:
+                        # [代码修改开始]
+                        # --- 重采样命名协议修复 ---
+                        # 在重采样后，立即将列名中的 '_D' 替换为目标周期的后缀，如 '_W'
+                        rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
+                        df_resampled.rename(columns=rename_map_resampled, inplace=True)
+                        # [代码修改结束]
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')

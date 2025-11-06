@@ -42,7 +42,11 @@ class IndicatorCalculator:
             if atr_series is None or atr_series.empty:
                 logger.warning(f"ATR_{period} 计算结果为空。")
                 return None
-            df_results = pd.DataFrame({f'ATR_{period}': atr_series}, index=df.index)
+            # [代码修改开始]
+            # 修复列名，以匹配 pandas-ta 的输出格式并添加后缀
+            suffix = high_col[high_col.rfind('_'):] if '_' in high_col else ''
+            df_results = pd.DataFrame({f'ATR_{period}{suffix}': atr_series}, index=df.index)
+            # [代码修改结束]
             return df_results
         except Exception as e:
             logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=True)
@@ -122,9 +126,8 @@ class IndicatorCalculator:
 
     async def calculate_boll_bands_and_width(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V1.2 代码简化版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)。
-        - 核心修正: 对 pandas-ta 返回的 BBB% (带宽百分比) 列进行标准化，将其除以 100，转换为标准比率。
-        - 优化: 移除了原代码中冗余的lambda表达式，使异步调用更清晰。
+        【V1.3 · 接口契约修复版】计算布林带 (BBANDS) 及其宽度 (BBW) 和百分比B (%B)。
+        - 核心修复: 确保使用调用方传入的 close_col 进行计算。
         """
         if df is None or df.empty or close_col not in df.columns:
             logger.warning(f"计算布林带缺少必要列: {close_col}。")
@@ -133,17 +136,16 @@ class IndicatorCalculator:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的布林带。")
             return None
         try:
-            # 定义清晰的同步计算函数。
             def _sync_bbands_calculation():
-                # 使用 ta.bbands() 直接调用，返回一个新的DataFrame
+                # [代码修改开始]
+                # 使用调用方传入的 close_col
                 bbands_df = ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
+                # [代码修改结束]
                 if bbands_df is None or bbands_df.empty:
                     return None
-                # 标准化带宽百分比列
                 bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
                 if bbw_source_col in bbands_df.columns:
                     bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
-                # 构建列名映射，以实现标准化命名
                 rename_map = {
                     f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
                     f'BBM_{period}_{std_dev:.1f}': f'BBM_{period}_{std_dev:.1f}{suffix}',
@@ -152,11 +154,9 @@ class IndicatorCalculator:
                     f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
                 }
                 result_df = bbands_df.rename(columns=rename_map)
-                # 筛选出我们需要的列，确保返回结果的纯净性
                 final_columns = list(rename_map.values())
                 result_df = result_df[[col for col in final_columns if col in result_df.columns]]
                 return result_df if not result_df.empty else None
-            # 在线程中执行定义好的同步函数。
             return await asyncio.to_thread(_sync_bbands_calculation)
         except Exception as e:
             logger.error(f"计算布林带及宽度 (周期 {period}, 标准差 {std_dev}) 出错: {e}", exc_info=True)
@@ -677,33 +677,26 @@ class IndicatorCalculator:
             logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None, suffix: str = '') -> Optional[pd.DataFrame]:
+    async def calculate_vwap(self, df: pd.DataFrame, anchor: Optional[str] = None, high_col='high', low_col='low', close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V1.1 锚点修正版】计算 VWAP (成交量加权平均价)。
-        - 修正了对分钟级别锚点（如 '30', '60'）的处理，将其转换为 pandas 可识别的频率字符串（如 '30T'）。
+        【V1.2 · 接口契约修复版】计算 VWAP (成交量加权平均价)。
+        - 核心修复: 确保使用调用方传入的 OHLCV 列名进行计算。
         """
-        # pandas-ta 需要标准的列名
-        high_col, low_col, close_col, volume_col = 'high', 'low', 'close', 'volume'
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
             logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
             return None
-        # ▼▼▼ 转换分钟级别锚点为pandas兼容格式 ▼▼▼
-        # 解释: pandas-ta的vwap函数要求锚点(anchor)是pandas的频率字符串。
-        # 对于分钟级别，'30' 是无效的，必须是 '30T' 或 '30min'。
-        # 此处对纯数字的锚点进行转换，而 'D', 'W' 等则保持不变。
         processed_anchor = anchor
         if anchor and str(anchor).isdigit():
             processed_anchor = f"{anchor}T"
-            # print(f"  [VWAP 调试] 将数字锚点 '{anchor}' 转换为 pandas 频率 '{processed_anchor}'")
         try:
             def _sync_vwap():
-                return df.ta.vwap(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], anchor=processed_anchor, append=False)
+                # [代码修改开始]
+                # 使用调用方传入的列名
+                return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=processed_anchor, append=False)
+                # [代码修改结束]
             vwap_series = await asyncio.to_thread(_sync_vwap)
             if vwap_series is None or vwap_series.empty: return None
-            # pandas-ta的vwap列名比较特殊，我们手动重命名以确保一致性
-            # 原始列名可能是 VWAP_D, VWAP_W, VWAP_30T 等
             original_name = vwap_series.name
-            # 我们统一将其命名为 VWAP_{suffix}
             new_name = f'VWAP{suffix}'
             vwap_series.name = new_name
             return pd.DataFrame(vwap_series)
@@ -763,43 +756,38 @@ class IndicatorCalculator:
             logger.error(f"计算 TRIX (period={period}, signal={signal_period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10) -> Optional[pd.DataFrame]:
+    async def calculate_coppock(self, df: pd.DataFrame, long_roc_period: int = 26, short_roc_period: int = 13, wma_period: int = 10, close_col: str = 'close') -> Optional[pd.DataFrame]:
         """
-        【V1.3 健壮性修复版】计算 Coppock Curve (COPP) 指标。
-        - 核心修复: 解决了 'Series' object has no attribute 'columns' 的崩溃问题。
-                    通过检查返回值类型，并在其为 Series 时使用 .to_frame() 将其统一转换为
-                    DataFrame，使后续的重命名逻辑对两种返回类型都能兼容。
+        【V1.4 · 接口契约修复版】计算 Coppock Curve (COPP) 指标。
+        - 核心修复: 确保使用调用方传入的 close_col 进行计算。
         """
-        if df is None or df.empty or 'close' not in df.columns:
+        if df is None or df.empty or close_col not in df.columns:
             return None
         try:
+            # [代码修改开始]
+            # 使用调用方传入的 close_col
             copp_df = df.ta.coppock(
-                close=df['close'],
+                close=df[close_col],
                 length=wma_period,
                 fast=short_roc_period,
                 slow=long_roc_period,
                 append=False
             )
+            # [代码修改结束]
             if copp_df is not None and not copp_df.empty:
-                # ▼▼▼: 核心修复，兼容Series和DataFrame返回值 ▼▼▼
-                # 检查返回的是否是Series，如果是，则转换为DataFrame，以统一处理
                 if isinstance(copp_df, pd.Series):
                     copp_df = copp_df.to_frame()
-                # 现在 copp_df 肯定是DataFrame，可以安全地访问 .columns
                 if not copp_df.columns[0].startswith('COPP'):
-                    expected_name = f"COPP_{long_roc_period}_{short_roc_period}_{wma_period}"
+                    suffix = close_col[close_col.rfind('_'):] if '_' in close_col else ''
+                    expected_name = f"COPP_{long_roc_period}_{short_roc_period}_{wma_period}{suffix}"
                     actual_name = copp_df.columns[0]
                     copp_df.rename(columns={actual_name: expected_name}, inplace=True)
-                    # print(f"    - [指标重命名] 已将列 '{actual_name}' 重命名为 '{expected_name}'")
-                # ▲▲▲: 修改结束 ▲▲▲
                 return copp_df
         except Exception as e:
-            # 增加数据量不足的特定警告
             if "data length" in str(e).lower() or "inputs are all nan" in str(e).lower():
                 logger.warning(f"数据行数 ({len(df)}) 不足以计算 Coppock Curve(long={long_roc_period}, short={short_roc_period}, wma={wma_period})。")
             else:
-                # 在日志中包含异常类型，方便调试
-                logger.error(f"计算 Coppock Curve 时发生未知错误: {type(e).__name__}: {e}", exc_info=False) # exc_info=False 避免打印完整堆栈
+                logger.error(f"计算 Coppock Curve 时发生未知错误: {type(e).__name__}: {e}", exc_info=False)
         return None
 
     async def calculate_uo(self, df: pd.DataFrame, short_period: int = 7, medium_period: int = 14, long_period: int = 28, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
