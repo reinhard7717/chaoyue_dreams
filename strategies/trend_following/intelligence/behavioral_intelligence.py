@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List
-from strategies.trend_following.intelligence.tactic_engine import TacticEngine
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class BehavioralIntelligence:
@@ -21,7 +20,6 @@ class BehavioralIntelligence:
         self.strategy = strategy_instance
         # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
-        self.tactic_engine = TacticEngine(strategy_instance)
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
