@@ -680,9 +680,12 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.14 · 职责净化版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修改: 彻底移除了自身的后缀添加逻辑。现在它接收的DataFrame必须是已经完全标准化（带后缀）的。
-                      它的唯一职责就是计算配置中的指标。
+        【V110.15 · 接口契约重建版】根据配置为指定时间周期计算所有技术指标。
+        - 核心重构: 彻底修复了因传递意外关键字 'timeframe_key' 导致的崩溃。
+        - 新协议:
+          1. 本方法作为调用方，全权负责使用 timeframe_key 构建带后缀的列名 (如 'close_D')。
+          2. 不再向下游计算器传递 'timeframe_key'，而是将构建好的列名作为 'close_col', 'high_col' 等参数精确传递。
+          3. 保证了与 IndicatorCalculator 之间清晰、稳固的接口契约。
         """
         if not config:
             return df
@@ -691,9 +694,6 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
             return df
         df_for_calc = df.copy()
-        # 移除 pct_change 的计算，因为它应该在上游被标准化并添加后缀
-        # if f'close_{timeframe_key}' in df_for_calc.columns:
-        #     df_for_calc[f'pct_change_{timeframe_key}'] = df_for_calc[f'close_{timeframe_key}'].pct_change()
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
@@ -716,6 +716,15 @@ class IndicatorService:
             'price_volume_ma_comparison', 'zscore', 
             'fibonacci_levels'
         ]
+        # [代码修改开始]
+        # 为基础列构建带后缀的名称
+        close_col_tf = f'close_{timeframe_key}'
+        high_col_tf = f'high_{timeframe_key}'
+        low_col_tf = f'low_{timeframe_key}'
+        open_col_tf = f'open_{timeframe_key}'
+        volume_col_tf = f'volume_{timeframe_key}'
+        amount_col_tf = f'amount_{timeframe_key}'
+        # [代码修改结束]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
@@ -748,18 +757,29 @@ class IndicatorService:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
+                    # [代码修改开始]
+                    # 移除传递 timeframe_key，改为传递精确的列名
                     if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
-                        result_df = await method_to_call(df=df_for_calc, params=sub_config, timeframe_key=timeframe_key)
+                        # 这些特殊方法现在也遵循标准，由调用方提供列名
+                        result_df = await method_to_call(df=df_for_calc, params=sub_config, suffix=f"_{timeframe_key}")
                         merge_results(result_df, df_for_calc)
                         continue
-                    kwargs = {'df': df_for_calc, 'timeframe_key': timeframe_key}
+                    kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
-                        kwargs['anchor'] = 'D' if timeframe_key.isdigit() else timeframe_key
+                        kwargs.update({
+                            'anchor': 'D' if timeframe_key.isdigit() else timeframe_key,
+                            'high_col': high_col_tf, 'low_col': low_col_tf,
+                            'close_col': close_col_tf, 'volume_col': volume_col_tf,
+                            'suffix': f"_{timeframe_key}"
+                        })
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
                     if periods is None:
+                        # 为没有周期的指标（如OBV）添加列名参数
+                        if indicator_name == 'obv':
+                            kwargs.update({'close_col': close_col_tf, 'volume_col': volume_col_tf})
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
@@ -767,27 +787,34 @@ class IndicatorService:
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
                     for p_set in periods_to_iterate:
-                        kwargs_iter = {'df': df_for_calc, 'timeframe_key': timeframe_key}
-                        if indicator_name == 'macd': kwargs_iter.update({'period_fast': p_set[0], 'period_slow': p_set[1], 'signal_period': p_set[2]})
-                        elif indicator_name == 'trix': kwargs_iter.update({'period': p_set[0], 'signal_period': p_set[1]})
-                        elif indicator_name == 'coppock': kwargs_iter.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2]})
-                        elif indicator_name == 'kdj': kwargs_iter.update({'period': p_set[0], 'signal_period': p_set[1], 'smooth_k_period': p_set[2]})
-                        elif indicator_name == 'uo': kwargs_iter.update({'short_period': p_set[0], 'medium_period': p_set[1], 'long_period': p_set[2]})
-                        elif indicator_name == 'boll_bands_and_width': kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0))})
-                        else: kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
+                        kwargs_iter = {'df': df_for_calc}
+                        # 根据指标类型，构建精确的参数字典
+                        if indicator_name in ['ma', 'ema', 'rsi', 'roc', 'bias', 'mom']:
+                            kwargs_iter.update({'period': p_set, 'close_col': close_col_tf})
+                        elif indicator_name == 'vol_ma':
+                            kwargs_iter.update({'period': p_set, 'volume_col': volume_col_tf})
+                        elif indicator_name == 'macd':
+                            kwargs_iter.update({'period_fast': p_set[0], 'period_slow': p_set[1], 'signal_period': p_set[2], 'close_col': close_col_tf})
+                        elif indicator_name == 'trix':
+                            kwargs_iter.update({'period': p_set[0], 'signal_period': p_set[1], 'close_col': close_col_tf})
+                        elif indicator_name == 'coppock':
+                            kwargs_iter.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2], 'close_col': close_col_tf})
+                        elif indicator_name in ['dmi', 'kdj', 'atr', 'atrn', 'atrr']:
+                             kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf})
+                        elif indicator_name == 'boll_bands_and_width':
+                            kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0)), 'close_col': close_col_tf, 'suffix': f"_{timeframe_key}"})
+                        elif indicator_name == 'cmf':
+                            kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf, 'volume_col': volume_col_tf})
+                        elif indicator_name == 'uo':
+                            kwargs_iter.update({'short_period': p_set[0], 'medium_period': p_set[1], 'long_period': p_set[2], 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf})
+                        else:
+                            # 兜底，对于未知但需要周期的指标
+                            kwargs_iter['period'] = p_set[0] if isinstance(p_set, list) else p_set
                         result_df = await method_to_call(**kwargs_iter)
                         merge_results(result_df, df_for_calc)
+                    # [代码修改结束]
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
-        # 移除自身的后缀添加逻辑，因为所有列都应该已经带有后缀了
-        # suffix = f"_{timeframe_key}"
-        # rename_map = {
-        #     col: f"{col}{suffix}" 
-        #     for col in df_for_calc.columns 
-        #     if not str(col).endswith(f"_{timeframe_key}")
-        # }
-        # final_df = df_for_calc.rename(columns=rename_map)
-        # return final_df
         return df_for_calc
 
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:

@@ -863,16 +863,18 @@ class IndicatorCalculator:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, timeframe_key: str) -> Optional[pd.DataFrame]:
+    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V1.1 · 标准化适配版】计算斐波那契回撤/扩展位。
-        - 核心修改: 适配上游传入的、已添加后缀的列名。
+        【V1.2 · 接口净化版】计算斐波那契回撤/扩展位。
+        - 核心修改: 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])
-        # 根据传入的 timeframe_key 动态构建列名
-        high_col = f"high_{timeframe_key}"
-        low_col = f"low_{timeframe_key}"
+        # [代码修改开始]
+        # 使用传入的后缀构建列名
+        high_col = f"high{suffix}"
+        low_col = f"low{suffix}"
+        # [代码修改结束]
         if high_col not in df.columns or low_col not in df.columns:
             logger.warning(f"斐波那契水平计算失败：缺少源列 {high_col} 或 {low_col}")
             return None
@@ -883,32 +885,40 @@ class IndicatorCalculator:
             price_range = rolling_high - rolling_low
             for level in fib_levels:
                 level_name = str(level).replace('.', '_')
-                result_df[f'fib_{level_name}_support_{period}_{timeframe_key}'] = rolling_low + (price_range * level)
-                result_df[f'fib_{level_name}_resistance_{period}_{timeframe_key}'] = rolling_high - (price_range * level)
+                # [代码修改开始]
+                # 在输出列名中也使用后缀
+                result_df[f'fib_{level_name}_support_{period}{suffix}'] = rolling_low + (price_range * level)
+                result_df[f'fib_{level_name}_resistance_{period}{suffix}'] = rolling_high - (price_range * level)
+                # [代码修改结束]
         return result_df
 
-    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, timeframe_key: str) -> Optional[pd.DataFrame]:
+    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V4.1 · 标准化适配版】计算价格/成交量与各自均线的比率。
-        - 核心修改: 适配上游传入的、已添加后缀的列名。
+        【V4.2 · 接口净化版】计算价格/成交量与各自均线的比率。
+        - 核心修改: 移除 timeframe_key 参数，改为接收一个通用的 suffix，由调用方构建。
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])
-        # 根据传入的 timeframe_key 动态构建列名
-        price_source_col = f"{params.get('price_source', 'close')}_{timeframe_key}"
-        volume_source_col = f"{params.get('volume_source', 'volume')}_{timeframe_key}"
+        # [代码修改开始]
+        # 使用传入的后缀构建列名
+        price_source_col = f"{params.get('price_source', 'close')}{suffix}"
+        volume_source_col = f"{params.get('volume_source', 'volume')}{suffix}"
+        # [代码修改结束]
         if price_source_col not in df.columns or volume_source_col not in df.columns:
             logger.warning(f"价格/成交量均线比率计算失败：缺少源列 {price_source_col} 或 {volume_source_col}")
             return None
         for period in periods:
-            price_ma_col = f"EMA_{period}_{timeframe_key}"
-            vol_ma_col = f"VOL_MA_{period}_{timeframe_key}"
+            # [代码修改开始]
+            # 在查找依赖列和构建输出列时，都使用后缀
+            price_ma_col = f"EMA_{period}{suffix}"
+            vol_ma_col = f"VOL_MA_{period}{suffix}"
             if price_ma_col in df.columns:
                 price_ratio = df[price_source_col] / df[price_ma_col].replace(0, np.nan)
-                result_df[f'price_vs_ma_{period}_ratio_{timeframe_key}'] = price_ratio.fillna(1.0)
+                result_df[f'price_vs_ma_{period}_ratio{suffix}'] = price_ratio.fillna(1.0)
             if vol_ma_col in df.columns:
                 volume_ratio = df[volume_source_col] / df[vol_ma_col].replace(0, np.nan)
-                result_df[f'volume_vs_ma_{period}_ratio_{timeframe_key}'] = volume_ratio.fillna(1.0)
+                result_df[f'volume_vs_ma_{period}_ratio{suffix}'] = volume_ratio.fillna(1.0)
+            # [代码修改结束]
         return result_df
 
     async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
