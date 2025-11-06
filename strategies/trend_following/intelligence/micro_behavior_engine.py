@@ -29,7 +29,6 @@ class MicroBehaviorEngine:
           1. 并行诊断三大公理，生成纯粹的微观行为原子信号。
           2. 融合三大公理，合成终极的微观共振信号。
         """
-        print("启动【V5.0 · 三大公理重构版】微观行为诊断...")
         all_states = {}
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -37,7 +36,6 @@ class MicroBehaviorEngine:
             return {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 步骤一: 诊断三大公理 ---
-        print("工序一: 正在诊断三大微观行为公理...")
         axiom_deception = self._diagnose_axiom_deception(df, norm_window)
         axiom_probe = self._diagnose_axiom_probe(df, norm_window)
         axiom_efficiency = self._diagnose_axiom_efficiency(df, norm_window)
@@ -45,7 +43,6 @@ class MicroBehaviorEngine:
         all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
         all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
         # --- 步骤二: 融合三大公理，合成终极信号 ---
-        print("工序二: 正在合成终极微观共振信号...")
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3
         })
@@ -59,7 +56,6 @@ class MicroBehaviorEngine:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_MICRO_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_MICRO_BEARISH_RESONANCE'] = bearish_resonance
-        print("【V5.0 · 三大公理重构版】微观行为诊断完成。")
         return all_states
 
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:

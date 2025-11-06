@@ -29,11 +29,9 @@ class BehavioralIntelligence:
           2. 调用 `_calculate_signal_dynamics` 为这些原子信号注入动态因子。
           3. 调用 `diagnose_ultimate_behavioral_signals` 将所有信息合成为本领域的终极输出。
         """
-        print("启动【V5.0 · 职责净化版】行为情报分析...")
         df = self.strategy.df_indicators
         all_behavioral_states = {}
         # 工序一: 基于行为公理，生产纯粹的原子信号
-        print("工序一: 正在生产纯粹的行为原子信号...")
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
@@ -42,17 +40,14 @@ class BehavioralIntelligence:
             if k not in df.columns:
                 df[k] = v
         # 工序二: 为行为信号进行动态赋能
-        print("工序二: 正在为行为信号注入动态因子...")
         df_with_dynamics = self._calculate_signal_dynamics(df)
         dynamic_cols = [c for c in df_with_dynamics.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))]
         self.strategy.atomic_states.update(df_with_dynamics[dynamic_cols])
         all_behavioral_states.update(df_with_dynamics[dynamic_cols])
         # 工序三: 合成行为领域的终极信号
-        print("工序三: 正在合成终极行为信号...")
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df_with_dynamics, atomic_signals=self.strategy.atomic_states)
         if ultimate_behavioral_states:
             all_behavioral_states.update(ultimate_behavioral_states)
-        print("【V5.0 · 职责净化版】行为情报分析完成。")
         return all_behavioral_states
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -65,7 +60,6 @@ class BehavioralIntelligence:
           2. 合成为一个双极性的“行为健康总分”。
           3. 使用标准工具分裂为互斥的“看涨共振分”和“看跌共振分”。
         """
-        print("开始执行【V5.0 · 范式统一版】行为领域终极合成器...")
         states = {}
         # 1. 计算看涨健康度 (Bullish Health)
         # 证据: 上涨有效率 * 下跌有抵抗 * 日内多头能控盘
@@ -86,7 +80,6 @@ class BehavioralIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        print("【V5.0 · 范式统一版】行为领域终极合成器诊断完成。")
         return states
 
     # ==============================================================================
@@ -160,12 +153,9 @@ class BehavioralIntelligence:
             'SCORE_RISK_STAGNATION',
             'SCORE_RISK_LIQUIDITY_DRAIN'
         ]
-        print("  -> 正在为以下行为原子信号计算动态因子:")
         for signal_name in atomic_signals_to_enhance:
             if signal_name in self.strategy.atomic_states:
-                print(f"     - {signal_name}")
                 signal_series = self.strategy.atomic_states[signal_name]
-                
                 # 计算动量 (Momentum)
                 momentum = signal_series.diff(momentum_span).fillna(0)
                 norm_momentum = normalize_score(momentum, df.index, potential_window)
@@ -215,7 +205,6 @@ class BehavioralIntelligence:
         【V2.1 · 工具归位版】行为公理诊断引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
-        print("开始执行【V2.0 · 职责净化版 · 行为公理诊断引擎】...")
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
@@ -252,7 +241,6 @@ class BehavioralIntelligence:
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * volume_apathy * downward_resistance).pow(1/3).astype(np.float32)
         states['SCORE_RISK_STAGNATION'] = (is_rising * volume_burst * (1.0 - upward_efficiency)).pow(1/3).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * volume_burst * price_downward_momentum).pow(1/2).astype(np.float32)
-        print("【行为公理诊断引擎】计算完成。")
         return states
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
@@ -260,7 +248,6 @@ class BehavioralIntelligence:
         【V3.1 · 工具归位版】压力-承接能量转化模型
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
-        print("开始执行【V3.0 · 压力-承接能量转化模型】...")
         states = {}
         df = self.strategy.df_indicators
         # --- 步骤一: 评估承接质量 (Absorption Quality) ---
@@ -295,7 +282,6 @@ class BehavioralIntelligence:
         # 统一命名，更清晰地反映信号内涵
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
-        print("【压力-承接能量转化模型】计算完成。")
         return states
 
 

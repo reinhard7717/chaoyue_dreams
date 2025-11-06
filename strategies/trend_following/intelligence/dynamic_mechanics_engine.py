@@ -21,7 +21,6 @@ class DynamicMechanicsEngine:
           1. 诊断四大公理，生成纯粹的力学原子信号。
           2. 融合四大公理，合成终极的动态力学健康度。
         """
-        print("启动【V5.0 · 四大公理重构版】动态力学分析...")
         all_dynamic_states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -30,13 +29,11 @@ class DynamicMechanicsEngine:
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 步骤一: 诊断四大公理 ---
-        print("工序一: 正在诊断四大力学公理...")
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = self._diagnose_axiom_momentum(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = self._diagnose_axiom_inertia(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = self._diagnose_axiom_stability(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = self._diagnose_axiom_energy(df, norm_window)
         # --- 步骤二: 融合四大公理，合成终极信号 ---
-        print("工序二: 正在合成终极动态力学信号...")
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'momentum': 0.3, 'inertia': 0.3, 'stability': 0.2, 'energy': 0.2
         })
@@ -54,7 +51,6 @@ class DynamicMechanicsEngine:
         ).clip(0, 1)
         all_dynamic_states['SCORE_DYN_BULLISH_RESONANCE'] = bullish_health.astype(np.float32)
         all_dynamic_states['SCORE_DYN_BEARISH_RESONANCE'] = bearish_health.astype(np.float32)
-        print("【V5.0 · 四大公理重构版】动态力学分析完成。")
         return all_dynamic_states
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

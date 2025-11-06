@@ -21,7 +21,6 @@ class FoundationIntelligence:
           1. 诊断四大公理，生成纯粹的基础层原子信号。
           2. 融合四大公理，合成终极的基础层共振信号。
         """
-        print("启动【V6.0 · 四大公理重构版】基础情报分析...")
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -30,7 +29,6 @@ class FoundationIntelligence:
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         # --- 步骤一: 诊断四大公理 ---
-        print("工序一: 正在诊断四大基础公理...")
         axiom_trend = self._diagnose_axiom_trend(df, norm_window, p_conf)
         axiom_oscillator = self._diagnose_axiom_oscillator(df, norm_window)
         axiom_flow = self._diagnose_axiom_flow(df, norm_window)
@@ -40,7 +38,6 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_AXIOM_FLOW'] = axiom_flow
         all_states['SCORE_FOUNDATION_AXIOM_VOLATILITY'] = axiom_volatility
         # --- 步骤二: 融合四大公理，合成终极信号 ---
-        print("工序二: 正在合成终极基础层信号...")
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'trend': 0.4, 'oscillator': 0.2, 'flow': 0.3, 'volatility': 0.1
         })
@@ -56,7 +53,6 @@ class FoundationIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_FOUNDATION_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_FOUNDATION_BEARISH_RESONANCE'] = bearish_resonance
-        print("【V6.0 · 四大公理重构版】基础情报分析完成。")
         return all_states
 
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:

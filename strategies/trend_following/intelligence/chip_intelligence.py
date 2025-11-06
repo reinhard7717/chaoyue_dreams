@@ -25,11 +25,9 @@ class ChipIntelligence:
           - SCORE_CHIP_CLEANLINESS: 筹码干净度，衡量上方套牢盘和短期获利盘的综合压力。
           - SCORE_CHIP_LOCKDOWN_DEGREE: 筹码锁定度，衡量市场中总的不愿交易的筹码比例。
         """
-        print("启动【V9.0 · 超级原子信号版】筹码情报分析...")
         all_chip_states = {}
         periods = [5, 13, 21, 55] # 筹码分析更侧重中长周期
         # 步骤一: 诊断四大公理，生成纯粹的筹码原子信号
-        print("工序一: 正在诊断四大筹码公理...")
         concentration_scores = self._diagnose_axiom_concentration(df, periods)
         cost_structure_scores = self._diagnose_axiom_cost_structure(df, periods)
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
@@ -40,7 +38,6 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
         all_chip_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = peak_integrity_scores
         # 步骤二: 合成筹码领域的终极信号
-        print("工序二: 正在合成终极筹码信号...")
         ultimate_signals = self._synthesize_ultimate_signals(
             df,
             concentration_scores,
@@ -50,7 +47,6 @@ class ChipIntelligence:
         )
         all_chip_states.update(ultimate_signals)
         # 步骤三 (新增): 工程化超级原子信号
-        print("工序三: 正在工程化超级原子信号...")
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
         chip_fault = df.get('chip_fault_blockage_ratio_D', 0.5)
         profit_pressure = df.get('imminent_profit_taking_supply_D', 0.5)
@@ -61,7 +57,6 @@ class ChipIntelligence:
         locked_loss = df.get('locked_loss_rate_D', 0.0)
         lockdown_degree = (locked_profit + locked_loss).clip(0, 1).fillna(0.0)
         all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
-        print(f"【V9.0 · 超级原子信号版】筹码情报分析完成，新增2个超级原子信号。")
         return all_chip_states
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: pd.Series, cost_structure: pd.Series, holder_sentiment: pd.Series, peak_integrity: pd.Series) -> Dict[str, pd.Series]:
