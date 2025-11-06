@@ -517,7 +517,6 @@ class FeatureEngineeringService:
         【V1.0 · 新增】均线系统势能分析引擎
         - 核心职责: 根据 ma_potential_metrics 配置，计算均线系统的“张力”、“有序度”、“压缩率”三大核心势能指标。
         """
-        # [代码新增开始]
         if not params.get('enabled', False):
             return all_dfs
         for timeframe in params.get('apply_on', []):
@@ -577,7 +576,6 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
         return all_dfs
-        # [代码新增结束]
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """

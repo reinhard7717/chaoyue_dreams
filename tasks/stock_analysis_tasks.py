@@ -598,7 +598,7 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 
-# 核心新增：定义“司令部”汇总任务
+# 核心定义“司令部”汇总任务
 @celery_app.task(name='tasks.stock_analysis_tasks.summarize_computation_failures', queue='celery')
 def summarize_computation_failures(results):
     """

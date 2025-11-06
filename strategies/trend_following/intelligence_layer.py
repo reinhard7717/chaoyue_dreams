@@ -77,10 +77,8 @@ class IntelligenceLayer:
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.process_intel.run_process_diagnostics(task_type_filter='base'))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
-        # [代码新增开始]
         # 激活静默的微观行为引擎，确保其在行为引擎之后、融合引擎之前运行
         update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
-        # [代码新增结束]
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))

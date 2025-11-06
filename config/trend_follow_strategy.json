@@ -108,10 +108,10 @@
         "EMA_89_D": [5, 13, 89],
         "EMA_144_D": [5, 13, 21],
         "EMA_233_D": [5, 13, 21],
-        "说明_structure_axioms": "--- 新增：为结构稳定性公理(盾)提供支持 ---",
+        "说明_structure_axioms": "--- 为结构稳定性公理(盾)提供支持 ---",
         "MA_55_D": [5],
         "MA_144_D": [5],
-        "说明_chip_axioms": "--- 新增：为筹码四大公理提供支持 ---",
+        "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
         "short_term_concentration_90pct_D": [5, 13, 21, 55],
         "long_term_concentration_90pct_D": [5, 13, 21, 55],
         "winner_concentration_90pct_D": [5, 13, 21, 55],
@@ -123,10 +123,13 @@
         "chip_fatigue_index_D": [5, 13, 21, 55],
         "dominant_peak_solidity_D": [5, 13, 21, 55],
         "dominant_peak_cost_D": [5, 13, 21, 55],
-        "说明_pattern_axioms": "--- 新增：为形态三大公理提供支持 ---",
+        "说明_pattern_axioms": "--- 为形态三大公理提供支持 ---",
         "intraday_vwap_div_index_D": [5, 13, 21],
         "counterparty_exhaustion_index_D": [5, 13, 21],
-        "breakout_quality_score_D": [5, 13, 21]
+        "breakout_quality_score_D": [5, 13, 21],
+        "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
+        "main_force_control_leverage_D": [5],
+        "inferred_active_order_size_D": [5]
       }
     },
     "accel_params": {
@@ -142,7 +145,7 @@
         "EMA_89_D": [5, 13, 89],
         "EMA_144_D": [5, 13, 21],
         "EMA_233_D": [5, 13, 21],
-        "说明_chip_axioms": "--- 新增：为筹码四大公理提供支持 ---",
+        "说明_chip_axioms": "--- 为筹码四大公理提供支持 ---",
         "short_term_concentration_90pct_D": [5, 13, 21, 55],
         "long_term_concentration_90pct_D": [5, 13, 21, 55],
         "winner_concentration_90pct_D": [5, 13, 21, 55],
@@ -153,7 +156,10 @@
         "loser_pain_index_D": [5, 13, 21, 55],
         "chip_fatigue_index_D": [5, 13, 21, 55],
         "dominant_peak_solidity_D": [5, 13, 21, 55],
-        "dominant_peak_cost_D": [5, 13, 21, 55]
+        "dominant_peak_cost_D": [5, 13, 21, 55],
+        "说明_micro_behavior_axioms": "--- 为微观行为公理提供支持 ---",
+        "main_force_control_leverage_D": [5],
+        "inferred_active_order_size_D": [5]
       }
     }
   },

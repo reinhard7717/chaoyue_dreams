@@ -68,26 +68,25 @@ class MicroBehaviorEngine:
         - 核心职责: 安全地从DataFrame获取信号。
         - 预警机制: 如果信号不存在，打印明确的警告信息，并返回一个包含默认值的Series，以防止程序崩溃。
         """
-        # [代码新增开始]
         if signal_name not in df.columns:
             print(f"    -> [微观行为引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[signal_name]
-        # [代码新增结束]
 
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 健壮性修复版】微观行为公理一：诊断“伪装与欺骗”
+        【V1.2 · 健壮性修复版】微观行为公理一：诊断“伪装与欺骗”
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
+        - 逻辑修正: 明确使用 'SLOPE_5_short_term_concentration_90pct_D' 作为筹码集中度变化的证据。
         """
-        # [代码修改开始]
         # 核心逻辑：寻找“表象”与“实质”的背离
         # 证据1: 资金流表象 vs 筹码实质
         # 表象：主力资金净流出
         main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D')
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
         # 实质：筹码仍在集中
-        chip_concentration_slope = self._get_signal(df, 'SLOPE_5_short_term_concentration_90pct_D') # 修正为short_term
+        # 明确使用短期集中度斜率作为证据
+        chip_concentration_slope = self._get_signal(df, 'SLOPE_5_short_term_concentration_90pct_D')
         chip_concentration_increase = chip_concentration_slope.clip(lower=0)
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
         # 证据2: 交易颗粒度表象 vs 订单实质
@@ -95,7 +94,7 @@ class MicroBehaviorEngine:
         granularity_slope = self._get_signal(df, 'SLOPE_5_inferred_active_order_size_D')
         granularity_decrease = -granularity_slope.clip(upper=0)
         # 实质：主力控盘度提升
-        control_leverage_slope = self._get_signal(df, 'SLOPE_5_main_force_control_leverage_D', 0.0) # 假设这个指标可能不存在
+        control_leverage_slope = self._get_signal(df, 'SLOPE_5_main_force_control_leverage_D')
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
         # 融合两大欺骗证据
@@ -103,14 +102,12 @@ class MicroBehaviorEngine:
         # 使用双极归一化进行最终裁决
         deception_score = normalize_to_bipolar(raw_deception_score, df.index, window=norm_window)
         return deception_score.astype(np.float32)
-        # [代码修改结束]
 
     def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 健壮性修复版】微观行为公理二：诊断“试探与确认”
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
         """
-        # [代码修改开始]
         # 核心逻辑：分析带长影线的K线背后的真实意图
         total_range = (self._get_signal(df, 'high_D') - self._get_signal(df, 'low_D')).replace(0, np.nan)
         # 证据1: 上影线试探 (正分)
@@ -137,14 +134,12 @@ class MicroBehaviorEngine:
         # 使用双极归一化进行最终裁决
         probe_score = normalize_to_bipolar(raw_probe_score, df.index, window=norm_window)
         return probe_score.astype(np.float32)
-        # [代码修改结束]
 
     def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 健壮性修复版】微观行为公理三：诊断“成本与效率”
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
         """
-        # [代码修改开始]
         # 核心逻辑：衡量“投入”与“产出”的比率
         # 投入：成交额放大程度
         amount_series = self._get_signal(df, 'amount_D')
@@ -162,4 +157,3 @@ class MicroBehaviorEngine:
         # 使用双极归一化进行最终裁决
         efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
         return efficiency_score.astype(np.float32)
-        # [代码修改结束]

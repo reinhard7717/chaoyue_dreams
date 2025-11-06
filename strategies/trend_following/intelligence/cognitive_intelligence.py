@@ -22,21 +22,18 @@ class CognitiveIntelligence:
         【V1.1 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
         - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
         """
-        # [代码修改开始]
         # 认知层只消费融合层和原子层的信号
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
         else:
             print(f"    -> [认知层警告] 融合态势信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
-        # [代码修改结束]
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V2.1 · 真理探针版】安全地从原子状态库或主数据帧中获取信号。
         - 核心升级: 植入真理探针。如果获取不到信号，将打印明确的警告信息。
         """
-        # [代码修改开始]
         # 优先从原子状态库获取，因为那里可能有经过处理的信号
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
@@ -46,7 +43,6 @@ class CognitiveIntelligence:
         else:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
-        # [代码修改结束]
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -55,7 +51,6 @@ class CognitiveIntelligence:
         - 新流程: 引擎的最终输出是所有独立的、经过动态证据锻造的剧本后验概率。
                       计分逻辑完全交由上层计分引擎处理，确保了每个剧本分数的透明可追溯。
         """
-        # [代码修改开始]
         print("启动【V24.0 · 透明计分版】认知推演引擎...")
         all_cognitive_states = {}
         
@@ -82,7 +77,6 @@ class CognitiveIntelligence:
         # --- 步骤三: (已废弃) 不再进行融合，直接输出独立剧本信号 ---
         print(f"【V24.0 · 透明计分版】分析完成，生成 {len(all_cognitive_states)} 个认知信号。")
         return all_cognitive_states
-        # [代码修改结束]
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
@@ -109,7 +103,6 @@ class CognitiveIntelligence:
         - 核心修复: 将引用的信号名称从废弃的 'COGNITIVE_FORGED_...' 修正为 'COGNITIVE_PLAYBOOK_...' 和 'COGNITIVE_RISK_...'，
                       重新连接了信号融合的指挥链。
         """
-        # [代码修改开始]
         states = {}
         df_index = self.strategy.df_indicators.index
         
@@ -138,7 +131,6 @@ class CognitiveIntelligence:
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
         
         return states
-        # [代码修改结束]
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
@@ -213,10 +205,8 @@ class CognitiveIntelligence:
         volume_spike = (self._get_atomic_score('volume_D') / vol_ma55.replace(0, 1.0)).fillna(1.0)
         volume_evidence = self._forge_dynamic_evidence(normalize_score(volume_spike, self.strategy.df_indicators.index, 55))
         process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0).clip(lower=0))
-        # [代码修改开始]
         # 使用 'SCORE_MICRO_BULLISH_RESONANCE' 替换废弃的 'SCORE_MICRO_PANIC_ABSORPTION'
         micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_BULLISH_RESONANCE', 0.0).clip(lower=0))
-        # [代码修改结束]
         # --- 2. 计算似然度 P(证据 | 恐慌反转) ---
         evidence_scores = np.stack([
             upward_pressure.values, price_rebound_evidence.values, volume_evidence.values,
@@ -271,10 +261,8 @@ class CognitiveIntelligence:
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         breakout_quality = self._forge_dynamic_evidence(self._get_atomic_score('breakout_quality_score_D', 0.0))
         sector_sync = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
-        # [代码修改开始]
         # 使用 'industry_strength_rank_D' 替换不存在的 'relative_strength_vs_index_D'
         relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('industry_strength_rank_D', 0.5), self.strategy.df_indicators.index, 55))
-        # [代码修改结束]
         # --- 2. 计算似然度 ---
         evidence_scores = np.stack([capital_confrontation.values, breakout_quality.values, sector_sync.values, relative_strength.values], axis=0)
         evidence_weights = np.array([0.3, 0.3, 0.2, 0.2])
@@ -318,10 +306,8 @@ class CognitiveIntelligence:
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
-        # [代码修改开始]
         # 使用 'SCORE_FF_BULLISH_RESONANCE' 替换废弃的 'FUSION_SECTOR_NET_FLOW_SCORE'，并使用 _get_atomic_score 获取
         sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_BULLISH_RESONANCE', 0.0).clip(lower=0))
-        # [代码修改结束]
         price_position = self._forge_dynamic_evidence(1 - normalize_score(self._get_atomic_score('BIAS_144_D', 0.0), self.strategy.df_indicators.index, 144))
         chip_cleanliness = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0))
         hot_sector_cooling = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_HOT_SECTOR_COOLING', 0.0))
@@ -372,7 +358,6 @@ class CognitiveIntelligence:
         - 核心职责: 将一个静态的原始证据信号，锻造成一个融合了“状态-速度-加速度”的动态证据。
         - 数学逻辑: DynamicEvidence = w_s * State + w_v * Velocity + w_a * Acceleration
         """
-        # [代码新增开始]
         if not isinstance(raw_evidence, pd.Series) or raw_evidence.empty:
             return pd.Series(0.0, index=self.strategy.df_indicators.index)
         # 统一转换为[-1, 1]的双极性信号进行处理
@@ -395,4 +380,3 @@ class CognitiveIntelligence:
         # 将最终的力转换回[0, 1]区间的证据强度
         forged_evidence = (dynamic_force.clip(-1, 1) + 1) / 2.0
         return forged_evidence
-        # [代码新增结束]

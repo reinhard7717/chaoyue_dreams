@@ -193,7 +193,7 @@ class AdvancedStructuralMetricsService:
             daily_basic_df['trade_time'] = pd.to_datetime(daily_basic_df['trade_time']).dt.date
             daily_basic_df = daily_basic_df.set_index('trade_time')
             daily_df = daily_df.join(daily_basic_df, how='left')
-        # 新增：计算短、中、长三个周期的ATR
+        # 计算短、中、长三个周期的ATR
         daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=5, append=True, col_names=('ATR_5',))
         daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=14, append=True, col_names=('ATR_14',))
         daily_df.ta.atr(high=daily_df['high_qfq'], low=daily_df['low_qfq'], close=daily_df['close_qfq'], length=50, append=True, col_names=('ATR_50',))
@@ -435,7 +435,7 @@ class AdvancedStructuralMetricsService:
             results['price_shock_factor'] = shock * direction
         if all(pd.notna(v) for v in [atr_5, atr_50]) and atr_50 > 0:
             results['volatility_expansion_ratio'] = atr_5 / atr_50
-        # --- 5. 新增：V18.0 战场分析仪指标 ---
+        # --- 5. V18.0 战场分析仪指标 ---
         if not continuous_group.empty and len(continuous_group) > 1:
             from scipy.stats import linregress
             vwap_series = continuous_group['minute_vwap'].dropna()

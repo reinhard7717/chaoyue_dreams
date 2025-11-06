@@ -213,7 +213,7 @@ class ChipFeatureCalculator:
             if is_effective_day: fatigue_index *= 0.5
             else: fatigue_index += (total_daily_vol / total_chip_volume) * 100 if total_chip_volume > 0 else 0
             results['chip_fatigue_index'] = fatigue_index
-        # --- 6. 新增：筹码峰肩增长率 ---
+        # --- 6. 筹码峰肩增长率 ---
         prev_chip_dist = context.get('prev_chip_distribution')
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
         today_dominant_peak_cost = context.get('dominant_peak_cost')
@@ -540,7 +540,7 @@ class ChipFeatureCalculator:
                 results['locked_loss_rate'] = self.df[~active_mask & (self.df['price'] > close_price)]['percent'].sum()
         # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
-        results['chip_fault_blockage_ratio'] = 0.0 # 新增：为指标设置默认值0.0
+        results['chip_fault_blockage_ratio'] = 0.0 # 为指标设置默认值0.0
         if pd.notna(peak_cost) and pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             magnitude = (close_price - peak_cost) / atr_14d
             results['chip_fault_magnitude'] = magnitude
@@ -605,7 +605,7 @@ class ChipFeatureCalculator:
                 stability_raw = np.prod(scores)
                 final_score = stability_raw ** (1.0 / len(scores))
                 results['structural_stability_score'] = final_score * 100
-        # --- 10. 新增：近期套牢盘压力 ---
+        # --- 10. 近期套牢盘压力 ---
         recent_5d_high = self.ctx.get('high_5d')
         recent_5d_low = self.ctx.get('low_5d')
         turnover_vol_5d = self.ctx.get('turnover_vol_5d')
@@ -616,7 +616,7 @@ class ChipFeatureCalculator:
             if total_chip_volume > 0:
                 recent_trapped_vol = (recent_trapped_percent / 100) * total_chip_volume
                 results['recent_trapped_pressure'] = (recent_trapped_vol / turnover_vol_5d) * 100
-        # --- 11. 新增：潜在获利盘供给 ---
+        # --- 11. 潜在获利盘供给 ---
         if pd.notna(close_price):
             imminent_supply_mask = (self.df['price'] >= close_price / 1.05) & (self.df['price'] < close_price)
             results['imminent_profit_taking_supply'] = self.df[imminent_supply_mask]['percent'].sum()

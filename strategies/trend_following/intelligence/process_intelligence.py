@@ -269,7 +269,6 @@ class ProcessIntelligence:
         - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
         - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
         """
-        # [代码新增开始]
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
         source_type = config.get('source_type', 'df')
@@ -292,7 +291,6 @@ class ProcessIntelligence:
         # 3. 归一化衰减幅度
         decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
         return {signal_name: decay_score.astype(np.float32)}
-        # [代码新增结束]
 
 
 

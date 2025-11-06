@@ -390,7 +390,7 @@ class BaseAdvancedFundFlowMetrics(models.Model):
         'net_flow_calibrated', 'main_force_net_flow_calibrated', 'retail_net_flow_calibrated',
         'net_xl_amount_calibrated', 'net_lg_amount_calibrated', 'net_md_amount_calibrated',
         'net_sh_amount_calibrated',
-        'main_force_on_peak_flow', # 新增：将峰区净流入加入可累加列
+        'main_force_on_peak_flow', # 将峰区净流入加入可累加列
     ]
     for p in UNIFIED_PERIODS:
         if p > 1:
@@ -563,7 +563,7 @@ class BaseAdvancedStructuralMetrics(models.Model):
         'auction_showdown_score': '收盘竞价摊牌分',
     }
     # [代码新增开始]
-    # 新增：V18.0 战场分析仪指标
+    # V18.0 战场分析仪指标
     ADVANCED_BATTLEFIELD_METRICS = {
         'trend_quality_score': '趋势质量分',
         'closing_momentum_index': '收盘动能指数',
