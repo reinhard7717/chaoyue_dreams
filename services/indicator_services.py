@@ -434,8 +434,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.15 · 全流程命名协议同步版】
-        - 核心修复: 同步修复了 resample 聚合规则，使其能够正确处理已添加 '_D' 后缀的日线数据列名。
+        【V8.16 · 孤儿计算修复版】
+        - 核心修复: 重新引入了 'pct_change_D' 的计算逻辑。在上游对 'close' 列强制添加 '_D' 后缀后，
+                      该方法现在负责从新的 'close_D' 列计算出 'pct_change_D'，解决了下游引擎的 KeyError。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -566,17 +567,20 @@ class IndicatorService:
             if not col.endswith(('_D', '_W', '_M')) and not any(col.endswith(f'_{i}') for i in range(100))
         }
         df_daily_master.rename(columns=rename_map_daily, inplace=True)
+        # [代码新增开始]
+        # --- 孤儿计算修复：重新引入 pct_change_D 的计算 ---
+        # 在 close 列被重命名为 close_D 之后，立即计算其百分比变化。
+        if 'close_D' in df_daily_master.columns:
+            df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
+        # [代码新增结束]
         raw_dfs['D'] = df_daily_master
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
-                    # [代码修改开始]
-                    # 修复聚合规则，使其使用带 '_D' 后缀的列名
                     aggregation_rules = {
                         'open_D': 'first', 'high_D': 'max', 'low_D': 'min', 'close_D': 'last', 'volume_D': 'sum'
                     }
-                    # [代码修改结束]
                     for col in df_daily.columns:
                         if col not in aggregation_rules:
                             if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
