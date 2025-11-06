@@ -48,7 +48,7 @@ class CognitiveIntelligence:
         # 新增剧本
         raw_playbook_scores.update(self._deduce_leading_dragon_awakening(priors))
         raw_playbook_scores.update(self._deduce_sector_rotation_vanguard(priors))
-        raw_playbook_scores.update(self._deduce_exhausted_crossbow_at_peak(priors))
+        raw_playbook_scores.update(self._deduce_trend_exhaustion_risk(priors))
         raw_playbook_scores.update(self._deduce_energy_compression_breakout(priors))
         # 将原始推演结果存入，用于调试和追溯
         all_cognitive_states.update(raw_playbook_scores)
