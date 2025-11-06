@@ -217,12 +217,10 @@ class BehavioralIntelligence:
         shadow_dominance = df.get('shadow_dominance_D', 0.0) # 这是一个[-1, 1]的指标
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
         # --- 支柱二: 战术执行 (The Tactical Execution) - 操盘效率与决心 ---
-        # [代码修改开始]
         # 调用公共工具函数，并传入 df.index
         vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index)), df.index)
         vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', pd.Series(0.0, index=df.index)), df.index)
         trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', pd.Series(0.0, index=df.index)), df.index)
-        # [代码修改结束]
         bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
         pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
         # --- 最终融合: 两大纯行为支柱加权 ---
@@ -244,7 +242,6 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('volatility_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        # [代码修改开始]
         # --- 公理一: 价格行为 (Price Action) ---
         price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = price_upward_momentum.astype(np.float32)
@@ -269,7 +266,6 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_absorption.astype(np.float32)
         upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = upper_shadow_pressure.astype(np.float32)
-        # [代码修改结束]
         # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
         is_falling = (df['pct_change_D'] < 0).astype(float)
@@ -289,11 +285,9 @@ class BehavioralIntelligence:
         states = {}
         df = self.strategy.df_indicators
         # --- 步骤一: 评估承接质量 (Absorption Quality) ---
-        # [代码修改开始]
         # 调用公共工具函数，并传入 df.index
         absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
         absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
-        # [代码修改结束]
         # 证据1.3: 承接意图 (从-1,1映射到0,1)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
         # 融合得到承接质量，体现“三位一体”
