@@ -97,9 +97,22 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.1 · 融合输出版】筹码公理一：诊断筹码“聚散”动态
-        - 核心修复: 不再返回字典，而是将多周期分数进行加权融合，返回一个单一的 pd.Series。
+        【V2.2 · 哨兵协议版】筹码公理一：诊断筹码“聚散”动态
+        - 核心升级: 植入“哨兵协议”，在计算前强制检查所有依赖的高级筹码指标是否存在。
+                      如果依赖缺失，将打印明确警告并安全退出，防止静默失败。
         """
+        # [代码新增开始]
+        # --- 哨兵协议：依赖检查 ---
+        required_signals = [
+            'short_term_concentration_90pct_D',
+            'long_term_concentration_90pct_D',
+            'winner_concentration_90pct_D'
+        ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods]
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码公理-聚散] 警告: 缺少必要的依赖信号，无法诊断。缺失项: {missing_signals}")
+            return pd.Series(0.0, index=df.index)
+        # [代码新增结束]
         scores_by_period = {}
         concentration_level = (
             df.get('short_term_concentration_90pct_D', pd.Series(50.0, index=df.index)) +
@@ -110,7 +123,6 @@ class ChipIntelligence:
             concentration_trend = df.get(f'SLOPE_{p}_winner_concentration_90pct_D', pd.Series(0.0, index=df.index))
             raw_bipolar_series = (concentration_level - 50) + (concentration_trend * 20)
             scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.0)
-        # 进行多周期融合
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         final_score = pd.Series(0.0, index=df.index)
@@ -123,9 +135,20 @@ class ChipIntelligence:
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.1 · 融合输出版】筹码公理二：诊断“成本结构”动态
-        - 核心修复: 不再返回字典，而是将多周期分数进行加权融合，返回一个单一的 pd.Series。
+        【V2.2 · 哨兵协议版】筹码公理二：诊断“成本结构”动态
+        - 核心升级: 植入“哨兵协议”，强制检查依赖项。
         """
+        # [代码新增开始]
+        # --- 哨兵协议：依赖检查 ---
+        required_signals = [
+            'winner_loser_momentum_D',
+            'cost_divergence_normalized_D'
+        ]
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码公理-成本] 警告: 缺少必要的依赖信号，无法诊断。缺失项: {missing_signals}")
+            return pd.Series(0.0, index=df.index)
+        # [代码新增结束]
         scores_by_period = {}
         raw_bipolar_series = (
             df.get('winner_loser_momentum_D', pd.Series(0.0, index=df.index)) -
@@ -133,8 +156,6 @@ class ChipIntelligence:
         )
         for p in periods:
             scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.0)
-            
-        # 进行多周期融合
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         final_score = pd.Series(0.0, index=df.index)
@@ -147,9 +168,21 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.1 · 融合输出版】筹码公理三：诊断“持股心态”动态
-        - 核心修复: 不再返回字典，而是将多周期分数进行加权融合，返回一个单一的 pd.Series。
+        【V2.2 · 哨兵协议版】筹码公理三：诊断“持股心态”动态
+        - 核心升级: 植入“哨兵协议”，强制检查依赖项。
         """
+        # [代码新增开始]
+        # --- 哨兵协议：依赖检查 ---
+        required_signals = [
+            'winner_conviction_index_D',
+            'loser_pain_index_D',
+            'chip_fatigue_index_D'
+        ]
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码公理-心态] 警告: 缺少必要的依赖信号，无法诊断。缺失项: {missing_signals}")
+            return pd.Series(0.0, index=df.index)
+        # [代码新增结束]
         scores_by_period = {}
         raw_bipolar_series = (
             df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index)) -
@@ -158,8 +191,6 @@ class ChipIntelligence:
         )
         for p in periods:
             scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=0.8)
-            
-        # 进行多周期融合
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         final_score = pd.Series(0.0, index=df.index)
@@ -172,17 +203,26 @@ class ChipIntelligence:
 
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.1 · 融合输出版】筹码公理四：诊断“筹码峰形态”
-        - 核心修复: 不再返回字典，而是将多周期分数进行加权融合，返回一个单一的 pd.Series。
+        【V2.2 · 哨兵协议版】筹码公理四：诊断“筹码峰形态”
+        - 核心升级: 植入“哨兵协议”，强制检查依赖项。
         """
+        # [代码新增开始]
+        # --- 哨兵协议：依赖检查 ---
+        required_signals = [
+            'dominant_peak_cost_D',
+            'dominant_peak_solidity_D'
+        ]
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            print(f"    -> [筹码公理-形态] 警告: 缺少必要的依赖信号，无法诊断。缺失项: {missing_signals}")
+            return pd.Series(0.0, index=df.index)
+        # [代码新增结束]
         scores_by_period = {}
         price_vs_peak_raw = df['close_D'] - df.get('dominant_peak_cost_D', df['close_D'])
         peak_solidity = df.get('dominant_peak_solidity_D', pd.Series(0.5, index=df.index))
         raw_bipolar_series = price_vs_peak_raw * peak_solidity
         for p in periods:
             scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.2)
-            
-        # 进行多周期融合
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         final_score = pd.Series(0.0, index=df.index)
