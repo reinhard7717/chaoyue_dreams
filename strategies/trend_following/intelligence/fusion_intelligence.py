@@ -19,15 +19,20 @@ class FusionIntelligence:
         self.strategy = strategy_instance
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
-        """安全地从原子状态库中获取分数，处理缺失情况。"""
+        """
+        【V1.1 · 默认值修复版】安全地从原子状态库中获取分数，处理缺失情况。
+        - 核心修复: 将默认值从 0.5 改为 0.0。0.5代表中性，而0.0代表无信号/无贡献，
+                      这在几何平均中是更安全的选择，避免了中性信号对结果的污染。
+        """
         if name in self.strategy.atomic_states:
             return self.strategy.atomic_states[name]
-        # 如果atomic_states中没有，尝试从主数据帧中获取
         elif name in self.strategy.df_indicators.columns:
             return self.strategy.df_indicators[name]
         else:
-            # print(f"    -> [融合层警告] 信号 '{name}' 不存在，使用默认值 {default}。")
+            # [代码修改开始]
+            # 默认值从 0.5 改为 0.0
             return pd.Series(default, index=self.strategy.df_indicators.index)
+            # [代码修改结束]
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """

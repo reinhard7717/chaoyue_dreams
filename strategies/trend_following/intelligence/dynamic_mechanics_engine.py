@@ -15,11 +15,10 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 四大公理重构版】动态力学引擎总指挥
-        - 核心重构: 废弃旧的五支柱模型，引入基于物理学思想的“动量、惯性、波动性、能量”四大公理。
-        - 核心流程:
-          1. 诊断四大公理，生成纯粹的力学原子信号。
-          2. 融合四大公理，合成终极的动态力学健康度。
+        【V5.1 · 逻辑修复版】动态力学引擎总指挥
+        - 核心修复: 修正了终极信号合成逻辑。不再对双极性公理分进行错误的 clip 操作，
+                      而是先加权融合成一个总体的双极性健康分，然后使用标准工具分裂为
+                      正确的、互斥的看涨/看跌共振分。
         """
         all_dynamic_states = {}
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
@@ -28,29 +27,27 @@ class DynamicMechanicsEngine:
             return {}
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        # --- 步骤一: 诊断四大公理 ---
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = self._diagnose_axiom_momentum(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = self._diagnose_axiom_inertia(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = self._diagnose_axiom_stability(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = self._diagnose_axiom_energy(df, norm_window)
-        # --- 步骤二: 融合四大公理，合成终极信号 ---
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'momentum': 0.3, 'inertia': 0.3, 'stability': 0.2, 'energy': 0.2
         })
-        bullish_health = (
-            all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'].clip(lower=0) * axiom_weights['momentum'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'].clip(lower=0) * axiom_weights['inertia'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'].clip(lower=0) * axiom_weights['stability'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'].clip(lower=0) * axiom_weights['energy']
-        ).clip(0, 1)
-        bearish_health = (
-            all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'].clip(upper=0).abs() * axiom_weights['momentum'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'].clip(upper=0).abs() * axiom_weights['inertia'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'].clip(upper=0).abs() * axiom_weights['stability'] +
-            all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'].clip(upper=0).abs() * axiom_weights['energy']
-        ).clip(0, 1)
-        all_dynamic_states['SCORE_DYN_BULLISH_RESONANCE'] = bullish_health.astype(np.float32)
-        all_dynamic_states['SCORE_DYN_BEARISH_RESONANCE'] = bearish_health.astype(np.float32)
+        # [代码修改开始]
+        # 步骤一: 将所有双极性公理分进行加权融合，得到一个总体的双极性健康分
+        bipolar_health = (
+            all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] * axiom_weights['momentum'] +
+            all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] * axiom_weights['inertia'] +
+            all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] * axiom_weights['stability'] +
+            all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] * axiom_weights['energy']
+        ).clip(-1, 1)
+        # 步骤二: 使用标准工具将双极性健康分分裂为互斥的看涨和看跌共振分
+        from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
+        all_dynamic_states['SCORE_DYN_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
+        all_dynamic_states['SCORE_DYN_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        # [代码修改结束]
         return all_dynamic_states
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

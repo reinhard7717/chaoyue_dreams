@@ -854,15 +854,14 @@ def _calculate_rejection_quality_score(df: pd.DataFrame, params: Dict, resistanc
 
 def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, pd.Series]:
     """
-    【V3.0 · 签名净化版】将双极性分数转换为互斥的单极性分数。
-    - 核心重构: 彻底从函数签名中移除了 `threshold` 参数。此修改强制性地在整个代码库中
-                  废除了“中性区”概念，确保了该函数行为的唯一性和稳健性。
+    【V3.1 · 类型安全版】将双极性分数转换为互斥的单极性分数。
+    - 核心升级: 在返回前，将结果明确转换为 np.float32 类型，确保数据流中的类型一致性。
     """
-    # 看涨分数：直接截取双极性分数中的正值部分。
-    s_bull = bipolar_score.clip(0, 1)
-    # 看跌分数：截取双极性分数中的负值部分，然后取其绝对值。
-    s_bear = (bipolar_score.clip(-1, 0) * -1)
+    # [代码修改开始]
+    s_bull = bipolar_score.clip(lower=0)
+    s_bear = bipolar_score.clip(upper=0).abs()
     return s_bull.astype(np.float32), s_bear.astype(np.float32)
+    # [代码修改结束]
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
     """

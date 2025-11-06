@@ -61,40 +61,38 @@ class ChipIntelligence:
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: pd.Series, cost_structure: pd.Series, holder_sentiment: pd.Series, peak_integrity: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V8.1 · 单一信号输入版】终极信号合成器
-        - 核心修改: 调整了方法签名，现在接收的是单一的、已融合的公理分数Series，而不是字典。
+        【V8.2 · 逻辑修复版】终极信号合成器
+        - 核心修复: 修正了终极信号合成逻辑。不再对双极性公理分进行错误的 clip 操作，
+                      而是先加权融合成一个总体的双极性健康分，然后使用标准工具分裂为
+                      正确的、互斥的看涨/看跌共振分。同时简化了后续信号的生成逻辑。
         """
         states = {}
-        # 移除了对 periods 的依赖，因为输入已经是融合后的Series
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        # tf_weights 在公理层融合时使用，这里不再需要
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2})
+        # [代码修改开始]
         # 步骤一：计算双极性“全息筹码健康分”
-        # 直接使用传入的已融合的公理分数Series
         bipolar_health = (
             concentration * axiom_weights['concentration'] +
             cost_structure * axiom_weights['cost_structure'] +
             holder_sentiment * axiom_weights['holder_sentiment'] +
             peak_integrity * axiom_weights['peak_integrity']
         ).clip(-1, 1)
-        # 步骤二：分离为纯粹的看涨/看跌健康分
-        bullish_resonance = bipolar_health.clip(0, 1)
-        bearish_resonance = (bipolar_health.clip(-1, 0) * -1)
-        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        # 步骤三：计算动态信号 (一阶导数)
+        # 步骤二：使用标准工具将双极性健康分分裂为互斥的看涨和看跌共振分
+        from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
+        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
+        states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).astype(np.float32)
+        states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).astype(np.float32)
+        # 步骤三：简化其他终极信号的生成
         bullish_momentum = bullish_resonance.diff().fillna(0)
         bearish_momentum = bearish_resonance.diff().fillna(0)
-        # 归一化动态信号
         norm_bullish_momentum = normalize_score(bullish_momentum, df.index, 21, ascending=True)
         norm_bearish_momentum = normalize_score(bearish_momentum, df.index, 21, ascending=True)
-        # 步骤四：赋值给命名准确的终极信号
         states['SCORE_CHIP_BULLISH_ACCELERATION'] = norm_bullish_momentum.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BEARISH_ACCELERATION'] = norm_bearish_momentum.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = (1.0 - norm_bearish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = (1.0 - norm_bullish_momentum).clip(0, 1).astype(np.float32)
-        # 步骤五：重铸战术回调信号
         states['SCORE_CHIP_TACTICAL_PULLBACK'] = (bullish_resonance * states['SCORE_CHIP_TOP_REVERSAL']).clip(0, 1).astype(np.float32)
+        # [代码修改结束]
         return states
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
