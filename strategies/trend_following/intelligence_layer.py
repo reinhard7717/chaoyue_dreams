@@ -61,9 +61,9 @@ class IntelligenceLayer:
 
     def run_all_diagnostics(self) -> Dict:
         """
-        【V420.1 · 调用修复版】情报层总指挥官
-        - 核心修复: 修正了对 cognitive_intel.synthesize_cognitive_scores 的调用，移除了多余的参数，
-                      并遵循标准的 update_states 模式，解决了 TypeError。
+        【V421.0 · 指挥链修复版】情报层总指挥官
+        - 核心修复: 在诊断序列中加入了对微观行为引擎 (micro_behavior_engine) 的调用，
+                      解决了因引擎静默导致认知层无法获取 'SCORE_MICRO_BULLISH_RESONANCE' 信号的致命BUG。
         """
         df = self.strategy.df_indicators
         self.strategy.atomic_states = {}
@@ -74,10 +74,13 @@ class IntelligenceLayer:
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
         # --- 阶段一：专业情报层诊断，生成原子信号 ---
-        print("情报金字塔[第一层]: 专业情报层诊断开始...")
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
         update_states(self.process_intel.run_process_diagnostics(task_type_filter='base'))
         update_states(self.behavioral_intel.run_behavioral_analysis_command())
+        # [代码新增开始]
+        # 激活静默的微观行为引擎，确保其在行为引擎之后、融合引擎之前运行
+        update_states(self.micro_behavior_engine.run_micro_behavior_synthesis(df))
+        # [代码新增结束]
         update_states(self.foundation_intel.run_foundation_analysis_command())
         update_states(self.chip_intel.run_chip_intelligence_command(df))
         update_states(self.structural_intel.diagnose_structural_states(df))
@@ -85,17 +88,11 @@ class IntelligenceLayer:
         update_states(self.mechanics_engine.run_dynamic_analysis_command())
         update_states(self.pattern_intel.run_pattern_analysis_command(df))
         update_states(self.process_intel.run_process_diagnostics(task_type_filter='strategy'))
-        print("情报金字塔[第一层]: 专业情报层诊断完成。")
         # --- 阶段二：融合情报层诊断，生成跨域融合信号 ---
-        print("情报金字塔[第二层]: 融合情报层诊断开始...")
         update_states(self.fusion_intel.run_fusion_diagnostics())
-        print("情报金字塔[第二层]: 融合情报层诊断完成。")
         # --- 阶段三：关系动力引擎与认知层合成 ---
-        print("情报金字塔[第三层]: 认知决策层诊断开始...")
         self._ignite_relational_dynamics_engine()
-        # 修正调用，移除多余的第二个参数 {}，并使用 update_states 统一模式
         update_states(self.cognitive_intel.synthesize_cognitive_scores(df))
-        print("情报金字塔[第三层]: 认知决策层诊断完成。")
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):

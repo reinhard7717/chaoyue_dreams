@@ -22,28 +22,28 @@ class CyclicalIntelligence:
           2. 诊断公理二 (Hurst): 提取市场的记忆性特征（趋势/均值回归）。
           3. 融合裁决: 综合FFT和Hurst的诊断，输出一个更可靠的“趋势政权”评分。
         """
-        print("启动【V2.0 · 双星系统版】周期情报分析...")
+        # print("启动【V2.0 · 双星系统版】周期情报分析...")
         all_cyclical_states = {}
         p = get_params_block(self.strategy, 'cyclical_analysis_params')
         if not get_param_value(p.get('enabled'), True):
             print("周期情报分析已在配置中禁用，跳过。")
             return {}
         # --- 公理一: 频谱结构 (FFT) ---
-        print("工序一: 正在诊断市场频谱结构 (FFT)...")
+        # print("工序一: 正在诊断市场频谱结构 (FFT)...")
         fft_states = self.diagnose_market_cycles_with_fft(df, p)
         all_cyclical_states.update(fft_states)
         # --- 公理二: 序列记忆 (Hurst) ---
-        print("工序二: 正在诊断市场序列记忆 (Hurst)...")
+        # print("工序二: 正在诊断市场序列记忆 (Hurst)...")
         hurst_states = self.diagnose_market_memory_with_hurst(df, p)
         all_cyclical_states.update(hurst_states)
         # --- 融合裁决: 趋势政权 ---
-        print("工序三: 正在融合裁决最终的趋势政权...")
+        # print("工序三: 正在融合裁决最终的趋势政权...")
         fft_trend_score = fft_states.get('SCORE_CYCLICAL_FFT_TREND_REGIME', pd.Series(0.5, index=df.index))
         hurst_trend_score = hurst_states.get('SCORE_CYCLICAL_HURST_TREND_REGIME', pd.Series(0.5, index=df.index))
         # 只有当两个独立维度都指向趋势时，才认为趋势政权成立
         final_trend_regime_score = (fft_trend_score * hurst_trend_score).pow(0.5)
         all_cyclical_states['SCORE_TRENDING_REGIME'] = final_trend_regime_score.astype(np.float32)
-        print("【V2.0 · 双星系统版】周期情报分析完成。")
+        # print("【V2.0 · 双星系统版】周期情报分析完成。")
         return all_cyclical_states
 
     def diagnose_market_cycles_with_fft(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
