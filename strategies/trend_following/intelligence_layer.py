@@ -12,7 +12,6 @@ from .intelligence.chip_intelligence import ChipIntelligence
 from .intelligence.behavioral_intelligence import BehavioralIntelligence
 from .intelligence.cognitive_intelligence import CognitiveIntelligence
 from .intelligence.micro_behavior_engine import MicroBehaviorEngine
-from .intelligence.playbook_engine import PlaybookEngine
 from .intelligence.fund_flow_intelligence import FundFlowIntelligence
 from .intelligence.dynamic_mechanics_engine import DynamicMechanicsEngine
 from .intelligence.cyclical_intelligence import CyclicalIntelligence
@@ -51,7 +50,6 @@ class IntelligenceLayer:
         self.process_intel = ProcessIntelligence(self.strategy)
         self.fusion_intel = FusionIntelligence(self.strategy)
         self.cognitive_intel = CognitiveIntelligence(self.strategy)
-        self.playbook_engine = PlaybookEngine(self.strategy)
         self.structural_defense_layer = StructuralDefenseLayer(self.strategy)
         self.predictive_intel = PredictiveIntelligence(self.strategy)
         # 导入主探针调度器
