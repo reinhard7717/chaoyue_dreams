@@ -3,7 +3,7 @@
 # 描述: 模拟层现在更精确地处理盘后引擎的交易逻辑，包括T+1开盘价入场，
 #       清仓后重置状态，以及更精细的交易动作判断。
 
-from .utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value
 from typing import Tuple
 import pandas as pd
 from stock_models.stock_analytics import StrategyDailyScore # 导入 StrategyDailyScore.TradeActionType

@@ -5,7 +5,7 @@ import numpy as np
 from asgiref.sync import sync_to_async
 from typing import Dict, List, Any, Tuple
 from stock_models.stock_analytics import TradingSignal, Playbook, SignalPlaybookDetail, StrategyDailyScore, StrategyScoreComponent, StrategyDailyState
-from .utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value
 
 def _convert_numpy_types_for_json(obj: Any) -> Any:
     if isinstance(obj, dict): return {key: _convert_numpy_types_for_json(value) for key, value in obj.items()}

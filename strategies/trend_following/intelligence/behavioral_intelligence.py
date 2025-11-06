@@ -5,7 +5,7 @@ import numpy as np
 import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List
 from strategies.trend_following.intelligence.tactic_engine import TacticEngine
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class BehavioralIntelligence:
     """
@@ -90,7 +90,6 @@ class BehavioralIntelligence:
         bipolar_behavioral_health = (bullish_health - bearish_health).clip(-1, 1)
 
         # 4. 分裂为标准的看涨/看跌共振信号
-        from .utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
 
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)

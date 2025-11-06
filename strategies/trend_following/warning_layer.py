@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy.stats import linregress
 from typing import Dict, Tuple
-from .utils import get_params_block
+from strategies.trend_following.utils import get_params_block
 
 class WarningLayer:
     def __init__(self, strategy_instance):

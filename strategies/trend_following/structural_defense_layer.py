@@ -2,7 +2,7 @@
 # 离场层 -> 结构防御层
 import pandas as pd
 from typing import Tuple, Dict
-from .utils import get_params_block, get_param_value
+from strategies.trend_following.utils import get_params_block, get_param_value
 
 class StructuralDefenseLayer: # 类名从 ExitLayer 修改为 StructuralDefenseLayer
     """
