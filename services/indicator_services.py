@@ -442,8 +442,9 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.12 · 核心数据无条件加载版】
-        - 核心升级: 移除了对“高级筹码”和“高级资金流”数据的 'enabled' 检查。现在，这些核心数据源将被无条件加载，以确保所有高级分析模块的数据完整性，根除因配置不当导致的数据缺失问题。
+        【V8.13 · 数据源探针版】
+        - 核心升级: 植入“数据源探针”，在补充数据加载后、合并处理前，立即检查原始 `advanced_chips` DataFrame 的数据完整性，
+                      以验证数据在源头是否已经失效。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -484,40 +485,33 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-        # 无条件加载高级筹码指标，因为它们是许多高级分析的基础
         async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
             return ('advanced_chips', df)
         tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-        # 日度基本面数据是常用数据，默认获取
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
         trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
-        # 同花顺资金流
         async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_ths', df)
         tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        # 东方财富资金流
         async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_dc', df)
         tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        # Tushare资金流
         async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        # 无条件加载高级资金流指标，因为它们是许多高级分析的基础
         async def _fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, limit)
             return ('advanced_fund_flow', df)
         tasks.append(_fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        # 增加获取每日涨跌停价格的任务
         async def _fetch_price_limit_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True).date() if trade_time else None
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, limit)
@@ -545,6 +539,34 @@ class IndicatorService:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
+        # [代码新增开始]
+        # --- 数据源探针 V3 ---
+        debug_params = config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            print("\n    -> [数据源探针 V3] 正在检查原始加载的数据...")
+            advanced_chip_df = supplemental_dfs.get('advanced_chips')
+            if advanced_chip_df is not None and not advanced_chip_df.empty:
+                advanced_chip_df_std = self._standardize_df_index_to_utc(advanced_chip_df)
+                if advanced_chip_df_std is not None:
+                    advanced_chip_df_std.index = advanced_chip_df_std.index.normalize()
+                    probe_date = probe_date_naive.tz_localize(advanced_chip_df_std.index.tz) if advanced_chip_df_std.index.tz else probe_date_naive
+                    probe_date = probe_date.normalize()
+                    if probe_date in advanced_chip_df_std.index:
+                        print("        -> 正在检查 'advanced_chips' 原始数据...")
+                        chip_row = advanced_chip_df_std.loc[probe_date]
+                        key_cols = [c for c in chip_row.index if 'concentration' in c or 'momentum' in c or 'conviction' in c or 'peak' in c or 'cost' in c]
+                        if not key_cols:
+                            print("           - [警告] 在 'advanced_chips' 原始数据中未找到任何关键指标列。")
+                        for col in key_cols:
+                            val = chip_row[col]
+                            print(f"           - [原始物证] 信号: {col:<50} | 当日值: {val:.4f}")
+                    else:
+                        print("        -> [数据源探针] 警告: 探针日期不在 'advanced_chips' 原始数据索引中。")
+            else:
+                print("        -> [数据源探针] 警告: 未加载到 'advanced_chips' 原始数据。")
+        # [代码新增结束]
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
