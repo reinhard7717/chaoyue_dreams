@@ -1157,13 +1157,15 @@ class IndicatorCalculator:
 
     async def calculate_counterparty_exhaustion_index(self, df_minute: pd.DataFrame, efficiency_window: int = 21) -> Optional[pd.DataFrame]:
         """
-        【V2.1 · 指挥链修复版】计算对手盘衰竭指数。
-        - 核心修复: 解决了 resample().agg() 中的 KeyError。现在，聚合操作会使用动态查找到的、带有正确后缀的列名（如 'close_60'），而不是硬编码的 'close'，确保在任何时间周期的DataFrame上都能正确执行。
+        【V2.2 · 解耦聚合修复版】计算对手盘衰竭指数。
+        - 核心修复: 彻底解决Pandas聚合逻辑陷阱。将复杂的agg指令分解为多个原子操作：
+                    1. 单独聚合求和项。
+                    2. 单独聚合计算日内涨跌幅。
+                    3. 合并结果。
+                    这确保了聚合逻辑的清晰性和健壮性，根除了KeyError。
         """
         if df_minute is None or df_minute.empty or len(df_minute) < 10:
             return None
-        # [代码修改开始]
-        # 动态查找列名，并确保即使找不到也返回一个不会引起KeyError的默认值
         open_col = next((c for c in df_minute.columns if c.startswith('open')), None)
         high_col = next((c for c in df_minute.columns if c.startswith('high')), None)
         low_col = next((c for c in df_minute.columns if c.startswith('low')), None)
@@ -1175,7 +1177,6 @@ class IndicatorCalculator:
             missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
             logger.warning(f"计算对手盘衰竭指数失败：分钟数据缺少基础列: {missing}。")
             return None
-        # [代码修改结束]
             
         try:
             def _sync_calc():
@@ -1184,13 +1185,22 @@ class IndicatorCalculator:
                 df['total_energy'] = (df[high_col] - df[low_col]) * df[volume_col]
                 
                 # [代码修改开始]
-                # 核心修复：在agg中明确使用动态查找到的 close_col
-                agg_dict = {
-                    'daily_thrust': ('directional_thrust', 'sum'),
-                    'daily_energy': ('total_energy', 'sum'),
-                    'pct_change': (close_col, lambda x: (x.iloc[-1] / x.iloc[0] - 1) if len(x) > 0 else 0)
-                }
-                daily_agg = df.resample('D').agg(agg_dict)
+                # 步骤1: 先聚合简单的求和项
+                daily_sums = df.resample('D').agg({
+                    'directional_thrust': 'sum',
+                    'total_energy': 'sum'
+                })
+                daily_sums.rename(columns={'directional_thrust': 'daily_thrust', 'total_energy': 'daily_energy'}, inplace=True)
+
+                # 步骤2: 单独计算日内真实涨跌幅
+                daily_ohlc = df[close_col].resample('D').ohlc()
+                # 确保 ohlc 结果不为空
+                if daily_ohlc.empty:
+                    return None
+                daily_ohlc['pct_change'] = (daily_ohlc['close'] / daily_ohlc['open'].replace(0, np.nan) - 1).fillna(0)
+                
+                # 步骤3: 合并结果，形成最终的日级别聚合DataFrame
+                daily_agg = daily_sums.join(daily_ohlc[['pct_change']], how='inner')
                 # [代码修改结束]
                 
                 daily_agg['conversion_efficiency'] = (daily_agg['daily_thrust'] / daily_agg['daily_energy'].replace(0, np.nan)).fillna(0)
@@ -1206,7 +1216,7 @@ class IndicatorCalculator:
 
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算对手盘衰竭指数(V2.1)时发生错误: {e}", exc_info=True)
+            logger.error(f"计算对手盘衰竭指数(V2.2)时发生错误: {e}", exc_info=True)
             return None
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
