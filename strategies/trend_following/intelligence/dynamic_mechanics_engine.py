@@ -15,17 +15,15 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 指挥覆盖探针版】动态力学引擎总指挥
-        - 探针植入: 在方法入口处增加探针，明确打印引擎是因配置被跳过还是正常启动，
-                      以验证“配置性停机”的诊断。
+        【V5.3 · 命名协议修复版】动态力学引擎总指挥
+        - 核心修复: 修正了输出的共振信号名称，将 'SCORE_DYN_*' 修正为 'SCORE_DYNAMIC_MECHANICS_*'，
+                      以严格遵守与融合层的情报供应契约。
         """
-        # [代码新增开始]
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 动态力学引擎在配置中被禁用，跳过分析。")
             return {}
         print("-> [指挥覆盖探针] 动态力学引擎已启用，开始分析...")
-        # [代码新增结束]
         all_dynamic_states = {}
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
@@ -44,8 +42,11 @@ class DynamicMechanicsEngine:
         ).clip(-1, 1)
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        all_dynamic_states['SCORE_DYN_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
-        all_dynamic_states['SCORE_DYN_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        # [代码修改开始]
+        # 修正信号名称以符合融合层的契约
+        all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
+        all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        # [代码修改结束]
         return all_dynamic_states
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

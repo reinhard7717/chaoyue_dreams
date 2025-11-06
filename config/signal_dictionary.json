@@ -1,6 +1,6 @@
 {
     "score_type_map": {
-        "说明": "【V86.0 · 过程感知版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。新增并正确配置了所有 process 类型信号。",
+        "说明": "【V87.0 · 命名协议同步版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
@@ -482,13 +482,13 @@
             "description": "融合了年内价格位置和周线RSI超卖，评估当前是否处于深度价值区域。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
-        "SCORE_MICRO_BULLISH_RESONANCE": {
+        "SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE": {
             "cn_name": "【微观】看涨共振",
             "category": "内部计分-微观行为",
             "type": "dynamic",
             "description": "【V5.0 · 公理化版】基于“伪装、试探、效率”三大微观行为公理，形成的看涨共振分。"
         },
-        "SCORE_MICRO_BEARISH_RESONANCE": {
+        "SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE": {
             "cn_name": "【微观】看跌共振",
             "category": "内部计分-微观行为",
             "type": "risk",
@@ -594,13 +594,13 @@
             "description": "【V5.0 · 范式统一版】基于四大行为公理，形成的看跌共振分。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
-        "SCORE_FF_BULLISH_RESONANCE": {
+        "SCORE_FUND_FLOW_BULLISH_RESONANCE": {
             "cn_name": "【资金流】看涨共振",
             "category": "内部计分-资金流",
             "type": "dynamic",
             "description": "【V21.0 · 公理化版】基于“共识、信念、存量”三大资金流公理，形成的看涨共振分。"
         },
-        "SCORE_FF_BEARISH_RESONANCE": {
+        "SCORE_FUND_FLOW_BEARISH_RESONANCE": {
             "cn_name": "【资金流】看跌共振",
             "category": "内部计分-资金流",
             "type": "risk",
@@ -662,13 +662,13 @@
             "type": "context",
             "description": "【力学公理四】诊断推动价格运动的“燃料”是否充足。正分代表健康的能量支持，负分代表能量衰竭或背离。"
         },
-        "SCORE_DYN_BULLISH_RESONANCE": {
+        "SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE": {
             "cn_name": "【力学】看涨共振",
             "category": "内部计分-力学",
             "type": "dynamic",
             "description": "【V5.0 · 公理化版】基于“动量、惯性、稳定性、能量”四大力学公理，形成的看涨共振分。"
         },
-        "SCORE_DYN_BEARISH_RESONANCE": {
+        "SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE": {
             "cn_name": "【力学】看跌共振",
             "category": "内部计分-力学",
             "type": "risk",

@@ -24,16 +24,15 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 指挥覆盖探针版】微观行为诊断引擎总指挥
-        - 探针植入: 在方法入口处增加探针，明确打印引擎是因配置被跳过还是正常启动。
+        【V5.2 · 命名协议修复版】微观行为诊断引擎总指挥
+        - 核心修复: 修正了输出的共振信号名称，将 'SCORE_MICRO_*' 修正为 'SCORE_MICRO_BEHAVIOR_*'，
+                      以严格遵守与融合层的情报供应契约。
         """
-        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 微观行为引擎在配置中被禁用，跳过分析。")
             return {}
         print("-> [指挥覆盖探针] 微观行为引擎已启用，开始分析...")
-        # [代码修改结束]
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_deception = self._diagnose_axiom_deception(df, norm_window)
@@ -51,8 +50,11 @@ class MicroBehaviorEngine:
             axiom_efficiency * axiom_weights['efficiency']
         ).clip(-1, 1)
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        all_states['SCORE_MICRO_BULLISH_RESONANCE'] = bullish_resonance
-        all_states['SCORE_MICRO_BEARISH_RESONANCE'] = bearish_resonance
+        # [代码修改开始]
+        # 修正信号名称以符合融合层的契约
+        all_states['SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance
+        all_states['SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance
+        # [代码修改结束]
         return all_states
 
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
