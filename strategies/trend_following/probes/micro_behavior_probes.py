@@ -126,7 +126,6 @@ class MicroBehaviorProbes:
         print(f"    - [护盾 II: 底部锁仓机会] -> 增强前原始得分: {lockdown_opp_pre:.4f}")
         shield_val = max(absorption_opp_pre, lockdown_opp_pre)
         print(f"    - 【探针重算-抑制护盾分】: max({absorption_opp_pre:.4f}, {lockdown_opp_pre:.4f}) = {shield_val:.4f}")
-
         # 同步“燃料转化协议”的计算逻辑
         is_shield_active = shield_val > 0
         fuel_val = raw_risk_val if is_shield_active else 0.0
@@ -143,7 +142,6 @@ class MicroBehaviorProbes:
         recalc_lockdown_opp = (lockdown_opp_pre + fuel_val * lockdown_weight).clip(0, 1)
         print(f"    - 【探针重算-增强后吸收机会】: {absorption_opp_pre:.4f} + {fuel_val:.4f} * {absorption_weight:.2f} = {recalc_absorption_opp:.4f}")
         print(f"    - 【探针重算-增强后锁仓机会】: {lockdown_opp_pre:.4f} + {fuel_val:.4f} * {lockdown_weight:.2f} = {recalc_lockdown_opp:.4f}")
-        
         print(f"    - [风险分对比]: 系统值 {final_risk:.4f} vs. 探针值 {recalc_final_risk:.4f} -> {'✅ 一致' if np.isclose(final_risk, recalc_final_risk) else '❌ 不一致'}")
         print(f"    - [吸收机会对比]: 系统值 {final_absorption_opp:.4f} vs. 探针值 {recalc_absorption_opp:.4f} -> {'✅ 一致' if np.isclose(final_absorption_opp, recalc_absorption_opp) else '❌ 不一致'}")
         print(f"    - [锁仓机会对比]: 系统值 {final_lockdown_opp:.4f} vs. 探针值 {recalc_lockdown_opp:.4f} -> {'✅ 一致' if np.isclose(final_lockdown_opp, recalc_lockdown_opp) else '❌ 不一致'}")

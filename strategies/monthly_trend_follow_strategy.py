@@ -93,14 +93,11 @@ class MonthlyTrendFollowStrategy:
         # print(f"【步骤4.5】'突破启动日'(signal_breakout_initiation)信号总数: {df['signal_breakout_initiation'].sum()}")
         # print(f"【步骤5】'拒绝信号日'总数: {is_rejection_day.sum()}")
         # print(f"【步骤6】最终'突破观察'(signal_breakout_trigger)信号总数: {df['signal_breakout_trigger'].sum()}")
-
         # --- 步骤 7: 基于干净的信号计算买入点 ---
         df.loc[:, 'signal_pullback_entry'] = self._find_pullback_entry_signal(df, self.params.get('pullback_entry_params', {}))
         df.loc[:, 'signal_continuation_entry'] = self._find_continuation_entry_signal(df, self.params.get('continuation_entry_params', {}))
-
         # --- 步骤 8: 计算止盈信号 (采用新的安全模式) ---
         df.loc[:, 'take_profit_signal'] = self.apply_take_profit_rules(df, self.params.get('take_profit_params', {}))
-
         # logger.info(f"策略应用完成。")
         return df
 
@@ -113,17 +110,14 @@ class MonthlyTrendFollowStrategy:
         strategy_params = params.get('strategy_params', {}).get('monthly_trend_follow', {})
         signal_type = "无明确信号"
         total_score = 0
-
         main_analysis_parts = []
         context_analysis_parts = []
-
         acc_params = strategy_params.get('monthly_accumulation_params', {})
         brk_params = strategy_params.get('monthly_breakout_params', {})
         lookback_months = brk_params.get('lookback_months', 6)
         period_high_col = f'consolidation_period_high_M_{lookback_months}'
         trix_col_m = f"TRIX_{acc_params.get('trix_period', 12)}_{acc_params.get('trix_signal_period', 9)}_M"
         coppock_col_m = f"COPPOCK_{acc_params.get('coppock_long_roc', 14)}_{acc_params.get('coppock_short_roc', 11)}_{acc_params.get('coppock_wma', 10)}_M"
-
         # 步骤1: 准备好可能用到的“长期趋势分析”文本块，但不立即使用
         is_accumulating = signal_row.get('signal_monthly_accumulation', False)
         accumulation_analysis_text = []
@@ -135,7 +129,6 @@ class MonthlyTrendFollowStrategy:
             if trix_col_m in signal_row and trix_col_m.replace('_M', '_M_prev') in signal_row and not pd.isna(signal_row[trix_col_m]) and not pd.isna(signal_row[trix_col_m.replace('_M', '_M_prev')]) and signal_row[trix_col_m] > signal_row[trix_col_m.replace('_M', '_M_prev')]:
                  accumulation_analysis_text.append(f"  - 三重平滑均线(TRIX): 指标值({signal_row[trix_col_m]:.2f})持续上升，表明长期趋势正在转强。")
             accumulation_analysis_text.append("  - 形态特征: 股价在长期均线附近盘整，为突破蓄力。")
-
         # 步骤2: 根据信号优先级，确定报告的主基调
         # 优先级最高：止盈信号
         if signal_row.get('take_profit_signal', 0) > 0:
@@ -152,14 +145,12 @@ class MonthlyTrendFollowStrategy:
             if accumulation_analysis_text:
                 context_analysis_parts.append("\n--- 背景说明 ---")
                 context_analysis_parts.append("注意: 该止盈信号是在一个良好的月线吸筹长线背景下出现的短期战术信号，适合了结前期利润，未来仍可关注新的介入机会。")
-
         # 优先级次之：风险信号
         elif signal_row.get('signal_ma_rejection', 0) == -1 or signal_row.get('signal_box_rejection', 0) == -1:
             signal_type = "压力位拒绝(风险)"
             total_score = 10
             main_analysis_parts.append("--- 风险信号分析 ---")
             main_analysis_parts.append("核心发现: **在关键压力位出现带量长上影线，为看跌拒绝信号，注意风险！**")
-
         # 优先级第三：买入信号
         elif signal_row.get('signal_pullback_entry', 0) > 0:
             signal_type = "回踩买入(高)"
@@ -174,7 +165,6 @@ class MonthlyTrendFollowStrategy:
             if accumulation_analysis_text: main_analysis_parts.extend(accumulation_analysis_text)
             main_analysis_parts.append("\n--- 买入信号分析 (日线) ---")
             main_analysis_parts.append("核心发现: **突破后未回踩，持续沿短期均线上攻，确认为强势追击信号！**")
-
         # 优先级第四：观察信号
         elif signal_row.get('signal_breakout_trigger', False):
             signal_type = "突破观察(低)"
@@ -184,7 +174,6 @@ class MonthlyTrendFollowStrategy:
             main_analysis_parts.append("核心发现: **已触发突破观察信号，建议密切关注后续回踩或追击机会。**")
             if signal_row.get('signal_monthly_breakout', False) and period_high_col in signal_row and not pd.isna(signal_row[period_high_col]):
                 main_analysis_parts.append(f"  - 价格突破: 当月价格已突破长达 {lookback_months} 个月的盘整区间顶部({signal_row[period_high_col]:.2f})。")
-        
         # 最低优先级：仅有长期状态信号，无短期事件
         elif is_accumulating:
             signal_type = "月线吸筹(观察)"
@@ -192,13 +181,10 @@ class MonthlyTrendFollowStrategy:
             main_analysis_parts.extend(accumulation_analysis_text)
             main_analysis_parts.append("\n--- 策略状态 ---")
             main_analysis_parts.append("核心发现: **股票处于长期吸筹阶段，但尚未出现明确的日线级别交易信号，建议纳入观察池持续跟踪。**")
-
         # 步骤3: 组合报告文本
         if signal_row.get('washout_score', 0) > 0:
             main_analysis_parts.append(f"\n洗盘分析: 检测到洗盘行为，强度评分为 {signal_row['washout_score']} 分。")
-
         report_text = "\n".join(main_analysis_parts + context_analysis_parts)
-        
         full_report = f"""*** 最新信号分析报告 ({stock_code}) ***
             买入信号评分: {total_score} / 100
             信号类型: {signal_type}
@@ -225,21 +211,17 @@ class MonthlyTrendFollowStrategy:
             (result_df.get('signal_breakout_trigger', False))
         )
         df_with_signals = result_df[signal_conditions].copy()
-
         if df_with_signals.empty:
             return []
-
         records = []
         strategy_name = params.get('strategy_info', {}).get('name', 'MonthlyTrendFollow_V7')
         score_threshold = params.get('entry_scoring_params', {}).get('score_threshold', 90)
-
         for timestamp, row in df_with_signals.iterrows():
             entry_score = 0.0
             is_pullback = bool(row.get('signal_pullback_entry', 0) > 0)
             is_continuation = bool(row.get('signal_continuation_entry', 0) > 0)
             is_breakout_obs = bool(row.get('signal_breakout_trigger', False))
             exit_code = int(row.get('take_profit_signal', 0))
-
             if exit_code > 0: entry_score = 0.0
             elif row.get('signal_ma_rejection', 0) == -1 or row.get('signal_box_rejection', 0) == -1: entry_score = 10.0
             elif is_pullback: entry_score = 95.0
@@ -247,11 +229,9 @@ class MonthlyTrendFollowStrategy:
             elif is_breakout_obs: entry_score = 85.0
             
             is_final_entry_signal = entry_score >= score_threshold
-
             rejection_code = 0
             if row.get('signal_ma_rejection', 0) == -1: rejection_code += 1
             if row.get('signal_box_rejection', 0) == -1: rejection_code += 2
-
             triggered_playbooks = []
             signal_columns = [
                 'signal_monthly_accumulation', 'signal_monthly_breakout', 'signal_final_washout',
@@ -264,9 +244,7 @@ class MonthlyTrendFollowStrategy:
             
             if exit_code > 0: triggered_playbooks.append(f'TAKE_PROFIT_CODE_{exit_code}')
             if rejection_code > 0: triggered_playbooks.append(f'REJECTION_CODE_{rejection_code}')
-
             context_snapshot = {k: v for k, v in row.items() if pd.notna(v)}
-
             record = {
                 "stock_code": stock_code,
                 # ▼▼▼ 修改/新增 ▼▼▼
@@ -339,18 +317,15 @@ class MonthlyTrendFollowStrategy:
         # 解释: 我们创建一个新的列来存储止盈类型，并按优先级填充它。
         #       这样可以精确地知道是哪个规则触发了信号。
         take_profit_type = pd.Series(0, index=df.index)
-
         # 计算每种止盈信号
         tp_signal_resistance = self._check_resistance_take_profit(df, params.get('resistance_exit', {}))
         tp_signal_trailing = self._check_trailing_stop_take_profit(df, params.get('trailing_stop_exit', {}))
         tp_signal_indicator = self._check_indicator_take_profit(df, params.get('indicator_exit', {}))
-
         # 按优先级（指标 > 移动 > 压力位）填充止盈类型
         # 这样如果同时触发多个，会记录最优先的那个
         take_profit_type.loc[tp_signal_resistance] = 1
         take_profit_type.loc[tp_signal_trailing] = 2
         take_profit_type.loc[tp_signal_indicator] = 3
-        
         # 返回包含止盈类型编码的Series
         return take_profit_type
 

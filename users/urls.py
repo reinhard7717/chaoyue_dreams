@@ -26,10 +26,8 @@ urlpatterns = [
 
 
     
-    
     # 个人资料
     path('profile/', views.profile_view, name='profile'),
-    
     # 自选股管理
     path('favorites/', views.favorite_stock_list, name='favorite_stock_list'),
     path('favorites/add/', views.add_favorite_stock, name='add_favorite_stock'),

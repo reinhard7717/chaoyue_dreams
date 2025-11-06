@@ -39,7 +39,6 @@ class DistributedRateLimiter:
                 current_count = results[1]
                 
                 # print(f"DEBUG: [Limiter: {self.redis_key}] 当前窗口请求数: {current_count}/{self.max_calls}")
-
                 if current_count < self.max_calls:
                     async with redis_client.pipeline(transaction=True) as write_pipe:
                         member = f"{current_timestamp_ms}:{uuid.uuid4()}"

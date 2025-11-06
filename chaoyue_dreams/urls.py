@@ -15,11 +15,9 @@ urlpatterns = [
 
     path('reinhard7717_admin/', admin.site.urls),
     path('users/', include('users.urls', namespace='users')),  # 用户相关URL
-    
     path('dashboard/', include('dashboard.urls', namespace='dashboard')), # dashboard URLs
     path('accounts/', include('django.contrib.auth.urls')), # 登录/登出等URL
     path('', RedirectView.as_view(url='/dashboard/', permanent=False), name='go-to-dashboard'),
-    
     # path('tasks/', include('tasks.urls')),  # 任务管理URL
     # path('', RedirectView.as_view(url='/users/', permanent=False)),  # 将根路径重定向到用户主页
 ]

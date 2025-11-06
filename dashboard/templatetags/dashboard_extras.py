@@ -30,7 +30,6 @@ def make_utc_aware(value):
         # 使用 timezone.make_aware 将其“激活”为带UTC时区的对象。
         print(f"DEBUG: Naive time '{value}' is being made UTC aware.") # 调试信息
         return timezone.make_aware(value, timezone.utc)
-    
     # 如果时间已经是感知的 (aware)，则直接返回原值，避免重复处理
     return value
 
@@ -60,10 +59,8 @@ def query_builder(context, **kwargs):
     request = context.get('request')
     if not request:
         return "?"
-    
     # 复制当前请求的GET参数字典
     query_dict = request.GET.copy()
-    
     # 优先处理 kwargs 中明确传入的参数，这会覆盖掉 request.GET 中的同名参数
     for key, value in kwargs.items():
         # 如果值是一个列表（比如 selected_playbooks），使用 setlist
@@ -76,19 +73,16 @@ def query_builder(context, **kwargs):
     # 特殊处理 playbook 的添加/移除逻辑 (如果需要的话)
     add_playbook_val = kwargs.get('add_playbook')
     remove_playbook_val = kwargs.get('remove_playbook')
-    
     if add_playbook_val is not None or remove_playbook_val is not None:
         playbooks_list = query_dict.getlist('playbooks', [])
         if add_playbook_val is not None:
             add_playbook_str = str(add_playbook_val)
             if add_playbook_str not in playbooks_list:
                 playbooks_list.append(add_playbook_str)
-
         if remove_playbook_val is not None:
             remove_playbook_str = str(remove_playbook_val)
             if remove_playbook_str in playbooks_list:
                 playbooks_list.remove(remove_playbook_str)
-        
         if playbooks_list:
             query_dict.setlist('playbooks', playbooks_list)
         else:
@@ -100,7 +94,6 @@ def query_builder(context, **kwargs):
         final_url = f"?{urlencode(query_dict, doseq=True)}"
     else:
         final_url = "?" 
-    
     return final_url
 
 @register.filter

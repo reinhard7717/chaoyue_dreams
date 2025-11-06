@@ -31,26 +31,19 @@ class ProphetSignalStrategy:
         p_prophet = get_params_block(self, 'prophet_oracle', {})
         p_judge_prophet = p_prophet.get('judgment_params', {})
         prophet_info = p_prophet.get('strategy_info', {})
-        
         prophet_name = get_param_value(prophet_info.get('name'), 'ProphetSignal')
         prophet_entry_threshold = get_param_value(p_judge_prophet.get('prophet_entry_threshold'), 0.6)
         prophet_score_multiplier = get_param_value(p_judge_prophet.get('prophet_score_multiplier'), 1000)
-
         # 直接从传入的 atomic_states 中消费情报
         predictive_opp_score = atomic_states.get('PREDICTIVE_OPP_CAPITULATION_REVERSAL', pd.Series(0.0, index=df_daily.index))
-        
         is_prophet_entry = (predictive_opp_score > prophet_entry_threshold)
         prophet_days_df = df_daily[is_prophet_entry].copy()
-
         if prophet_days_df.empty:
             return ([], [], [], [], []) # 返回空的五元组
-
         signals_to_create, daily_scores_to_create = [], []
-
         for trade_time, row in prophet_days_df.iterrows():
             raw_score = predictive_opp_score.get(trade_time, 0.0)
             final_score = raw_score * prophet_score_multiplier
-
             # 创建 TradingSignal 记录
             signal_obj = TradingSignal(
                 stock_id=stock_code,
@@ -64,7 +57,6 @@ class ProphetSignalStrategy:
                 close_price=row.get('close_D', 0.0)
             )
             signals_to_create.append(signal_obj)
-
             # 创建 StrategyDailyScore 记录
             daily_score_obj = StrategyDailyScore(
                 stock_id=stock_code,
@@ -78,6 +70,5 @@ class ProphetSignalStrategy:
                 score_details_json={'offense': [{'name': '【先知】恐慌投降反转', 'score': int(final_score)}], 'risk': []}
             )
             daily_scores_to_create.append(daily_score_obj)
-
         # 返回包含两条记录列表的五元组
         return (signals_to_create, [], daily_scores_to_create, [], [])

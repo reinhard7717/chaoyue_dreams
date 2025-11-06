@@ -93,20 +93,16 @@
         let list_editable_changed = false;
         let lastChecked = null;
         let shiftPressed = false;
-
         document.addEventListener('keydown', (event) => {
             shiftPressed = event.shiftKey;
         });
-
         document.addEventListener('keyup', (event) => {
             shiftPressed = event.shiftKey;
         });
-
         document.getElementById(options.allToggleId).addEventListener('click', function(event) {
             checker(actionCheckboxes, options, this.checked);
             updateCounter(actionCheckboxes, options);
         });
-
         document.querySelectorAll(options.acrossQuestions + " a").forEach(function(el) {
             el.addEventListener('click', function(event) {
                 event.preventDefault();
@@ -117,7 +113,6 @@
                 showClear(options);
             });
         });
-
         document.querySelectorAll(options.acrossClears + " a").forEach(function(el) {
             el.addEventListener('click', function(event) {
                 event.preventDefault();
@@ -127,7 +122,6 @@
                 updateCounter(actionCheckboxes, options);
             });
         });
-
         function affectedCheckboxes(target, withModifier) {
             const multiSelect = (lastChecked && withModifier && lastChecked !== target);
             if (!multiSelect) {
@@ -141,7 +135,6 @@
             const filtered = checkboxes.filter((el, index) => (startIndex <= index) && (index <= endIndex));
             return filtered;
         };
-
         Array.from(document.getElementById('result_list').tBodies).forEach(function(el) {
             el.addEventListener('change', function(event) {
                 const target = event.target;
@@ -155,7 +148,6 @@
                 }
             });
         });
-
         document.querySelector('#changelist-form button[name=index]').addEventListener('click', function(event) {
             if (list_editable_changed) {
                 const confirmed = confirm(gettext("You have unsaved changes on individual editable fields. If you run an action, your unsaved changes will be lost."));
@@ -164,7 +156,6 @@
                 }
             }
         });
-
         const el = document.querySelector('#changelist-form input[name=_save]');
         // The button does not exist if no fields are editable.
         if (el) {

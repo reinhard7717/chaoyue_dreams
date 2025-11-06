@@ -84,7 +84,6 @@ var _default = function _default(XRegExp) {
 
       if (start > lastEnd + 1) {
         output += "\\u".concat(pad4(hex(lastEnd + 1)));
-
         if (start > lastEnd + 2) {
           output += "-\\u".concat(pad4(hex(start - 1)));
         }
@@ -194,7 +193,6 @@ var _default = function _default(XRegExp) {
 
       if (!unicode.hasOwnProperty(slug)) {
         var _context3;
-
         throw new ReferenceError((0, _concat["default"])(_context3 = "".concat(ERR_UNKNOWN_REF + fullToken, " -> ")).call(_context3, item.inverseOf));
       }
 
@@ -267,26 +265,20 @@ var _default = function _default(XRegExp) {
     try {
       for (_iterator.s(); !(_step = _iterator.n()).done;) {
         var item = _step.value;
-
         if (!item.name) {
           throw new Error(ERR_NO_NAME);
         }
-
         if (!(item.inverseOf || item.bmp || item.astral)) {
           throw new Error(ERR_NO_DATA + item.name);
         }
-
         var normalizedName = normalize(item.name);
         unicode[normalizedName] = item;
-
         if (typePrefix) {
           unicodeTypes[typePrefix][normalizedName] = true;
         }
-
         if (item.alias) {
           var normalizedAlias = normalize(item.alias);
           unicode[normalizedAlias] = item;
-
           if (typePrefix) {
             unicodeTypes[typePrefix][normalizedAlias] = true;
           }
@@ -1063,7 +1055,6 @@ function XRegExp(pattern, flags) {
         // Check for custom tokens at the current position
         result = runTokens(appliedPattern, appliedFlags, pos, scope, context); // If the matched token used the `reparse` option, splice its output into the
         // pattern before running tokens again at the same position
-
         if (result && result.reparse) {
           appliedPattern = (0, _slice["default"])(appliedPattern).call(appliedPattern, 0, pos) + result.output + (0, _slice["default"])(appliedPattern).call(appliedPattern, pos + result.matchLength);
         }
@@ -1077,10 +1068,8 @@ function XRegExp(pattern, flags) {
         var _XRegExp$exec = XRegExp.exec(appliedPattern, nativeTokens[scope], pos, 'sticky'),
             _XRegExp$exec2 = (0, _slicedToArray2["default"])(_XRegExp$exec, 1),
             token = _XRegExp$exec2[0];
-
         output += token;
         pos += token.length;
-
         if (token === '[' && scope === defaultScope) {
           scope = classScope;
         } else if (token === ']' && scope === classScope) {
@@ -1587,7 +1576,6 @@ XRegExp.matchChain = function (str, chain) {
       if (item.backref) {
         var ERR_UNDEFINED_GROUP = "Backreference to undefined group: ".concat(item.backref);
         var isNamedBackref = isNaN(item.backref);
-
         if (isNamedBackref && XRegExp.isInstalled('namespacing')) {
           // `groups` has `null` as prototype, so using `in` instead of `hasOwnProperty`
           if (!(match.groups && item.backref in match.groups)) {
@@ -1596,7 +1584,6 @@ XRegExp.matchChain = function (str, chain) {
         } else if (!match.hasOwnProperty(item.backref)) {
           throw new ReferenceError(ERR_UNDEFINED_GROUP);
         }
-
         var backrefValue = isNamedBackref && XRegExp.isInstalled('namespacing') ? match.groups[item.backref] : match[item.backref];
         matches.push(backrefValue || '');
       } else {
@@ -1905,7 +1892,6 @@ XRegExp.union = function (patterns, flags, options) {
         numPriorCaptures = numCaptures;
         captureNames = pattern[REGEX_DATA] && pattern[REGEX_DATA].captureNames || []; // Rewrite backreferences. Passing to XRegExp dies on octals and ensures patterns are
         // independently valid; helps keep this simple. Named captures are put back
-
         output.push(XRegExp(pattern.source).source.replace(parts, rewrite));
       } else {
         output.push(XRegExp.escape(pattern));
@@ -1952,7 +1938,6 @@ fixed.exec = function (str) {
 
       (0, _slice["default"])(_context3 = String(str)).call(_context3, match.index).replace(r2, function () {
         var len = arguments.length; // Skip index 0 and the last 2
-
         for (var i = 1; i < len - 2; ++i) {
           if ((i < 0 || arguments.length <= i ? undefined : arguments[i]) === undefined) {
             match[i] = undefined;
@@ -1974,7 +1959,6 @@ fixed.exec = function (str) {
 
       for (var i = 1; i < match.length; ++i) {
         var name = this[REGEX_DATA].captureNames[i - 1];
-
         if (name) {
           groupsObject[name] = match[i];
         }
@@ -2077,7 +2061,6 @@ fixed.replace = function (search, replacement) {
 
       if (captureNames) {
         var groupsObject;
-
         if (XRegExp.isInstalled('namespacing')) {
           // https://tc39.github.io/proposal-regexp-named-groups/#sec-regexpbuiltinexec
           groupsObject = (0, _create["default"])(null);
@@ -2088,7 +2071,6 @@ fixed.replace = function (search, replacement) {
           args[0] = new String(args[0]);
           groupsObject = args[0];
         } // Store named backreferences
-
 
         for (var i = 0; i < captureNames.length; ++i) {
           if (captureNames[i]) {
@@ -2113,17 +2095,14 @@ fixed.replace = function (search, replacement) {
       function replacer($0, bracketed, angled, dollarToken) {
         bracketed = bracketed || angled; // ES2018 added a new trailing `groups` arg that's passed to replacement functions
         // when the search regex uses native named capture
-
         var numNonCaptureArgs = isType(args[args.length - 1], 'Object') ? 4 : 3;
         var numCaptures = args.length - numNonCaptureArgs; // Handle named or numbered backreference with curly or angled braces: ${n}, $<n>
-
         if (bracketed) {
           // Handle backreference to numbered capture, if `bracketed` is an integer. Use
           // `0` for the entire match. Any number of leading zeros may be used.
           if (/^\d+$/.test(bracketed)) {
             // Type-convert and drop leading zeros
             var _n = +bracketed;
-
             if (_n <= numCaptures) {
               return args[_n] || '';
             }
@@ -2133,48 +2112,37 @@ fixed.replace = function (search, replacement) {
           // Using `indexOf` since having groups with the same name is already an error,
           // otherwise would need `lastIndexOf`.
 
-
           var n = captureNames ? (0, _indexOf["default"])(captureNames).call(captureNames, bracketed) : -1;
-
           if (n < 0) {
             throw new SyntaxError("Backreference to undefined group ".concat($0));
           }
-
           return args[n + 1] || '';
         } // Handle `$`-prefixed variable
         // Handle space/blank first because type conversion with `+` drops space padding
         // and converts spaces and empty strings to `0`
 
-
         if (dollarToken === '' || dollarToken === ' ') {
           throw new SyntaxError("Invalid token ".concat($0));
         }
-
         if (dollarToken === '&' || +dollarToken === 0) {
           // $&, $0 (not followed by 1-9), $00
           return args[0];
         }
-
         if (dollarToken === '$') {
           // $$
           return '$';
         }
-
         if (dollarToken === '`') {
           var _context4;
-
           // $` (left context)
           return (0, _slice["default"])(_context4 = args[args.length - 1]).call(_context4, 0, args[args.length - 2]);
         }
-
         if (dollarToken === "'") {
           var _context5;
-
           // $' (right context)
           return (0, _slice["default"])(_context5 = args[args.length - 1]).call(_context5, args[args.length - 2] + args[0].length);
         } // Handle numbered backreference without braces
         // Type-convert and drop leading zero
-
 
         dollarToken = +dollarToken; // XRegExp behavior for `$n` and `$nn`:
         // - Backrefs end after 1 or 2 digits. Use `${..}` or `$<..>` for more digits.
@@ -2189,15 +2157,12 @@ fixed.replace = function (search, replacement) {
         // - `$10` is `$1` followed by a literal `0` if less than 10 capturing groups.
         // - `$01` is `$1` if at least one capturing group, else it's a literal `$01`.
         // - `$0` is a literal `$0`.
-
         if (!isNaN(dollarToken)) {
           if (dollarToken > numCaptures) {
             throw new SyntaxError("Backreference to undefined group ".concat($0));
           }
-
           return args[dollarToken] || '';
         } // `$` followed by an unsupported char is an error, unlike native JS
-
 
         throw new SyntaxError("Invalid token ".concat($0));
       }

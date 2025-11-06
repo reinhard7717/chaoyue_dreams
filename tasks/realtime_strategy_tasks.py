@@ -71,7 +71,6 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
     此任务应由 Celery Beat 定时触发，例如每分钟或每5分钟。
     """
     logger.info("====== [盘中策略总调度任务] 启动 ======")
-    
     current_dt = timezone.now() # 获取当前带时区的时间
     current_date = current_dt.date()
     current_time = current_dt.time()
@@ -96,7 +95,6 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
     stock_basic_dao = StockBasicInfoDao(cache_manager)
     favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
     all_codes = favorite_codes + non_favorite_codes
-    
     if not all_codes:
         logger.warning("[盘中策略] 未找到任何股票数据，任务终止。")
         return {"status": "failed", "reason": "No stocks found."}
@@ -111,10 +109,8 @@ def run_intraday_strategy_for_all_stocks(self, *, cache_manager: CacheManager):
             trade_date_str=current_date.strftime('%Y-%m-%d') # 传递当前交易日字符串
         ).set(queue='realtime_strategy') for code in all_codes
     ]
-    
     workflow = group(analysis_tasks) # 使用 Celery group 实现并行
     workflow.apply_async() # 异步执行任务组
-    
     logger.info(f"[盘中策略] 已成功为 {total_stocks} 只股票启动盘中分析任务。")
     return {"status": "workflow_started", "stock_count": total_stocks, "trade_date": current_date.strftime('%Y-%m-%d')}
 
@@ -133,37 +129,29 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
     async def main():
         logger.debug(f"  -> [盘中策略] 开始分析 {stock_code} for {trade_date_str}")
         trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-        
         # 1. 获取前一日收盘价等数据 (用于 RealtimeStrategy 计算枢轴点)
         prev_day_data = await _get_prev_day_data(stock_code, trade_date)
-        
         # 2. 获取当日所有1分钟K线数据
         time_trade_dao = StockTimeTradeDAO(cache_manager)
         # 获取从开盘到当前时间的所有1分钟K线数据
         all_1min_klines_df = await time_trade_dao.get_1_min_kline_time_by_day(stock_code, trade_date)
-
         # 检查数据量是否足够进行5分钟K线聚合和指标计算
         min_required_1min_data = REALTIME_STRATEGY_CONFIG.get('min_data_points_5min', 21) * 5 # 至少需要21根5分钟K线，即105根1分钟K线
         if all_1min_klines_df.empty or len(all_1min_klines_df) < min_required_1min_data:
             logger.debug(f"    - [盘中策略] {stock_code} 1分钟K线数据不足 ({len(all_1min_klines_df)}条，至少需要{min_required_1min_data}条)，跳过分析。")
             return {"status": "skipped", "stock_code": stock_code, "reason": "Insufficient 1min data."}
-
         # 3. 实例化 RealtimeStrategy
         # RealtimeStrategy 内部的 IntradayDataAggregator 会在初始化时创建空的data_buffer。
         # 每次任务运行时，我们都将当日所有1分钟K线数据喂给它，确保其内部状态完整。
         realtime_strategy = RealtimeStrategy(params={}, config=UNIFIED_CONFIG, prev_day_data=prev_day_data)
-        
         # 4. 喂入所有1分钟K线数据
         # RealtimeStrategy.update_data 接收 pd.Series，所以需要逐行迭代
         for _, kline_series in all_1min_klines_df.iterrows():
             realtime_strategy.update_data(kline_series)
-        
         # 5. 获取当日日线策略分数 (作为盘中策略的参考)
         daily_signal_info = await _get_daily_strategy_score(stock_code, trade_date)
-
         # 6. 运行盘中策略
         signal_result = realtime_strategy.run_strategy(stock_code, daily_signal_info)
-
         # 7. 保存信号 (如果存在)
         if signal_result:
             strategies_dao = StrategiesDAO(cache_manager)
@@ -171,7 +159,6 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
             # 确保 signal_result['entry_time'] 是 aware datetime
             if signal_result['entry_time'].tzinfo is None:
                 signal_result['entry_time'] = timezone.make_aware(signal_result['entry_time'])
-
             # 创建 TradingSignal 实例
             trading_signal = TradingSignal(
                 stock_id=signal_result['stock_code'],
@@ -217,14 +204,12 @@ def _get_prev_day_data(stock_code: str, current_date: date) -> Dict:
     if not prev_trade_date:
         logger.warning(f"无法获取 {stock_code} 前一个交易日数据，跳过。")
         return {}
-    
     try:
         # 使用 StockDailyBasic 模型获取前一日的OHLC数据
         prev_day_kline = StockDailyBasic.objects.filter(
             stock__stock_code=stock_code,
             trade_date=prev_trade_date
         ).values('open', 'high', 'low', 'close').first()
-        
         if prev_day_kline:
             return {
                 'open': prev_day_kline['open'],
@@ -251,7 +236,6 @@ def _get_daily_strategy_score(stock_code: str, trade_date: date) -> Dict:
             stock__stock_code=stock_code,
             trade_date=trade_date
         ).values('entry_score', 'risk_score').first()
-        
         if daily_score:
             return {
                 'entry_score': daily_score.get('entry_score', 0),

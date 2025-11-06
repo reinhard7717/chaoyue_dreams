@@ -152,23 +152,18 @@ class FeatureEngineeringService:
         timeframe = 'D'
         if timeframe not in all_dfs:
             return all_dfs
-        
         df = all_dfs[timeframe]
         suffix = f"_{timeframe}"
-        
         params = config.get('feature_engineering_params', {}).get('meta_feature_params', {})
         if not params.get('enabled', False):
             return all_dfs
-
         close_col = f'close{suffix}'
         if close_col not in df.columns:
             logger.warning(f"元特征计算缺少核心列 '{close_col}'，模块已跳过。")
             return all_dfs
-        
         source_series = df[close_col]
         if isinstance(source_series, pd.DataFrame):
             source_series = source_series.iloc[:, 0]
-
         # --- 1. Hurst 指数 (市场记忆性) ---
         hurst_window = params.get('hurst_window', 120)
         hurst_col = f'hurst_{hurst_window}d{suffix}'
@@ -178,7 +173,6 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"赫斯特指数(周期{hurst_window})计算失败: {e}")
                 df[hurst_col] = np.nan
-
         # --- 2. 分形维度 (市场复杂度) ---
         def _higuchi_fractal_dimension(x, k_max):
             L = []
@@ -199,7 +193,6 @@ class FeatureEngineeringService:
             if len(valid_indices) < 2: return np.nan
             slope, _ = np.polyfit(k_range_log[valid_indices], np.array(L)[valid_indices], 1)
             return slope
-
         fd_window = params.get('fractal_dimension_window', 100)
         fd_col = f'FRACTAL_DIMENSION_{fd_window}d{suffix}'
         if fd_col not in df.columns and len(source_series.dropna()) >= fd_window:
@@ -209,7 +202,6 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"分形维度(周期{fd_window})计算失败: {e}")
                 df[fd_col] = np.nan
-
         # --- 3. 样本熵 (市场可预测性) ---
         def _sample_entropy(x, m, r):
             n = len(x)
@@ -224,7 +216,6 @@ class FeatureEngineeringService:
             B = np.sum(dist_plus_1 < r) - (n - m)
             if A == 0 or B == 0: return np.nan
             return -np.log(B / A)
-
         se_window = params.get('sample_entropy_window', 10)
         se_tol_ratio = params.get('sample_entropy_tolerance_ratio', 0.2)
         se_col = f'SAMPLE_ENTROPY_{se_window}d{suffix}'
@@ -246,14 +237,12 @@ class FeatureEngineeringService:
             except Exception as e:
                 logger.error(f"样本熵(周期{se_window})计算失败: {e}")
                 df[se_col] = np.nan
-
         # --- 4. 波动率不稳定性 (状态切换前兆) ---
         vi_window = params.get('volatility_instability_window', 21)
         vi_col = f'VOLATILITY_INSTABILITY_INDEX_{vi_window}d{suffix}'
         atr_col = f'ATR_14{suffix}' # 依赖于ATR
         if atr_col in df.columns and vi_col not in df.columns:
             df[vi_col] = df[atr_col].rolling(window=vi_window).std()
-
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -269,7 +258,6 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs:
             return all_dfs
         df = all_dfs[timeframe]
-        
         # 1. 【军火库点验】: 确认新一代核心武器（列名）已部署
         #    我们直接使用新数据模型中的精确列名，并集成均线势能指标。
         required_cols = [
@@ -289,7 +277,6 @@ class FeatureEngineeringService:
             # VPA效率指标
             'VPA_EFFICIENCY_D'
         ]
-        
         # 严格检查数据完整性
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
@@ -297,9 +284,7 @@ class FeatureEngineeringService:
             print("当前可用的列名包括:")
             print(df.columns.tolist())
             return all_dfs
-
         # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
-
         # 【状态一：高势能盘整 (High-Potential Consolidation)】
         # 定义：均线系统被高度压缩（弹簧压紧），但方向尚不明朗。这是变盘的温床。
         # 证据a: 高张力。均线张力指数处于历史低位（值越小，张力越高）。
@@ -313,7 +298,6 @@ class FeatureEngineeringService:
         # 证据e: 趋势强度弱。ADX 指标低于25。
         cond_weak_trend = df['ADX_14_D'] < 25
         df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] = cond_high_tension & cond_low_orderliness & cond_struct_healthy & cond_low_volatility & cond_weak_trend
-
         # 【状态二：吸筹进行时 (Accumulation in Progress)】
         # 定义：在高势能盘整中，出现主力资金吸筹迹象，且能量正在进一步积蓄。
         # 证据a: 能量正在压缩。均线压缩速率为负，表明弹簧正在被进一步压紧。
@@ -325,7 +309,6 @@ class FeatureEngineeringService:
         # 证据d: VPA效率良好。在价格波动不大的情况下，VPA效率仍能保持中等水平，说明买盘效率高。
         cond_vpa_efficient_accum = df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.5)
         df['IS_ACCUMULATION_D'] = df['IS_HIGH_POTENTIAL_CONSOLIDATION_D'] & cond_compressing & (cond_main_force_accum | cond_peak_flow_positive) & cond_vpa_efficient_accum
-
         # 【状态三：高质效突破 (High-Quality Breakout)】
         # 定义：前期积蓄了巨大势能，现由主力资金点燃，向上释放能量。
         # 证据a: 突破前期高势能盘整。前一日处于“高势能盘整期”。
@@ -341,7 +324,6 @@ class FeatureEngineeringService:
                                     (df['volume_D'] > df['VOL_MA_21_D'] * 1.2) & \
                                     (df['VPA_EFFICIENCY_D'] > df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.9)) # VPA效率极高
         df['IS_BREAKOUT_D'] = cond_was_consolidating & cond_orderliness_turn_up & cond_main_force_ignition & cond_price_volume_confirm
-
         # 【状态四：派发嫌疑 (Distribution Suspected)】
         # 定义：上涨乏力，或在盘整中，出现主力资金悄然出货的迹象。
         # 证据a: 拉高出货。价格上涨，但“拉高出货强度”指标显著为正。
@@ -356,13 +338,11 @@ class FeatureEngineeringService:
         # 证据e: VPA效率低下。价格上涨但VPA效率低，说明拉升吃力，抛压大。
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
-
         # --- 3. 【信号整合与输出】 ---
         pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
-        
         all_dfs[timeframe] = df
         logger.info("高级模式识别引擎(V3.2 势能分析集成与逻辑强化版)分析完成。")
         return all_dfs
@@ -374,7 +354,6 @@ class FeatureEngineeringService:
         """
         if not params.get('enabled', False):
             return all_dfs
-        
         for conv_config in params.get('configs', []):
             periods = conv_config.get('periods', [])
             if not periods:
@@ -399,7 +378,6 @@ class FeatureEngineeringService:
                 if missing_cols:
                     logger.warning(f"均线系统势能分析失败({output_prefix}_{timeframe})：缺少核心数据列 {missing_cols}")
                     continue
-
                 try:
                     ma_df = df[ma_cols]
                     
@@ -409,16 +387,13 @@ class FeatureEngineeringService:
                     tension_index = ma_range / atr
                     tension_col_name = f"{output_prefix}_TENSION_INDEX_{timeframe}"
                     df[tension_col_name] = tension_index.fillna(0)
-
                     # 3. 【计算势能方向】: 均线有序性评分 (MA_ORDERLINESS_SCORE)
                     periods_series = pd.Series(periods)
                     # 创建一个DataFrame，其中每一行都是均线周期列表，用于与ma_df进行逐行排名比较
                     periods_repeated_df = pd.DataFrame([periods_series.values] * len(df), index=df.index, columns=ma_df.columns)
-
                     # 计算两组数据的等级。使用 'average' 方法处理并列排名。
                     rank_x = periods_repeated_df.rank(axis=1, method='average')
                     rank_y = ma_df.rank(axis=1, method='average')
-
                     # 计算Spearman相关性
                     # Spearman rho = 1 - 6 * sum(d^2) / (n * (n^2 - 1))
                     d_sq = (rank_x - rank_y).pow(2).sum(axis=1)
@@ -428,10 +403,8 @@ class FeatureEngineeringService:
                         spearman_corr = pd.Series(np.nan, index=df.index)
                     else:
                         spearman_corr = 1 - (6 * d_sq) / (n * (n**2 - 1))
-
                     orderliness_col_name = f"{output_prefix}_ORDERLINESS_SCORE_{timeframe}"
                     df[orderliness_col_name] = spearman_corr.fillna(0)
-
                     # 4. 【计算势能变化率】: 均线压缩速率 (MA_COMPRESSION_RATE)
                     # 使用5日线性回归斜率来衡量压缩速率，负值表示正在压缩
                     compression_rate = df.ta.linreg(close=df[tension_col_name], length=5, slope=True)
@@ -440,10 +413,8 @@ class FeatureEngineeringService:
                     if isinstance(compression_rate, pd.DataFrame):
                         compression_rate = compression_rate.iloc[:, 0]
                     df[compression_col_name] = compression_rate.fillna(0)
-
                 except Exception as e:
                     logger.error(f"计算均线系统势能时发生错误({output_prefix}_{timeframe}): {e}", exc_info=True)
-
         return all_dfs
 
     async def calculate_consolidation_period(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
@@ -459,16 +430,13 @@ class FeatureEngineeringService:
             return all_dfs
             
         df = all_dfs[timeframe]
-        
         boll_period = params.get('boll_period', 21)
         boll_std = params.get('boll_std', 2.0)
         roc_period = params.get('roc_period', 12)
         vol_ma_period = params.get('vol_ma_period', 55)
-        
         bbw_col = f"BBW_{boll_period}_{float(boll_std)}_{timeframe}"
         roc_col = f"ROC_{roc_period}_{timeframe}"
         vol_ma_col = f"VOL_MA_{vol_ma_period}_{timeframe}"
-        
         required_cols = [bbw_col, roc_col, vol_ma_col, f'high_{timeframe}', f'low_{timeframe}', f'volume_{timeframe}']
         if not all(col in df.columns for col in required_cols):
             missing = [col for col in required_cols if col not in df.columns]
@@ -478,16 +446,13 @@ class FeatureEngineeringService:
         bbw_quantile = params.get('bbw_quantile', 0.25)
         roc_threshold = params.get('roc_threshold', 5.0)
         min_expanding_periods = boll_period * 2
-        
         dynamic_bbw_threshold = df[bbw_col].expanding(min_periods=min_expanding_periods).quantile(bbw_quantile).bfill()
         df[f'dynamic_bbw_threshold_{timeframe}'] = dynamic_bbw_threshold
-        
         cond_volatility = df[bbw_col] < df[f'dynamic_bbw_threshold_{timeframe}']
         cond_trend = df[roc_col].abs() < roc_threshold
         cond_volume = df[f'volume_{timeframe}'] < df[vol_ma_col]
         is_consolidating = cond_volatility & cond_trend & cond_volume
         df[f'is_consolidating_{timeframe}'] = is_consolidating
-        
         if is_consolidating.any():
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
             consolidating_df = df[is_consolidating].copy()
@@ -500,12 +465,10 @@ class FeatureEngineeringService:
             
             fill_cols = [f'dynamic_consolidation_high_{timeframe}', f'dynamic_consolidation_low_{timeframe}', f'dynamic_consolidation_avg_vol_{timeframe}', f'dynamic_consolidation_duration_{timeframe}']
             df[fill_cols] = df[fill_cols].ffill()
-
         df[f'dynamic_consolidation_high_{timeframe}'] = df.get(f'dynamic_consolidation_high_{timeframe}', pd.Series(index=df.index)).fillna(df[f'high_{timeframe}'])
         df[f'dynamic_consolidation_low_{timeframe}'] = df.get(f'dynamic_consolidation_low_{timeframe}', pd.Series(index=df.index)).fillna(df[f'low_{timeframe}'])
         df[f'dynamic_consolidation_avg_vol_{timeframe}'] = df.get(f'dynamic_consolidation_avg_vol_{timeframe}', pd.Series(index=df.index)).fillna(0)
         df[f'dynamic_consolidation_duration_{timeframe}'] = df.get(f'dynamic_consolidation_duration_{timeframe}', pd.Series(index=df.index)).fillna(0)
-        
         all_dfs[timeframe] = df
         return all_dfs
 
@@ -557,7 +520,6 @@ class FeatureEngineeringService:
         # [代码新增开始]
         if not params.get('enabled', False):
             return all_dfs
-        
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
@@ -581,7 +543,6 @@ class FeatureEngineeringService:
             if missing_cols:
                 logger.warning(f"均线系统势能分析失败({timeframe})：缺少核心数据列 {missing_cols}")
                 continue
-
             try:
                 # 2. 【计算势能大小】: 均线张力指数 (MA_POTENTIAL_TENSION_INDEX)
                 # 逻辑: (短期均线 - 长期均线) / ATR，衡量偏离程度相对于真实波动的比率，更具可比性
@@ -591,7 +552,6 @@ class FeatureEngineeringService:
                 # 对原始张力进行双极性归一化，得到[-1, 1]的分数
                 tension_index_series = raw_tension_index.rolling(window=norm_window).apply(lambda x: (x[-1] - x.mean()) / (x.std() + 1e-9) if len(x) > 1 else 0, raw=False).fillna(0).clip(-3, 3) / 3
                 df[f'MA_POTENTIAL_TENSION_INDEX_{timeframe}'] = tension_index_series.astype(np.float32)
-
                 # 3. 【计算势能方向】: 均线有序性评分 (MA_POTENTIAL_ORDERLINESS_SCORE)
                 # 逻辑: 使用Spearman秩相关系数衡量均线周期顺序与均线值大小顺序的一致性
                 ma_df = df[ma_cols]
@@ -607,7 +567,6 @@ class FeatureEngineeringService:
                 
                 orderliness_score = ma_df.apply(spearman_corr, axis=1)
                 df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_score.fillna(0).astype(np.float32)
-
                 # 4. 【计算势能变化率】: 均线压缩率 (MA_POTENTIAL_COMPRESSION_RATE)
                 # 逻辑: 计算均线簇的标准差，并用ATR进行归一化，然后取其倒数作为压缩率
                 ma_std = ma_df.std(axis=1)
@@ -615,10 +574,8 @@ class FeatureEngineeringService:
                 # 归一化后取反，标准差越小（越压缩），得分越高
                 compression_rate = 1 - (normalized_std.rolling(window=norm_window).rank(pct=True)).fillna(0.5)
                 df[f'MA_POTENTIAL_COMPRESSION_RATE_{timeframe}'] = compression_rate.astype(np.float32)
-
             except Exception as e:
                 logger.error(f"计算均线系统势能时发生错误({timeframe}): {e}", exc_info=True)
-        
         return all_dfs
         # [代码新增结束]
 
@@ -629,24 +586,19 @@ class FeatureEngineeringService:
         """
         if not params.get('enabled', False):
             return all_dfs
-        
         timeframe = 'D'
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
-        
         df_daily = all_dfs[timeframe]
-        
         # 定义一个无后缀的“原材料清单”
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
             'open', 'high', 'low', 'close',
             'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
         ]
-        
         # 构建一个全新的、列名完全标准化的 DataFrame
         df_standardized = pd.DataFrame(index=df_daily.index)
         missing_materials = []
-        
         for material in required_materials:
             source_col_with_suffix = f"{material}_{timeframe}"
             if source_col_with_suffix in df_daily.columns:
@@ -655,7 +607,6 @@ class FeatureEngineeringService:
                 df_standardized[material] = df_daily[material]
             else:
                 missing_materials.append(material)
-        
         # 如果缺少任何原材料，则停产并记录警告
         if missing_materials:
             logger.warning(f"突破质量分计算中止，缺少标准化原材料: {missing_materials}")
@@ -663,7 +614,6 @@ class FeatureEngineeringService:
             
         # 将100%符合规格的DataFrame送入计算器
         result_df = await calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
-        
         if result_df is not None and not result_df.empty:
             # 将生产出的成品合并回主数据流
             df_daily = df_daily.join(result_df, how='left')

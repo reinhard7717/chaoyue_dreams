@@ -52,14 +52,11 @@ def home(request):
     """
     if not request.user.is_authenticated:
         return redirect('login')
-    
     # 获取用户的自选股
     favorite_stocks = FavoriteStock.objects.filter(user=request.user)
-    
     context = {
         'favorite_stocks': favorite_stocks,
     }
-    
     return render(request, 'users/home.html', context)
 
 class CustomLoginView(LoginView):
@@ -69,7 +66,6 @@ class CustomLoginView(LoginView):
     template_name = 'users/login.html'
     authentication_form = UserLoginForm
     redirect_authenticated_user = True
-    
     def form_valid(self, form):
         """
         表单验证成功的处理
@@ -78,7 +74,6 @@ class CustomLoginView(LoginView):
         if not remember_me:
             # 如果用户未勾选"记住我"，设置session过期时间为关闭浏览器
             self.request.session.set_expiry(0)
-        
         # 记录用户登录IP
         user = form.get_user()
         if hasattr(user, 'profile'):
@@ -90,7 +85,6 @@ class CustomLoginView(LoginView):
                 user=user, 
                 last_login_ip=self.request.META.get('REMOTE_ADDR')
             )
-        
         return super().form_valid(form)
 
 @login_required
@@ -103,7 +97,6 @@ def profile_view(request):
         profile = UserProfile.objects.create(user=request.user)
     else:
         profile = request.user.profile
-    
     if request.method == 'POST':
         form = UserProfileForm(request.POST, request.FILES, instance=profile)
         if form.is_valid():
@@ -112,7 +105,6 @@ def profile_view(request):
             return redirect('profile')
     else:
         form = UserProfileForm(instance=profile)
-    
     return render(request, 'users/profile.html', {'form': form})
 
 @login_required
@@ -127,7 +119,6 @@ def favorite_stock_list(request):
         if stock.tags:
             for tag in stock.tags.split():
                 tags.add(tag)
-    
     return render(request, 'users/favorite_stock_list.html', {
         'favorite_stocks': favorite_stocks,
         'tags': tags
@@ -148,10 +139,8 @@ def add_favorite_stock(request):
             return redirect('favorite_stock_list')
     else:
         form = FavoriteStockForm()
-    
     # 获取所有股票列表
     stocks = StockInfo.objects.all().order_by('stock_code')
-    
     return render(request, 'users/favorite_stock_form.html', {
         'form': form, 
         'title': '添加自选股',
@@ -164,7 +153,6 @@ def edit_favorite_stock(request, pk):
     编辑自选股页面
     """
     favorite_stock = get_object_or_404(FavoriteStock, pk=pk, user=request.user)
-    
     if request.method == 'POST':
         form = FavoriteStockForm(request.POST, instance=favorite_stock)
         if form.is_valid():
@@ -173,10 +161,8 @@ def edit_favorite_stock(request, pk):
             return redirect('favorite_stock_list')
     else:
         form = FavoriteStockForm(instance=favorite_stock)
-    
     # 获取所有股票列表
     stocks = StockInfo.objects.all().order_by('stock_code')
-    
     return render(request, 'users/favorite_stock_form.html', {
         'form': form, 
         'title': '编辑自选股',

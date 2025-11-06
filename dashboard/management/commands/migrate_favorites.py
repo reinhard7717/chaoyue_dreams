@@ -56,7 +56,6 @@ class Command(BaseCommand):
                     )
                     total_created_watching += 1
                     self.stdout.write(self.style.SUCCESS(f"    -> 为 {stock.stock_code} 创建了 [观察中] 追踪器。"))
-
         self.stdout.write(self.style.SUCCESS(f'\n迁移完成！'))
         self.stdout.write(self.style.SUCCESS(f'  共创建了 {total_created_holding} 条 [持仓中] 追踪记录。'))
         self.stdout.write(self.style.SUCCESS(f'  共创建了 {total_created_watching} 条 [观察中] 追踪记录。'))

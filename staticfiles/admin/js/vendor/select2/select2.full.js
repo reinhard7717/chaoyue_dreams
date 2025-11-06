@@ -80,12 +80,10 @@ var requirejs, require, define;
             baseParts = baseName && baseName.split("/"),
             map = config.map,
             starMap = (map && map['*']) || {};
-
         //Adjust any relative paths.
         if (name) {
             name = name.split('/');
             lastIndex = name.length - 1;
-
             // If wanting node ID compatibility, strip .js from end
             // of IDs. Have to do this here, and not in nameToUrl
             // because node allows either .js or non .js to map
@@ -93,7 +91,6 @@ var requirejs, require, define;
             if (config.nodeIdCompat && jsSuffixRegExp.test(name[lastIndex])) {
                 name[lastIndex] = name[lastIndex].replace(jsSuffixRegExp, '');
             }
-
             // Starts with a '.' so need the baseName
             if (name[0].charAt(0) === '.' && baseParts) {
                 //Convert baseName to array, and lop off the last part,
@@ -104,7 +101,6 @@ var requirejs, require, define;
                 normalizedBaseParts = baseParts.slice(0, baseParts.length - 1);
                 name = normalizedBaseParts.concat(name);
             }
-
             //start trimDots
             for (i = 0; i < name.length; i++) {
                 part = name[i];
@@ -126,23 +122,18 @@ var requirejs, require, define;
                 }
             }
             //end trimDots
-
             name = name.join('/');
         }
-
         //Apply map config if available.
         if ((baseParts || starMap) && map) {
             nameParts = name.split('/');
-
             for (i = nameParts.length; i > 0; i -= 1) {
                 nameSegment = nameParts.slice(0, i).join("/");
-
                 if (baseParts) {
                     //Find the longest baseName segment match in the config.
                     //So, do joins on the biggest to smallest lengths of baseParts.
                     for (j = baseParts.length; j > 0; j -= 1) {
                         mapValue = map[baseParts.slice(0, j).join('/')];
-
                         //baseName segment has  config, find if it has one for
                         //this name.
                         if (mapValue) {
@@ -156,11 +147,9 @@ var requirejs, require, define;
                         }
                     }
                 }
-
                 if (foundMap) {
                     break;
                 }
-
                 //Check for a star map match, but just hold on to it,
                 //if there is a shorter segment match later in a matching
                 //config, then favor over this star map.
@@ -169,18 +158,15 @@ var requirejs, require, define;
                     starI = i;
                 }
             }
-
             if (!foundMap && foundStarMap) {
                 foundMap = foundStarMap;
                 foundI = starI;
             }
-
             if (foundMap) {
                 nameParts.splice(0, foundI, foundMap);
                 name = nameParts.join('/');
             }
         }
-
         return name;
     }
 
@@ -190,7 +176,6 @@ var requirejs, require, define;
             //value for items that may need to
             //look up paths relative to the moduleName
             var args = aps.call(arguments, 0);
-
             //If first arg is not require('string'), and there is only
             //one arg, it is the array form without a callback. Insert
             //a null so that the following concat is correct.
@@ -220,7 +205,6 @@ var requirejs, require, define;
             defining[name] = true;
             main.apply(undef, args);
         }
-
         if (!hasProp(defined, name) && !hasProp(defining, name)) {
             throw new Error('No ' + name);
         }
@@ -256,14 +240,11 @@ var requirejs, require, define;
             parts = splitPrefix(name),
             prefix = parts[0],
             relResourceName = relParts[1];
-
         name = parts[1];
-
         if (prefix) {
             prefix = normalize(prefix, relResourceName);
             plugin = callDep(prefix);
         }
-
         //Normalize according
         if (prefix) {
             if (plugin && plugin.normalize) {
@@ -280,7 +261,6 @@ var requirejs, require, define;
                 plugin = callDep(prefix);
             }
         }
-
         //Using ridiculous property names for space reasons
         return {
             f: prefix ? prefix + '!' + name : name, //fullName
@@ -323,11 +303,9 @@ var requirejs, require, define;
             args = [],
             callbackType = typeof callback,
             usingExports;
-
         //Use name if no relName
         relName = relName || name;
         relParts = makeRelParts(relName);
-
         //Call the callback to define the module, if necessary.
         if (callbackType === 'undefined' || callbackType === 'function') {
             //Pull out the defined dependencies and pass the ordered
@@ -337,7 +315,6 @@ var requirejs, require, define;
             for (i = 0; i < deps.length; i += 1) {
                 map = makeMap(deps[i], relParts);
                 depName = map.f;
-
                 //Fast path CommonJS standard dependencies.
                 if (depName === "require") {
                     args[i] = handlers.require(name);
@@ -359,9 +336,7 @@ var requirejs, require, define;
                     throw new Error(name + ' missing ' + depName);
                 }
             }
-
             ret = callback ? callback.apply(defined[name], args) : undefined;
-
             if (name) {
                 //If setting exports via "module" is in play,
                 //favor that over return value and exports. After that,
@@ -401,7 +376,6 @@ var requirejs, require, define;
             if (!callback) {
                 return;
             }
-
             if (callback.splice) {
                 //callback is an array, which means it is a dependency list.
                 //Adjust args if there are dependencies
@@ -412,17 +386,14 @@ var requirejs, require, define;
                 deps = undef;
             }
         }
-
         //Support require(['a'])
         callback = callback || function () {};
-
         //If relName is a function, it is an errback handler,
         //so remove it.
         if (typeof relName === 'function') {
             relName = forceSync;
             forceSync = alt;
         }
-
         //Simulate async callback;
         if (forceSync) {
             main(undef, deps, callback, relName);
@@ -437,7 +408,6 @@ var requirejs, require, define;
                 main(undef, deps, callback, relName);
             }, 4);
         }
-
         return req;
     };
 
@@ -458,7 +428,6 @@ var requirejs, require, define;
         if (typeof name !== 'string') {
             throw new Error('See almond README: incorrect module build, no module name');
         }
-
         //This module may not have dependencies
         if (!deps.splice) {
             //deps is not an array, so probably means
@@ -467,7 +436,6 @@ var requirejs, require, define;
             callback = deps;
             deps = [];
         }
-
         if (!hasProp(defined, name) && !hasProp(waiting, name)) {
             waiting[name] = [name, deps, callback];
         }
@@ -558,7 +526,6 @@ S2.define('select2/utils',[
 
       if (argCount > 0) {
         unshift.call(arguments, SuperClass.prototype.constructor);
-
         calledConstructor = DecoratorClass.prototype.constructor;
       }
 
@@ -592,9 +559,7 @@ S2.define('select2/utils',[
 
       return function () {
         var unshift = Array.prototype.unshift;
-
         unshift.call(arguments, originalMethod);
-
         return decoratedMethod.apply(this, arguments);
       };
     };
@@ -687,19 +652,15 @@ S2.define('select2/utils',[
 
       for (var k = 0; k < keys.length; k++) {
         var key = keys[k];
-
         // Lowercase the first letter
         // By default, dash-separated becomes camelCase
         key = key.substring(0, 1).toLowerCase() + key.substring(1);
-
         if (!(key in dataLevel)) {
           dataLevel[key] = {};
         }
-
         if (k == keys.length - 1) {
           dataLevel[key] = data[originalKey];
         }
-
         dataLevel = dataLevel[key];
       }
 
@@ -970,12 +931,9 @@ S2.define('select2/results',[
 
       $options.each(function () {
         var $option = $(this);
-
         var item = Utils.GetData(this, 'data');
-
         // id needs to be converted to a string when comparing
         var id = '' + item.id;
-
         if ((item.element != null && item.element.selected) ||
             (item.element == null && $.inArray(id, selectedIds) > -1)) {
           $option.attr('aria-selected', 'true');
@@ -1063,9 +1021,7 @@ S2.define('select2/results',[
 
       for (var c = 0; c < data.children.length; c++) {
         var child = data.children[c];
-
         var $child = this.option(child);
-
         $children.push($child);
       }
 
@@ -1260,22 +1216,17 @@ S2.define('select2/results',[
     if ($.fn.mousewheel) {
       this.$results.on('mousewheel', function (e) {
         var top = self.$results.scrollTop();
-
         var bottom = self.$results.get(0).scrollHeight - top + e.deltaY;
-
         var isAtTop = e.deltaY > 0 && top - e.deltaY <= 0;
         var isAtBottom = e.deltaY < 0 && bottom <= self.$results.height();
-
         if (isAtTop) {
           self.$results.scrollTop(0);
-
           e.preventDefault();
           e.stopPropagation();
         } else if (isAtBottom) {
           self.$results.scrollTop(
             self.$results.get(0).scrollHeight - self.$results.height()
           );
-
           e.preventDefault();
           e.stopPropagation();
         }
@@ -1297,7 +1248,6 @@ S2.define('select2/results',[
         } else {
           self.trigger('close', {});
         }
-
         return;
       }
 
@@ -1531,9 +1481,7 @@ S2.define('select2/selection/base',[
         if (this == $select[0]) {
           return;
         }
-
         var $element = Utils.GetData(this, 'element');
-
         $element.select2('close');
       });
     });
@@ -1730,12 +1678,9 @@ S2.define('select2/selection/multiple',[
         if (self.isDisabled()) {
           return;
         }
-
         var $remove = $(this);
         var $selection = $remove.parent();
-
         var data = Utils.GetData($selection[0], 'data');
-
         self.trigger('unselect', {
           originalEvent: evt,
           data: data
@@ -2058,12 +2003,9 @@ S2.define('select2/selection/search',[
       if (key === KEYS.BACKSPACE && self.$search.val() === '') {
         var $previousChoice = self.$searchContainer
           .prev('.select2-selection__choice');
-
         if ($previousChoice.length > 0) {
           var item = Utils.GetData($previousChoice[0], 'data');
-
           self.searchRemoveChoice(item);
-
           evt.preventDefault();
         }
       }
@@ -2097,7 +2039,6 @@ S2.define('select2/selection/search',[
           self.$selection.off('input.search input.searchcheck');
           return;
         }
-
         // Unbind the duplicated `keyup` event
         self.$selection.off('keyup.search');
       }
@@ -2114,19 +2055,15 @@ S2.define('select2/selection/search',[
           self.$selection.off('input.search input.searchcheck');
           return;
         }
-
         var key = evt.which;
-
         // We can freely ignore events from modifier keys
         if (key == KEYS.SHIFT || key == KEYS.CTRL || key == KEYS.ALT) {
           return;
         }
-
         // Tabbing will be handled during the `keydown` phase
         if (key == KEYS.TAB) {
           return;
         }
-
         self.handleSearch(evt);
       }
     );
@@ -3230,18 +3167,14 @@ S2.define('select2/data/select',[
     if (this.$element.prop('multiple')) {
       this.current(function (currentData) {
         var val = [];
-
         data = [data];
         data.push.apply(data, currentData);
-
         for (var d = 0; d < data.length; d++) {
           var id = data[d].id;
-
           if ($.inArray(id, val) === -1) {
             val.push(id);
           }
         }
-
         self.$element.val(val);
         self.$element.trigger('input').trigger('change');
       });
@@ -3275,7 +3208,6 @@ S2.define('select2/data/select',[
 
       for (var d = 0; d < currentData.length; d++) {
         var id = currentData[d].id;
-
         if (id !== data.id && $.inArray(id, val) === -1) {
           val.push(id);
         }
@@ -3412,9 +3344,7 @@ S2.define('select2/data/select',[
 
       for (var c = 0; c < $children.length; c++) {
         var $child = $($children[c]);
-
         var child = this.item($child);
-
         children.push(child);
       }
 
@@ -3526,14 +3456,10 @@ S2.define('select2/data/array',[
       // Skip items which were pre-loaded, only merge the data
       if ($.inArray(item.id, existingIds) >= 0) {
         var $existingOption = $existing.filter(onlyItem(item));
-
         var existingData = this.item($existingOption);
         var newData = $.extend(true, {}, item, existingData);
-
         var $newOption = this.option(newData);
-
         $existingOption.replaceWith($newOption);
-
         continue;
       }
 
@@ -3541,7 +3467,6 @@ S2.define('select2/data/array',[
 
       if (item.children) {
         var $children = this.convertToOptions(item.children);
-
         Utils.appendMany($option, $children);
       }
 
@@ -3580,10 +3505,8 @@ S2.define('select2/data/ajax',[
       },
       transport: function (params, success, failure) {
         var $request = $.ajax(params);
-
         $request.then(success);
         $request.fail(failure);
-
         return $request;
       }
     };
@@ -3623,7 +3546,6 @@ S2.define('select2/data/ajax',[
     function request () {
       var $request = options.transport(options, function (data) {
         var results = self.processResults(data, params);
-
         if (self.options.get('debug') && window.console && console.error) {
           // Check to make sure that the response included a `results` key.
           if (!results || !results.results || !$.isArray(results.results)) {
@@ -3633,7 +3555,6 @@ S2.define('select2/data/ajax',[
             );
           }
         }
-
         callback(results);
       }, function () {
         // Attempt to detect if a request was aborted
@@ -3642,7 +3563,6 @@ S2.define('select2/data/ajax',[
             ($request.status === 0 || $request.status === '0')) {
           return;
         }
-
         self.trigger('results:message', {
           message: 'errorLoading'
         });
@@ -3689,9 +3609,7 @@ S2.define('select2/data/tags',[
       for (var t = 0; t < tags.length; t++) {
         var tag = tags[t];
         var item = this._normalizeItem(tag);
-
         var $option = this.option(item);
-
         this.$element.append($option);
       }
     }
@@ -3712,27 +3630,21 @@ S2.define('select2/data/tags',[
 
       for (var i = 0; i < data.length; i++) {
         var option = data[i];
-
         var checkChildren = (
           option.children != null &&
           !wrapper({
             results: option.children
           }, true)
         );
-
         var optionText = (option.text || '').toUpperCase();
         var paramsTerm = (params.term || '').toUpperCase();
-
         var checkText = optionText === paramsTerm;
-
         if (checkText || checkChildren) {
           if (child) {
             return false;
           }
-
           obj.data = data;
           callback(obj);
-
           return;
         }
       }
@@ -3746,9 +3658,7 @@ S2.define('select2/data/tags',[
       if (tag != null) {
         var $option = self.option(tag);
         $option.attr('data-select2-tag', true);
-
         self.addOptions([$option]);
-
         self.insertTag(data, tag);
       }
 
@@ -3829,7 +3739,6 @@ S2.define('select2/data/tokenizer',[
       if (!$existingOptions.length) {
         var $option = self.option(item);
         $option.attr('data-select2-tag', true);
-
         self._removeOldTags();
         self.addOptions([$option]);
       }
@@ -3878,7 +3787,6 @@ S2.define('select2/data/tokenizer',[
 
       if ($.inArray(termChar, separators) === -1) {
         i++;
-
         continue;
       }
 
@@ -4017,7 +3925,6 @@ S2.define('select2/data/maximumSelectionLength',[
           });
           return;
         }
-
         if (successCallback) {
           successCallback();
         }
@@ -4149,7 +4056,6 @@ S2.define('select2/dropdown/search',[
     container.on('results:all', function (params) {
       if (params.query.term == null || params.query.term === '') {
         var showSearch = self.showSearch(params);
-
         if (showSearch) {
           self.$searchContainer.removeClass('select2-search--hide');
         } else {
@@ -4792,20 +4698,14 @@ S2.define('select2/defaults',[
 
   './i18n/en'
 ], function ($, require,
-
              ResultsList,
-
              SingleSelection, MultipleSelection, Placeholder, AllowClear,
              SelectionSearch, EventRelay,
-
              Utils, Translation, DIACRITICS,
-
              SelectData, ArrayData, AjaxData, Tags, Tokenizer,
              MinimumInputLength, MaximumInputLength, MaximumSelectionLength,
-
              Dropdown, DropdownSearch, HidePlaceholder, InfiniteScroll,
              AttachBody, MinimumResultsForSearch, SelectOnClose, CloseOnSelect,
-
              EnglishTranslation) {
   function Defaults () {
     this.reset();
@@ -4857,7 +4757,6 @@ S2.define('select2/defaults',[
 
       if (options.query != null) {
         var Query = require(options.amdBase + 'compat/query');
-
         options.dataAdapter = Utils.Decorate(
           options.dataAdapter,
           Query
@@ -4866,7 +4765,6 @@ S2.define('select2/defaults',[
 
       if (options.initSelection != null) {
         var InitSelection = require(options.amdBase + 'compat/initSelection');
-
         options.dataAdapter = Utils.Decorate(
           options.dataAdapter,
           InitSelection
@@ -4904,7 +4802,6 @@ S2.define('select2/defaults',[
         options.dropdownAdapter = Dropdown;
       } else {
         var SearchableDropdown = Utils.Decorate(Dropdown, DropdownSearch);
-
         options.dropdownAdapter = SearchableDropdown;
       }
 
@@ -4928,7 +4825,6 @@ S2.define('select2/defaults',[
         options.adaptDropdownCssClass != null
       ) {
         var DropdownCSS = require(options.amdBase + 'compat/dropdownCss');
-
         options.dropdownAdapter = Utils.Decorate(
           options.dropdownAdapter,
           DropdownCSS
@@ -4976,7 +4872,6 @@ S2.define('select2/defaults',[
         options.adaptContainerCssClass != null
       ) {
         var ContainerCSS = require(options.amdBase + 'compat/containerCss');
-
         options.selectionAdapter = Utils.Decorate(
           options.selectionAdapter,
           ContainerCSS
@@ -5037,24 +4932,19 @@ S2.define('select2/defaults',[
         // Clone the data object if there are children
         // This is required as we modify the object to remove any non-matches
         var match = $.extend(true, {}, data);
-
         // Check each child of the option
         for (var c = data.children.length - 1; c >= 0; c--) {
           var child = data.children[c];
-
           var matches = matcher(params, child);
-
           // If there wasn't a match, remove the object in the array
           if (matches == null) {
             match.children.splice(c, 1);
           }
         }
-
         // If any children matched, return the new object
         if (match.children.length > 0) {
           return match;
         }
-
         // If there were no matching children, check just the plain object
         return matcher(params, match);
       }
@@ -5148,7 +5038,6 @@ S2.define('select2/defaults',[
         // Extract the region information if it is included
         var languageParts = languages[l].split('-');
         var baseLanguage = languageParts[0];
-
         resolvedLanguages.push(baseLanguage);
       }
     }
@@ -5306,14 +5195,11 @@ S2.define('select2/options',[
       if (attributeName.substr(0, prefix.length) == prefix) {
         // Get the contents of the attribute after `data-`
         var dataName = attributeName.substring(prefix.length);
-
         // Get the data contents from the consistent source
         // This is more than likely the jQuery data helper
         var dataValue = Utils.GetData($e[0], dataName);
-
         // camelCase the attribute name to match the spec
         var camelDataName = dataName.replace(/-([a-z])/g, upperCaseLetter);
-
         // Store the data attribute contents into the dataset since
         dataset[camelDataName] = dataValue;
       }
@@ -5511,7 +5397,6 @@ S2.define('select2/core',[
       for (var i = 0, l = attrs.length; i < l; i = i + 1) {
         var attr = attrs[i].replace(/\s/g, '');
         var matches = attr.match(WIDTH);
-
         if (matches !== null && matches.length >= 1) {
           return matches[1];
         }
@@ -5690,30 +5575,24 @@ S2.define('select2/core',[
         if (key === KEYS.ESC || key === KEYS.TAB ||
             (key === KEYS.UP && evt.altKey)) {
           self.close(evt);
-
           evt.preventDefault();
         } else if (key === KEYS.ENTER) {
           self.trigger('results:select', {});
-
           evt.preventDefault();
         } else if ((key === KEYS.SPACE && evt.ctrlKey)) {
           self.trigger('results:toggle', {});
-
           evt.preventDefault();
         } else if (key === KEYS.UP) {
           self.trigger('results:previous', {});
-
           evt.preventDefault();
         } else if (key === KEYS.DOWN) {
           self.trigger('results:next', {});
-
           evt.preventDefault();
         }
       } else {
         if (key === KEYS.ENTER || key === KEYS.SPACE ||
             (key === KEYS.DOWN && evt.altKey)) {
           self.open();
-
           evt.preventDefault();
         }
       }
@@ -5755,7 +5634,6 @@ S2.define('select2/core',[
     } else if (mutations.addedNodes && mutations.addedNodes.length > 0) {
       for (var n = 0; n < mutations.addedNodes.length; n++) {
         var node = mutations.addedNodes[n];
-
         if (node.selected) {
           changed = true;
         }
@@ -5819,7 +5697,6 @@ S2.define('select2/core',[
 
       if (preTriggerArgs.prevented) {
         args.prevented = true;
-
         return;
       }
     }
@@ -6049,7 +5926,6 @@ S2.define('select2/compat/utils',[
         // Only adapt non-Select2 classes
         if (this.indexOf('select2-') !== 0) {
           adapted = adapter(this);
-
           if (adapted != null) {
             replacements.push(adapted);
           }
@@ -6095,12 +5971,10 @@ S2.define('select2/compat/containerCss',[
 
       containerCssAdapter = function (clazz) {
         var adapted = _cssAdapter(clazz);
-
         if (adapted != null) {
           // Append the old one along with the adapted one
           return adapted + ' ' + clazz;
         }
-
         return clazz;
       };
     }
@@ -6152,12 +6026,10 @@ S2.define('select2/compat/dropdownCss',[
 
       dropdownCssAdapter = function (clazz) {
         var adapted = _cssAdapter(clazz);
-
         if (adapted != null) {
           // Append the old one along with the adapted one
           return adapted + ' ' + clazz;
         }
-
         return clazz;
       };
     }
@@ -6309,11 +6181,9 @@ S2.define('select2/compat/inputData',[
 
       for (var d = 0; d < allData.length; d++) {
         var item = allData[d];
-
         if (data.id == item.id) {
           continue;
         }
-
         values.push(item.id);
       }
 
@@ -6365,17 +6235,14 @@ S2.define('select2/compat/matcher',[
       if (data.children) {
         for (var c = data.children.length - 1; c >= 0; c--) {
           var child = data.children[c];
-
           // Check if the child object matches
           // The old matcher returned a boolean true or false
           var doesMatch = matcher(params.term, child.text, child);
-
           // If the child didn't match, pop it off
           if (!doesMatch) {
             match.children.splice(c, 1);
           }
         }
-
         if (match.children.length > 0) {
           return match;
         }
@@ -6553,7 +6420,6 @@ S2.define('select2/selection/stopPropagation',[
 
     var special = $.event.special.mousewheel = {
         version: '3.1.12',
-
         setup: function() {
             if ( this.addEventListener ) {
                 for ( var i = toBind.length; i; ) {
@@ -6566,7 +6432,6 @@ S2.define('select2/selection/stopPropagation',[
             $.data(this, 'mousewheel-line-height', special.getLineHeight(this));
             $.data(this, 'mousewheel-page-height', special.getPageHeight(this));
         },
-
         teardown: function() {
             if ( this.removeEventListener ) {
                 for ( var i = toBind.length; i; ) {
@@ -6579,7 +6444,6 @@ S2.define('select2/selection/stopPropagation',[
             $.removeData(this, 'mousewheel-line-height');
             $.removeData(this, 'mousewheel-page-height');
         },
-
         getLineHeight: function(elem) {
             var $elem = $(elem),
                 $parent = $elem['offsetParent' in $.fn ? 'offsetParent' : 'parent']();
@@ -6588,11 +6452,9 @@ S2.define('select2/selection/stopPropagation',[
             }
             return parseInt($parent.css('fontSize'), 10) || parseInt($elem.css('fontSize'), 10) || 16;
         },
-
         getPageHeight: function(elem) {
             return $(elem).height();
         },
-
         settings: {
             adjustOldDeltas: true, // see shouldAdjustOldDeltas() below
             normalizeOffset: true  // calls getBoundingClientRect for each event
@@ -6603,7 +6465,6 @@ S2.define('select2/selection/stopPropagation',[
         mousewheel: function(fn) {
             return fn ? this.bind('mousewheel', fn) : this.trigger('mousewheel');
         },
-
         unmousewheel: function(fn) {
             return this.unbind('mousewheel', fn);
         }
@@ -6621,22 +6482,18 @@ S2.define('select2/selection/stopPropagation',[
             offsetY    = 0;
         event = $.event.fix(orgEvent);
         event.type = 'mousewheel';
-
         // Old school scrollwheel delta
         if ( 'detail'      in orgEvent ) { deltaY = orgEvent.detail * -1;      }
         if ( 'wheelDelta'  in orgEvent ) { deltaY = orgEvent.wheelDelta;       }
         if ( 'wheelDeltaY' in orgEvent ) { deltaY = orgEvent.wheelDeltaY;      }
         if ( 'wheelDeltaX' in orgEvent ) { deltaX = orgEvent.wheelDeltaX * -1; }
-
         // Firefox < 17 horizontal scrolling related to DOMMouseScroll event
         if ( 'axis' in orgEvent && orgEvent.axis === orgEvent.HORIZONTAL_AXIS ) {
             deltaX = deltaY * -1;
             deltaY = 0;
         }
-
         // Set delta to be deltaY or deltaX if deltaY is 0 for backwards compatabilitiy
         delta = deltaY === 0 ? deltaX : deltaY;
-
         // New school wheel delta (wheel event)
         if ( 'deltaY' in orgEvent ) {
             deltaY = orgEvent.deltaY * -1;
@@ -6646,10 +6503,8 @@ S2.define('select2/selection/stopPropagation',[
             deltaX = orgEvent.deltaX;
             if ( deltaY === 0 ) { delta  = deltaX * -1; }
         }
-
         // No change actually happened, no reason to go any further
         if ( deltaY === 0 && deltaX === 0 ) { return; }
-
         // Need to convert lines and pages to pixels if we aren't already in pixels
         // There are three delta modes:
         //   * deltaMode 0 is by pixels, nothing to do
@@ -6666,19 +6521,15 @@ S2.define('select2/selection/stopPropagation',[
             deltaY *= pageHeight;
             deltaX *= pageHeight;
         }
-
         // Store lowest absolute delta to normalize the delta values
         absDelta = Math.max( Math.abs(deltaY), Math.abs(deltaX) );
-
         if ( !lowestDelta || absDelta < lowestDelta ) {
             lowestDelta = absDelta;
-
             // Adjust older deltas if necessary
             if ( shouldAdjustOldDeltas(orgEvent, absDelta) ) {
                 lowestDelta /= 40;
             }
         }
-
         // Adjust older deltas if necessary
         if ( shouldAdjustOldDeltas(orgEvent, absDelta) ) {
             // Divide all the things by 40!
@@ -6686,19 +6537,16 @@ S2.define('select2/selection/stopPropagation',[
             deltaX /= 40;
             deltaY /= 40;
         }
-
         // Get a whole, normalized value for the deltas
         delta  = Math[ delta  >= 1 ? 'floor' : 'ceil' ](delta  / lowestDelta);
         deltaX = Math[ deltaX >= 1 ? 'floor' : 'ceil' ](deltaX / lowestDelta);
         deltaY = Math[ deltaY >= 1 ? 'floor' : 'ceil' ](deltaY / lowestDelta);
-
         // Normalise offsetX and offsetY properties
         if ( special.settings.normalizeOffset && this.getBoundingClientRect ) {
             var boundingRect = this.getBoundingClientRect();
             offsetX = event.clientX - boundingRect.left;
             offsetY = event.clientY - boundingRect.top;
         }
-
         // Add information to the event object
         event.deltaX = deltaX;
         event.deltaY = deltaY;
@@ -6709,17 +6557,14 @@ S2.define('select2/selection/stopPropagation',[
         // Although this is a little odd since we overwrite the deltaX/Y
         // properties with normalized deltas.
         event.deltaMode = 0;
-
         // Add event and delta to the front of the arguments
         args.unshift(event, delta, deltaX, deltaY);
-
         // Clearout lowestDelta after sometime to better
         // handle multiple device types that give different
         // a different lowestDelta
         // Ex: trackpad = 3 and mouse wheel = 120
         if (nullLowestDeltaTimeout) { clearTimeout(nullLowestDeltaTimeout); }
         nullLowestDeltaTimeout = setTimeout(nullLowestDelta, 200);
-
         return ($.event.dispatch || $.event.handle).apply(this, args);
     }
 
@@ -6758,33 +6603,26 @@ S2.define('jquery.select2',[
       if (typeof options === 'object') {
         this.each(function () {
           var instanceOptions = $.extend(true, {}, options);
-
           var instance = new Select2($(this), instanceOptions);
         });
-
         return this;
       } else if (typeof options === 'string') {
         var ret;
         var args = Array.prototype.slice.call(arguments, 1);
-
         this.each(function () {
           var instance = Utils.GetData(this, 'select2');
-
           if (instance == null && window.console && console.error) {
             console.error(
               'The select2(\'' + options + '\') method was called on an ' +
               'element that is not using Select2.'
             );
           }
-
           ret = instance[options].apply(instance, args);
         });
-
         // Check if we should be returning `this`
         if ($.inArray(options, thisMethods) > -1) {
           return this;
         }
-
         return ret;
       } else {
         throw new Error('Invalid arguments for Select2: ' + options);

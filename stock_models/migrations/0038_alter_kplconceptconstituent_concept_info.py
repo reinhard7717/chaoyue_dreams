@@ -21,7 +21,6 @@ class Migration(migrations.Migration):
             "ALTER TABLE `kpl_concept_constituent` CHANGE `concept_info_id` `ts_code` VARCHAR(20);"
         ),
         # 结束手动SQL操作
-
         # Django自动生成的AlterField操作现在可以正常执行了。
         # 它会找到 'concept_info_id' 列，然后根据新的模型定义（db_column='ts_code'）再把它改回 'ts_code'，并添加正确的外键约束。
         migrations.AlterField(

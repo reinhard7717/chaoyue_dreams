@@ -54,7 +54,6 @@ class IndexCashKey(CashKey):
             entity_id=cc.ID_ALL
         )
         return cache_key
-    
     def index_data(self, index_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STATIC,
@@ -63,7 +62,6 @@ class IndexCashKey(CashKey):
             subtype=cc.SUBTYPE_BASIC_INFO
         )
         return cache_key
-    
     def IndexWeight(self, index_code: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_STATIC,
@@ -81,7 +79,6 @@ class IndexCashKey(CashKey):
                 subtype=cc.SUBTYPE_QUOTE        # 子类型为报价/实时行情
             )
         return cache_key
-    
     def latest_time_series(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -91,7 +88,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-    
     def history_time_series(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -101,7 +97,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
-    
     def latest_macd(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,      # 时间序列类型
@@ -111,7 +106,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-    
     def history_macd(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -121,7 +115,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
-    
     def latest_kdj(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -131,7 +124,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-    
     def history_kdj(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -141,7 +133,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
-    
     def latest_ma(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -151,7 +142,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-    
     def history_ma(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -161,7 +151,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level}
         )
         return cache_key
-    
     def latest_boll(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -171,7 +160,6 @@ class IndexCashKey(CashKey):
             params={cc.PARAM_PERIOD: time_level, 'tag': 'latest'}
         )
         return cache_key
-    
     def history_boll(self, index_code: str, time_level: str) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_TIMESERIES,
@@ -190,7 +178,6 @@ class UserCashKey(CashKey):
             entity_id=user_id
         )
         return cache_key
-    
     def all_favorites(self) -> str:
         cache_key = self.generate_key(
             cache_type=cc.TYPE_USER,
@@ -211,7 +198,6 @@ class StockCashKey(CashKey):
             entity_id=cc.ID_ALL
         )
         return cache_key
-    
     # 单个股票的cache_key
     def stock_data(self, stock_code: str) -> str:
         """
@@ -485,12 +471,10 @@ class StockCashKey(CashKey):
     def intraday_minute_kline(self, stock_code: str, time_level: str, date_str: str) -> str:
         """
         【盘中引擎专用】生成单个股票指定日期的分钟K线ZSET缓存键。
-        
         Args:
             stock_code (str): 股票代码
             time_level (str): 分钟级别 (e.g., '1', '5')
             date_str (str): 日期字符串, 格式 'YYYYMMDD'
-        
         Returns:
             str: 用于存储分钟K线ZSET的缓存键
         """

@@ -32,7 +32,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
     time_trade_dao = StockTimeTradeDAO(cache_manager)
     basic_dao = StockBasicInfoDao(cache_manager)
     trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-    
     logger.info(f"[{stock_code} @ {trade_date_str}] 开始执行日内动态指标计算任务...")
 
     # --- 2. 异步数据准备 ---
@@ -43,7 +42,6 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
         # 注意：get_minute_kline_by_daterange 需要带时区的datetime对象
         start_dt = datetime.combine(trade_date, time.min)
         end_dt = datetime.combine(trade_date, time.max)
-        
         # Django ORM查询时不需要时区，但如果DAO内部有处理，需注意
         minute_df = await time_trade_dao.get_minute_kline_by_daterange(
             stock_code=stock_code,
@@ -51,10 +49,8 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
             start_dt=start_dt,
             end_dt=end_dt
         )
-
         # 2.2 获取股票基础信息
         stock_info = await basic_dao.get_stock_by_code(stock_code)
-
         # 2.3 获取当日的日线基本面信息 (用于获取流通股本)
         # 注意：这里假设有一个 get_daily_basic_by_date 的DAO方法
         # 如果没有，需要在这里实现它
@@ -65,31 +61,24 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
                 return StockDailyBasic.objects.get(stock=stock, trade_time=t_date)
             except StockDailyBasic.DoesNotExist:
                 return None
-        
         daily_basic_info = get_daily_basic_sync(stock_info, trade_date)
-
         return minute_df, stock_info, daily_basic_info
 
     try:
         minute_df, stock_info, daily_basic_info = get_required_data()
-
         # --- 3. 数据校验 ---
         if stock_info is None:
             logger.error(f"[{stock_code}] 无法在数据库中找到股票基础信息，任务终止。")
             return {'status': 'failed', 'reason': 'StockInfo not found'}
-        
         if minute_df is None or minute_df.empty:
             logger.warning(f"[{stock_code} @ {trade_date_str}] 未找到当日的1分钟K线数据，任务跳过。")
             return {'status': 'skipped', 'reason': 'No 1-minute data'}
-
         if daily_basic_info is None:
             logger.warning(f"[{stock_code} @ {trade_date_str}] 未找到当日的日线基本面数据(StockDailyBasic)，部分指标可能无法计算。")
             # 即使没有，我们也可以继续，计算器内部会处理None的情况
-
         # --- 4. 实例化计算器并执行计算 ---
         calculator = IntradayDynamicsCalculator(minute_df, stock_info, daily_basic_info)
         dynamics_data, distribution_data = calculator.calculate_all()
-
         # --- 5. 数据持久化 ---
         # 使用事务确保数据一致性，要么都成功，要么都失败
         with transaction.atomic():
@@ -101,14 +90,12 @@ def compute_dynamics_for_stock_and_date(self, stock_code: str, trade_date_str: s
             )
             action = "创建" if created else "更新"
             logger.info(f"[{stock_code} @ {trade_date_str}] 成功 {action} IntradayChipDynamics 记录。")
-
             # 5.2 创建或更新 DailyTurnoverDistribution 记录
             DailyTurnoverDistribution.objects.update_or_create(
                 intraday_dynamics=dynamics_obj,
                 defaults=distribution_data
             )
             logger.info(f"[{stock_code} @ {trade_date_str}] 成功关联并保存 DailyTurnoverDistribution 记录。")
-
         return {'status': 'success', 'stock_code': stock_code, 'trade_date': trade_date_str}
 
     except Exception as e:

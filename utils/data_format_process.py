@@ -386,10 +386,8 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         date = getattr(df_data, "DATE", None)
         time = getattr(df_data, "TIME", None)
         trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
-
         # 先用 _parse_number 获取 Decimal 类型的值
         volume_decimal = self._parse_number(getattr(df_data, "VOLUME", None))
-
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
@@ -414,14 +412,12 @@ class StockRealtimeDataFormatProcess(BaseDAO):
         date = getattr(df_data, "DATE", None)
         time = getattr(df_data, "TIME", None)
         trade_time = self._parse_datetime(f"{date}{time}") if date and time else None
-
         def _process_volume(value: Any) -> Optional[int]:
             """辅助函数，用于处理盘口量：解析 -> 乘100 -> 转int"""
             parsed_val = self._parse_number(value)
             if parsed_val is not None:
                 return int(parsed_val * 100)
             return None
-
         data_dict = {
             "stock": stock,
             "trade_time": trade_time,
@@ -723,7 +719,6 @@ class IndustryFormatProcess(BaseDAO):
             final_count_for_dict = int(final_count_for_dict)
         except Exception:
             final_count_for_dict = 0
-
         data_dict = {
             "ts_code": getattr(df_data, "ts_code", None),
             "name": getattr(df_data, "name", None),
@@ -853,7 +848,6 @@ class IndustryFormatProcess(BaseDAO):
         # 单位转换：申万成交量是“万股”，成交额是“万元”
         vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
         amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
-        
         return ConceptDaily(
             concept=concept_master,
             trade_date=daily_dict.get('trade_time'),
@@ -890,7 +884,6 @@ class IndustryFormatProcess(BaseDAO):
         # 中信单位：成交量是'万股'，成交额是'万元'
         vol_standard = daily_dict.get('vol') * 100 if daily_dict.get('vol') is not None else None # 万股 -> 手
         amount_standard = daily_dict.get('amount') * 1000 if daily_dict.get('amount') is not None else None # 万元 -> 千元
-
         return ConceptDaily(
             concept=concept_master,
             trade_date=daily_dict.get('trade_time'),

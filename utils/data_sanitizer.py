@@ -8,7 +8,6 @@ from datetime import date, datetime
 def sanitize_for_json(data):
     """
     【核心工具函数】递归地将数据结构中的非JSON兼容类型转换为Python原生类型。
-    
     处理包括：
     - NumPy 的整数、浮点数、布尔值
     - Pandas 的 Timestamp, NaT, NA
@@ -45,7 +44,6 @@ def sanitize_for_json(data):
 
     # --- 递归处理容器类型 ---
     # 必须在处理完原子类型之后
-    
     # 如果是字典，递归处理它的每一个值
     if isinstance(data, dict):
         return {sanitize_for_json(key): sanitize_for_json(value) for key, value in data.items()}

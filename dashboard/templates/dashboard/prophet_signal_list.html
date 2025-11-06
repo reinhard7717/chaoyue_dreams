@@ -39,7 +39,6 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        
         <div class="section-header-with-controls">
             <h2><span class="icon">🔮</span> {{ page_title }} (共 {{ total_count }} 条神谕)</h2>
             <form method="get" class="date-selector-form">
@@ -48,7 +47,6 @@
                 <button type="submit" class="btn btn-sm btn-primary">查询</button>
             </form>
         </div>
-
         <div class="table-wrapper">
             <table class="data-table" id="prophet-table">
                 <thead>
@@ -95,7 +93,6 @@
                 </tbody>
             </table>
         </div>
-        
         <div class="pagination">
         {% if page_obj.has_other_pages %}
             {% if page_obj.has_previous %}

@@ -88,7 +88,6 @@ depends on core.js for utility functions like removeChildren or quickElement
             const todayMonth = today.getMonth() + 1;
             const todayYear = today.getFullYear();
             let todayClass = '';
-
             // Use UTC functions here because the date field does not contain time
             // and using the UTC function variants prevent the local time offset
             // from altering the date, specifically the day field.  For example:
@@ -104,7 +103,6 @@ depends on core.js for utility functions like removeChildren or quickElement
             if (typeof selected !== 'undefined') {
                 isSelectedMonth = (selected.getUTCFullYear() === year && (selected.getUTCMonth() + 1) === month);
             }
-
             month = parseInt(month);
             year = parseInt(year);
             const calDiv = document.getElementById(div_id);
@@ -112,25 +110,20 @@ depends on core.js for utility functions like removeChildren or quickElement
             const calTable = document.createElement('table');
             quickElement('caption', calTable, CalendarNamespace.monthsOfYear[month - 1] + ' ' + year);
             const tableBody = quickElement('tbody', calTable);
-
             // Draw days-of-week header
             let tableRow = quickElement('tr', tableBody);
             for (let i = 0; i < 7; i++) {
                 quickElement('th', tableRow, CalendarNamespace.daysOfWeekInitial[(i + CalendarNamespace.firstDayOfWeek) % 7]);
             }
-
             const startingPos = new Date(year, month - 1, 1 - CalendarNamespace.firstDayOfWeek).getDay();
             const days = CalendarNamespace.getDaysInMonth(month, year);
-
             let nonDayCell;
-
             // Draw blanks before first of month
             tableRow = quickElement('tr', tableBody);
             for (let i = 0; i < startingPos; i++) {
                 nonDayCell = quickElement('td', tableRow, ' ');
                 nonDayCell.className = "nonday";
             }
-
             function calendarMonth(y, m) {
                 function onClick(e) {
                     e.preventDefault();
@@ -138,7 +131,6 @@ depends on core.js for utility functions like removeChildren or quickElement
                 }
                 return onClick;
             }
-
             // Draw days of month
             let currentDay = 1;
             for (let i = startingPos; currentDay <= days; i++) {
@@ -150,7 +142,6 @@ depends on core.js for utility functions like removeChildren or quickElement
                 } else {
                     todayClass = '';
                 }
-
                 // use UTC function; see above for explanation.
                 if (isSelectedMonth && currentDay === selected.getUTCDate()) {
                     if (todayClass !== '') {
@@ -158,19 +149,16 @@ depends on core.js for utility functions like removeChildren or quickElement
                     }
                     todayClass += "selected";
                 }
-
                 const cell = quickElement('td', tableRow, '', 'class', todayClass);
                 const link = quickElement('a', cell, currentDay, 'href', '#');
                 link.addEventListener('click', calendarMonth(year, month));
                 currentDay++;
             }
-
             // Draw blanks after end of month (optional, but makes for valid code)
             while (tableRow.childNodes.length < 7) {
                 nonDayCell = quickElement('td', tableRow, ' ');
                 nonDayCell.className = "nonday";
             }
-
             calDiv.appendChild(calTable);
         }
     };
@@ -198,11 +186,9 @@ depends on core.js for utility functions like removeChildren or quickElement
         drawDate: function(month, year, selected) {
             this.currentMonth = month;
             this.currentYear = year;
-
             if(selected) {
                 this.selected = selected;
             }
-
             this.drawCurrent();
         },
         drawPreviousMonth: function() {

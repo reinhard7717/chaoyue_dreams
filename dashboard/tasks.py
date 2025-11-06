@@ -32,7 +32,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
     """
     from users.models import FavoriteStock
     from dashboard.tasks import send_update_to_user_task_celery
-    
     if not updated_stock_codes:
         logger.info("没有更新的股票代码，跳过推送任务。")
         return
@@ -41,7 +40,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
     if channel_layer is None:
         logger.error("无法获取 Channel Layer，WebSocket推送失败。")
         return
-    
     for stock_code in updated_stock_codes:
         async def main():
             # 1. 在异步上下文中创建顶层的 CacheManager
@@ -73,17 +71,14 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                 # 即使tick失败，可能也想推送其他信息，这里先不返回
             if isinstance(latest_strategy_result, Exception):
                 logger.error(f"获取最新策略结果失败 for {stock_code}: {latest_strategy_result}")
-
             # 5. 获取关注该股票的用户 (这是同步DB操作，放在main之外)
             user_ids = list(FavoriteStock.objects.filter(stock=stock_obj).values_list('user_id', flat=True))
             
             if not user_ids:
                 return
-
             if not latest_tick or isinstance(latest_tick, Exception):
                 logger.warning(f"未获取到股票 {stock_code} 的最新tick数据，跳过推送")
                 return
-
             # 6. 构造 payload
             signal_score = getattr(latest_strategy_result, 'score', None) if latest_strategy_result and not isinstance(latest_strategy_result, Exception) else None
             signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
@@ -101,7 +96,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                 'change_percent': latest_tick.get("change_percent"),
                 'signal': signal,
             }
-
             # 7. 推送给所有关注该股票的用户
             for uid in user_ids:
                 send_update_to_user_task_celery.apply_async(
@@ -109,13 +103,11 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                     queue='dashboard'  # 指定队列为dashboard
                 )
                 # print(f"已推送{code}最新tick数据到用户{uid}")
-
         # 使用 async_to_sync 运行这个总的 main 函数
         try:
             async_to_sync(main)()
         except Exception as e:
             logger.error(f"执行推送任务 for {stock_code} 时发生顶层错误: {e}", exc_info=True)
-
             
 
 @celery_app.task(bind=True, name='dashboard.tasks.update_favorite_stock_trackers')
@@ -131,36 +123,28 @@ def update_favorite_stock_trackers(self):
         if not latest_trade_day:
             logger.warning("无法获取最新的交易日，任务终止。")
             return "无法获取最新的交易日，任务终止。"
-        
         logger.info(f"开始为 {latest_trade_day} 生成每日持仓快照...")
-
         # 步骤 2: 筛选出所有需要创建快照的活跃追踪器
         trackers_to_snapshot = list(PositionTracker.objects.filter(
             Q(status=PositionTracker.Status.HOLDING) | Q(status=PositionTracker.Status.WATCHING)
         ).select_related('stock'))
-
         if not trackers_to_snapshot:
             logger.info("没有找到需要创建快照的活跃追踪器。")
             return "没有需要更新的活跃追踪器。"
-
         stock_ids = [tracker.stock_id for tracker in trackers_to_snapshot]
-        
         # 步骤 3: 一次性获取所有相关股票在快照日期的最新信号
         # 注意：这里我们假设每个股票在每个交易日最多只有一个主策略信号
         latest_signals = TradingSignal.objects.filter(
             stock_id__in=stock_ids,
             trade_time__date=latest_trade_day
         )
-        
         # 将信号放入字典中，以便快速查找
         latest_signals_map = {signal.stock_id: signal for signal in latest_signals}
         logger.info(f"为 {len(stock_ids)} 个追踪器获取了 {len(latest_signals_map)} 条对应的当日信号。")
-
         # 步骤 4: 准备批量创建 DailyPositionSnapshot
         snapshots_to_create = []
         for tracker in trackers_to_snapshot:
             latest_signal_for_stock = latest_signals_map.get(tracker.stock_id)
-
             if latest_signal_for_stock:
                 # 如果找到了当天的信号，就创建一个快照实例
                 snapshots_to_create.append(
@@ -174,7 +158,6 @@ def update_favorite_stock_trackers(self):
                 )
             else:
                 logger.warning(f"股票 {tracker.stock.stock_code} ({tracker.stock_id}) 在 {latest_trade_day} 没有找到对应的交易信号，无法创建快照。")
-
         # 步骤 5: 批量执行创建操作
         if snapshots_to_create:
             created_snapshots = DailyPositionSnapshot.objects.bulk_create(

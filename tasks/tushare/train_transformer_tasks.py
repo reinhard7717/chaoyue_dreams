@@ -69,7 +69,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         # 打印数据类型和内存使用，帮助调试
         # print(f"{task_id_str} [{stock_code}]：data_df 原始数据类型:\n{data_df.dtypes}") # 打印原始数据类型
         print(f"{task_id_str} [{stock_code}]：data_df 原始内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印原始内存使用
-
         # 优化内存：尝试将所有列转换为 float32，处理潜在的 object 类型列
         # logger.info(f"{task_id_str} [{stock_code}]：尝试将所有列转换为 float32...") # 添加日志
         original_dtypes = data_df.dtypes # 保存原始数据类型用于比较
@@ -83,7 +82,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
                      converted_cols_count += 1 # 计数
             except Exception as e:
                 logger.warning(f"{task_id_str} [{stock_code}]：转换列 '{col}' 到 float32 时出错: {e}. 列将保持原样或包含 NaN。", exc_info=True) # 记录转换错误
-
         # logger.info(f"{task_id_str} [{stock_code}]：尝试转换完成，成功转换 {converted_cols_count} 列到 float32。") # 添加日志
         # print(f"{task_id_str} [{stock_code}]：转换后 data_df 数据类型:\n{data_df.dtypes}") # 打印转换后数据类型
         print(f"{task_id_str} [{stock_code}]：转换后 data_df 内存使用 (MB): {data_df.memory_usage(deep=True).sum() / 1024**2:.2f}") # 打印转换后内存使用
@@ -111,13 +109,11 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             # 根据 _prepare_transformer_training_data_subset 的逻辑，它在失败时会返回空 DataFrame
             # 此时应该终止任务
             return {"status": "error", "message": "提取 Transformer 训练数据子集失败或返回空数据。"}
-
         # 记录提取完成信息
         logger.info(f"{task_id_str} [{stock_code}]：Transformer 训练数据子集提取完毕，返回DataFrame {data_for_transformer_prep.shape}。")
         # 打印数据类型和内存使用，帮助调试
         # print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 数据类型:\n{data_for_transformer_prep.dtypes}")
         print(f"{task_id_str} [{stock_code}]：data_for_transformer_prep 内存使用 (MB): {data_for_transformer_prep.memory_usage(deep=True).sum() / 1024**2:.2f}")
-
         # 获取 Transformer 目标列名 (从策略中获取，确保与 _prepare_transformer_training_data_subset 生成的目标列名一致)
         transformer_target_column = strategy.transformer_target_column # 假设策略中定义了目标列名
         # 检查返回的 DataFrame 中是否存在 Transformer 目标列 (在 _prepare_transformer_training_data_subset 中已检查，这里再次确认)
@@ -126,7 +122,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
             # 理论上 _prepare_transformer_training_data_subset 应该处理这种情况并返回空 DataFrame
             # 但为了健壮性，这里再次检查
             return {"status": "error", "message": f"提取的 Transformer 训练数据子集缺少目标列 '{transformer_target_column}'。"}
-
         # 确定用于 prepare_data_for_transformer 的特征列
         # 这些列应该是 data_for_transformer_prep 中除了目标列之外的所有列
         required_columns_for_transformer = [col for col in data_for_transformer_prep.columns if col != transformer_target_column]
@@ -177,7 +172,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
         fs_selection_threshold = data_prep_config.get('fs_selection_threshold', 'median')
         target_scaler_type = data_prep_config.get('target_scaler_type', 'minmax')
         random_state_seed = data_prep_config.get('random_state_seed', 42)
-
         features_scaled_train, targets_scaled_train, \
         features_scaled_val, targets_scaled_val, \
         features_scaled_test, targets_scaled_test, \
@@ -214,7 +208,6 @@ def process_stock_data_for_transformer_training(self, stock_code: str, params_fi
              logger.error(f"{task_id_str} [{stock_code}]：Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。")
              # prepare_data_for_transformer 在失败时会返回空数组和 None
              return {"status": "error", "message": "Transformer 数据准备后，训练集为空或 Scaler/特征列表未成功生成。任务终止。"}
-
         # 记录数据准备完成信息
         logger.info(f"{task_id_str} [{stock_code}]：Transformer 数据准备完成。训练集 shape: {features_scaled_train.shape}, 最终特征数: {len(selected_feature_names)}")
         # 打印最终数组形状和类型，帮助调试
@@ -319,7 +312,6 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                 prepared_data_path = expected_stock_data_root / "prepared_data" #构建 prepared_data 目录路径
                 should_schedule = False #标志是否需要调度任务
                 reason = "" #记录调度或跳过的原因
-
                 # 检查股票数据根目录是否存在
                 # if not expected_stock_data_root.is_dir():
                 #     should_schedule = True
@@ -345,9 +337,7 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                 #             reason = f"股票根目录和 prepared_data 子目录存在且包含 .npz 文件" #记录原因
                 #             # logger.info(f"跳过 {stock_code} 的 Transformer 数据处理任务分派 ({reason}).") # 修改行：日志信息说明跳过原因
                 #             total_skipped_tasks += 1
-
                 should_schedule = True
-
                 # 根据 should_schedule 标志决定是否分派任务
                 if should_schedule: #根据标志决定是否调度
                     logger.info(f"分派 {stock_code} 的 Transformer 数据处理任务到 'Train_Transformer_Prepare_Data' 队列 (原因: {reason}).") # 修改行：日志说明调度原因
@@ -360,7 +350,6 @@ def schedule_transformer_data_processing(self, params_file: str = None, base_dat
                     ).set(queue="Train_Transformer_Prepare_Data")
                     prepare_task_signature.apply_async()
                     total_dispatched_tasks += 1
-
         logger.info(f"任务结束: schedule_transformer_data_processing (调度器模式) - 共检查 {total_stocks_checked} 个股票，分派 {total_dispatched_tasks} 个任务，跳过 {total_skipped_tasks} 个任务。") # 修改行：日志信息总结
         return {
             "status": "completed",
@@ -422,9 +411,7 @@ def schedule_transformer_training_chain(self): # 参数名一致性
             train_task_signature = batch_train_following_strategy_transformer.s(
                 stock_code=stock_code
             ).set().apply_async() # 指定模型训练队列 (新的队列名建议)
-
             total_dispatched_chains += 1
-
         logger.info(f"任务结束: schedule_transformer_training_chain (调度器模式) - 共分派 {total_dispatched_chains} 个任务") # 修改行：日志信息
         return {"status": "success", "dispatched_chains": total_dispatched_chains}
 

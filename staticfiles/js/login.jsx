@@ -78,13 +78,11 @@ const LoginForm = (props) => {
               />
             </div>
           </div>
-
           {error && (
             <div className="text-red-500 text-sm mt-2">
               {error}
             </div>
           )}
-
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <input
@@ -100,7 +98,6 @@ const LoginForm = (props) => {
               </label>
             </div>
           </div>
-
           <div>
             <button
               type="submit"
@@ -127,7 +124,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (container) {
     const csrfToken = container.getAttribute('data-csrf-token');
     const loginUrl = container.getAttribute('data-login-url');
-    
     ReactDOM.render(
       <LoginForm csrfToken={csrfToken} loginUrl={loginUrl} />,
       container

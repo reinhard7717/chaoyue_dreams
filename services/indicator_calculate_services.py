@@ -60,7 +60,6 @@ class IndicatorCalculator:
             return None
         if len(df) < period:
             return None
-        
         try:
             # 定义一个同步函数来封装所有计算逻辑。
             def _sync_atrr():
@@ -75,7 +74,6 @@ class IndicatorCalculator:
                 
                 # 3. 将结果Series转换为DataFrame并返回
                 return atrr_series.to_frame(name=f'ATRr_{period}')
-
             # 在独立的线程中异步执行同步计算函数。
             return await asyncio.to_thread(_sync_atrr)
         except Exception as e:
@@ -92,7 +90,6 @@ class IndicatorCalculator:
         if df is None or df.empty or not all(col in df.columns for col in required_cols):
             logger.warning(f"计算 ATRN 失败：DataFrame 中缺少必需的列。需要 {required_cols}。")
             return None
-        
         # 步骤2: 数据长度验证。
         if len(df) < period:
             logger.warning(f"计算 ATRN 失败：数据行数 {len(df)} 小于周期 {period}。")
@@ -107,7 +104,6 @@ class IndicatorCalculator:
                 if atr_series is None or atr_series.empty:
                     logger.warning(f"ATRN 计算失败：基础 ATR 计算返回了空结果。")
                     return None
-
                 # 获取收盘价序列，并处理收盘价为0的情况，避免除零错误
                 close_prices = df[close_col].replace(0, np.nan)
                 
@@ -174,7 +170,6 @@ class IndicatorCalculator:
                 result_df = result_df[[col for col in final_columns if col in result_df.columns]]
                 
                 return result_df if not result_df.empty else None
-
             # 在线程中执行定义好的同步函数。
             return await asyncio.to_thread(_sync_bbands_calculation)
         except Exception as e:
@@ -276,7 +271,6 @@ class IndicatorCalculator:
                     return None
                 # 将返回的 Series 转换为 DataFrame，以便上层服务进行合并
                 return cmf_series.to_frame()
-
             # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_cmf)
         except Exception as e:
@@ -453,13 +447,11 @@ class IndicatorCalculator:
             return None
         if len(df) < period_slow + signal_period:
             return None
-
         try:
             def _sync_macd():
                 return ta.macd(close=df[close_col], fast=period_fast, slow=period_slow, signal=signal_period, append=False)
             
             macd_df = await asyncio.to_thread(_sync_macd)
-
             # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if macd_df is None or macd_df.empty:
                 logger.warning(f"MACD (f={period_fast},s={period_slow},sig={signal_period}) 计算结果为空，可能数据量不足。")
@@ -467,7 +459,6 @@ class IndicatorCalculator:
             # ▲▲▲ 修改结束 ▲▲▲
             
             return macd_df
-
         except Exception as e:
             logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
             return None
@@ -589,13 +580,11 @@ class IndicatorCalculator:
             return None
         if len(df) < period:
             return None
-        
         try:
             # 异步执行 pandas_ta 计算
             def _sync_rsi():
                 return ta.rsi(close=df[close_col], length=period, append=False)
             rsi_series = await asyncio.to_thread(_sync_rsi)
-
             # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if rsi_series is None or not isinstance(rsi_series, pd.Series) or rsi_series.empty:
                 logger.warning(f"RSI (周期 {period}) 计算结果为空或无效，可能数据量不足。")
@@ -604,7 +593,6 @@ class IndicatorCalculator:
             #  在创建DataFrame时显式传入索引，更加安全
             return pd.DataFrame({f'RSI_{period}': rsi_series}, index=df.index)
             # ▲▲▲ 修改结束 ▲▲▲
-
         except Exception as e:
             logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=True)
             return None
@@ -720,7 +708,6 @@ class IndicatorCalculator:
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col, volume_col]):
             logger.warning(f"计算 VWAP (anchor={anchor}) 时缺少必要的列。")
             return None
-        
         # ▼▼▼ 转换分钟级别锚点为pandas兼容格式 ▼▼▼
         # 解释: pandas-ta的vwap函数要求锚点(anchor)是pandas的频率字符串。
         # 对于分钟级别，'30' 是无效的，必须是 '30T' 或 '30min'。
@@ -735,7 +722,6 @@ class IndicatorCalculator:
             
             vwap_series = await asyncio.to_thread(_sync_vwap)
             if vwap_series is None or vwap_series.empty: return None
-
             # pandas-ta的vwap列名比较特殊，我们手动重命名以确保一致性
             # 原始列名可能是 VWAP_D, VWAP_W, VWAP_30T 等
             original_name = vwap_series.name
@@ -823,7 +809,6 @@ class IndicatorCalculator:
                 # 检查返回的是否是Series，如果是，则转换为DataFrame，以统一处理
                 if isinstance(copp_df, pd.Series):
                     copp_df = copp_df.to_frame()
-
                 # 现在 copp_df 肯定是DataFrame，可以安全地访问 .columns
                 if not copp_df.columns[0].startswith('COPP'):
                     expected_name = f"COPP_{long_roc_period}_{short_roc_period}_{wma_period}"
@@ -839,7 +824,6 @@ class IndicatorCalculator:
             else:
                 # 在日志中包含异常类型，方便调试
                 logger.error(f"计算 Coppock Curve 时发生未知错误: {type(e).__name__}: {e}", exc_info=False) # exc_info=False 避免打印完整堆栈
-        
         return None
 
     async def calculate_uo(self, df: pd.DataFrame, short_period: int = 7, medium_period: int = 14, long_period: int = 28, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
@@ -882,30 +866,23 @@ class IndicatorCalculator:
         if df is None or df.empty or close_col not in df.columns:
             logger.warning(f"BIAS计算失败：输入的DataFrame为空或缺少'{close_col}'列。")
             return None
-        
         if len(df) < period:
             logger.warning(f"BIAS计算失败：数据长度 {len(df)} 小于所需周期 {period}。")
             return None
-
         try:
             def _sync_bias() -> Optional[pd.Series]:
                 # pandas_ta.bias 会生成一个名为 'BIAS_SMA_{period}' 的列
                 return df.ta.bias(close=df[close_col], length=period, append=False)
-
             bias_series = await asyncio.to_thread(_sync_bias)
-
             if bias_series is None or bias_series.empty:
                 logger.warning(f"pandas_ta.bias 未能为周期 {period} 生成有效结果。")
                 return None
-
             # 这是解决问题的核心：将 pandas_ta 生成的列名 'BIAS_SMA_20' 重命名为我们需要的标准格式 'BIAS_20'
             target_col_name = f"BIAS_{period}"
             bias_series.name = target_col_name
-
             # 将重命名后的 Series 转换为 DataFrame
             result_df = pd.DataFrame(bias_series)
             return result_df
-
         except Exception as e:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
@@ -920,23 +897,18 @@ class IndicatorCalculator:
         fib_params = params.get('params', {})
         if not params.get('enabled', False):
             return None
-
         # print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
-        
         try:
             from scipy.signal import find_peaks, peak_prominences
         except ImportError:
             logger.error("缺少 'scipy' 库，无法计算动态斐波那契水平。请运行 'pip install scipy'。")
             return None
-
         # --- 主引擎：动态波段识别 ---
         distance = fib_params.get('peak_distance', 13)
         prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05)
-        
         if 'close' not in df.columns:
             logger.error("斐波那契计算失败：DataFrame中缺少 'close' 列。")
             return None
-
         def _find_peaks_sync(data, prominence_series):
             candidate_indices, _ = find_peaks(data, distance=distance)
             if len(candidate_indices) == 0:
@@ -945,11 +917,9 @@ class IndicatorCalculator:
             custom_thresholds = prominence_series.iloc[candidate_indices]
             valid_mask = actual_prominences >= custom_thresholds.values
             return candidate_indices[valid_mask]
-
         peak_prominence_series = df['close'] * prominence_ratio
         peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'].values, peak_prominence_series)
         trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, peak_prominence_series)
-
         # --- 检查主引擎是否成功 ---
         if len(peak_indices) > 0 and len(trough_indices) > 0:
             # print("      -> [主引擎] 动态波段识别成功，正在计算...")
@@ -958,7 +928,6 @@ class IndicatorCalculator:
             temp_df['swing_high_price'] = np.nan
             temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
             temp_df['swing_high_price'].ffill(inplace=True)
-
             temp_df['swing_low_price'] = np.nan
             temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
             temp_df['swing_low_price'].ffill(inplace=True)
@@ -970,10 +939,8 @@ class IndicatorCalculator:
             temp_df['swing_low_date'] = pd.NaT
             temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
             temp_df['swing_low_date'].ffill(inplace=True)
-
             is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
             swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
-
             result_df = pd.DataFrame(index=df.index)
             
             levels = fib_params.get('levels', [0.382, 0.5, 0.618])
@@ -981,25 +948,20 @@ class IndicatorCalculator:
                 col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
                 retr_price = temp_df['swing_high_price'] - swing_range * level
                 result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
-
             # print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
             return result_df
-        
         # --- 如果主引擎失败，则启动备用引擎 ---
         else:
             print("      -> [备用引擎] 动态波段识别失败，切换至滚动窗口模式。")
             result_df = pd.DataFrame(index=df.index)
             lookback = fib_params.get('lookback_period', 120)
             levels = fib_params.get('levels', [0.382, 0.5, 0.618])
-
             if not all(c in df.columns for c in ['high', 'low']):
                 logger.error("斐波那契备用引擎计算失败：DataFrame中缺少 'high' 或 'low' 列。")
                 return None
-
             rolling_high = df['high'].rolling(window=lookback).max()
             rolling_low = df['low'].rolling(window=lookback).min()
             price_range = rolling_high - rolling_low
-
             for level in levels:
                 col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
                 result_df[col_name] = rolling_high - (price_range * level)
@@ -1046,7 +1008,6 @@ class IndicatorCalculator:
                     else:
                         logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
                 return result_df if not result_df.empty else None
-
             # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_pv_ma_comparison)
         except Exception as e:
@@ -1171,7 +1132,6 @@ class IndicatorCalculator:
         low_col = next((c for c in df_minute.columns if c.startswith('low')), None)
         close_col = next((c for c in df_minute.columns if c.startswith('close')), None)
         volume_col = next((c for c in df_minute.columns if c.startswith('volume')), None)
-        
         required_cols = [open_col, high_col, low_col, close_col, volume_col]
         if not all(required_cols):
             missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
@@ -1191,7 +1151,6 @@ class IndicatorCalculator:
                     'total_energy': 'sum'
                 })
                 daily_sums.rename(columns={'directional_thrust': 'daily_thrust', 'total_energy': 'daily_energy'}, inplace=True)
-
                 # 步骤2: 单独计算日内真实涨跌幅
                 daily_ohlc = df[close_col].resample('D').ohlc()
                 # 确保 ohlc 结果不为空
@@ -1213,7 +1172,6 @@ class IndicatorCalculator:
                 exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
                 
                 return pd.DataFrame({'counterparty_exhaustion_index_D': exhaustion_index})
-
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数(V2.2)时发生错误: {e}", exc_info=True)
@@ -1253,7 +1211,6 @@ class IndicatorCalculator:
                 price_range = (df['high'] - df['low']).replace(0, np.nan)
                 raw_price_action = ((df['close'] - df['open']) / price_range).fillna(0)
                 score_price_action = (raw_price_action.clip(-1, 1) + 1) / 2
-
                 # 维度四：筹码结构 (0-1分)
                 winner_rate_gain = df['total_winner_rate'].diff().fillna(0)
                 chip_breakthrough_eff = winner_rate_gain * df['dominant_peak_solidity']

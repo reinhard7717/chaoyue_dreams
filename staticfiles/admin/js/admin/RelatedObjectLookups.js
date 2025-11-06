@@ -91,27 +91,22 @@
         // After create/edit a model from the options next to the current
         // select (+ or :pencil:) update ForeignKey PK of the rest of selects
         // in the page.
-
         const path = win.location.pathname;
         // Extract the model from the popup url '.../<model>/add/' or
         // '.../<model>/<id>/change/' depending the action (add or change).
         const modelName = path.split('/')[path.split('/').length - (objId ? 4 : 3)];
         // Exclude autocomplete selects.
         const selectsRelated = document.querySelectorAll(`[data-model-ref="${modelName}"] select:not(.admin-autocomplete)`);
-
         selectsRelated.forEach(function(select) {
             if (currentSelect === select) {
                 return;
             }
-
             let option = select.querySelector(`option[value="${objId}"]`);
-
             if (!option) {
                 option = new Option(newRepr, newId);
                 select.options.add(option);
                 return;
             }
-
             option.textContent = newRepr;
             option.value = newId;
         });

@@ -25,14 +25,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function initializeFavTrendListPage() {
         // 调试点 1: 确认函数是否被调用
         console.log('[调试点 1] initializeFavTrendListPage 函数已开始执行。');
-
         const tableBody = document.getElementById('fav-trend-table-body');
         if (!tableBody) {
             console.error('[错误] 页面中未找到 ID 为 "fav-trend-table-body" 的元素，初始化失败！');
             return;
         }
         console.log('[调试点 2] 已成功获取到 tableBody 元素:', tableBody);
-
         // 将所有模态框相关的DOM元素获取操作放在函数顶层，确保它们在整个函数作用域内可用
         const modalOverlay = document.getElementById('transaction-modal-overlay');
         const modalContainer = document.getElementById('transaction-modal-container');
@@ -41,14 +39,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const transactionListTbody = document.getElementById('transaction-list-tbody');
         const transactionListLoading = document.getElementById('transaction-list-loading');
         const addTransactionForm = document.getElementById('add-transaction-form');
-
         // 使用事件委托处理表格行的所有点击事件
         tableBody.addEventListener('click', async function (event) {
             console.log('[调试点 3] tableBody 内发生点击事件。被点击的原始元素是:', event.target);
             const manageButton = event.target.closest('.manage-transactions-btn');
             const removeButton = event.target.closest('.remove-position-btn');
             console.log('[调试点 4] closest() 查找结果:', { manageButton, removeButton });
-
             if (manageButton) {
                 console.log('[分支 1] 检测到“管理”按钮被点击。');
                 event.preventDefault();
@@ -62,7 +58,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 openTransactionModal(trackerId, stockName);
                 return;
             }
-
             if (removeButton) {
                 console.log('[分支 2] 检测到“删除”按钮被点击。');
                 event.preventDefault();
@@ -102,7 +97,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             console.log('[调试信息] 点击未命中任何目标按钮。');
         });
-
         // 辅助函数：给元素添加闪烁效果
         function flashElement(element) {
             if (!element) return;
@@ -111,28 +105,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 element.classList.remove('flash-attention');
             }, 700); // 动画持续时间
         }
-
         // 核心函数：打开并填充交易管理模态框
         async function openTransactionModal(trackerId, stockName) {
             console.log(`[Modal调试 1] 进入 openTransactionModal 函数。接收到 trackerId: ${trackerId}, stockName: ${stockName}`);
-
             if (!modalOverlay || !modalContainer) {
                 console.error('[Modal错误] 无法找到模态框核心元素！模态框无法显示。');
                 showNotification('页面结构错误，无法打开管理窗口。', 'error');
                 return;
             }
-
             // 更新UI并存储状态
             modalTitle.textContent = `管理 [${stockName}] 的交易流水`;
             modalContainer.dataset.trackerId = trackerId;
             modalContainer.dataset.stockName = stockName;
             document.getElementById('form-tracker-id').value = trackerId;
-
             // 显示模态框和加载状态
             modalOverlay.style.display = 'flex';
             transactionListLoading.style.display = 'block';
             transactionListTbody.innerHTML = '';
-
             // 异步获取交易数据
             try {
                 console.log(`[Modal调试 4] 准备发起 fetch 请求获取交易流水: /dashboard/api/transactions/?tracker_id=${trackerId}`);
@@ -152,11 +141,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 console.log('[Modal调试 7] 函数执行完毕。');
             }
         }
-
         // 辅助函数：渲染交易列表
         function renderTransactionList(transactions) {
             transactionListTbody.innerHTML = ''; // 清空旧内容
-
             if (transactions.length === 0) {
                 const emptyRow = document.createElement('tr');
                 const emptyCell = document.createElement('td');
@@ -185,14 +172,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
             }
         }
-
         // 辅助函数：关闭模态框
         function closeTransactionModal() {
             if (modalOverlay) {
                 modalOverlay.style.display = 'none';
             }
         }
-
         // 为模态框的关闭按钮和遮罩层添加事件监听
         if (modalCloseBtn) {
             modalCloseBtn.addEventListener('click', closeTransactionModal);
@@ -200,7 +185,6 @@ document.addEventListener('DOMContentLoaded', function () {
         if (modalOverlay) {
             modalOverlay.addEventListener('click', (event) => { if (event.target === modalOverlay) closeTransactionModal(); });
         }
-
         // 为新增交易表单添加提交事件监听
         if (addTransactionForm) {
             addTransactionForm.addEventListener('submit', async function (event) {
@@ -224,7 +208,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     showNotification('交易添加成功！快照正在后台更新...', 'success');
                     addTransactionForm.reset();
-
                     // --- 修改代码开始 ---
                     // 原来的逻辑是刷新模态框，这会让用户困惑。
                     // 新逻辑是直接关闭模态框，提供清晰的操作完成反馈。
@@ -235,7 +218,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     // }
                     closeTransactionModal(); // 直接调用关闭模态框函数
                     // --- 修改代码结束 ---
-
                 } catch (error) {
                     showNotification(error.message, 'error');
                 } finally {
@@ -244,7 +226,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
         }
-
         // 为交易列表（用于删除）添加事件委托
         if (transactionListTbody) {
             transactionListTbody.addEventListener('click', async function (event) {
@@ -275,22 +256,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
         }
-
         // WebSocket连接，用于接收后台任务完成的通知并刷新页面
         function connectFavListWebSocket() {
             const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
             console.log('[FavList WS] 正在尝试连接 WebSocket:', wsPath);
             const socket = new WebSocket(wsPath);
-
             socket.onopen = function (e) {
                 console.log('[FavList WS] WebSocket 连接成功！');
             };
-
             socket.onmessage = function (e) {
                 const data = JSON.parse(e.data);
                 console.log('[FavList WS] 收到WebSocket消息:', data);
-
                 if (data.type === 'snapshot_rebuilt') {
                     console.log('[FavList WS] 接收到快照重建完成信号，准备刷新页面...');
                     showNotification('持仓数据已更新，页面即将刷新...', 'info', 1500);
@@ -299,17 +276,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     }, 1000);
                 }
             };
-
             socket.onclose = function (e) {
                 console.error('[FavList WS] WebSocket 连接已关闭。代码:', e.code, '原因:', e.reason, '5秒后尝试重连...');
                 setTimeout(connectFavListWebSocket, 5000);
             };
-
             socket.onerror = function (err) {
                 console.error('[FavList WS] WebSocket 发生错误:', err);
             };
         }
-
         // 启动该页面的WebSocket连接
         connectFavListWebSocket();
     }

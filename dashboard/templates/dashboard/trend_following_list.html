@@ -30,7 +30,6 @@
 {% block content %}
 <div class="dashboard-container">
     <section class="trend-list-section">
-        
         <div class="section-header-with-controls">
             <h2><span class="icon">📈</span> {{ page_title }} (共 {{ total_count }} 条记录)</h2>
             <form method="get" class="date-selector-form">
@@ -39,7 +38,6 @@
                 <button type="submit" class="btn btn-sm btn-primary">查询</button>
             </form>
         </div>
-
         <div class="filter-section">
             <div class="filter-header">
                 <strong><span class="icon">🔍</span> 激活剧本筛选:</strong>
@@ -61,7 +59,6 @@
                 {% endfor %}
             </div>
         </div>
-
         <div class="table-wrapper">
             <table class="data-table" id="trend-table">
                 <thead>

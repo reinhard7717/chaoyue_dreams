@@ -14,7 +14,6 @@ def start_django_server():
     """
     # 获取项目根目录
     project_root = Path(__file__).resolve().parent
-    
     # 构建命令
     cmd = [
         sys.executable,  # Python解释器路径
@@ -22,9 +21,7 @@ def start_django_server():
         'runserver',
         '0.0.0.0:8000'
     ]
-    
     print(f"启动Django服务器: {' '.join(cmd)}")
-    
     # 使用非阻塞方式启动
     return subprocess.Popen(
         cmd, 
@@ -39,10 +36,8 @@ def start_celery_worker():
     """
     # 获取项目根目录
     project_root = Path(__file__).resolve().parent
-    
     # 检测操作系统类型
     is_windows = platform.system().lower() == 'windows'
-    
     # 构建命令
     cmd = [
         sys.executable,  # Python解释器路径
@@ -54,16 +49,13 @@ def start_celery_worker():
         '-l',
         'info'
     ]
-    
     # Windows下的特殊参数
     if is_windows:
         cmd.extend([
             '--pool=solo',
             '--concurrency=1',
         ])
-    
     print(f"启动Celery Worker: {' '.join(cmd)}")
-    
     # 使用非阻塞方式启动
     return subprocess.Popen(
         cmd, 
@@ -78,10 +70,8 @@ def start_celery_beat():
     """
     # 获取项目根目录
     project_root = Path(__file__).resolve().parent
-    
     # 检测操作系统类型
     is_windows = platform.system().lower() == 'windows'
-    
     # 构建命令
     cmd = [
         sys.executable,  # Python解释器路径
@@ -95,9 +85,7 @@ def start_celery_beat():
         '--scheduler',
         'django_celery_beat.schedulers:DatabaseScheduler',
     ]
-    
     print(f"启动Celery Beat: {' '.join(cmd)}")
-    
     # 使用非阻塞方式启动
     return subprocess.Popen(
         cmd, 
@@ -122,24 +110,19 @@ def main():
     """
     # 设置Django环境
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'chaoyue_dreams.settings')
-    
     # 启动Django服务器
     django_process = start_django_server()
     time.sleep(2)  # 等待Django启动
-    
     # 启动Celery Worker
     worker_process = start_celery_worker()
     time.sleep(2)  # 等待Worker启动
-    
     # 启动Celery Beat
     beat_process = start_celery_beat()
-    
     processes = [
         (django_process, "Django"),
         (worker_process, "Worker"),
         (beat_process, "Beat")
     ]
-    
     try:
         # 持续打印输出
         while all(p[0].poll() is None for p in processes):
@@ -150,7 +133,6 @@ def main():
             
             if not any_output:
                 time.sleep(0.1)
-    
     except KeyboardInterrupt:
         print("\n正在关闭所有服务...")
     finally:

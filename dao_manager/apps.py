@@ -23,23 +23,18 @@ class DaoManagerConfig(AppConfig):
           3. 此方法可以根治 'EmptyDataError: No columns to parse from file' 错误。
         """
         super().ready()
-        
         token = getattr(settings, 'API_LICENCES_TUSHARE', None)
         if not token:
             logger.critical("TUSHARE_TOKEN 未在 Django settings 中配置，Tushare 初始化被跳过。")
             return
-
         try:
             home_dir = Path.home()
             tushare_dir = home_dir / ".tushare"
             token_file = tushare_dir / "token"
-
             tushare_dir.mkdir(parents=True, exist_ok=True)
-
             if not token_file.exists() or token_file.read_text() != token:
                 token_file.write_text(token)
                 current_user = os.environ.get('USER', '未知用户') 
                 logger.info(f"Tushare token 文件已为用户 '{current_user}' 在路径 '{token_file}' 成功创建/更新。")
-
         except Exception as e:
             logger.error(f"在 Django AppConfig.ready 中创建 Tushare token 文件时发生严重错误: {e}", exc_info=True)

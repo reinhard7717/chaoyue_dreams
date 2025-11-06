@@ -40,7 +40,6 @@
         const maxForms = $("#id_" + options.prefix + "-MAX_NUM_FORMS").prop("autocomplete", "off");
         const minForms = $("#id_" + options.prefix + "-MIN_NUM_FORMS").prop("autocomplete", "off");
         let addButton;
-
         /**
          * The "Add another MyModel" button below the inline forms.
          */
@@ -60,7 +59,6 @@
             }
             addButton.on('click', addInlineClickHandler);
         };
-
         const addInlineClickHandler = function(e) {
             e.preventDefault();
             const template = $("#" + options.prefix + "-empty");
@@ -83,7 +81,6 @@
             }
             // Show the remove buttons if there are more than min_num.
             toggleDeleteButtonVisibility(row.closest('.inline-group'));
-
             // Pass the new form to the post-add callback, if provided.
             if (options.added) {
                 options.added(row);
@@ -95,7 +92,6 @@
                 }
             }));
         };
-
         /**
          * The "X" button that is part of every unsaved inline.
          * (When saved, it is replaced with a "Delete" checkbox.)
@@ -117,7 +113,6 @@
             // Add delete handler for each row.
             row.find("a." + options.deleteCssClass).on('click', inlineDeleteHandler.bind(this));
         };
-
         const inlineDeleteHandler = function(e1) {
             e1.preventDefault();
             const deleteButton = $(e1.target);
@@ -160,7 +155,6 @@
                 $(forms.get(i)).find("*").each(updateElementCallback);
             }
         };
-
         const toggleDeleteButtonVisibility = function(inlineGroup) {
             if ((minForms.val() !== '') && (minForms.val() - totalForms.val()) >= 0) {
                 inlineGroup.find('.inline-deletelink').hide();
@@ -168,21 +162,17 @@
                 inlineGroup.find('.inline-deletelink').show();
             }
         };
-
         $this.each(function(i) {
             $(this).not("." + options.emptyCssClass).addClass(options.formCssClass);
         });
-
         // Create the delete buttons for all unsaved inlines:
         $this.filter('.' + options.formCssClass + ':not(.has_original):not(.' + options.emptyCssClass + ')').each(function() {
             addInlineDeleteButton($(this));
         });
         toggleDeleteButtonVisibility($this);
-
         // Create the add button, initially hidden.
         addButton = options.addButton;
         addInlineAddButton();
-
         // Show the add button if allowed to add more items.
         // Note that max_num = None translates to a blank string.
         const showAddButton = maxForms.val() === '' || (maxForms.val() - totalForms.val()) > 0;
@@ -191,7 +181,6 @@
         } else {
             addButton.parent().hide();
         }
-
         return this;
     };
 
@@ -213,7 +202,6 @@
     // Tabular inlines ---------------------------------------------------------
     $.fn.tabularFormset = function(selector, options) {
         const $rows = $(this);
-
         const reinitDateTimeShortCuts = function() {
             // Reinitialize the calendar and clock widgets by force
             if (typeof DateTimeShortcuts !== "undefined") {
@@ -221,7 +209,6 @@
                 DateTimeShortcuts.init();
             }
         };
-
         const updateSelectFilter = function() {
             // If any SelectFilter widgets are a part of the new form,
             // instantiate a new SelectFilter instance for it.
@@ -234,7 +221,6 @@
                 });
             }
         };
-
         const initPrepopulatedFields = function(row) {
             row.find('.prepopulated_field').each(function() {
                 const field = $(this),
@@ -249,7 +235,6 @@
                 }
             });
         };
-
         $rows.formset({
             prefix: options.prefix,
             addText: options.addText,
@@ -264,7 +249,6 @@
             },
             addButton: options.addButton
         });
-
         return $rows;
     };
 
@@ -277,7 +261,6 @@
                 $(this).html($(this).html().replace(/(#\d+)/g, "#" + count));
             });
         };
-
         const reinitDateTimeShortCuts = function() {
             // Reinitialize the calendar and clock widgets by force, yuck.
             if (typeof DateTimeShortcuts !== "undefined") {
@@ -285,7 +268,6 @@
                 DateTimeShortcuts.init();
             }
         };
-
         const updateSelectFilter = function() {
             // If any SelectFilter widgets were added, instantiate a new instance.
             if (typeof SelectFilter !== "undefined") {
@@ -297,7 +279,6 @@
                 });
             }
         };
-
         const initPrepopulatedFields = function(row) {
             row.find('.prepopulated_field').each(function() {
                 const field = $(this),
@@ -318,7 +299,6 @@
                 }
             });
         };
-
         $rows.formset({
             prefix: options.prefix,
             addText: options.addText,
@@ -335,7 +315,6 @@
             },
             addButton: options.addButton
         });
-
         return $rows;
     };
 

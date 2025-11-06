@@ -11,7 +11,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.SUCCESS("====== 开始迁移数据到 ConceptMaster ======"))
-        
         try:
             # --- 修改行开始: 使用同步的事务管理器 ---
             # 将事务管理放在同步的 handle 方法中
@@ -21,7 +20,6 @@ class Command(BaseCommand):
             
             
             self.stdout.write(self.style.SUCCESS("\n====== 数据迁移成功！所有操作已提交。 ======"))
-
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"迁移过程中发生严重错误: {e}"))
             self.stdout.write(self.style.WARNING("由于错误发生，数据库事务已自动回滚，未做任何更改。"))
@@ -33,7 +31,6 @@ class Command(BaseCommand):
         # 1. 清空 ConceptMaster 表，防止重复执行导致数据错误
         deleted_count, _ = await ConceptMaster.objects.all().adelete()
         self.stdout.write(f"  - 已清空 ConceptMaster 表，删除 {deleted_count} 条旧记录。")
-
         # 2. 并行执行所有来源的迁移任务
         tasks = [
             self.migrate_sw_industry(),
@@ -42,7 +39,6 @@ class Command(BaseCommand):
             self.migrate_kpl_concept(),
         ]
         results = await asyncio.gather(*tasks)
-
         total_migrated = sum(results)
         # 成功信息移到 handle 方法中，确保事务提交后才显示
         # self.stdout.write(self.style.SUCCESS(f"\n====== 数据迁移成功！共迁移 {total_migrated} 条记录。 ======"))

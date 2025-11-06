@@ -26,7 +26,6 @@ class FundFlowDao(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
         self.data_format_process = FundFlowFormatProcess(cache_manager_instance)
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
@@ -87,7 +86,6 @@ class FundFlowDao(BaseDAO):
         if start_date and end_date and start_date > end_date:
             logger.error(f"日期范围无效：起始日期 {start_date} 不能晚于结束日期 {end_date}。任务终止。")
             return
-
         if start_date and end_date:
             logger.info(f"接收到范围任务，将对 {start_date} 到 {end_date} 的数据采用客户端分块策略处理。")
         elif trade_date:
@@ -96,7 +94,6 @@ class FundFlowDao(BaseDAO):
         else:
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
-
         # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10
@@ -105,15 +102,12 @@ class FundFlowDao(BaseDAO):
             current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
             date_chunks.append((current_chunk_start, current_chunk_end))
             current_chunk_end = current_chunk_start - timedelta(days=1)
-        
         all_dfs_for_market = []
-
         # --- 3. [重构] 遍历分块并使用分页获取数据 ---
         for chunk_start, chunk_end in date_chunks:
             chunk_start_str = chunk_start.strftime('%Y%m%d')
             chunk_end_str = chunk_end.strftime('%Y%m%d')
             print(f"DAO: 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
-
             offset = 0
             limit = 6000
             
@@ -134,7 +128,6 @@ class FundFlowDao(BaseDAO):
                     logger.error(f"Tushare API调用失败 (moneyflow, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
                     await asyncio.sleep(5)
                     df = pd.DataFrame()
-
                 if df.empty:
                     break
                 
@@ -144,29 +137,23 @@ class FundFlowDao(BaseDAO):
                     break
                 
                 offset += limit
-        
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何资金流向数据。")
             return
-
         # --- 4. [保留] 向量化数据处理与入库 (此部分逻辑完全不变) ---
         # print("DAO: 所有分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
-        
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
             logger.info("数据关联股票基础信息后为空，任务结束。")
             return
-
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_model_by_code)
-
         total_rows = 0
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
@@ -174,14 +161,12 @@ class FundFlowDao(BaseDAO):
             
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
-
             await self._save_all_to_db_native_upsert(
                 model_class=model,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
             total_rows += len(data_list)
-
         # print(f"所有历史日级资金流向数据处理完成，共保存 {total_rows} 条记录。")
         return
 
@@ -246,7 +231,6 @@ class FundFlowDao(BaseDAO):
         else:
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
-
         # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10  # 每个分块的大小（天数）
@@ -255,15 +239,12 @@ class FundFlowDao(BaseDAO):
             current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
             date_chunks.append((current_chunk_start, current_chunk_end))
             current_chunk_end = current_chunk_start - timedelta(days=1)
-        
         all_dfs_for_market = [] # 用于收集所有分块的数据
-
         # --- 3. [重构] 遍历分块并使用分页获取数据 ---
         for chunk_start, chunk_end in date_chunks:
             chunk_start_str = chunk_start.strftime('%Y%m%d')
             chunk_end_str = chunk_end.strftime('%Y%m%d')
             print(f"DAO: 开始处理同花顺资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
-
             offset = 0
             limit = 5000 # Tushare建议的单次最大limit
             
@@ -283,7 +264,6 @@ class FundFlowDao(BaseDAO):
                     logger.error(f"Tushare API调用失败 (moneyflow_ths, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
                     await asyncio.sleep(5) # 出错时等待更长时间
                     df = pd.DataFrame()
-
                 if df.empty:
                     break # 当前分块的当前分页无数据，结束此分块的分页
                 
@@ -293,32 +273,26 @@ class FundFlowDao(BaseDAO):
                     break # 当前分块的数据已全部获取完毕
                 
                 offset += limit
-        
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何同花顺资金流向数据。")
             return
-
         # --- 4. [重构] 向量化数据处理与入库 ---
         print("DAO: 所有同花顺分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         # 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
-        
         # 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
             logger.info("数据关联股票基础信息后为空，任务结束。")
             return
-
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 调用 get_fund_flow_ths_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_ths_model_by_code)
-
         total_rows = 0
         # 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
@@ -328,14 +302,12 @@ class FundFlowDao(BaseDAO):
             # 准备最终要存入数据库的数据，丢弃辅助列
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
-
             await self._save_all_to_db_native_upsert(
                 model_class=model,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
             total_rows += len(data_list)
-
         print(f"所有历史日级资金流向数据(同花顺)处理完成，共保存 {total_rows} 条记录。")
         return
 
@@ -400,7 +372,6 @@ class FundFlowDao(BaseDAO):
         else:
             start_date = end_date = date.today()
             logger.info(f"未提供日期，默认获取今日数据: {start_date}")
-
         # --- 2. 客户端日期分块逻辑 ---
         date_chunks = []
         chunk_size_days = 10  # 每个分块的大小（天数）
@@ -409,15 +380,12 @@ class FundFlowDao(BaseDAO):
             current_chunk_start = max(start_date, current_chunk_end - timedelta(days=chunk_size_days - 1))
             date_chunks.append((current_chunk_start, current_chunk_end))
             current_chunk_end = current_chunk_start - timedelta(days=1)
-        
         all_dfs_for_market = [] # 用于收集所有分块的数据
-
         # --- 3. [重构] 遍历分块并使用分页获取数据 ---
         for chunk_start, chunk_end in date_chunks:
             chunk_start_str = chunk_start.strftime('%Y%m%d')
             chunk_end_str = chunk_end.strftime('%Y%m%d')
             print(f"DAO: 开始处理东方财富资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
-
             offset = 0
             limit = 5000 # Tushare建议的单次最大limit
             
@@ -437,7 +405,6 @@ class FundFlowDao(BaseDAO):
                     logger.error(f"Tushare API调用失败 (moneyflow_dc, chunk: {chunk_start_str}-{chunk_end_str}): {e}")
                     await asyncio.sleep(5) # 出错时等待更长时间
                     df = pd.DataFrame()
-
                 if df.empty:
                     break # 当前分块的当前分页无数据，结束此分块的分页
                 
@@ -447,32 +414,26 @@ class FundFlowDao(BaseDAO):
                     break # 当前分块的数据已全部获取完毕
                 
                 offset += limit
-        
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何东方财富资金流向数据。")
             return
-
         # --- 4. [重构] 向量化数据处理与入库 ---
         print("DAO: 所有东方财富分块数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs_for_market, ignore_index=True)
         combined_df.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         # 一次性批量获取所有涉及的股票信息
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
-        
         # 使用向量化操作进行数据关联和清洗
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
             logger.info("数据关联股票基础信息后为空，任务结束。")
             return
-
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         # 调用 get_fund_flow_dc_model_by_code 进行动态分表模型匹配
         combined_df['target_model'] = combined_df['ts_code'].apply(get_fund_flow_dc_model_by_code)
-
         total_rows = 0
         # 按目标模型（即目标数据表）进行分组并批量保存
         for model, group_df in combined_df.groupby('target_model', sort=False):
@@ -482,14 +443,12 @@ class FundFlowDao(BaseDAO):
             # 准备最终要存入数据库的数据，丢弃辅助列。注意：'name'字段在DC模型中是需要的，所以不丢弃。
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
-
             await self._save_all_to_db_native_upsert(
                 model_class=model,
                 data_list=data_list,
                 unique_fields=['stock', 'trade_time']
             )
             total_rows += len(data_list)
-
         print(f"所有历史日级资金流向数据(东方财富)处理完成，共保存 {total_rows} 条记录。")
         return
 
@@ -502,14 +461,12 @@ class FundFlowDao(BaseDAO):
         model = get_advanced_fund_flow_metrics_model_by_code(stock_code)
         if not model:
             return pd.DataFrame()
-
         # 构建查询
         end_date = trade_date or datetime.date.today()
         qs = model.objects.filter(
             stock__stock_code=stock_code,
             trade_time__lte=end_date
         ).order_by('-trade_time')[:limit]
-
         # 异步执行查询并返回DataFrame
         df = await sync_to_async(lambda: pd.DataFrame.from_records(qs.values()))()
         if not df.empty:
@@ -527,7 +484,6 @@ class FundFlowDao(BaseDAO):
         3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-        
         # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
@@ -618,12 +574,10 @@ class FundFlowDao(BaseDAO):
         3. 【修正逻辑错误】修正了unique_fields参数，使其与模型定义一致。
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
-
         # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         # 2. 分页拉取并处理数据
         offset = 0
         limit = 6000
@@ -697,11 +651,9 @@ class FundFlowDao(BaseDAO):
             data_list=all_data_to_save,
             unique_fields=['dc_index', 'trade_time']
         )
-
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 历史板块资金流向数据（东方财富），result: {result}")
         return result
-    
     # ============== 行业资金流向数据 - 同花顺 ==============
     @sync_to_async
     def get_industry_fund_flow(self, industry_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
@@ -728,17 +680,14 @@ class FundFlowDao(BaseDAO):
         4. 【代码健壮性】增加了对空数据和无效关联的过滤，使数据管道更稳定。
         """
         
-
         # 1. 准备API请求参数 
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         # 2. 分页拉取并处理数据
         offset = 0
         limit = 5000
         all_data_to_save = [] # 用于累积所有批次处理好的数据
-
         while True:
             if offset >= 100000:
                 logger.warning(f"行业资金流向数据 - 同花顺 offset已达10万，停止拉取。")
@@ -763,7 +712,6 @@ class FundFlowDao(BaseDAO):
                     break
                 offset += limit
                 continue
-
             # 3.2 向量化处理外键关联 (核心性能优化)
             unique_codes = df['ts_code'].unique().tolist()
             # 假设 industry_dao 中有批量获取的方法，这是最佳实践
@@ -779,7 +727,6 @@ class FundFlowDao(BaseDAO):
                     break
                 offset += limit
                 continue
-
             # 3.3 向量化数据类型转换
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
             
@@ -828,7 +775,6 @@ class FundFlowDao(BaseDAO):
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else ""
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         # 2. 分页拉取数据
         offset = 0
         limit = 5000 # Tushare建议的单次最大limit
@@ -850,7 +796,6 @@ class FundFlowDao(BaseDAO):
             except Exception as e:
                 logger.error(f"Tushare API调用失败 (moneyflow_mkt_dc): {e}")
                 break
-
             if df.empty:
                 break
             
@@ -859,27 +804,21 @@ class FundFlowDao(BaseDAO):
             if len(df) < limit:
                 break
             offset += limit
-        
         if not all_dfs:
             logger.info("未获取到任何大盘资金流向数据。")
             return {}
-
         # 3. 向量化数据处理
         combined_df = pd.concat(all_dfs, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
-        
         # trade_time 是 trade_date 转换而来，不再需要 stock 关联
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
-        
         # 将Pandas的NaN转换为Python的None以适应数据库
         df_processed = combined_df.drop(columns=['trade_date']).where(pd.notnull(combined_df), None)
         data_dicts = df_processed.to_dict('records')
-
         if not data_dicts:
             logger.info("处理后无有效大盘资金流向数据可供保存。")
             return {}
-
         # 4. 批量保存
         # unique_fields 应该是 'trade_time'，而不是 'stock', 'trade_time'
         result =  await self._save_all_to_db_native_upsert(
@@ -887,7 +826,6 @@ class FundFlowDao(BaseDAO):
             data_list=data_dicts,
             unique_fields=['trade_time']
         )
-        
         date_range_info = f"trade_date={trade_date_str}" if trade_date_str else f"start={start_date_str}, end={end_date_str}"
         print(f"完成 {date_range_info} 历史大盘资金流向数据（东方财富），result: {result}")
         return result
@@ -980,10 +918,8 @@ class FundFlowDao(BaseDAO):
         qs = TopList.objects.filter(trade_date__range=(start_date, end_date))
         if stock_codes:
             qs = qs.filter(stock__stock_code__in=stock_codes)
-        
         # 使用select_related优化查询
         qs = qs.select_related('stock')
-        
         # 定义需要返回的字段
         fields_to_get = [
             'trade_date',
@@ -992,9 +928,7 @@ class FundFlowDao(BaseDAO):
             'l_buy',      # 龙虎榜总买入
             'l_sell'      # 龙虎榜总卖出
         ]
-        
         data_list = [item async for item in qs.values(*fields_to_get)]
-        
         if not data_list:
             return pd.DataFrame()
             
@@ -1108,15 +1042,12 @@ class FundFlowDao(BaseDAO):
             qs = qs.filter(stock__stock_code__in=stock_codes)
             
         qs = qs.select_related('stock')
-        
         fields_to_get = [
             'trade_date',
             'stock__stock_code',
             'net_buy' # 机构净买入额
         ]
-        
         data_list = [item async for item in qs.values(*fields_to_get)]
-        
         if not data_list:
             return pd.DataFrame()
             
@@ -1138,7 +1069,6 @@ class FundFlowDao(BaseDAO):
         if not hasattr(self, 'cache_manager'):
             logger.error("DAO实例中未找到 cache_manager，无法执行API调用限制。")
             return
-        
         try:
             redis_client = await self.cache_manager._ensure_client()
             if not redis_client:
@@ -1146,27 +1076,22 @@ class FundFlowDao(BaseDAO):
         except Exception as e:
             logger.error(f"初始化Redis客户端以进行API限制检查时失败: {e}", exc_info=True)
             return
-
         # 定义一个每日更新的、用于API计数器的Redis键
         api_limit_key = f"api_limit:hm_detail:{date.today().isoformat()}"
         API_DAILY_LIMIT = 2 # 每日API调用上限
-
         # --- 2. 调整分页获取逻辑以集成限制检查 ---
         all_dfs = []
         offset = 0
         limit = 2000
-        
         while True:
             # 在每次API调用前，检查并更新调用次数
             try:
                 # 对Redis键执行原子+1操作，返回操作后的值
                 current_count = await redis_client.incr(api_limit_key)
-
                 # 如果是当天的第一次调用 (值为1)，则为该键设置过期时间，确保第二天计数器自动重置
                 if current_count == 1:
                     # 设置25小时过期，比一天稍长，可避免午夜时区的微小误差
                     await redis_client.expire(api_limit_key, 3600 * 25)
-
                 # 检查是否已超出每日限制
                 if current_count > API_DAILY_LIMIT:
                     logger.warning(f"接口 hm_detail 今日调用次数已达上限({API_DAILY_LIMIT}次)，Key: {api_limit_key}")
@@ -1195,7 +1120,6 @@ class FundFlowDao(BaseDAO):
                 logger.error(f"Tushare API调用失败 (hm_detail): {e}")
                 await asyncio.sleep(5)
                 df = pd.DataFrame()
-
             if df.empty:
                 break
             
@@ -1205,25 +1129,21 @@ class FundFlowDao(BaseDAO):
                 break
             
             offset += limit
-        
         # --- 后续的数据处理逻辑保持不变 ---
         if not all_dfs:
             logger.info("未获取到任何游资明细数据。")
             return
-
         print("DAO: 数据获取完毕，开始进行数据整合与处理...")
         combined_df = pd.concat(all_dfs, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'ts_code', 'hm_name'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', 'None', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['ts_code', 'trade_date', 'hm_name'], inplace=True)
-
         # 更新游资名录 (HmList)
         hm_list_df = combined_df[['hm_name', 'hm_orgs']].copy()
         hm_list_df.drop_duplicates(subset=['hm_name'], keep='first', inplace=True)
         hm_list_df.rename(columns={'hm_name': 'name', 'hm_orgs': 'orgs'}, inplace=True)
         hm_list_df['orgs'] = hm_list_df['orgs'].fillna('')
         hm_list_data = hm_list_df.to_dict('records')
-
         if hm_list_data:
             print(f"DAO: 准备更新游资名录，共 {len(hm_list_data)} 条...")
             await self._save_all_to_db_native_upsert(
@@ -1232,38 +1152,30 @@ class FundFlowDao(BaseDAO):
                 unique_fields=['name']
             )
             print(f"DAO: 游资名录更新完成。")
-
         # 处理并保存游资每日明细 (HmDetail)
         all_ts_codes = combined_df['ts_code'].unique().tolist()
         stock_map = await self.stock_basic_dao.get_stocks_by_codes(all_ts_codes)
-        
         combined_df['stock'] = combined_df['ts_code'].map(stock_map)
         combined_df.dropna(subset=['stock'], inplace=True)
         if combined_df.empty:
             logger.info("游资数据关联股票基础信息后为空，任务结束。")
             return
-
         combined_df['trade_date'] = pd.to_datetime(combined_df['trade_date']).dt.date
         amount_cols = ['buy_amount', 'sell_amount', 'net_amount']
         for col in amount_cols:
             combined_df[col] = pd.to_numeric(combined_df[col], errors='coerce').fillna(0) * 10000
-
         final_df = combined_df.drop(columns=['ts_code'])
         data_list = final_df.to_dict('records')
-
         if not data_list:
             logger.info("最终处理后没有可供保存的游资数据。")
             return
-
         await self._save_all_to_db_native_upsert(
             model_class=HmDetail,
             data_list=data_list,
             unique_fields=['trade_date', 'stock', 'hm_name']
         )
-        
         print(f"所有游资每日明细数据处理完成，共处理/保存 {len(data_list)} 条记录。")
         return
-    
     async def get_hm_detail_data(self, start_date: date, end_date: date, stock_codes: list[str] = None, hm_names: list[str] = None) -> pd.DataFrame:
         """
         查询游资每日明细数据
@@ -1274,10 +1186,8 @@ class FundFlowDao(BaseDAO):
         :return: 包含查询结果的DataFrame
         """
         # print(f"DAO: 开始查询游资数据，日期范围: {start_date} to {end_date}, 股票: {stock_codes}, 游资: {hm_names}")
-        
         # 构建基础查询
         qs = HmDetail.objects.filter(trade_date__range=(start_date, end_date))
-        
         # 应用可选的股票代码过滤
         if stock_codes:
             qs = qs.filter(stock__stock_code__in=stock_codes)
@@ -1288,7 +1198,6 @@ class FundFlowDao(BaseDAO):
             
         # 使用select_related优化查询，避免N+1问题
         qs = qs.select_related('stock')
-        
         # 定义需要返回的字段
         fields_to_get = [
             'trade_date',
@@ -1300,10 +1209,8 @@ class FundFlowDao(BaseDAO):
             'hm_name',
             'hm_orgs'
         ]
-        
         # 异步执行查询并转换为列表
         data_list = [item async for item in qs.values(*fields_to_get)]
-        
         if not data_list:
             print("DAO: 未查询到符合条件的游资数据。")
             return pd.DataFrame()
@@ -1311,7 +1218,6 @@ class FundFlowDao(BaseDAO):
         # 将结果转换为DataFrame并重命名列以保持一致性
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
-        
         # print(f"DAO: 查询完成，共返回 {len(df)} 条记录。")
         return df
 

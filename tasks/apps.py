@@ -22,6 +22,5 @@ class TasksConfig(AppConfig):
                 print("WARNING: TUSHARE_TOKEN not found in Django settings. Tushare API calls may fail.")
         except Exception as e:
             print(f"ERROR: Failed to set Tushare token during app startup: {e}")
-        
         # 如果您有信号（signals）等，也应该在这里导入
         # import tasks.signals

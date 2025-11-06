@@ -30,10 +30,8 @@ class StockInfo(models.Model):
         db_table = 'stock_info'
         ordering = ['stock_code']
         managed = True
-    
     def __str__(self):
         return f"{self.stock_code}-{self.stock_name}"
-    
     def __code__(self):
         return self.stock_code
 

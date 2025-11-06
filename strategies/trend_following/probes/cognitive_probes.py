@@ -96,12 +96,10 @@ class CognitiveProbes:
         recalc_raw_risk = max(euphoric_risk_score, distribution_risk_score, structural_risk_score)
         print(f"    - 【探针重算原始风险】: max({euphoric_risk_score:.2f}, {distribution_risk_score:.2f}, {structural_risk_score:.2f}) = {recalc_raw_risk:.4f}")
         
-
         print("\n  [链路层 4] 趋势韧性神盾解剖 (Aegis Shield Dissection - 双支柱架构)")
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
         weights = get_param_value(p_shield.get('fusion_weights'), {})
-        
         # --- 支柱一: 静态韧性 ---
         print("    --- [神盾支柱 I: 静态韧性 (厚度)] ---")
         pillars = {
@@ -118,7 +116,6 @@ class CognitiveProbes:
                 static_resilience_series += score_series * (weight / total_weight)
         recalc_static_resilience = get_val(static_resilience_series, probe_date)
         print(f"      - 【静态韧性分】: {recalc_static_resilience:.4f}")
-
         # --- 支柱二: 动态动能 ---
         print("    --- [神盾支柱 II: 动态动能 (锐度)] ---")
         direct_trend_health_series = engine._calculate_cognitive_trend_health(df)
@@ -136,12 +133,10 @@ class CognitiveProbes:
             get_val(acceleration_score, probe_date, 0.0) * w_acceleration
         )
         print(f"      - 【动态动能加成】: {recalc_dynamic_bonus:.4f}")
-
         # --- 融合 ---
         recalc_shield_score = (recalc_static_resilience * (1 + recalc_dynamic_bonus)).clip(0, 1)
         print(f"    - 【探针重算神盾总分】: {recalc_static_resilience:.4f} * (1 + {recalc_dynamic_bonus:.4f}) = {recalc_shield_score:.4f}")
         
-
         print("\n  [链路层 5] 最终风险裁决 (Final Risk Adjudication)")
         recalc_final_score = recalc_raw_risk * (1.0 - recalc_shield_score)
         print(f"    - 【探针重算最终风险】: {recalc_raw_risk:.4f} * (1.0 - {recalc_shield_score:.4f}) = {recalc_final_score:.4f}")
@@ -313,7 +308,6 @@ class CognitiveProbes:
         capital_flight_raw = df.get('main_force_net_flow_consensus_sum_5d_D', pd.Series(0.0, index=df.index)).clip(upper=0).abs()
         capital_flight_fused = mtf_fuse(capital_flight_raw)
         print(f"    - [证据一: 主力持续出逃] -> 最终证据分: {get_val(capital_flight_fused, probe_date):.4f}")
-
         # 证据二: 收缩盘整 (SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION)
         contraction_consolidation_score = atomic_states.get('SCORE_BEHAVIOR_CONTRACTION_CONSOLIDATION', pd.Series(0.0, index=df.index))
         print(f"    - [证据二: 收缩盘整] -> 最终证据分: {get_val(contraction_consolidation_score, probe_date):.4f}")
@@ -322,16 +316,13 @@ class CognitiveProbes:
         vol_contraction = normalize_score(df['volume_D'], df.index, norm_window_behavior, ascending=False)
         price_stagnation = normalize_score(df['pct_change_D'].abs(), df.index, norm_window_behavior, ascending=False)
         print(f"      - (构成: 成交量萎缩 {get_val(vol_contraction, probe_date):.2f} * 价格波动收窄 {get_val(price_stagnation, probe_date):.2f})")
-        
         buyer_apathy_raw = 1.0 - df.get('realized_support_intensity_D', pd.Series(0.0, index=df.index))
         buyer_apathy_fused = mtf_fuse(buyer_apathy_raw)
         print(f"    - [证据三: 买盘真空] -> 最终证据分: {get_val(buyer_apathy_fused, probe_date):.4f}")
         print("\n  [链路层 3] 净化后的融合与裁决 (Purified Fusion & Adjudication)")
         weights = [0.4, 0.4, 0.2]
-
         # 更新融合的组件列表
         components = [capital_flight_fused, contraction_consolidation_score, buyer_apathy_fused]
-        
         stacked_scores = np.stack([c.values for c in components], axis=0)
         purified_snapshot_values = np.average(stacked_scores, axis=0, weights=np.array(weights))
         purified_snapshot_score = pd.Series(purified_snapshot_values, index=df.index)

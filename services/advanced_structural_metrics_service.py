@@ -98,7 +98,6 @@ class AdvancedStructuralMetricsService:
         MetricsModel = get_advanced_structural_metrics_model_by_code(stock_code)
         last_metric_date = None
         fetch_start_date = None
-
         if start_date_str:
             try:
                 start_date_obj = datetime.strptime(start_date_str, '%Y-%m-%d').date()
@@ -107,7 +106,6 @@ class AdvancedStructuralMetricsService:
                 fetch_start_date = start_date_obj - timedelta(days=self.max_lookback_days)
             except (ValueError, TypeError):
                 is_incremental = True # 如果日期格式错误，退化为标准增量模式
-
         if is_incremental and not start_date_str:
             @sync_to_async(thread_sensitive=True)
             def get_latest_metric_async(model, stock_info_obj):
@@ -489,7 +487,6 @@ class AdvancedStructuralMetricsService:
         # 引入模型的排除列表
         CORE_METRICS_TO_DERIVE = list(BaseAdvancedStructuralMetrics.CORE_METRICS.keys())
         SLOPE_ACCEL_EXCLUSIONS = BaseAdvancedStructuralMetrics.SLOPE_ACCEL_EXCLUSIONS
-        
         ACCEL_WINDOW = 2
         UNIFIED_PERIODS = [1, 5, 13, 21, 55]
         for col in CORE_METRICS_TO_DERIVE:
@@ -613,7 +610,6 @@ class AdvancedStructuralMetricsService:
         # 确保边界是价格区间的精确边界
         val = vp_sorted_by_price.index[low_idx].left
         vah = vp_sorted_by_price.index[high_idx].right
-        
         return vah, val
 
     def _calculate_gini(self, array: np.ndarray) -> float:

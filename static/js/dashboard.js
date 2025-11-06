@@ -76,7 +76,6 @@ document.addEventListener('DOMContentLoaded', function () {
     function initializeSearchFunctionality() {
         // 错误根源：尝试获取只在主控台页面存在的搜索输入框
         const searchInput = document.getElementById('searchInput');
-
         // 关键修复：添加一个 "卫兵子句"
         // 在尝试为 searchInput 添加任何事件监听器之前，首先检查它是否存在。
         // 如果 searchInput 为 null（即当前页面不是主控台页面），则函数直接返回，不执行后续代码。
@@ -85,10 +84,8 @@ document.addEventListener('DOMContentLoaded', function () {
             console.log('[dashboard.js] Search input not found on this page. Skipping search initialization.');
             return;
         }
-
         // 只有在 searchInput 元素存在时，才会执行以下代码
         console.log('[dashboard.js] Search input found. Initializing search functionality...');
-
         // 假设这里是您原来版本中为搜索框、结果容器等添加事件监听器的代码
         // 例如:
         // const searchResultsContainer = document.querySelector('.search-results-container');

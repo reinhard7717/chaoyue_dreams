@@ -13,13 +13,11 @@
         */
         return this.each(function() {
             const prepopulatedField = $(this);
-
             const populate = function() {
                 // Bail if the field's value has been changed by the user
                 if (prepopulatedField.data('_changed')) {
                     return;
                 }
-
                 const values = [];
                 $.each(dependencies, function(i, field) {
                     field = $(field);
@@ -29,12 +27,10 @@
                 });
                 prepopulatedField.val(URLify(values.join(' '), maxLength, allowUnicode));
             };
-
             prepopulatedField.data('_changed', false);
             prepopulatedField.on('change', function() {
                 prepopulatedField.data('_changed', true);
             });
-
             if (!prepopulatedField.val()) {
                 $(dependencies.join(',')).on('keyup change focus', populate);
             }

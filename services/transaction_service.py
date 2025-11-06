@@ -27,7 +27,6 @@ class TransactionService:
                 tracker = PositionTracker.objects.select_for_update().get(id=tracker_id)
                 # 增加按 created_at 排序，确保同一天内录入的交易顺序正确
                 transactions = tracker.transactions.order_by('transaction_date', 'created_at')
-
                 current_quantity = Decimal(0)
                 total_cost = Decimal(0)
                 # 使用一个在循环中迭代的平均成本变量
@@ -71,7 +70,6 @@ class TransactionService:
             rebuild_snapshots_for_tracker_task.delay(tracker.id)
             logger.info(f"成功重新计算 Tracker {tracker_id} 的状态并触发快照重建。")
             return True
-
         except PositionTracker.DoesNotExist:
             logger.error(f"尝试重新计算时未找到 Tracker ID: {tracker_id}")
             return False

@@ -402,106 +402,58 @@
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "cn_name": "【认知剧本】主力打压吸筹",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】主力通过打压价格，在下跌过程中吸收恐慌盘的战术剧本上演的后验概率。"
+            "type": "dynamic",
+            "score": 480,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过打压价格吸筹的战术剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
             "cn_name": "【认知剧本】主力拉升抢筹",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】主力通过快速拉升价格，不计成本抢夺筹码的战术剧本上演的后验概率。"
+            "type": "dynamic",
+            "score": 600,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力通过快速拉升抢夺筹码的战术剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
             "cn_name": "【认知剧本】恐慌投降反转",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】市场在经历恐慌性抛售后，出现V型反转的战术剧本上演的后验概率。"
+            "type": "positional",
+            "score": 900,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演市场在恐慌抛售后V型反转的战术剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
             "cn_name": "【认知风险】高位派发",
             "category": "认知层-风险",
             "type": "risk",
-            "description": "【贝叶斯推演】主力在价格高位，通过放量滞涨等手段向散户派发筹码的风险剧本上演的后验概率。"
+            "penalty_weight": -1500,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演主力在高位派发筹码的风险剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
             "cn_name": "【认知剧本】龙头苏醒",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】沉寂已久的龙头股被主力资金重新激活，并率先突破关键阻力位的“苏醒”剧本上演的后验概率。"
+            "type": "dynamic",
+            "score": 800,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演龙头股被主力资金重新激活并率先突破的“苏醒”剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
             "cn_name": "【认知剧本】板块轮动先锋",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】资金从旧热点流出，并率先挖掘冷门板块中个股的“轮动切换”剧本上演的后验概率。"
+            "type": "dynamic",
+            "score": 500,
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演资金从旧热点流出并挖掘冷门板块的“轮动切换”剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_TREND_EXHAUSTION": {
             "cn_name": "【认知风险】趋势衰竭",
             "category": "认知层-风险",
             "type": "risk",
-            "description": "【贝叶斯推演 V2.1】主升浪末期，价格虽在高位但内在上涨动能已严重衰竭的风险剧本上演的后验概率。"
+            "penalty_weight": -2500,
+            "description": "【贝叶斯推演 V2.1】基于动态证据，推演主升浪末期内在上涨动能已严重衰竭的风险剧本上演的后验概率。"
         },
         "COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION": {
             "cn_name": "【认知剧本】能量压缩爆发",
             "category": "认知层-剧本",
-            "type": "playbook",
-            "description": "【贝叶斯推演】股价波动率和成交量被压缩到极致，即将发生能量剧烈释放的“临界状态”剧本上演的后验概率。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
-            "cn_name": "【锻造剧本】主力打压吸筹",
-            "category": "认知层-锻造",
-            "type": "dynamic",
-            "score": 480,
-            "description": "对“主力打压吸筹”剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_CHASING_ACCUMULATION": {
-            "cn_name": "【锻造剧本】主力拉升抢筹",
-            "category": "认知层-锻造",
-            "type": "dynamic",
-            "score": 600,
-            "description": "对“主力拉升抢筹”剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_CAPITULATION_REVERSAL": {
-            "cn_name": "【锻造剧本】恐慌投降反转",
-            "category": "认知层-锻造",
-            "type": "positional",
-            "score": 900,
-            "description": "对“恐慌投降反转”剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_RISK_DISTRIBUTION_AT_HIGH": {
-            "cn_name": "【锻造风险】高位派发",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -1500,
-            "description": "对“高位派发”风险剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
-            "cn_name": "【锻造剧本】龙头苏醒",
-            "category": "认知层-锻造",
-            "type": "dynamic",
-            "score": 800,
-            "description": "对“龙头苏醒”剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
-            "cn_name": "【锻造剧本】板块轮动先锋",
-            "category": "认知层-锻造",
-            "type": "dynamic",
-            "score": 500,
-            "description": "对“板块轮动先锋”剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_RISK_TREND_EXHAUSTION": {
-            "cn_name": "【锻造风险】趋势衰竭",
-            "category": "认知层-风险",
-            "type": "risk",
-            "penalty_weight": -2500,
-            "description": "对“趋势衰竭”风险剧本的后验概率进行时空锻造后的动态分数。"
-        },
-        "COGNITIVE_FORGED_PLAYBOOK_ENERGY_COMPRESSION": {
-            "cn_name": "【锻造剧本】能量压缩爆发",
-            "category": "认知层-锻造",
             "type": "positional",
             "score": 750,
-            "description": "对“能量压缩爆发”剧本的后验概率进行时空锻造后的动态分数。"
+            "description": "【贝叶斯推演 V2.0】基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",

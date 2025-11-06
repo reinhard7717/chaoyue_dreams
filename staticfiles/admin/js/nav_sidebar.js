@@ -10,7 +10,6 @@
         }
         main.classList.toggle('shifted', navSidebarIsOpen === 'true');
         navSidebar.setAttribute('aria-expanded', navSidebarIsOpen);
-
         toggleNavSidebar.addEventListener('click', function() {
             if (navSidebarIsOpen === 'true') {
                 navSidebarIsOpen = 'false';
@@ -32,7 +31,6 @@
         navSidebar.querySelectorAll('th[scope=row] a').forEach((container) => {
             options.push({title: container.innerHTML, node: container});
         });
-
         function checkValue(event) {
             let filterValue = event.target.value;
             if (filterValue) {
@@ -62,12 +60,10 @@
             }
             sessionStorage.setItem('django.admin.navSidebarFilterValue', filterValue);
         }
-
         const nav = document.getElementById('nav-filter');
         nav.addEventListener('change', checkValue, false);
         nav.addEventListener('input', checkValue, false);
         nav.addEventListener('keyup', checkValue, false);
-
         const storedValue = sessionStorage.getItem('django.admin.navSidebarFilterValue');
         if (storedValue) {
             nav.value = storedValue;

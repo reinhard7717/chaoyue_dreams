@@ -79,25 +79,19 @@ def main():
 
     for item_name in items_to_process:
         stock_code_path = os.path.join(STRATEGY_DATA_DIR, item_name)
-
         # 检查是否是目录
         if os.path.isdir(stock_code_path):
             prepared_data_path = os.path.join(stock_code_path, PREPARED_DATA_SUBDIR)
-
             # 检查是否存在 prepared_data 子目录
             if os.path.isdir(prepared_data_path):
                 print(f"INFO: Checking {prepared_data_path}")
-
                 # --- 检查必需的特定文件是否存在 ---
                 files_in_prepared_data = set(os.listdir(prepared_data_path))
-
                 if not REQUIRED_FILENAMES.issubset(files_in_prepared_data):
                     missing_files = REQUIRED_FILENAMES - files_in_prepared_data
                     print(f"INFO: Skipping {prepared_data_path}: Missing required specific files: {missing_files}")
                     continue
-
                 print(f"INFO: All required specific files found in {prepared_data_path}.")
-
                 # 遍历 prepared_data 目录，收集所有 .npz、.save 和 .json 文件的相对路径
                 for root, _, files in os.walk(prepared_data_path):
                     for file in files:
@@ -122,7 +116,6 @@ def main():
         # 切换到 STRATEGY_DATA_DIR 目录，以便 7z 使用相对路径
         os.chdir(STRATEGY_DATA_DIR)
         print(f"INFO: Changed current directory to {os.getcwd()}")
-
         # 执行 7z 命令
         result = subprocess.run(seven_zip_command, capture_output=True, text=True, check=True)
         print("INFO: 7z command executed successfully.")

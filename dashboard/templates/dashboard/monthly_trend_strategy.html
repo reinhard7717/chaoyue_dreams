@@ -60,7 +60,6 @@
                 </tbody>
             </table>
         </div>
-        
         {# --- 使用 Django Paginator 的标准方式重构分页控件，但保留您原有的 class --- #}
         <div class="pagination">
             {% if page_obj.has_other_pages %}
@@ -68,9 +67,7 @@
                     <a href="?page=1">&laquo; 首页</a>
                     <a href="?page={{ page_obj.previous_page_number }}">上一页</a>
                 {% endif %}
-
                 <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
-
                 {% if page_obj.has_next %}
                     <a href="?page={{ page_obj.next_page_number }}">下一页</a>
                     <a href="?page={{ page_obj.paginator.num_pages }}">末页 &raquo;</a>

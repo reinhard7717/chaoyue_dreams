@@ -29,24 +29,19 @@ class IntradayVWAPAnalyzer:
         """
         if not self.enabled or timeframe not in self.apply_on or df.empty:
             return {}
-
         vwap_features = {}
         vwap_col = f"vwap_{timeframe.replace('min','')}"
         if vwap_col not in df.columns or len(df) < self.vwap_ma_period + 1:
             return {}
-
         current_kline = df.iloc[-1]
         current_vwap = current_kline[vwap_col]
-
         if pd.isna(current_vwap) or current_vwap == 0:
             return {}
-
         # VWAP乖离率
         vwap_deviation = (current_kline['close'] - current_vwap) / current_vwap
         vwap_features["VWAP_DEVIATION_PCT"] = vwap_deviation # 新增行：返回量化值
         vwap_features["PRICE_ABOVE_VWAP_SIGNIFICANTLY"] = 1.0 if vwap_deviation > self.vwap_deviation_threshold_pct else 0.0
         vwap_features["PRICE_BELOW_VWAP_SIGNIFICANTLY"] = 1.0 if vwap_deviation < -self.vwap_deviation_threshold_pct else 0.0
-
         # VWAP斜率 (使用短期MA的斜率)
         vwap_series = df[vwap_col].dropna()
         if len(vwap_series) >= self.vwap_ma_period:
@@ -65,7 +60,6 @@ class IntradayVWAPAnalyzer:
             vwap_features["VWAP_SLOPE"] = np.nan
             vwap_features["VWAP_SLOPE_UP"] = 0.0
             vwap_features["VWAP_SLOPE_DOWN"] = 0.0
-
         # VWAP通道
         if len(df) > self.vwap_ma_period:
             price_vwap_diff = df['close'] - df[vwap_col]
@@ -90,6 +84,5 @@ class IntradayVWAPAnalyzer:
             vwap_features["VWAP_LOWER_CHANNEL"] = np.nan
             vwap_features["PRICE_TOUCHING_VWAP_LOWER_CHANNEL"] = 0.0
             vwap_features["PRICE_TOUCHING_VWAP_UPPER_CHANNEL"] = 0.0
-
         return vwap_features
 

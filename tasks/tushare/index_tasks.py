@@ -181,21 +181,16 @@ def save_index_daily_history_task(self):
     # 创建 DAO 实例并注入 cache_manager
     index_basic_dao = IndexBasicDAO(cache_manager)
     task_id = self.request.id
-    
     try:
         logger.info(f"[{task_id}] 开始调度 [指数每日指标] 任务...")
-        
         # 代码修改处: 直接调用高效的DAO方法获取所有指数代码列表
         # 无需在Celery任务中再嵌套一层 async_to_sync
         logger.info(f"[{task_id}] 正在从数据库获取所有指数代码列表...")
         all_index_codes = async_to_sync(index_basic_dao.get_all_index_codes)()
-        
         if not all_index_codes:
             logger.warning(f"[{task_id}] 未获取到任何指数代码，调度任务结束。")
             return
-
         logger.info(f"[{task_id}] 共获取到 {len(all_index_codes)} 个指数代码，将按每 {INDEX_SLICE_SIZE} 个进行切片并分配任务。")
-
         # 对指数代码列表进行切片并分配执行任务
         for i in range(0, len(all_index_codes), INDEX_SLICE_SIZE):
             index_codes_slice = all_index_codes[i:i + INDEX_SLICE_SIZE]
@@ -209,7 +204,6 @@ def save_index_daily_history_task(self):
             
             # 分配执行任务
             save_index_daily_history_slice.delay(index_codes_slice)
-
         logger.info(f"[{task_id}] 调度任务完成 - 所有 {len(range(0, len(all_index_codes), INDEX_SLICE_SIZE))} 个指数切片任务已成功分配。")
     except Exception as e:
         logger.error(f"[{task_id}] 执行 [指数每日指标] 调度任务时发生严重错误: {e}", exc_info=True)

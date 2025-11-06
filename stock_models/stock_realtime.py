@@ -15,14 +15,12 @@ class StockRealtimeData(models.Model):
     low_price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='最低价', null=True)
     volume = models.IntegerField(verbose_name='成交量', null=True)
     turnover_value = models.DecimalField(max_digits=20, decimal_places=2, verbose_name='成交额', null=True)
-    
     class Meta:
         verbose_name = '实时交易数据'
         verbose_name_plural = verbose_name
         db_table = 'stock_realtime_data'
         unique_together = ('stock', 'trade_time')
         ordering = ['-trade_time']
-    
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_time}"
 
@@ -34,7 +32,6 @@ class StockLevel5Data(models.Model):
     """
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, blank=True, null=True, related_name="level5_data", verbose_name=_("股票"))
     trade_time = models.DateTimeField(verbose_name='更新时间')
-    
     # 买盘数据 (字段保持不变)
     buy_price1 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='买1价', null=True)
     buy_volume1 = models.IntegerField(verbose_name='买1量', null=True)
@@ -46,7 +43,6 @@ class StockLevel5Data(models.Model):
     buy_volume4 = models.IntegerField(verbose_name='买4量', null=True)
     buy_price5 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='买5价', null=True)
     buy_volume5 = models.IntegerField(verbose_name='买5量', null=True)
-    
     # 卖盘数据 (字段保持不变)
     sell_price1 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='卖1价', null=True)
     sell_volume1 = models.IntegerField(verbose_name='卖1量', null=True)
@@ -58,14 +54,12 @@ class StockLevel5Data(models.Model):
     sell_volume4 = models.IntegerField(verbose_name='卖4量', null=True)
     sell_price5 = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='卖5价', null=True)
     sell_volume5 = models.IntegerField(verbose_name='卖5量', null=True)
-    
     class Meta:
         verbose_name = '买卖五档盘口数据'
         verbose_name_plural = verbose_name
         db_table = 'stock_level5_data'
         unique_together = ('stock', 'trade_time')
         ordering = ['-trade_time']
-    
     def __str__(self):
         return f"{self.stock.stock_code}-{self.trade_time}"
 

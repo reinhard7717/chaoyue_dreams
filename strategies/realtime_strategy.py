@@ -39,11 +39,9 @@ class RealtimeStrategy:
         if not self.enabled:
             print("RealtimeStrategy is disabled in config.")
             return
-
         self.base_timeframe = self.realtime_config.get('base_timeframe', '1min')
         self.processed_timeframes = self.realtime_config.get('processed_timeframes', ['5min', '30min', '60min'])
         self.data: Dict[str, pd.DataFrame] = {tf: pd.DataFrame() for tf in self.processed_timeframes + [self.base_timeframe]}
-
         self.daily_high = -np.inf
         self.daily_low = np.inf
         self.prev_day_close = prev_day_data.get('close') if prev_day_data else None
@@ -51,9 +49,7 @@ class RealtimeStrategy:
         self.prev_day_low = prev_day_data.get('low') if prev_day_data else None
         self.pivot_points = {}
         self.current_date = None
-
         self._load_realtime_config()
-        
         # 初始化数据聚合器和分析模块
         self.data_aggregator = IntradayDataAggregator(self.realtime_config)
         self.pattern_recognizer = IntradayPatternRecognizer(self.realtime_config.get('kline_patterns', {}))
@@ -64,7 +60,6 @@ class RealtimeStrategy:
         self.sr_analyzer.set_prev_day_data(prev_day_data)
         self.micro_price_analyzer = IntradayMicroPriceAnalyzer(self.realtime_config.get('micro_price_action_params', {}))
         self.multi_timeframe_analyzer = IntradayMultiTimeframeAnalyzer(self.realtime_config)
-
         print("RealtimeStrategy initialized with config and modules.")
 
     def _load_realtime_config(self):
@@ -92,17 +87,14 @@ class RealtimeStrategy:
         """
         if not self.enabled:
             return
-        
         # 更新当日高低点
         if self.current_date is None or new_1min_kline.name.date() != self.current_date:
             self.current_date = new_1min_kline.name.date()
             self.daily_high = -np.inf
             self.daily_low = np.inf
             print(f"  [盘中策略] 新交易日 {self.current_date}，重置当日高低点。")
-
         self.daily_high = max(self.daily_high, new_1min_kline['high'])
         self.daily_low = min(self.daily_low, new_1min_kline['low'])
-
         self.data_aggregator.update_1min_data(new_1min_kline)
         self.data = self.data_aggregator.aggregate_and_calculate_indicators()
         # print(f"  [盘中策略] 数据更新至 {new_1min_kline.name}，5min数据量: {len(self.data.get('5min', []))}")
@@ -110,39 +102,30 @@ class RealtimeStrategy:
     def run_strategy(self, stock_code: str, daily_signal_info: Dict) -> Optional[Dict]:
         """
         对单个股票执行所有交易剧本，寻找第一个满足条件的入场信号。
-        
         Args:
             stock_code (str): 股票代码。
             daily_signal_info (Dict): 盘后信号的关键信息。
-
         Returns:
             Optional[Dict]: 如果找到入场信号，返回包含详细信息的字典；否则返回None。
         """
         print(f"    -> [盘中策略引擎] 开始对 {stock_code} 执行多剧本分析...")
-        
         df_5min = self.data.get('5min', pd.DataFrame())
         if len(df_5min) < self.min_data_points_5min:
             print(f"      - 提示: {stock_code} 5分钟数据点不足 ({len(df_5min)} < {self.min_data_points_5min})，跳过分析。")
             return None
-
         if df_5min.empty or df_5min.iloc[-1].isnull().all():
             print(f"      - 提示: {stock_code} 5分钟最新K线数据为空，跳过分析。")
             return None
-
         current_kline_5min = df_5min.iloc[-1]
         prev_kline_5min = df_5min.iloc[-2] if len(df_5min) >= 2 else None
-        
         df_30min = self.data.get('30min', pd.DataFrame())
         current_kline_30min = df_30min.iloc[-1] if not df_30min.empty else None
         prev_kline_30min = df_30min.iloc[-2] if len(df_30min) >= 2 else None
-
         df_60min = self.data.get('60min', pd.DataFrame())
         current_kline_60min = df_60min.iloc[-1] if not df_60min.empty else None
         prev_kline_60min = df_60min.iloc[-2] if len(df_60min) >= 2 else None
-
         if not (self.trade_start_time <= current_kline_5min.name.time() <= self.trade_end_time):
             return None
-
         try:
             # --- 提取更多对策略有支撑作用的信息 ---
             # 修改行：各分析器现在返回 Dict[str, float]，包含量化值
@@ -150,19 +133,14 @@ class RealtimeStrategy:
             intraday_patterns_30min = self.pattern_recognizer.recognize_patterns(df_30min, '30min') if current_kline_30min is not None else {}
             
             volume_anomalies_5min = self.volume_analyzer.analyze_volume(df_5min, '5min')
-
             volatility_features_5min = self.volatility_analyzer.analyze_volatility(df_5min, '5min')
-
             advanced_vwap_features_5min = self.vwap_analyzer.analyze_vwap(df_5min, '5min')
-
             sr_features_5min = self.sr_analyzer.analyze_sr_levels(current_kline_5min, '5min', self.playbook_params.get('pivot_point_reversal', {}).get('pivot_tolerance_pct', 0.0015))
-
             micro_price_features_5min = {}
             if prev_kline_5min is not None:
                 micro_price_features_5min = self.micro_price_analyzer.analyze_micro_price_action(current_kline_5min, prev_kline_5min)
             
             multi_timeframe_confluence = self.multi_timeframe_analyzer.analyze_confluence(self.data)
-
             # 将所有特征合并到一个字典，方便传递给评分函数
             # 修改行：all_intraday_features 现在包含量化值
             all_intraday_features = {
@@ -175,22 +153,18 @@ class RealtimeStrategy:
                 **micro_price_features_5min,
                 **multi_timeframe_confluence
             }
-
             # --- 运行所有剧本并收集触发的剧本名称 ---
             triggered_playbooks = []
             
             # 剧本1: 5分钟VWAP突破动能
             if self._check_5min_vwap_breakout(stock_code, current_kline_5min, prev_kline_5min):
                 triggered_playbooks.append("5min VWAP Breakout")
-
             # 剧本2: 5分钟布林带突破
             if self._check_5min_bollinger_breakout(stock_code, current_kline_5min, prev_kline_5min):
                 triggered_playbooks.append("5min Bollinger Breakout")
-
             # 剧本3: 30分钟EMA多头排列突破
             if self._check_30min_ema_bullish_breakout(stock_code, current_kline_30min, prev_kline_30min):
                 triggered_playbooks.append("30min EMA Bullish Breakout")
-
             # 剧本4: 盘中回调支撑反弹 (5分钟VWAP)
             if self._check_5min_pullback_rebound(stock_code, current_kline_5min, prev_kline_5min):
                 triggered_playbooks.append("5min VWAP Pullback Rebound")
@@ -198,32 +172,25 @@ class RealtimeStrategy:
             # 剧本5: 盘中K线反转形态
             if self._check_intraday_candlestick_reversal(stock_code, current_kline_5min):
                 triggered_playbooks.append("Intraday Candlestick Reversal")
-
             # 剧本6: 布林带压缩后放量突破
             if self._check_volume_breakout_with_bbw_squeeze(stock_code, current_kline_5min, df_5min):
                 triggered_playbooks.append("BBW Squeeze Volume Breakout")
-
             # 剧本7: VWAP通道支撑反弹
             if self._check_vwap_channel_rebound(stock_code, current_kline_5min):
                 triggered_playbooks.append("VWAP Channel Rebound")
-
             # 剧本8: 多周期EMA共振突破
             if self._check_multi_timeframe_ema_confluence(stock_code, current_kline_5min):
                 triggered_playbooks.append("Multi-timeframe EMA Confluence")
-
             # 剧本9: 枢轴点支撑反转
             if self._check_pivot_point_reversal(stock_code, current_kline_5min):
                 triggered_playbooks.append("Pivot Point Reversal")
-
             # 剧本10: 微观价格行为拒绝反弹
             if self._check_micro_price_rejection_rebound(stock_code, current_kline_5min):
                 triggered_playbooks.append("Micro Price Rejection Rebound")
-
             # --- 综合评分和评级 ---
             intraday_score, intraday_rating, reason = self._calculate_intraday_rating(
                 stock_code, current_kline_5min, all_intraday_features, triggered_playbooks, daily_signal_info
             )
-
             if intraday_rating in ["STRONG_BUY", "BUY"]:
                 print(f"      - [盘中评级] {stock_code} 评级: {intraday_rating} (分数: {intraday_score}) - {reason}")
                 return {
@@ -251,7 +218,6 @@ class RealtimeStrategy:
             else:
                 # print(f"      - [盘中评级] {stock_code} 评级: {intraday_rating} (分数: {intraday_score})")
                 return None
-        
         except KeyError as ke:
             print(f"      - 错误: 在处理 {stock_code} K线时缺少键: {ke}。请检查数据列是否完整。")
             traceback.print_exc()
@@ -459,16 +425,13 @@ class RealtimeStrategy:
         """
         if not self.intraday_scoring_params.get('enabled', False):
             return 0, "NEUTRAL", "盘中评分系统未启用。"
-
         intraday_score = 0
         reasons = []
-
         # 1. 剧本加分
         for playbook_name in triggered_playbooks:
             score = self.base_score_per_playbook.get(playbook_name, 0)
             intraday_score += score
             reasons.append(f"剧本[{playbook_name}]: +{score}")
-        
         # 2. 特征加减分 (分层判定)
         for feature_config_name, config in self.tiered_feature_scoring.items():
             metric_name = config['metric']
@@ -478,10 +441,8 @@ class RealtimeStrategy:
             metric_value = all_intraday_features.get(metric_name)
             if metric_value is None or pd.isna(metric_value):
                 continue
-
             score_added = 0
             reason_detail = ""
-
             # 根据方向对层级进行排序，以便正确匹配最高阈值
             if direction == "positive": # 值越大越好，从高阈值开始检查
                 sorted_tiers = sorted(tiers, key=lambda x: x['threshold'], reverse=True)
@@ -516,7 +477,6 @@ class RealtimeStrategy:
             if score_added != 0:
                 intraday_score += score_added
                 reasons.append(f"特征[{metric_name} - {reason_detail}]: {'+' if score_added > 0 else ''}{score_added}")
-
         # 3. 特征加减分 (固定判定)
         for feature_name, score in self.fixed_feature_scoring.items():
             # 对于固定特征，我们检查其值是否为1.0 (表示True)
@@ -524,31 +484,25 @@ class RealtimeStrategy:
                 intraday_score += score
                 reasons.append(f"特征[{feature_name}]: {'+' if score > 0 else ''}{score}")
         
-
         # 4. 与日线策略结合
         daily_entry_score = daily_signal_info.get('entry_score', 0)
         daily_risk_score = daily_signal_info.get('risk_score', 0)
-
         # 日线买入信号的加成
         if daily_entry_score > 0:
             bonus = daily_entry_score * self.daily_score_influence_multiplier
             intraday_score += bonus
             reasons.append(f"日线买入信号加成: +{bonus:.0f}")
-        
         # 日线风险信号的惩罚
         if daily_risk_score > 0:
             penalty = daily_risk_score * self.daily_risk_penalty_multiplier
             intraday_score -= penalty
             reasons.append(f"日线风险信号惩罚: -{penalty:.0f}")
-
         # 5. 确定最终评级
         final_rating = "NEUTRAL" # 默认中性
-        
         strong_buy_thresh = self.rating_thresholds.get("STRONG_BUY", 150)
         buy_thresh = self.rating_thresholds.get("BUY", 80)
         sell_thresh = self.rating_thresholds.get("SELL", -100)
         strong_sell_thresh = self.rating_thresholds.get("STRONG_SELL", -150)
-
         if intraday_score >= strong_buy_thresh:
             final_rating = "STRONG_BUY"
         elif intraday_score >= buy_thresh:
@@ -561,12 +515,10 @@ class RealtimeStrategy:
         elif buy_thresh > intraday_score > sell_thresh:
             final_rating = "NEUTRAL"
         
-        
         # 组合理由
         combined_reason = f"盘中综合评分: {intraday_score:.0f}。详情: " + "; ".join(reasons)
         if len(combined_reason) > 500: # 限制理由长度
             combined_reason = combined_reason[:497] + "..."
-
         return int(intraday_score), final_rating, combined_reason
 
 

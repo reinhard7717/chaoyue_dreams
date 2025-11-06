@@ -42,7 +42,6 @@ class BaseStrategy(ABC):
     def generate_signals(self, data: pd.DataFrame, stock_code: Optional[str] = None, indicator_configs: Optional[List[Dict]] = None, **kwargs) -> pd.DataFrame: # 修改返回类型为 DataFrame
         """
         根据输入的指标数据生成交易信号和所有中间计算结果。
-
         :param data: Pandas DataFrame，包含所有必需的指标数据和价格数据。
         :param stock_code: 股票代码，可选。
         :param indicator_configs: 指标配置列表，可选。
@@ -64,14 +63,12 @@ class BaseStrategy(ABC):
         if data.empty:
             logger.warning(f"[{self.strategy_name}] (股票: {stock_code}) 输入数据为空，无法执行策略 run 方法。")
             return pd.DataFrame() # 返回空的 DataFrame
-
         # 在 run 方法中再次检查参数是否已加载和验证（可选，但安全）
         if not self.params:
              logger.error(f"[{self.strategy_name}] (股票: {stock_code}) 策略参数未加载，无法执行 run 方法。")
              return pd.DataFrame()
         # 理论上 __init__ 应该已经调用了 _validate_params，但这里可以加一个检查
         # self._validate_params() # 确保参数在 run 之前是有效的，但如果 __init__ 失败，这里会再次失败
-
         required_columns = self.get_required_columns()
         if required_columns: # 仅当 get_required_columns 返回非空列表时才检查
             missing = [col for col in required_columns if col not in data.columns]

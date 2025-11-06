@@ -113,7 +113,6 @@ class TimeSeriesDataset(Dataset):
     def __init__(self, features: np.ndarray, targets: np.ndarray, window_size: int):
         """
         初始化时间序列数据集。
-
         Args:
             features (np.ndarray): 经过缩放的平坦特征数据 (形状: num_samples, num_features)。
                                    这些是模型训练的输入特征。
@@ -124,11 +123,9 @@ class TimeSeriesDataset(Dataset):
         """
         if features.shape[0] != targets.shape[0]:
             raise ValueError("特征 (features) 和目标 (targets) 的样本数量必须相同。")
-
         self.num_samples = features.shape[0]
         self.window_size = window_size
         self.num_original_features = features.shape[1] if features.ndim == 2 and features.shape[0] > 0 else 0
-
         # 预测目标是窗口最后一个点 (t+window_size-1) 的信号。
         # 需要 features[t : t + window_size] 来预测 targets[t + window_size - 1].
         # 至少需要 window_size 条数据才能构成第一个窗口的输入和对应目标。
@@ -154,7 +151,6 @@ class TimeSeriesDataset(Dataset):
         """
         返回数据集中可生成的窗口数量。
         这是 DataLoader 用来确定数据集大小的。
-
         Returns:
             int: 可生成的窗口数量。
         """
@@ -165,11 +161,9 @@ class TimeSeriesDataset(Dataset):
         获取指定索引的窗口数据和目标值。
         目标是：使用时间步 `[idx, idx+1, ..., idx+window_size-1]` 的特征，
                 来预测/拟合时间步 `idx+window_size-1` 的 `target`。
-
         Args:
             idx (int): 窗口的起始索引（在可生成窗口列表中的索引，不是原始数据索引）。
                     范围是 `0` 到 `self.num_windows - 1`。
-
         Returns:
             Tuple[torch.Tensor, torch.Tensor]:
                 - X_tensor (torch.Tensor): 输入特征窗口，形状 `(window_size, num_features)`。
@@ -177,23 +171,18 @@ class TimeSeriesDataset(Dataset):
         """
         if not (0 <= idx < self.num_windows):
             raise IndexError(f"索引 {idx} 超出范围 (0 至 {self.num_windows - 1})。")
-
         window_start_flat_idx = idx
         window_end_flat_idx = idx + self.window_size
         target_flat_idx = window_end_flat_idx - 1
-
         X_window_np = self.features[window_start_flat_idx:window_end_flat_idx, :]
         y_target_np = self.targets[target_flat_idx]
-
         # 保证 X_tensor 是 float32
         if isinstance(X_window_np, torch.Tensor):
             X_tensor = X_window_np.clone().detach().float()
         else:
             X_tensor = torch.tensor(X_window_np, dtype=torch.float32)
-
         # 保证 y_tensor 形状为 (1,)
         y_tensor = torch.as_tensor(y_target_np, dtype=torch.float32).view(1)  # <--- 只用 view(1)
-
         return X_tensor, y_tensor
     
 class PositionalEncoding(nn.Module):
@@ -205,7 +194,6 @@ class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, max_len: int = 5000):
         """
         初始化位置编码层。
-
         Args:
             d_model (int): 模型的特征维度（嵌入维度）。
             max_len (int): 预先计算编码的最大序列长度。
@@ -223,7 +211,6 @@ class PositionalEncoding(nn.Module):
             # 修正：当d_model为奇数时，pe[:, 1::2] 的最后一列可能没有对应的 div_term
             # 应该使用与倒数第二个偶数项相同的 div_term
             pe[:, d_model-1] = torch.cos(position * div_term[d_model//2 -1]) # 确保奇数维度的cos项使用正确的频率
-
         # pe 形状 (max_len, d_model)
         # Transformer通常期望 (seq_len, batch_size, d_model) 或 (batch_size, seq_len, d_model)
         # 这里注册的 pe 是 (max_len, d_model)，在使用时会根据输入调整
@@ -233,11 +220,9 @@ class PositionalEncoding(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         将位置编码添加到输入序列中。
-
         Args:
             x (torch.Tensor): 输入序列。
                               期望形状 `(batch_size, seq_len, d_model)`。
-
         Returns:
             torch.Tensor: 加上位置编码后的输出，形状与输入 `x` 相同。
         """
@@ -266,7 +251,6 @@ class TransformerModel(nn.Module):
                  dropout: float = 0.5, activation: str = 'relu', window_size: int = 60):
         """
         初始化 Transformer 模型。
-
         Args:
             num_features (int): 输入特征的原始维度。
             d_model (int): Transformer 模型的内部特征维度 (也称为嵌入维度)。
@@ -282,15 +266,12 @@ class TransformerModel(nn.Module):
         self.model_type = 'Transformer'
         self.d_model = d_model
         self.window_size = window_size # 主要给 PositionalEncoding 的 max_len 参考
-
         # 1. 输入嵌入层 (Input Embedding)
         # 将原始的 num_features 维输入映射到 d_model 维，这是 Transformer 的工作维度。
         self.embedding = nn.Linear(num_features, d_model)
-
         # 2. 位置编码 (Positional Encoding)
         # 为嵌入后的序列添加位置信息。
         self.pos_encoder = PositionalEncoding(d_model, max_len=window_size) # max_len 可以设为预期的最大窗口大小
-
         # 3. Transformer Encoder 层
         # batch_first=True 表示输入和输出的张量形状为 (batch_size, seq_len, feature_dim)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -302,7 +283,6 @@ class TransformerModel(nn.Module):
             batch_first=True  # 重要：设置批次维度在前
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, nlayers)
-
         # 4. 输出处理与回归头 (Output Processing & Regression Head)
         # TransformerEncoder 的输出形状是 (batch_size, seq_len, d_model)。
         # 对于序列到单值的回归任务，我们需要将序列信息汇总。
@@ -313,7 +293,6 @@ class TransformerModel(nn.Module):
         # AdaptiveAvgPool1d(1) 会将 (N, C, L_in) -> (N, C, 1)，然后 squeeze 掉最后一维。
         # C 在这里是 d_model, L_in 是 window_size。
         self.pooling = nn.AdaptiveAvgPool1d(1)
-
         # 回归头：一个或多个全连接层，将池化后的 d_model 维特征映射到单个预测值。
         # 池化后形状 (batch_size, d_model, 1)，squeeze(2) 后是 (batch_size, d_model)
         self.regressor = nn.Sequential(
@@ -322,7 +301,6 @@ class TransformerModel(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(d_model // 2, 1) # 输出一个标量预测值
         )
-
         self.init_weights() # 初始化模型权重
 
     def init_weights(self):
@@ -335,7 +313,6 @@ class TransformerModel(nn.Module):
         self.embedding.weight.data.uniform_(-initrange, initrange)
         if self.embedding.bias is not None:
             self.embedding.bias.data.zero_()
-
         # 初始化回归器中的线性层
         for layer in self.regressor:
             if isinstance(layer, nn.Linear):
@@ -347,10 +324,8 @@ class TransformerModel(nn.Module):
     def forward(self, src: torch.Tensor) -> torch.Tensor:
         """
         模型的前向传播过程。
-
         Args:
             src (torch.Tensor): 输入序列，形状 `(batch_size, window_size, num_features)`。
-
         Returns:
             torch.Tensor: 模型的输出预测值，形状 `(batch_size, 1)`。
         """
@@ -358,16 +333,13 @@ class TransformerModel(nn.Module):
         # 在 AMP 模式下，嵌入层通常在 autocast 区域内执行，以利用 float16 计算
         # 乘以 sqrt(d_model) 是一种常见的缩放技巧，有助于位置编码和后续层
         src_embedded = self.embedding(src) * math.sqrt(self.d_model) # 使用 math.sqrt
-
         # 2. 添加位置编码: (batch_size, window_size, d_model)
         src_pos_encoded = self.pos_encoder(src_embedded)
-
         # 3. 通过 Transformer Encoder:
         # 由于 TransformerEncoderLayer 初始化时 batch_first=True,
         # 输入形状应为 (batch_size, window_size, d_model)
         # 输出形状同样为 (batch_size, window_size, d_model)
         transformer_output = self.transformer_encoder(src_pos_encoded)
-
         # 4. 池化操作:
         # AdaptiveAvgPool1d 期望输入 (N, C, L_in), 即 (batch_size, d_model, window_size)
         # 当前 transformer_output 是 (batch_size, window_size, d_model)
@@ -376,10 +348,8 @@ class TransformerModel(nn.Module):
         pooled_output = self.pooling(transformer_output.transpose(1, 2))
         # (batch_size, d_model, 1) -> (batch_size, d_model)
         pooled_output = pooled_output.squeeze(2)
-
         # 5. 通过回归头: (batch_size, d_model) -> (batch_size, 1)
         prediction = self.regressor(pooled_output)
-
         return prediction
 
 @log_execution_time
@@ -518,7 +488,6 @@ def prepare_data_for_transformer(
     # --- 3.5. 终极 NaN/Inf 处理 (确保所有数值都有限且在 float32 范围内) ---
     # 尽管前面进行了 ffill/bfill/fillna(0)，但可能存在原始 Inf 值，或者极少数情况下 NaN 未被完全清除。
     # np.nan_to_num 是一个非常鲁棒的函数，可以处理 NaN, Inf, -Inf
-    
     # 记录处理前的 Inf/NaN 情况
     if np.any(np.isinf(current_features_np)) or np.any(np.isnan(current_features_np)):
         logger.warning(f"特征数据在转换为 NumPy 数组后发现 Inf 或 NaN 值。将使用 np.nan_to_num 进行最终清理。")
@@ -568,7 +537,6 @@ def prepare_data_for_transformer(
                     # VarianceThreshold 直接在 NumPy 数组上工作
                     features_after_var = selector_var.fit_transform(current_features_np)
                     selected_indices_var = selector_var.get_support(indices=True)
-
                     if features_after_var.shape[1] == 0:
                         logger.warning(f"方差阈值 ({variance_threshold_value}) 过高，所有特征均被移除。将跳过方差过滤。")
                     elif features_after_var.shape[1] < current_features_np.shape[1]:
@@ -666,7 +634,6 @@ def prepare_data_for_transformer(
             try:
                 # StandardScaler 在 NumPy 数组上工作
                 features_train_scaled_for_pca = scaler_for_pca.fit_transform(features_eng_train)
-
                 pca_model = PCA(n_components=pca_n_components, svd_solver=pca_solver, random_state=random_state_seed)
                 pca_model.fit(features_train_scaled_for_pca)
                 num_components_retained = pca_model.n_components_
@@ -684,7 +651,6 @@ def prepare_data_for_transformer(
                         features_eng_val = pca_model.transform(scaler_for_pca.transform(features_eng_val))
                     if features_eng_test.shape[0] > 0: # 确保测试集非空
                         features_eng_test = pca_model.transform(scaler_for_pca.transform(features_eng_test))
-
                     # 更新特征名 (PCA后的特征是原始特征的线性组合，不再具有原名)
                     feature_names_after_eng = [f"pca_comp_{i}" for i in range(num_components_retained)]
                     logger.info(f"PCA 转换完成。处理后特征维度: {num_components_retained}")
@@ -732,7 +698,6 @@ def prepare_data_for_transformer(
                         f"选择方式: max_features={fs_max_features if fs_max_features is not None else 'N/A'} 或 threshold='{fs_selection_threshold if fs_max_features is None else 'N/A'}'")
             selector_model_instance = None # 实际用于 SelectFromModel 的模型实例
             model_type_lower = feature_selector_model_type.lower()
-
             if model_type_lower == 'rf':
                 selector_model_instance = RandomForestRegressor(
                     n_estimators=fs_model_n_estimators,
@@ -759,7 +724,6 @@ def prepare_data_for_transformer(
                     n_estimators=fs_model_n_estimators, max_depth=fs_model_max_depth,
                     random_state=random_state_seed, n_jobs=-1
                 )
-
             try:
                 # SelectFromModel 用于根据特征重要性选择特征
                 if fs_max_features is not None and fs_max_features > 0:
@@ -777,13 +741,11 @@ def prepare_data_for_transformer(
                         threshold=fs_selection_threshold # 例如 'median', '0.1*mean', 或一个浮点数
                     )
                     logger.info(f"特征选择方式: 使用阈值 '{fs_selection_threshold}'。")
-
                 # 在训练数据上拟合选择器模型
                 # SelectFromModel 在 NumPy 数组上工作
                 feature_selector_model.fit(features_eng_train, targets_train_raw)
                 selected_indices_fs = feature_selector_model.get_support(indices=True)
                 num_selected_fs = len(selected_indices_fs)
-
                 if num_selected_fs == 0:
                     logger.error("基于模型选择后没有剩余特征。特征选择失败，将使用之前的特征集。")
                     feature_selector_model = None # 重置
@@ -795,14 +757,12 @@ def prepare_data_for_transformer(
                         features_eng_val = feature_selector_model.transform(features_eng_val)
                     if features_eng_test.shape[0] > 0:
                         features_eng_test = feature_selector_model.transform(features_eng_test)
-
                     # 更新特征名列表
                     feature_names_after_eng = [feature_names_after_eng[i] for i in selected_indices_fs]
                     logger.info(f"基于模型选择完成，移除了 {num_removed_fs} 个特征。剩余特征数: {num_selected_fs}")
                     logger.debug(f"模型选择后特征名 (部分): {feature_names_after_eng[:10]}...")
                 else:
                     logger.info("基于模型选择未移除任何特征 (可能所有特征都很重要或已达到最大选择数)。")
-
             except Exception as e_fs:
                 logger.error(f"应用基于模型的特征选择时出错: {e_fs}", exc_info=True)
                 logger.warning("特征选择失败，将使用之前的特征集。")
@@ -1214,40 +1174,31 @@ def train_transformer_model(
             epoch_start_time = time.time()
             epoch_retries = 0 # 当前 Epoch 的重试计数器
             epoch_completed_successfully = False # 标记当前 Epoch 是否成功完成 (无 NaN/Inf)
-
             while epoch_retries <= max_epoch_retries:
                 nan_inf_in_this_attempt = False # 标记当前重试尝试中是否出现 NaN/Inf
-
                 # --- 训练阶段 (当前尝试) ---
                 model.train() # 设置为训练模式
                 epoch_train_loss_sum = 0.0
                 epoch_train_mae_sum = 0.0 # 存储缩放后的 MAE
                 num_train_samples = 0
-
                 train_loop = tqdm(train_loader, leave=False, desc=f"Epoch {current_epoch+1}/{epochs} [Train, Retry {epoch_retries+1}]")
                 for batch_idx, (inputs, targets) in enumerate(train_loop):
                     inputs, targets = inputs.to(device), targets.to(device)
                     current_batch_size = inputs.size(0)
-
                     optimizer.zero_grad(set_to_none=True)
-
                     batch_loss_train = torch.tensor(np.nan, device=device)
                     batch_mae_train = torch.tensor(np.nan, device=device)
                     outputs = None
                     performed_optimizer_step = False
-
                     try:
                         # --- 学习率 Warmup 逻辑 (按步调整) ---
                         current_lr_for_step = initial_optimizer_lr
-
                         if warmup_epochs > 0 and global_step < total_warmup_steps:
                             current_lr_for_step = warmup_start_lr + (initial_optimizer_lr - warmup_start_lr) * (global_step / total_warmup_steps)
                             current_lr_for_step = min(current_lr_for_step, initial_optimizer_lr)
-
                             for param_group in optimizer.param_groups:
                                 param_group['lr'] = current_lr_for_step
                         # --- Warmup 逻辑结束 ---
-
                         if torch.isnan(inputs).any() or torch.isinf(inputs).any():
                             logger.error(f"检测到 NaN/Inf 在输入数据中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                             nan_inf_in_this_attempt = True
@@ -1256,7 +1207,6 @@ def train_transformer_model(
                             logger.error(f"检测到 NaN/Inf 在目标数据中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                             nan_inf_in_this_attempt = True
                             break
-
                         with autocast(device_type=device.type, enabled=grad_scaler is not None):
                             outputs = model(inputs)
                             if torch.isnan(outputs).any() or torch.isinf(outputs).any():
@@ -1268,7 +1218,6 @@ def train_transformer_model(
                                  logger.error(f"检测到 NaN/Inf 在损失值中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                                  nan_inf_in_this_attempt = True
                                  break
-
                         if grad_scaler:
                             grad_scaler.scale(batch_loss_train).backward()
                             if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
@@ -1279,25 +1228,20 @@ def train_transformer_model(
                             performed_optimizer_step = True
                         else:
                             batch_loss_train.backward()
-
                             found_nan_grad = False
                             for name, param in model.named_parameters():
                                 if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
                                     logger.error(f"检测到 NaN/Inf 在参数 '{name}' 的梯度中！Epoch {current_epoch+1}, Batch {batch_idx+1}.")
                                     found_nan_grad = True
                                     break
-
                             if found_nan_grad:
                                 logger.error(f"由于梯度中存在NaN/Inf，已跳过 optimizer.step()。Epoch {current_epoch+1}, Batch {batch_idx+1}")
                                 nan_inf_in_this_attempt = True
                                 break
-
                             if clip_grad_norm_value is not None and clip_grad_norm_value > 0:
                                 torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad_norm_value)
-
                             optimizer.step()
                             performed_optimizer_step = True
-
                         if performed_optimizer_step:
                             for name, param in model.named_parameters():
                                 if param.data is not None and (torch.isnan(param.data).any() or torch.isinf(param.data).any()):
@@ -1306,22 +1250,18 @@ def train_transformer_model(
                                     break
                             if nan_inf_in_this_attempt:
                                 break
-
                         if performed_optimizer_step:
                             global_step += 1
-
                         with torch.no_grad():
                             batch_mae_train = mae_eval_metric(outputs, targets)
                             if torch.isnan(batch_mae_train) or torch.isinf(batch_mae_train):
                                  logger.warning(f"Epoch {current_epoch+1}, Batch {batch_idx+1}: 训练批次MAE(scaled)为 NaN/Inf。")
-
                     except Exception as e_batch:
                         logger.error(f"训练批次 Epoch {current_epoch+1}, Batch {batch_idx+1} 发生未知错误: {e_batch}", exc_info=True)
                         nan_inf_in_this_attempt = True
                         if enable_anomaly_detection and isinstance(e_batch, RuntimeError) and "Traceback of forward call that caused the error" in str(e_batch):
                             logger.error("PyTorch anomaly detection pinpointed an error in the forward pass. Check logs above for details.")
                         break
-
                     if not nan_inf_in_this_attempt:
                         if not (torch.isnan(batch_loss_train) or torch.isinf(batch_loss_train)):
                             epoch_train_loss_sum += batch_loss_train.item() * current_batch_size
@@ -1334,7 +1274,6 @@ def train_transformer_model(
                             train_loop.set_postfix(loss=batch_loss_train.item(), mae=batch_mae_train.item())
                         else:
                             train_loop.set_postfix(loss="NaN/Inf", mae="NaN/Inf")
-
                 if nan_inf_in_this_attempt:
                     epoch_retries += 1
                     if epoch_retries <= max_epoch_retries:
@@ -1353,7 +1292,6 @@ def train_transformer_model(
                 else:
                     epoch_completed_successfully = True
                     break
-
             if training_halted_due_to_retries:
                 logger.error(f"Epoch {current_epoch+1} 因 NaN/Inf 重试次数用尽而提前终止整个训练。")
                 history['epoch'].append(current_epoch + 1)
@@ -1364,20 +1302,16 @@ def train_transformer_model(
                 history['val_mae'].append(np.nan)
                 history['val_true_mae'].append(np.nan)
                 break
-
             if epoch_completed_successfully:
                 avg_train_loss = epoch_train_loss_sum / num_train_samples if num_train_samples > 0 else np.nan
                 avg_train_mae = epoch_train_mae_sum / num_train_samples if num_train_samples > 0 else np.nan
-
                 avg_val_loss, avg_val_mae, avg_val_true_mae = np.nan, np.nan, np.nan
-
                 # --- 验证阶段 ---
                 if val_loader is not None and len(val_loader) > 0:
                     model.eval()
                     epoch_loss_sum_val, epoch_mae_sum_val, epoch_true_mae_sum_val = 0.0, 0.0, 0.0
                     num_valid_samples_for_loss, num_valid_samples_for_mae, num_valid_samples_for_true_mae = 0, 0, 0
                     nan_batches_in_val_epoch = 0
-
                     val_loop = tqdm(val_loader, leave=False, desc=f"Epoch {current_epoch+1}/{epochs} [Validate]")
                     with torch.no_grad():
                         with autocast(device_type=device.type, enabled=grad_scaler is not None):
@@ -1385,7 +1319,6 @@ def train_transformer_model(
                                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                                 current_batch_size_val = val_inputs.size(0)
                                 val_outputs, val_loss_batch, val_mae_batch = None, torch.tensor(np.nan), torch.tensor(np.nan)
-
                                 try:
                                     if torch.isnan(val_inputs).any() or torch.isinf(val_inputs).any():
                                         logger.error(f"检测到 NaN/Inf 在验证输入数据中！Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}.")
@@ -1393,37 +1326,30 @@ def train_transformer_model(
                                     if torch.isnan(val_targets).any() or torch.isinf(val_targets).any():
                                         logger.error(f"检测到 NaN/Inf 在验证目标数据中！Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}.")
                                         raise ValueError("Validation target is NaN/Inf")
-
                                     val_outputs = model(val_inputs)
                                     if torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any():
                                         logger.error(f"检测到 NaN/Inf 在验证模型输出中！Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}.")
                                         raise ValueError("Validation model output is NaN/Inf")
-
                                     val_loss_batch = criterion(val_outputs, val_targets)
                                     if torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch):
                                         logger.warning(f"Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次损失为 NaN/Inf。")
                                         raise ValueError("Validation loss is NaN/Inf")
-
                                     val_mae_batch = mae_eval_metric(val_outputs, val_targets)
                                     if torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch):
                                         logger.warning(f"Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}: 验证批次MAE(scaled)为 NaN/Inf。")
-
                                 except ValueError as e_val_nan_inf:
                                     logger.warning(f"Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1}: 验证中因 '{e_val_nan_inf}' 中止此批次指标计算。")
                                     nan_batches_in_val_epoch += 1
                                 except Exception as e_val_batch:
                                     logger.error(f"验证批次 Epoch {current_epoch+1}, Val_Batch {val_batch_idx+1} 发生未知错误: {e_val_batch}", exc_info=True)
                                     nan_batches_in_val_epoch += 1
-
                                 if not (torch.isnan(val_loss_batch) or torch.isinf(val_loss_batch)):
                                     epoch_loss_sum_val += val_loss_batch.item() * current_batch_size_val
                                     num_valid_samples_for_loss += current_batch_size_val
-
                                 if val_outputs is not None and not (torch.isnan(val_outputs).any() or torch.isinf(val_outputs).any()):
                                     if not (torch.isnan(val_mae_batch) or torch.isinf(val_mae_batch)):
                                          epoch_mae_sum_val += val_mae_batch.item() * current_batch_size_val
                                          num_valid_samples_for_mae += current_batch_size_val
-
                                     if target_scaler:
                                         val_outputs_np = val_outputs.cpu().numpy()
                                         val_targets_np = val_targets.cpu().numpy()
@@ -1436,10 +1362,8 @@ def train_transformer_model(
                                                      val_outputs_np = val_outputs_np.reshape(-1, 1)
                                                 if val_targets_np.ndim == 1:
                                                      val_targets_np = val_targets_np.reshape(-1, 1)
-
                                                 val_outputs_original = target_scaler.inverse_transform(val_outputs_np)
                                                 val_targets_original = target_scaler.inverse_transform(val_targets_np)
-
                                                 if not (np.isnan(val_outputs_original).any() or np.isinf(val_outputs_original).any() or \
                                                         np.isnan(val_targets_original).any() or np.isinf(val_targets_original).any()):
                                                     if val_outputs_original.shape == val_targets_original.shape:
@@ -1457,14 +1381,11 @@ def train_transformer_model(
                                     val_loop.set_postfix(val_loss=val_loss_batch.item(), val_mae=val_mae_batch.item())
                                 else:
                                     val_loop.set_postfix(val_loss="NaN/Inf", val_mae="NaN/Inf")
-
                     if nan_batches_in_val_epoch > 0:
                         logger.warning(f"Epoch {current_epoch+1}: 验证中有 {nan_batches_in_val_epoch}/{len(val_loader)} 个批次出现NaN/Inf问题。")
-
                     avg_val_loss = epoch_loss_sum_val / num_valid_samples_for_loss if num_valid_samples_for_loss > 0 else np.nan
                     avg_val_mae = epoch_mae_sum_val / num_valid_samples_for_mae if num_valid_samples_for_mae > 0 else np.nan
                     avg_val_true_mae = epoch_true_mae_sum_val / num_valid_samples_for_true_mae if num_valid_samples_for_true_mae > 0 else np.nan
-
                     # --- 根据 val_mae 调整早停耐心 ---
                     if not np.isnan(avg_val_mae) and avg_val_mae < 0.01:
                         if early_stopping_patience > 4:
@@ -1474,7 +1395,6 @@ def train_transformer_model(
                         if early_stopping_patience > 8:
                             early_stopping_patience = 8
                             logger.info(f"Epoch {current_epoch+1}: 验证MAE(缩放) {avg_val_mae:.4f} 小于 0.02，早停耐心已设置为 8。")
-
                     # --- Optuna 早停机制 ---
                     if trial is not None:
                         prune_metric = avg_val_mae if not np.isnan(avg_val_mae) else avg_val_loss
@@ -1487,13 +1407,11 @@ def train_transformer_model(
                         if trial.should_prune():
                             print(f"[Epoch {current_epoch+1}] Optuna 触发早停，Trial 被中断。")
                             raise optuna.exceptions.TrialPruned()
-
                     # --- 学习率调度与早停逻辑 ---
                     monitored_value_for_scheduler = np.nan
                     if monitor_metric == 'val_loss': monitored_value_for_scheduler = avg_val_loss
                     elif monitor_metric == 'val_mae': monitored_value_for_scheduler = avg_val_mae
                     elif monitor_metric == 'val_true_mae': monitored_value_for_scheduler = avg_val_true_mae
-
                     monitored_value_for_scheduler_for_lr_es = np.nan
                     if np.isnan(monitored_value_for_scheduler):
                         logger.warning(f"监控指标 '{monitor_metric}' 在 Epoch {current_epoch+1} 为 NaN。")
@@ -1504,7 +1422,6 @@ def train_transformer_model(
                     else:
                         consecutive_nan_metric_epochs = 0
                         monitored_value_for_scheduler_for_lr_es = monitored_value_for_scheduler
-
                     lr_before_scheduler_step = optimizer.param_groups[0]['lr']
                     if current_epoch >= warmup_epochs and lr_scheduler_type == 'reducelronplateau' and scheduler and not np.isnan(monitored_value_for_scheduler_for_lr_es):
                         scheduler.step(monitored_value_for_scheduler_for_lr_es)
@@ -1517,7 +1434,6 @@ def train_transformer_model(
                          if new_lr_after_scheduler != lr_before_scheduler_step:
                               logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.")
 
-
                     # 早停逻辑 (使用 current_best_model_filepath)
                     if early_stopping_patience > 0:
                         if consecutive_nan_metric_epochs >= nan_metric_patience:
@@ -1529,7 +1445,6 @@ def train_transformer_model(
                                 improved = True
                             elif scheduler_mode == 'max' and monitored_value_for_scheduler_for_lr_es > best_monitored_value:
                                 improved = True
-
                             if improved:
                                 best_monitored_value = monitored_value_for_scheduler_for_lr_es
                                 epochs_no_improve = 0
@@ -1561,7 +1476,6 @@ def train_transformer_model(
                             early_stop_triggered = True
                     else:
                         consecutive_nan_metric_epochs = 0
-
                 # --- Epoch 结束日志与 TensorBoard ---
                 epoch_duration = time.time() - epoch_start_time
                 train_loss_str = f"{avg_train_loss:.4f}" if not np.isnan(avg_train_loss) else "N/A"
@@ -1569,9 +1483,7 @@ def train_transformer_model(
                 val_loss_str = f"{avg_val_loss:.4f}" if not np.isnan(avg_val_loss) else "N/A"
                 val_mae_str = f"{avg_val_mae:.4f}" if not np.isnan(avg_val_mae) else "N/A"
                 val_true_mae_str = f"{avg_val_true_mae:.4f}" if not np.isnan(avg_val_true_mae) else "N/A"
-
                 lr_for_logging = optimizer.param_groups[0]['lr']
-
                 log_msg = (
                     f"轮次 {current_epoch+1}/{epochs} [{epoch_duration:.2f}秒] - "
                     f"学习率: {lr_for_logging:.2e} - "
@@ -1580,7 +1492,6 @@ def train_transformer_model(
                 if val_loader is not None and len(val_loader) > 0:
                     log_msg += f" - 验证损失: {val_loss_str}, 验证MAE(缩放): {val_mae_str}, 验证MAE(真实): {val_true_mae_str}"
                 logger.info(log_msg)
-
                 if writer:
                     if not np.isnan(avg_train_loss): writer.add_scalar('Loss/train', avg_train_loss, current_epoch + 1)
                     if not np.isnan(avg_train_mae): writer.add_scalar('MAE_scaled/train', avg_train_mae, current_epoch + 1)
@@ -1589,7 +1500,6 @@ def train_transformer_model(
                         if not np.isnan(avg_val_loss): writer.add_scalar('Loss/validation', avg_val_loss, current_epoch + 1)
                         if not np.isnan(avg_val_mae): writer.add_scalar('MAE_scaled/validation', avg_val_mae, current_epoch + 1)
                         if not np.isnan(avg_val_true_mae): writer.add_scalar('MAE_true/validation', avg_val_true_mae, current_epoch + 1)
-
                 history['epoch'].append(current_epoch + 1)
                 history['loss'].append(avg_train_loss)
                 history['mae'].append(avg_train_mae)
@@ -1597,9 +1507,7 @@ def train_transformer_model(
                 history['val_loss'].append(avg_val_loss)
                 history['val_mae'].append(avg_val_mae)
                 history['val_true_mae'].append(avg_val_true_mae)
-
                 current_epoch += 1
-
                 if early_stop_triggered:
                     print(f"[Epoch {current_epoch}] 训练完成，早停触发。") # 注意：current_epoch 此时已加 1
                     break

@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 def with_cache_manager(task_function):
     """
     一个装饰器，用于自动管理Celery任务中的CacheManager生命周期。
-    
     功能:
     1. 在任务开始前，自动创建一个 CacheManager 实例。
     2. 将创建的实例作为关键字参数 `cache_manager` 注入到被装饰的任务函数中。
@@ -21,7 +20,6 @@ def with_cache_manager(task_function):
         # 从Celery任务的参数中识别出 'self' (如果 bind=True)
         task_instance = args[0] if args and hasattr(args[0], 'request') else None
         task_id = task_instance.request.id if task_instance else 'N/A'
-
         cache_manager_instance = None
         try:
             # 1. 创建 CacheManager 实例

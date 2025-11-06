@@ -55,12 +55,10 @@ class IndicatorService:
         self.index_dao = IndexBasicDAO(cache_manager_instance)
         self.strategies_dao = StrategiesDAO(cache_manager_instance)
         self.fund_flow_dao = FundFlowDao(cache_manager_instance)
-        
         # 专业服务层
         self.calculator = IndicatorCalculator()
         self.feature_service = FeatureEngineeringService() # 实例化特征工程师
         self.context_service = ContextualAnalysisService(cache_manager_instance) # 实例化情报分析师
-        
         try:
             global ta
             import pandas_ta as ta
@@ -78,7 +76,6 @@ class IndicatorService:
         if df is None or df.empty:
             print(f"      -> 结果: DataFrame为空或None。")
             return
-        
         if not isinstance(df.index, pd.DatetimeIndex):
             print(f"      -> 结果: 索引不是 DatetimeIndex，无法分析时间范围。")
             return
@@ -95,7 +92,6 @@ class IndicatorService:
         """
         print("\n" + "="*30 + " [最终军械库清单] " + "="*30)
         print("情报锻造中心已完成所有数据准备，最终产出的数据列清单如下：")
-
         # 定义周期的标准排序，确保输出顺序固定
         sorted_timeframes = sorted(
             all_dfs.keys(), 
@@ -104,7 +100,6 @@ class IndicatorService:
                 -int(x) if x.isdigit() else 0 # 分钟线按从大到小排序
             )
         )
-
         for timeframe in sorted_timeframes:
             df = all_dfs[timeframe]
             if df is None or df.empty:
@@ -115,7 +110,6 @@ class IndicatorService:
             columns_list = sorted(df.columns.tolist())
             for i in range(0, len(columns_list), 5):
                 print("  ".join(f"{col:<30}" for col in columns_list[i:i+5]))
-
         print("\n" + "="*32 + " [清单生成完毕] " + "="*32 + "\n")
 
     # ▼▼▼ 调试辅助函数，用于抽查数据对齐情况 ▼▼▼
@@ -129,17 +123,14 @@ class IndicatorService:
             print("    -> 抽查失败: DataFrame 为空。")
             print(f"--- [数据清查-阶段2: 检查完成] ---\n")
             return
-        
         # 如果数据量小于抽样数，则展示所有数据
         if len(df) < num_samples:
             num_samples = len(df)
             print(f"    -> 数据量不足，展示全部 {num_samples} 行数据。")
         else:
             print(f"    -> 随机抽取 {num_samples} 个时间点，检查所有列的数据对齐情况:")
-
         # 使用固定的随机种子以保证每次抽查结果一致，便于调试
         sampled_df = df.sample(n=num_samples, random_state=42) if num_samples > 0 else df
-        
         # 设置pandas显示选项，以确保所有列都能被打印出来，不会被省略
         with pd.option_context(
             'display.max_rows', None, 
@@ -195,13 +186,11 @@ class IndicatorService:
         【V2.0 最终版 - 核心数据获取函数】
         异步获取足够用于计算的原始历史数据 DataFrame。
         此函数仅负责从 DAO 获取并执行最通用的列名标准化，不进行任何特定于场景的数据准备。
-
         Args:
             stock_code (str): 股票代码。
             time_level (Union[TimeLevel, str]): 时间级别 ('D', 'W', '60', '30' 等)。
             needed_bars (int): 需要获取的 K 线数量。
             trade_time (Optional[str]): 交易时间，用于数据回溯。
-
         Returns:
             Optional[pd.DataFrame]: 包含原始 OHLCV 数据的 DataFrame，如果获取失败则为 None。
         """
@@ -218,15 +207,12 @@ class IndicatorService:
             limit=needed_bars, 
             trade_time=trade_time # 直接传递，不做任何处理
         )
-
         if df is None or df.empty:
             logger.warning(f"[{stock_code}] 时间级别 {time_level} 无法获取到数据。")
             return None
-
         # 通用的列名标准化
         if 'vol' in df.columns and 'volume' not in df.columns:
             df.rename(columns={'vol': 'volume'}, inplace=True)
-
         # 确保数据有 DatetimeIndex，这是后续所有时间序列操作的基础
         # 这是从 _fetch_and_prepare_base_data 吸收的优点，但放在这里是合理的，因为它是通用的准备步骤
         if not isinstance(df.index, pd.DatetimeIndex):
@@ -243,24 +229,20 @@ class IndicatorService:
             else:
                 logger.error(f"[{stock_code}] {time_level} 数据既没有 DatetimeIndex，也没有 'trade_date'/'trade_time' 列。")
                 return None
-
         logger.debug(f"[{stock_code}] 时间级别 {time_level} 获取到 {len(df)} 条原始K线数据。")
         return df
 
     def _find_params_recursively(self, config_dict: Dict, key_to_find: str) -> Optional[Dict]:
         """
         在配置字典中递归查找指定的键。
-
         Args:
             config_dict (Dict): 要搜索的配置字典。
             key_to_find (str): 要查找的键名 (例如 'industry_context_params')。
-
         Returns:
             Optional[Dict]: 如果找到，返回对应的子字典；否则返回 None。
         """
         if key_to_find in config_dict:
             return config_dict[key_to_find]
-        
         for key, value in config_dict.items():
             if isinstance(value, dict):
                 result = self._find_params_recursively(value, key_to_find)
@@ -277,7 +259,6 @@ class IndicatorService:
                      这是解决周期发现问题的根本性方法。
         """
         timeframes: Set[str] = set()
-
         def _recursive_search(data):
             """
             【辅助函数】递归遍历字典和列表，查找并收集所有时间框架。
@@ -300,14 +281,11 @@ class IndicatorService:
                     # 继续向内层递归
                     if isinstance(item, (dict, list)):
                         _recursive_search(item)
-
         # 从配置的根节点开始进行全局递归搜索
         _recursive_search(config)
-
         # 安全保障：如果配置了任何指标，至少应包含日线数据，因为周/月线重采样依赖日线
         if config.get('feature_engineering_params', {}).get('indicators'):
             timeframes.add('D')
-
         # 移除可能存在的空字符串并返回
         return {tf for tf in timeframes if tf}
 
@@ -327,7 +305,6 @@ class IndicatorService:
         #   (?:_sum_(\d+)d)?          - 可选的sum部分，捕获sum周期 (sum_period)
         #   _(slope|accel)_(\d+)d$    - 必须匹配的斜率/加速度部分，捕获类型(deriv_type)和周期(deriv_period)
         pattern = re.compile(r'(.+?)(?:_sum_(\d+)d)?_(slope|accel)_(\d+)d$')
-
         for col in df.columns:
             match = pattern.match(col)
             if match:
@@ -347,7 +324,6 @@ class IndicatorService:
             elif col.endswith('_D'):
                 # 保留对仅带 _D 后缀的列的处理逻辑
                 rename_map[col] = col[:-2]
-
         if rename_map:
             df_renamed = df.rename(columns=rename_map)
             return df_renamed
@@ -508,54 +484,45 @@ class IndicatorService:
                 df = await self.strategies_dao.get_fund_flow_and_chips_data(stock_code, trade_time_dt, limit)
                 return ('legacy_supplemental', df)
             tasks.append(_fetch_legacy_supplemental_tagged(stock_code, trade_time, base_needed_bars))
-        
         # 无条件加载高级筹码指标，因为它们是许多高级分析的基础
         async def _fetch_advanced_chips_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_advanced_chip_metrics_data(stock_code, trade_time_dt, limit)
             return ('advanced_chips', df)
         tasks.append(_fetch_advanced_chips_tagged(stock_code, trade_time, base_needed_bars))
-        
         # 日度基本面数据是常用数据，默认获取
         async def _fetch_daily_basic_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True) if trade_time else None
             df = await self.strategies_dao.get_daily_basic_data(stock_code, trade_time_dt, limit)
             return ('daily_basic', df)
         tasks.append(_fetch_daily_basic_tagged(stock_code, trade_time, base_needed_bars))
-        
         trade_time_dt_date = pd.to_datetime(trade_time, utc=True).date() if trade_time else datetime.datetime.now().date()
-        
         # 同花顺资金流
         async def _fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_ths_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_ths', df)
         tasks.append(_fetch_fund_flow_ths_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        
         # 东方财富资金流
         async def _fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_dc_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_dc', df)
         tasks.append(_fetch_fund_flow_dc_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        
         # Tushare资金流
         async def _fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_fund_flow_daily_data(stock_code, trade_time_dt_date, limit)
             return ('fund_flow_tushare', df)
         tasks.append(_fetch_fund_flow_tushare_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        
         # 无条件加载高级资金流指标，因为它们是许多高级分析的基础
         async def _fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, limit):
             df = await self.fund_flow_dao.get_advanced_fund_flow_metrics_data(stock_code, trade_time_dt_date, limit)
             return ('advanced_fund_flow', df)
         tasks.append(_fetch_advanced_fund_flow_tagged(stock_code, trade_time_dt_date, base_needed_bars))
-        
         # 增加获取每日涨跌停价格的任务
         async def _fetch_price_limit_tagged(stock_code, trade_time, limit):
             trade_time_dt = pd.to_datetime(trade_time, utc=True).date() if trade_time else None
             df = await self.stock_trade_dao.get_price_limit_data(stock_code, trade_time_dt, limit)
             return ('price_limit', df)
         tasks.append(_fetch_price_limit_tagged(stock_code, trade_time, base_needed_bars))
-
         async def _fetch_and_tag_data(tf_to_fetch, trade_time_str):
             df = await self._get_ohlcv_data(stock_code, tf_to_fetch, base_needed_bars, trade_time_str)
             return (tf_to_fetch, df)
@@ -863,7 +830,6 @@ class IndicatorService:
         # 计算上涨家数占比
         members_df['is_up'] = members_df['close'] > members_df['pre_close']
         up_ratio = members_df['is_up'].sum() / len(members_df)
-        
         # 综合打分
         score = up_ratio * 10
         return score
@@ -894,21 +860,16 @@ class IndicatorService:
         members = await self.indicator_dao.get_industry_members(industry_code)
         if not members:
             return 0.0
-        
         member_codes = [m.stock_id for m in members]
-        
         # 2. 批量获取成分股当日行情
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日行情
         daily_data = await self.stock_trade_dao.get_stocks_daily_data(member_codes, trade_date)
         if not daily_data:
             return 0.0
-
         total_count = len(members)
         rising_count = sum(1 for d in daily_data if d.pct_change > 0)
         strong_rising_count = sum(1 for d in daily_data if d.pct_change > 5.0)
-        
         rising_ratio = rising_count / total_count if total_count > 0 else 0
-        
         score = 0.0
         if rising_ratio > 0.7 and strong_rising_count >= 2:
             score = 1.0 # 极强协同性：普涨且有攻击梯队
@@ -931,16 +892,13 @@ class IndicatorService:
             return 0.0
             
         member_codes = [m.stock_id for m in members]
-        
         # 2. 批量获取成分股当日基本面数据（包含涨停状态）
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日基本面
         daily_basics = await self.indicator_dao.get_stocks_daily_basic(member_codes, trade_date)
         if not daily_basics:
             return 0.0
-
         # 假设 limit_status=1 为涨停
         limit_up_count = sum(1 for b in daily_basics if b.limit_status == 1)
-        
         score = 0.0
         if limit_up_count >= 5:
             score = 1.0 # 板块高潮

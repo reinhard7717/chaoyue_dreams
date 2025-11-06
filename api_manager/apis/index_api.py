@@ -12,14 +12,11 @@ logger = logging.getLogger(__name__)
 class StockIndexAPI(BaseAPI):
     """
     股票指数API调用类
-    
     处理与股票指数相关的API请求
     """
-    
     async def get_main_indexes(self) -> List[Dict[str, Any]]:
         """
         获取沪深主要指数列表
-        
         Returns:
             List[Dict[str, Any]]: 包含主要指数信息的列表
         """
@@ -32,11 +29,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取沪深主要指数列表失败: {str(e)}")
             raise
-    
     async def get_sh_indexes(self) -> List[Dict[str, Any]]:
         """
         获取沪市指数列表
-        
         Returns:
             List[Dict[str, Any]]: 包含沪市指数信息的列表
         """
@@ -49,11 +44,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取沪市指数列表失败: {str(e)}")
             raise
-    
     async def get_sz_indexes(self) -> List[Dict[str, Any]]:
         """
         获取深市指数列表
-        
         Returns:
             List[Dict[str, Any]]: 包含深市指数信息的列表
         """
@@ -66,11 +59,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取深市指数列表失败: {str(e)}")
             raise
-    
     async def get_index_realtime_data(self, index_code: str) -> Dict[str, Any]:
         """
         获取指数实时数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             
@@ -86,11 +77,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]实时数据失败: {str(e)}")
             raise
-    
     async def get_market_overview(self) -> Dict[str, Any]:
         """
         获取沪深两市上涨下跌数概览
-        
         Returns:
             Dict[str, Any]: 市场概览数据
         """
@@ -103,11 +92,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取沪深两市上涨下跌数概览失败: {str(e)}")
             raise
-    
     async def get_latest_time_series(self, index_code: str, time_level: str) -> Dict[str, Any]:
         """
         获取最新分时交易数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -124,11 +111,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新分时交易数据失败: {str(e)}")
             raise
-    
     async def get_history_time_series(self, index_code: str, time_level: str) -> List[Dict[str, Any]]:
         """
         获取历史分时交易数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -145,13 +130,10 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史分时交易数据失败: {str(e)}")
             raise
-    
     # ================ KDJ指标相关API ================
-    
     async def get_latest_kdj(self, index_code: str, time_level: str) -> Dict[str, Any]:
         """
         获取最新KDJ指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -168,11 +150,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新KDJ数据失败: {str(e)}")
             raise
-    
     async def get_history_kdj(self, index_code: str, time_level: str) -> List[Dict[str, Any]]:
         """
         获取历史KDJ指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -189,13 +169,10 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史KDJ数据失败: {str(e)}")
             raise
-    
     # ================ MACD指标相关API ================
-    
     async def get_latest_macd(self, index_code: str, time_level: str) -> Dict[str, Any]:
         """
         获取最新MACD指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -212,11 +189,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新MACD数据失败: {str(e)}")
             raise
-    
     async def get_history_macd(self, index_code: str, time_level: str) -> List[Dict[str, Any]]:
         """
         获取历史MACD指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -233,13 +208,10 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MACD数据失败: {str(e)}")
             raise
-    
     # ================ MA指标相关API ================
-    
     async def get_latest_ma(self, index_code: str, time_level: str) -> Dict[str, Any]:
         """
         获取最新MA指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -256,11 +228,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新MA数据失败: {str(e)}")
             raise
-    
     async def get_history_ma(self, index_code: str, time_level: str) -> List[Dict[str, Any]]:
         """
         获取历史MA指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -277,13 +247,10 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别历史MA数据失败: {str(e)}")
             raise
-    
     # ================ BOLL指标相关API ================
-    
     async def get_latest_boll(self, index_code: str, time_level: str) -> Dict[str, Any]:
         """
         获取最新BOLL指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
@@ -300,11 +267,9 @@ class StockIndexAPI(BaseAPI):
         except Exception as e:
             logger.error(f"获取指数[{index_code}]的{time_level}级别最新BOLL数据失败: {str(e)}")
             raise
-    
     async def get_history_boll(self, index_code: str, time_level: str) -> List[Dict[str, Any]]:
         """
         获取历史BOLL指标数据
-        
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year

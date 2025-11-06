@@ -93,10 +93,8 @@ class IntelligenceLayer:
         # --- 阶段三：关系动力引擎与认知层合成 ---
         print("情报金字塔[第三层]: 认知决策层诊断开始...")
         self._ignite_relational_dynamics_engine()
-        # [代码修改开始]
         # 修正调用，移除多余的第二个参数 {}，并使用 update_states 统一模式
         update_states(self.cognitive_intel.synthesize_cognitive_scores(df))
-        # [代码修改结束]
         print("情报金字塔[第三层]: 认知决策层诊断完成。")
         return self.strategy.atomic_states
 
@@ -167,18 +165,14 @@ class IntelligenceLayer:
         """
         # print("    - [神力引擎] 正在点燃“关系动力”引擎...")
         df = self.strategy.df_indicators
-        
         power_transfer = (self.strategy.atomic_states.get('PROCESS_META_POWER_TRANSFER', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         stealth_accumulation = (self.strategy.atomic_states.get('PROCESS_META_STEALTH_ACCUMULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         winner_conviction = (self.strategy.atomic_states.get('PROCESS_META_WINNER_CONVICTION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
         loser_capitulation = (self.strategy.atomic_states.get('PROCESS_META_LOSER_CAPITULATION', pd.Series(0.0, index=df.index)).clip(-1, 1) * 0.5 + 0.5)
-        
         stormborn_power = (power_transfer * loser_capitulation)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STORM_BORN_POWER'] = stormborn_power.astype(np.float32)
-        
         still_waters_power = (stealth_accumulation * winner_conviction)**0.5
         self.strategy.atomic_states['SCORE_ATOMIC_STILL_WATERS_POWER'] = still_waters_power.astype(np.float32)
-        
         relational_dynamics_power = np.maximum(stormborn_power, still_waters_power)
         self.strategy.atomic_states['SCORE_ATOMIC_RELATIONAL_DYNAMICS'] = relational_dynamics_power.astype(np.float32)
 

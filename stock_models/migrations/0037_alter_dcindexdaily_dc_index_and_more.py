@@ -23,7 +23,6 @@ class Migration(migrations.Migration):
             "ALTER TABLE `ths_index_daily` CHANGE `ths_index_id` `ts_code` VARCHAR(20);"
         ),
         # 结束手动SQL操作
-
         # Django自动生成的AlterField操作现在可以正常执行了
         migrations.AlterField(
             model_name='dcindexdaily',

@@ -111,7 +111,6 @@ class PositionTracker(models.Model):
         WATCHING = 'WATCHING', '观察中'
         HOLDING = 'HOLDING', '持仓中'
         # SOLD 状态被移除，因为持仓状态由 quantity 决定
-    
     id = models.BigAutoField(primary_key=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='position_trackers')
     stock = models.ForeignKey(StockInfo, on_delete=models.CASCADE, related_name='position_trackers')
@@ -176,7 +175,6 @@ class DailyPositionSnapshot(models.Model):
 
     profit_loss = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     profit_loss_pct = models.DecimalField(max_digits=8, decimal_places=4, default=0)
-    
     daily_score = models.ForeignKey(
         'StrategyDailyScore',
         on_delete=models.SET_NULL,

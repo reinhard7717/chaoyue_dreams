@@ -180,7 +180,6 @@ class SimulationLayer:
         # 直接从每日的行数据中读取由“风险裁决者”生成的权威警报等级和原因
         alert_level = getattr(row, 'alert_level', 0)
         alert_reason = getattr(row, 'alert_reason', '')
-        
         return alert_level, alert_reason
 
 

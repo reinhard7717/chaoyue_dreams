@@ -1478,7 +1478,6 @@ class IntradayChipDynamics(models.Model):
     value_area_high = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='当日价值区间上沿(VAH)')
     value_area_low = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='当日价值区间下沿(VAL)')
     vwap = models.DecimalField(max_digits=10, decimal_places=3, verbose_name='当日成交量加权平均价(VWAP)')
-    
     # --- 3. 【深化】时间叙事指标 ---
     class DriveType(models.TextChoices):
         STRONG_BUY = 'STRONG_BUY', '强势买入'

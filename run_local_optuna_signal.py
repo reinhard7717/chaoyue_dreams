@@ -151,7 +151,6 @@ def objective(trial, strategy, item_name, epochs):
             trial=trial  # 传入 trial
         )
         # 
-
         # 检查返回值的有效性
         if returned_val_mae is None or (isinstance(returned_val_mae, float) and np.isnan(returned_val_mae)):
             # 如果返回值为 None 或 NaN，说明训练未完成或被内部剪枝，或者返回了无效值
@@ -162,7 +161,6 @@ def objective(trial, strategy, item_name, epochs):
             val_mae = returned_val_mae
             print(f"[Optuna][{item_name}] Trial {trial.number} 训练完成，val_mae={val_mae:.6f}")
         # 
-
         return val_mae
     except optuna.exceptions.TrialPruned:
         # 这个异常块是 Optuna 期望的，当 Trial 被剪枝时，会重新抛出此异常
@@ -248,33 +246,26 @@ def run_local_transformer_training_batch(
     for item_idx, item_name in enumerate(all_item_names):
         processed_stock_folders += 1
         item_path = actual_model_base_dir / item_name # 根据 item_name 构建完整路径
-
         prepared_data_path = item_path / "prepared_data"
         trained_model_path = item_path / "trained_model"
-
         if not prepared_data_path.is_dir():
             logger.warning(f"[{item_name}] 预处理数据目录 '{prepared_data_path}' 不存在，跳过。")
             skipped_due_to_no_npz += 1
             continue
-
         npz_files = list(prepared_data_path.glob("*.npz"))
         if not npz_files:
             logger.info(f"[{item_name}] 在 '{prepared_data_path}' 中未找到 *.npz 文件，跳过训练。")
             skipped_due_to_no_npz += 1
             continue
-
         pth_files = []
         if trained_model_path.is_dir():
             pth_files = list(trained_model_path.glob("*.pth"))
-
         if pth_files:
             skipped_due_to_existing_pth += 1
             continue
-
         logger.info(f"开始为股票 {item_name} 执行 Transformer 模型训练...")
         print(f"DEBUG: [{item_name}] 初始化 TrendFollowingStrategy (已从 'strategies.trend_following_strategy' 模块导入)...")
         strategy = TrendFollowingStrategy(params_file=actual_params_file, base_data_dir=actual_model_base_dir)
-
         try:
             # 贝叶斯优化
             print(f"[Optuna][{item_name}] try之前， 贝叶斯优化开始，启用 MedianPruner 早停策略。，最大试验次数: {n_trials}")
@@ -287,7 +278,6 @@ def run_local_transformer_training_batch(
             study.optimize(objective_with_epochs, n_trials=n_trials)  # 可调整n_trials
             best_params = study.best_params
             print(f"贝叶斯优化结束，最优参数: {best_params}")
-
             # 用最优参数做最终训练
             training_successful = strategy.train_transformer_model_from_prepared_data(
                 item_name,

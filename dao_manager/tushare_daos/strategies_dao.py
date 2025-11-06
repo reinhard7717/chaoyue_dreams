@@ -168,13 +168,11 @@ class StrategiesDAO(BaseDAO):
         """
         【终极优化版】使用窗口函数高效获取【指定股票列表】中每只股票最新的月线趋势策略报告。
         此方法是解决此类问题的行业标准，性能最高。
-
         :param stock_codes: 一个包含股票代码的列表。
         :return: 一个Django QuerySet，包含最新的报告对象，按买入评分降序排列。
         """
         # 调试信息：打印传入的股票代码列表
         # print(f"DAO层接收到待查询的股票代码: {stock_codes}")
-        
         # 增加对空列表的判断，如果列表为空，则直接返回一个空的QuerySet，避免数据库空查
         if not stock_codes:
             print("股票代码列表为空，直接返回空QuerySet。")
@@ -192,7 +190,6 @@ class StrategiesDAO(BaseDAO):
                 'signal_continuation_entry',
                 'signal_take_profit'
             )
-        
         # 1. 定义窗口函数 
         #    - PARTITION BY stock_id: 将数据按股票ID分组
         #    - ORDER BY trade_time DESC: 在每个分组内，按交易时间倒序排列
@@ -202,7 +199,6 @@ class StrategiesDAO(BaseDAO):
             partition_by=[F('stock_id')],
             order_by=F('trade_time').desc()
         )
-        
         # 2. 使用 annotate 创建一个包含行号的子查询
         #    【关键修改】在应用窗口函数前，先用传入的 stock_codes 列表进行过滤
         #    这会极大地减少窗口函数需要处理的数据量，是本次性能优化的核心。
@@ -211,7 +207,6 @@ class StrategiesDAO(BaseDAO):
         ranked_reports = base_queryset.annotate(
             row_number=window
         )
-        
         # 3. 从子查询中筛选出我们想要的行 (rn=1) 
         #    注意: Django ORM 要求对窗口函数的结果进行筛选时，必须通过 .filter() 作用于 annotate() 之后
         #    为了让数据库能直接处理，我们把它包装成一个子查询
@@ -250,18 +245,14 @@ class StrategiesDAO(BaseDAO):
         print("--- [DAO] 正在执行 _get_latest_trend_follow_reports_queryset (V7 统一注解版) ---")
         if base_queryset is None:
             base_queryset = TrendFollowStrategyReport.objects.all()
-
         latest_reports_info = base_queryset.values('stock').annotate(latest_trade_time=Max('trade_time'))
-
         if not latest_reports_info:
             return TrendFollowStrategyReport.objects.none()
-
         q_objects = [
             Q(stock_id=item['stock'], trade_time=item['latest_trade_time'])
             for item in latest_reports_info
         ]
         filter_condition = reduce(operator.or_, q_objects)
-
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
         # 将所有计算字段（包括展示用的字符串）在同一个 .annotate() 中完成
         final_queryset = TrendFollowStrategyReport.objects.filter(filter_condition).select_related('stock').annotate(
@@ -286,7 +277,6 @@ class StrategiesDAO(BaseDAO):
                 default=Value(False), output_field=BooleanField()
             ),
             signal_breakout_trigger=F('is_mid_term_bullish'),
-
             # --- 拼接展示用的字符串字段 (在数据库层面完成) ---
             signal_details=Concat(
                 Case(When(Q(triggered_playbooks__icontains='pullback'), then=Value('回撤买入 ')), default=Value('')),
@@ -301,10 +291,8 @@ class StrategiesDAO(BaseDAO):
             )
         ).order_by('-trade_time', '-buy_score')
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-        
         print("--- [DAO] _get_latest_trend_follow_reports_queryset 执行完毕 (已包含所有字段) ---")
         return final_queryset
-    
     # 获取所有股票最新日线策略报告的方法
     @sync_to_async
     def get_latest_trend_follow_reports(self):
@@ -325,10 +313,8 @@ class StrategiesDAO(BaseDAO):
         print(f"--- [DAO] 正在调用 get_latest_trend_follow_reports_by_stock_codes，代码: {stock_codes} ---")
         if not stock_codes:
             return TrendFollowStrategyReport.objects.none()
-        
         # 先按股票代码过滤
         initial_queryset = TrendFollowStrategyReport.objects.filter(stock__stock_code__in=stock_codes)
-        
         # 将预过滤的queryset传给辅助函数
         return self._get_latest_trend_follow_reports_queryset(base_queryset=initial_queryset)
 
@@ -343,44 +329,37 @@ class StrategiesDAO(BaseDAO):
         - 健壮合并: 使用 'outer' 合并，并统一使用 ffill() 填充，确保数据连续性。
         """
         # print(f"    - [DAO] 正在为 {stock_code} 获取补充数据 (资金流、筹码)...")
-        
         FundFlowModel = self.fund_flow_dao.get_fund_flow_model_by_code(stock_code)
         if not FundFlowModel:
             logger.error(f"无法为 {stock_code} 找到对应的资金流模型，跳过补充数据获取。")
             return pd.DataFrame()
-
         # 1. 获取资金流数据
         fund_flow_qs = FundFlowModel.objects.filter(stock__stock_code=stock_code).order_by('-trade_time')
         if trade_time:
             fund_flow_qs = fund_flow_qs.filter(trade_time__lte=trade_time.date())
         if limit:
             fund_flow_qs = fund_flow_qs[:limit]
-        
         # 2. 获取筹码性能数据
         cyq_perf_qs = StockCyqPerf.objects.filter(stock__stock_code=stock_code).order_by('-trade_time')
         if trade_time:
             cyq_perf_qs = cyq_perf_qs.filter(trade_time__lte=trade_time.date())
         if limit:
             cyq_perf_qs = cyq_perf_qs[:limit]
-
         # 3. 转换为DataFrame
         # ▼▼▼ 提取更丰富的字段 ▼▼▼
         flow_fields = ['trade_time', 'buy_sm_amount', 'sell_sm_amount', 'buy_md_amount', 'sell_md_amount', 'buy_lg_amount', 'sell_lg_amount', 'buy_elg_amount', 'sell_elg_amount', 'net_mf_amount']
         cyq_fields = ['trade_time', 'his_low', 'his_high', 'cost_5pct', 'cost_15pct', 'cost_50pct', 'cost_85pct', 'cost_95pct', 'weight_avg', 'winner_rate']
-        
         df_flow = pd.DataFrame.from_records(fund_flow_qs.values(*flow_fields))
         df_cyq = pd.DataFrame.from_records(cyq_perf_qs.values(*cyq_fields))
         if df_flow.empty and df_cyq.empty:
             print(f"    - [DAO] {stock_code} 的资金流和筹码数据均为空。")
             return pd.DataFrame()
-
         # 4. 合并两个DataFrame
         # ▼▼▼ 统一和健壮的合并与填充逻辑 ▼▼▼
         if not df_flow.empty:
             df_flow['trade_time'] = pd.to_datetime(df_flow['trade_time'], utc=True)
         if not df_cyq.empty:
             df_cyq['trade_time'] = pd.to_datetime(df_cyq['trade_time'], utc=True)
-
         if df_flow.empty:
             df_merged = df_cyq
         elif df_cyq.empty:
@@ -388,14 +367,11 @@ class StrategiesDAO(BaseDAO):
         else:
             # 使用外连接(outer)保留所有日期的数据，然后填充
             df_merged = pd.merge(df_flow, df_cyq, on='trade_time', how='outer')
-        
         # 排序是填充前的重要步骤
         df_merged.sort_values('trade_time', inplace=True)
-        
         # 使用ffill向前填充所有补充数据，这是正确的处理方式
         df_merged.ffill(inplace=True)
         df_merged.set_index('trade_time', inplace=True)
-        
         # print(f"    - [DAO] 成功获取并合并了 {stock_code} 的 {len(df_merged)} 条补充数据。")
         return df_merged
 
@@ -411,7 +387,6 @@ class StrategiesDAO(BaseDAO):
                 qs = qs.filter(trade_time__lte=trade_time.date())
             
             qs = qs.order_by('-trade_time')[:limit]
-
             fields_to_get = [
                 'trade_time',
                 'turnover_rate',
@@ -576,14 +551,12 @@ class StrategiesDAO(BaseDAO):
                                 valid_states.append(state)
                         if valid_states:
                             StrategyDailyState.objects.bulk_create(valid_states, ignore_conflicts=True)
-
                 return len(cleaned_signals) + len(cleaned_daily_scores)
             except Exception as e:
                 print(f"错误: [DAO-V507.0 - SYNC_BLOCK] 在同步事务块中发生异常: {e}")
                 import traceback
                 traceback.print_exc()
                 raise
-
         try:
             saved_count = await sync_to_async(_save_all_sync, thread_sensitive=True)()
             return saved_count
@@ -617,7 +590,6 @@ class StrategiesDAO(BaseDAO):
             queryset = queryset.filter(trade_time__lte=end_date)
         # 4. 排序并限制数量
         queryset = queryset.order_by('-trade_time')[:limit]
-        
         # --- 新增-修改-优化: 开始精确选择字段 ---
         # 5.1 动态获取模型的所有非关系字段名
         all_model_fields = [f.name for f in MetricsModel._meta.get_fields() if not f.is_relation]
@@ -626,7 +598,6 @@ class StrategiesDAO(BaseDAO):
         # 5.3 使用明确的字段列表进行查询
         data_records = [item async for item in queryset.values(*fields_to_fetch)]
         # --- 精确选择字段结束 ---
-
         # 6. 如果无数据，返回空DataFrame
         if not data_records:
             return pd.DataFrame()
@@ -641,15 +612,12 @@ class StrategiesDAO(BaseDAO):
         """
         【V1.0 - 盘中引擎专用】
         获取指定交易日的所有日线级别最终买入信号。
-
         - 核心逻辑: 筛选 entry_signal=True, timeframe='D' 的记录。
         - 性能优化: 使用 .select_related('stock') 预先加载关联的股票信息，
                     避免 N+1 查询问题，大幅提升性能。
         - 异步执行: 使用 Django 的异步ORM接口 (`async for`) 执行查询。
-
         Args:
             trade_date (date): 需要查询的交易日期 (注意: 类型是 date)。
-
         Returns:
             List[TrendFollowStrategySignalLog]: 包含所有符合条件的信号日志模型实例列表。
         """
@@ -665,13 +633,10 @@ class StrategiesDAO(BaseDAO):
                 # __date 是Django ORM提供的强大查询，可直接匹配DateTimeField的日期部分
                 trade_time__date=trade_date
             ).select_related('stock') # 【关键性能优化】
-
             # 2. 使用异步迭代器执行查询
             signals = [signal async for signal in queryset]
-
             logger.info(f"查询完成，共找到 {len(signals)} 条日线买入信号。")
             return signals
-
         except Exception as e:
             logger.error(f"查询日线买入信号时发生严重错误: {e}", exc_info=True)
             # 在生产环境中，发生错误时返回空列表是安全的做法
@@ -680,13 +645,10 @@ class StrategiesDAO(BaseDAO):
     async def get_latest_daily_data_for_stocks(self, stock_codes: List[str], end_date: str) -> Dict[str, pd.DataFrame]:
         """
         【V1.0 新增】使用窗口函数高效获取一批股票在指定日期或之前的最新日线行情数据。
-
         这是解决“获取每个分组最新N条记录”问题的最佳实践，性能极高。
-
         Args:
             stock_codes (List[str]): 股票代码列表。
             end_date (str): 截止日期，格式为 'YYYYMMDD' 或 'YYYY-MM-DD'。
-
         Returns:
             Dict[str, pd.DataFrame]: 一个字典，键是股票代码，值是包含该股票最新一条
                                      日线数据的DataFrame。如果某股票无数据，则字典中
@@ -695,7 +657,6 @@ class StrategiesDAO(BaseDAO):
         print(f"DEBUG: [DAO] 正在为 {len(stock_codes)} 只股票获取截至 {end_date} 的最新日线数据...")
         if not stock_codes:
             return {}
-
         # 1. 定义窗口函数
         #    - PARTITION BY stock_id: 按股票ID分组
         #    - ORDER BY trade_time DESC: 在每个组内按交易日倒序排列
@@ -704,7 +665,6 @@ class StrategiesDAO(BaseDAO):
             partition_by=[F('stock_id')],
             order_by=F('trade_time').desc()
         )
-
         # 2. 构建查询
         #    - 首先过滤出所有相关股票在截止日期之前的所有数据
         #    - 然后使用窗口函数为每个组内的记录进行排名
@@ -712,7 +672,6 @@ class StrategiesDAO(BaseDAO):
             stock__stock_code__in=stock_codes,
             trade_time__lte=end_date
         ).annotate(row_number=window)
-
         # 3. 从排名后的结果中只筛选出最新的记录 (row_number=1)
         #    使用 .values() 获取所需字段，这比获取完整的模型实例更高效
         latest_data_values = await sync_to_async(list)(
@@ -720,11 +679,9 @@ class StrategiesDAO(BaseDAO):
                 'stock__stock_code', 'trade_time', 'close', 'open', 'high', 'low', 'vol'
             )
         )
-
         if not latest_data_values:
             logger.warning(f"未能为股票列表在 {end_date} 或之前找到任何日线数据。")
             return {}
-
         # 4. 将查询结果组织成目标格式：{stock_code: DataFrame}
         results_map = {}
         for item in latest_data_values:
@@ -734,7 +691,6 @@ class StrategiesDAO(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_time'])
             df.set_index('trade_time', inplace=True)
             results_map[stock_code] = df
-        
         print(f"DEBUG: [DAO] 成功获取了 {len(results_map)} 只股票的最新日线数据。")
         return results_map
 

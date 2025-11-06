@@ -69,7 +69,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     """
     favorite_stock_codes = set()
     all_stock_codes = set()
-    
     try:
         # 直接使用传入的DAO实例
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
@@ -92,7 +91,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
         
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
-    
     # 返回排序后的列表，保证每次结果一致
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
@@ -179,11 +177,9 @@ def save_stocks_minute_data_batch(stock_codes: list, trade_date_str: str, cache_
     """
     # 直接使用传入的 trade_date_str 参数，不再内部计算日期
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-    
     # 根据传入的日期构造时间范围
     start_date_str = f"{trade_date_str} 00:00:00"
     end_date_str = f"{trade_date_str} 23:59:59"
-    
     # 更新日志和调试信息
     print(f"开始保存 {len(stock_codes)} 个股票, 交易日 {trade_date_str} 的分钟数据任务...")
     logger.info(f"开始处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
@@ -195,9 +191,7 @@ def save_stocks_minute_data_batch(stock_codes: list, trade_date_str: str, cache_
             start_date_str=start_date_str,
             end_date_str=end_date_str
         )
-    
     async_to_sync(main)()
-    
     # 更新完成后的日志和调试信息
     print(f"保存股票 {len(stock_codes)} 个的交易日 ({trade_date_str}) 分钟级交易数据完成。")
     logger.info(f"完成处理 {len(stock_codes)} 只股票在 {trade_date_str} 的分钟数据。")
@@ -244,7 +238,6 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
         trade_date_str = trade_date.strftime('%Y-%m-%d')
         logger.info(f"开始为交易日 {trade_date_str} 分派批量任务...")
         print(f"调试: 正在为交易日 {trade_date_str} 创建批次...")
-        
         # 内层循环，将所有股票代码分批处理
         for i in range(0, total_codes_count, batch_size):
             batch_codes = all_stock_codes[i:i + batch_size]
@@ -255,7 +248,6 @@ def save_stocks_minute_data_latest_days_task(batch_size: int = 310, num_days: in
                     trade_date_str=trade_date_str
                 ).set().apply_async()
                 total_dispatched_batches += 1
-    
     logger.info(f"任务结束: save_stocks_minute_data_latest_days_task - 共为 {len(trade_dates)} 个交易日分派了 {total_dispatched_batches} 个批量任务")
     return {"status": "success", "dispatched_batches": total_dispatched_batches, "trade_days_processed": len(trade_dates)}
 
@@ -319,7 +311,6 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
         print("调试: 未能获取到最近的交易日列表，任务终止。")
         return {"status": "skipped", "message": "未能获取到交易日列表"}
-    
     logger.info(f"成功获取到最近 {len(trade_dates)} 个交易日: {trade_dates}")
     print(f"调试: 将为以下交易日获取基本面指标: {trade_dates}")
 
@@ -332,15 +323,12 @@ def save_stocks_daily_basic_data_latest_days_task(num_days: int = 5, cache_manag
         trade_date_str = trade_date.strftime('%Y-%m-%d')
         logger.info(f"开始处理交易日 {trade_date_str} 的股票基本面指标...")
         print(f"开始保存交易日 {trade_date_str} 的股票基本面指标...")
-
         async def main():
             # 调用DAO时传入循环中的当前交易日
             return await stock_time_trade_dao.save_stock_daily_basic_history_by_trade_date(trade_date=trade_date)
-        
         result = async_to_sync(main)()
         # 将当天的处理结果存入汇总字典
         results_summary[trade_date_str] = result
-        
         print(f"保存交易日 {trade_date_str} 的股票基本面指标完成。result: {result}")
         logger.info(f"处理交易日 {trade_date_str} 的数据完成。")
 
@@ -372,25 +360,20 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
     【V4.0 - 自动日期范围版】
     保存最近N个交易日的所有股票日线数据。
     任务内部通过TradeCalendar自动计算起始和结束日期。
-    
     Args:
         num_days (int): 需要获取最近多少个交易日的数据。
     """
     logger.info(f"任务启动: save_day_data_latest_days_task - 获取最近 {num_days} 个交易日的日线数据。")
-    
     # 1. 【新逻辑】使用TradeCalendar获取最近N个交易日
     trade_dates = TradeCalendar.get_latest_n_trade_dates(n=num_days)
     if not trade_dates:
         logger.warning("未能从交易日历中获取到最近的交易日列表，任务终止。")
         return {"status": "skipped", "message": "未能获取到交易日列表"}
-    
     # 列表是降序的 (从近到远)，所以结束日期是第一个，开始日期是最后一个
     end_date = trade_dates[0]
     start_date = trade_dates[-1]
-    
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
-    
     logger.info(f"根据 {num_days} 个交易日计算出日期范围: {start_date_str} 到 {end_date_str}")
 
     # 2. 一次性获取所有股票代码
@@ -410,7 +393,6 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     results_summary = {}
     total_batches = ceil(len(all_stock_codes) / stock_batch_size)
-    
     # Tushare API needs YYYYMMDD format
     start_date_api = start_date.strftime('%Y%m%d')
     end_date_api = end_date.strftime('%Y%m%d')
@@ -422,10 +404,8 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
     for i in range(0, len(all_stock_codes), stock_batch_size):
         batch_num = (i // stock_batch_size) + 1
         stock_batch = all_stock_codes[i:i + stock_batch_size]
-        
         logger.info(f"处理批次 {batch_num}/{total_batches} (含 {len(stock_batch)} 只股票) for date range {start_date_str} to {end_date_str}")
         print(f"调试: 处理批次 {batch_num}/{total_batches}...")
-
         async def main():
             # 调用DAO方法，传入自动计算出的日期范围
             return await stock_time_trade_dao.save_daily_time_trade_history_by_stock_codes(
@@ -433,7 +413,6 @@ def save_day_data_latest_days_task(num_days: int = 5, stock_batch_size: int = 30
                 start_date=start_date_api,
                 end_date=end_date_api
             )
-        
         try:
             result = async_to_sync(main)()
             results_summary[f"batch_{batch_num}"] = result
@@ -1424,13 +1403,11 @@ def save_stk_limit_data_today_task(cache_manager=None):
 
     try:
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-        
         async def main():
             print(f"[{task_name}] 开始为交易日 {today_date} 保存涨跌停价格...")
             result = await stock_time_trade_dao.save_stk_limit_history(trade_date=today_date)
             print(f"[{task_name}] 保存交易日 {today_date} 的涨跌停价格完成。结果: {result}")
             return result
-
         task_result = async_to_sync(main)()
         logger.info(f"任务成功: {task_name} - {task_result}")
         return task_result
@@ -1452,7 +1429,6 @@ def save_stk_limit_data_yesterday_task(cache_manager=None):
     print(f"[{task_name}] 任务启动...")
 
     today_date = timezone.now().date()
-    
     # 使用 TradeCalendar 查找上一个交易日，这比简单地减一天更准确
     last_trade_date = TradeCalendar.get_latest_trade_date(reference_date=today_date)
 
@@ -1464,13 +1440,11 @@ def save_stk_limit_data_yesterday_task(cache_manager=None):
 
     try:
         stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
-        
         async def main():
             print(f"[{task_name}] 开始为上一个交易日 {last_trade_date} 保存涨跌停价格...")
             result = await stock_time_trade_dao.save_stk_limit_history(trade_date=last_trade_date)
             print(f"[{task_name}] 保存上一个交易日 {last_trade_date} 的涨跌停价格完成。结果: {result}")
             return result
-
         task_result = async_to_sync(main)()
         logger.info(f"任务成功: {task_name} - {task_result}")
         return task_result
@@ -1487,7 +1461,6 @@ def save_stk_limit_data_history_task(num_days: Optional[int] = None, cache_manag
       1. 根据 num_days 参数或默认历史起点(2010年)，从交易日历获取所有需要处理的交易日列表。
       2. 从最新日期开始，【逐日】循环调用DAO方法，获取并保存当天的涨跌停价数据。
       3. 这种逐日处理的方式虽然API调用次数更多，但任务状态更清晰，便于监控和断点续传。
-    
     Args:
         num_days (Optional[int]): 需要回溯的交易日数量。如果为None，则执行全历史回溯。
     """
@@ -1497,7 +1470,6 @@ def save_stk_limit_data_history_task(num_days: Optional[int] = None, cache_manag
 
     stock_time_trade_dao = StockTimeTradeDAO(cache_manager)
     today_date = timezone.now().date()
-    
     # 核心逻辑重构：改为逐日获取
     date_list = []
     if num_days is not None:
@@ -1533,9 +1505,7 @@ def save_stk_limit_data_history_task(num_days: Optional[int] = None, cache_manag
                 print(f"[{task_name}] 交易日 {trade_date} 处理完成，保存了 {saved_count} 条记录。")
                 # 在每次API调用后稍作停顿，对API接口更友好
                 await asyncio.sleep(0.5)
-
         async_to_sync(main)()
-        
         message = f"任务成功: {task_name} - 共处理 {total_dates} 个交易日，总计保存 {total_saved_count} 条记录。"
         logger.info(message)
         print(message)
@@ -1628,10 +1598,8 @@ def _group_consecutive_dates(dates: List[datetime.date]) -> List[tuple[datetime.
     """
     if not dates:
         return []
-    
     # 确保日期是唯一且排序的
     sorted_dates = sorted(list(set(dates)))
-    
     ranges = []
     # 使用 groupby 和 toordinal 来查找连续的日期块
     for k, g in groupby(enumerate(sorted_dates), lambda ix: ix[0] - ix[1].toordinal()):
@@ -1653,7 +1621,6 @@ def _group_dates_by_chunk_size(dates: List[datetime.date], chunk_size: int) -> L
     """
     if not dates:
         return []
-    
     ranges = []
     # 使用步长遍历列表，实现分块
     for i in range(0, len(dates), chunk_size):
@@ -1765,17 +1732,14 @@ def schedule_repair_missing_cyq_data(self, *, cache_manager: CacheManager):
     调度一个任务，为所有股票检查并修复缺失的 'cyq_perf' 和 'cyq_chips' 数据。
     """
     logger.info("任务启动: schedule_repair_missing_cyq_data - 开始调度CYQ数据修复任务...")
-    
     async def _async_schedule():
         stock_basic_dao = StockBasicInfoDao(cache_manager)
         all_stocks = await stock_basic_dao.get_stock_list()
         if not all_stocks:
             logger.warning("[数据修复调度] 未能获取到任何股票列表，任务终止。")
             return 0
-        
         stock_codes = [stock.stock_code for stock in all_stocks]
         print(f"[数据修复调度] 找到 {len(stock_codes)} 只股票，准备为每只股票派发修复检查任务。")
-        
         for stock_code in stock_codes:
             repair_missing_cyq_data_for_stock.delay(stock_code=stock_code)
             

@@ -33,7 +33,6 @@ class IntradayFeatureEngine:
     def __init__(self, slope_window: int = 5, stats_window: int = 20, corr_window: int = 10):
         """
         初始化特征引擎。
-        
         Args:
             slope_window (int): 计算斜率的窗口期。
             stats_window (int): 计算统计指标 (如Z-Score, CV) 的窗口期。
@@ -46,41 +45,33 @@ class IntradayFeatureEngine:
     def generate_features(self, stock_code: str, df_quotes: pd.DataFrame, df_real_ticks: Optional[pd.DataFrame], time_level: str) -> Optional[pd.DataFrame]:
         """
         执行完整的、基于真实逐笔数据的特征计算流水线。
-
         Args:
             stock_code (str): 股票代码。
             df_quotes (pd.DataFrame): 分钟级别的行情快照数据 (含OHLCV, VWAP等)。
             df_real_ticks (Optional[pd.DataFrame]): 当日开盘至今的全部真实逐笔数据。
             time_level (str): K线的时间级别，如 '1min'。
-
         Returns:
             Optional[pd.DataFrame]: 包含了所有计算特征的分钟级别DataFrame。
         """
         if df_quotes is None or df_quotes.empty:
             logger.warning(f"[{stock_code}] 输入的行情快照数据为空，特征计算终止。")
             return None
-
         # 1. 计算基础特征 (基于行情快照)
         df_minute = self._calculate_primary_features(df_quotes)
-
         # 2. 如果有真实逐笔数据，则计算主动性特征并融合
         if df_real_ticks is not None and not df_real_ticks.empty:
             df_agg_features = self._aggregate_tick_data(df_real_ticks, time_level)
             if df_agg_features is not None:
                 # 使用 left join，以分钟K线为主体，合并主动性指标
                 df_minute = df_minute.join(df_agg_features, how='left')
-        
         # 3. 使用 pandas-ta 计算衍生技术指标
         df_minute = self._apply_pandas_ta_strategy(df_minute)
-
         # 4. 最终处理
         df_minute['stock_code'] = stock_code
         df_minute.reset_index(inplace=True)
         df_minute.rename(columns={'index': 'trade_time'}, inplace=True)
-        
         # 填充由滚动窗口计算产生的初始NaN值
         df_minute.fillna(0, inplace=True)
-
         return df_minute
 
     def _calculate_primary_features(self, df_quotes: pd.DataFrame) -> pd.DataFrame:
@@ -88,7 +79,6 @@ class IntradayFeatureEngine:
         # 确保列是数值类型
         df_quotes['turnover_value'] = pd.to_numeric(df_quotes['turnover_value'], errors='coerce')
         df_quotes['volume'] = pd.to_numeric(df_quotes['volume'], errors='coerce')
-        
         # 计算当日累计VWAP (Volume Weighted Average Price)
         df_quotes['vwap'] = df_quotes['turnover_value'].cumsum() / (df_quotes['volume'].cumsum() + 1e-9)
         return df_quotes
@@ -102,13 +92,11 @@ class IntradayFeatureEngine:
             # '买盘' 表示主动买入，'卖盘' 表示主动卖出
             df_ticks['aggressive_buy_volume'] = np.where(df_ticks['type'] == '买盘', df_ticks['volume'], 0)
             df_ticks['aggressive_sell_volume'] = np.where(df_ticks['type'] == '卖盘', df_ticks['volume'], 0)
-
             # 2. 定义聚合规则
             aggregation_rules = {
                 'aggressive_buy_volume': 'sum',
                 'aggressive_sell_volume': 'sum',
             }
-
             # 3. 按分钟级别重新采样和聚合
             df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
             
@@ -117,7 +105,6 @@ class IntradayFeatureEngine:
                 'aggressive_buy_volume': 'agg_buy_vol_sum',
                 'aggressive_sell_volume': 'agg_sell_vol_sum'
             }, inplace=True)
-
             return df_aggregated
         except Exception as e:
             logger.error(f"聚合真实逐笔数据时发生异常: {e}", exc_info=True)
@@ -132,11 +119,9 @@ class IntradayFeatureEngine:
         stdev = df_minute['close'].rolling(window=self.stats_window, min_periods=1).std()
         sma = df_minute['close'].rolling(window=self.stats_window, min_periods=1).mean()
         df_minute['price_cv'] = stdev / (sma + 1e-9)
-        
         # 成交量Z-Score
         if 'volume' in df_minute.columns:
             df_minute.ta.zscore(close=df_minute['volume'], length=self.stats_window, append=True, col_names="volume_zscore")
-
         # --- 主动性衍生指标 (如果存在) ---
         if 'agg_buy_vol_sum' in df_minute.columns and 'agg_sell_vol_sum' in df_minute.columns:
             # 填充可能因join产生的NaN
@@ -155,7 +140,6 @@ class IntradayFeatureEngine:
             # 4. 价格与净主动成交量的滚动相关性
             corr = df_minute['close'].rolling(window=self.corr_window).corr(df_minute['net_aggressive_volume'])
             df_minute['corr_price_net_agg_vol'] = corr
-
         return df_minute
 
 # ▼▼▼ 修改后：重构为服务编排器 ▼▼▼
@@ -178,20 +162,15 @@ def cpu_bound_calculation_task(
     try:
         # 1. 初始化特征引擎
         feature_engine = IntradayFeatureEngine(slope_window, stats_window)
-        
         # 2. 调用引擎生成所有特征
         df_features = feature_engine.generate_features(stock_data_package, time_level)
-
         # 3. 检查结果并触发下游任务
         if df_features is None or df_features.empty:
             print(f"    -> [WORKER V9.0] {stock_code} 未生成有效特征数据，任务结束。")
             return
-
         # print(f"    -> [WORKER V9.0] {stock_code} 特征计算完成，正在触发策略分析任务...")
         from tasks.stock_analysis_tasks import run_realtime_strategy_for_stock
-        
         calculated_data = df_features.to_dict('records')
-        
         run_realtime_strategy_for_stock.apply_async(
             args=[calculated_data],
             queue='cpu_intensive_queue',
@@ -292,22 +271,18 @@ class RealtimeServices:
         对给定的股票列表，执行完整的数据获取、特征计算和策略分析流程。
         """
         print(f"-> [服务层 V4.0] 开始处理 {len(stock_codes)} 支股票的盘中数据...")
-        
         # 1. 并发获取所有需要的基础数据
         #    - 行情快照 (用于生成分钟K线)
         #    - 真实逐笔 (用于计算主动性指标)
         quotes_map, real_ticks_map = await self._get_all_base_data(stock_codes, trade_date)
-        
         # 2. 准备Celery任务组
         calculation_tasks = []
         for stock_code in stock_codes:
             df_quotes = quotes_map.get(stock_code)
             df_real_ticks = real_ticks_map.get(stock_code)
-
             if df_quotes is None or df_quotes.empty:
                 print(f"  - 警告: {stock_code} 缺少行情快照数据，无法进行分析，已跳过。")
                 continue
-
             # 3. 调用特征引擎计算特征
             #    现在传递了所有必需的参数
             df_features = self.feature_engine.generate_features(
@@ -316,7 +291,6 @@ class RealtimeServices:
                 df_real_ticks=df_real_ticks,
                 time_level=time_level
             )
-
             if df_features is None or df_features.empty:
                 print(f"  - 警告: {stock_code} 特征计算失败或结果为空，已跳过。")
                 continue
@@ -328,7 +302,6 @@ class RealtimeServices:
             # 创建Celery任务签名
             task_signature = run_realtime_strategy_for_stock.s(calculated_data_list)
             calculation_tasks.append(task_signature)
-
         # 5. 并行执行所有策略分析任务
         if calculation_tasks:
             print(f"-> [服务层 V4.0] 准备将 {len(calculation_tasks)} 个分析任务分派到 'cpu_intensive_queue' 队列...")
@@ -343,14 +316,12 @@ class RealtimeServices:
         并发获取所有股票的行情快照和真实逐笔数据。
         """
         print(f"  -> [数据获取] 开始为 {len(stock_codes)} 支股票并发获取基础数据...")
-        
         # 使用 asyncio.gather 并发执行两个批量获取任务
         tasks = [
             self.realtime_dao.get_daily_quotes_and_level5_in_bulk(stock_codes, trade_date),
             self._get_all_real_ticks_in_bulk(stock_codes, trade_date)
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
         # 处理行情快照和Level5数据
         quotes_level5_map = results[0] if not isinstance(results[0], Exception) else {}
         quotes_map = {}
@@ -361,10 +332,8 @@ class RealtimeServices:
                     quotes_map[code] = pd.merge_asof(df_quotes.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
                 elif df_quotes is not None:
                     quotes_map[code] = df_quotes
-        
         # 处理真实逐笔数据
         real_ticks_map = results[1] if not isinstance(results[1], Exception) else {}
-        
         print(f"  -> [数据获取] 完成。获取到 {len(quotes_map)} 支股票的快照数据和 {len(real_ticks_map)} 支股票的逐笔数据。")
         return quotes_map, real_ticks_map
 

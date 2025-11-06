@@ -40,7 +40,6 @@ def load_strategy_config(file_path: str) -> Dict:
 
     Returns:
         一个不包含任何说明性键的纯净配置字典。
-    
     Raises:
         FileNotFoundError: 如果文件路径不存在。
         json.JSONDecodeError: 如果文件不是有效的JSON。
@@ -49,7 +48,6 @@ def load_strategy_config(file_path: str) -> Dict:
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             raw_config = json.load(f)
-        
         # 调用递归函数剥离所有说明性键
         clean_config = _strip_comments_recursive(raw_config)
         # print("配置加载并清理完成。")

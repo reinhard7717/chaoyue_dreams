@@ -88,7 +88,6 @@ class StockBasicInfoDao(BaseDAO):
     async def get_stocks_by_codes(self, stock_codes: List[str]) -> Dict[str, 'StockInfo']:
         """
         【V2 - 最佳实践版】批量获取股票信息，返回以stock_code为key的字典。
-        
         优化点:
         1. 使用Django 5原生异步ORM，避免sync_to_async的开销。
         2. 使用异步字典推导式，一步完成查询和字典构建。
@@ -96,7 +95,6 @@ class StockBasicInfoDao(BaseDAO):
         """
         if not stock_codes:
             return {}
-
         retry_count = 3
         for attempt in range(retry_count):
             try:
@@ -121,7 +119,6 @@ class StockBasicInfoDao(BaseDAO):
                 # 这可以防止隐藏如字段错误、类型错误等编程错误
                 logger.error(f"批量查找股票信息时发生未知异常: {e}", exc_info=True)
                 raise # 向上抛出，让调用方知道发生了严重错误
-
         # 理论上，由于上面的逻辑总会返回或抛出异常，代码不会执行到这里。
         # 但为了代码完整性，保留一个返回。
         return {}
@@ -249,7 +246,6 @@ class StockBasicInfoDao(BaseDAO):
     async def save_company_info(self) -> Dict:
         """
         【V2 - 优化版】通过tushare获取所有公司信息并保存到数据库
-        
         优化点:
         1. [核心] 使用 `get_stocks_by_codes` 方法进行批量查询，彻底解决N+1数据库查询问题，性能提升巨大。
         2. 采用“先从API拉取，再批量关联数据库信息”的高效模式。
@@ -257,7 +253,6 @@ class StockBasicInfoDao(BaseDAO):
         4. 优化了代码结构，使其更清晰、高效和健壮。
         """
         print("调试: 开始执行 save_company_info 任务...")
-        
         try:
             # 1. 一次性从Tushare拉取所有公司数据
             print("调试: 正在从Tushare API拉取所有上市公司基本信息...")
@@ -267,12 +262,10 @@ class StockBasicInfoDao(BaseDAO):
                 "ts_code", "com_name", "chairman", "manager", "secretary", "reg_capital", "setup_date", "province",
                 "city", "introduction", "website", "email", "office", "business_scope", "employees", "main_business", "exchange"
             ])
-
             if df.empty:
                 logger.info("Tushare API没有返回任何公司信息，任务提前结束。")
                 print("调试: Tushare API返回空数据帧，任务结束。")
                 return {"status": "success", "message": "No data returned from API.", "saved_count": 0}
-
             # 2. 数据清洗
             df = df.replace(['nan', 'NaN', ''], np.nan)
             df = df.where(pd.notnull(df), None)
@@ -284,7 +277,6 @@ class StockBasicInfoDao(BaseDAO):
             # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
             stock_map = await self.get_stocks_by_codes(unique_ts_codes)
             print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
-
             # 4. 准备批量写入的数据
             data_dicts_to_save = []
             
@@ -301,7 +293,6 @@ class StockBasicInfoDao(BaseDAO):
                         logger.warning(f"在数据库中未找到股票代码 {row.ts_code} 的基础信息，已跳过该公司信息。")
                     else:
                         logger.warning(f"API返回的股票 {row.ts_code} 公司名称(com_name)为空，已跳过。")
-
             # 5. [代码修改处] 批量写入数据库
             saved_count = 0
             if data_dicts_to_save:
@@ -321,7 +312,6 @@ class StockBasicInfoDao(BaseDAO):
                 logger.info("经过筛选后，没有需要保存到数据库的公司数据。")
                 print("调试: 经过筛选后，没有需要保存的数据。")
                 return {"status": "success", "message": "No new data to save.", "saved_count": 0}
-
         except Exception as e:
             logger.error(f"保存公司信息时发生严重错误: {e}", exc_info=True)
             print(f"调试: 发生异常: {e}")

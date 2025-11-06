@@ -78,7 +78,6 @@ class UserProfileForm(forms.ModelForm):
             'bio': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'email_notification': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
-    
     def __init__(self, *args, **kwargs):
         """
         初始化用户资料表单
@@ -93,13 +92,11 @@ class UserProfileForm(forms.ModelForm):
             })
             kwargs['initial'] = initial
         super().__init__(*args, **kwargs)
-    
     def save(self, commit=True):
         """
         保存用户资料
         """
         profile = super().save(commit=False)
-        
         # 同时更新User模型中的字段
         if hasattr(profile, 'user'):
             profile.user.first_name = self.cleaned_data['first_name']
@@ -107,10 +104,8 @@ class UserProfileForm(forms.ModelForm):
             profile.user.email = self.cleaned_data['email']
             if commit:
                 profile.user.save()
-        
         if commit:
             profile.save()
-        
         return profile
 
 class FavoriteStockForm(forms.ModelForm):

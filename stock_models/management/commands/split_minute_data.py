@@ -64,11 +64,9 @@ class Command(BaseCommand):
         # 只处理5/15/30/60分钟
         time_levels = ['5', '15', '30', '60']
         batch_size = 30000  # 批量处理，防止内存溢出
-
         # 获取所有有分钟数据的股票代码
         stock_codes = StockMinuteData.objects.values_list('stock__stock_code', flat=True).distinct()
         print(f"共发现{len(stock_codes)}只股票需要迁移")
-
         for stock_code in stock_codes:  # 外层循环：遍历每个股票代码
             for time_level in time_levels:  # 内层循环：遍历每个时间级别
                 queryset = StockMinuteData.objects.filter(stock__stock_code=stock_code, time_level=time_level).order_by('trade_time')  # 按trade_time正序查询

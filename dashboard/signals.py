@@ -19,15 +19,12 @@ def delete_position_tracker_on_favorite_delete(sender, instance, **kwargs):
     # 从被删除的 FavoriteStock 实例中获取用户和股票信息
     user = instance.user
     stock = instance.stock
-    
     # 查找与该用户和股票对应的 PositionTracker
     # 注意：根据模型定义，每个用户/股票组合只有一个 PositionTracker，但使用 .filter() 更安全
     trackers_to_delete = PositionTracker.objects.filter(user=user, stock=stock)
-    
     # 执行删除操作，并获取删除的记录数
     # 这会触发数据库的级联删除，一并删除所有关联的交易和快照
     deleted_count, _ = trackers_to_delete.delete()
-    
     # 如果确实删除了记录，则打印日志
     if deleted_count > 0:
         logger.info(

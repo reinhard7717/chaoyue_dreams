@@ -7,38 +7,29 @@ document.addEventListener('DOMContentLoaded', function () {
     function initializeHomePage() {
         const addFavoriteForm = document.getElementById('add-favorite-form');
         const favoritesTbody = document.getElementById('favorites-tbody');
-
         // 卫兵子句：如果连最基本的自选列表tbody都找不到，直接退出，不执行任何主控台逻辑
         if (!favoritesTbody) {
             return;
         }
-
         console.log('正在初始化【主控台】页面功能...');
-
         const favoritesEmpty = document.getElementById('favorites-empty');
-
         // 检查自选股列表是否为空
         if (favoritesEmpty) {
             favoritesEmpty.style.display = favoritesTbody.children.length === 0 ? 'block' : 'none';
         }
-
         // WebSocket 连接
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsPath = `${wsProtocol}//${window.location.host}/ws/dashboard/`;
         let socket;
-
         function connectWebSocket() {
             console.log('正在尝试连接 WebSocket...');
             socket = new WebSocket(wsPath);
-
             socket.onopen = function (e) {
                 console.log('WebSocket 连接已建立');
             };
-
             socket.onmessage = function (e) {
                 const data = JSON.parse(e.data);
                 console.log('接收到WebSocket数据:', data);
-
                 switch (data.type) {
                     case 'stock_tick_update':
                         updateStockRow(data.payload);
@@ -56,17 +47,14 @@ document.addEventListener('DOMContentLoaded', function () {
                         console.warn('未知的消息类型:', data.type);
                 }
             };
-
             socket.onclose = function (e) {
                 console.error('WebSocket 连接意外关闭。正在尝试重新连接...', e.reason);
                 setTimeout(connectWebSocket, 5000);
             };
-
             socket.onerror = function (err) {
                 console.error('WebSocket 错误:', err);
             };
         }
-
         function addStockRow(favData) {
             const existRow = favoritesTbody.querySelector(`tr[data-id="${favData.id}"]`);
             if (existRow) {
@@ -74,12 +62,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
             if (favoritesEmpty) favoritesEmpty.style.display = 'none';
-
             const row = document.createElement('tr');
             row.dataset.stockCode = favData.code;
             row.dataset.id = favData.id;
             row.dataset.stockName = favData.name;
-
             row.innerHTML = `
                 <td class="stock-code">${favData.code || 'N/A'}</td>
                 <td class="stock-name">${favData.name || 'N/A'}</td>
@@ -96,7 +82,6 @@ document.addEventListener('DOMContentLoaded', function () {
             flashRow(row, 'add');
             updateStockRow(favData);
         }
-
         function removeStockRow(favoriteId) {
             const rowToRemove = favoritesTbody.querySelector(`tr[data-id="${favoriteId}"]`);
             if (rowToRemove) {
@@ -109,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }, 300);
             }
         }
-
         function renderFavoritesTable(favoritesData) {
             favoritesTbody.innerHTML = '';
             if (!favoritesData || favoritesData.length === 0) {
@@ -119,21 +103,17 @@ document.addEventListener('DOMContentLoaded', function () {
             if (favoritesEmpty) favoritesEmpty.style.display = 'none';
             favoritesData.forEach(fav => addStockRow(fav));
         }
-
         function updateStockRow(updateData) {
             const row = updateData.id
                 ? favoritesTbody.querySelector(`tr[data-id="${updateData.id}"]`)
                 : favoritesTbody.querySelector(`tr[data-stock-code="${updateData.code}"]`);
             if (!row) return;
-
             const priceCell = row.querySelector('[data-field="current_price"]');
             const percentCell = row.querySelector('[data-field="change_percent"]');
             const volumeCell = row.querySelector('[data-field="volume"]');
-
             // 假设 formatNumber, formatVolume, formatPercent, flashRow 是全局可用的
             if (priceCell && updateData.current_price !== undefined) priceCell.textContent = formatNumber(updateData.current_price, 2);
             if (volumeCell && updateData.volume !== undefined) volumeCell.textContent = formatVolume(updateData.volume);
-
             if (percentCell && updateData.change_percent !== undefined) {
                 const changePercent = updateData.change_percent;
                 percentCell.textContent = formatPercent(changePercent);
@@ -143,16 +123,13 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             flashRow(row, 'update');
         }
-
         favoritesTbody.addEventListener('click', async function (event) {
             const removeButton = event.target.closest('button[data-action="remove"]');
             if (!removeButton) return;
-
             const row = removeButton.closest('tr');
             const stockCode = row.dataset.stockCode;
             const stockName = row.dataset.stockName;
             const favoriteId = row.dataset.id;
-
             // 假设 getCookie 和 showNotification 是全局可用的
             if (favoriteId && confirm(`确定要从自选中移除 ${stockCode} - ${stockName} 吗？`)) {
                 removeButton.disabled = true;
@@ -176,18 +153,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         });
-
         const searchInput = document.getElementById('stock-search-input');
         if (searchInput) {
             const searchResultsContainer = document.getElementById('search-results');
             const viewDetailBtn = document.getElementById('view-detail-btn'); // 新增行: 获取“查看详情”按钮
             let debounceTimer;
             let selectedStockCode = null;
-
             searchInput.addEventListener('keyup', (event) => {
                 const query = searchInput.value.trim();
                 clearTimeout(debounceTimer);
-
                 if (query.length === 0) {
                     searchResultsContainer.innerHTML = '';
                     searchResultsContainer.style.display = 'none';
@@ -200,7 +174,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     // 新增结束
                     return;
                 }
-
                 debounceTimer = setTimeout(async () => {
                     console.log(`[Search] 正在搜索: ${query}`);
                     try {
@@ -217,7 +190,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 }, 300);
             });
-
             function renderSearchResults(stocks) {
                 searchResultsContainer.innerHTML = '';
                 if (stocks.length === 0) {
@@ -234,7 +206,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
                 searchResultsContainer.style.display = 'block';
             }
-
             searchResultsContainer.addEventListener('click', (event) => {
                 const targetItem = event.target.closest('.search-result-item');
                 if (targetItem && targetItem.dataset.stockCode) {
@@ -251,21 +222,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     // 新增结束
                 }
             });
-
             if (addFavoriteForm) {
                 addFavoriteForm.addEventListener('submit', async (event) => {
                     event.preventDefault();
-
                     if (!selectedStockCode) {
                         // 假设 showNotification 是全局可用的
                         showNotification('请先从搜索结果中选择一只股票', 'warning');
                         return;
                     }
-
                     const addButton = document.getElementById('add-favorite-btn');
                     addButton.disabled = true;
                     addButton.innerHTML = '<span class="icon">+</span> 添加中...';
-
                     try {
                         // 假设 getCookie 是全局可用的
                         const csrfToken = getCookie('csrftoken');
@@ -278,9 +245,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             },
                             body: JSON.stringify({ stock_code: selectedStockCode })
                         });
-
                         const responseData = await response.json();
-
                         if (response.ok) {
                             // 假设 showNotification 是全局可用的
                             showNotification(responseData.detail || `股票 ${selectedStockCode} 操作成功！`, 'success');
@@ -300,14 +265,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                 });
             }
-
             document.addEventListener('click', (event) => {
                 if (addFavoriteForm && !addFavoriteForm.contains(event.target)) {
                     searchResultsContainer.style.display = 'none';
                 }
             });
         }
-
         connectWebSocket();
     }
 

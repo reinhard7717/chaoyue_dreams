@@ -26,24 +26,19 @@ class IntradayBehaviorEngine:
         """
         if df_minute is None or df_minute.empty:
             return None
-        
         df_enriched = df_minute.copy()
         calc_tasks = []
-
         # VWAP (为公理二：控制能力服务)
         # VWAP通常是数据源直接提供或简单计算，这里假设calculator有此功能
         calc_tasks.append(self.calculator.calculate_vwap(df_enriched))
-        
         # KDJ (为公理三：博弈转折服务)
         kdj_params = self.params.get('kdj_params', {})
         if kdj_params.get('enabled'):
             calc_tasks.append(self.calculator.calculate_kdj(df_enriched, kdj_params['period'], kdj_params['signal_period'], kdj_params['smooth_k_period']))
-
         results = await asyncio.gather(*calc_tasks)
         for res_df in results:
             if res_df is not None and not res_df.empty:
                 df_enriched = df_enriched.join(res_df, how='left')
-        
         return df_enriched
 
     async def run_intraday_diagnostics(self, df_minute: pd.DataFrame) -> Dict[str, float]:
@@ -56,7 +51,6 @@ class IntradayBehaviorEngine:
         """
         print("启动【V2.0 · 三大公理重构版】日内行为诊断...")
         df_enriched = await self._prepare_intraday_indicators(df_minute)
-
         if df_enriched is None or df_enriched.empty:
             print("分钟数据为空，无法进行日内行为诊断。")
             return {
@@ -64,7 +58,6 @@ class IntradayBehaviorEngine:
                 "SCORE_INTRADAY_AXIOM_CONTROL": 0.0,
                 "SCORE_INTRADAY_AXIOM_TURNING": 0.0,
             }
-
         # 并行执行三大公理的诊断
         tasks = [
             self._diagnose_axiom_attack(df_enriched),
@@ -72,11 +65,9 @@ class IntradayBehaviorEngine:
             self._diagnose_axiom_turning(df_enriched),
         ]
         results = await asyncio.gather(*tasks)
-        
         final_scores = {}
         for res_dict in results:
             final_scores.update(res_dict)
-        
         print(f"日内行为诊断完成: {final_scores}")
         return final_scores
 
@@ -87,17 +78,13 @@ class IntradayBehaviorEngine:
         body = df_minute['close'] - df_minute['open']
         body_range = df_minute['high'] - df_minute['low']
         body_strength = (body / body_range.replace(0, np.nan)).fillna(0)
-
         # 2. 成交额强度 (相比近期均值的倍数，归一化到 [0, N])
         amount_ma = df_minute['amount'].rolling(window=21, min_periods=1).mean()
         amount_strength = (df_minute['amount'] / amount_ma.replace(0, np.nan)).fillna(1.0)
-
         # 3. 融合：实体强度 * 成交额强度
         raw_attack_score = body_strength * amount_strength
-        
         # 4. 使用双极归一化，得到最终的攻击强度分
         final_score = normalize_to_bipolar(raw_attack_score, df_minute.index, window=len(df_minute)).iloc[-1]
-
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
 
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
@@ -108,10 +95,8 @@ class IntradayBehaviorEngine:
         # 控制能力 = (收盘价 - VWAP) / VWAP
         # 正值代表多头控盘，负值代表空头控盘
         raw_control_score = (df_minute['close'] - df_minute['vwap']) / df_minute['vwap']
-        
         # 使用双极归一化，得到最终的控制能力分
         final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=len(df_minute), sensitivity=2.0).iloc[-1]
-
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
 
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
@@ -120,20 +105,16 @@ class IntradayBehaviorEngine:
         k_col = f"K_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         d_col = f"D_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         j_col = f"J_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
-
         if not all(c in df_minute.columns for c in [k_col, d_col, j_col]):
             return {"SCORE_INTRADAY_AXIOM_TURNING": 0.0}
-
         # 1. 看涨转折信号：KDJ在超卖区金叉
         is_oversold = (df_minute[j_col] < 20)
         is_golden_cross = (df_minute[k_col] > df_minute[d_col]) & (df_minute[k_col].shift(1) <= df_minute[d_col].shift(1))
         bullish_turn_signal = (is_oversold & is_golden_cross).astype(float)
-
         # 2. 看跌转折信号：KDJ在超买区死叉
         is_overbought = (df_minute[j_col] > 80)
         is_dead_cross = (df_minute[k_col] < df_minute[d_col]) & (df_minute[k_col].shift(1) >= df_minute[d_col].shift(1))
         bearish_turn_signal = (is_overbought & is_dead_cross).astype(float)
-
         # 3. 融合为双极性分数
         # 只取最后一次信号
         final_score = 0.0

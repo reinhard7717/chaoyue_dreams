@@ -12,7 +12,6 @@ class ForensicProbes:
         【V2.8 · 垂直切片探针版】法医探针调度中心
         - 核心升级: 新增注册 behavioral_probes 和 fund_flow_probes 模块。
         """
-        
         from .probes.behavioral_probes import BehavioralProbes
         from .probes.fund_flow_probes import FundFlowProbes
         from .probes.micro_behavior_probes import MicroBehaviorProbes
@@ -22,7 +21,6 @@ class ForensicProbes:
         from .probes.foundation_probes import FoundationProbes
         from .probes.process_probes import ProcessProbes
         from .probes.structural_probes import StructuralProbes
-        
         self.behavioral_probes = BehavioralProbes(intelligence_layer_instance)
         self.fund_flow_probes = FundFlowProbes(intelligence_layer_instance)
         self.micro_behavior_probes = MicroBehaviorProbes(intelligence_layer_instance)
@@ -32,7 +30,6 @@ class ForensicProbes:
         self.foundation_probes = FoundationProbes(intelligence_layer_instance)
         self.process_probes = ProcessProbes(intelligence_layer_instance)
         self.structural_probes = StructuralProbes(intelligence_layer_instance)
-        
         # 注册新的探针
         self._deploy_ff_distribution_resonance_probe = self.fund_flow_probes._deploy_ff_distribution_resonance_probe
         self._deploy_pressure_transmutation_probe = self.behavioral_probes._deploy_pressure_transmutation_probe

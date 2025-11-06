@@ -39,15 +39,12 @@ class IntradaySRAnalyzer:
         if not self.prev_day_data:
             self.pivot_points = {}
             return
-
         prev_high = self.prev_day_data.get('high')
         prev_low = self.prev_day_data.get('low')
         prev_close = self.prev_day_data.get('close')
-
         if any(pd.isna([prev_high, prev_low, prev_close])):
             self.pivot_points = {}
             return
-
         pp = (prev_high + prev_low + prev_close) / 3
         r1 = (2 * pp) - prev_low
         s1 = (2 * pp) - prev_high
@@ -55,7 +52,6 @@ class IntradaySRAnalyzer:
         s2 = pp - (prev_high - prev_low)
         r3 = prev_high + 2 * (pp - prev_low)
         s3 = prev_low - 2 * (prev_high - pp)
-
         self.pivot_points = {
             'PP': pp, 'R1': r1, 'S1': s1,
             'R2': r2, 'S2': s2, 'R3': r3, 'S3': s3
@@ -73,16 +69,13 @@ class IntradaySRAnalyzer:
         """
         if not self.enabled or current_kline.empty:
             return {}
-
         sr_features = {}
         current_price = current_kline['close']
         current_high = current_kline['high']
         current_low = current_kline['low']
         current_open = current_kline['open']
-
         if any(pd.isna([current_price, current_high, current_low, current_open])):
             return {}
-
         # 枢轴点分析
         if self.pivot_points_enabled and self.pivot_points:
             for level_name, level_value in self.pivot_points.items():
@@ -119,13 +112,11 @@ class IntradaySRAnalyzer:
                     is_around_pp = (current_low <= level_value * (1 + tolerance_pct)) and \
                                    (current_high >= level_value * (1 - tolerance_pct))
                     sr_features["PRICE_AROUND_PP"] = 1.0 if is_around_pp else 0.0
-
         # 前日收盘价/高低点分析
         if self.prev_day_close_enabled and self.prev_day_data:
             prev_day_close = self.prev_day_data.get('close')
             prev_day_high = self.prev_day_data.get('high')
             prev_day_low = self.prev_day_data.get('low')
-
             if not pd.isna(prev_day_close) and prev_day_close != 0:
                 sr_features["PRICE_ABOVE_PREV_CLOSE"] = 1.0 if current_price > prev_day_close * (1 + tolerance_pct) else 0.0
                 sr_features["PRICE_BELOW_PREV_CLOSE"] = 1.0 if current_price < prev_day_close * (1 - tolerance_pct) else 0.0
@@ -141,6 +132,5 @@ class IntradaySRAnalyzer:
                 sr_features["PRICE_BREAKING_PREV_LOW"] = 1.0 if current_price < prev_day_low * (1 - tolerance_pct) else 0.0
                 sr_features["PRICE_REBOUNDING_FROM_PREV_LOW"] = 1.0 if ((current_low <= prev_day_low * (1 + tolerance_pct)) and \
                                                                 (current_price > prev_day_low * (1 + tolerance_pct))) else 0.0
-
         return sr_features
 

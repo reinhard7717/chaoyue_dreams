@@ -75,7 +75,6 @@ class Command(BaseCommand):
                     ))
                 else:
                     print(f"未识别的股票代码: {code}")
-
             # 批量插入
             with transaction.atomic():
                 if objs_cy:

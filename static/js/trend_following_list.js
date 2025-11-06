@@ -28,7 +28,6 @@ document.addEventListener('DOMContentLoaded', function () {
         document.querySelectorAll('.playbook-container').forEach(container => {
             const list = container.querySelector('.playbook-list');
             const toggleBtn = container.querySelector('.toggle-playbooks');
-
             if (list && toggleBtn) {
                 // 1. 检查内容是否真的溢出，如果不溢出则隐藏“展开”按钮
                 // 使用一个小的阈值（例如5px）来处理计算偏差
@@ -42,7 +41,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         });
-
         // --- 添加自选功能相关变量和函数 (逻辑不变, 仅调整了 handleAddFavorite 的参数) ---
         const favoriteStockCodes = new Set();
         function updateButtonState(button, isFavorite, isLoading = false) {
@@ -63,7 +61,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (text) text.textContent = '添加自选';
             }
         }
-
         async function initializeFavoriteButtons() {
             try {
                 const response = await fetch('/dashboard/api/favorites/', {
@@ -86,7 +83,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
         }
-
         async function handleAddFavorite(button) {
             const stockCode = button.dataset.stockCode;
             if (!stockCode) {

@@ -21,13 +21,11 @@ def _load_dynamic_scoring_map() -> dict:
     try:
         # 加载策略配置文件，这是我军唯一的“真理来源”
         config = load_strategy_config('config/trend_follow_strategy.json')
-        
         # 精准定位到元数据模块
         metadata = config.get('strategy_params', {})\
                          .get('trend_follow', {})\
                          .get('four_layer_scoring_params', {})\
                          .get('score_type_map', {})
-        
         if not metadata:
             logger.warning("在 trend_follow_strategy.json 中未找到 'metadata' 模块，无法加载动态评分项名称。")
             return {}

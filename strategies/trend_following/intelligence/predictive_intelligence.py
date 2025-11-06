@@ -22,18 +22,14 @@ class PredictiveIntelligence:
         states = {}
         if not get_param_value(self.params.get('enabled'), True):
             return states
-        
         df = self.strategy.df_indicators
         atomic_states = self.strategy.atomic_states
-        
         # 调用“高潮衰竭”风险诊断
         exhaustion_risk = self._diagnose_climactic_exhaustion(df, atomic_states)
         states['PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION'] = exhaustion_risk.astype(np.float32)
-        
         # 调用全新的“恐慌投降反转”机会诊断
         capitulation_opportunity = self._diagnose_capitulation_reversal(df, atomic_states)
         states['PREDICTIVE_OPP_CAPITULATION_REVERSAL'] = capitulation_opportunity.astype(np.float32)
-        
         return states
 
     def _diagnose_climactic_exhaustion(self, df: pd.DataFrame, atomic_states: Dict) -> pd.Series:
@@ -50,7 +46,6 @@ class PredictiveIntelligence:
         high_low_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
         # 实施“日间影线”协议
         upper_shadow = df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])
-        
         upper_shadow_ratio = (upper_shadow / high_low_range).fillna(0)
         close_position_in_range = ((df['close_D'] - df['low_D']) / high_low_range).fillna(0.5)
         upper_shadow_score = np.clip(upper_shadow_ratio * 2, 0, 1)
@@ -74,26 +69,21 @@ class PredictiveIntelligence:
         # 1. 支柱一: 恐慌分 (Panic Score)
         # 获取由 TacticEngine 精心合成的、基于【五维立体模型】的“恐慌战备”分数。
         panic_score = atomic_states.get('SCORE_SETUP_PANIC_SELLING', pd.Series(0.0, index=df.index))
-
         # 2. 支柱二: 衰竭分 (Exhaustion Score)
         # 获取行为层诊断出的“卖盘衰竭反转”信号，代表卖方力量的枯竭程度。
         exhaustion_score = atomic_states.get('SCORE_BULLISH_EXHAUSTION_REVERSAL', pd.Series(0.0, index=df.index))
-
         # 3. 支柱三: 反转分 (Reversal Score)
         # 获取行为层诊断出的原子级“反弹/反转”信号，代表买方力量的显性反攻。
         reversal_score = atomic_states.get('SCORE_ATOMIC_REBOUND_REVERSAL', pd.Series(0.0, index=df.index))
-
         # 4. 三位一体融合 (Trinity Fusion)
         # 从配置中读取三大支柱的权重
         weights = get_param_value(self.params.get('capitulation_reversal_weights'), {'panic': 0.4, 'exhaustion': 0.3, 'reversal': 0.3})
-        
         # 执行加权算术平均融合
         final_opportunity_score = (
             panic_score * weights.get('panic', 0.4) +
             exhaustion_score * weights.get('exhaustion', 0.3) +
             reversal_score * weights.get('reversal', 0.3)
         )
-        
         return final_opportunity_score.clip(0, 1)
 
 

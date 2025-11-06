@@ -12,7 +12,6 @@
 
     Object.entries(filters).forEach(([key, value]) => {
         const detailElement = document.querySelector(`[data-filter-title='${CSS.escape(key)}']`);
-
         // Check if the filter is present, it could be from other view.
         if (detailElement) {
             value ? detailElement.setAttribute('open', '') : detailElement.removeAttribute('open');

@@ -54,25 +54,19 @@ class TrendFollowStrategy:
         if df_daily is None or df_daily.empty:
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         self.df_indicators = self._merge_all_timeframes(all_dfs)
-
-        # [代码修改开始]
         # 步骤1: 情报层完成所有诊断与合成，包括专业层、融合层和认知层。这是唯一的情报生成入口。
         self.intelligence_layer.run_all_diagnostics()
-        
         # 步骤2: 基于完整的诊断结果，进行顶层上下文分析
         from .trend_following.utils import calculate_context_scores
         bottom_context_score, top_context_score = calculate_context_scores(self.df_indicators, self.atomic_states)
         self.atomic_states['SCORE_CONTEXT_DEEP_BOTTOM_ZONE'] = bottom_context_score
         self.atomic_states['SCORE_CONTEXT_TOP_ZONE'] = top_context_score
-        
         # 步骤3: 执行攻防决策与模拟
         entry_score, score_details_df = self.offensive_layer.calculate_entry_score(
             self.trigger_events,
             bottom_context_score,
             top_context_score
         )
-        # [代码修改结束]
-        
         self.df_indicators['entry_score'] = entry_score
         risk_details_df = self.warning_layer.run_all_warnings()
         self.judgment_layer.make_final_decisions(score_details_df, risk_details_df)
@@ -90,7 +84,6 @@ class TrendFollowStrategy:
             return pd.DataFrame()
             
         merged_df = all_dfs['D'].copy()
-        
         for tf, df in all_dfs.items():
             if tf == 'D' or df.empty:
                 continue

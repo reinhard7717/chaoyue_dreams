@@ -42,7 +42,6 @@ class StockIndicatorsAPI(BaseAPI):
         endpoint = f"/data/time/real/time/{stock_code}/{time_level}"
         # logger.info(f"获取最新分时交易数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
-    
     async def get_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
         """
         获取最新分时KDJ(9,3,3)指标数据
@@ -55,7 +54,6 @@ class StockIndicatorsAPI(BaseAPI):
         endpoint = f"/data/time/real/kdj/{stock_code}/{time_level}"
         # logger.info(f"获取最新KDJ指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
-    
     async def get_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
         """
         获取最新分时MACD指标数据
@@ -68,7 +66,6 @@ class StockIndicatorsAPI(BaseAPI):
         endpoint = f"/data/time/real/macd/{stock_code}/{time_level}"
         # logger.info(f"获取最新MACD指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
-    
     async def get_ma(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
         """
         获取最新分时MA指标数据
@@ -81,7 +78,6 @@ class StockIndicatorsAPI(BaseAPI):
         endpoint = f"/data/time/real/ma/{stock_code}/{time_level}"
         # logger.info(f"获取最新MA指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
-    
     async def get_boll(self, stock_code: str, time_level: Union[TimeLevel, str]) -> Dict[str, Any]:
         """
         获取最新分时BOLL(20,2)指标数据
@@ -94,7 +90,6 @@ class StockIndicatorsAPI(BaseAPI):
         endpoint = f"/data/time/real/boll/{stock_code}/{time_level}"
         # logger.info(f"获取最新BOLL指标数据: {stock_code}, 级别: {time_level}")
         return await self.get(endpoint, expected_type='dict')
-    
     async def get_history_trade(self, stock_code: str, time_level: Union[str]) -> List[Dict[str, Any]]:
         """
         获取历史分时交易数据，增加对返回数据量为1的重试机制。
@@ -148,9 +143,7 @@ class StockIndicatorsAPI(BaseAPI):
              logger.warning(f"获取历史分时交易数据返回非预期类型: {stock_code}, 级别: {time_level}, 类型: {type(api_data)}, 数据: {str(api_data)[:100]}...") # 记录部分数据以供调试
              # 根据业务需求，这里可以返回空列表或原始数据
              # return [] 
-
         return api_data
-    
     async def get_history_kdj(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
         """
         获取历史分时KDJ(9,3,3)指标数据
@@ -165,7 +158,6 @@ class StockIndicatorsAPI(BaseAPI):
         api_data = await self.get(endpoint, expected_type='list')
         api_data.sort(key=lambda x: x['t'], reverse=True)
         return api_data
-    
     async def get_history_macd(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
         """
         获取历史分时MACD指标数据
@@ -180,7 +172,6 @@ class StockIndicatorsAPI(BaseAPI):
         api_data = await self.get(endpoint, expected_type='list')
         api_data.sort(key=lambda x: x['t'], reverse=True)
         return api_data
-    
     async def get_history_ma(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
         """
         获取历史分时MA指标数据
@@ -195,7 +186,6 @@ class StockIndicatorsAPI(BaseAPI):
         api_data = await self.get(endpoint, expected_type='list')
         api_data.sort(key=lambda x: x['t'], reverse=True)
         return api_data
-    
     async def get_history_boll(self, stock_code: str, time_level: Union[TimeLevel, str]) -> List[Dict[str, Any]]:
         """
         获取历史分时BOLL(20,2)指标数据

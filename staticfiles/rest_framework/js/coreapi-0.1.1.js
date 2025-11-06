@@ -652,7 +652,6 @@ var HTTPTransport = function () {
 
       for (var idx = 0, len = fields.length; idx < len; idx++) {
         var field = fields[idx];
-
         // Ensure any required fields are included
         if (!params.hasOwnProperty(field.name)) {
           if (field.required) {
@@ -661,7 +660,6 @@ var HTTPTransport = function () {
             continue;
           }
         }
-
         fieldNames.push(field.name);
         if (field.location === 'query') {
           queryParams[field.name] = params[field.name];
@@ -693,7 +691,6 @@ var HTTPTransport = function () {
           requestOptions.headers['Content-Type'] = 'application/json';
         } else if (link.encoding === 'multipart/form-data') {
           var form = new this.FormData();
-
           for (var paramKey in formParams) {
             form.append(paramKey, formParams[paramKey]);
           }
@@ -706,7 +703,6 @@ var HTTPTransport = function () {
             formBody.push(encodedKey + '=' + encodedValue);
           }
           formBody = formBody.join('&');
-
           requestOptions.body = formBody;
           requestOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
@@ -1480,11 +1476,9 @@ module.exports = function lolcation(loc) {
     if (this.isDefined(value) && value !== '') {
       if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
         value = value.toString();
-
         if (modifier && modifier !== '*') {
           value = value.substring(0, parseInt(modifier, 10));
         }
-
         result.push(this.encodeValue(operator, value, this.isKeyOperator(operator) ? key : null));
       } else {
         if (modifier === '*') {
@@ -1501,7 +1495,6 @@ module.exports = function lolcation(loc) {
           }
         } else {
           var tmp = [];
-
           if (Array.isArray(value)) {
             value.filter(this.isDefined).forEach(function (value) {
               tmp.push(this.encodeValue(operator, value));
@@ -1514,7 +1507,6 @@ module.exports = function lolcation(loc) {
               }
             }, this);
           }
-
           if (this.isKeyOperator(operator)) {
             result.push(this.encodeUnreserved(key) + '=' + tmp.join(','));
           } else if (tmp.length !== 0) {
@@ -1550,20 +1542,16 @@ module.exports = function lolcation(loc) {
           if (expression) {
             var operator = null,
                 values = [];
-
             if (operators.indexOf(expression.charAt(0)) !== -1) {
               operator = expression.charAt(0);
               expression = expression.substr(1);
             }
-
             expression.split(/,/g).forEach(function (variable) {
               var tmp = /([^:\*]*)(?::(\d+)|(\*))?/.exec(variable);
               values.push.apply(values, that.getValues(context, operator, tmp[1], tmp[2] || tmp[3]));
             });
-
             if (operator && operator !== '+') {
               var separator = ',';
-
               if (operator === '?') {
                 separator = '&';
               } else if (operator !== '#') {
@@ -1817,7 +1805,6 @@ module.exports = function lolcation(loc) {
         if (rejected) {
           return rejected
         }
-
         if (this._bodyBlob) {
           return Promise.resolve(this._bodyBlob)
         } else if (this._bodyArrayBuffer) {

@@ -33,7 +33,6 @@ class ProcessIntelligence:
         self.meta_window = get_param_value(self.params.get('meta_window'), 5)
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
-        
         # 移除硬编码的 'genesis_diagnostics' 列表
         # 直接从配置文件加载所有诊断任务，确保其为唯一真相来源
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
@@ -47,7 +46,6 @@ class ProcessIntelligence:
         df = self.strategy.df_indicators
         if df.empty:
             return {}
-        
         for config in self.diagnostics_config:
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
@@ -57,7 +55,6 @@ class ProcessIntelligence:
             
             if not signal_name:
                 continue
-
             # [代码修改开始]
             # 统一路由：无论是基础元分析还是策略同步，都使用同一个诊断引擎
             if signal_type in ['meta_analysis', 'strategy_sync']:
@@ -76,7 +73,6 @@ class ProcessIntelligence:
                     if meta_states:
                         all_process_states.update(meta_states)
             # [代码修改结束]
-
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -91,7 +87,6 @@ class ProcessIntelligence:
         df_index = df.index
         # 新增 relationship_type 的读取
         relationship_type = config.get('relationship_type', 'consensus') # 默认为共识
-        
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
             if source_type == 'atomic_states':
                 return self.strategy.atomic_states.get(signal_name)
@@ -117,7 +112,6 @@ class ProcessIntelligence:
         else: # 默认为 'consensus'
             # 共识法则：计算A和B动量的加权平均值
             relationship_score = (momentum_a + signal_b_factor_k * thrust_b) / (1 + signal_b_factor_k)
-        
         relationship_score = relationship_score.clip(-1, 1)
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
@@ -153,7 +147,6 @@ class ProcessIntelligence:
             # 2. 计算“关系动量”(Momentum)，取代旧的“加速度”(Acceleration)
             # 它是“关系位移”的一阶导数，衡量关系变化本身的速度，即“势”的变化。
             relationship_momentum = relationship_displacement.diff(1).fillna(0)
-
             # 3. 将“位移”和“动量”归一化为双极性强度分
             bipolar_displacement_strength = normalize_to_bipolar(
                 series=relationship_displacement,
@@ -172,7 +165,6 @@ class ProcessIntelligence:
             displacement_weight = self.meta_score_weights[0]
             momentum_weight = self.meta_score_weights[1]
             meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
-        
         # --- 情境门控逻辑 (保持不变) ---
         if diagnosis_mode == 'gated_meta_analysis':
             gate_condition_config = config.get('gate_condition', {})
@@ -186,7 +178,6 @@ class ProcessIntelligence:
                     gate_is_open = df['close_D'] < ma_series
             # 应用门控：只有当门打开时，信号才能通过
             meta_score = meta_score * gate_is_open.astype(float)
-        
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
         if scoring_mode == 'unipolar':
@@ -282,30 +273,23 @@ class ProcessIntelligence:
         source_signal_name = config.get('source_signal')
         source_type = config.get('source_type', 'df')
         df_index = df.index
-
         if not source_signal_name:
             print(f"        -> [衰减分析] 警告: 缺少 'source_signal' 配置。")
             return {}
-
         # 获取源信号
         if source_type == 'atomic_states':
             source_series = self.strategy.atomic_states.get(source_signal_name)
         else:
             source_series = df.get(source_signal_name)
-
         if source_series is None:
             print(f"        -> [衰减分析] 警告: 缺少源信号 '{source_signal_name}'。")
             return {}
-
         # 1. 计算信号的一阶差分（变化）
         signal_change = source_series.diff(1).fillna(0)
-        
         # 2. 只保留负值（衰减），并取绝对值
         decay_magnitude = signal_change.clip(upper=0).abs()
-        
         # 3. 归一化衰减幅度
         decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
-        
         return {signal_name: decay_score.astype(np.float32)}
         # [代码新增结束]
 

@@ -22,33 +22,26 @@ class PatternIntelligence:
         p_conf = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
             return {}
-        
         norm_window = get_param_value(p_conf.get('norm_window'), 60)
-
         # --- 步骤一: 诊断三大公理 ---
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         axiom_reversal = self._diagnose_axiom_reversal(df, norm_window)
         axiom_breakout = self._diagnose_axiom_breakout(df, norm_window)
-
         all_states['SCORE_PATTERN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_PATTERN_AXIOM_REVERSAL'] = axiom_reversal
         all_states['SCORE_PATTERN_AXIOM_BREAKOUT'] = axiom_breakout
-
         # --- 步骤二: 融合三大公理，合成终极信号 ---
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'divergence': 0.4, 'reversal': 0.4, 'breakout': 0.2
         })
-        
         bipolar_health = (
             axiom_divergence * axiom_weights['divergence'] +
             axiom_reversal * axiom_weights['reversal'] +
             axiom_breakout * axiom_weights['breakout']
         ).clip(-1, 1)
-
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance
-
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

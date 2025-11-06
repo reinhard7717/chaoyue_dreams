@@ -36,7 +36,6 @@ class PerformanceAnalyzer:
         self.scoring_params = scoring_params
         if self.df is None or self.df.empty:
             raise ValueError("PerformanceAnalyzer 接收到的 df_indicators 为空。")
-        
         # 从配置中获取分析参数
         self.look_forward_days = get_param_value(self.analysis_params.get('look_forward_days'), 20)
         self.profit_target_pct = get_param_value(self.analysis_params.get('profit_target_pct'), 0.15)
@@ -48,7 +47,6 @@ class PerformanceAnalyzer:
         - 核心修复: 使用 get_params_block 获取 score_map，确保与系统其他部分一致。
         """
         # print("    -> [性能分析器 V4.7 法典统一版] 启动...")
-        
         # 步骤1: 识别出所有需要分析的事件
         all_events_to_analyze = self._identify_all_events()
         if not all_events_to_analyze:
@@ -57,10 +55,8 @@ class PerformanceAnalyzer:
             
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
-        
         # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-
         for signal_name, event_series in all_events_to_analyze.items():
             event_dates = event_series.index[event_series]
             if event_dates.empty:
@@ -70,7 +66,6 @@ class PerformanceAnalyzer:
             signal_meta = score_map.get(signal_name, {})
             signal_type = signal_meta.get('type', 'positional').lower() # 默认为进攻型
             is_offensive_signal = (signal_type != 'risk')
-
             for entry_date in event_dates:
                 # [核心逻辑] 将信号角色传递给模拟函数
                 outcome_details = self._analyze_single_trade_performance(entry_date, is_offensive=is_offensive_signal)
@@ -80,7 +75,6 @@ class PerformanceAnalyzer:
                         'entry_date': entry_date,
                         **outcome_details
                     })
-        
         # 步骤3: 聚合所有结果并生成报告
         return self._aggregate_and_report_v2(all_trade_outcomes)
 
@@ -91,34 +85,28 @@ class PerformanceAnalyzer:
                     都应用统一的、严格的过滤规则。
         """
         all_events = {}
-        
         # 步骤1: 收集所有潜在的信号源
         # 1.1 来自计分详情
         for signal_name in self.score_details_df.columns:
             is_active = self.score_details_df[signal_name] > 0
             all_events[signal_name] = is_active
-
         # 1.2 来自原子状态
         for state_name, state_series in self.atomic_states.items():
             if state_series.dtype == bool:
                 is_first_day = state_series & ~state_series.shift(1).fillna(False)
                 all_events[state_name] = is_first_day
-
         # 1.3 来自触发器
         for trigger_name, trigger_series in self.trigger_events.items():
             if trigger_series.dtype == bool:
                 all_events[trigger_name] = trigger_series
-
         # 1.4 来自战法剧本
         for playbook_name, playbook_series in self.playbook_states.items():
             if playbook_series.dtype == bool:
                 all_events[playbook_name] = playbook_series
-        
         # --- 开始：应用统一的终极过滤器 ---
         # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
         filtered_events = {}
-        
         print("      -> [战报净化系统 V4.6 终极版] 启动过滤...")
         # 步骤2: 对所有收集到的信号进行统一过滤
         for signal_name, signal_series in all_events.items():
@@ -139,11 +127,9 @@ class PerformanceAnalyzer:
                 else:
                     reason = "原因: 元数据格式不完整"
                 # print(f"          - 已过滤信号: {signal_name} ({reason})")
-
         original_count = len(all_events)
         filtered_count = len(filtered_events)
         print(f"      -> [战报净化] 已执行过滤：从 {original_count} 个原始信号中筛选出 {filtered_count} 个战斗/风险信号进行分析。")
-
         return filtered_events
 
     def _analyze_single_trade_performance(self, entry_date, is_offensive: bool) -> dict:
@@ -171,20 +157,16 @@ class PerformanceAnalyzer:
         outcomes_df = pd.DataFrame(trade_outcomes)
         # 使用健壮的 get_params_block 获取权威的 score_map
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        
         signal_groups = outcomes_df.groupby('signal_name')
-
         analysis_results = []
         for signal_name, group_df in signal_groups:
             signal_meta = score_map.get(signal_name, {})
             signal_cn_name = signal_meta.get('cn_name', signal_name)
             # --- 开始：明确获取信号类型 ---
             signal_type = signal_meta.get('type', 'unknown')
-
             total_triggers = len(group_df)
             if total_triggers == 0:
                 continue
-
             success_count = (group_df['outcome'] == 'success').sum()
             
             # --- 引入分类评估指标 ---
@@ -199,7 +181,6 @@ class PerformanceAnalyzer:
                 effectiveness_pct = (success_count / total_triggers) if total_triggers > 0 else 0
             
             # --- 结束 ---
-
             avg_max_profit = group_df['max_profit_pct'].mean()
             avg_max_drawdown = group_df['max_drawdown_pct'].mean()
             avg_exit_days = group_df['exit_days'].mean()

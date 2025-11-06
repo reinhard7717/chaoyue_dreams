@@ -84,7 +84,6 @@ class CacheGet():
             else:
                 logger.info(f"缓存未命中: 未找到股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据, key: {cache_key}")
                 return None
-
         except Exception as e:
             logger.error(f"StockIndicatorsDAO._stock_latest_data从缓存获取股票[{stock_code}] 时间级别[{time_level}] 最新时间序列数据时发生异常: {str(e)}, key: (生成失败或未知)", exc_info=True)
             return None
@@ -95,7 +94,6 @@ class CacheGet():
             end_timestamp = datetime.now().timestamp()
             start_datetime = datetime.now() - datetime.timedelta(days=days_count)
             start_timestamp = start_datetime.timestamp()
-
             cached_members = await self.cache_manager.zrangebyscore(
                 key=cache_key,
                 min=start_timestamp,
@@ -224,7 +222,6 @@ class IndexCacheGet(CacheGet):
         Returns:
             Optional[List[Dict[str, Any]]]: 缓存中的成分权重列表，如果未命中或发生错误则返回 None。
         """
-
         cache_key = self.cache_key_index.index_weight(index_code)
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
@@ -241,7 +238,6 @@ class IndexCacheGet(CacheGet):
                                       返回的字典格式应与 _cache_realtime_data 存入的格式一致。
         """
         try:
-    
             # 1. 生成缓存键 (必须与写入时使用的键完全一致)
             cache_key = self.cache_key_index.realtime_data(index_code)
             logger.info(f"尝试从缓存获取指数[{index_code}]实时数据, key: {cache_key}")
@@ -291,7 +287,6 @@ class StockInfoCacheGet(CacheGet):
         """
         从缓存中获取所有股票列表，按照股票代码排序
         """
-
         cache_key = self.cache_key_stock.stocks_data()
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
@@ -306,7 +301,6 @@ class StockInfoCacheGet(CacheGet):
         Returns:
             Optional[Dict[str, Any]]: 缓存中的股票数据字典，如果未命中或发生错误则返回 None。
         """
-
         cache_key = self.cache_key_stock.stock_data(stock_code)
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
@@ -337,7 +331,6 @@ class StockTimeTradeCacheGet(CacheGet):
     async def history_time_trade(self, stock_code: str, time_level: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_date_range(stock_code, time_level, start_time, end_time, cache_key)
-    
     async def history_time_trade_by_limit(self, stock_code: str, time_level: str, limit: int) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_time_trade(stock_code, time_level)
         return await self._history_data_by_limit(cache_key, limit)
@@ -359,7 +352,6 @@ class StockRealtimeCacheGet(CacheGet):
             except ValueError:
                 logger.error(f"无效的日期格式: {trade_date}。无法继续获取Ticks。")
                 return None
-
             # 2. 定义当天的缓存键
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
@@ -370,7 +362,6 @@ class StockRealtimeCacheGet(CacheGet):
                 self.cache_manager.zrangebyscore(level5_key, '-inf', '+inf', withscores=True)
             ]
             realtime_ticks, level5_ticks = await asyncio.gather(*tasks, return_exceptions=True)
-
             # 4. 检查并处理结果
             if isinstance(realtime_ticks, Exception) or not realtime_ticks:
                 logger.warning(f"未能从缓存获取 {stock_code} on {date_str_yyyymmdd} 的实时行情Ticks。Key: '{realtime_key}'")
@@ -378,7 +369,6 @@ class StockRealtimeCacheGet(CacheGet):
             if isinstance(level5_ticks, Exception):
                 logger.error(f"从Redis获取level5_ticks时出错: {level5_ticks}", exc_info=level5_ticks)
                 level5_ticks = []
-
             # 5. 将原始数据转换为DataFrame并合并
             df_realtime = pd.DataFrame(
                 [data for data, score in realtime_ticks],
@@ -403,11 +393,9 @@ class StockRealtimeCacheGet(CacheGet):
         cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
         # logger.info(f"尝试从缓存获取股票[{stock_code}]最新实时数据, key: {cache_key}")
         return await self._realtime_data(stock_code=stock_code, cache_key=cache_key)
-    
     async def history_realtime_data(self, stock_code: str, start_time: datetime, end_time: datetime) -> Optional[List[Dict[str, Any]]]:
         cache_key = self.cache_key_stock.history_realtime_data(stock_code)
         return await self._history_data_by_date_range(stock_code, start_time, end_time, cache_key)
-    
     async def latest_level5_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self._stock_latest_data(stock_code, cache_key)
@@ -429,21 +417,18 @@ class StockRealtimeCacheGet(CacheGet):
             except ValueError:
                 logger.error(f"无效的日期格式: {trade_date}。无法继续获取Ticks。")
                 return None
-
             # 2. 定义当天的缓存键
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
             
             print(f"DEBUG_READ: [Ticks] ZRANGE from realtime_key='{realtime_key}'")
             print(f"DEBUG_READ: [Ticks] ZRANGE from level5_key='{level5_key}'")
-
             # 3. 并发地从Redis获取两种Tick数据
             tasks = [
                 self.cache_manager.zrangebyscore(realtime_key, '-inf', '+inf', withscores=True),
                 self.cache_manager.zrangebyscore(level5_key, '-inf', '+inf', withscores=True)
             ]
             realtime_ticks, level5_ticks = await asyncio.gather(*tasks, return_exceptions=True)
-
             # 4. 检查并处理结果
             if isinstance(realtime_ticks, Exception) or not realtime_ticks:
                 logger.warning(f"未能从缓存获取 {stock_code} on {date_str_yyyymmdd} 的实时行情Ticks。Key: '{realtime_key}'")
@@ -451,7 +436,6 @@ class StockRealtimeCacheGet(CacheGet):
             if isinstance(level5_ticks, Exception):
                 logger.error(f"从Redis获取level5_ticks时出错: {level5_ticks}", exc_info=level5_ticks)
                 level5_ticks = [] # 出错时视为空，不影响主流程
-
             # 5. 将原始数据转换为DataFrame并合并
             df_realtime = pd.DataFrame(
                 [data for data, score in realtime_ticks],
@@ -467,10 +451,8 @@ class StockRealtimeCacheGet(CacheGet):
                 df_ticks = pd.merge_asof(df_realtime.sort_index(), df_level5.sort_index(), left_index=True, right_index=True, direction='backward')
             else:
                 df_ticks = df_realtime
-
             logger.debug(f"成功从Redis获取并合并了 {len(df_ticks)} 条Tick数据 for {stock_code}")
             return df_ticks
-
         except Exception as e:
             logger.error(f"在 get_intraday_ticks 中发生异常 for {stock_code}: {e}", exc_info=True)
             return None
@@ -484,7 +466,6 @@ class StockRealtimeCacheGet(CacheGet):
             # 1. 统一日期格式
             date_obj = pd.to_datetime(trade_date)
             date_str_yyyymmdd = date_obj.strftime('%Y%m%d')
-
             # 2. 获取新的缓存键
             cache_key = self.cache_key_stock.intraday_real_ticks(stock_code, date_str_yyyymmdd)
             
@@ -492,18 +473,15 @@ class StockRealtimeCacheGet(CacheGet):
             # 使用 zrangebyscore 获取指定分数（时间戳）范围内的所有成员
             # '-inf', '+inf' 表示获取该键下的所有成员
             ticks_with_scores = await self.cache_manager.zrangebyscore(cache_key, '-inf', '+inf', withscores=True)
-
             if not ticks_with_scores:
                 logger.info(f"缓存未命中或为空: 未找到 {stock_code} on {date_str_yyyymmdd} 的真实逐笔数据。Key: '{cache_key}'")
                 return None
-
             # 4. 将原始数据转换为DataFrame
             deserialized_data = [self.cache_manager._deserialize(data) for data, score in ticks_with_scores]
             
             df_ticks = pd.DataFrame(deserialized_data)
             if df_ticks.empty:
                 return None
-
             # 使用分数（时间戳）创建索引，这比依赖数据内部的时间字段更可靠
             df_ticks.index = pd.to_datetime([score for data, score in ticks_with_scores], unit='s')
             df_ticks.index.name = 'trade_time'
@@ -511,7 +489,6 @@ class StockRealtimeCacheGet(CacheGet):
             # 确保时区正确
             if df_ticks.index.tz is None:
                 df_ticks.index = df_ticks.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-
             logger.debug(f"缓存命中: 成功从Redis获取了 {len(df_ticks)} 条真实逐笔数据 for {stock_code}")
             return df_ticks
         except Exception as e:
@@ -570,7 +547,6 @@ class StrategyCacheGet(CacheGet):
     async def lastest_analyze_signals_trend_following_data(self, stock_code: str):
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         # 2. 调用 CacheManager 获取数据
-
         cached_data = await self.cache_manager.get(key=cache_key)
         if cached_data is not None:
             if isinstance(cached_data, dict):
@@ -589,7 +565,6 @@ class StrategyCacheGet(CacheGet):
         获取全部股票的最新趋势跟踪策略数据（从Redis缓存）。
         返回: dict，key为stock_code，value为策略数据
         """
-
         # 构造key的前缀
         key_prefix = "strategy:stock:"
         pattern = f"{key_prefix}*:trend_following"
@@ -614,10 +589,8 @@ class StrategyCacheGet(CacheGet):
     async def analyze_signals_trend_following_datas(self, stock_code: str, days_count: int = 1) -> Optional[Dict[str, Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
         return await self._stock_strategy_datas(stock_code=stock_code, cache_key=cache_key, days_count=days_count)
-    
     async def analyze_signals_trend_following_datas_by_timestamp(self, stock_code: str, timestamp: int) -> Optional[List[Any]]:
         cache_key = self.cache_key_strategy.analyze_signals_trend_following(stock_code=stock_code)
-
         try:
             members = await self.cache_manager.zrangebyscore(
                 key=cache_key,

@@ -15,7 +15,6 @@ class LicenceManager:
     """
     _instance = None
     _lock = threading.Lock()
-    
     def __new__(cls):
         """
         单例模式实现
@@ -25,7 +24,6 @@ class LicenceManager:
                 cls._instance = super(LicenceManager, cls).__new__(cls)
                 cls._instance._initialized = False
         return cls._instance
-    
     def __init__(self):
         """
         初始化License管理器
@@ -62,11 +60,9 @@ class LicenceManager:
             
             self._initialized = True
             logger.info(f"初始化License管理器，共有{len(self._licenses)}个license")
-    
     def get_licence(self, api_type='default', user_type='basic', ignore_limits=False):
         """
         获取下一个可用的license
-        
         Args:
             api_type: API类型 (realtime, basic, index, market, fund_flow, technical, default)
             user_type: 用户类型 (basic, pro)
@@ -115,11 +111,9 @@ class LicenceManager:
                 
             logger.error(f"所有license都达到速率限制或处于冷却状态，API类型：{api_type}，用户类型：{user_type}")
             return ""  # 返回空字符串表示没有可用license
-    
     def _is_licence_available(self, licence, api_type='default', user_type='basic'):
         """
         检查license是否可用
-        
         Args:
             licence: 要检查的license
             api_type: API类型
@@ -129,17 +123,14 @@ class LicenceManager:
             bool: 是否可用
         """
         current_time = time.time()
-        
         # 检查license是否激活
         if not self._is_active.get(licence, True):
             return False
-        
         # 检查license是否处于冷却期
         cooldown_until = self._cooldown_until.get(licence, 0)
         if cooldown_until > current_time:
             logger.debug(f"License {licence} 处于冷却期，还需等待 {cooldown_until - current_time:.1f} 秒")
             return False
-        
         # 获取API类型的速率限制，如果找不到特定类型，使用默认配置
         limit_config = None
         if api_type in self._rate_limits and user_type in self._rate_limits[api_type]:
@@ -153,7 +144,6 @@ class LicenceManager:
             else:
                 logger.error(f"未找到API_RATE_LIMITS配置: {api_type}.{user_type} 或 default.{user_type}")
                 return False
-        
         if limit_config:
             rate = limit_config.get('rate')
             burst = limit_config.get('burst')
@@ -166,46 +156,36 @@ class LicenceManager:
         else:
             logger.error(f"未找到有效的API_RATE_LIMITS配置: {api_type}.{user_type}")
             return False
-        
         # 计算时间窗口
         window_size = 1 / rate if rate > 0 else 10
-        
         # 获取时间窗口内的请求次数
         window_start = current_time - window_size
         requests_in_window = sum(1 for t in self._request_history[licence] if t > window_start)
-        
         # 检查是否超过突发限制
         if requests_in_window >= burst:
             logger.debug(f"License {licence} 达到速率限制: {requests_in_window}/{burst} 请求在 {window_size:.1f} 秒内")
             return False
-        
         # 检查错误率
         error_history = [t for t in self._error_history[licence] if t > current_time - error_window]
         total_requests = len([t for t in self._request_history[licence] if t > current_time - error_window])
-        
         if total_requests > 0:
             error_rate = len(error_history) / total_requests
             if error_rate > (1 - min_success_rate):
                 logger.warning(f"License {licence} 错误率过高: {error_rate:.2%} > {(1 - min_success_rate):.2%}")
                 return False
-        
         return True
-    
     def _clean_request_history(self, licence):
         """
         清理旧的请求历史记录，只保留最近60秒的
-        
         Args:
             licence: 要清理的license
         """
         current_time = time.time()
         cutoff_time = current_time - 60  # 只保留60秒内的记录
         self._request_history[licence] = [t for t in self._request_history[licence] if t > cutoff_time]
-    
     def report_error(self, licence, error_type=None):
         """
         报告license发生错误
-        
         Args:
             licence: 发生错误的license
             error_type: 错误类型（可选）
@@ -283,11 +263,9 @@ class LicenceManager:
                 
                 self._cooldown_until[licence] = current_time + cooldown_time
                 logger.warning(f"License {licence} 已进入冷却期 {cooldown_time:.1f} 秒，错误次数: {self._error_count[licence]}")
-    
     def reset_error_count(self, licence, api_type=None):
         """
         重置license的错误计数
-        
         Args:
             licence: 要重置的license
             api_type: API类型（可选）
@@ -311,11 +289,9 @@ class LicenceManager:
                     self._consecutive_errors[licence] = 0
                     self._success_count[licence] = 0
                     logger.info(f"License {licence} 成功请求次数达到阈值，重置错误计数")
-    
     def get_licence_stats(self):
         """
         获取所有license的统计信息
-        
         Returns:
             dict: license统计信息
         """

@@ -105,10 +105,8 @@ class TradeCalendar(models.Model):
         # 如果未提供检查日期，则使用当前服务器日期
         if check_date is None:
             check_date = timezone.now().date()
-        
         # 调试信息：打印输入的参数
         print(f"调试: is_trade_date - 检查日期: {check_date}, 交易所: {exchange}")
-
         # 使用 .exists() 高效地检查记录是否存在，这比获取整个对象更快
         # 筛选条件：
         # 1. 交易所匹配
@@ -119,7 +117,6 @@ class TradeCalendar(models.Model):
             cal_date=check_date,
             is_open=True
         ).exists()
-
         print(f"调试: {check_date} 是否为交易日: {is_open}")
         return is_open
 
@@ -134,10 +131,8 @@ class TradeCalendar(models.Model):
         # 如果未提供参考日期，则使用当前服务器日期
         if reference_date is None:
             reference_date = timezone.now().date()
-        
         # 调试信息：打印输入的参数
         print(f"调试: get_latest_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
-
         # 查询数据库
         # 筛选条件：
         # 1. 交易所匹配
@@ -149,7 +144,6 @@ class TradeCalendar(models.Model):
             is_open=True,
             cal_date__lt=reference_date
         ).order_by('-cal_date').first()
-
         # 如果找到了交易日，则返回其日历日期，否则返回None
         if trade_day:
             print(f"调试: 找到最近交易日: {trade_day.cal_date}")
@@ -169,26 +163,20 @@ class TradeCalendar(models.Model):
         """
         if reference_date is None:
             reference_date = timezone.now().date()
-        
         # print(f"调试: get_latest_n_trade_dates - 获取数量: {n}, 参考日期: {reference_date}, 交易所: {exchange}")
-
         # 1. 使用Django ORM进行查询，这是最高效的方式
         trade_dates_queryset = cls.objects.filter(
             exchange=exchange,
             is_open=True,
             cal_date__lte=reference_date
         ).order_by('-cal_date').values_list('cal_date', flat=True)[:n]
-
         # 2. 将QuerySet物化为列表
         trade_dates_list = list(trade_dates_queryset)
-        
         # 增加Python层面的强制排序，作为最终保障
         # 确保无论底层数据库行为如何，返回的列表都是严格降序的（从近到远）
         trade_dates_list.sort(reverse=True)
-        
         # print(f"调试: 找到并强制排序后 {len(trade_dates_list)} 个交易日: {trade_dates_list}")
         return trade_dates_list
-    
     @classmethod
     def is_trade_day(cls, date_to_check: datetime.date | datetime.datetime) -> bool: # type: ignore
         """
@@ -196,13 +184,11 @@ class TradeCalendar(models.Model):
         该方法会查询数据库中是否存在该日期的记录，并且is_open字段为True。
         对于A股市场，上交所和深交所的交易日历通常是一致的，
         因此只要数据库中存在任一交易所的当天记录为交易日，即返回True。
-
         :param date_to_check: 需要检查的日期，可以是 date 类型或 datetime 类型。
         :return: 如果是交易日则返回 True，否则返回 False。
         """
         # 调试信息：打印传入的参数
         print(f"开始检测日期: {date_to_check}, 类型: {type(date_to_check)}")
-
         check_date = None
         # 判断传入参数的类型，并进行相应处理
         if isinstance(date_to_check, datetime):
@@ -215,16 +201,13 @@ class TradeCalendar(models.Model):
             # 如果传入了非日期或时间类型的参数，则直接返回False
             print(f"错误：传入了无效的参数类型: {type(date_to_check)}")
             return False
-
         # 使用Django ORM进行查询
         # .filter() 筛选出符合条件的记录：日历日期为指定日期，且is_open为True
         # .exists() 是一个高效的查询方法，它不返回实际的对象，只检查是否存在这样的记录。
         # 这比 .get() 或 .first() 更快，因为它在数据库层面执行 SELECT EXISTS(...) 查询。
         is_open = cls.objects.filter(cal_date=check_date, is_open=True).exists()
-
         # 调试信息：打印查询结果
         print(f"查询日期 {check_date} 的交易状态为: {is_open}")
-
         return is_open
 
     @classmethod
@@ -238,10 +221,8 @@ class TradeCalendar(models.Model):
         # 如果未提供参考日期，则使用当前服务器日期
         if reference_date is None:
             reference_date = timezone.now().date()
-        
         # 调试信息
         # print(f"调试: get_next_trade_date - 参考日期: {reference_date}, 交易所: {exchange}")
-
         # 查询数据库
         # 筛选条件：
         # 1. 交易所匹配
@@ -253,7 +234,6 @@ class TradeCalendar(models.Model):
             is_open=True,
             cal_date__gt=reference_date
         ).order_by('cal_date').first()
-
         if trade_day:
             # print(f"调试: 找到下一个交易日: {trade_day.cal_date}")
             return trade_day.cal_date
@@ -270,7 +250,6 @@ class TradeCalendar(models.Model):
         """
         # 将同步的类方法调用包装成一个可等待的异步函数
         get_next_date_func = sync_to_async(cls.get_next_trade_date, thread_sensitive=True)
-        
         # 使用 await 来执行这个异步函数
         next_date = await get_next_date_func(reference_date=reference_date, exchange=exchange)
         return next_date
@@ -313,7 +292,6 @@ class TradeCalendar(models.Model):
         """
         if offset == 0:
             return reference_date if cls.is_trade_date(reference_date, exchange) else None
-
         if offset > 0: # 向未来查找
             qs = cls.objects.filter(
                 exchange=exchange,
@@ -326,7 +304,6 @@ class TradeCalendar(models.Model):
                 is_open=True,
                 cal_date__lt=reference_date
             ).order_by('-cal_date').values_list('cal_date', flat=True)
-        
         abs_offset = abs(offset)
         # 使用 Django 的切片来获取第 N 个元素，这在数据库层面是高效的
         try:
@@ -352,13 +329,11 @@ class TradeCalendar(models.Model):
         else:
             # 理论上也可以支持负向偏移，但当前场景不需要，保持简单
             return []
-
         qs = cls.objects.filter(
             exchange=exchange,
             is_open=True,
             **filter_kwargs
         ).order_by('cal_date').values_list('cal_date', flat=True)
-
         # 使用切片获取所需的日期列表
         # [start_offset:start_offset + num_days]
         return list(qs[start_offset : start_offset + num_days])

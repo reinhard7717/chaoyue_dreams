@@ -36,7 +36,6 @@ def get_params_block(strategy_instance, block_name: str, default_return: Any = N
     if params is None:
         # 如果第一层没找到，从配置的根目录再找一次
         params = config.get(block_name)
-    
     if params is not None:
         return params
     return default_return
@@ -122,10 +121,8 @@ def get_unified_score(atomic_states: Dict[str, pd.Series], df_index: pd.Index, b
     """
     # 直接构建唯一的、简化的信号全名
     signal_name = f"SCORE_{base_name}"
-    
     # 直接从原子状态中获取这个唯一的信号，如果找不到，则返回一个包含默认值0.0的Series
     score_series = atomic_states.get(signal_name, pd.Series(0.0, index=df_index))
-    
     # 确保返回的Series索引正确并填充缺失值
     return score_series.reindex(df_index).fillna(0.0).astype(np.float32)
 
@@ -151,7 +148,6 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
     - 核心逻辑: 从一个进入事件开始，状态持续`persistence_days`天，除非被`break_condition`提前中断。
     """
     persistent_series = pd.Series(False, index=df.index, dtype=bool)
-    
     # 预先计算并获取所有可能为True的索引，将Series操作移出循环
     entry_indices = entry_event_series.index[entry_event_series]
     if entry_indices.empty:
@@ -162,11 +158,9 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
 
     for entry_idx in entry_indices:
         window_end_date = entry_idx + pd.Timedelta(days=persistence_days)
-        
         # 在预筛选的中断点索引上进行范围查找，比在整个Series上应用掩码更快
         # 使用searchsorted可以进一步优化，但对于通用DatetimeIndex，直接切片已足够高效
         possible_break_points = break_indices[(break_indices >= entry_idx) & (break_indices <= window_end_date)]
-        
         if not possible_break_points.empty:
             # 如果在窗口内找到中断点，状态在第一个中断点处结束
             end_date = possible_break_points[0]
@@ -175,7 +169,6 @@ def create_persistent_state(df: pd.DataFrame, entry_event_series: pd.Series, per
             # 获取df.index在窗口内的最后一个有效索引
             window_indices = df.index[(df.index >= entry_idx) & (df.index <= window_end_date)]
             end_date = window_indices[-1] if not window_indices.empty else entry_idx
-
         # 使用.loc进行高效的区间赋值
         persistent_series.loc[entry_idx:end_date] = True
         
@@ -233,7 +226,6 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
 
     # min_periods确保在窗口数据不足时也能计算，增加了早期数据的可用性
     min_periods = max(1, int(window * 0.2))
-    
     rank = series.rolling(
         window=window, 
         min_periods=min_periods
@@ -241,7 +233,6 @@ def normalize_score(series: pd.Series, target_index: pd.Index, window: int, asce
         pct=True, 
         ascending=ascending
     )
-    
     # 再次使用reindex确保最终输出的索引是完整的，并填充可能因滚动产生的NaN
     return rank.reindex(target_index).fillna(default_value).astype(np.float32)
 
@@ -262,7 +253,6 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
     p_synthesis = get_params_block(strategy_instance_ref, 'ultimate_signal_synthesis_params', {}) if strategy_instance_ref else {}
     # 修复NameError: 从参数块中获取 norm_window 的值
     norm_window = get_param_value(p_synthesis.get('norm_window'), 55)
-    
     depth_threshold = get_param_value(p_synthesis.get('deep_bearish_threshold'), 0.05)
     ma55_lifeline = df.get('MA_55_D', df[close_col])
     is_deep_bearish_zone = (df[close_col] < ma55_lifeline * (1 - depth_threshold)).astype(float)
@@ -376,19 +366,14 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
     min_periods = max(1, int(window * 0.2))
-    
     rolling_mean = series.rolling(window=window, min_periods=min_periods).mean()
     rolling_std = series.rolling(window=window, min_periods=min_periods).std()
-    
     # 避免除以零。如果窗口内值无波动，标准差为0，Z-score应为0（无偏离）。
     rolling_std = rolling_std.replace(0, np.nan)
-    
     # 计算Z-score，sensitivity作为分母，调节敏感度
     z_score = (series - rolling_mean) / (rolling_std * sensitivity)
-    
     # 使用tanh函数进行平滑压缩到(-1, 1)，相比clip，tanh能保留更多的中间值信息
     bipolar_score = np.tanh(z_score)
-    
     return bipolar_score.reindex(target_index).fillna(default_value).astype(np.float32)
 
 def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window: int) -> Tuple[pd.Series, pd.Series]:
@@ -415,12 +400,10 @@ def calculate_holographic_dynamics(df: pd.DataFrame, base_name: str, norm_window
     accel_diff = accel_1 - accel_5
     jerk_accel_score = normalize_score(accel_diff, df.index, norm_window, ascending=True)
     jerk_decel_score = normalize_score(accel_diff, df.index, norm_window, ascending=False)
-    
     # 融合：两大维度必须共振，形成合力
     # 使用np.sqrt，意图更清晰
     bullish_holographic_score = np.sqrt(velocity_accel_score * jerk_accel_score).astype(np.float32)
     bearish_holographic_score = np.sqrt(velocity_decel_score * jerk_decel_score).astype(np.float32)
-    
     return bullish_holographic_score, bearish_holographic_score
 
 def transmute_health_to_ultimate_signals(
@@ -436,7 +419,6 @@ def transmute_health_to_ultimate_signals(
                   现在，单双极性转换完全依赖于已修复的、无阈值的 `bipolar_to_exclusive_unipolar` 函数，
                   从根本上解决了弱信号在最后合成阶段被错误归零的问题。
     """
-    
     states = {}
     resonance_tf_weights = get_param_value(params.get('resonance_tf_weights'), {'short': 0.2, 'medium': 0.5, 'long': 0.3})
     reversal_tf_weights = get_param_value(params.get('reversal_tf_weights'), {'short': 0.6, 'medium': 0.3, 'long': 0.1})
@@ -587,7 +569,6 @@ def calculate_tactical_reversal_score(
         return pd.Series(0.0, index=df.index, dtype=np.float32)
     momentum_weight = get_param_value(params.get('momentum_weight'), 0.5)
     relational_power_weight = get_param_value(params.get('relational_power_weight'), 0.5)
-    
     # 准入证: 飞行许可 (Permit to Fly) - 宏观趋势是否允许进行看涨操作？
     trend_permission_score = atomic_states.get('CONTEXT_MACRO_TREND_PERMIT', pd.Series(0.0, index=df.index))
     # 核心驱动: 有利气流 (Favorable Wind) - 短期结构是否已形成反转加速度？
@@ -605,7 +586,6 @@ def calculate_tactical_reversal_score(
         dynamic_reversal_context_score *
         reversal_momentum_score
     )
-    
     return tactical_reversal_score.clip(0, 1).astype(np.float32)
 
 def _calculate_dynamic_reversal_context(df: pd.DataFrame, params: Dict, norm_window: int) -> pd.Series:
@@ -708,7 +688,6 @@ def _calculate_gaia_bedrock_support(df: pd.DataFrame, params: Dict, atomic_state
             last_confirmation_date = idx
     # 将确认分数作为一个独立的信号存入 atomic_states
     atomic_states['SCORE_FOUNDATION_BOTTOM_CONFIRMED'] = confirmation_score_series.astype(np.float32)
-    
     gaia_score = np.maximum(defense_quality_score, confirmation_score_series)
     return gaia_score.astype(np.float32)
 
@@ -894,19 +873,16 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
     """
     if tf_weights is None:
         tf_weights = {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}}
-    
     # 兼容两种配置格式: {'weights': {...}} 或直接 {...}
     if 'weights' in tf_weights and isinstance(tf_weights['weights'], dict):
         valid_weights = {k: v for k, v in tf_weights['weights'].items() if isinstance(v, (int, float))}
     else:
         valid_weights = {k: v for k, v in tf_weights.items() if isinstance(v, (int, float))}
-    
     if not valid_weights or series is None or series.empty:
         return pd.Series(0.5, index=target_index, dtype=np.float32)
         
     final_score = pd.Series(0.0, index=target_index, dtype=np.float32)
     total_weight = sum(valid_weights.values())
-    
     if total_weight <= 0:
         return pd.Series(0.5, index=target_index, dtype=np.float32)
         

@@ -11,7 +11,6 @@ class UserProfileAdmin(admin.ModelAdmin):
     list_filter = ('email_notification', 'created_at')
     search_fields = ('user__username', 'user__email', 'phone', 'bio')
     readonly_fields = ('created_at', 'updated_at')
-    
     fieldsets = (
         (None, {'fields': ('user',)}),
         (_('个人信息'), {'fields': ('phone', 'avatar', 'bio')}),
@@ -28,17 +27,14 @@ class FavoriteStockAdmin(admin.ModelAdmin):
     list_filter = ('is_pinned', 'user')
     search_fields = ('stock__stock_code', 'stock__stock_name', 'user__username')
     readonly_fields = ('added_at',)
-    
     fieldsets = (
         (None, {'fields': ('user', 'stock')}),
         (_('自选股设置'), {'fields': ('is_pinned', 'note', 'tags')}),
         (_('添加时间'), {'fields': ('added_at',)}),
     )
-    
     def get_stock_code(self, obj):
         return obj.stock.stock_code if obj.stock else '-'
     get_stock_code.short_description = '股票代码'
-    
     def get_stock_name(self, obj):
         return obj.stock.stock_name if obj.stock else '-'
     get_stock_name.short_description = '股票名称'

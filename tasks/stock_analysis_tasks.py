@@ -47,7 +47,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     """
     favorite_stock_codes = set()
     all_stock_codes = set()
-    
     try:
         # 直接使用传入的DAO实例
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
@@ -70,7 +69,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
         
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
-    
     # 返回排序后的列表，保证每次结果一致
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
@@ -131,7 +129,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
     async def main():
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         strategies_dao = StrategiesDAO(cache_manager)
-        
         # 增强日志，以反映新的 start_date_str 参数
         mode_str = "闪电突袭 (仅最新)" if latest_only else "全面战役 (全历史)"
         if latest_only:
@@ -146,7 +143,6 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
             else:
                 # logger.info(f"[{stock_code}] 开始执行核心策略逻辑 ({mode_str}) for [全部历史数据]")
                 print(f"调试信息 [{stock_code}]: 全历史模式，处理所有数据") # 调试输出
-
         records_tuple = None # 初始化为 None
         if latest_only:
             # run_for_latest_signal 返回四元组
@@ -161,17 +157,14 @@ def run_multi_timeframe_strategy(self, stock_code: str, trade_date: str = None, 
                 trade_time=analysis_end_time,
                 start_date_str=start_date_str
             )
-
         # 检查是否有任何需要保存的记录 (检查第一个和第三个列表)
         # 此处逻辑不变，但 records_tuple 可能已经是过滤后的结果
         if not records_tuple or (not records_tuple[0] and not records_tuple[2]):
             logger.info(f"[{stock_code}] 策略运行完成，但未触发任何需要记录的信号或分数 (或已被日期过滤)。")
             return {"status": "success", "saved_count": 0, "reason": "No DB records to save"}
-        
         # 将完整的（或过滤后的）四元组传递给 DAO
         save_count = await strategies_dao.save_strategy_signals(records_tuple)
         logger.info(f"[{stock_code}] 成功保存 {save_count} 条记录 (包括信号和每日分数)。")
-        
         # 这部分逻辑可以保持，因为它只关心 TradingSignal
         if save_count > 0 and records_tuple[0]:
             unique_signal_types = set()
@@ -210,18 +203,15 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         else:
             logger.info("====== [公共数据库建设-全历史 V7.1] 启动 (处理全部历史) ======")
             print("调试信息：未指定起始日期，将处理全部历史数据。") # 调试输出
-
         # 原始逻辑不变
         favorite_codes, non_favorite_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(StockBasicInfoDao(cache_manager))
         all_codes = favorite_codes + non_favorite_codes
-        
         if not all_codes:
             logger.warning("[公共数据库] 未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
             
         stock_count = len(all_codes)
         logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
-        
         # --- 代码将 start_date_str 参数透传给子任务 ---
         # 将调度任务接收到的日期参数，分发给每一个具体的计算任务。
         analysis_tasks = [
@@ -232,13 +222,10 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
                 start_date_str=start_date_str  # 将参数传递给子任务
             ).set(queue='calculate_strategy') for code in all_codes
         ]
-        
         workflow = group(analysis_tasks)
         workflow.apply_async()
         
-        
         logger.info(f"[公共数据库] 已成功为 {stock_count} 只股票启动【全历史】分数计算任务。")
-        
         # 在返回结果中也包含 start_date_str，方便追踪
         return {"status": "workflow_started", "stock_count": stock_count, "start_date": start_date_str}
     except Exception as e:
@@ -256,10 +243,8 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
     """
     try:
         logger.info("====== [公共数据库建设-每日增量 V7.7 健壮性与日志增强版] 启动 ======")
-        
         # --- 步骤1: 数据驱动的权威日期发现机制 ---
         logger.info("步骤1: 正在通过原生SQL查询所有 AdvancedChipMetrics 分表，以确定数据就绪的权威交易日...")
-        
         # 1.1 获取市场上的股票总数，作为基准 
         stock_basic_dao = StockBasicInfoDao(cache_manager)
         all_stocks = async_to_sync(stock_basic_dao.get_stock_list)()
@@ -267,21 +252,17 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         if total_stock_count == 0:
             logger.error("【严重错误】无法从 StockInfo 获取任何股票，任务终止！")
             return {"status": "failed", "reason": "Could not retrieve stock list."}
-
         # 1.2 定义数据就绪的阈值 
         readiness_threshold = int(total_stock_count * 0.9)
         logger.info(f"市场总股票数: {total_stock_count}, 数据就绪阈值: {readiness_threshold} 支股票。")
-
         # 1.3.1 动态获取所有分表的表名 
         metrics_models = [
             AdvancedChipMetrics_SZ, AdvancedChipMetrics_SH, AdvancedChipMetrics_CY,
             AdvancedChipMetrics_KC, AdvancedChipMetrics_BJ
         ]
         table_names = [model._meta.db_table for model in metrics_models]
-        
         # 1.3.2 构建 UNION ALL 子查询部分 
         union_all_query = " UNION ALL ".join([f"SELECT trade_time, stock_id FROM {table}" for table in table_names])
-
         # 修改SQL查询逻辑：不再使用HAVING过滤，而是直接获取最新日期及其数据量
         # 这样可以获取到调试信息，即使数据未满足要求
         raw_sql = f"""
@@ -297,34 +278,27 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
                 trade_time DESC
             LIMIT 1
         """
-
         # 1.3.4 执行查询
         with connection.cursor() as cursor:
             # 移除了HAVING子句，因此不再需要传递参数
             cursor.execute(raw_sql)
             result = cursor.fetchone()
-
         # 在Python中进行数据就绪检查，并提供更详细的日志
         if not result:
             logger.warning("【任务暂停】AdvancedChipMetrics 所有分表中没有任何数据。请检查上游筹码计算任务是否已运行。任务安全退出。")
             return {"status": "skipped", "reason": "AdvancedChipMetrics tables are completely empty."}
-
         latest_trade_date, actual_stock_count = result[0], result[1]
-        
         # 调试输出，无论成功与否都打印当前状态
         print(f"调试信息：数据库中最新的交易日是 {latest_trade_date.strftime('%Y-%m-%d')}，拥有 {actual_stock_count} 条数据。")
-
         if actual_stock_count < readiness_threshold:
             logger.warning(
                 f"【任务暂停】数据尚未就绪。最新日期 {latest_trade_date.strftime('%Y-%m-%d')} "
                 f"仅有 {actual_stock_count} 条数据，未达到 {readiness_threshold} 的阈值。可能是上游筹码计算任务尚未完成。任务安全退出。"
             )
             return {"status": "skipped", "reason": "No trade date met the data readiness threshold."}
-
         # 1.4 确定权威日期 
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {actual_stock_count} 支股票筹码数据就绪。")
-
 
         # 步骤2: 使用权威日期进行精确的数据清理 
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
@@ -343,12 +317,10 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         except Exception as e:
             logger.error(f"清理 {trade_time_str} 的旧数据时发生严重错误，任务终止: {e}", exc_info=True)
             return {"status": "failed", "reason": "Data cleanup failed."}
-
         # 步骤3: 获取股票列表 (逻辑不变, 使用之前已获取的 all_stocks)
         all_codes = [stock.stock_code for stock in all_stocks]
         stock_count = len(all_codes)
         logger.info(f"[每日增量] 准备为 {stock_count} 只股票在权威日期 {trade_time_str} 上更新策略分数。")
-        
         # 步骤4: 派发并行任务 
         # 假设 run_multi_timeframe_strategy 任务已正确导入
         # from .some_other_task_file import run_multi_timeframe_strategy 
@@ -357,7 +329,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         ]
         workflow = group(analysis_tasks)
         workflow.apply_async()
-        
         logger.info(f"[每日增量] 已成功为 {stock_count} 只股票启动【当日】分数计算任务。")
         return {"status": "workflow_started", "stock_count": stock_count, "authoritative_date": trade_time_str}
     except Exception as e:
@@ -377,18 +348,14 @@ def update_favorite_stock_trackers(self):
         if not latest_trade_day:
             logger.warning("无法获取最新的交易日，任务终止。")
             return "无法获取最新的交易日，任务终止。"
-        
         logger.info(f"开始为 {latest_trade_day} 生成每日持仓快照...")
-
         # 步骤 2: 筛选出所有需要创建快照的活跃追踪器
         trackers_to_snapshot = list(PositionTracker.objects.filter(
             Q(status=PositionTracker.Status.HOLDING) | Q(status=PositionTracker.Status.WATCHING)
         ).select_related('user', 'stock')) # 增加 select_related('user')
-
         if not trackers_to_snapshot:
             logger.info("没有找到需要创建快照的活跃追踪器。")
             return "没有需要更新的活跃追踪器。"
-        
         # 步骤 3: 一次性查询当天已经存在的快照，存入一个集合以便快速查找
         existing_snapshots = set(
             DailyPositionSnapshot.objects.filter(
@@ -397,26 +364,20 @@ def update_favorite_stock_trackers(self):
             ).values_list('tracker_id', 'snapshot_date')
         )
         logger.info(f"在 {latest_trade_day}，发现 {len(existing_snapshots)} 条已存在的快照。")
-
         # 步骤 4: 筛选出当天还没有快照的追踪器
         trackers_needing_snapshot = [
             tracker for tracker in trackers_to_snapshot 
             if (tracker.id, latest_trade_day) not in existing_snapshots
         ]
-
         if not trackers_needing_snapshot:
             logger.info(f"所有活跃追踪器在 {latest_trade_day} 均已有快照，无需创建。")
             return "所有活跃追踪器均已有快照。"
-        
         logger.info(f"准备为 {len(trackers_needing_snapshot)} 个追踪器创建新快照...")
-        
         # 步骤 5: 使用服务批量创建快照 (这里我们假设有一个服务来处理这个逻辑)
         # 注意：这里我们直接调用服务，服务内部应该处理快照的计算和创建
         snapshot_service = PositionSnapshotService()
-        
         # 收集需要通知的用户
         users_to_notify = set()
-        
         # 在循环中调用重建服务，并收集用户
         for tracker in trackers_needing_snapshot:
             try:
@@ -426,12 +387,10 @@ def update_favorite_stock_trackers(self):
                 users_to_notify.add(tracker.user.id)
             except Exception as e:
                 logger.error(f"为 Tracker ID {tracker.id} 创建 {latest_trade_day} 快照时失败: {e}", exc_info=True)
-        
         # 步骤 6: 任务完成后，向所有受影响的用户发送通知
         for user_id in users_to_notify:
             send_update_to_user_sync(user_id, 'snapshot_rebuilt', {'status': 'success', 'source': 'daily_task'})
             logger.info(f"已向用户 {user_id} 发送快照更新通知。")
-
         logger.info(f"每日快照任务完成。成功处理 {len(trackers_needing_snapshot)} 个追踪器。")
         return f"成功处理 {len(trackers_needing_snapshot)} 个追踪器的每日快照。"
             
@@ -447,7 +406,6 @@ def rebuild_all_snapshots_for_all_trackers(self):
     - 职责: 找到所有持仓中的Tracker，并为它们分别派发重建快照的原子任务。
     """
     logger.info("启动批量重建所有持仓快照的总管任务...")
-    
     # 使用 .values_list('id', flat=True) 更高效地只获取ID
     holding_tracker_ids = list(PositionTracker.objects.filter(
         status=PositionTracker.Status.HOLDING,
@@ -494,17 +452,14 @@ def rebuild_snapshots_for_all_active_trackers_task(self):
             这可以修复因当天交易数据录入早于行情数据同步而导致的快照缺失问题。
     """
     logger.info("====== 开始执行【每晚活跃持仓快照重建】兜底任务 ======")
-    
     # 筛选出所有当前持仓中的追踪器
     active_trackers = PositionTracker.objects.filter(status=PositionTracker.Status.HOLDING)
-    
     if not active_trackers.exists():
         logger.info("没有找到任何活跃的持仓记录，任务结束。")
         return "没有找到任何活跃的持仓记录。"
 
     tracker_count = active_trackers.count()
     logger.info(f"发现 {tracker_count} 个活跃的持仓记录，准备开始重建...")
-    
     success_count = 0
     failure_count = 0
     from services.transaction_service import TransactionService
@@ -1132,11 +1087,9 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
     async def main():
         trade_date = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
         logger.info(f"  [Map] 开始计算 {trade_date} (来源: {source.upper()}) 的行业强度排名...")
-        
         context_service = ContextualAnalysisService(cache_manager)
         # 调用正确的、带 source 参数的方法
         rank_df = await context_service.calculate_industry_strength_rank(trade_date, source=source)
-        
         if rank_df.empty:
             logger.warning(f"  [Map] {trade_date} (来源: {source.upper()}) 的排名计算结果为空。")
             return None
@@ -1181,7 +1134,6 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
             return {"status": "failed", "reason": "No data from map tasks."}
         rotation_df = pd.concat(all_ranks_df, ignore_index=True)
         print(f"DEBUG: [Reduce] 合并后的 rotation_df 行数: {len(rotation_df)}, 列: {rotation_df.columns.tolist()}")
-
         # 2. 执行生命周期计算
         def calculate_lifecycle_metrics(group):
             group = group.sort_values('trade_date')
@@ -1234,21 +1186,17 @@ def aggregate_and_save_lifecycle_data(self, results: list, target_date_str: str,
             if row['latest_rank'] < 0.4 and row['rank_slope'] < -0.005: return 'DOWNTREND'
             return 'TRANSITION'
         lifecycle_metrics['lifecycle_stage'] = lifecycle_metrics.apply(assign_lifecycle_stage, axis=1)
-
         # 3. 准备并保存目标日期的数据
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
         latest_day_data = lifecycle_metrics.copy()
         latest_day_data['trade_date'] = target_date
-
         # 确保 IndustryLifecycle 模型已添加 breadth_score 和 leader_score 字段
         latest_day_data.rename(columns={
             'latest_rank': 'strength_rank',
             'latest_breadth': 'breadth_score',
             'latest_leader': 'leader_score'
         }, inplace=True)
-
         records_to_save = latest_day_data.reset_index().to_dict('records')
-
         # 4. 调用DAO保存
         industry_dao = IndustryDao(cache_manager)
         save_result = await industry_dao.save_industry_lifecycle(records_to_save)
@@ -1281,14 +1229,12 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
     async def main():
         # 1. 初始化总指挥
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
-        
         # MODIFIED: 调用新的分析方法并接收返回的原始数据
         raw_results = await strategy_orchestrator.analyze_signal_performance_for_period(
             stock_code=stock_code,
             start_date=start_date,
             end_date=end_date
         )
-        
         # NEW: 新增报告生成逻辑
         if not raw_results:
             logger.info(f"[{stock_code}] 未发现任何可供分析的信号数据。")
@@ -1319,7 +1265,6 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
             with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
                 print(report_df.to_string(index=False))
             print("=" * 88 + "\n")
-
         logger.info(f"--- [单股票信号性能分析任务完成] ---")
         logger.info(f"股票 [{stock_code}] 的信号性能分析执行完毕。")
         logger.info("="*80)
@@ -1350,17 +1295,13 @@ def run_global_performance_analysis_v2_map_reduce(self, start_date: str = None, 
     try:
         # 1. 获取全市场股票列表 (这部分仍然是异步的，但由总管任务一次性完成)
         stock_dao = StockBasicInfoDao(cache_manager)
-        
         # 在同步的Celery任务中调用异步DAO方法
         all_stocks = async_to_sync(stock_dao.get_stock_list)()
-
         if not all_stocks:
             logger.error("无法获取股票列表，任务终止。")
             return {"status": "error", "reason": "Failed to get stock list."}
-        
         total_stocks = len(all_stocks)
         logger.info(f"获取到 {total_stocks} 只股票，准备派发并行分析子任务...")
-
         # 2. (Map) 创建所有股票的独立分析子任务签名
         # 我们复用 `analyze_performance_from_db`，因为它已经是为单只股票设计的。
         # 注意：这里我们只创建任务的“签名”(.s())，而不是立即执行它们。
@@ -1371,20 +1312,16 @@ def run_global_performance_analysis_v2_map_reduce(self, start_date: str = None, 
                 end_date=end_date
             ).set(queue='calculate_strategy') for stock in all_stocks
         ]
-
         # 3. (Reduce) 创建聚合任务的签名
         # 这个任务将在所有 map_tasks 完成后接收它们的结果列表。
         # 【注意】这里我们复用已有的 `aggregate_performance_results` 任务
         reduce_task = aggregate_performance_results.s().set(queue='celery')
-
         # 4. 使用 `chord` 编排工作流
         # chord(header, body) -> header是一组并行任务，body是它们完成后执行的回调任务
         # 这正是我们需要的 MapReduce 模式！
         workflow = chord(header=group(map_tasks), body=reduce_task)
-        
         # 5. 异步执行整个工作流
         workflow.apply_async()
-
         logger.info(f"成功派发 {total_stocks} 个股票分析子任务。聚合报告将在所有子任务完成后自动生成。")
         logger.info(f"--- [全局信号性能扫描 V2.0 - 任务派发完成] ---")
         return {"status": "workflow_dispatched", "total_stocks": total_stocks}
@@ -1405,24 +1342,19 @@ def analyze_performance_for_one_stock(self, stock_code: str, *, cache_manager: C
         # 动态导入，避免循环依赖和不必要的加载
         from strategies.trend_following.performance_analyzer import PerformanceAnalyzer
         from strategies.trend_following.utils import get_params_block, get_param_value
-
         # 1. 初始化总指挥并运行策略
         strategy_orchestrator = MultiTimeframeTrendStrategy(cache_manager)
         # 使用async_to_sync在同步的Celery任务中调用异步方法
         async_to_sync(strategy_orchestrator.run_for_stock)(stock_code, latest_only=False)
-
         # 2. 获取策略运行结果
         df_indicators = strategy_orchestrator.daily_analysis_df
         score_details_df = getattr(strategy_orchestrator.tactical_engine, '_last_score_details_df', pd.DataFrame())
-        
         if df_indicators is None or df_indicators.empty or score_details_df.empty:
             logger.warning(f"  [Map] {stock_code} 策略运行后未生成有效数据，跳过。")
             return []
-
         # 3. 运行分析器并返回结果
         analyzer_params = get_params_block(strategy_orchestrator.tactical_engine, 'performance_analysis_params')
         scoring_params = get_params_block(strategy_orchestrator.tactical_engine, 'four_layer_scoring_params')
-        
         analyzer = PerformanceAnalyzer(
             df_indicators=df_indicators,
             score_details_df=score_details_df,
@@ -1482,7 +1414,6 @@ def aggregate_performance_results(self, results: list):
 
     agg_df['效能指标(%)'] = agg_df.apply(format_effectiveness, axis=1)
     agg_df['指标类型'] = np.where(agg_df['类型'] == 'risk', '风险规避率', '成功率')
-    
     # 按效能指标排序
     final_report_df = agg_df.sort_values(
         by=['类型', 'effectiveness_pct', '总触发'], 
@@ -1494,7 +1425,6 @@ def aggregate_performance_results(self, results: list):
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
         print(final_report_df.to_string(index=False))
     print("=" * 95 + "\n")
-    
     logger.info("====== [全局信号性能分析 V2.0 - Reduce] 聚合任务完成 ======")
     return {"status": "success", "aggregated_signals": len(final_report_df)}
 
@@ -1556,11 +1486,9 @@ def run_top_n_performance_analysis(
         }
         if strategy_name:
             filter_kwargs['strategy_name'] = strategy_name
-        
         # 使用解包的关键字参数进行查询
         daily_top_scores = StrategyDailyScore.objects.filter(**filter_kwargs)\
             .select_related('stock').order_by('-final_score')[:top_n]
-        
         top_signals.extend(list(daily_top_scores))
 
     if not top_signals:
@@ -1572,7 +1500,6 @@ def run_top_n_performance_analysis(
 
     # --- 3. 高效评估信号表现 (无变化) ---
     logger.info("步骤2: 正在预加载所有相关价格数据以提升效率...")
-    
     all_stock_codes = list(set(s.stock.stock_code for s in top_signals))
     # 增加一个健壮性检查
     if not all_stock_codes:
@@ -1600,14 +1527,11 @@ def run_top_n_performance_analysis(
             trade_time__gte=min_date_needed,
             trade_time__lte=max_date_needed
         ).values('stock__stock_code', 'trade_time', 'open_qfq', 'high_qfq', 'close_qfq')
-
         for item in daily_data_qs:
             key = (item['stock__stock_code'], item['trade_time'])
             price_map[key] = {'open': item['open_qfq'], 'high': item['high_qfq'], 'close': item['close_qfq']}
-    
     logger.info(f"价格数据预加载完成，共加载 {len(price_map)} 条价格记录。")
     logger.info("步骤3: 正在评估每个信号的后续表现...")
-    
     # --- 评估循环和报告部分 (无变化) ---
     success_count = 0
     evaluated_signals_count = 0
@@ -1615,19 +1539,15 @@ def run_top_n_performance_analysis(
         entry_date = TradeCalendar.get_trade_date_offset(signal.trade_date, 1)
         if not entry_date:
             continue
-
         entry_day_price_info = price_map.get((signal.stock.stock_code, entry_date))
         if not entry_day_price_info or not entry_day_price_info.get('open'):
             continue
-
         entry_price = entry_day_price_info['open']
         if not entry_price or entry_price <= 0:
             continue
-        
         evaluated_signals_count += 1
         target_price = entry_price * (1 + profit_threshold / 100.0)
         check_dates = TradeCalendar.get_trade_date_offset_list(entry_date, 0, holding_days)
-
         for check_date in check_dates:
             future_price_info = price_map.get((signal.stock.stock_code, check_date))
             if future_price_info and future_price_info.get('high'):
@@ -1694,7 +1614,6 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
         'win_rate_pct', 'avg_max_profit_pct', 'avg_max_drawdown_pct', 'avg_exit_days'
     ]
     report_df_for_log = report_df_for_log[final_columns]
-    
     # --- 步骤 7: 打印到日志 ---
     logger.info("\n\n" + "="*35 + " [全市场信号性能终极报告] " + "="*35)
     report_df_for_print = report_df_for_log.copy()
@@ -1710,7 +1629,6 @@ def aggregate_performance_results(self, results: list, *, cache_manager: CacheMa
     # 8. 将最终报告转换为Python原生对象(List[Dict])，再进行持久化
     #    我们使用未被格式化用于打印的 report_df_for_log，以保留原始的数值类型。
     report_data = report_df_for_log.to_dict(orient='records')
-    
     cache_key = "strategy:performance_report:global_v2"
     # 将 report_data (一个Python列表) 传递给 cache_manager，让它处理序列化
     async_to_sync(cache_manager.set)(cache_key, report_data, timeout=60 * 60 * 24 * 7) # 缓存7天
@@ -1750,14 +1668,12 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                 确保数据库写入操作被真正执行。
     """
     logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务启动 ======")
-    
     try:
         # 1. 聚合计算逻辑 (保持不变)
         all_stats = [item for sublist in results if sublist for item in sublist]
         if not all_stats:
             logger.warning("[原子信号 Reduce] 未能从任何股票中收集到有效的原子信号统计数据。")
             return {"status": "finished", "reason": "no atomic data to aggregate"}
-
         df = pd.DataFrame(all_stats)
         agg_df = df.groupby(['signal_name', 'cn_name', 'type']).agg(
             total_triggers=('triggers', 'sum'),
@@ -1766,22 +1682,17 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
             weighted_drawdown=('weighted_max_drawdown', 'sum'),
             weighted_days=('weighted_exit_days', 'sum')
         ).reset_index()
-
         agg_df['win_rate_pct'] = (agg_df['total_successes'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
         agg_df['avg_max_profit_pct'] = (agg_df['weighted_profit'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
         agg_df['avg_max_drawdown_pct'] = (agg_df['weighted_drawdown'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
         agg_df['avg_exit_days'] = (agg_df['weighted_days'] / agg_df['total_triggers']).where(agg_df['total_triggers'] > 0, 0)
-
         logger.info(f"[原子信号 Reduce] 成功聚合了 {len(agg_df)} 个独特的原子信号。")
-
         # 2. 数据库持久化逻辑
         records_to_update = []
         records_to_create = []
-        
         existing_records = {
             p.signal_name: p for p in AtomicSignalPerformance.objects.all()
         }
-
         for _, row in agg_df.iterrows():
             signal_name = row['signal_name']
             if signal_name in existing_records:
@@ -1808,14 +1719,12 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
                     avg_exit_days=row['avg_exit_days'],
                 ))
         
-        
         # 在同步任务中，直接调用同步的ORM方法。
         #           之前的 sync_to_async(...) 调用只创建了协程但未执行。
         if records_to_create:
             print(f"调试信息: [原子信号 Reduce] 准备创建 {len(records_to_create)} 条记录...")
             AtomicSignalPerformance.objects.bulk_create(records_to_create)
             logger.info(f"[原子信号 Reduce] 成功创建 {len(records_to_create)} 条新的信号性能记录。")
-        
         if records_to_update:
             print(f"调试信息: [原子信号 Reduce] 准备更新 {len(records_to_update)} 条记录...")
             AtomicSignalPerformance.objects.bulk_update(
@@ -1825,7 +1734,6 @@ def aggregate_atomic_signal_results(self, results: list, *, cache_manager: Cache
             )
             logger.info(f"[原子信号 Reduce] 成功更新 {len(records_to_update)} 条已有的信号性能记录。")
         
-
         logger.info("====== [原子信号分析 V1.2 - Reduce] 聚合任务完成 ======")
         return {"status": "success", "created": len(records_to_create), "updated": len(records_to_update)}
 
@@ -1844,14 +1752,12 @@ def analyze_performance_from_db(self, stock_code: str, start_date: str, end_date
     async def main():
         # 1. 初始化性能分析服务
         service = PerformanceAnalysisService(cache_manager)
-        
         # 2. 调用服务执行分析，并获取原始结果
         raw_results = await service.run_analysis_for_stock(
             stock_code=stock_code,
             start_date=start_date,
             end_date=end_date
         )
-        
         return raw_results
 
     try:
@@ -1884,14 +1790,11 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
             stock_basic_dao = StockBasicInfoDao(cache_manager)
             fav_codes, non_fav_codes = async_to_sync(_get_all_relevant_stock_codes_for_processing)(stock_basic_dao)
             codes_to_run = fav_codes + non_fav_codes
-
         if not codes_to_run:
             logger.error("无法获取股票列表，任务终止。")
             return {"status": "error", "reason": "Failed to get stock list."}
-        
         total_stocks = len(codes_to_run)
         logger.info(f"侦测到 {total_stocks} 个作战目标，准备下达联合作战指令...")
-
         # --- 作战指令一: 启动【最终信号】分析兵团 (MapReduce) ---
         logger.info("\n--- [指令 1/2] 正在向【最终信号分析兵团】派发 MapReduce 任务...")
         map_tasks_final = [
@@ -1905,7 +1808,6 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
         workflow_final = chord(header=group(map_tasks_final), body=reduce_task_final)
         workflow_final.apply_async()
         logger.info(f"-> 指令已下达！{total_stocks} 个【最终信号】分析子任务已派发。")
-
         # 使用新的 MapReduce 架构来派发原子信号分析任务
         # --- 作战指令二: 启动【原子信号】分析特遣队 (MapReduce) ---
         logger.info("\n--- [指令 2/2] 正在向【原子信号分析特遣队】派发 MapReduce 任务...")
@@ -1918,7 +1820,6 @@ def run_global_performance_analysis(self, stock_list: list = None, start_date: s
         workflow_atomic = chord(header=group(map_tasks_atomic), body=reduce_task_atomic)
         workflow_atomic.apply_async()
         logger.info(f"-> 指令已下达！{total_stocks} 个【原子信号】分析子任务已派发，将并行运行。")
-        
         logger.info("\n" + "="*80)
         logger.info(f"--- [全局性能分析 V3.2 - 所有作战指令已下达] ---")
         return {"status": "all_workflows_dispatched", "total_stocks": total_stocks}

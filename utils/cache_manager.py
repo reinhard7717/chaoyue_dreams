@@ -78,7 +78,6 @@ class CacheManager:
     """
     _instance = None
     _lock = threading.Lock() # 用于保护 _instance 创建的同步锁
-    
     # 默认过期时间（秒）
     DEFAULT_TIMEOUTS = {
         'rt': 60 * 60 * 24,   # 实时数据缓存1天
@@ -88,7 +87,6 @@ class CacheManager:
         'user': 1800,         # 用户数据缓存30分钟
         'strategy': 86400,    # 策略数据缓存1天
     }
-    
     def __new__(cls, *args, **kwargs):
         # 使用线程安全的双重检查锁定来创建单例
         if not cls._instance:
@@ -133,7 +131,6 @@ class CacheManager:
             pool_kwargs = options.get('CONNECTION_POOL_KWARGS', {})
             max_conns = pool_kwargs.get('max_connections', options.get('MAX_CONNECTIONS', 100))
             # print(f"DEBUG: Redis 连接池最大连接数设置为: {max_conns}")
-
             redis_client = await Redis.from_url(
                 new_url,
                 decode_responses=False,
@@ -157,11 +154,9 @@ class CacheManager:
         """
         current_loop = asyncio.get_running_loop()
         loop_id = id(current_loop)
-
         # 快速路径: 如果客户端已完全初始化，直接返回
         if loop_id in self._contexts and self._contexts[loop_id].get('client'):
             return self._contexts[loop_id]['client']
-
         # 慢速路径: 上下文不存在或客户端未初始化
         # 使用同步锁保护上下文词典的创建，防止多线程冲突
         with self._context_lock:
@@ -173,16 +168,13 @@ class CacheManager:
                     'client': None,
                     'lock': asyncio.Lock()
                 }
-        
         # 获取当前事件循环专属的异步锁
         loop_async_lock = self._contexts[loop_id]['lock']
-
         # 使用异步锁来保护 I/O 密集型的初始化过程，防止同一事件循环内的多协程冲突
         async with loop_async_lock:
             # 三重检查：可能在等待异步锁时，已有协程完成了初始化
             if self._contexts[loop_id]['client']:
                 return self._contexts[loop_id]['client']
-
             # print(f"DEBUG: Event loop {loop_id} 的 Redis 客户端不存在，开始异步初始化...")
             try:
                 # 调用私有初始化方法
@@ -219,7 +211,6 @@ class CacheManager:
     def get_timeout(self, cache_type: str) -> int:
         """获取指定缓存类型的过期时间"""
         return self.DEFAULT_TIMEOUTS.get(cache_type, 300)  # 默认5分钟
-    
     def _serialize(self, data: Any) -> bytes:
         """
         (内部方法) 使用 umsgpack 将 Python 对象序列化为字节。
@@ -272,7 +263,6 @@ class CacheManager:
             except Exception as e:
                 logger.error(f"还原指数/股票对象失败: {e}")
                 result["index"] = data["index"]
-        
         if "stock" in data and isinstance(data["stock"], str):
             code = data["stock"]
             from stock_models.stock_basic import StockInfo
@@ -282,18 +272,15 @@ class CacheManager:
                 stock_info = StockInfo(stock_code=code)
                 logger.warning(f"无法从数据库获取StockInfo(code={code})，创建了基本对象")
             result["stock"] = stock_info
-        
         if "trade_time" in data and isinstance(data["trade_time"], str):
             try:
                 result["trade_time"] = datetime.fromisoformat(data["trade_time"])
             except Exception as e:
                 logger.error(f"解析时间字段失败: {e}")
                 result["trade_time"] = data["trade_time"]
-        
         for key, value in data.items():
             if key not in result:
                 result[key] = value
-        
         return result
 
     async def set(self, key: str, data: Any, timeout: Optional[int] = None, nx: bool = False) -> bool:
@@ -301,7 +288,6 @@ class CacheManager:
         try:
             redis_client = await self._ensure_client() # 获取当前循环的客户端
             serialized_data = self._serialize(data)
-
             # 确定超时时间
             effective_timeout = timeout
             if effective_timeout is None:
@@ -310,7 +296,6 @@ class CacheManager:
                     effective_timeout = self.get_timeout(prefix)
                 except IndexError:
                     effective_timeout = self.get_timeout('') # 使用默认超时
-
             # 执行 Redis set 命令
             if nx:
                 # set if not exists
@@ -318,7 +303,6 @@ class CacheManager:
             else:
                 # 普通 set (覆盖)
                 success = await redis_client.set(key, serialized_data, ex=effective_timeout)
-
             if success:
                  logger.debug(f"缓存设置成功: key='{key}', timeout={effective_timeout}s, nx={nx}")
                  return True
@@ -441,11 +425,9 @@ class CacheManager:
         try:
             redis_client = await self._ensure_client()
             serialized_value = self._serialize(value) # 序列化值
-
             # 使用 pipeline 保证 hset 和 expire 原子性（如果需要设置超时）
             async with redis_client.pipeline() as pipe:
                 pipe.hset(key, field, serialized_value) # 设置哈希字段
-
                 # 处理超时逻辑
                 effective_timeout = timeout
                 if effective_timeout is None:
@@ -461,7 +443,6 @@ class CacheManager:
                         pipe.expire(key, effective_timeout) # 在 pipeline 中设置过期
                 elif effective_timeout > 0:
                      pipe.expire(key, effective_timeout) # 设置指定的过期时间
-
                 results = await pipe.execute()
                 # hset 返回 1 (新字段) 或 0 (更新字段)
                 success = isinstance(results[0], int) # 检查第一个结果是否是整数
@@ -506,7 +487,6 @@ class CacheManager:
             if not raw_dict:
                  logger.debug(f"Hash 获取全部未命中或为空: key='{key}'")
                  return {}
-
             logger.debug(f"Hash 获取全部命中: key='{key}', 包含 {len(raw_dict)} 个字段")
             for field_bytes, value_bytes in raw_dict.items():
                 try:
@@ -515,7 +495,6 @@ class CacheManager:
                 except UnicodeDecodeError:
                     logger.warning(f"无法解码 Hash 字段名: key='{key}', field_bytes={field_bytes}")
                     field_name = field_bytes # 保留原始 bytes 作为 key
-
                 # 反序列化值
                 result_dict[field_name] = self._deserialize(value_bytes)
             return result_dict
@@ -543,7 +522,6 @@ class CacheManager:
         except Exception as e:
             logger.error(f"批量获取时发生未知 Redis 错误: keys='{keys}', error='{e}'", exc_info=True)
             return [None] * len(keys)
-    
     async def zadd(self, key: str, mapping: Mapping[Any, float], timeout: Optional[int] = None) -> Optional[int]:
         """(异步)向有序集合添加一个或多个成员，或者更新已存在成员的分数"""
         if not mapping:
@@ -590,13 +568,11 @@ class CacheManager:
         try:
             redis_client = await self._ensure_client()
             serialized_result = await redis_client.zrangebyscore(key, min_score, max_score, withscores=withscores)
-
             if serialized_result is None:
                 logger.debug(f"ZRANGEBYSCORE 未找到匹配项: key='{key}', range=[{min_score}, {max_score}]")
                 # MODIFIED: 添加调试打印，显示zrangebyscore返回None的情况
                 print(f"DEBUG: zrangebyscore returned None for key: {key}")
                 return []
-
             logger.debug(f"ZRANGEBYSCORE 命中: key='{key}', range=[{min_score}, {max_score}], withscores={withscores}")
             deserialized_list = []
             if withscores:
@@ -617,7 +593,6 @@ class CacheManager:
                          # MODIFIED: 添加调试打印，显示zrangebyscore中成员反序列化失败的情况
                          print(f"DEBUG: zrangebyscore: Deserialized member is None for key: {key}, member_bytes: {member_bytes[:50]}...")
                          logger.warning(f"ZRANGEBYSCORE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
-
             # MODIFIED: 添加调试打印，显示最终反序列化成功的项目数量
             print(f"DEBUG: zrangebyscore returning {len(deserialized_list)} deserialized items for key: {key}")
             return deserialized_list
@@ -642,11 +617,9 @@ class CacheManager:
             else:
                 # zrange 返回 bytes 列表或 (bytes, float) 元组列表
                 serialized_result = await redis_client.zrange(key, start, end, withscores=withscores)
-
             if serialized_result is None:
                 logger.debug(f"ZRANGE/ZREVRANGE 未找到成员: key='{key}', limit={limit}, desc={desc}")
                 return []
-
             logger.debug(f"ZRANGE/ZREVRANGE 命中: key='{key}', limit={limit}, desc={desc}, withscores={withscores}")
             deserialized_list = []
             if withscores:
@@ -663,7 +636,6 @@ class CacheManager:
                         deserialized_list.append(deserialized_member)
                     else:
                         logger.warning(f"ZRANGE/ZREVRANGE 反序列化成员失败: key='{key}', member_bytes={member_bytes}")
-
             return deserialized_list
         except ConnectionError as e:
              logger.error(f"ZRANGE/ZREVRANGE 操作失败 (Redis 连接错误): key='{key}', error='{e}'")
@@ -677,7 +649,6 @@ class CacheManager:
         if keep_latest <= 0:
             logger.warning(f"ZTRIMBYRANK: keep_latest 必须大于 0, key='{key}'")
             return 0 # 不做任何操作
-
         try:
             redis_client =await self._ensure_client()
             # zremrangebyrank(key, start, stop) 移除指定排名范围内的成员
@@ -782,11 +753,9 @@ class CacheManager:
     async def sadd(self, key: str, *values: Any) -> Optional[int]:
         """
         (异步) 向集合添加一个或多个成员。
-        
         Args:
             key (str): 集合的键。
             *values: 一个或多个要添加到集合的成员。
-        
         Returns:
             Optional[int]: 成功添加到集合中的新成员数量，如果发生错误则返回None。
         """
@@ -813,10 +782,8 @@ class CacheManager:
     async def smembers(self, key: str) -> Optional[List[Any]]:
         """
         (异步) 获取集合中的所有成员。
-        
         Args:
             key (str): 集合的键。
-        
         Returns:
             Optional[List[Any]]: 包含所有成员的列表，如果键不存在或发生错误则返回None。
         """
@@ -842,11 +809,9 @@ class CacheManager:
     async def expire(self, key: str, timeout: int) -> bool:
         """
         (异步) 为指定的键设置过期时间。
-        
         Args:
             key (str): 目标键。
             timeout (int): 过期时间，单位为秒。
-        
         Returns:
             bool: 如果成功设置了过期时间则返回True，否则返回False。
         """
@@ -875,13 +840,11 @@ class CacheManager:
         这是一个重要的清理方法，应在应用或一个完整任务周期结束时调用。
         """
         # print("DEBUG: CacheManager 正在关闭所有 Redis 连接...")
-        
         # 使用同步锁来安全地访问和修改 _contexts 字典
         with self._context_lock:
             if not self._contexts:
                 # print("DEBUG: 没有活动的 Redis 连接需要关闭。")
                 return
-
             # 收集所有需要关闭的客户端的 close() 协程
             close_tasks = []
             for loop_id, context in self._contexts.items():
@@ -892,7 +855,6 @@ class CacheManager:
             
             # 在持有锁的期间，立即清空上下文，防止新的请求进来
             self._contexts.clear()
-
         # 在锁之外，并发地执行所有关闭任务
         if close_tasks:
             try:

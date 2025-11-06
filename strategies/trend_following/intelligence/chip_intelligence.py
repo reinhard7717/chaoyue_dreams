@@ -74,7 +74,6 @@ class ChipIntelligence:
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         # tf_weights 在公理层融合时使用，这里不再需要
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2})
-        
         # 步骤一：计算双极性“全息筹码健康分”
         # 直接使用传入的已融合的公理分数Series
         bipolar_health = (
@@ -83,28 +82,22 @@ class ChipIntelligence:
             holder_sentiment * axiom_weights['holder_sentiment'] +
             peak_integrity * axiom_weights['peak_integrity']
         ).clip(-1, 1)
-        
         # 步骤二：分离为纯粹的看涨/看跌健康分
         bullish_resonance = bipolar_health.clip(0, 1)
         bearish_resonance = (bipolar_health.clip(-1, 0) * -1)
-        
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).clip(0, 1).astype(np.float32)
-        
         # 步骤三：计算动态信号 (一阶导数)
         bullish_momentum = bullish_resonance.diff().fillna(0)
         bearish_momentum = bearish_resonance.diff().fillna(0)
-        
         # 归一化动态信号
         norm_bullish_momentum = normalize_score(bullish_momentum, df.index, 21, ascending=True)
         norm_bearish_momentum = normalize_score(bearish_momentum, df.index, 21, ascending=True)
-        
         # 步骤四：赋值给命名准确的终极信号
         states['SCORE_CHIP_BULLISH_ACCELERATION'] = norm_bullish_momentum.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BEARISH_ACCELERATION'] = norm_bearish_momentum.clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = (1.0 - norm_bearish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = (1.0 - norm_bullish_momentum).clip(0, 1).astype(np.float32)
-        
         # 步骤五：重铸战术回调信号
         states['SCORE_CHIP_TACTICAL_PULLBACK'] = (bullish_resonance * states['SCORE_CHIP_TOP_REVERSAL']).clip(0, 1).astype(np.float32)
         return states
@@ -124,7 +117,6 @@ class ChipIntelligence:
             concentration_trend = df.get(f'SLOPE_{p}_winner_concentration_90pct_D', pd.Series(0.0, index=df.index))
             raw_bipolar_series = (concentration_level - 50) + (concentration_trend * 20)
             scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.0)
-        
         # 进行多周期融合
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})

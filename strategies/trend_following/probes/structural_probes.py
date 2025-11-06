@@ -19,7 +19,6 @@ class StructuralProbes:
                       包括 s_bull/s_bear 的净值计算、多时间框架融合、以及最终的单双极性转换，
                       从而实现对信号流的端到端穿透式解剖。
         """
-        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🏛️【结构健康度探针 V2.0】🏛️ " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -82,7 +81,6 @@ class StructuralProbes:
           3. 将最终的融合净值通过 bipolar_to_exclusive_unipolar 转换为最终的看涨分进行对比。
         - 收益: 确保探针的重算逻辑与主引擎完全一致，消除因逻辑不同步导致的“假警报”。
         """
-        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🔬【结构支柱融合探针 V2.0 (p={period})】🔬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -141,7 +139,6 @@ class StructuralProbes:
         【探针 V1.4 · 堡垒完整度同步版】结构支柱穿透式解剖探针
         - 核心同步: 'structural_stability' 支柱的解剖逻辑已与主引擎 V2.0 的“堡垒完整度 vs 围城压力”模型完全同步。
         """
-        
         print("\n" + "="*25 + f" [结构探针] 正在启用 🧬【结构支柱解剖探针 V1.4 ({pillar_name})】🧬 " + "="*25)
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
@@ -206,7 +203,6 @@ class StructuralProbes:
             print(f"      - [静态城墙] 支撑距离: {get_val(static_support_dist_s, probe_date):.4f}, 支撑量: {get_val(static_support_vol_s, probe_date):.4f} -> 融合分: {get_val(static_fortress_s, probe_date):.4f}")
             print(f"      - [动态防御] 已实现支撑: {get_val(realized_support_s, probe_date):.4f}, 主峰防御: {get_val(peak_defense_s, probe_date):.4f}, 主力支撑: {get_val(main_force_support_s, probe_date):.4f} -> 融合分: {get_val(dynamic_defense_s, probe_date):.4f}")
             print(f"    - 【融合看涨快照分】: {get_val(bull_snapshot_series, probe_date):.4f}")
-
             # 2. 重算看跌组件: 围城压力 (Siege Pressure)
             print("    --- [看跌组件: 围城压力] ---")
             static_pressure_dist_s = normalize_score(df.get('pressure_above_D', default_series), df.index, norm_window, ascending=False)
@@ -216,19 +212,15 @@ class StructuralProbes:
             main_force_pressure_s = normalize_score(df.get('main_force_distribution_pressure_D', default_series), df.index, norm_window)
             dynamic_assault_s = (realized_pressure_s * main_force_pressure_s)**0.5
             bear_snapshot_series = (static_siege_s * 0.4 + dynamic_assault_s * 0.6)
-
             print(f"      - [静态兵力] 压力距离: {get_val(static_pressure_dist_s, probe_date):.4f}, 压力量: {get_val(static_pressure_vol_s, probe_date):.4f} -> 融合分: {get_val(static_siege_s, probe_date):.4f}")
             print(f"      - [动态攻击] 已实现压力: {get_val(realized_pressure_s, probe_date):.4f}, 主力派发: {get_val(main_force_pressure_s, probe_date):.4f} -> 融合分: {get_val(dynamic_assault_s, probe_date):.4f}")
             print(f"    - 【融合看跌快照分】: {get_val(bear_snapshot_series, probe_date):.4f}")
-
             # 3. 计算双极性快照分
             bipolar_snapshot_series = (bull_snapshot_series - bear_snapshot_series).clip(-1, 1)
             print(f"    - 【双极性快照分】: {get_val(bipolar_snapshot_series, probe_date):.4f}")
-
             # 4. 执行关系元分析
             final_dynamic_score_series = engine._perform_relational_meta_analysis(df, bipolar_snapshot_series)
             print(f"    - 【关系元分析后动态分】: {get_val(final_dynamic_score_series, probe_date):.4f}")
-
             # 5. 最终转换与对比
             final_bull_score, final_bear_score = bipolar_to_exclusive_unipolar(final_dynamic_score_series)
             ss_s_bull, ss_s_bear, _ = engine._calculate_structural_stability_health(df, [period], norm_window)

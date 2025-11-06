@@ -44,14 +44,12 @@ class PositionSnapshotService:
                 logger.warning(f"Tracker {tracker_id}: 未能获取到股票 {tracker.stock.stock_code} 在 {start_date} 到 {end_date} 期间的任何行情数据。")
                 return 0
             score_map = await self._get_score_map(tracker.stock.stock_code, start_date, end_date)
-
             snapshots_to_create = []
             current_date = start_date
             tx_idx = len(transactions) - 1
             current_quantity = Decimal(0)
             total_cost = Decimal(0)
             average_cost = Decimal(0)
-
             while current_date <= end_date:
                 while tx_idx >= 0 and transactions[tx_idx].transaction_date.date() == current_date:
                     tx = transactions[tx_idx]
@@ -73,7 +71,6 @@ class PositionSnapshotService:
                         daily_score = score_map.get(current_date)
                         profit_loss = (close_price - average_cost) * current_quantity
                         profit_loss_pct = ((close_price / average_cost) - 1) if average_cost > 0 else Decimal(0)
-
                         snapshots_to_create.append(DailyPositionSnapshot(
                             tracker=tracker,
                             snapshot_date=current_date,
@@ -90,7 +87,6 @@ class PositionSnapshotService:
                             logger.info(f"Tracker {tracker_id}: {current_date} 是交易日，但未找到收盘价，可能停牌。跳过快照。")
                 
                 current_date += timedelta(days=1)
-
             if snapshots_to_create:
                 await self._delete_existing_snapshots(tracker)
                 await self._bulk_create_snapshots(snapshots_to_create)
@@ -99,7 +95,6 @@ class PositionSnapshotService:
             else:
                 logger.warning(f"Tracker {tracker_id}: 计算完成，但没有生成任何快照记录。")
                 return 0
-
         except Exception as e:
             logger.error(f"为 Tracker ID {tracker_id} 重建快照时发生严重错误: {e}", exc_info=True)
             return 0

@@ -251,7 +251,6 @@ class KplLimitList(models.Model):
     trade_date = models.DateField(verbose_name="交易日期", db_index=True)
     name = models.CharField(max_length=64, verbose_name="股票名称", null=True, blank=True)
     tag = models.CharField(max_length=20, verbose_name="榜单类型", db_index=True, help_text="例如: 涨停, 跌停, 炸板")
-    
     # 时间相关
     lu_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="涨停时间")
     ld_time = models.CharField(max_length=20, null=True, blank=True, verbose_name="跌停时间")
@@ -261,7 +260,6 @@ class KplLimitList(models.Model):
     # 描述与题材
     lu_desc = models.TextField(null=True, blank=True, verbose_name="涨停原因")
     theme = models.TextField(null=True, blank=True, verbose_name="所属板块/题材")
-    
     # 状态与量价核心指标
     status = models.CharField(max_length=50, null=True, blank=True, verbose_name="连板状态", help_text="例如: 首板, 2连板")
     pct_chg = models.FloatField(null=True, blank=True, verbose_name="涨跌幅(%)")
@@ -402,7 +400,6 @@ class DcIndexDaily(models.Model):
         verbose_name_plural = verbose_name
         unique_together = ('dc_index', 'trade_time')
         ordering = ['-trade_time']
-    
     def __str__(self):
         return f"{self.dc_index.ts_code} - {self.trade_time}"
 
@@ -479,11 +476,9 @@ class ConceptMember(models.Model):
         verbose_name="成分股"
     )
     source = models.CharField(max_length=20, db_index=True, verbose_name="来源", help_text="例如: 'ths', 'sw', 'dc'")
-    
     # 对于有明确纳入/剔除日期的来源 (如申万、同花顺)
     in_date = models.DateField(verbose_name="纳入日期", db_index=True)
     out_date = models.DateField(verbose_name="剔除日期", null=True, blank=True)
-    
     # 对于每日快照的来源 (如东方财富)，trade_date 就是 in_date，out_date 为空
     # is_new 字段可以被 in_date 和 out_date 的逻辑替代，故不再需要
 

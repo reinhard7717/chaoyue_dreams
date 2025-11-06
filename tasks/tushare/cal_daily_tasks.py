@@ -20,7 +20,6 @@ def dispatch_derived_data_tasks(self, primary_results, trade_time_str=None):
     在第一阶段主要数据采集完成后被调用，负责分发那些依赖服务端后处理的、数据就绪慢的任务。
     """
     logger.info("第二阶段任务启动: dispatch_derived_data_tasks - 开始分发衍生数据采集任务")
-    
     # 定义第二阶段需要执行的任务列表
     derived_tasks = [
         save_stocks_daily_basic_data_today_task.s(), # <-- 我们的问题任务，现在被安全地放在第二阶段
@@ -28,15 +27,12 @@ def dispatch_derived_data_tasks(self, primary_results, trade_time_str=None):
         save_fund_flow_daily_data_ths_today.s(),
         save_hm_detail_data_today.s(),
     ]
-    
     # 再次使用 chord，确保所有衍生数据任务完成后，才执行最终的高级筹码计算
     final_callback = precompute_all_stocks_advanced_metrics.s()
     logger.info("开始执行: 所有衍生数据采集任务并行调度，全部完成后执行高级筹码指标预计算。")
-    
     # 使用 countdown 参数，给数据提供商留出充足的处理时间（例如10分钟）
     # 这是一个非常重要的“保险丝”，确保万无一失
     chord(derived_tasks)(final_callback).apply_async(countdown=600) # 延迟10分钟执行
-    
     logger.info("第二阶段任务分派完毕，将在10分钟后执行。")
     return {"status": "success", "message": "第二阶段衍生数据任务已分派"}
 
@@ -54,7 +50,6 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
     try:
         logger.info("开始执行: 更新交易日历...")
         save_trade_cal.delay()
-
         # 1. 定义第一阶段任务（数据就绪快）
         primary_tasks = [
             save_stocks_minute_data_today_task.s(trade_time_str=trade_time_str),
@@ -65,14 +60,11 @@ def run_daily_data_ingestion_task(self, trade_time_str=None):
             save_index_daily_today_task.s(),
             save_all_daily_industry_concept_data_task.s(),
         ]
-
         # 2. 使用 chord 将第一阶段任务与第二阶段的分发器连接起来
         # 当所有 primary_tasks 完成后，会自动调用 dispatch_derived_data_tasks
         callback = dispatch_derived_data_tasks.s(trade_time_str=trade_time_str)
-        
         logger.info("开始执行: 第一阶段主要数据采集任务并行调度，全部完成后将触发第二阶段任务分发器。")
         job = chord(primary_tasks)(callback)
-
         logger.info("整体任务分派完成: run_daily_data_ingestion_task - 所有任务已按两阶段工作流分派。")
         return {
             "status": "success",
@@ -98,28 +90,22 @@ def run_yesterday_data_ingestion_task(self):
         logger.info("开始执行: （昨日）分钟数据采集调度任务...")
         # 使用 .delay() 或 .apply_async() 异步触发子任务
         # .delay() 是 .apply_async() 的简化版
-
         # 步骤4：执行指数每日指标
         logger.info("开始执行: （昨日）指数每日指标...")
         save_index_daily_yesterday_task.delay()
         logger.info(f"已分派（昨日）指数每日指标任务。")
-
         # 步骤5：今日资金流向 - 个股
         logger.info("开始执行: （昨日）个股日级资金流向数据...")
         save_fund_flow_daily_data_yesterday.delay()
         logger.info(f"已分派（昨日）个股日级资金流向数据任务。")
-        
         # 每日任务：同花顺板块 & 指数行情
         logger.info("开始执行: （昨日）同花顺板块 & 指数行情")
         save_all_historical_data_task.delay()
-        
         # 步骤5：板块、行业资金流向数据 - 同花顺
         logger.info("开始执行: （昨日）板块、行业资金流向数据 - 同花顺...")
         save_fund_flow_daily_data_ths_yesterday.delay()
         logger.info(f"已分派（昨日）板块、行业资金流向数据 - 同花顺任务。")
-
         logger.info("整体任务结束: run_yesterday_data_ingestion_task - 所有当日数据采集任务已分派。")
-
         # 返回一些信息，方便查看任务状态
         return {
             "status": "success",
@@ -155,32 +141,26 @@ def run_this_week_data_ingestion_task(self, trade_time_str=None):
         # .delay() 是 .apply_async() 的简化版
         minute_task_result = save_stocks_minute_data_this_week_task.delay()
         logger.info(f"已分派分钟数据采集调度任务。任务ID: {minute_task_result.id}")
-
         # 步骤 2: 执行日线数据（含筹码）采集任务
         # 这个任务会采集日线数据，并且内部包含了筹码数据的采集
         logger.info("开始执行: 日线数据（含筹码）采集任务...")
         daily_data_task_result = save_day_data_this_week_batch.delay()
         save_cyq_data_this_week_task.delay()
         logger.info(f"已分派日线数据（含筹码）采集任务。任务ID: {daily_data_task_result.id}")
-
         # 步骤 3: 执行当日基本信息采集任务
         logger.info("开始执行: 当日基本信息采集任务...")
         daily_basic_task_result = save_stocks_daily_basic_data_this_week_task.delay()
         logger.info(f"已分派当日基本信息采集任务。任务ID: {daily_basic_task_result.id}")
-
         # 步骤4：执行指数每日指标
         logger.info("开始执行: 指数每日指标...")
         save_index_daily_basic_history.delay()
         save_index_daily_this_week_task.delay()
         logger.info(f"已分派指数每日指标任务。")
-
         # 步骤5：个股、板块、行业资金流向数据
         logger.info("开始执行: 板块、行业资金流向数据...")
         save_fund_flow_data_this_week_task.delay()
         logger.info(f"已分派板块、行业资金流向数据 任务。")
-
         logger.info("整体任务结束: run_this_week_data_ingestion_task - 所有当日数据采集任务已分派。")
-
         # 返回一些信息，方便查看任务状态
         return {
             "status": "success",

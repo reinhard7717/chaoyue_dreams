@@ -242,7 +242,6 @@ def run_local_transformer_training_batch(
                     DJANGO_SETTINGS_MODULE_NAME # 传递 Django settings 模块名
                 )
             )
-
         # 收集并处理子进程的结果
         for i, future in enumerate(as_completed(futures)):
             try:

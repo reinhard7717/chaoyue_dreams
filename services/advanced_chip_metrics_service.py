@@ -294,7 +294,6 @@ class AdvancedChipMetricsService:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_convert('Asia/Shanghai')
         else:
             minute_df['trade_time'] = minute_df['trade_time'].dt.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
-        
         minute_df['date'] = minute_df['trade_time'].dt.date
         return {date: group_df for date, group_df in minute_df.groupby('date')}
 
@@ -325,7 +324,6 @@ class AdvancedChipMetricsService:
         UNIFIED_PERIODS = BaseAdvancedChipMetrics.UNIFIED_PERIODS
         # 为加速度定义一个独立的、符合数学定义的短窗口
         ACCEL_WINDOW = 2
-        
         for col in CORE_METRICS_TO_DERIVE:
             if col in consensus_df.columns and col not in SLOPE_ACCEL_EXCLUSIONS and col not in BaseAdvancedChipMetrics.BOOLEAN_FIELDS:
                 source_series = pd.to_numeric(consensus_df[col], errors='coerce')
@@ -346,7 +344,6 @@ class AdvancedChipMetricsService:
         """准备并以“更新或创建”的方式原子化保存数据。"""
         if final_df.empty: return 0
         final_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        
         # 健壮性修复：确保所有布尔字段在保存前都有确定的值 (True/False)，而不是 NaN。
         # NaN 在保存时会变成 NULL，导致数据库 NOT NULL 约束错误。
         boolean_fields = BaseAdvancedChipMetrics.BOOLEAN_FIELDS
@@ -354,7 +351,6 @@ class AdvancedChipMetricsService:
             if col in final_df.columns:
                 # 将 NaN 值填充为 False，这是布尔字段最安全的默认值
                 final_df[col] = final_df[col].fillna(False)
-        
         model_fields = {f.name for f in MetricsModel._meta.get_fields() if not f.is_relation and f.name != 'id'}
         df_filtered = final_df[[col for col in final_df.columns if col in model_fields]]
         records_list = df_filtered.to_dict('records')

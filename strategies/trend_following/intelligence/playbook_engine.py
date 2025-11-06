@@ -31,7 +31,6 @@ class PlaybookEngine:
             return {}, {}
         playbook_states = {}
         default_series = pd.Series(False, index=df.index)
-        
         for blueprint in self.playbook_blueprints:
             playbook_name = blueprint['name']
             trigger_conditions = pd.Series(False, index=df.index)
@@ -76,7 +75,6 @@ class PlaybookEngine:
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
         p_triggers = get_params_block(self.strategy, 'trigger_event_params', {})
-        
         # --- 1. 定义核心触发器：显性反转K线 ---
         p_dominant = p_triggers.get('dominant_reversal_candle', {})
         today_body_size = (df['close_D'] - df['open_D']).clip(lower=0)
@@ -91,7 +89,6 @@ class PlaybookEngine:
         candle_quality_score = atomic.get('COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', default_score)
         dominant_reversal_score = (recovery_score * position_score * candle_quality_score).astype(np.float32)
         triggers['TRIGGER_DOMINANT_REVERSAL'] = dominant_reversal_score > get_param_value(p_dominant.get('trigger_threshold'), 0.4)
-
         # --- 2. 定义剧本触发器 (注入周期意识) ---
         # 引入周期环境判断
         p_cyclical = p_triggers.get('cyclical_bottom_fishing', {})
@@ -99,26 +96,21 @@ class PlaybookEngine:
         is_near_trough = self._get_atomic_score(df, 'DOMINANT_CYCLE_PHASE').fillna(0) < get_param_value(p_cyclical.get('phase_threshold'), -0.8)
         is_not_strong_cyclical = self._get_atomic_score(df, 'SCORE_CYCLICAL_REGIME') < get_param_value(p_cyclical.get('strong_cyclical_suppression_threshold'), 0.7)
         
-
         # V型反转王牌剧本 (趋势型，应在非周期市触发)
         setup_score = self._get_atomic_score(df, 'SCORE_SETUP_PANIC_SELLING')
         was_setup_yesterday = setup_score.shift(1).fillna(0.0) > get_param_value(p_triggers.get('panic_selling_setup_threshold'), 0.4)
         # 增加周期抑制条件
         triggers['TRIGGER_V_REVERSAL_ACE'] = was_setup_yesterday & triggers['TRIGGER_DOMINANT_REVERSAL'] & is_not_strong_cyclical
-
         # 均值回归剧本 (周期型，应在周期市的波谷触发)
         mean_reversion_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_MEAN_REVERSION_GRID_BUY')
         # 增加周期前置条件
         triggers['TRIGGER_MEAN_REVERSION_GRID_BUY'] = (mean_reversion_score > get_param_value(p_triggers.get('mean_reversion_grid_buy_a_threshold'), 0.8)) & is_cyclical_regime & is_near_trough
-
         # 周期底捞剧本 (周期型，逻辑已包含周期判断，保持不变)
         triggers['TRIGGER_CYCLICAL_BOTTOM_FISHING'] = is_near_trough & is_cyclical_regime & triggers['TRIGGER_DOMINANT_REVERSAL']
-        
         # 恐慌投降反转剧本
         p_capitulation = p_triggers.get('capitulation_reversal', {'trigger_threshold': 0.4})
         capitulation_reversal_score = self._get_atomic_score(df, 'SCORE_PLAYBOOK_CAPITULATION_REVERSAL')
         triggers['TRIGGER_CAPITULATION_REVERSAL'] = capitulation_reversal_score > get_param_value(p_capitulation.get('trigger_threshold'), 0.4)
-
         # --- 3. 填充其他剧本的布尔状态 ---
         playbook_signals = [
             'PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION',
@@ -133,7 +125,6 @@ class PlaybookEngine:
         ]
         for signal_name in playbook_signals:
             triggers[signal_name] = self._get_atomic_score(df, signal_name, default=False).astype(bool)
-
         # --- 4. 确保所有触发器都是布尔类型 ---
         for key in list(triggers.keys()):
             if key in triggers and isinstance(triggers[key], pd.Series):
@@ -156,11 +147,9 @@ class PlaybookEngine:
             yesterday_ts = probe_ts - pd.Timedelta(days=1)
             while yesterday_ts not in df.index and yesterday_ts > df.index.min():
                 yesterday_ts -= pd.Timedelta(days=1)
-
             if probe_ts not in df.index or yesterday_ts not in df.index:
                 print(f"  [错误] 探针日期 {probe_date} 或其前一个交易日不在数据范围内。解剖终止。")
                 return
-
             print(f"\n--- [第一部分: 解剖 {yesterday_ts.date()} 的战备分 (Setup)] ---")
             was_setup_yesterday_score = setup_score.shift(1).get(probe_ts, 0.0)
             print(f"  - 昨日战备分 (SCORE_SETUP_PANIC_SELLING_S): {was_setup_yesterday_score:.4f}")
@@ -182,7 +171,6 @@ class PlaybookEngine:
             print(f"  - 点火阈值: {trigger_threshold:.4f}")
             is_trigger_ok = is_triggered_today_score > trigger_threshold
             print(f"  - [判定] 今日是否成功点火? {'✅ 是' if is_trigger_ok else '❌ 否'}")
-
             print("    -> 点火分由以下三者相乘得到:")
             p_dominant = get_params_block(self.strategy, 'trigger_event_params', {}).get('dominant_reversal_candle', {})
             today_body_size = (df.at[probe_ts, 'close_D'] - df.at[probe_ts, 'open_D'])
@@ -200,13 +188,11 @@ class PlaybookEngine:
             print(f"      - K线收复分: {recovery_score:.4f}")
             print(f"      - 底部位置分: {position_score:.4f}")
             print(f"      - K线质量分: {candle_quality:.4f}")
-
             print("\n--- [第三部分: 最终结论] ---")
             final_trigger_result = was_setup_ok and is_trigger_ok
             print(f"  - 触发器最终逻辑: (昨日战备就绪 AND 今日成功点火)")
             print(f"  - 计算结果: ({was_setup_ok} AND {is_trigger_ok}) = {final_trigger_result}")
             print(f"  - [结论] V型反转王牌剧本在 {probe_date} {'✅ 已触发' if final_trigger_result else '❌ 未触发'}")
-
         except Exception as e:
             print(f"  [探针错误] 在执行V型反转法医探针时发生异常: {e}")
         finally:

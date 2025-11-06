@@ -14,7 +14,6 @@ class BaseAPI:
     """
     简化版基础API类，提供轮流使用license的请求功能和重试机制
     """
-    
     def __init__(self):
         """初始化BaseAPI"""
         self._session = None
@@ -24,30 +23,24 @@ class BaseAPI:
             base_url = base_url.replace('https://', 'http://')
         self.base_url = base_url
         self.timeout = getattr(settings, 'API_REQUEST_TIMEOUT', 30)
-        
         # license管理
         self.licences = getattr(settings, 'API_LICENCES_IG507', [])
         if not self.licences:
             logger.warning("未在settings中找到API_LICENCES_IG507配置，或配置为空列表")
-        
         # 各license的使用情况记录和冷却状态
         self.licence_usage = {lic: {"count": 0, "last_used": 0, "errors": 0, "cooldown_until": 0} 
                               for lic in self.licences}
-        
         # API类型和URL模式映射
         self.url_patterns = getattr(settings, 'API_URL_PATTERNS', {})
-        
         # API类型对应的访问限制配置
         self.api_limits = getattr(settings, 'API_LIMITS', {
             'default': {'max_requests': 50, 'window_seconds': 60}
         })
-        
         # 重试配置
         self.max_retry_count = getattr(settings, 'API_MAX_RETRY_COUNT', 5)
         self.retry_delay = getattr(settings, 'API_RETRY_DELAY', 2.0)
         self.retry_delay_factor = getattr(settings, 'API_RETRY_DELAY_FACTOR', 1.5)
         self.max_retry_delay = getattr(settings, 'API_MAX_RETRY_DELAY', 30.0)
-        
         # 频率限制错误模式匹配
         self.rate_limit_patterns = [
             r'503请求过于频繁',
@@ -58,16 +51,13 @@ class BaseAPI:
             r'rate limit exceeded',
             r'请稍后再试',
         ]
-        
         # logger.info(f"初始化BaseAPI，基础URL: {self.base_url}，可用license数: {len(self.licences)}")
-    
     @property
     async def session(self):
         """获取或创建aiohttp会话"""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
-    
     def _detect_api_type(self, url: str) -> str:
         """根据URL识别API类型"""
         if url is None:
@@ -75,14 +65,12 @@ class BaseAPI:
             return 'default'
             
         url_lower = url.lower()
-        
         for api_type, patterns in self.url_patterns.items():
             for pattern in patterns:
                 if re.search(pattern, url_lower):
                     return api_type
                     
         return 'default'
-    
     def _is_rate_limited(self, response_text: str) -> bool:
         """判断响应是否表示请求频率受限"""
         if not response_text:
@@ -93,40 +81,32 @@ class BaseAPI:
                 return True
                 
         return False
-    
     def _get_licence(self, api_type: str) -> Optional[str]:
         """获取当前可用的license"""
         current_time = asyncio.get_event_loop().time()
         api_limit = self.api_limits.get(api_type, self.api_limits.get('default'))
-        
         # 过滤出不在冷却期的license
         available_licences = [
             lic for lic in self.licences 
             if self.licence_usage[lic]["cooldown_until"] <= current_time
         ]
-        
         if not available_licences:
             # logger.warning("所有license都在冷却期，等待最快可用的一个")
             # 找到最快可用的license
             cooldown_times = [(lic, self.licence_usage[lic]["cooldown_until"]) for lic in self.licences]
             cooldown_times.sort(key=lambda x: x[1])
             return cooldown_times[0][0]  # 返回最快可用的license
-        
         # 按使用次数排序，优先使用次数少的
         usage_sorted = sorted(
             available_licences, 
             key=lambda lic: self.licence_usage[lic]["count"]
         )
-        
         # 选择使用次数最少的license
         selected_licence = usage_sorted[0]
-        
         # 更新使用记录
         self.licence_usage[selected_licence]["count"] += 1
         self.licence_usage[selected_licence]["last_used"] = current_time
-        
         return selected_licence
-    
     def _report_error(self, licence: str, is_rate_limit: bool = False):
         """报告license使用出错"""
         if licence not in self.licence_usage:
@@ -134,23 +114,19 @@ class BaseAPI:
             
         current_time = asyncio.get_event_loop().time()
         self.licence_usage[licence]["errors"] += 1
-        
         # 如果是频率限制错误，进入冷却期
         if is_rate_limit:
             # 冷却时间根据错误次数增加，但不超过最大冷却时间
             cooldown_seconds = min(1 * (2 ** (self.licence_usage[licence]["errors"] - 1)), 3600)
             self.licence_usage[licence]["cooldown_until"] = current_time + cooldown_seconds
             # logger.warning(f"License {licence} 触发频率限制，进入冷却期 {cooldown_seconds} 秒")
-    
     def _reset_errors(self, licence: str):
         """重置license错误计数"""
         if licence in self.licence_usage:
             self.licence_usage[licence]["errors"] = 0
-    
     def _parse_response(self, text: str, expected_type: str = None) -> Any:
         """
         解析响应内容
-        
         Args:
             text: 响应文本
             expected_type: 期望的返回数据类型('list', 'dict', None等)
@@ -198,17 +174,14 @@ class BaseAPI:
                 return []
             else:
                 return text
-    
     async def _make_request(self, method: str, url: str, params: Dict = None, data: Dict = None, 
                           headers: Dict = None, expected_type: str = None, retry_count: int = 0) -> Any:
         """发送HTTP请求，带重试机制"""
         if url is None:
             logger.error("请求URL不能为None")
             return {"error": "请求URL不能为空"}
-        
         # 保存原始URL（不含license）
         original_url = url
-        
         try:
             # 获取会话
             session = await self.session
@@ -336,11 +309,9 @@ class BaseAPI:
         except Exception as e:
             logger.error(f"API请求出错: {str(e)}")
             return {"error": f"未知错误: {str(e)}"}
-    
     async def get(self, url: str, params: Dict = None, headers: Dict = None, expected_type: str = None) -> Any:
         """
         发送GET请求
-        
         Args:
             url: 请求URL
             params: URL参数
@@ -355,11 +326,9 @@ class BaseAPI:
             return {"error": "请求URL不能为空"}
             
         return await self._make_request('GET', url, params=params, headers=headers, expected_type=expected_type)
-    
     async def post(self, url: str, data: Dict = None, headers: Dict = None, expected_type: str = None) -> Any:
         """
         发送POST请求
-        
         Args:
             url: 请求URL
             data: 请求体数据
@@ -374,7 +343,6 @@ class BaseAPI:
             return {"error": "请求URL不能为空"}
             
         return await self._make_request('POST', url, data=data, headers=headers, expected_type=expected_type)
-    
     async def close(self):
         """关闭HTTP会话"""
         if self._session and not self._session.closed:

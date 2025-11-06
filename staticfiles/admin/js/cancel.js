@@ -21,7 +21,6 @@
                 window.history.back(); // Otherwise, go back.
             }
         }
-
         document.querySelectorAll('.cancel-link').forEach(function(el) {
             el.addEventListener('click', handleClick);
         });

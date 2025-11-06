@@ -11,11 +11,9 @@ class BaseModel(models.Model):
         如果子类没有覆盖此方法，将显示模型名称和ID
         """
         return f"{self.__class__.__name__}-{self.id}"
-    
     def to_dict(self):
         """
         将模型转换为字典
-        
         Returns:
             dict: 包含模型所有字段值的字典
         """
@@ -32,7 +30,6 @@ class BaseModel(models.Model):
 class ModelJSONEncoder(DjangoJSONEncoder):
     """
     自定义JSON编码器，用于序列化模型对象
-    
     继承自Django的JSON编码器，增加了对模型对象的序列化支持
     """
     def default(self, obj):

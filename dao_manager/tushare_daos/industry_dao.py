@@ -579,12 +579,10 @@ class IndustryDao(BaseDAO):
             trade_time__gte=start_date,
             trade_time__lte=end_date
         ).order_by('trade_time')
-        
         # 使用 avalues 异步获取数据
         data = await sync_to_async(list)(qs.values())
         if not data:
             return pd.DataFrame()
-
         df = pd.DataFrame.from_records(data)
         df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
         df.set_index('trade_time', inplace=True)
@@ -601,7 +599,6 @@ class IndustryDao(BaseDAO):
                 stock__stock_code=stock_code,
                 is_new='Y'
             ).afirst()
-
             if membership and membership.ths_index:
                 industry_info = {
                     'code': membership.ths_index.ts_code,
@@ -976,7 +973,6 @@ class IndustryDao(BaseDAO):
         if not data:
             print(f"    - [DAO-KPL] 未找到数据。")
             return pd.DataFrame()
-        
         df = pd.DataFrame.from_records(data)
         df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
@@ -1125,7 +1121,6 @@ class IndustryDao(BaseDAO):
             data_list=unique_indices,  # 直接使用 unique_indices
             unique_fields=['ts_code']
         )
-        
         print(f"    -- 完成 [东方财富板块列表] 更新，共处理 {len(unique_indices)} 条板块元数据。") # 更新日志输出变量
         return result
 
@@ -1408,13 +1403,10 @@ class IndustryDao(BaseDAO):
         """
         if not sync_list:
             return
-
         print(f"    -> [同步任务] 开始同步 {len(sync_list)} 条 [{source.upper()}] 成分股数据到 [ConceptMember]...")
-        
         # 1. 批量获取所有需要的 ConceptMaster 对象
         all_concept_codes = {item['concept_code'] for item in sync_list}
         concept_map = await self.get_concepts_by_codes(list(all_concept_codes))
-
         # 2. 组装最终数据，将 concept_code 替换为 concept_id
         final_data_to_save = []
         for item in sync_list:
@@ -1425,7 +1417,6 @@ class IndustryDao(BaseDAO):
                 final_data_to_save.append(item)
             else:
                 logger.warning(f"同步到 ConceptMember 时未找到代码为 {item['concept_code']} 的主概念记录，已跳过。")
-
         # 3. 批量保存
         if final_data_to_save:
             await self._save_all_to_db_native_upsert(
@@ -1666,7 +1657,6 @@ class IndustryDao(BaseDAO):
         return None
 
     # ============== 板块/概念主数据 (ConceptMaster) ==============
-    
     async def get_all_concepts_by_source(self, source: str) -> List[ConceptMaster]:
         """
         【V3.0 新增】根据来源获取所有板块/概念主数据。
@@ -1739,22 +1729,18 @@ class IndustryDao(BaseDAO):
         """
         if not stock_codes:
             return pd.DataFrame()
-
         # 异步查询 KplLimitList
         query = KplLimitList.objects.filter(
             stock__stock_code__in=stock_codes,
             trade_date=trade_date,
             tag=tag
         )
-        
         # 使用 avalues 异步获取数据，只选择需要的列
         data = await sync_to_async(list)(query.values(
             'stock_id', 'name', 'lu_time', 'status', 'turnover_rate', 'limit_order', 'free_float'
         ))
-        
         if not data:
             return pd.DataFrame()
-
         return pd.DataFrame.from_records(data)
 
     # ============== 板块/概念日线行情 (ConceptDaily) ==============
@@ -1768,11 +1754,9 @@ class IndustryDao(BaseDAO):
             trade_date__gte=start_date,
             trade_date__lte=end_date
         ).order_by('trade_date')
-        
         data = await sync_to_async(list)(qs.values('trade_date', 'open', 'high', 'low', 'close', 'turnover_rate'))
         if not data:
             return pd.DataFrame()
-
         df = pd.DataFrame.from_records(data)
         df['trade_date'] = pd.to_datetime(df['trade_date'], utc=True)
         df.set_index('trade_date', inplace=True)
@@ -1849,7 +1833,6 @@ class IndustryDao(BaseDAO):
         df.rename(columns={'concept__code': 'concept_code', 'concept__source': 'source'}, inplace=True)
         # print(f"    - [DAO-查询] 成功获取 {len(df)} 条原始生命周期记录。")
         return df
-    
     # =================================================================
     # ============ V3.0 多维概念融合分析 - 核心数据获取方法 ============
     # =================================================================
@@ -1859,16 +1842,13 @@ class IndustryDao(BaseDAO):
         【V3.0 生产级】获取一个股票所属的所有行业/概念及其来源。
         - 核心特性: 异步并行、缓存优先、健壮容错、输出标准化。
         - 数据源: 申万(sw), 中信(ci), 开盘啦(kpl), 同花顺(ths), 东方财富(dc)。
-        
         Args:
             stock_code (str): 股票代码。
-
         Returns:
             List[Dict[str, str]]: 一个包含该股票所有概念标签的列表，
                                   每个元素是一个字典，格式为 {'code': '...', 'name': '...', 'source': '...'}.
         """
         # print(f"    - [多维概念融合DAO] 开始为 {stock_code} 并行获取所有概念标签...")
-        
         # 1. 定义所有需要并行执行的查询任务
         tasks = [
             self._get_sw_concepts(stock_code),
@@ -1877,10 +1857,8 @@ class IndustryDao(BaseDAO):
             self._get_ths_concepts(stock_code),
             self._get_dc_concepts(stock_code),
         ]
-
         # 2. 使用 asyncio.gather 并发执行所有任务
         results = await asyncio.gather(*tasks, return_exceptions=True)
-
         # 3. 汇总所有查询结果
         all_concepts = []
         for res in results:
@@ -1890,19 +1868,15 @@ class IndustryDao(BaseDAO):
                 continue
             if res:
                 all_concepts.extend(res)
-        
         # 4. 去重并返回
         # 使用元组作为集合元素进行去重，因为字典是不可哈希的
         unique_concepts_tuples = { (c['code'], c['source']) for c in all_concepts }
-        
         # 为了保持原始的name，我们需要一个映射
         code_source_to_name_map = { (c['code'], c['source']): c['name'] for c in all_concepts }
-
         final_concepts = [
             {'code': code, 'name': code_source_to_name_map[(code, source)], 'source': source}
             for code, source in unique_concepts_tuples
         ]
-
         # print(f"    - [多维概念融合DAO] 完成。为 {stock_code} 共获取到 {len(final_concepts)} 个唯一概念标签。")
         return final_concepts
 
@@ -1956,7 +1930,6 @@ class IndustryDao(BaseDAO):
                     concepts.append({'code': member.l2_code, 'name': member.l2_name, 'source': 'ci'})
                 if member.l3_code:
                     concepts.append({'code': member.l3_code, 'name': member.l3_name, 'source': 'ci'})
-
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:
@@ -1997,13 +1970,11 @@ class IndustryDao(BaseDAO):
         cached_data = await self.cache_manager.get(cache_key)
         if cached_data:
             return cached_data
-
         concepts = []
         try:
             memberships = ThsIndexMember.objects.filter(
                 stock__stock_code=stock_code, is_new='Y'
             ).select_related('ths_index')
-
             async for member in memberships:
                 if member.ths_index:
                     concepts.append({'code': member.ths_index.ts_code, 'name': member.ths_index.name, 'source': 'ths'})

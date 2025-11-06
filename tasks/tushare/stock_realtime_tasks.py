@@ -45,7 +45,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
     """
     favorite_stock_codes = set()
     all_stock_codes = set()
-    
     try:
         # 直接使用传入的DAO实例
         favorite_stocks = await stock_basic_dao.get_all_favorite_stocks()
@@ -68,7 +67,6 @@ async def _get_all_relevant_stock_codes_for_processing(stock_basic_dao: StockBas
         
     non_favorite_stock_codes = list(all_stock_codes - favorite_stock_codes)
     favorite_stock_codes_list = list(favorite_stock_codes)
-    
     # 返回排序后的列表，保证每次结果一致
     return sorted(favorite_stock_codes_list), sorted(non_favorite_stock_codes)
 
@@ -88,14 +86,12 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
         logger.info("行情快照任务收到空列表，任务结束。")
         return
     logger.info(f"开始处理 {len(stock_codes)} 个股票的行情快照(Quote)数据任务...")
-    
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     strategy_dao = StrategiesDAO(cache_manager)
 
     async def main():
         # 1. 批量保存行情快照数据
         await stock_realtime_dao.save_quote_data_by_stock_codes(stock_codes)
-        
         # 2. 执行用户推送逻辑 (这部分逻辑保持不变)
         @sync_to_async(thread_sensitive=True)
         def get_user_ids_for_codes(codes: List[str]) -> Dict[str, List[int]]:
@@ -104,7 +100,6 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
             for fav in favorites:
                 user_map[fav['stock__stock_code']].append(fav['user_id'])
             return user_map
-        
         user_ids_map = await get_user_ids_for_codes(stock_codes)
         push_tasks = []
         for code in stock_codes:
@@ -154,11 +149,9 @@ def save_real_tick_data_single(stock_code: str, cache_manager=None):
     """
     if not stock_code:
         return
-    
     logger.info(f"开始处理 {stock_code} 的真实逐笔(Tick)数据任务...")
     stock_realtime_dao = StockRealtimeDAO(cache_manager)
     trade_date = datetime.datetime.now().strftime('%Y-%m-%d')
-    
     async def main():
         # 调用我们之前在DAO中创建的、包含完整持久化逻辑的方法
         await stock_realtime_dao.save_realtime_tick_in_bulk([stock_code], trade_date)
@@ -184,7 +177,6 @@ def save_stocks_tick_data_task(quote_batch_size: int = 50, cache_manager=None):
     favorite_codes, non_favorite_codes = async_to_sync(
         _get_all_relevant_stock_codes_for_processing
     )(stock_basic_dao)
-    
     if not favorite_codes and not non_favorite_codes:
         logger.warning("未能获取到股票列表，统一调度任务结束。")
         return

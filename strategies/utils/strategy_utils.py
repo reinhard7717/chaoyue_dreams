@@ -161,12 +161,10 @@ def find_divergence_for_indicator(price_series: pd.Series,
             for p_idx in price_extremum_indices:
                 matches.append((p_idx, None))
             return matches
-
         for p_idx in price_extremum_indices:
             lower_bound_idx = np.searchsorted(indicator_extremum_indices, p_idx - window, side='left')
             upper_bound_idx = np.searchsorted(indicator_extremum_indices, p_idx + window, side='right')
             nearby_indicator_indices = indicator_extremum_indices[lower_bound_idx:upper_bound_idx]
-
             if len(nearby_indicator_indices) > 0:
                 closest_i_idx = nearby_indicator_indices[np.abs(nearby_indicator_indices - p_idx).argmin()]
                 matches.append((p_idx, closest_i_idx))
@@ -271,14 +269,12 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
     for indicator_key, enabled in indicators_to_check.items():
         if not enabled:
             continue
-
         # --- 改进主指标配置的查找逻辑 ---
         # 确定用于在 indicator_naming_conv 中查找指标配置的主键。
         # 原始逻辑 (indicator_key.upper()) 对于 'macd_hist' 会查找 'MACD_HIST'，这通常不存在。
         # 正确的逻辑是为 'macd_hist' 查找 'MACD' 的配置块。
         main_config_lookup_key = indicator_key.upper() # 默认情况，例如 'rsi' -> 'RSI'
         key_lower = indicator_key.lower()
-
         if key_lower == 'macd_hist':
             main_config_lookup_key = 'MACD' # 'macd_hist' 属于 'MACD' 指标配置
         elif key_lower.startswith('stoch_'): # 例如 'stoch_k', 'stoch_d'
@@ -288,16 +284,13 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         elif key_lower.startswith('dmi_'): # 例如 'dmi_adx', 'dmi_pdi', 'dmi_ndi'
             main_config_lookup_key = 'DMI' # 属于 'DMI' 指标配置
         # 对于其他直接对应的指标 (如 'rsi', 'mfi', 'obv'), indicator_key.upper() 通常是正确的顶级键。
-
         indi_naming_conf = indicator_naming_conv.get(main_config_lookup_key) # 使用修正后的键查找配置
         if not isinstance(indi_naming_conf, dict):
             logger.warning(f"指标 '{indicator_key}' (尝试使用主配置键 '{main_config_lookup_key}') 在命名规范中未找到或配置无效，跳过背离检测。")
             continue
         
-
         # 假设 dd_params 中的键是小写 internal_key，或需要进一步映射到实际用于匹配模式的内部名称
         internal_key_for_div = indicator_key.lower()
-
         # 特殊处理，将 dd_params 中的 indicator_key (如 'macd_hist') 映射到
         # 在 output_columns 中 name_pattern 对应的具体部分 (如 'macdh')
         if indicator_key.lower() == 'macd_hist': internal_key_for_div = 'macdh'
@@ -307,7 +300,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         elif indicator_key.lower() == 'dmi_adx': internal_key_for_div = 'adx'
         elif indicator_key.lower() == 'dmi_pdi': internal_key_for_div = 'pdi'
         elif indicator_key.lower() == 'dmi_ndi': internal_key_for_div = 'ndi'
-
         indicator_pattern = None
         output_cols_patterns = indi_naming_conf.get('output_columns', [])
         if isinstance(output_cols_patterns, list):
@@ -325,7 +317,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                     if isinstance(col_conf, dict) and col_conf.get('name_pattern', '').lower().startswith(internal_key_for_div):
                         indicator_pattern = col_conf.get('name_pattern')
                         break
-        
         # 特殊处理 OBV，其模式通常是固定的，不含参数占位符
         if indicator_key.lower() == 'obv':
             # 在 indicator_naming_conventions.json 中, OBV 的模式是 "OBV"
@@ -338,11 +329,9 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                         break
             if not obv_pattern_found: # 如果规范中没有明确的 "OBV"，则硬编码（但不推荐）
                  indicator_pattern = 'OBV' # 应该依赖命名规范文件
-
         if not indicator_pattern:
             logger.warning(f"指标 '{indicator_key}' (内部键 '{internal_key_for_div}') 在命名规范 '{main_config_lookup_key}' 的 output_columns 中未找到主要输出列模式，跳过背离检测。")
             continue
-
         scoring_info = indicator_scoring_info.get(indicator_key.lower())
         indicator_params = {}
         if scoring_info and isinstance(scoring_info.get('defaults'), dict):
@@ -350,7 +339,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
              indi_params_from_dd = dd_params.get(f'{indicator_key.lower()}_params', {})
              if isinstance(indi_params_from_dd, dict):
                   indicator_params.update(indi_params_from_dd)
-        
         # 参数处理部分 (保持不变，根据 indicator_key.lower() 进行)
         if indicator_key.lower() in ['dmi', 'dmi_adx', 'dmi_pdi', 'dmi_ndi']:
              dmi_period = dd_params.get('dmi_period', indicator_params.get('period', 14))
@@ -393,7 +381,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         if indicator_key.lower() == 'obv_ma':
              obv_ma_params_dd = dd_params.get('obv_ma_params', {})
              indicator_params['period'] = obv_ma_params_dd.get('period', indicator_params.get('period', 10))
-
         for tf_check in timeframes_to_check:
             tf_check_str = str(tf_check)
             possible_tf_suffixes_raw = timeframe_naming_conv.get('patterns', {}).get(tf_check_str.lower(), [tf_check_str])
@@ -406,7 +393,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
             for suffix in possible_tf_suffixes:
                 if suffix not in seen: seen.add(suffix); possible_tf_suffixes_unique.append(suffix)
             possible_tf_suffixes = possible_tf_suffixes_unique
-
             price_col = None
             # --- 确保在循环内部找到 price_col ---
             # 原代码 price_col 定义在循环外部，可能导致在特定时间框架找不到时使用上一个时间框架的 price_col
@@ -421,7 +407,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                 continue
             price_series = data[current_price_col] # 使用 current_price_col
             
-
             indicator_col = None
             # 尝试根据模式和参数构建列名并查找
             try:
@@ -434,7 +419,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                               return f"{p:.2f}"
                          return str(p)
                      return str(p)
-
                  param_str_parts = []
                  param_key_lower = indicator_key.lower() # 使用局部变量
                  if param_key_lower in ['macd', 'macd_hist'] and 'period_fast' in indicator_params and 'period_slow' in indicator_params and 'signal_period' in indicator_params:
@@ -460,9 +444,7 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                  elif param_key_lower == 'obv_ma' and 'period' in indicator_params:
                       param_str_parts = [format_param_for_div(indicator_params['period'], param_key_lower)]
                  # 对于 OBV, indicator_pattern 是 'OBV', param_str_parts 为空
-
                  param_part_for_pattern = '_'.join(param_str_parts)
-
                  # 构建期望的列名
                  # indicator_pattern 可能是 "MACDh_{period_fast}_{period_slow}_{signal_period}"
                  # 我们需要用实际参数值替换占位符
@@ -499,10 +481,8 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                          expected_col_name_intermediate = expected_col_name_intermediate.replace('{anchor}', param_str_parts[0])
                  # Ichimoku 的模式参数替换类似处理，这里省略以保持简洁，因其模式较多
                  # OBV, ADL 等无参数指标, expected_col_name_intermediate 就是 indicator_pattern 本身
-
                  expected_col_name_final = f"{expected_col_name_intermediate}_{tf_check_str}"
                  expected_col_name_final = expected_col_name_final.replace('__', '_').strip('_')
-
                  if expected_col_name_final in data.columns:
                       indicator_col = expected_col_name_final
                  else: # Fallback if direct construction fails, try to find a column that starts with the pattern base and ends with params_tf
@@ -516,7 +496,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                         indicator_col = potential_col_search
                     # else:
                     #     logger.debug(f"Constructed name '{expected_col_name_final}' and fallback '{potential_col_search}' not found for {indicator_key} TF {tf_check_str}")
-
 
             except Exception as e:
                  logger.warning(f"尝试构建或查找指标 '{indicator_key}' (内部键: '{internal_key_for_div}') 在 TF {tf_check} 的列名时出错: {e}")
@@ -542,12 +521,10 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                         indicator_col = potential_cols[0]
                         logger.debug(f"Fallback prefix-suffix lookup for '{indicator_key}' in TF {tf_check} found potential column: '{indicator_col}' using prefixes: {prefixes}")
 
-
             if indicator_col is None or data[indicator_col].isnull().all():
                 logger.warning(f"指标 '{indicator_key}' (内部键: '{internal_key_for_div}') 在 TF {tf_check} 的列未找到或全为 NaN。尝试的列名构建可能为 '{expected_col_name_final if 'expected_col_name_final' in locals() else 'N/A'}'。跳过。")
                 continue
             indicator_series = data[indicator_col]
-
             # 假设 get_find_peaks_params 和 find_divergence_for_indicator 函数已在外部定义
             # current_find_peaks_params = get_find_peaks_params(tf_check_str, safe_lookback)
             # current_find_peaks_params.update(base_find_peaks_params)
@@ -563,14 +540,12 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
             if check_hidden_bearish: div_result['hidden_bearish'] = pd.Series(False, index=_mock_index)
             # --- 模拟结束 ---
 
-
             for div_type_col_name in div_result.columns:
                 parts = indicator_col.split('_')
                 indi_name_part = parts[0]
                 params_part = "_".join(parts[1:-1]) if len(parts) > 2 and parts[-1] == tf_check_str else "_".join(parts[1:]) # 尝试更灵活地提取参数部分
                 if params_part.endswith(f"_{tf_check_str}"): # 如果参数部分错误地包含了时间框架后缀
                     params_part = params_part[:-len(f"_{tf_check_str}")]
-
 
                 clean_div_type = "".join(word.capitalize() for word in div_type_col_name.split('_'))
                 detailed_col_name = f'DIV_{indi_name_part}'
@@ -837,7 +812,6 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
     # 10. 上升三法 (Rising Three Methods) / 下降三法 (Falling Three Methods) - 五K线组合
     if len(df_calc_idx) >= 5: # 确保有足够数据进行5根K线的判断
         consolidation_body_max_ratio_of_avg_body = 0.5 # 中间整理K线的实体最大为平均实体的0.5倍
-
         # 上升三法 (看涨持续)
         # 条件: 前4日长阳, 中间三日小K线(阴或阳实体小)整理且在前4日长阳实体内, 当日长阳收盘高于前4日收盘。
         rising_three = is_green4 & (body4 > avg_body * 1.5) & \
@@ -846,7 +820,6 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                        is_red1 & (body1 < avg_body * consolidation_body_max_ratio_of_avg_body) & (h1 < h4) & (l1 > l4) & \
                        is_green & (body > avg_body * 1.5) & (c > c4) & (o > l1) # 当日阳线开盘高于前一整理K线低点 # Corrected is_red1 condition
         patterns_calc.loc[rising_three, f'{kline_pattern_prefix}RISINGTHREEMETHODS_{tf}'] = 1 # 使用获取到的前缀
-
         # 下降三法 (Falling Three Methods) - 看跌持续
         # 条件: 前4日长阴, 中间三日小K线整理且在前4日长阴实体内, 当日长阴收盘低于前4日收盘。
         falling_three = is_red4 & (body4 > avg_body * 1.5) & \
@@ -864,7 +837,6 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                               is_red1 & (body1 < avg_body * 0.7) & (o1 > h2) & \
                               is_red & (o > o1) & (c < c1) & (c < h2) # 当日阴线实体吞没前小阴，收盘低于第一天高点
         patterns_calc.loc[upside_gap_two_crows, f'{kline_pattern_prefix}UPSIDEGAPTWOCROWS_{tf}'] = -1 # 使用获取到的前缀
-
         # 跳空并列线 (Tasuki Gap) - 持续形态
         # 向上跳空并列阳线 (Upside Tasuki Gap) - 看涨持续
         # 条件: 前2日阳线, 前1日向上跳空收阳, 当日阴线开盘于前1日阳线实体内，收盘于缺口之内但未完全封闭缺口。
@@ -872,7 +844,6 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
                            is_green1 & (o1 > h2) & \
                            is_red & (o > o1) & (o < c1) & (c < o1) & (c > h2)
         patterns_calc.loc[upside_tasuki_gap, f'{kline_pattern_prefix}UPSIDETASUKIGAP_{tf}'] = 1 # 使用获取到的前缀
-
         # 向下跳空并列阴线 (Downside Tasuki Gap) - 看跌持续
         # 条件: 前2日阴线, 前1日向下跳空收阴, 当日阳线开盘于前1日阴线实体内，收盘于缺口之内但未完全封闭缺口。
         downside_tasuki_gap = is_red2 & \
@@ -891,7 +862,6 @@ def detect_kline_patterns(df: pd.DataFrame, tf: str, naming_config: Dict) -> pd.
         # 看跌分离线: 上升趋势中（前阳），前阳后阴，开盘相同。
         bearish_sep_lines = is_green1 & is_red & same_open_cond
         patterns_calc.loc[bearish_sep_lines, f'{kline_pattern_prefix}BEARISHSEPARATINGLINES_{tf}'] = -1 # 使用获取到的前缀
-
         # 反击线 (Counterattack Lines) - 反转形态
         # 条件：两根K线颜色相反，收盘价相同，且第二根K线大幅跳空开盘。
         same_close_cond = abs(c - c1) < avg_range * 0.02 # 收盘价几乎相同
@@ -2808,13 +2778,11 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
         # 动态构建 xp 和 fp，包含 q_mom_pos_25
         xp_raw = [0, q_mom_pos_25, q_mom_pos_50, q_mom_pos_75, q_mom_pos_90, max_mom_pos]
         fp_raw = [50.0, 55.0, 60.0, 70.0, 80.0, 85.0] # 对应的分数
-
         xp = []
         fp = []
         # 始终添加第一个点
         xp.append(xp_raw[0])
         fp.append(fp_raw[0])
-
         # 遍历其余点，只在 x 严格递增时添加，如果 x 相同则取更高的 y
         for i in range(1, len(xp_raw)):
             if xp_raw[i] > xp[-1]:
@@ -2822,7 +2790,6 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
                 fp.append(fp_raw[i])
             elif xp_raw[i] == xp[-1]: # 如果 x 相同，取更高的分数 (更看涨)
                 fp[-1] = max(fp[-1], fp_raw[i])
-
         # 确保至少有两个点用于插值，否则使用简化版
         if len(xp) < 2:
             if max_mom_pos > 0:
@@ -2831,10 +2798,8 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
             else: # 所有正MOM值都为0或接近0
                 xp = [0, 1e-6] # 小范围以保持分数在50
                 fp = [50.0, 50.0]
-
         current_bullish_scores = np.interp(mom_s[bullish_trend_cond], xp, fp)
         score.loc[bullish_trend_cond] = np.maximum(score.loc[bullish_trend_cond], current_bullish_scores)
-
         # 多头趋势加速 (mom_diff > 0)
         bullish_accelerate = bullish_trend_cond & (mom_diff_filled > 1e-6)
         score.loc[bullish_accelerate] += 2.5
@@ -2842,7 +2807,6 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
             score.loc[bullish_accelerate & (mom_diff_filled >= q_diff_pos_50)] += 2.5
         if q_diff_pos_75 > 0:
             score.loc[bullish_accelerate & (mom_diff_filled >= q_diff_pos_75)] += 5.0
-
         # 多头趋势减速 (mom_diff < 0)
         bullish_decelerate = bullish_trend_cond & (mom_diff_filled < -1e-6)
         score.loc[bullish_decelerate] -= 2.5
@@ -2856,13 +2820,11 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
         # 注意: xp_raw 必须是单调递增的，所以从最负到0
         xp_raw = [min_mom_neg, q_mom_neg_25, q_mom_neg_50, q_mom_neg_75, 0]
         fp_raw = [15.0, 20.0, 30.0, 40.0, 50.0] # 对应的分数
-
         xp = []
         fp = []
         # 始终添加第一个点
         xp.append(xp_raw[0])
         fp.append(fp_raw[0])
-
         # 遍历其余点，只在 x 严格递增时添加，如果 x 相同则取更高的 y
         for i in range(1, len(xp_raw)):
             if xp_raw[i] > xp[-1]:
@@ -2870,7 +2832,6 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
                 fp.append(fp_raw[i])
             elif xp_raw[i] == xp[-1]: # 如果 x 相同，取更高的分数 (更不看跌)
                 fp[-1] = max(fp[-1], fp_raw[i])
-
         # 确保至少有两个点用于插值，否则使用简化版
         if len(xp) < 2:
             if min_mom_neg < 0:
@@ -2879,10 +2840,8 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
             else: # 所有负MOM值都为0或接近0
                 xp = [-1e-6, 0] # 小范围以保持分数在50
                 fp = [50.0, 50.0]
-
         current_bearish_scores = np.interp(mom_s[bearish_trend_cond], xp, fp)
         score.loc[bearish_trend_cond] = np.minimum(score.loc[bearish_trend_cond], current_bearish_scores)
-
         # 空头趋势加速 (mom_diff < 0, 即更负)
         bearish_accelerate = bearish_trend_cond & (mom_diff_filled < -1e-6)
         score.loc[bearish_accelerate] -= 2.5
@@ -2890,7 +2849,6 @@ def calculate_mom_score(mom: pd.Series) -> pd.Series:
             score.loc[bearish_accelerate & (mom_diff_filled <= q_diff_neg_50)] -= 2.5
         if q_diff_neg_25 < 0:
             score.loc[bearish_accelerate & (mom_diff_filled <= q_diff_neg_25)] -= 5.0
-
         # 空头趋势减速 (mom_diff > 0, 即负值减小，向0靠近)
         bearish_decelerate = bearish_trend_cond & (mom_diff_filled > 1e-6)
         score.loc[bearish_decelerate] += 2.5
@@ -2976,7 +2934,6 @@ def calculate_willr_score(willr: pd.Series) -> pd.Series:
     # 中性偏空
     score.loc[(willr_s < ob_th) & (willr_s >= neutral_bear_upper)] = 25.0
     score.loc[(willr_s < neutral_bear_upper) & (willr_s >= neutral_bear_lower)] = 35.0
-    
     # 对于落在 (-55, -45) 之间的，保持初始的50分，或根据趋势调整
 
     # 2. 动态信号调整 (基于WILLR的变化和持续性)
@@ -3025,7 +2982,6 @@ def calculate_willr_score(willr: pd.Series) -> pd.Series:
     # 在核心中性区，WILLR下降 (趋向超卖，看涨趋势增强)
     trend_to_os_neutral = core_neutral_cond & (willr_s < willr_prev)
     score.loc[trend_to_os_neutral] = np.maximum(score.loc[trend_to_os_neutral], 55.0)
-    
     # 2.4 考虑WILLR变化率 (ROC) 对中性区评分的微调 # 解锁并深化2.4节
     roc = willr_s.diff() # 计算WILLR的变化率
 
@@ -3230,19 +3186,16 @@ def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period:
             obv_ma_diff_norm_factor = 1.0
         # 计算 OBV 与 MA 差值的归一化强度，表示偏离均线的程度。
         position_strength = obv_ma_diff.abs() / obv_ma_diff_norm_factor
-
         # 交叉判断：这是最强的信号，直接设置分数。
         # 检测买入交叉信号 (OBV 从 MA 下方穿过 MA 上方)。
         buy_cross = (obv_s.shift(1) < obv_ma_s.shift(1)) & (obv_s >= obv_ma_s)
         # 检测卖出交叉信号 (OBV 从 MA 上方穿过 MA 下方)。
         sell_cross = (obv_s.shift(1) > obv_ma_s.shift(1)) & (obv_s <= obv_ma_s)
-
         # 评分规则：交叉信号优先级最高，且根据交叉强度调整分数。
         # 对买入交叉进行评分，基础分 70，根据交叉强度额外加分，最高可达 95。
         score.loc[buy_cross] = 70 + np.clip(position_strength.loc[buy_cross] * 10, 0, 25)
         # 对卖出交叉进行评分，基础分 30，根据交叉强度额外减分，最低可达 5。
         score.loc[sell_cross] = 30 - np.clip(position_strength.loc[sell_cross] * 10, 0, 25)
-
         # 在未交叉时，根据 OBV 相对于 MA 的位置和强度调整分数。
         # 找出既非买入交叉也非卖出交叉的日期。
         not_cross_cond = ~buy_cross & ~sell_cross
@@ -3250,7 +3203,6 @@ def calculate_obv_score(obv: pd.Series, obv_ma: pd.Series = None, obv_ma_period:
         above_ma_cond = (obv_s > obv_ma_s) & not_cross_cond
         # OBV 在 MA 下方且未交叉的条件。
         below_ma_cond = (obv_s < obv_ma_s) & not_cross_cond
-
         # 评分规则：OBV 在 MA 上方/下方，根据偏离强度调整分数。
         # 对 OBV 在 MA 上方的情况进行评分，基础分 60，根据位置强度额外加分，最高可达 75。
         score.loc[above_ma_cond] = 60 + np.clip(position_strength.loc[above_ma_cond] * 5, 0, 15)
@@ -3310,7 +3262,6 @@ def calculate_kc_score(close: pd.Series, upper: pd.Series, mid: pd.Series, lower
 
     # 计算 KC 通道宽度，用于后续归一化价格位置
     channel_width = upper_s - lower_s
-    
     # 初始化归一化价格位置，默认值为0.5（通道中线）
     # 初始化 normalized_pos 为 0.5，处理通道宽度为零或负数的情况
     normalized_pos = pd.Series(0.5, index=close_s.index)
@@ -3868,12 +3819,10 @@ def build_expected_col_name(indicator_key: str, internal_key: str, params: List[
              if internal_key == 'close':
                   # close column name has no parameter part
                   return f"{prefix}_{tf_suffix}"
-
              # Ichimoku lines have different column name patterns, need to build based on internal_key and corresponding parameters
              # params list should contain Tenkan, Kijun, Senkou B periods, e.g., [9, 26, 52]
              if len(params) >= 3: # Ensure enough parameters
                 p_tenkan, p_kijun, p_senkou_b = params[:3] # Get main parameters
-
                 if internal_key == 'tenkan': # Tenkan Sen: TENKAN_tenkan_period_tf
                     return f"TENKAN_{p_tenkan}_{tf_suffix}"
                 if internal_key == 'kijun': # Kijun Sen: KIJUN_kijun_period_tf
@@ -4084,14 +4033,12 @@ def adjust_score_with_volume(
         cmf_col_name = find_col(f"CMF_{vc_params.get('cmf_period', 20)}", tf_score_str)
         obv_col_name = find_col("OBV", tf_score_str)
         # OBV_MA不用
-
         # 检查必需列
         if not all([close_col, high_col, low_col, volume_col, cmf_col_name, obv_col_name]):
             result_df[f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'] = 0
             result_df[f'VOL_SPIKE_SIGNAL_{current_vol_tf}'] = 0
             result_df[f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'] = 0
             continue
-
         # 数据提取
         close = data[close_col].reindex(result_df.index).ffill().bfill()
         high = data[high_col].reindex(result_df.index).ffill().bfill()
@@ -4099,7 +4046,6 @@ def adjust_score_with_volume(
         volume = data[volume_col].reindex(result_df.index).fillna(0)
         cmf = data[cmf_col_name].reindex(result_df.index).fillna(0)
         obv = data[obv_col_name].reindex(result_df.index).ffill().bfill()
-
         # --- 1. 信号分层 ---
         # 1.1 量能确认信号（CMF分层）
         confirm_signal = pd.Series(0, index=result_df.index)
@@ -4111,7 +4057,6 @@ def adjust_score_with_volume(
         confirm_signal[(cmf > -0.10) & (cmf <= -0.07)] = -2
         confirm_signal[cmf <= -0.10] = -3
         result_df[f'VOL_CONFIRM_SIGNAL_{current_vol_tf}'] = confirm_signal
-
         # 1.2 成交量突增信号（分层）
         ma_period = vol_ma_period if vol_ma_period is not None else vc_params.get('volume_ma_period', 20)
         vol_ma = volume.rolling(window=ma_period, min_periods=1).mean()
@@ -4125,7 +4070,6 @@ def adjust_score_with_volume(
         spike_signal[(vol_ratio >= 0.3) & (vol_ratio < 0.5)] = -2
         spike_signal[vol_ratio < 0.3] = -3
         result_df[f'VOL_SPIKE_SIGNAL_{current_vol_tf}'] = spike_signal
-
         # 1.3 量价背离信号（分层）
         lookback = vc_params.get('vp_divergence_lookback', 21)
         price_thresh = vc_params.get('vp_divergence_price_threshold', 0.005)
@@ -4155,7 +4099,6 @@ def adjust_score_with_volume(
                     div_value.iloc[i] = (i2_obv - i1_obv_at_t1) / (abs(i1_obv_at_t1) + 1e-9)
             else:
                 div_value.iloc[i] = 0
-
         div_signal = pd.Series(0, index=div_value.index)
         div_signal[div_value >= 0.20] = 3
         div_signal[(div_value >= 0.12) & (div_value < 0.20)] = 2
@@ -4165,7 +4108,6 @@ def adjust_score_with_volume(
         div_signal[(div_value > -0.20) & (div_value <= -0.12)] = -2
         div_signal[div_value <= -0.20] = -3
         result_df[f'VOL_PRICE_DIV_SIGNAL_{current_vol_tf}'] = div_signal
-
         # --- 2. 分数调整（仅第一个TF） ---
         if not first_tf_processed:
             level_adj = {3:0.30, 2:0.20, 1:0.12, 0:0, -1:-0.12, -2:-0.20, -3:-0.30}
@@ -4376,78 +4318,65 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
             if len(parts) >= 4: # 至少包含前缀和3个参数
                  # 尝试将参数部分转换为整数
                  return [int(parts[1]), int(parts[2]), int(parts[3])]
-
         elif indicator_key == 'rsi' and parts[0] == 'RSI':
             # RSI 列名模式: RSI_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1])]
-
         elif indicator_key == 'kdj' and parts[0] in ['K', 'D', 'J']:
             # KDJ 列名模式: K/D/J_period_signal_period_smooth_k_period
              if len(parts) >= 4: # 至少包含前缀和3个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1]), int(parts[2]), int(parts[3])]
-
         elif indicator_key == 'boll' and parts[0] in ['BBL', 'BBM', 'BBU']:
             # BOLL 列名模式: BBL/BBM/BBU_period_std_dev
              if len(parts) >= 3: # 至少包含前缀和2个参数
                   # 尝试将周期转换为整数，标准差转换为浮点数
                   return [int(parts[1]), float(parts[2])] # std_dev 是浮点数
-
         elif indicator_key == 'cci' and parts[0] == 'CCI':
             # CCI 列名模式: CCI_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1])]
-
         elif indicator_key == 'mfi' and parts[0] == 'MFI':
             # MFI 列名模式: MFI_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1])]
-
         elif indicator_key == 'roc' and parts[0] == 'ROC':
             # ROC 列名模式: ROC_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1])]
-
         elif indicator_key == 'dmi' and parts[0] in ['PDI', 'NDI', 'ADX']:
             # DMI 列名模式: PDI/NDI/ADX_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                   # 尝试将参数部分转换为整数
                   return [int(parts[1])]
-
         elif indicator_key == 'sar' and parts[0] == 'SAR':
              # SAR 列名模式: SAR_af_step_max_af (参数是浮点数)
              if len(parts) >= 3: # 至少包含前缀和2个参数
                  # 尝试将参数部分转换为浮点数
                  return [float(parts[1]), float(parts[2])]
-
         elif indicator_key == 'stoch' and parts[0] in ['STOCHk', 'STOCHd']:
             # STOCH 列名模式: STOCHk/STOCHd_k_period_d_period_smooth_k_period
              if len(parts) >= 4: # 至少包含前缀和3个参数
                  # 尝试将参数部分转换为整数
                  return [int(parts[1]), int(parts[2]), int(parts[3])]
-
         elif indicator_key in ['ema', 'sma'] and parts[0] in ['EMA', 'SMA']:
             # MA 列名模式: EMA/SMA_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                  # 尝试将参数部分转换为整数
                  return [int(parts[1])]
-
         elif indicator_key == 'atr' and parts[0] == 'ATR':
              # ATR 列名模式: ATR_period
              if len(parts) >= 2: # 至少包含前缀和1个参数
                  # 尝试将参数部分转换为整数
                  return [int(parts[1])]
-
         elif indicator_key == 'adl' and parts[0] == 'ADL':
             # ADL 列名模式: ADL_{timeframe}, 无参数
             if len(parts) == 1: # 只包含前缀
                  return [] # 返回空列表表示没有参数
-
         elif indicator_key == 'vwap' and parts[0] == 'VWAP':
              # VWAP 列名模式: VWAP_{timeframe} 或 VWAP_{anchor}_{timeframe}
              # 检查 parts 的长度来区分是否有 anchor 参数
@@ -4457,7 +4386,6 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
                  # 假设第一个参数是 anchor，作为字符串返回
                  return [parts[1]] # 返回包含 anchor 字符串的列表
              return None # 格式不匹配
-
         elif indicator_key == 'ichimoku' and parts[0] in ['TENKAN', 'KIJUN', 'CHIKOU', 'SENKOU_A', 'SENKOU_B']:
             # Ichimoku 列名模式复杂，根据前缀和参数数量尝试解析
             # TENKAN_period, KIJUN_period, CHIKOU_period, SENKOU_A_tenkan_kijun, SENKOU_B_period
@@ -4468,25 +4396,21 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
                  # Senkou Span A has two period parameters
                  return [int(parts[1]), int(parts[2])] # Try to parse two integer periods
             return None # Parameter format or count mismatch
-
         elif indicator_key == 'mom' and parts[0] == 'MOM':
             # MOM 列名模式: MOM_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         elif indicator_key == 'willr' and parts[0] == 'WILLR':
             # WILLR 列名模式: WILLR_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         elif indicator_key == 'cmf' and parts[0] == 'CMF':
             # CMF 列名模式: CMF_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         elif indicator_key == 'obv' and parts[0] == 'OBV':
              # OBV 列名模式: OBV_{timeframe}, no parameters
             if len(parts) == 1: # Only prefix
@@ -4496,31 +4420,26 @@ def parse_col_params(col_name: str, indicator_key: str, tf_suffix: str) -> List[
              if len(parts) >= 2: # At least prefix 'OBV_MA' and 1 parameter
                   # Try to parse parameter part as integer
                   return [int(parts[1])] # Return list containing OBV_MA period integer
-
         elif indicator_key == 'kc' and parts[0] in ['KCL', 'KCM', 'KCU']:
              # KC 列名模式: KCL/KCM/KCU_ema_period_atr_period
              if len(parts) >= 3: # At least prefix and 2 parameters
                   # Try to parse parameter parts as integers
                   return [int(parts[1]), int(parts[2])]
-
         elif indicator_key == 'hv' and parts[0] == 'HV':
             # HV 列名模式: HV_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         elif indicator_key == 'vroc' and parts[0] == 'VROC':
             # VROC 列名模式: VROC_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         elif indicator_key == 'aroc' and parts[0] == 'AROC':
             # AROC 列名模式: AROC_period
              if len(parts) >= 2: # At least prefix and 1 parameter
                  # Try to parse parameter part as integer
                  return [int(parts[1])]
-
         # If column name pattern is not recognized, log debug info and return None
         print(f"列名 '{col_name}' 不符合指标 '{indicator_key}' 期望的参数模式，或参数数量/类型不匹配 (suffix: {tf_suffix}).")
         return None
@@ -4579,11 +4498,9 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
             timeframes_list = config.get('timeframes', [])
             if isinstance(timeframes_list, str): timeframes_list = [timeframes_list]
             if not isinstance(timeframes_list, list): continue
-
             indi_naming_conf = indicator_naming_conv.get(indicator_name.upper(), {})
             output_cols_patterns = indi_naming_conf.get('output_columns', [])
             if not isinstance(output_cols_patterns, list): output_cols_patterns = []
-
             if indicator_name == 'pivot':
                  pivot_levels_data = config.get('pivot_levels_data')
                  if isinstance(pivot_levels_data, dict):
@@ -4602,11 +4519,9 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                  else: # DEBUG信息
                      print(f"DEBUG: Pivot levels 配置数据不是字典或不存在。") # DEBUG信息
                  continue
-
             actual_output_columns = config.get('output_columns', [])
             if isinstance(actual_output_columns, str): actual_output_columns = [actual_output_columns]
             if not isinstance(actual_output_columns, list): continue
-
             for actual_col_name in actual_output_columns:
                  if not isinstance(actual_col_name, str): continue
                  found_tf_suffix = None
@@ -4658,7 +4573,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                            # 为了让代码可运行且逻辑上等同于注释掉 parse_col_params 的情况，我们已在循环外将 params 初始化为 None。
                            # 如果 parse_col_params 应该被调用，需要取消注释并确保其正确实现。
                            # params = parse_col_params(actual_col_name, indicator_name, found_tf_suffix, pattern) # 原注释掉的行
-
                            if params is not None: # 由于 params 初始化为 None 并且 parse_col_params 被注释，此块通常不会执行
                                 temp_format_params = params.copy()
                                 temp_format_params['timeframe'] = found_tf_suffix
@@ -4755,7 +4669,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     current_tf_possible_suffixes = [str(p) for p in patterns_for_tf]
                 else: # 防御性编程，确保 current_tf_possible_suffixes 是列表
                     current_tf_possible_suffixes = [tf_score_str]
-
                 if tf_score_str not in current_tf_possible_suffixes:
                      current_tf_possible_suffixes.append(tf_score_str)
                 # 将 ohlcv_output_cols_conf 的获取移到 tf_suffix 循环外，但在 internal_key 循环内按需获取
@@ -4986,7 +4899,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                             # valid_call = False; break
                     if not valid_call: # 如果参数准备失败
                         raise ValueError(f"准备指标 '{indicator_key}'@{tf_score_str} 的评分函数参数时失败。")
-
                     score_func_params: Dict[str, Any] = {}
                     for bs_key, func_arg_name in bs_param_key_to_score_func_arg.items():
                          param_value = bs_params.get(bs_key, defaults.get(bs_key, None))
@@ -5012,7 +4924,6 @@ def calculate_all_indicator_scores(data: pd.DataFrame, bs_params: Dict, indicato
                     if not score.index.equals(data.index):
                          logger.error(f"指标 '{indicator_key}' 在时间框架 {tf_score} 的评分结果索引与输入数据不一致.")
                          raise ValueError("评分结果索引与输入数据不一致") # 抛出错误
-
                     score_col_name = f"SCORE_{indicator_key.upper()}_{tf_score_str}"
                     scoring_results[score_col_name] = score
                 except Exception as e: # pylint: disable=broad-except

@@ -29,12 +29,9 @@ class TacticEngine:
         all_states = {}
         panic_states = self.synthesize_panic_selling_setup(df)
         all_states.update(panic_states)
-        
         all_states.update(self.synthesize_v_reversal_ace_playbook(df, setup_score=panic_states.get('SCORE_SETUP_PANIC_SELLING')))
-        
         # 调用全新的、逻辑统一的“筹码价格滞后”剧本合成器
         all_states.update(self.synthesize_chip_price_lag_playbook(df))
-
         all_states.update(self.synthesize_prime_tactic(df))
         all_states.update(self._diagnose_pullback_tactics_matrix(df, pullback_enhancements))
         all_states.update(self.synthesize_squeeze_playbooks(df))
@@ -102,7 +99,6 @@ class TacticEngine:
         # 实施“日间影线”协议
         upper_shadow = (df['high_D'] - np.maximum(df['close_D'], df['pre_close_D'])).clip(lower=0)
         lower_shadow = (np.minimum(df['close_D'], df['pre_close_D']) - df['low_D']).clip(lower=0)
-        
         hermes_score = ((lower_shadow - upper_shadow) / day_range).fillna(0.0)
         hermes_regulator = ((hermes_score + 1) / 2.0).clip(0, 1)
         base_score = snapshot_panic * final_calmness_score * rebound_strength_score
@@ -141,7 +137,6 @@ class TacticEngine:
         p_tactic = get_params_block(self.strategy, 'tactic_engine_params', {}) # 获取战术引擎配置
         # 调用全新的、功能更强大的四维均线健康度评估引擎
         ma_health_score = self._calculate_ma_health(df, p_tactic, 55)
-        
         # --- 1. 计算“战备”信号: SCORE_SETUP_CHIP_RESONANCE_READY ---
         chip_resonance_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
         price_momentum_suppressed_score = normalize_score(df['SLOPE_5_close_D'], df.index, window=60, ascending=False)
@@ -150,7 +145,6 @@ class TacticEngine:
         snapshot_setup = raw_setup_score * ma_health_score
         final_setup_score = self._perform_tactic_relational_meta_analysis(df, snapshot_setup)
         states['SCORE_SETUP_CHIP_RESONANCE_READY'] = final_setup_score.astype(np.float32)
-        
         # --- 2. 计算“剧本”信号: SCORE_PLAYBOOK_CHIP_PRICE_LAG ---
         trigger_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_EARLY_MOMENTUM_IGNITION', 0.0)
         raw_playbook_score = final_setup_score.shift(1).fillna(0.0) * trigger_score
@@ -158,14 +152,12 @@ class TacticEngine:
         final_playbook_score = self._perform_tactic_relational_meta_analysis(df, snapshot_playbook)
         states['SCORE_PLAYBOOK_CHIP_PRICE_LAG'] = final_playbook_score.astype(np.float32)
         states['PLAYBOOK_CHIP_PRICE_LAG'] = final_playbook_score > 0.5
-
         # --- 3. 计算“恐慌投降反转”剧本 ---
         capitulation_potential = self._get_atomic_score(df, 'SCORE_CHIP_CONTEXT_CAPITULATION_POTENTIAL', 0.0)
         reversal_confirmation = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL')
         final_capitulation_score = capitulation_potential.shift(1).fillna(0.0) * reversal_confirmation
         states['SCORE_PLAYBOOK_CAPITULATION_REVERSAL'] = final_capitulation_score.astype(np.float32)
         states['PLAYBOOK_CAPITULATION_REVERSAL'] = final_capitulation_score > 0.4 # 增加布尔型剧本触发信号
-
         return states
 
     def synthesize_prime_tactic(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -179,16 +171,13 @@ class TacticEngine:
         fused_compression_score = get_unified_score(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         is_extreme_squeeze = fused_compression_score > 0.9
         has_energy_advantage = get_unified_score(self.strategy.atomic_states, df.index, 'DYN_BULLISH_RESONANCE') > 0.7
-        
         condition_sum = (is_prime_chip_structure.astype(int) + is_extreme_squeeze.astype(int) + has_energy_advantage.astype(int))
         setup_prime = (condition_sum == 3)
         # 确保生产的信号名是净化后的
         states['SETUP_PRIME_STRUCTURE'] = setup_prime
-        
         # 消费净化后的点火信号。注意：这要求 cognitive_intelligence 产出的信号被净化为 'COGNITIVE_SCORE_IGNITION_RESONANCE'
         ignition_resonance_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE', 0.0)
         trigger_prime_breakout = ignition_resonance_score > 0.6
-        
         was_setup_prime_yesterday = setup_prime.shift(1).fillna(False)
         final_tactic = was_setup_prime_yesterday & trigger_prime_breakout
         # 确保生产的信号名是净化后的
@@ -200,41 +189,31 @@ class TacticEngine:
         【V7.6 · 信号净化版】回踩战术诊断模块
         """
         states = {}
-        
         # 消费新的终极信号 (已净化)
         ascent_start_event = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE') > 0.6
         chip_resonance_score = get_unified_score(self.strategy.atomic_states, df.index, 'CHIP_BULLISH_RESONANCE')
         ff_resonance_score = get_unified_score(self.strategy.atomic_states, df.index, 'FF_BULLISH_RESONANCE')
         cruise_start_event = (chip_resonance_score * ff_resonance_score) > 0.7
-
         lookback_window = 15
         is_in_ascent_window = ascent_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
         is_in_cruise_window = cruise_start_event.rolling(window=lookback_window, min_periods=1).max().astype(bool)
-        
         p_pullback = get_params_block(self.strategy, 'pullback_tactics_params', {})
         healthy_threshold = get_param_value(p_pullback.get('healthy_pullback_score_threshold'), 0.3)
         suppressive_threshold = get_param_value(p_pullback.get('suppressive_pullback_score_threshold'), 0.3)
-        
         # 消费净化后的回踩信号。注意：这要求 cognitive_intelligence 产出的信号被净化
         was_healthy_pullback = (self._get_atomic_score(df, 'COGNITIVE_SCORE_PULLBACK_HEALTHY').shift(1).fillna(0.0) > healthy_threshold)
         was_suppressive_pullback = (self._get_atomic_score(df, 'COGNITIVE_SCORE_PULLBACK_SUPPRESSIVE').shift(1).fillna(0.0) > suppressive_threshold)
-        
         is_reversal_confirmed = get_unified_score(self.strategy.atomic_states, df.index, 'BEHAVIOR_BOTTOM_REVERSAL') > 0.5
-        
         # 消费净化后的阶段信号。
         late_stage_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_CONTEXT_LATE_STAGE', 0.0)
         is_in_safe_stage = late_stage_score < 0.6
-        
         # 确保所有生产的信号名都是净化后的
         cruise_pit_reversal_signal = is_in_cruise_window & was_suppressive_pullback & is_reversal_confirmed
         states['TACTIC_CRUISE_PIT_REVERSAL'] = cruise_pit_reversal_signal
-        
         cruise_pullback_reversal_signal = is_in_cruise_window & was_healthy_pullback & is_reversal_confirmed & is_in_safe_stage & ~cruise_pit_reversal_signal
         states['TACTIC_CRUISE_PULLBACK_REVERSAL'] = cruise_pullback_reversal_signal
-        
         ascent_pit_reversal_signal = is_in_ascent_window & was_suppressive_pullback & is_reversal_confirmed & ~is_in_cruise_window
         states['TACTIC_ASCENT_PIT_REVERSAL'] = ascent_pit_reversal_signal
-        
         ascent_pullback_reversal_signal = is_in_ascent_window & was_healthy_pullback & is_reversal_confirmed & ~is_in_cruise_window & ~ascent_pit_reversal_signal
         states['TACTIC_ASCENT_PULLBACK_REVERSAL'] = ascent_pullback_reversal_signal
         return states
@@ -244,32 +223,24 @@ class TacticEngine:
         【V1.7 · 信号净化版】压缩突破战术剧本合成模块
         """
         states = {}
-        
         vol_compression_score = get_unified_score(self.strategy.atomic_states, df.index, 'VOL_COMPRESSION')
         states['COGNITIVE_SCORE_VOL_COMPRESSION_FUSED'] = vol_compression_score.astype(np.float32)
-        
         setup_extreme_squeeze_score = vol_compression_score.shift(1).fillna(0.0)
-        
         # 消费净化后的突破潜力信号。注意：这要求 cognitive_intelligence 产出的信号被净化
         trigger_explosive_breakout_score = self._get_atomic_score(df, 'SCORE_VOL_BREAKOUT_POTENTIAL', 0.0)
-        
         score_extreme_squeeze = (setup_extreme_squeeze_score * trigger_explosive_breakout_score).astype(np.float32)
         # 确保生产的信号名是净化后的
         states['SCORE_PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION'] = score_extreme_squeeze
         states['PLAYBOOK_EXTREME_SQUEEZE_EXPLOSION'] = score_extreme_squeeze > 0.7
-        
         platform_quality_score = get_unified_score(self.strategy.atomic_states, df.index, 'STRUCTURE_BULLISH_RESONANCE')
         breakout_eve_score = (platform_quality_score * vol_compression_score)
         setup_breakout_eve_score = breakout_eve_score.shift(1).fillna(0.0)
-        
         # 消费净化后的点火信号。注意：这要求 cognitive_intelligence 产出的信号被净化
         trigger_prime_breakout_score = self._get_atomic_score(df, 'COGNITIVE_SCORE_IGNITION_RESONANCE', 0.0)
-        
         score_breakout_eve = (setup_breakout_eve_score * trigger_prime_breakout_score).astype(np.float32)
         # 确保生产的信号名是净化后的
         states['SCORE_PLAYBOOK_BREAKOUT_EVE'] = score_breakout_eve
         states['PLAYBOOK_BREAKOUT_EVE'] = score_breakout_eve > 0.6
-        
         return states
 
     def calculate_structural_test_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -286,22 +257,17 @@ class TacticEngine:
         period_weights = get_param_value(params.get('support_period_weights'), {5: 0.8, 13: 1.0, 21: 1.2, 55: 1.4, 'sbc': 2.0})
         support_tolerance_pct = get_param_value(params.get('support_tolerance_pct'), 0.015)
         confluence_bonus_factor = get_param_value(params.get('confluence_bonus_factor'), 0.3)
-        
         sbc_threshold_pct = get_param_value(params.get('sbc_threshold_pct'), 0.05)
         is_sbc = df['pct_change_D'] > sbc_threshold_pct
         recent_sbc_low = df['low_D'].where(is_sbc).ffill()
-
         support_levels = {f'EMA_{p}_D': df.get(f'EMA_{p}_D') for p in [5, 13, 21, 55]}
         for p in support_periods:
             support_levels[f'PrevLow{p}'] = df['low_D'].shift(1).rolling(p, min_periods=max(1, p//2)).min()
         support_levels['MainForceLifeline'] = recent_sbc_low.shift(1)
-
         valid_supports = {k: v for k, v in support_levels.items() if v is not None and not v.empty}
         if not valid_supports:
             return pd.Series(0.0, index=df.index)
-        
         supports_df = pd.concat(valid_supports, axis=1)
-
         # --- 步骤 2: 计算“支撑区域”的共振强度 ---
         confluence_df = pd.DataFrame(1.0, index=df.index, columns=supports_df.columns)
         for col_i in supports_df.columns:
@@ -309,13 +275,10 @@ class TacticEngine:
                 if col_i == col_j: continue
                 is_close = (supports_df[col_i] - supports_df[col_j]).abs() / supports_df[col_i].replace(0, np.nan) < support_tolerance_pct
                 confluence_df[col_i] += is_close.astype(float)
-        
         confluence_bonus_df = 1.0 + (confluence_df - 1) * confluence_bonus_factor
-
         # --- 步骤 3: 计算所有支撑“区域”的加权、共振调整后的测试分数 ---
         all_test_scores = []
         day_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-
         for name, support_series in valid_supports.items():
             if 'MainForceLifeline' in name:
                 weight = period_weights.get('sbc', 2.0)
@@ -325,14 +288,12 @@ class TacticEngine:
                 weight = period_weights.get(period, 1.0)
             
             confluence_bonus = confluence_bonus_df[name]
-
             # 3.1 计算“被接住”分数 (Proximity Score) - 普遍适用
             tolerance_buffer = (support_series * support_tolerance_pct).replace(0, np.nan)
             distance = (df['low_D'] - support_series).abs()
             base_proximity_score = np.exp(-((distance / tolerance_buffer)**2)).fillna(0)
             weighted_proximity_score = base_proximity_score * weight * confluence_bonus
             all_test_scores.append(weighted_proximity_score)
-
             # 移除所有限制，将“破位收回”逻辑普遍应用于所有支撑类型
             # 无论是MA线、前低还是主力生命线，跌破后收回都是一个强烈的看涨信号
             is_spring = (df['low_D'] < support_series) & (df['close_D'] > support_series)
@@ -340,14 +301,12 @@ class TacticEngine:
             base_reclaim_score = (is_spring * reclaim_strength).fillna(0)
             weighted_reclaim_score = base_reclaim_score * weight * confluence_bonus
             all_test_scores.append(weighted_reclaim_score)
-
         # --- 步骤 4: 融合所有测试分数，取当日最强的结构事件 ---
         if not all_test_scores:
             return pd.Series(0.0, index=df.index)
             
         final_score_matrix = pd.concat(all_test_scores, axis=1)
         final_structural_test_score = final_score_matrix.max(axis=1, skipna=True).fillna(0.0)
-        
         return final_structural_test_score.clip(0, 1)
 
     def _calculate_despair_context_score(self, df: pd.DataFrame, params: dict) -> pd.Series:
@@ -359,10 +318,8 @@ class TacticEngine:
         # --- 步骤 1: 获取参数 ---
         despair_periods = get_param_value(params.get('despair_periods'), {'short': (21, 5), 'mid': (60, 21), 'long': (250, 60)})
         despair_weights = get_param_value(params.get('despair_weights'), {'short': 0.2, 'mid': 0.3, 'long': 0.5})
-        
         period_scores = []
         period_weight_values = []
-
         # --- 步骤 2: 遍历所有绝望周期，独立计算分数 ---
         for name, (drawdown_period, roc_period) in despair_periods.items():
             # 2.1 计算该周期的“坠落深度”
@@ -379,22 +336,17 @@ class TacticEngine:
             
             period_scores.append(period_despair_score.values)
             period_weight_values.append(despair_weights.get(name, 0.0))
-
         # --- 步骤 3: 对所有周期的绝望分数进行加权几何平均 ---
         if not period_scores:
             return pd.Series(0.0, index=df.index)
-
         weights_array = np.array(period_weight_values)
         total_weights = weights_array.sum()
         if total_weights > 0:
             weights_array /= total_weights
         else:
             weights_array = np.full_like(weights_array, 1.0 / len(weights_array))
-
         stacked_scores = np.stack(period_scores, axis=0)
-        
         final_score_values = np.prod(stacked_scores ** weights_array[:, np.newaxis], axis=0)
-        
         return pd.Series(final_score_values, index=df.index, dtype=np.float32)
 
     def _perform_tactic_relational_meta_analysis(self, df: pd.DataFrame, snapshot_score: pd.Series) -> pd.Series:
@@ -402,7 +354,6 @@ class TacticEngine:
         【V4.0 · 状态主导协议版】战术专用的关系元分析核心引擎
         - 核心修复: 植入“状态主导协议”，并调整默认权重为状态主导，解决“动态压制”问题。
         """
-        
         p_conf = get_params_block(self.strategy, 'tactic_engine_params', {})
         p_meta = get_param_value(p_conf.get('relational_meta_analysis_params'), {})
         # 权重调整为状态主导

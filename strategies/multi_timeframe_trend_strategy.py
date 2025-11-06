@@ -51,7 +51,6 @@ class MultiTimeframeTrendStrategy:
         main_config = load_strategy_config(main_config_path)
         config_dir = os.path.dirname(main_config_path)
         dict_path = os.path.join(config_dir, 'signal_dictionary.json')
-        
         original_score_map = {}
         if os.path.exists(dict_path):
             try:
@@ -59,7 +58,6 @@ class MultiTimeframeTrendStrategy:
                     original_score_map = json.load(f).get('score_type_map', {})
             except Exception as e:
                 logger.error(f"加载或解析信号字典 {dict_path} 失败: {e}")
-
         # 步骤2：执行“主权配置协议”，为每个策略准备专属配置
         import copy
         # 为 TrendFollow 准备纯净配置
@@ -68,25 +66,20 @@ class MultiTimeframeTrendStrategy:
         trend_follow_params = trend_follow_config.get('strategy_params', {}).get('trend_follow', {})
         trend_follow_params['score_type_map'] = trend_follow_score_map
         trend_follow_config['strategy_params']['trend_follow'] = trend_follow_params
-        
         # 为 Prophet 准备纯净配置
         prophet_config = copy.deepcopy(main_config)
         prophet_score_map = {k: v for k, v in original_score_map.items() if 'PREDICTIVE_' in k}
         # 先知策略的配置可能在不同的块中，我们直接在顶层注入
         prophet_config.get('strategy_params', {}).get('trend_follow', {})['score_type_map'] = prophet_score_map
-
         # 步骤3：使用专属配置初始化所有单元
         self.unified_config = main_config # 保留一个完整的副本以备后用
         self.indicator_service = IndicatorService(cache_manager_instance)
         self.strategic_engine = WeeklyContextEngine(config=self.unified_config)
-        
         # 将专属配置注入到各个策略中
         self.tactical_engine = TrendFollowStrategy(self, trend_follow_config)
         self.prophet_engine = ProphetSignalStrategy(self, prophet_config)
-        
         self.daily_analysis_df = None
         self.required_timeframes = self.indicator_service._discover_required_timeframes_from_config(self.unified_config)
-    
     async def run_for_stock(self, stock_code: str, trade_time: Optional[datetime] = None, latest_only: bool = False, start_date_str: Optional[str] = None) -> Tuple[List, List, List, List, List]:
         """
         【总指挥层核心 - V507.1 · 数据流修复版】
@@ -96,7 +89,6 @@ class MultiTimeframeTrendStrategy:
         mode_str = "闪电突袭" if latest_only else "全面战役"
         start_info = f", 计算起始于: {start_date_str}" if start_date_str and not latest_only else ""
         print(f"\n🚀 [总指挥层 - {mode_str}] 开始处理股票: {stock_code}, 交易时间: {trade_time}{start_info}")
-
         # 1. 数据准备: 加载所有需要的时间框架数据
         all_dfs = await self.indicator_service.prepare_data_for_strategy(
             stock_code, self.unified_config, trade_time, latest_only=latest_only
@@ -104,19 +96,15 @@ class MultiTimeframeTrendStrategy:
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             print(f"  - [数据引擎] 未能获取 {stock_code} 的日线数据，跳过处理。")
             return ([], [], [], [], [])
-        
         # 修改变量名，更清晰地接收 _run_tactical_engine 的返回结果
         # tactical_results 是一个四元组: ((signals, details, ...), df1, df2, df3)
         tactical_results = await self._run_tactical_engine(stock_code, all_dfs, start_date_str=start_date_str)
-        
         # 从嵌套元组中正确解包出包含5个列表的内部元组
         # records_from_tactical 现在是 (list_of_signals, list_of_details, ...)
         records_from_tactical = tactical_results[0]
-
         # 3. 盘中引擎
         intraday_entry_signals, intraday_entry_details = await self._run_intraday_entry_engine(stock_code, all_dfs)
         risk_alert_signals, risk_alert_details = self._run_intraday_alert_engine(stock_code, all_dfs)
-        
         # 修正拼接逻辑，从内部元组中按索引取值
         all_signals = records_from_tactical[0] + intraday_entry_signals + risk_alert_signals
         all_details = records_from_tactical[1] + intraday_entry_details + risk_alert_details
@@ -124,7 +112,6 @@ class MultiTimeframeTrendStrategy:
             all_signals.sort(key=lambda x: x.trade_time)
             
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
-        
         # 修正最终返回值的来源，确保返回5个列表
         return (all_signals, all_details, records_from_tactical[2], records_from_tactical[3], records_from_tactical[4])
 
@@ -153,14 +140,12 @@ class MultiTimeframeTrendStrategy:
                 params=self.unified_config,
                 result_timeframe='D'
             )
-
             # 步骤2: 运行“先知”引擎，并将主引擎的情报(atomic_states)传递给它
             prophet_records = await self.prophet_engine.apply_strategy(
                 stock_code, 
                 all_dfs['D'], 
                 self.tactical_engine.atomic_states
             )
-
             # 步骤3: 合并两大主权策略的战报
             all_signals = trend_follow_records[0] + prophet_records[0]
             all_details = trend_follow_records[1] + prophet_records[1]
@@ -169,7 +154,6 @@ class MultiTimeframeTrendStrategy:
             all_daily_states = trend_follow_records[4] + prophet_records[4]
             
             combined_records = (all_signals, all_details, all_daily_scores, all_score_components, all_daily_states)
-
             return (combined_records, daily_analysis_df, score_details_df, risk_details_df)
         except Exception as e:
             logger.error(f"在 {stock_code} 的战术引擎执行期间发生错误: {e}", exc_info=True)
@@ -211,23 +195,17 @@ class MultiTimeframeTrendStrategy:
         """
         # 导入新模型
         from stock_models.stock_analytics import TradingSignal
-
         entry_params = get_params_block(self.tactical_engine, 'intraday_entry_params')
         get_val = get_param_value
-        
         if not get_val(entry_params.get('enabled'), False): return ([], [])
         if self.daily_analysis_df is None or self.daily_analysis_df.empty: return ([], [])
-
         minute_tf = str(get_val(entry_params.get('timeframe'), '5'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty: return ([], [])
-
         daily_score_threshold = get_val(entry_params.get('daily_score_threshold'), 100)
         setup_days_df = self.daily_analysis_df[self.daily_analysis_df['entry_score'] >= daily_score_threshold].copy()
         if setup_days_df.empty: return []
-
         setup_days_df['setup_date'] = setup_days_df.index.date
-        
         trade_dates_series = pd.Series(await TradeCalendar.get_trade_dates_in_range_async(
             start_date=setup_days_df.index.min().date(),
             end_date=(setup_days_df.index.max() + pd.Timedelta(days=5)).date()
@@ -236,13 +214,10 @@ class MultiTimeframeTrendStrategy:
         setup_days_df['monitoring_date'] = setup_days_df['setup_date'].map(date_map)
         setup_days_df.dropna(subset=['monitoring_date'], inplace=True)
         if setup_days_df.empty: return []
-
         context_cols = ['monitoring_date', 'entry_score', 'PLATFORM_PRICE_STABLE']
         existing_context_cols = [col for col in context_cols if col in setup_days_df.columns]
-        
         minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
         minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
-        
         merged_minute_df = pd.merge(
             minute_df_with_ts,
             setup_days_df[existing_context_cols],
@@ -250,38 +225,29 @@ class MultiTimeframeTrendStrategy:
             how='inner'
         )
         if merged_minute_df.empty: return []
-        
         merged_minute_df.set_index('trade_time', inplace=True)
-
         final_confirmation_signal = pd.Series(True, index=merged_minute_df.index)
         rules = entry_params.get('confirmation_rules', {})
-        
         vwap_rule = rules.get('vwap_reclaim', {})
         if get_val(vwap_rule.get('enabled'), False):
             vwap_col, close_col_m = f'VWAP_{minute_tf}', f'close_{minute_tf}'
             if vwap_col in merged_minute_df.columns and close_col_m in merged_minute_df.columns:
                 final_confirmation_signal &= (merged_minute_df[close_col_m] > merged_minute_df[vwap_col])
-        
         vol_rule = rules.get('volume_confirmation', {})
         if get_val(vol_rule.get('enabled'), False):
             vol_ma_col = f'VOL_MA_{get_val(vol_rule.get("ma_period"), 21)}_{minute_tf}'
             volume_col_m = f'volume_{minute_tf}'
             if vol_ma_col in merged_minute_df.columns and volume_col_m in merged_minute_df.columns:
                 final_confirmation_signal &= (merged_minute_df[volume_col_m] > merged_minute_df[vol_ma_col])
-
         min_time_after_open = get_val(rules.get('min_time_after_open'), 15)
         market_open_time = time(9, 30 + min_time_after_open)
         final_confirmation_signal &= (merged_minute_df.index.time >= market_open_time)
-
         triggered_df = merged_minute_df[final_confirmation_signal]
         if triggered_df.empty: return []
-        
         first_confirmations_df = triggered_df.loc[triggered_df.groupby('monitoring_date').idxmin().iloc[:, 0]]
-
         final_entry_records = []
         playbook_blueprints = self.tactical_engine.playbook_blueprints
         playbook_cn_map = {p['name']: p.get('cn_name', p['name']) for p in playbook_blueprints}
-        
         final_entry_signals = []
         for timestamp, row in first_confirmations_df.iterrows():
             daily_score = row.get('entry_score', 0)
@@ -311,49 +277,34 @@ class MultiTimeframeTrendStrategy:
         """
         # 导入新模型
         from stock_models.stock_analytics import TradingSignal
-
         exec_params = get_params_block(self.tactical_engine, 'intraday_execution_params')
         get_val = get_param_value
-
         if not get_val(exec_params.get('enabled'), False): return ([], [])
-        
         df_daily = all_dfs.get('D')
         if df_daily is None or df_daily.empty: return ([], [])
-
         minute_tf = str(get_val(exec_params.get('timeframe'), '30'))
         minute_df = all_dfs.get(minute_tf)
         if minute_df is None or minute_df.empty: return ([], [])
-
         rules_container = exec_params.get('rules', {})
         upthrust_params = rules_container.get('upthrust_rejection', {})
         if not get_val(upthrust_params.get('enabled'), False): return []
-        
         upthrust_calc_params = get_params_block(self.tactical_engine, 'exit_strategy_params').get('upthrust_distribution_params', {})
         lookback_days = get_val(upthrust_calc_params.get('upthrust_lookback_days'), 5)
-        
         is_upthrust_day = df_daily['high_D'] > df_daily['high_D'].shift(1).rolling(window=lookback_days, min_periods=1).max()
         setup_days_df = df_daily[is_upthrust_day].copy()
         if setup_days_df.empty: return []
-
         setup_days_df['monitoring_date'] = (setup_days_df.index + pd.Timedelta(days=1)).date
-        
         minute_df_with_ts = minute_df.reset_index().rename(columns={'index': 'trade_time'})
         minute_df_with_ts['monitoring_date'] = minute_df_with_ts['trade_time'].dt.date
-        
         merged_minute_df = pd.merge(minute_df_with_ts, setup_days_df[['monitoring_date']], on='monitoring_date', how='inner')
         if merged_minute_df.empty: return []
-        
         merged_minute_df.set_index('trade_time', inplace=True)
-
         close_col, vwap_col = f'close_{minute_tf}', f'VWAP_{minute_tf}'
         if vwap_col not in merged_minute_df.columns or close_col not in merged_minute_df.columns: return []
-        
         is_breaking_down = merged_minute_df[close_col] < merged_minute_df[vwap_col]
         first_breakdown_signal = is_breaking_down & ~is_breaking_down.shift(1).fillna(False)
-        
         alert_days = merged_minute_df[first_breakdown_signal]['monitoring_date'].unique()
         if len(alert_days) == 0: return []
-
         def process_alert_day(day_df: pd.DataFrame) -> Optional[Dict]:
             is_breaking = day_df[close_col] < day_df[vwap_col]
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
@@ -384,7 +335,6 @@ class MultiTimeframeTrendStrategy:
                     close_price=first_alert_row[close_col],
                     # 可以考虑将 final_reason 存入某个JSON字段，如果模型支持的话
                 )
-
         final_alerts = merged_minute_df[merged_minute_df['monitoring_date'].isin(alert_days)]\
             .groupby('monitoring_date', group_keys=False)\
             .apply(process_alert_day)\
@@ -392,21 +342,17 @@ class MultiTimeframeTrendStrategy:
             
         # 返回元组
         return (final_alerts, [])
-    
     # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
     def _generate_analysis_report(self, record: Dict[str, Any]) -> str:
         stock_code = record.get("stock_code", "N/A")
         trade_time = record.get("trade_time")
         time_str = trade_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(trade_time, datetime) else str(trade_time)
         timeframe = record.get("timeframe", "N/A")
-        
         report_parts = [f"*** 信号分析报告 ({stock_code}) ***"]
         report_parts.append(f"信号时间: {time_str} (周期: {timeframe})")
-
         if record.get('exit_signal_code', 0) > 0:
             severity = record.get('exit_severity_level', 2) # 默认为二级
             reason = record.get('exit_signal_reason', '未定义的原因')
-
             if severity == 1: # 一级预警
                 report_parts.append("信号类型: 【一级预警·黄色】趋势观察")
                 report_parts.append(f"核心发现: **上涨动能出现减弱迹象，但趋势尚未破坏。**")
@@ -422,7 +368,6 @@ class MultiTimeframeTrendStrategy:
                 report_parts.append(f"核心发现: **短期趋势确认转弱，已触发标准卖出条件。**")
                 report_parts.append(f"触发原因: {reason}")
                 report_parts.append("建议操作: 执行止盈计划，建议减仓或清仓。")
-        
         elif record.get('entry_signal', False):
             score = record.get('entry_score', 0.0)
             playbooks = record.get('triggered_playbooks', [])
@@ -432,7 +377,6 @@ class MultiTimeframeTrendStrategy:
                 report_parts.append("触发剧本:")
                 for playbook in sorted(playbooks):
                     report_parts.append(f"  - {playbook}")
-        
         return "\n".join(report_parts)
 
     # NEW: 新增的性能分析专属方法
@@ -537,15 +481,11 @@ class MultiTimeframeTrendStrategy:
             if not isinstance(engine_results, tuple) or len(engine_results) < 4:
                 print("[严重错误] 战术引擎返回结果格式不正确，无法继续调试。")
                 return
-
             _records_tuple, daily_analysis_df, score_details_df, risk_details_df = engine_results
-
             if daily_analysis_df is None or daily_analysis_df.empty:
                 print("[严重错误] 战术引擎未能生成有效的分析数据(daily_analysis_df)，调试终止。")
                 return
-
             # print("    -> [阶段 1/3] 核心策略计算完成。")
-
             # 步骤 2: 立即部署探针，确保其在最新的数据上运行
             # print("\n    -> [阶段 2/3] 正在部署法医探针，以解剖本次运行的中间过程...")
             debug_params = get_params_block(self.tactical_engine, 'debug_params')
@@ -554,7 +494,6 @@ class MultiTimeframeTrendStrategy:
                 self.tactical_engine.intelligence_layer.deploy_forensic_probes()
             else:
                 print("    -> [信息] 法医探针在配置中被禁用，跳过解剖。")
-
             # 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
             # print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
             
@@ -572,7 +511,6 @@ class MultiTimeframeTrendStrategy:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
                 print(f"    -> 提示: 请检查完整数据(daily_analysis_df)的索引范围是否覆盖此期间。完整数据范围: {daily_analysis_df.index.min()} to {daily_analysis_df.index.max()}")
                 return
-
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for trade_date, row in debug_period_df.iterrows():
                 time_str = trade_date.strftime('%Y-%m-%d')
@@ -598,7 +536,6 @@ class MultiTimeframeTrendStrategy:
                         for item in risk_details:
                             if isinstance(item, dict):
                                 print(f"    - {item.get('name', 'N/A'):<20} ({item.get('score', 0):>5.0f})")
-
             # print(f"\n--- [历史回溯调试完成] ---")
         except Exception as e:
             print(f"[严重错误] 在执行历史回溯调试时发生顶层异常: {e}")
@@ -622,7 +559,6 @@ class MultiTimeframeTrendStrategy:
             if probe_ts not in df.index:
                 print(f"  [错误] 探针日期 {probe_date} 不在数据范围内。")
                 return
-
             # --- 探针 1: 修复了所有变量未定义和逻辑不匹配的问题 ---
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             ma55 = df.get('EMA_55_D', df['close_D'])
@@ -638,20 +574,17 @@ class MultiTimeframeTrendStrategy:
             
             bottom_context_score_values = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
             bottom_context_score = pd.Series(bottom_context_score_values, index=df.index)
-
             # 提取探针当日的精确值用于打印
             close_price_val = df.get('close_D', pd.Series()).get(probe_ts, 0.0)
             ma55_val = ma55.get(probe_ts, 0.0)
             rolling_high_55d_val = rolling_high_55d.get(probe_ts, 0.0)
             top_context_score_val = top_context_score.get(probe_ts, 0.0)
             bottom_context_score_val = bottom_context_score.get(probe_ts, 0.0)
-
             print(f"  - 当日收盘价: {close_price_val:.2f}")
             print(f"  - 波段下轨 (MA55): {ma55_val:.2f}")
             print(f"  - 波段上轨 (55日高点): {rolling_high_55d_val:.2f}")
             print(f"  - 价格在波段伸展度: {top_context_score_val:.2%}")
             print(f"  - ✅ 最终底部情景分 (Context): {bottom_context_score_val:.4f}")
-
             # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
@@ -659,7 +592,6 @@ class MultiTimeframeTrendStrategy:
             p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})
             bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
             print(f"  -> 使用的奖励因子 (Bonus Factor): {bonus_factor}")
-
             engine_prefixes = ['CHIP', 'DYN', 'STRUCTURE', 'BEHAVIOR', 'FF', 'FOUNDATION']
             all_trigger_scores = {}
             for prefix in engine_prefixes:
@@ -675,7 +607,6 @@ class MultiTimeframeTrendStrategy:
             
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
-
             # --- 探针 3: 移除了内部的 import 语句 ---
             print("\n--- [探针 3/3] 深入解剖：以筹码集中度的动态分 (5日周期) 为例 ---")
             slope_raw = df.get(f'SLOPE_5_concentration_90pct_D', pd.Series(0, index=df.index)).get(probe_ts, 0.0)
@@ -689,7 +620,6 @@ class MultiTimeframeTrendStrategy:
             print(f"  - 5日集中度加速度 (原始值): {accel_raw:.4f}")
             print(f"  - 5日集中度加速度 (归一化): {accel_norm:.4f}")
             print(f"  - ✅ 集中度动态健康分 (估算): {dynamic_health_conc:.4f}")
-
             print("\n" + "="*35 + " [底部反转信号探针] 解剖完毕 " + "="*35 + "\n")
         except Exception as e:
             print(f"  [探针错误] 在执行“底部反转信号探针”时发生异常: {e}")

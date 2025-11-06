@@ -29,32 +29,24 @@ class IntradayVolumeAnalyzer:
         """
         if not self.enabled or timeframe not in self.apply_on or df.empty:
             return {}
-
         volume_anomalies = {}
         if len(df) < self.volume_ma_period + 1:
             return {}
-
         current_kline = df.iloc[-1]
         prev_kline = df.iloc[-2] if len(df) >= 2 else None
-        
         vol_ma_col = f"VOL_MA_{self.volume_ma_period}_{timeframe.replace('min','')}"
         if vol_ma_col not in df.columns or pd.isna(current_kline[vol_ma_col]) or current_kline[vol_ma_col] == 0:
             return {}
-
         # 成交量与均量的比率
         volume_ratio_to_ma = current_kline['volume'] / current_kline[vol_ma_col]
         volume_anomalies["VOLUME_RATIO_TO_MA"] = volume_ratio_to_ma # 新增行：返回量化值
-
         # 巨量 (布尔值，但评分会使用VOLUME_RATIO_TO_MA)
         volume_anomalies["GIANT_VOLUME"] = 1.0 if volume_ratio_to_ma > self.giant_volume_multiplier else 0.0
-
         # 缩量 (布尔值)
         volume_anomalies["SHRINKING_VOLUME"] = 1.0 if volume_ratio_to_ma < self.shrinking_volume_ratio else 0.0
-
         # 量价背离 (布尔值)
         volume_anomalies["VOLUME_PRICE_DIVERGENCE_BULLISH"] = 0.0
         volume_anomalies["VOLUME_PRICE_DIVERGENCE_BEARISH"] = 0.0
-
         if prev_kline is not None:
             # 价格上涨，成交量萎缩 (潜在顶部背离)
             if current_kline['close'] > prev_kline['close'] and volume_ratio_to_ma < self.shrinking_volume_ratio:
@@ -62,6 +54,5 @@ class IntradayVolumeAnalyzer:
             # 价格下跌，成交量放大 (潜在底部背离或加速下跌)
             if current_kline['close'] < prev_kline['close'] and volume_ratio_to_ma > self.giant_volume_multiplier:
                 volume_anomalies["VOLUME_PRICE_DIVERGENCE_BEARISH"] = 1.0
-
         return volume_anomalies
 

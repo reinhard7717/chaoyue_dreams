@@ -35,37 +35,30 @@ class MicroBehaviorEngine:
         if not get_param_value(p_conf.get('enabled'), True):
             print("微观行为引擎已在配置中禁用，跳过。")
             return {}
-        
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
-
         # --- 步骤一: 诊断三大公理 ---
         print("工序一: 正在诊断三大微观行为公理...")
         axiom_deception = self._diagnose_axiom_deception(df, norm_window)
         axiom_probe = self._diagnose_axiom_probe(df, norm_window)
         axiom_efficiency = self._diagnose_axiom_efficiency(df, norm_window)
-
         all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
         all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
         all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
-
         # --- 步骤二: 融合三大公理，合成终极信号 ---
         print("工序二: 正在合成终极微观共振信号...")
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3
         })
-        
         # 构造一个融合了所有公理的原始双极性健康分
         bipolar_health = (
             axiom_deception * axiom_weights['deception'] +
             axiom_probe * axiom_weights['probe'] +
             axiom_efficiency * axiom_weights['efficiency']
         ).clip(-1, 1)
-
         # 分解为互斥的单极性共振分
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_MICRO_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_MICRO_BEARISH_RESONANCE'] = bearish_resonance
-
         print("【V5.0 · 三大公理重构版】微观行为诊断完成。")
         return all_states
 
@@ -77,20 +70,15 @@ class MicroBehaviorEngine:
         main_force_outflow = -df.get('main_force_net_flow_calibrated_D', 0).clip(upper=0)
         # 实质：筹码仍在集中
         chip_concentration_increase = df.get('SLOPE_5_concentration_90pct_D', 0).clip(lower=0)
-        
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
-
         # 证据2: 交易颗粒度表象 vs 订单实质
         # 表象：交易颗粒度变小（伪装成散户）
         granularity_decrease = -df.get('SLOPE_5_inferred_active_order_size_D', 0).clip(upper=0)
         # 实质：主力控盘度提升
         control_increase = df.get('SLOPE_5_main_force_control_leverage_D', 0).clip(lower=0)
-
         granularity_vs_control_deception = granularity_decrease * control_increase
-
         # 融合两大欺骗证据
         raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
-        
         # 使用双极归一化进行最终裁决
         deception_score = normalize_to_bipolar(raw_deception_score, df.index, window=norm_window)
         return deception_score.astype(np.float32)
@@ -99,34 +87,26 @@ class MicroBehaviorEngine:
         """【V1.0 · 新增】微观行为公理二：诊断“试探与确认”"""
         # 核心逻辑：分析带长影线的K线背后的真实意图
         total_range = (df['high_D'] - df['low_D']).replace(0, np.nan)
-        
         # 证据1: 上影线试探 (正分)
         # 表象：长上影线
         upper_shadow_ratio = ((df['high_D'] - np.maximum(df['open_D'], df['close_D'])) / total_range).fillna(0)
         # 实质：主力资金并未净流出
         main_force_not_outflow = df.get('main_force_net_flow_calibrated_D', 0).clip(lower=0)
-        
         probe_up_score = upper_shadow_ratio * main_force_not_outflow
-
         # 证据2: 下影线试探 (正分)
         # 表象：长下影线
         lower_shadow_ratio = ((np.minimum(df['open_D'], df['close_D']) - df['low_D']) / total_range).fillna(0)
         # 实质：主力资金净流入
         main_force_inflow = df.get('main_force_net_flow_calibrated_D', 0).clip(lower=0)
-
         probe_down_score = lower_shadow_ratio * main_force_inflow
-
         # 证据3: 诱多式突破 (负分)
         # 表象：突破近期高点
         breakout_high = (df['close_D'] > df['high_D'].rolling(21).max().shift(1)).astype(float)
         # 实质：主力资金并未跟进
         main_force_not_inflow = -df.get('main_force_net_flow_calibrated_D', 0).clip(upper=0)
-
         fake_breakout_score = breakout_high * main_force_not_inflow
-
         # 融合所有试探行为
         raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
-
         # 使用双极归一化进行最终裁决
         probe_score = normalize_to_bipolar(raw_probe_score, df.index, window=norm_window)
         return probe_score.astype(np.float32)
@@ -137,17 +117,14 @@ class MicroBehaviorEngine:
         # 投入：成交额放大程度
         amount_ma = df['amount_D'].rolling(norm_window).mean().replace(0, np.nan)
         amount_input = (df['amount_D'] / amount_ma).fillna(1.0)
-
         # 产出：价格变化幅度
         price_output = df['pct_change_D'].abs() * 100 # 乘以100放大
-
         # 效率 = 产出 / 投入
         # 为了避免除以0，并处理方向，我们使用更稳健的公式
         # 效率分 = 价格变化方向 * (价格变化幅度 - k * 成交额放大程度)
         # 正价格变化，但成交额放大过多，效率分也可能为负（滞涨）
         k = 0.1 # 调节系数
         raw_efficiency_score = np.sign(df['pct_change_D']) * (price_output - k * amount_input)
-
         # 使用双极归一化进行最终裁决
         efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
         return efficiency_score.astype(np.float32)

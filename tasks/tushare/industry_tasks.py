@@ -210,9 +210,7 @@ def backfill_dc_member_history_task(cache_manager=None):
         if not all_dc_indices:
             logger.warning("数据库中未找到任何东方财富板块，历史成分回补任务终止。")
             return
-
         print(f"--- [历史回补] 将为 {len(all_dc_indices)} 个东方财富板块回补全部历史成分...")
-        
         # 2. 串行遍历每个板块，调用历史回补方法
         # 注意：这里使用串行是为了更好地控制API请求频率和日志输出。如果需要极致速度，可以改为并发。
         for i, dc_index in enumerate(all_dc_indices):
@@ -255,7 +253,6 @@ def process_single_day_historical_data_task(trade_date_str: str, cache_manager=N
             except Exception as e:
                 logger.error(f"在处理日期 {trade_date_str} 的 [{name}] 数据时发生错误: {e}", exc_info=True)
                 print(f"    !! ({trade_date_str}) 失败 [{name}] 数据获取失败: {e}")
-
         # 为当前交易日创建一组并发任务
         tasks = [
             # 申万
@@ -307,18 +304,15 @@ def save_all_historical_data_task(days_to_fetch: int = 30, cache_manager=None):
         if not trade_dates:
             logger.warning("未能获取到任何交易日，历史数据回补任务终止。")
             return
-        
         date_list_str = [d.strftime('%Y-%m-%d') for d in trade_dates]
         print(f"--- [调度器] 准备为以下 {len(trade_dates)} 个交易日派发并行任务: {date_list_str}")
         logger.info(f"--- [调度器] 准备为 {len(trade_dates)} 个交易日派发并行任务。")
-
         # --- 步骤2: 创建所有“单日任务”的签名 ---
         # .s() 方法创建了一个任务签名(signature)，它是一个包含任务名称和参数的对象，可以被传递和组合。
         worker_tasks = [
             process_single_day_historical_data_task.s(trade_date.strftime('%Y-%m-%d'))
             for trade_date in trade_dates
         ]
-
         # --- 步骤3: 使用 group 将所有任务签名组合成一个并行组，并异步执行 ---
         # group(...) 创建一个任务组，当它被调用时，其内部的所有任务会同时发送到消息队列。
         task_group = group(worker_tasks)

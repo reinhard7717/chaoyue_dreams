@@ -801,7 +801,6 @@ class FundFlowCntDC(models.Model):
     buy_sm_amount = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日小单净流入 净额（元）"), null=True, blank=True)
     buy_sm_amount_rate = models.DecimalField(max_digits=8, decimal_places=4, verbose_name=_("今日小单净流入 净流入率（%）"), null=True, blank=True)
     buy_sm_amount_stock = models.DecimalField(max_digits=20, decimal_places=2, verbose_name=_("今日主力净流入最大股"), null=True, blank=True)
-    
     class Meta:
         verbose_name = _("板块资金流向统计")
         verbose_name_plural = _("板块资金流向统计")

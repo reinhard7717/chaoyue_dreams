@@ -34,10 +34,8 @@ class JudgmentLayer:
         final_score_threshold = get_param_value(p_judge_common.get('final_score_threshold'), 400)
         df['signal_type'] = '无信号'
         is_score_sufficient = df['final_score'] > final_score_threshold
-
         # 核心否决逻辑
         is_veto_by_alert = df['alert_level'] >= get_param_value(p_judge_common.get('veto_alert_level'), 3)
-        
         potential_buy_condition = is_score_sufficient & ~is_veto_by_alert
         df.loc[potential_buy_condition, 'signal_type'] = '买入信号'
         alert_veto_condition = is_score_sufficient & is_veto_by_alert
@@ -98,15 +96,12 @@ class JudgmentLayer:
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
         default_score = pd.Series(0.0, index=df.index, dtype=np.float32)
-        
         # 注意：这里的信号名可能需要根据你的 intelligence layer 的最终输出进行调整
         offensive_resonance_score = atomic.get('SCORE_DYN_BULLISH_RESONANCE', default_score)
         risk_expansion_score = atomic.get('SCORE_DYN_BEARISH_RESONANCE', default_score)
-        
         is_force_attack = offensive_resonance_score > 0.6
         is_avoid = risk_expansion_score > 0.6
         is_caution = (offensive_resonance_score > 0.4) & (risk_expansion_score > 0.4)
-        
         actions = pd.Series('HOLD', index=df.index)
         actions.loc[is_caution] = 'PROCEED_WITH_CAUTION'
         actions.loc[is_force_attack] = 'FORCE_ATTACK'
@@ -123,10 +118,8 @@ class JudgmentLayer:
         df = self.strategy.df_indicators
         df['signal_entry'] = False
         df['exit_signal_code'] = 0
-        
         # 统一号令：只为“买入信号”升起'signal_entry'旗帜。
         final_buy_condition = (df['signal_type'] == '买入信号')
-        
         df.loc[final_buy_condition, 'signal_entry'] = True
         df.loc[final_buy_condition, 'exit_signal_code'] = 0
 
@@ -139,7 +132,6 @@ class JudgmentLayer:
         """
         df = self.strategy.df_indicators
         atomic = self.strategy.atomic_states
-
         # 从风险类别定义中移除不再用于直接裁决的类别
         risk_categories = {
             'ARCHANGEL_RISK': ['SCORE_ARCHANGEL_TOP_REVERSAL'],
@@ -147,14 +139,12 @@ class JudgmentLayer:
             'EUPHORIA_RISK': ['COGNITIVE_SCORE_RISK_EUPHORIA_ACCELERATION']
             # 'TOP_REVERSAL' 和 'BEARISH_RESONANCE' 类别被移除，因为它们不再直接触发警报
         }
-        
         fused_risks = {}
         for category, signals in risk_categories.items():
             signal_scores = [atomic.get(s, pd.Series(0.0, index=df.index)).reindex(df.index).fillna(0.0) for s in signals]
             fused_risks[category] = np.maximum.reduce(signal_scores) if signal_scores else pd.Series(0.0, index=df.index)
         fused_risks_df = pd.DataFrame(fused_risks, index=df.index)
         p_judge = get_params_block(self.strategy, 'judgment_day_params', {})
-
         # 移除或注释掉相关阈值和信号的获取
         # predictive_exhaustion_risk = atomic.get('PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION', pd.Series(0, index=df.index))
         # prophet_threshold = get_param_value(p_judge.get('prophet_alert_threshold'), 0.7)
@@ -179,7 +169,6 @@ class JudgmentLayer:
             '橙色警报: 亢奋风险',
             '黄色警报: 微观结构风险'
         ]
-        
         alert_level = pd.Series(np.select(conditions, choices_level, default=0), index=df.index)
         alert_reason = pd.Series(np.select(conditions, choices_reason, default=''), index=df.index)
         self.strategy.atomic_states['ALERT_LEVEL'] = alert_level.astype(np.int8)
@@ -191,23 +180,18 @@ class JudgmentLayer:
         """
         if score_details_df is None or score_details_df.empty:
             return pd.Series('unknown', index=self.strategy.df_indicators.index)
-
         # 获取信号字典
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        
         # 找出得分最高的信号列名
         dominant_signal_names = score_details_df.idxmax(axis=1)
-        
         # 创建一个从信号名到类型的映射
         signal_to_type_map = {
             name: meta.get('type', 'unknown') 
             for name, meta in score_map.items() 
             if isinstance(meta, dict)
         }
-        
         # 将最强信号名映射到其类型
         dominant_types = dominant_signal_names.map(signal_to_type_map).fillna('unknown')
-        
         return dominant_types.reindex(self.strategy.df_indicators.index).fillna('unknown')
 
 

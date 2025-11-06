@@ -34,13 +34,11 @@ class IntradayDataAggregator:
         """
         if not isinstance(new_1min_kline.name, datetime):
             raise ValueError("new_1min_kline 索引必须是 datetime 对象。")
-        
         # 确保数据类型正确
         for col in ['open', 'high', 'low', 'close', 'volume']:
             if col not in new_1min_kline:
                 new_1min_kline[col] = np.nan # 确保列存在，即使为空
         new_1min_kline['volume'] = new_1min_kline['volume'].astype(float)
-        
         # 将新的1分钟K线添加到缓冲区
         current_date = new_1min_kline.name.date()
         if self.data_buffer[self.base_timeframe].empty or self.data_buffer[self.base_timeframe].index[-1].date() != current_date:
@@ -50,12 +48,10 @@ class IntradayDataAggregator:
                 self.data_buffer[tf] = pd.DataFrame(columns=['open', 'high', 'low', 'close', 'volume'])
                 self.last_processed_time[tf] = None
             print(f"  [数据聚合器] 新的一天 {current_date}，清空数据缓冲区。")
-
         # 避免重复添加
         if not self.data_buffer[self.base_timeframe].empty and new_1min_kline.name <= self.data_buffer[self.base_timeframe].index[-1]:
             # print(f"  [数据聚合器] 警告: 收到重复或旧的1分钟K线数据 {new_1min_kline.name}，跳过。")
             return
-        
         self.data_buffer[self.base_timeframe] = pd.concat([self.data_buffer[self.base_timeframe], pd.DataFrame([new_1min_kline])])
         self.data_buffer[self.base_timeframe].index.name = 'datetime'
         # print(f"  [数据聚合器] 添加1分钟K线: {new_1min_kline.name}")
@@ -68,10 +64,8 @@ class IntradayDataAggregator:
         """
         if self.data_buffer[self.base_timeframe].empty:
             return {tf: pd.DataFrame() for tf in self.processed_timeframes + [self.base_timeframe]}
-
         current_data = self.data_buffer[self.base_timeframe].copy()
         all_processed_data = {self.base_timeframe: current_data}
-
         for tf_str in self.processed_timeframes:
             freq = self._convert_timeframe_to_freq(tf_str)
             
@@ -81,7 +75,6 @@ class IntradayDataAggregator:
                 # print(f"  [数据聚合器] {tf_str} 数据已是最新，跳过聚合。")
                 all_processed_data[tf_str] = self.data_buffer[tf_str]
                 continue
-
             # 聚合数据
             ohlcv_agg = current_data['volume'].resample(freq).apply(self._ohlcv_agg_func)
             ohlcv_agg = ohlcv_agg.dropna() # 移除空K线
@@ -89,7 +82,6 @@ class IntradayDataAggregator:
             if ohlcv_agg.empty:
                 all_processed_data[tf_str] = self.data_buffer[tf_str]
                 continue
-
             # 确保聚合后的数据与之前的历史数据拼接正确
             if not self.data_buffer[tf_str].empty:
                 # 找到ohlcv_agg中比data_buffer[tf_str]最新时间戳更新的数据
@@ -108,17 +100,14 @@ class IntradayDataAggregator:
             
             all_processed_data[tf_str] = self.data_buffer[tf_str]
             # print(f"  [数据聚合器] {tf_str} 聚合完成，当前数据量: {len(self.data_buffer[tf_str])}")
-
         return all_processed_data
 
     def _ohlcv_agg_func(self, group: pd.Series) -> pd.Series:
         """自定义OHLCV聚合函数"""
         if group.empty:
             return pd.Series({'open': np.nan, 'high': np.nan, 'low': np.nan, 'close': np.nan, 'volume': np.nan})
-        
         # 获取对应时间段的原始K线数据
         group_df = self.data_buffer[self.base_timeframe].loc[group.index]
-        
         return pd.Series({
             'open': group_df['open'].iloc[0],
             'high': group_df['high'].max(),
@@ -150,7 +139,6 @@ class IntradayDataAggregator:
                     for period in cfg.get('periods', []):
                         col_name = f"EMA_{period}_{timeframe.replace('min','')}"
                         df[col_name] = ta.ema(df['close'], length=period)
-        
         # VOL_MA
         vol_ma_config = self.indicators_config.get('vol_ma', {})
         if vol_ma_config.get('enabled'):
@@ -159,7 +147,6 @@ class IntradayDataAggregator:
                     for period in cfg.get('periods', []):
                         col_name = f"VOL_MA_{period}_{timeframe.replace('min','')}"
                         df[col_name] = ta.sma(df['volume'], length=period)
-
         # Bollinger Bands and Width
         boll_config = self.indicators_config.get('boll_bands_and_width', {})
         if boll_config.get('enabled'):
@@ -176,7 +163,6 @@ class IntradayDataAggregator:
                         df[f"BBP_{period}_{std_dev}_{timeframe.replace('min','')}"] = bbands[f"BBP_{period}_{std_dev}"] # Bollinger Band Percent
                         # BBW (Bollinger Band Width)
                         df[f"BBW_{period}_{std_dev}_{timeframe.replace('min','')}"] = (df[f"BBU_{period}_{std_dev}_{timeframe.replace('min','')}"] - df[f"BBL_{period}_{std_dev}_{timeframe.replace('min','')}"]) / df[f"BBM_{period}_{std_dev}_{timeframe.replace('min','')}"]
-
         # VWAP
         vwap_config = self.indicators_config.get('vwap', {})
         if vwap_config.get('enabled') and timeframe in vwap_config.get('apply_on', []):
@@ -184,7 +170,6 @@ class IntradayDataAggregator:
             # ta.vwap 默认从数据开始计算，对于盘中实时数据，需要确保是当日的累积VWAP
             # 简单实现：假设df是当日数据，直接计算
             df[f"vwap_{timeframe.replace('min','')}"] = ta.vwap(df['high'], df['low'], df['close'], df['volume'])
-
         # ATR
         atr_config = self.indicators_config.get('atr', {})
         if atr_config.get('enabled'):
@@ -193,7 +178,6 @@ class IntradayDataAggregator:
                     for period in cfg.get('periods', []):
                         col_name = f"ATR_{period}_{timeframe.replace('min','')}"
                         df[col_name] = ta.atr(df['high'], df['low'], df['close'], length=period)
-        
         # 确保所有指标列都是数值类型，非数值设为NaN
         for col in df.columns:
             if col not in ['open', 'high', 'low', 'close', 'volume'] and df[col].dtype == 'object':

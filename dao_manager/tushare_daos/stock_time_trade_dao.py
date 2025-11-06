@@ -35,7 +35,6 @@ class StockTimeTradeDAO(BaseDAO):
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.cache_limit = 500 # 定义缓存数量上限
-
         self.cache_key = StockCashKey()
         self.data_format_process_trade = StockTimeTradeFormatProcess(cache_manager_instance)
         self.data_format_process_stock = StockInfoFormatProcess(cache_manager_instance)
@@ -58,19 +57,15 @@ class StockTimeTradeDAO(BaseDAO):
         """
         if not stock_codes:
             return []
-        
         # 代码修改处: 整个方法的逻辑被重写以支持分表查询
         # print(f"    [DAO] 准备按板块分表查询 {len(stock_codes)} 支股票在 {trade_date} 的日线行情...")
-
         # 步骤1: 按模型对股票代码进行分组
         # 使用 defaultdict 可以简化代码，无需检查key是否存在
         model_to_codes_map = defaultdict(list)
         for code in stock_codes:
             model_class = get_daily_data_model_by_code(code)
             model_to_codes_map[model_class].append(code)
-
         all_daily_data = [] # 用于存储所有查询结果的列表
-
         # 步骤2 & 3: 对每个分组进行批量查询并合并结果
         for model_class, codes_for_this_model in model_to_codes_map.items():
             # print(f"        -> 正在查询模型 {model_class.__name__} 中的 {len(codes_for_this_model)} 支股票...")
@@ -89,7 +84,6 @@ class StockTimeTradeDAO(BaseDAO):
                 logger.error(f"在模型 {model_class.__name__} 中批量查询股票日线行情时出错: {e}", exc_info=True)
                 # 即使一个分表查询失败，也继续查询其他表
                 continue
-        
         # print(f"    [DAO] 查询完成，共获取到 {len(all_daily_data)} 条日线行情数据。")
         return all_daily_data
 
@@ -190,11 +184,9 @@ class StockTimeTradeDAO(BaseDAO):
             latest_quote_obj = await model_class.objects.filter(
                 stock__stock_code=stock_code
             ).order_by('-trade_time').afirst()
-
             if not latest_quote_obj:
                 logger.warning(f"[DAO] 未能在 {model_class.__name__} 表中找到股票 {stock_code} 的任何日线数据。")
                 return None
-
             # 3. 将模型对象手动转换为字典，以便于在同步代码中使用
             # 这样可以精确控制返回的字段，避免序列化整个复杂对象
             return {
@@ -245,7 +237,6 @@ class StockTimeTradeDAO(BaseDAO):
           - 当 trade_date 被提供时，API调用使用 'trade_date' 参数。
           - 当 start_date/end_date 被提供时，API调用使用 'start_date'/'end_date' 参数。
         这解决了当 start_date 和 end_date 相同时，API返回空数据的问题。
-
         :param trade_date: 单个交易日期。
         :param start_date: 开始日期。
         :param end_date: 结束日期。
@@ -316,17 +307,14 @@ class StockTimeTradeDAO(BaseDAO):
         if not stock_codes:
             logger.warning("传入的stock_codes列表为空，任务终止。")
             return {}
-
         # 1. 一次性获取股票信息
         all_stocks = await self.stock_basic_dao.get_stock_list()
         stock_map = {stock.stock_code: stock for stock in all_stocks if stock.stock_code in stock_codes}
         if not stock_map:
             logger.warning(f"提供的stock_codes: {stock_codes} 在数据库中均未找到对应的StockInfo。")
             return {}
-
         stock_codes_str = ",".join(stock_codes)
         data_dicts_by_model = {}
-        
         # 内部函数，用于处理DataFrame，避免代码重复
         def process_dataframe(df: pd.DataFrame):
             # (This helper function remains the same as the previous version)
@@ -349,7 +337,6 @@ class StockTimeTradeDAO(BaseDAO):
                 if model_class not in data_dicts_by_model:
                     data_dicts_by_model[model_class] = []
                 data_dicts_by_model[model_class].extend(data_to_save)
-
         # 2. 准备API参数
         api_params = {
             "ts_code": stock_codes_str,
@@ -359,7 +346,6 @@ class StockTimeTradeDAO(BaseDAO):
                 "low_qfq", "pre_close_hfq", "pre_close_qfq"
             ]
         }
-        
         # 3. 根据日期参数决定API调用策略
         # Case 1: Single Day Query
         if start_date and (end_date is None or start_date == end_date):
@@ -367,7 +353,6 @@ class StockTimeTradeDAO(BaseDAO):
             api_params["trade_date"] = start_date
             df = self.ts_pro.stk_factor(**api_params)
             process_dataframe(df)
-        
         # Case 2: Date Range or Full History Query (both require pagination)
         else:
             if start_date and end_date:
@@ -377,7 +362,6 @@ class StockTimeTradeDAO(BaseDAO):
             else:
                 logger.info(f"执行历史查询 (无日期范围): stocks={len(stock_codes)}个")
                 api_params["start_date"] = "20000101"
-
             offset = 0
             limit = 6000
             while True:
@@ -394,11 +378,9 @@ class StockTimeTradeDAO(BaseDAO):
                     break
                 
                 process_dataframe(df)
-
                 if len(df) < limit:
                     break
                 offset += limit
-        
         # 4. 批量保存
         result = {}
         for model_class, data_list in data_dicts_by_model.items():
@@ -432,22 +414,18 @@ class StockTimeTradeDAO(BaseDAO):
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的 {time_level}分钟 K线模型。")
                 return None
-
             # 简化时间范围构建，使用Django ORM的 __date 功能
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__date=trade_date
             ).order_by('trade_time')
-
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
-
             if not kline_values:
                 # 日志信息更清晰
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的 {time_level}分钟 K线数据。")
                 return None
-
             df = pd.DataFrame.from_records(kline_values)
             
             # 统一时区处理逻辑
@@ -458,7 +436,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的 {time_level}分钟 K线 for {stock_code}")
             return df
-
         except Exception as e:
             logger.error(f"获取当日 {time_level}分钟 K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
@@ -479,27 +456,22 @@ class StockTimeTradeDAO(BaseDAO):
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的1分钟K线模型。")
                 return None
-
             # 构建查询时间范围：从当日0点到次日0点（不含）
             # 数据库存储的是UTC时间，所以查询条件也应是UTC时间
             start_datetime = datetime.combine(trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
             end_datetime = (datetime.combine(trade_date, datetime.max.time()) + timedelta(seconds=1)).replace(tzinfo=timezone.utc)
-
             # 异步查询数据库
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
                 trade_time__gte=start_datetime,
                 trade_time__lt=end_datetime
             ).order_by('trade_time')
-
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
-
             if not kline_values:
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {trade_date} 的1分钟K线数据。")
                 return None
-
             df = pd.DataFrame.from_records(kline_values)
             
             # 数据后处理：确保时间索引和列名标准化
@@ -510,7 +482,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             logger.debug(f"成功从数据库获取 {len(df)} 条 {trade_date} 的1分钟K线 for {stock_code}")
             return df
-
         except Exception as e:
             logger.error(f"获取当日1分钟K线时发生异常 for {stock_code} on {trade_date}: {e}", exc_info=True)
             return None
@@ -702,20 +673,16 @@ class StockTimeTradeDAO(BaseDAO):
         if not stock:
             logger.error(f"未能找到股票代码为 {stock_code} 的股票信息，任务终止。")
             return 0
-
         model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
         if not model_class:
             logger.error(f"未能为 {stock_code} 和时间级别 {time_level}min 找到对应的数据库模型，任务终止。")
             return 0
-        
         # 准备API参数
         start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else "2020-01-01 00:00:00"
         end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S') if end_date else ""
-
         # --- 初始化用于分批保存的列表和批次大小 ---
         all_data_dicts = []
         total_saved_count = 0
-        
         offset = 0
         limit = 8000
         page_num = 1
@@ -729,28 +696,21 @@ class StockTimeTradeDAO(BaseDAO):
             
             if df.empty:
                 break
-
             # --- 对整页DataFrame进行向量化处理，替代for循环 ---
             # 1. 数据清洗
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
             df.dropna(subset=['trade_time'], inplace=True) # 确保关键字段存在
-
             if not df.empty:
                 # 2. 向量化添加stock实例
                 df['stock'] = stock
-
                 # 3. 向量化转换时间格式，并最终转换为适合原生SQL的UTC天真时间。
                 #    由于使用了原生SQL批量插入，Django的自动时区转换会失效，需要在此手动处理。
-
                 # 3.1 将字符串转换为“天真”的datetime对象
                 df['trade_time'] = pd.to_datetime(df['trade_time'])
-
                 # 3.2 将“天真”时间本地化为北京时间（'Asia/Shanghai'），使其变为“时区感知”
                 df['trade_time'] = df['trade_time'].dt.tz_localize('Asia/Shanghai')
-
                 # 3.3 将时区感知的时间（北京时间）转换为UTC时区
                 df['trade_time'] = df['trade_time'].dt.tz_convert('UTC')
-
                 # 3.4 去除UTC时区信息，使其变回“天真”的datetime对象。
                 #    这样，数据库驱动会将其作为正确的UTC时间值存入DATETIME字段。
                 df['trade_time'] = df['trade_time'].dt.tz_localize(None)
@@ -782,7 +742,6 @@ class StockTimeTradeDAO(BaseDAO):
                 break
             offset += limit
             page_num += 1
-
         # --- 在所有分页处理完毕后，保存剩余的最后一批数据 ---
         if all_data_dicts:
             result_dict = await self._save_all_to_db_native_upsert(
@@ -795,7 +754,6 @@ class StockTimeTradeDAO(BaseDAO):
             # logger.info(f"完成最后一批分钟线数据保存，数量：{final_saved_count}")
         else:
             logger.info("所有数据均已分批保存，无剩余数据。")
-        
         print(f"分钟线数据处理完成。{stock} 总共保存了 {total_saved_count} 条新/更新的记录。")
         return total_saved_count
 
@@ -809,29 +767,23 @@ class StockTimeTradeDAO(BaseDAO):
         """
         if not stock_codes:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
         # 1. 数据采集：只调用一次API
         stock_codes_str = ",".join(stock_codes)
         df = self.ts_pro.rt_min(ts_code=stock_codes_str, freq=f"{time_level}MIN", fields=[
             "ts_code", "time", "open", "close", "high", "low", "vol", "amount"
         ])
-
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
         # 2. 数据预处理 (与之前版本相同)
         df.dropna(subset=['time', 'ts_code'], inplace=True)
         df['trade_time'] = pd.to_datetime(df['time'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
         df.dropna(subset=['trade_time'], inplace=True)
         if df.empty:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-
         # 3. 【核心改造】准备双轨数据载荷
         model_grouped_data_dicts = {} # 轨道1: 数据库载荷
         cache_payload = {}            # 轨道2: Redis ZSET 载荷
-        
         data_records = df.to_dict('records')
-
         for record in data_records:
             stock_code = record['ts_code']
             
@@ -849,7 +801,6 @@ class StockTimeTradeDAO(BaseDAO):
                     del db_record['ts_code']
                     
                     model_grouped_data_dicts.setdefault(model_class, []).append(db_record)
-
             # 3.2 准备Redis缓存载荷
             cache_record = {
                 "open": record['open'], "high": record['high'],
@@ -858,11 +809,9 @@ class StockTimeTradeDAO(BaseDAO):
                 "trade_time": record['trade_time'] # 保留原始datetime对象
             }
             cache_payload.setdefault(stock_code, []).append(cache_record)
-
         # 4. 并发执行双轨持久化
         if not model_grouped_data_dicts and not cache_payload:
             return {"尝试处理": len(df), "失败": len(df), "创建/更新成功": 0}
-
         # 4.1 创建所有数据库写入任务
         db_save_tasks = []
         for model_class, data_list in model_grouped_data_dicts.items():
@@ -872,19 +821,15 @@ class StockTimeTradeDAO(BaseDAO):
                 unique_fields=['stock', 'trade_time']
             )
             db_save_tasks.append(task)
-
         # 4.2 创建Redis缓存写入任务
         cache_save_task = self.cache_set.batch_set_intraday_minute_kline(cache_payload, time_level)
-        
         # 4.3 并发执行所有任务
         all_tasks = db_save_tasks + [cache_save_task]
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
-
         # 5. 结果统计 (与之前版本相同)
         final_result = {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
         total_records = sum(len(data) for data in model_grouped_data_dicts.values())
         final_result["尝试处理"] = total_records
-
         for i in range(len(db_save_tasks)):
             res = results[i]
             if isinstance(res, Exception):
@@ -895,11 +840,9 @@ class StockTimeTradeDAO(BaseDAO):
             elif isinstance(res, dict):
                 final_result["失败"] += res.get("失败", 0)
                 final_result["创建/更新成功"] += res.get("创建/更新成功", 0)
-
         cache_result = results[-1]
         if isinstance(cache_result, Exception):
             logger.error(f"批量写入分钟线缓存时发生异常: {cache_result}", exc_info=cache_result)
-        
         return final_result
 
     async def get_minute_kline_by_daterange(self, stock_code: str, time_level: str, start_dt: datetime, end_dt: datetime) -> Optional[pd.DataFrame]:
@@ -919,11 +862,9 @@ class StockTimeTradeDAO(BaseDAO):
             # 使用提取出的数字 '1', '5' 等来获取正确的模型
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level_digit)
             # --- 核心修复结束 ---
-
             if not model_class:
                 logger.error(f"未能找到股票 {stock_code} 对应的 {time_level} K线模型。")
                 return None
-
             # 查询逻辑保持不变，Django的ORM会自动处理带时区的datetime对象的查询
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code,
@@ -933,12 +874,10 @@ class StockTimeTradeDAO(BaseDAO):
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
-
             if not kline_values:
                 # 修改日志输出，使其更清晰地反映查询参数
                 logger.warning(f"在数据库 {model_class._meta.db_table} 中未找到 {stock_code} 在 {start_dt} 到 {end_dt} 之间的 {time_level} K线数据。")
                 return None
-
             df = pd.DataFrame.from_records(kline_values)
             
             # 数据后处理
@@ -949,7 +888,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             logger.debug(f"成功从数据库获取 {len(df)} 条 {time_level} K线 for {stock_code}")
             return df
-
         except Exception as e:
             logger.error(f"从数据库获取分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
             return None
@@ -965,18 +903,14 @@ class StockTimeTradeDAO(BaseDAO):
             model_class = get_minute_data_model_by_code_and_timelevel(stock_code, time_level)
             if not model_class:
                 return None
-
             kline_queryset = model_class.objects.filter(
                 stock__stock_code=stock_code
             ).order_by('-trade_time')[:limit] # 使用倒序和切片获取最新的N条
-
             kline_values = await sync_to_async(list)(kline_queryset.values(
                 'trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount'
             ))
-
             if not kline_values:
                 return None
-
             df = pd.DataFrame.from_records(kline_values)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'vol': 'volume', 'amount': 'turnover_value'}, inplace=True)
@@ -999,11 +933,9 @@ class StockTimeTradeDAO(BaseDAO):
             kline_data_with_scores = await self.cache_manager.zrangebyscore(
                 key=cache_key, min_score='-inf', max_score='+inf', withscores=True
             )
-
             if not kline_data_with_scores:
                 logger.info(f"缓存未命中: 盘中分钟K线 for {stock_code} on {trade_date}")
                 return None
-
             # 3. 将数据转换为 DataFrame
             records = []
             for kline_dict, timestamp in kline_data_with_scores:
@@ -1012,14 +944,12 @@ class StockTimeTradeDAO(BaseDAO):
                     records.append(kline_dict)
             
             if not records: return None
-
             df = pd.DataFrame.from_records(records)
             df.set_index('trade_time', inplace=True)
             df.sort_index(inplace=True)
             
             logger.debug(f"成功从Redis ZSET获取 {len(df)} 条盘中分钟K线 for {stock_code}")
             return df
-
         except Exception as e:
             logger.error(f"获取盘中分钟K线时发生异常 for {stock_code}: {e}", exc_info=True)
             return None
@@ -1211,7 +1141,6 @@ class StockTimeTradeDAO(BaseDAO):
         # 从数据库中获取数据
         stock_monthly_data_list = StockMonthlyData.objects.filter(stock_code=stock_code, time_level="Month").order_by('-trade_date')[:self.cache_limit]
         return stock_monthly_data_list
-    
     #  =============== A股日线基本信息 ===============
     async def save_stock_daily_basic_history_by_trade_date(self, trade_date: date = None, start_date: date = None, end_date: date = None) -> dict:
         """
@@ -1299,7 +1228,6 @@ class StockTimeTradeDAO(BaseDAO):
         if not stock_codes:
             logger.warning("输入的股票代码列表为空，任务终止。")
             return []
-
         # --- 一次性批量获取所有相关股票信息，构建高效查找字典 ---
         # 这里直接复用您提供的最佳实践方法 get_stocks_by_codes
         # print(f"正在批量预加载 {len(stock_codes)} 只股票的基础信息...")
@@ -1312,12 +1240,10 @@ class StockTimeTradeDAO(BaseDAO):
         trade_date_str = trade_date.strftime('%Y%m%d') if trade_date else ""
         start_date_str = start_date.strftime('%Y%m%d') if start_date else "20200101"
         end_date_str = end_date.strftime('%Y%m%d') if end_date else ""
-
         # --- 初始化用于最终批量操作的容器 ---
         all_data_dicts_for_db = []
         all_data_for_cache = {} # 使用字典来收集所有待缓存数据 {ts_code: data_dict}
         
-
         offset = 0
         limit = 6000
         page_num = 1
@@ -1333,7 +1259,6 @@ class StockTimeTradeDAO(BaseDAO):
             ])
             if df.empty:
                 break
-
             # --- 对整页DataFrame进行向量化处理，替代for循环 ---
             # 1. 清洗数据
             df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
@@ -1343,7 +1268,6 @@ class StockTimeTradeDAO(BaseDAO):
             
             # 3. 丢弃无效数据（如在数据库中找不到对应stock的行）
             df.dropna(subset=['trade_date', 'stock'], inplace=True)
-
             if not df.empty:
                 # 4. 向量化转换日期
                 df['trade_time'] = pd.to_datetime(df['trade_date']).dt.date
@@ -1366,12 +1290,10 @@ class StockTimeTradeDAO(BaseDAO):
                     # 并且stock对象在序列化时能被正确处理
                     all_data_for_cache[data_dict['stock'].stock_code] = data_dict
             
-
             if len(df) < limit:
                 break
             offset += limit
             page_num += 1
-
         result = []
         # --- 在所有循环结束后，执行一次性的批量缓存和批量DB写入 ---
         # 1. 批量写入缓存
@@ -1380,7 +1302,6 @@ class StockTimeTradeDAO(BaseDAO):
             # 假设您有一个支持批量设置的缓存方法
             # await self.cache_set.stock_day_basic_info_batch(all_data_for_cache)
             # logger.info(f"完成 {len(all_data_for_cache)} 条日线基本信息的批量缓存。")
-
         # 2. 批量写入数据库
         if all_data_dicts_for_db:
             # print(f"正在批量保存 {len(all_data_dicts_for_db)} 条数据到数据库...")
@@ -1430,7 +1351,6 @@ class StockTimeTradeDAO(BaseDAO):
         # 构建 stock_code -> stock_object 的映射，用于O(1)时间复杂度的快速查找
         stock_map = {stock.stock_code: stock for stock in all_stocks}
         print(f"股票基础信息加载完成，共 {len(stock_map)} 只股票。")
-        
         # --- 初始化用于分批保存的列表和批次大小 ---
         all_data_dicts = []
         offset = 0
@@ -1701,7 +1621,6 @@ class StockTimeTradeDAO(BaseDAO):
         - 核心修正: 采用统一的分页和追溯逻辑，并通过动态构建参数字典来精确调用API。
                     这解决了因错误处理可选日期参数（None vs "" vs 默认值）而导致的API调用失败问题。
                     此版本对所有场景（范围查询、历史追溯）都同样健壮。
-
         :param stock: StockInfo 模型实例。
         :param start_date: 开始日期，可选。
         :param end_date: 结束日期，可选。
@@ -1710,9 +1629,7 @@ class StockTimeTradeDAO(BaseDAO):
         # 正确处理可选日期参数，将None转换为None，而不是默认值或空字符串
         start_date_str = start_date.strftime('%Y%m%d') if start_date else None
         current_end_date_str = end_date.strftime('%Y%m%d') if end_date else None
-        
         all_dfs_for_stock = []
-        
         # 回归统一的、健壮的内外双循环分页逻辑
         # 外层循环：处理10万行限制，通过调整 end_date 实现追溯
         while True:
@@ -1720,7 +1637,6 @@ class StockTimeTradeDAO(BaseDAO):
             limit = 6000 # Tushare推荐的单次最大limit
             dfs_for_this_cycle = []
             limit_hit = False
-
             # 内层循环：处理标准分页
             while True:
                 if offset >= 100000:
@@ -1746,7 +1662,6 @@ class StockTimeTradeDAO(BaseDAO):
                     # print(f"调试: DAO准备调用Tushare API [cyq_chips]，动态参数: {api_params}")
                     
                     df = self.ts_pro.cyq_chips(**api_params, fields=["ts_code", "trade_date", "price", "percent"])
-
                 except Exception as e:
                     logger.error(f"Tushare API调用失败 (cyq_chips, ts_code={stock.stock_code}): {e}", exc_info=True)
                     await asyncio.sleep(5)
@@ -1761,7 +1676,6 @@ class StockTimeTradeDAO(BaseDAO):
                     break # 如果返回的数据量小于请求量，说明是最后一页了
                 
                 offset += limit
-
             if not dfs_for_this_cycle:
                 break # 如果当前追溯周期没有获取到任何数据，则结束整个过程
             
@@ -1775,25 +1689,21 @@ class StockTimeTradeDAO(BaseDAO):
                 continue # 继续外层循环，开始下一轮追溯
             else:
                 break # 如果没有触及10万行限制，说明所有数据已获取完毕
-
         # --- 数据处理和保存部分保持不变 ---
         if not all_dfs_for_stock:
             print(f"DAO: 未获取到 {stock.stock_code} 的任何筹码分布数据。")
             return
-
         combined_df = pd.concat(all_dfs_for_stock, ignore_index=True)
         combined_df.drop_duplicates(subset=['trade_date', 'price'], keep='first', inplace=True)
         combined_df.replace(['nan', 'NaN', ''], np.nan, inplace=True)
         combined_df.dropna(subset=['trade_date', 'price'], inplace=True)
         if combined_df.empty:
             return
-        
         combined_df['stock'] = stock
         combined_df['trade_time'] = pd.to_datetime(combined_df['trade_date']).dt.date
         final_df = combined_df[['stock', 'trade_time', 'price', 'percent']]
         data_list = final_df.to_dict('records')
         target_model = get_cyq_chips_model_by_code(stock.stock_code)
-        
         # print(f"DAO: 准备为 {stock.stock_code} 保存 {len(data_list)} 条筹码分布数据到表 {target_model.__name__}...")
         await self._save_all_to_db_native_upsert(
             model_class=target_model,
@@ -1912,12 +1822,10 @@ class StockTimeTradeDAO(BaseDAO):
         """
         【V1.0 · 服务层专用接口】
         获取指定股票在截止日期前的N条涨跌停价格历史数据。
-        
         Args:
             stock_code (str): 股票代码。
             end_date (Optional[datetime.date]): 查询的截止日期。如果为None，则从最新日期开始。
             limit (int): 需要获取的记录数量。
-        
         Returns:
             pd.DataFrame: 包含涨跌停价历史数据的DataFrame，索引为'trade_time'。
         """
@@ -1927,7 +1835,6 @@ class StockTimeTradeDAO(BaseDAO):
             if not model_class:
                 logger.warning(f"[DAO] get_price_limit_data: 未能为股票 {stock_code} 找到模型。")
                 return pd.DataFrame()
-
             # 步骤2: 构建查询
             queryset = model_class.objects.filter(stock__stock_code=stock_code)
             if end_date:
@@ -1940,10 +1847,8 @@ class StockTimeTradeDAO(BaseDAO):
                     'trade_time', 'up_limit', 'down_limit', 'pre_close'
                 )
             )
-
             if not data_list:
                 return pd.DataFrame()
-
             # 步骤4: 格式化为标准DataFrame
             df = pd.DataFrame(data_list)
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)

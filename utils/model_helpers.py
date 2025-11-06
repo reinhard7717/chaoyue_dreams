@@ -47,7 +47,6 @@ def get_minute_data_model_by_code_and_timelevel(stock_code: str, time_level_str:
         model_map = kc_map if stock_code.startswith('68') else base_map
     elif stock_code.endswith('.BJ'):
         model_map = {'1': StockMinuteData_1_BJ, '5': StockMinuteData_5_BJ, '15': StockMinuteData_15_BJ, '30': StockMinuteData_30_BJ, '60': StockMinuteData_60_BJ}
-    
     if model_map and time_level_str in model_map:
         return model_map[time_level_str]
     else:

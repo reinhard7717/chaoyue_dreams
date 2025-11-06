@@ -203,7 +203,6 @@ def execute_save_fund_flow_method(method_name: str, start_date: str, end_date: s
     task_id = current_task.request.id
     print(f"调试信息：子任务 {task_id} 启动，执行方法: {method_name}")
     logger.info(f"子任务启动: {task_id} - {method_name}, 日期范围: {start_date} 到 {end_date}")
-    
     try:
         ff_dao = FundFlowDao(cache_manager)
         async def main():

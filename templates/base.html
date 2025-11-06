@@ -49,7 +49,6 @@
 
     {# --- 主体内容区域 (包含侧边栏和主内容) --- #}
     <div class="main-wrapper {% if block.sidebar %}with-sidebar{% endif %}"> {# 根据是否有 sidebar block 添加类 #}
-
         {# --- 侧边栏 (可选) --- #}
         {% block sidebar %}
         {# 子模板可以在这里填充侧边栏内容 #}
@@ -64,7 +63,6 @@
             </nav>
         </aside>
         {% endblock sidebar %}
-
         {# --- 主要内容区域 --- #}
         <main class="site-content container">
             {% block content %}

@@ -52,7 +52,6 @@ class ReportingLayer:
             '神盾防御': TradingSignal.SignalType.WARN,
             '先知离场': TradingSignal.SignalType.SELL,
         }
-        
         known_signal_types = list(signal_type_map_enum.keys())
         signal_days_df = result_df[result_df['signal_type'].isin(known_signal_types)].copy()
         for trade_time, row in signal_days_df.iterrows():

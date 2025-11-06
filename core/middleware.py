@@ -35,7 +35,6 @@ class SecurityMiddleware:
             if pattern.search(path):
                 print(f"DEBUG: [SecurityMiddleware] Blocked scan attempt for path: {path} from IP: {self.get_client_ip(request)}")
                 return HttpResponseForbidden("Access Denied.") # 如果匹配到恶意路径，直接返回403 Forbidden
-
         # 2. IP速率限制防御 (使用Redis)
         # --------------------------
         ip = self.get_client_ip(request)
@@ -50,13 +49,11 @@ class SecurityMiddleware:
                 cache.set(cache_key, request_count, RATE_LIMIT_SECONDS)
             else:
                 cache.set(cache_key, request_count) # 对于已存在的key，仅更新值，不改变过期时间
-
             if request_count > RATE_LIMIT_REQUESTS:
                 print(f"DEBUG: [SecurityMiddleware] Rate limit exceeded for IP: {ip}")
                 # 当超过速率限制时，可以考虑将IP加入黑名单
                 # 例如：cache.set(f"blacklist:{ip}", True, timeout=3600) # 封禁1小时
                 return HttpResponseForbidden("Rate limit exceeded. Access Denied.") # 返回403 Forbidden
-
         response = self.get_response(request)
         return response
 

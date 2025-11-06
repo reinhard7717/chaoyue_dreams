@@ -220,7 +220,6 @@ class UserCacheSet(CacheSet):
         """
         将所有自选股列表缓存到 Redis，使用 Hash 类型。
         """
-        
         user_id = fav_data.user_id
         cache_key = self.cache_key_user.user_favorites(user_id)
         return await self.user_favorites(user_id, fav_data)
@@ -231,7 +230,6 @@ class IndexCacheSet(CacheSet):
         super().__init__(cache_manager_instance)
         self.cache_key_index = IndexCashKey()
         self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
-    
     async def index_info(self, index_code: str, data_to_cache: Dict) -> bool:
         """
         将指数基本信息缓存到 Redis，使用 Hash 类型。
@@ -375,7 +373,6 @@ class StockInfoCacheSet(CacheSet):
         cache_key = self.cache_key_stock.stocks_data()
         cache_timeout = self.cache_manager.get_timeout(cc.TYPE_STATIC)
         return await self.cache_manager.set(key=cache_key, data=data_to_cache, timeout=cache_timeout)
-    
     async def stock_basic_info(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.stock_data(stock_code)
         # print(f"StockInfoCacheSet.stock_basic_info.cache_key: {cache_key}")
@@ -418,12 +415,10 @@ class StockTimeTradeCacheSet(CacheSet):
     async def batch_set_latest_time_trade(self, cache_payload: Dict[str, dict], time_level: str) -> bool:
         """
         【V1 - 高效版】使用 Redis Pipeline 批量缓存最新的分钟线数据。
-        
         Args:
             cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的数据字典。
                                              例如: {'000001.SZ': data_dict_1, '600519.SH': data_dict_2}
             time_level (str): 时间级别 (e.g., '5', '30', 'Day')。
-
         Returns:
             bool: 批量缓存操作是否成功提交。
         """
@@ -431,11 +426,9 @@ class StockTimeTradeCacheSet(CacheSet):
         if not cache_payload:
             print("调试信息: [Cache] 批量写入任务收到空数据，跳过执行。")
             return True # 空操作视为成功
-
         # 2. 准备 MSET 所需的数据
         mset_data = {}
         keys_to_expire = []
-
         for stock_code, data_to_cache in cache_payload.items():
             # 2.1 对每条数据进行格式转换，与单个写入的逻辑保持一致
             # 注意：_format_conversion 是您类中一个未提供但存在的方法，我们假设它在这里
@@ -443,20 +436,16 @@ class StockTimeTradeCacheSet(CacheSet):
             if formatted_data is None:
                 logger.warning(f"批量缓存中，股票 {stock_code} 的数据格式化失败，已跳过。")
                 continue
-
             # 2.2 生成缓存键
             cache_key = self.cache_key_stock.latest_time_trade(stock_code, time_level)
             keys_to_expire.append(cache_key)
-
             # 2.3 序列化值，为 pipeline 做准备
             # CacheManager 的 pipeline 直接操作 redis-py 客户端，需要我们手动序列化
             serialized_value = self.cache_manager._serialize(formatted_data)
             mset_data[cache_key] = serialized_value
-
         if not mset_data:
             logger.warning("批量缓存任务中，所有数据均处理失败，无数据写入。")
             return False
-
         # 3. 使用 Pipeline 执行批量写入和设置过期时间
         try:
             # 确保 Redis 客户端已连接
@@ -466,17 +455,14 @@ class StockTimeTradeCacheSet(CacheSet):
             async with redis_client.pipeline() as pipe:
                 # 步骤 A: 一次性设置所有键值对
                 pipe.mset(mset_data)
-
                 # 步骤 B: 为每一个键设置过期时间
                 # 我们从 cache_key 推断缓存类型为 'st' (static/timeseries)
                 timeout = self.cache_manager.get_timeout('st') 
                 for key in keys_to_expire:
                     pipe.expire(key, timeout)
-
                 # 步骤 C: 原子化地执行所有命令
                 await pipe.execute()
             return True
-
         except Exception as e:
             logger.error(f"批量写入分钟线缓存时发生异常: {e}", exc_info=True)
             return False
@@ -494,7 +480,6 @@ class StockTimeTradeCacheSet(CacheSet):
         """
         if not payload:
             return True
-
         try:
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
@@ -525,7 +510,6 @@ class StockTimeTradeCacheSet(CacheSet):
                         pipe.zadd(cache_key, zadd_mapping)
                         # 4. 为这个 ZSET 设置过期时间（例如24小时）
                         pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
-
                 # 5. 原子化地执行所有命令
                 await pipe.execute()
             
@@ -572,7 +556,6 @@ class StockRealtimeCacheSet(CacheSet):
     async def batch_set_latest_realtime_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
         使用 Redis Pipeline 批量缓存最新的实时行情数据。
-        
         Args:
             cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的实时行情数据。
         Returns:
@@ -580,7 +563,6 @@ class StockRealtimeCacheSet(CacheSet):
         """
         if not cache_payload:
             return True
-
         mset_data = {}
         keys_to_expire = []
         for stock_code, data_to_cache in cache_payload.items():
@@ -588,16 +570,13 @@ class StockRealtimeCacheSet(CacheSet):
             if formatted_data is None:
                 logger.warning(f"批量缓存实时行情中，股票 {stock_code} 的数据格式化失败，已跳过。")
                 continue
-
             cache_key = self.cache_key_stock.latest_realtime_data(stock_code)
             keys_to_expire.append(cache_key)
             serialized_value = self.cache_manager._serialize(formatted_data)
             mset_data[cache_key] = serialized_value
-
         if not mset_data:
             logger.warning("批量缓存实时行情任务中，所有数据均处理失败，无数据写入。")
             return False
-
         try:
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
@@ -615,7 +594,6 @@ class StockRealtimeCacheSet(CacheSet):
     async def batch_set_latest_level5_data(self, cache_payload: Dict[str, dict]) -> bool:
         """
         使用 Redis Pipeline 批量缓存最新的Level5盘口数据。
-        
         Args:
             cache_payload (Dict[str, dict]): 一个字典，键是股票代码，值是待缓存的Level5数据。
         Returns:
@@ -623,7 +601,6 @@ class StockRealtimeCacheSet(CacheSet):
         """
         if not cache_payload:
             return True
-
         mset_data = {}
         keys_to_expire = []
         for stock_code, data_to_cache in cache_payload.items():
@@ -631,16 +608,13 @@ class StockRealtimeCacheSet(CacheSet):
             if formatted_data is None:
                 logger.warning(f"批量缓存Level5数据中，股票 {stock_code} 的数据格式化失败，已跳过。")
                 continue
-
             cache_key = self.cache_key_stock.latest_level5_data(stock_code)
             keys_to_expire.append(cache_key)
             serialized_value = self.cache_manager._serialize(formatted_data)
             mset_data[cache_key] = serialized_value
-
         if not mset_data:
             logger.warning("批量缓存Level5数据任务中，所有数据均处理失败，无数据写入。")
             return False
-
         try:
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
@@ -669,11 +643,9 @@ class StockRealtimeCacheSet(CacheSet):
             return False
         cache_key = self.cache_key_stock.latest_level5_data(stock_code)
         return await self.cache_manager.set(cache_key, data_to_cache)
-    
     async def history_realtime_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_realtime_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
-    
     async def history_level5_data(self, stock_code: str, data_to_cache: Dict[str, Any]) -> bool:
         cache_key = self.cache_key_stock.history_level5_data(stock_code)
         return await self._history_data(stock_code, data_to_cache, cache_key)
@@ -685,7 +657,6 @@ class StockRealtimeCacheSet(CacheSet):
         """
         if not realtime_payload and not level5_payload:
             return True
-
         try:
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
@@ -695,7 +666,6 @@ class StockRealtimeCacheSet(CacheSet):
                 def process_tick(stock_code: str, tick_data: dict, key_func, pipe_instance):
                     trade_time_val = tick_data.get('trade_time')
                     trade_time_obj = None
-
                     # 核心修正：如果 trade_time 是字符串，则尝试从ISO格式转换
                     if isinstance(trade_time_val, str):
                         try:
@@ -705,7 +675,6 @@ class StockRealtimeCacheSet(CacheSet):
                             return # 跳过此条错误记录
                     elif isinstance(trade_time_val, datetime):
                         trade_time_obj = trade_time_val
-
                     # 如果成功获取到 datetime 对象，则执行写入
                     if trade_time_obj:
                         cache_key = key_func(stock_code, today_str)
@@ -723,15 +692,12 @@ class StockRealtimeCacheSet(CacheSet):
                         # print(f"DEBUG_WRITE: [Tick] ZADD to key='{cache_key}', score='{score}', timeout='{timeout}'")
                     else:
                         logger.warning(f"跳过股票 {stock_code} 的Tick数据，因为缺少有效的 'trade_time'。")
-
                 # 处理实时行情 Ticks
                 for stock_code, tick_data in realtime_payload.items():
                     process_tick(stock_code, tick_data, self.cache_key_stock.intraday_ticks_realtime, pipe)
-
                 # 处理五档盘口 Ticks
                 for stock_code, tick_data in level5_payload.items():
                     process_tick(stock_code, tick_data, self.cache_key_stock.intraday_ticks_level5, pipe)
-
                 await pipe.execute()
             
             logger.debug(f"成功批量追加 {len(realtime_payload)} 条行情Ticks和 {len(level5_payload)} 条盘口Ticks到Redis ZSET。")
@@ -743,20 +709,17 @@ class StockRealtimeCacheSet(CacheSet):
     async def batch_append_real_ticks(self, tick_data_map: Dict[str, pd.DataFrame]) -> bool:
         """
         使用 Pipeline 批量将真实的逐笔成交数据 (realtime_tick) 追加到当日的 Redis ZSET 中。
-        
         Args:
             tick_data_map (Dict[str, pd.DataFrame]): 字典，键为股票代码，值为包含逐笔数据的DataFrame。
                                                      DataFrame的索引必须是 trade_time (DatetimeIndex)。
         """
         if not tick_data_map:
             return True
-
         try:
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
                 today_str_no_hyphen = datetime.now().strftime('%Y%m%d')
                 timeout = self.cache_manager.get_timeout('rt') # 实时数据缓存1天
-
                 for stock_code, df_ticks in tick_data_map.items():
                     if df_ticks is None or df_ticks.empty:
                         continue
@@ -779,7 +742,6 @@ class StockRealtimeCacheSet(CacheSet):
                         # 添加到pipeline
                         pipe.zadd(cache_key, mapping_to_add)
                         pipe.expire(cache_key, timeout)
-
                 # 一次性执行所有命令
                 await pipe.execute()
             

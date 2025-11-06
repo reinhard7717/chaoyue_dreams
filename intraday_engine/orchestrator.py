@@ -40,7 +40,6 @@ class IntradayEngineOrchestrator:
                     导致的信号查询失败问题。
         """
         print("盘中引擎开始盘前准备，正在构建监控池并存入Redis...")
-        
         # --- 1. 获取上一个交易日 ---
         today = date.today()
         get_prev_trade_date_async = sync_to_async(TradeCalendar.get_latest_trade_date, thread_sensitive=True)
@@ -49,13 +48,11 @@ class IntradayEngineOrchestrator:
             logger.error(f"无法从交易日历中找到 {today} 的上一个交易日，盘前准备任务终止。")
             return
         print(f"根据交易日历，确定需要查询的信号日期为: {previous_trade_date}")
-
         # --- 2. 构建“待买入池” (Watchlist) ---
         # 构建一个从当天 00:00:00 到 23:59:59 的 naive datetime 范围
         # 这将精确匹配数据库中存储的无时区信息的时间
         start_of_day = datetime.combine(previous_trade_date, time.min)
         end_of_day = datetime.combine(previous_trade_date, time.max)
-
         # 使用 __range 查询，并传入 naive datetime 对象
         # Django 在处理 naive datetime 时，会根据 settings.TIME_ZONE (通常是'UTC')
         # 来解释它们，但对于 __range 查询，它通常会直接使用你提供的值生成SQL，
@@ -65,18 +62,13 @@ class IntradayEngineOrchestrator:
             timeframe='D',
             trade_time__range=(start_of_day, end_of_day)
         ).select_related('stock')
-        
         # 使用 sync_to_async 将同步的数据库查询转换为异步操作
         @sync_to_async
         def get_signals_list(qs):
             return list(qs)
-
         daily_buy_signals = await get_signals_list(buy_signals_qs)
-        
         print(f"查询完成，共找到 {len(daily_buy_signals)} 条日线买入信号。")
-        
         watchlist = {signal.stock.stock_code for signal in daily_buy_signals}
-        
         # --- 3. 构建“持仓监控池” (Position List) ---
         # 3.1 获取基础的自选股信息（字典列表）
         favorite_stocks_list = await self.stock_dao.get_all_favorite_stocks()
@@ -116,7 +108,6 @@ class IntradayEngineOrchestrator:
         self.today_str = today.strftime('%Y-%m-%d')
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
-
         redis_client = await self.cache_manager._ensure_client()
         async with redis_client.pipeline() as pipe:
             pipe.delete(watchlist_key)
@@ -130,7 +121,6 @@ class IntradayEngineOrchestrator:
             await pipe.execute()
             
         logger.info(f"待买入池 ({len(watchlist)}只) 和持仓池 ({len(position_list)}只) 已成功写入Redis。")
-
         return True
 
     # MODIFIED: 重写此方法以增加健壮性
@@ -141,30 +131,24 @@ class IntradayEngineOrchestrator:
         """
         watchlist_key = self.cache_key.watchlist_key(self.today_str)
         position_list_key = self.cache_key.position_list_key(self.today_str)
-
         # 1. 从Redis读取监控池
         redis_client = await self.cache_manager._ensure_client()
         watchlist_bytes = await redis_client.smembers(watchlist_key)
         position_list_raw = await redis_client.hgetall(position_list_key)
-        
         watchlist = {code.decode('utf-8') for code in watchlist_bytes}
         position_list = {
             code.decode('utf-8'): json.loads(info.decode('utf-8')) 
             for code, info in position_list_raw.items()
         }
-
         all_stocks_to_analyze = sorted(list(set(watchlist) | set(position_list.keys())))
         if not all_stocks_to_analyze:
             logger.info("监控池为空，本轮循环跳过。")
             return []
-        
         print(f"本轮循环准备分析 {len(all_stocks_to_analyze)} 只股票: {all_stocks_to_analyze[:5]}...")
-
         # 2. 并发获取所有需要分析的股票的盘中数据
         tasks = [self.services.prepare_intraday_data(code, time_level, self.today_str) for code in all_stocks_to_analyze]
         # MODIFIED: 添加 return_exceptions=True，这是解决问题的关键！
         results: List[Union[pd.DataFrame, Exception]] = await asyncio.gather(*tasks, return_exceptions=True)
-        
         intraday_data_map = {}
         # MODIFIED: 循环检查结果，分离成功和失败的任务
         for stock_code, result in zip(all_stocks_to_analyze, results):
@@ -178,7 +162,6 @@ class IntradayEngineOrchestrator:
             else:
                 # 数据为空或None，也记录一下
                 logger.warning(f"股票 {stock_code} 未能获取到有效的盘中数据，已跳过。")
-
         # 3. 循环决策并准备信号 (此部分逻辑不变)
         all_signals = []
         # 分析待买入池
@@ -190,7 +173,6 @@ class IntradayEngineOrchestrator:
             if buy_signal:
                 all_signals.append(buy_signal)
                 await redis_client.srem(watchlist_key, stock_code)
-
         # 分析持仓池
         for stock_code, pos_info in position_list.items():
             df = intraday_data_map.get(stock_code)
@@ -200,7 +182,6 @@ class IntradayEngineOrchestrator:
             if t_signal:
                 t_signal['user_id'] = pos_info.get('user_id')
                 all_signals.append(t_signal)
-
         # 4. 将信号写入Redis，供Dashboard使用 (此部分逻辑不变)
         if all_signals:
             await self._save_signals_to_cache(all_signals)
@@ -217,9 +198,7 @@ class IntradayEngineOrchestrator:
                 if user_id not in user_signals_map:
                     user_signals_map[user_id] = []
                 user_signals_map[user_id].append(signal)
-
         if not user_signals_map: return
-
         redis_client = await self.cache_manager._ensure_client()
         async with redis_client.pipeline() as pipe:
             for user_id, signal_list in user_signals_map.items():
@@ -230,7 +209,6 @@ class IntradayEngineOrchestrator:
                 pipe.expire(key, 86400)
             await pipe.execute()
         logger.info(f"已将 {len(signals)} 条信号写入Redis，供Dashboard展示。")
-        
         # --- 触发WebSocket推送 ---
         channel_layer = get_channel_layer()
         if channel_layer:

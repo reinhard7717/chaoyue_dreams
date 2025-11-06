@@ -117,7 +117,6 @@ class IndicatorDAO(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-        
         self.stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
         self.industry_dao = IndustryDao(cache_manager_instance)
         self.index_basic_dao = IndexBasicDAO(cache_manager_instance)  # 添加 IndexBasicDAO 的初始化
@@ -239,11 +238,9 @@ class IndicatorDAO(BaseDAO):
         """
         【已实现】获取单个行业在指定日期或之前的最新一条资金流数据。
         这对于获取当日的“领涨股”等信息至关重要。
-
         Args:
             industry_code (str): 同花顺行业代码。
             trade_date (datetime.date): 交易日期。
-
         Returns:
             Optional[FundFlowIndustryTHS]: 最新的行业资金流模型实例，或在找不到时返回 None。
         """
@@ -302,11 +299,9 @@ class IndicatorDAO(BaseDAO):
     def get_stocks_daily_basic(self, stock_codes: List[str], trade_date: datetime.date) -> List[StockDailyBasic]:
         """
         【已实现】批量获取多支股票在指定日期的每日基本面指标（包含涨停状态）。
-
         Args:
             stock_codes (List[str]): 股票代码列表。
             trade_date (datetime.date): 交易日期。
-
         Returns:
             List[StockDailyBasic]: 每日基本面指标模型实例列表。
         """
@@ -346,13 +341,11 @@ class IndicatorDAO(BaseDAO):
     def get_market_index_daily_data(self, market_code: str, start_date: datetime.date, end_date: datetime.date) -> pd.DataFrame:
         """
         【修改版】获取大盘基准指数的历史日线行情
-        
         修改点:
         1. 查询的数据模型由 ThsIndexDaily 更改为 IndexDaily。
         2. 查询条件根据 IndexDaily 的外键关系调整为 'index__index_code'。
         """
         # print(f"    [DAO] 正在获取大盘指数 {market_code} 从 {start_date} 到 {end_date} 的行情...")
-        
         # 代码修改处: 使用新的 IndexDaily 模型进行查询
         # 根据 IndexDaily 的外键 'index' 和其关联字段 'index_code' 进行过滤
         qs = IndexDaily.objects.filter(
@@ -360,10 +353,8 @@ class IndicatorDAO(BaseDAO):
             trade_time__gte=start_date,
             trade_time__lte=end_date
         ).order_by('trade_time')
-        
         # 从查询结果中仅选择需要的字段，以提高效率
         df = pd.DataFrame(list(qs.values('trade_time', 'close')))
-        
         # 后续数据处理逻辑保持不变
         if not df.empty:
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
@@ -490,11 +481,9 @@ class IndicatorDAO(BaseDAO):
                 # 尝试使用 pd.to_datetime 解析字符串等，并假设原始字符串代表的是 UTC 时间
                 # errors='coerce' 会将无法解析的转换为 NaT
                 dt_obj = pd.to_datetime(value, utc=True, errors='coerce')
-
             # 如果解析失败 (NaT) 或原始就是 None/NaT
             if pd.isna(dt_obj):
                 raise ValueError("解析为 datetime/Timestamp 失败或结果无效")
-
             # 确保最终结果是时区感知的 datetime.datetime 对象，并转换为默认时区
             if isinstance(dt_obj, pd.Timestamp):
                  # 如果是 Timestamp，已经是时区感知的 (UTC)，直接转换为默认时区的 datetime.datetime
@@ -510,7 +499,6 @@ class IndicatorDAO(BaseDAO):
                      return dt_obj.astimezone(timezone.get_default_timezone())
             else:
                  raise TypeError(f"转换结果不是 datetime 或 Timestamp: {type(dt_obj)}")
-
         except Exception as e: # 捕获更广泛的异常
             # 记录警告时，仅打印值和类型，避免日志过长
             value_str = str(value)[:100] # 截断值字符串

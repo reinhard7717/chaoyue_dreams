@@ -44,7 +44,6 @@ class BaseDAO(Generic[T]):
         初始化 BaseDAO。
         【V2.0 - 依赖注入版】
         - 不再自己创建 CacheManager，而是接收一个外部传入的实例。
-
         Args:
             cache_manager_instance: 一个已经初始化的 CacheManager 实例。
             model_class: 此 DAO 主要操作的 Django 模型类。
@@ -54,14 +53,11 @@ class BaseDAO(Generic[T]):
         self.model_class = model_class
         self.api_service = api_service
         self.cache_timeout = cache_timeout
-        
         # 直接使用传入的 CacheManager 实例
         self.cache_manager = cache_manager_instance # <--- 2. 赋值
-
         self.ts_pro = ts.pro_api(settings.API_LICENCES_TUSHARE)
         # ts.set_token(...) 返回 None，所以不需要赋值
         ts.set_token(settings.API_LICENCES_TUSHARE)
-
         self.model_name = model_class._meta.model_name if model_class else "multi_model"
 
     def _get_cache_key(self, key_suffix: str) -> str:
@@ -86,7 +82,6 @@ class BaseDAO(Generic[T]):
         - 处理 datetime/date：转换为 ISO 格式字符串。
         - 移除值为 None 的键。
         - 特殊处理 Level5 的 bids/asks 字段 (如果需要，可以在子类 DAO 中覆盖此方法添加逻辑)。
-
         Args:
             data: 要处理的模型实例或字典。
             related_field_map: (可选) 字典，映射外键字段名到需要提取的关联对象属性名。
@@ -124,12 +119,10 @@ class BaseDAO(Generic[T]):
         else:
             logger.error(f"不支持的数据类型进行缓存准备: {type(data)}")
             return None
-
         cache_dict = {}
         for key, value in data_dict.items():
             if value is None:
                 continue # 跳过 None 值
-
             if isinstance(value, Decimal):
                 cache_dict[key] = str(value) # Decimal 转字符串
             elif isinstance(value, datetime):
@@ -159,7 +152,6 @@ class BaseDAO(Generic[T]):
             else:
                 # 其他基本类型 (int, str, bool, etc.) 或已处理的外键 ID
                 cache_dict[key] = value
-
         return cache_dict
 
     async def _build_model_from_cache(self, model_class: Type[T], cached_data: Dict,
@@ -171,7 +163,6 @@ class BaseDAO(Generic[T]):
         - 处理外键：根据缓存中的 ID (或指定字段值) 从提供的 DAO 获取关联对象。
         - 处理 Decimal：将字符串转回 Decimal。
         - 处理 datetime/date：将 ISO 字符串转回 datetime/date 对象。
-
         Args:
             model_class: 要构建的目标模型类。
             cached_data: 从缓存中获取的字典数据。
@@ -184,13 +175,11 @@ class BaseDAO(Generic[T]):
         if not cached_data or not isinstance(cached_data, dict):
             logger.debug(f"无效的缓存数据用于构建 {model_class.__name__}: {cached_data}")
             return None
-
         model_data = {} # 用于存储准备好的模型字段数据
         try:
             # 遍历目标模型的所有字段定义
             for field in model_class._meta.fields:
                 field_name = field.name
-
                 # --- 修改点：处理缓存中字段缺失的情况 ---
                 if field_name not in cached_data:
                     # 如果缓存数据中不存在模型定义的这个字段名
@@ -199,10 +188,8 @@ class BaseDAO(Generic[T]):
                     logger.debug(f"缓存数据缺少字段 '{field_name}' for model {model_class.__name__}，跳过设置。")
                     continue # 继续处理下一个字段
                 # --- 结束修改点 ---
-
                 # 获取缓存中对应字段的值
                 cached_value = cached_data[field_name]
-
                 # 如果缓存中的值是 None，也跳过处理（除非字段允许 null）
                 # 注意：如果字段不允许 null，但在缓存中是 None，实例化时可能会失败
                 if cached_value is None and not field.null:
@@ -211,9 +198,7 @@ class BaseDAO(Generic[T]):
                 elif cached_value is None and field.null:
                      model_data[field_name] = None # 显式设置 None
                      continue
-
                 # --- 处理各种字段类型 ---
-
                 # 处理外键 (Relation Field)
                 if field.is_relation:
                     # 检查是否有对应的 DAO 来获取关联对象
@@ -258,7 +243,6 @@ class BaseDAO(Generic[T]):
                         else:
                             logger.error(f"构建模型 {model_class.__name__} 失败：必需的外键 '{field_name}' 缺少对应的 DAO。")
                             return None
-
                 # 处理 Decimal 字段
                 elif isinstance(field, models.DecimalField):
                     try:
@@ -269,7 +253,6 @@ class BaseDAO(Generic[T]):
                         # 如果 Decimal 字段允许 null，可以设为 None 或跳过，否则构建失败
                         if field.null: continue
                         else: return None
-
                 # 处理 DateTime 字段
                 elif isinstance(field, models.DateTimeField):
                     try:
@@ -287,7 +270,6 @@ class BaseDAO(Generic[T]):
                         logger.warning(f"无效的 ISO datetime 格式 '{cached_value}' for field '{field_name}' in model {model_class.__name__}")
                         if field.null: continue
                         else: return None
-
                 # 处理 Date 字段
                 elif isinstance(field, models.DateField):
                     try:
@@ -297,21 +279,18 @@ class BaseDAO(Generic[T]):
                         logger.warning(f"无效的 ISO date 格式 '{cached_value}' for field '{field_name}' in model {model_class.__name__}")
                         if field.null: continue
                         else: return None
-
                 # 处理其他基本类型字段 (int, str, bool, etc.)
                 else:
                     # 直接将缓存中的值赋给 model_data
                     # 注意：这里假设缓存中的类型与模型字段类型兼容
                     # 如果需要更严格的类型检查或转换，可以在这里添加逻辑
                     model_data[field_name] = cached_value
-
             # --- 尝试使用准备好的 model_data 字典实例化模型 ---
             # 如果 model_data 缺少模型 __init__ 所需的非空字段（且无默认值），这里会抛出 TypeError
             logger.debug(f"准备好用于实例化 {model_class.__name__} 的数据: {model_data}")
             instance = model_class(**model_data)
             logger.debug(f"成功从缓存构建 {model_class.__name__} 实例。")
             return instance
-
         except Exception as e:
             # 捕获在处理字段或实例化模型过程中发生的任何其他异常
             logger.error(f"从缓存数据构建 {model_class.__name__} 实例时发生未知错误: {e}, data: {cached_data}", exc_info=True)
@@ -356,12 +335,10 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 get_by_id")
-
         # 确保缓存管理器实例存在
         self._ensure_cache_objects()
         # 生成缓存键
         cache_key = self._get_cache_key(f"id:{id_value}")
-
         # 1. 先从缓存获取
         try:
             cached_data_dict = await self.cache_manager.get(key=cache_key)
@@ -378,7 +355,6 @@ class BaseDAO(Generic[T]):
                 logger.debug(f"缓存未命中: {cache_key}")
         except Exception as e:
             logger.error(f"从缓存获取 {self.model_name} (ID: {id_value}) 时发生异常: {e}", exc_info=True)
-
         # 2. 从数据库获取
         try:
             instance = await self._get_from_db_by_id(id_value)
@@ -397,7 +373,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"数据库查询 {self.model_name} (ID: {id_value}) 错误: {str(e)}", exc_info=True)
             # 根据策略决定是否继续尝试 API
-
         # 3. 如果配置了 API 服务，尝试从 API 获取 (需要子类实现 _fetch_from_api_by_id)
         if self.api_service:
             try:
@@ -432,7 +407,6 @@ class BaseDAO(Generic[T]):
                  logger.debug(f"子类未实现 _fetch_from_api_by_id 方法 for {self.model_name}")
             except Exception as e:
                 logger.error(f"API 获取 {self.model_name} (ID: {id_value}) 数据错误: {str(e)}", exc_info=True)
-
         return None # 所有尝试失败
 
     async def _get_from_db_by_id(self, id_value: Any) -> Optional[T]:
@@ -479,14 +453,12 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 get_all")
-
         instances = []
         cache_hit = False
         # 确保缓存管理器实例存在
         self._ensure_cache_objects()
         # 生成缓存键
         cache_key = self._get_cache_key("all")
-
         # 1. 先从缓存获取
         try:
             cached_list = await self.cache_manager.get(key=cache_key)
@@ -506,7 +478,6 @@ class BaseDAO(Generic[T]):
                 logger.debug(f"缓存未命中: {cache_key}")
         except Exception as e:
             logger.error(f"从缓存获取所有 {self.model_name} 时发生异常: {e}", exc_info=True)
-
         # 2. 从数据库获取
         if not cache_hit:
             try:
@@ -554,11 +525,9 @@ class BaseDAO(Generic[T]):
                              instances = []
                      else:
                           instances = [] # 没有 API 服务，返回空列表
-
             except Exception as e:
                 logger.error(f"数据库查询所有 {self.model_name} 错误: {str(e)}", exc_info=True)
                 instances = [] # 查询失败返回空列表
-
         return instances
 
     async def _get_all_from_db(self) -> List[T]:
@@ -601,13 +570,11 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 filter")
-
         # 移除缓存逻辑，直接查询数据库
         # filter_str = ":".join([f"{k}={v}" for k, v in sorted(kwargs.items())])
         # cache_key = self._get_cache_key(f"filter:{filter_str}")
         # self._ensure_cache_objects()
         # cached_data = await self.cache_manager.get(key=cache_key) ...
-
         logger.debug(f"执行数据库筛选 for {self.model_name} with filters: {kwargs}")
         try:
             # 使用 sync_to_async 执行 ORM filter 操作
@@ -631,13 +598,10 @@ class BaseDAO(Generic[T]):
         # 1. 初始检查
         if not data_list:
             return {"尝试处理": 0, "失败": 0, "创建/更新成功": 0}
-        
         total_records = len(data_list)
-        
         # 2. 准备字段映射
         # 这个映射包含了模型所有字段及其对应的数据库列名
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
-        
         # 3. 将包含对象的 data_list 转换为 SQL-ready 的字典列表
         sql_ready_data_list = []
         for record in data_list:
@@ -659,11 +623,9 @@ class BaseDAO(Generic[T]):
                 # 如果key不是模型的字段，则忽略 (例如上游传入的临时辅助字段)
                 
             sql_ready_data_list.append(sql_record)
-
         if not sql_ready_data_list:
             logger.warning("所有记录在准备阶段均失败或为空，不执行数据库操作。")
             return {"尝试处理": total_records, "失败": total_records, "创建/更新成功": 0}
-
         # 4. 确定需要更新的数据库列
         # 从上游接收的 unique_fields 是模型字段名，需要转换为数据库列名
         unique_db_columns = {field_to_column_map.get(f, f) for f in unique_fields}
@@ -671,7 +633,6 @@ class BaseDAO(Generic[T]):
         all_db_columns_in_data = list(sql_ready_data_list[0].keys())
         # 计算出需要UPDATE的列
         update_db_columns = [col for col in all_db_columns_in_data if col not in unique_db_columns]
-
         # 5. 调用下游异步批处理方法
         try:
             # 注意：现在传递的是 sql_ready_data_list 和 update_db_columns
@@ -700,12 +661,10 @@ class BaseDAO(Generic[T]):
             
         lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
-        
         try:
             redis_client = await self.cache_manager._ensure_client()
             if not redis_client:
                 raise ConnectionError("无法获取 Redis 客户端，数据库操作被中止以保证数据安全。")
-
             async with redis_client.lock(lock_key, timeout=120, blocking_timeout=130):
                 # 直接对字典列表进行分批
                 for i in range(0, len(data_list), batch_size):
@@ -762,7 +721,6 @@ class BaseDAO(Generic[T]):
                     value = None
                 param_tuple.append(value)
             params_list_of_tuples.append(tuple(param_tuple))
-
         field_to_column_map = {f.name: f.column for f in model_class._meta.fields}
         unique_db_columns = {field_to_column_map.get(f, f) for f in unique_fields}
         if update_fields is None:
@@ -909,29 +867,23 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 update")
-
         try:
             # 异步获取要更新的实例
             instance = await self._get_from_db_by_id(id_value)
-
             if not instance:
                 logger.warning(f"更新失败: {self.model_name} 实体不存在 (ID: {id_value})")
                 return None
-
             # 更新实例的字段
             has_changes = False
             for key, value in data.items():
                 if hasattr(instance, key) and getattr(instance, key) != value:
                     setattr(instance, key, value)
                     has_changes = True
-
             if not has_changes:
                 logger.debug(f"实体 {self.model_name} (ID: {id_value}) 无需更新")
                 return instance # 没有变化，直接返回原实例
-
             # 异步保存更新
             await sync_to_async(instance.save, thread_sensitive=True)()
-
             # --- 更新成功后，删除相关缓存 ---
             self._ensure_cache_objects()
             cache_key_id = self._get_cache_key(f"id:{id_value}")
@@ -944,7 +896,6 @@ class BaseDAO(Generic[T]):
             except Exception as cache_err:
                  logger.error(f"删除缓存失败 after update for {self.model_name} (ID: {id_value}): {cache_err}", exc_info=True)
             # --- 结束删除缓存 ---
-
             logger.info(f"成功更新实体: {self.model_name} (ID: {id_value})")
             return instance
         except Exception as e:
@@ -962,19 +913,16 @@ class BaseDAO(Generic[T]):
         """
         if self.model_class is None:
             raise TypeError("model_class 未在 BaseDAO 初始化时设置，无法执行 delete")
-
         try:
             # 获取主键字段名
             pk_name = self.model_class._meta.pk.name
             filter_kwargs = {pk_name: id_value}
-
             # 异步执行删除操作
             # delete() 返回一个元组 (count, detailed_counts)
             count, _ = await sync_to_async(
                 self.model_class.objects.filter(**filter_kwargs).delete,
                 thread_sensitive=True
             )()
-
             if count > 0:
                 # --- 删除成功后，删除相关缓存 ---
                 self._ensure_cache_objects()
@@ -987,7 +935,6 @@ class BaseDAO(Generic[T]):
                 except Exception as cache_err:
                     logger.error(f"删除缓存失败 after delete for {self.model_name} (ID: {id_value}): {cache_err}", exc_info=True)
                 # --- 结束删除缓存 ---
-
                 logger.info(f"成功删除实体: {self.model_name} (ID: {id_value})")
                 return True
             else:
@@ -1010,7 +957,6 @@ class BaseDAO(Generic[T]):
         except Exception:
             logger.warning(f"未知的时区名称 '{tz_name}'，将使用 UTC。")
             tz = ZoneInfo("UTC")
-
         if isinstance(value, datetime):
             # 如果已经是 datetime 对象，确保其时区正确
             if settings.USE_TZ:
@@ -1018,16 +964,13 @@ class BaseDAO(Generic[T]):
             else:
                 dt = timezone.make_naive(value, tz) if timezone.is_aware(value) else value
             return dt
-
         if isinstance(value, date) and not isinstance(value, datetime):
             # 如果是 date 对象，转换为 datetime (午夜)
             dt = datetime.combine(value, datetime.min.time())
             dt = timezone.make_aware(dt, tz) if settings.USE_TZ else dt
             return dt
-
         if value is None or str(value).strip() in ['', '-', 'N/A', '暂无']:
             return None # 处理空值
-
         # 尝试解析字符串
         if isinstance(value, (str, bytes)):
             if isinstance(value, bytes):
@@ -1038,7 +981,6 @@ class BaseDAO(Generic[T]):
             value = value.strip()
             # 修正所有 +08:xx 或 -09:xx 变成 +08:00 或 -09:00
             value = re.sub(r'([+-]\d{2}):\d{2}$', r'\1:00', value)
-
             # 尝试 ISO 格式
             try:
                 dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -1049,7 +991,6 @@ class BaseDAO(Generic[T]):
                 return dt
             except ValueError:
                 pass # 继续尝试
-
             # 尝试指定格式
             if default_format:
                 try:
@@ -1058,7 +999,6 @@ class BaseDAO(Generic[T]):
                     return dt
                 except ValueError:
                     pass # 继续尝试
-
             # 尝试常见格式列表
             common_formats = [
                 '%Y%m%d%H:%M:%S','%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M',
@@ -1072,7 +1012,6 @@ class BaseDAO(Generic[T]):
                     return dt
                 except ValueError:
                     continue
-
         # 尝试解析时间戳 (秒或毫秒)
         try:
             timestamp = float(str(value))
@@ -1083,7 +1022,6 @@ class BaseDAO(Generic[T]):
             return dt if settings.USE_TZ else timezone.make_naive(dt, tz)
         except (ValueError, TypeError):
             pass # 不是时间戳，继续尝试其他格式
-
         logger.warning(f"无法解析日期时间值: {value}")
         return None # 所有尝试失败
 
@@ -1098,7 +1036,6 @@ class BaseDAO(Generic[T]):
         """
         if value is None or str(value).strip() in ['', '-', 'N/A', '暂无']:
             return default
-
         try:
             # 如果已经是 Decimal，直接返回
             if isinstance(value, Decimal):
@@ -1106,7 +1043,6 @@ class BaseDAO(Generic[T]):
             # 如果是 int 或 float，转换为 Decimal
             if isinstance(value, (int, float)):
                 return Decimal(value)
-
             # 处理字符串
             value_str = str(value).strip()
             # 移除千位分隔符
@@ -1115,16 +1051,12 @@ class BaseDAO(Generic[T]):
             is_percent = '%' in value_str
             if is_percent:
                 value_str = value_str.replace('%', '')
-
             # 尝试直接转换为 Decimal
             number = Decimal(value_str)
-
             # 如果是百分比，除以 100
             if is_percent:
                 number /= Decimal(100)
-
             return number
-
         except decimal.InvalidOperation:
             # 如果直接转换失败，尝试提取数字并处理单位 (万/亿)
             try:
@@ -1134,19 +1066,15 @@ class BaseDAO(Generic[T]):
                 if not number_match:
                     logger.warning(f"无法从字符串提取数字: {value}")
                     return default
-
                 number = Decimal(number_match.group(1))
-
                 # 处理单位
                 if '万亿' in value_str or '兆' in value_str: number *= Decimal('1000000000000')
                 elif '亿' in value_str: number *= Decimal('100000000')
                 elif '万' in value_str: number *= Decimal('10000')
                 elif '千' in value_str: number *= Decimal('1000')
-
                 # 再次检查百分号 (可能单位和百分号并存)
                 if '%' in value_str and not is_percent: # 避免重复除以 100
                     number /= Decimal(100)
-
                 return number
             except Exception as e_inner:
                 logger.warning(f"解析带单位的数字失败: {value}, 错误: {e_inner}")

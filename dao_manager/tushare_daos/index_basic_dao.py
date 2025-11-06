@@ -24,7 +24,6 @@ class IndexBasicDAO(BaseDAO):
     def __init__(self, cache_manager_instance: CacheManager):
         # 调用 super() 时，将 cache_manager_instance 传递进去
         super().__init__(cache_manager_instance=cache_manager_instance, model_class=None)
-
         self.data_format_process = IndexDataFormatProcess(cache_manager_instance)
         self.index_cache_set = IndexCacheSet(self.cache_manager)
         self.index_cache_get = IndexCacheGet(self.cache_manager)
@@ -60,7 +59,6 @@ class IndexBasicDAO(BaseDAO):
         # 从数据库获取
         trade_cals = await sync_to_async(lambda: TradeCalendar.objects.filter(cal_date__range=[start_date, end_date]).all())()
         return trade_cals
-    
     async def is_today_trade_day(self, exchange='SSE'):
         """
         异步判断今天是否为指定交易所的交易日
@@ -127,7 +125,6 @@ class IndexBasicDAO(BaseDAO):
             else:
                 print(f"未知类型: {type(day)}, 值: {day}")
         return trade_days
-    
     async def get_trade_cal_list(self) -> List['TradeCalendar']:
         """
         获取全部日期范围的交易日历

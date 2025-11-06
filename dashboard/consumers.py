@@ -12,25 +12,21 @@ from utils.cache_manager import CacheManager
 class DashboardConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.user = self.scope["user"]
-
         if not self.user.is_authenticated:
             await self.close() # 拒绝未认证用户
             return
-
         # 每个用户加入自己的私有组，用于接收个人消息（如自选股更新）
         self.user_group_name = f'user_{self.user.id}'
         await self.channel_layer.group_add(
             self.user_group_name,
             self.channel_name
         )
-
         # （可选）所有认证用户加入一个公共组，用于接收广播消息（如通用策略信号）
         self.public_group_name = 'dashboard_public'
         await self.channel_layer.group_add(
             self.public_group_name,
             self.channel_name
         )
-
         await self.accept()
         print(f"WebSocket connected for user {self.user.username}")
 
@@ -65,7 +61,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         data = event.get('data', {})
         message_sub_type = data.get('sub_type')
         payload = data.get('payload', {})
-
         # 将消息发送给 WebSocket 客户端
         await self.send(text_data=json.dumps({
             'type': message_sub_type, # 使用子类型作为前端判断依据
@@ -77,7 +72,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         message_type = event.get('type') # 'public.message' -> 'message'
         data = event.get('data', {})
         message_sub_type = data.get('sub_type') # 例如 'general_signal', 'market_alert'
-
         await self.send(text_data=json.dumps({
             'type': message_sub_type,
             'payload': data.get('payload', {})
@@ -91,7 +85,6 @@ class DashboardConsumer(AsyncWebsocketConsumer):
         指定的 'type' 完全匹配。
         """
         payload = event.get('payload', {})
-        
         # 将信号封装成标准格式，发送给前端WebSocket客户端
         # 使用 DjangoJSONEncoder 可以安全地处理 datetime 等特殊类型
         await self.send(text_data=json.dumps({

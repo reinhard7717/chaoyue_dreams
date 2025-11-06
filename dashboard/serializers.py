@@ -325,10 +325,8 @@ class FavoriteStockSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"stock_code": [f"股票代码 {stock_code_data} 不存在。"]})
         except StockInfo.MultipleObjectsReturned:
              raise serializers.ValidationError({"stock_code": [f"找到多个股票代码为 {stock_code_data} 的记录，数据异常。"]})
-
         if FavoriteStock.objects.filter(user=user, stock=stock_instance).exists():
              raise serializers.ValidationError({"detail": "该股票已在自选列表中。"})
-
         # validated_data 现在可能为空，或者包含 FavoriteStock 的其他可写字段 (如果你的模型有的话)
         favorite = FavoriteStock.objects.create(stock=stock_instance, **validated_data)
         return favorite
@@ -363,5 +361,4 @@ class TransactionSerializer(serializers.ModelSerializer):
         if value <= 0:
             raise serializers.ValidationError("交易数量必须是正数。")
         return value
-        
         

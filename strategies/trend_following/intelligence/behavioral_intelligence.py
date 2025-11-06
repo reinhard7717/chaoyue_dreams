@@ -67,10 +67,8 @@ class BehavioralIntelligence:
           2. 合成为一个双极性的“行为健康总分”。
           3. 使用标准工具分裂为互斥的“看涨共振分”和“看跌共振分”。
         """
-        # [代码修改开始]
         print("开始执行【V5.0 · 范式统一版】行为领域终极合成器...")
         states = {}
-        
         # 1. 计算看涨健康度 (Bullish Health)
         # 证据: 上涨有效率 * 下跌有抵抗 * 日内多头能控盘
         bullish_health = (
@@ -78,26 +76,20 @@ class BehavioralIntelligence:
             atomic_signals.get('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', pd.Series(0.5, index=df.index)) *
             atomic_signals.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.5, index=df.index))
         ).pow(1/3)
-
         # 2. 计算看跌健康度 (Bearish Health / Risk)
         # 证据: 取“滞涨风险”和“流动性流失风险”中的最大值
         bearish_health = np.maximum(
             atomic_signals.get('SCORE_RISK_STAGNATION', pd.Series(0.0, index=df.index)),
             atomic_signals.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
         )
-
         # 3. 合成双极性行为健康总分
         bipolar_behavioral_health = (bullish_health - bearish_health).clip(-1, 1)
-
         # 4. 分裂为标准的看涨/看跌共振信号
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
-
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        
         print("【V5.0 · 范式统一版】行为领域终极合成器诊断完成。")
         return states
-        # [代码修改结束]
 
     # ==============================================================================
     # 以下为新增的原子信号中心和降级的原子诊断引擎
@@ -153,9 +145,7 @@ class BehavioralIntelligence:
         p_dyn = get_param_value(p_conf.get('signal_dynamics_params'), {})
         momentum_span = get_param_value(p_dyn.get('momentum_span'), 5)
         potential_window = get_param_value(p_dyn.get('potential_window'), 120)
-        
         dynamics_df = pd.DataFrame(index=df.index)
-
         # 定义需要计算动态因子的本模块原子信号列表
         # 这些信号必须是由 _diagnose_behavioral_axioms 产出的
         atomic_signals_to_enhance = [
@@ -174,7 +164,6 @@ class BehavioralIntelligence:
             'SCORE_RISK_STAGNATION',
             'SCORE_RISK_LIQUIDITY_DRAIN'
         ]
-
         print("  -> 正在为以下行为原子信号计算动态因子:")
         for signal_name in atomic_signals_to_enhance:
             if signal_name in self.strategy.atomic_states:
@@ -185,22 +174,18 @@ class BehavioralIntelligence:
                 momentum = signal_series.diff(momentum_span).fillna(0)
                 norm_momentum = normalize_score(momentum, df.index, potential_window)
                 dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum.astype(np.float32)
-
                 # 计算潜力 (Potential) - 长期变化趋势
                 potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series)
                 norm_potential = normalize_score(potential, df.index, potential_window)
                 dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential.astype(np.float32)
-
                 # 计算推力 (Thrust) - 短期变化加速度
                 thrust = momentum.diff(1).fillna(0)
                 norm_thrust = normalize_score(thrust, df.index, potential_window)
                 dynamics_df[f'THRUST_{signal_name}'] = norm_thrust.astype(np.float32)
             else:
                 print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
-
         # 将新计算的动态因子合并到主DataFrame中
         final_df = pd.concat([df, dynamics_df], axis=1)
-        
         return final_df
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
