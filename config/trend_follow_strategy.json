@@ -817,8 +817,8 @@
         "enabled": true,
         "description": "【V5.0 · 四大公理版】定义了基于“动量、惯性、稳定性、能量”四大力学公理的引擎参数。",
         "norm_window": 55,
+        "description_axiom_weights": "融合四大力学公理时的权重。",
         "axiom_weights": {
-          "description": "融合四大力学公理时的权重。",
           "momentum": 0.3,
           "inertia": 0.3,
           "stability": 0.2,
@@ -829,15 +829,15 @@
         "enabled": true,
         "description": "【V6.0 · 四大公理版】定义了基于“趋势、摆动、流体、波动”四大基础公理的引擎参数。",
         "norm_window": 55,
+        "description_axiom_weights": "融合四大基础公理时的权重。",
         "axiom_weights": {
-          "description": "融合四大基础公理时的权重。",
           "trend": 0.4,
           "oscillator": 0.2,
           "flow": 0.3,
           "volatility": 0.1
         },
+        "description_ma_health_fusion_weights": "【趋势公理内部使用】EMA结构健康度融合权重。",
         "ma_health_fusion_weights": {
-          "description": "【趋势公理内部使用】EMA结构健康度融合权重。",
           "alignment": 0.5,
           "slope": 0.5
         }
@@ -846,8 +846,8 @@
         "enabled": true,
         "description": "【V5.0 · 三大公理版】定义了基于“共识、信念、存量”三大资金流公理的引擎参数。",
         "norm_window": 55,
+        "description_axiom_weights": "融合三大资金流公理时的权重。",
         "axiom_weights": {
-          "description": "融合三大资金流公理时的权重。",
           "consensus": 0.5,
           "conviction": 0.3,
           "increment": 0.2
@@ -888,8 +888,8 @@
         "enabled": true,
         "description": "【V4.0 · 矛与盾融合版】定义了基于“趋势形态、多周期协同、结构稳定性”三大核心公理的新结构引擎参数。",
         "norm_window": 55,
+        "description_axiom_weights": "融合三大结构公理时的权重。",
         "axiom_weights": {
-          "description": "融合三大结构公理时的权重。",
           "trend_form": 0.5,
           "mtf_cohesion": 0.3,
           "stability": 0.2
@@ -898,8 +898,8 @@
       "cognitive_intelligence_params": {
         "enabled": true,
         "description": "【V2.2 · 全息诊断版】顶层认知引擎的专属参数块。",
+        "description_cognitive_fusion_weights": "融合基础、结构、行为三大领域的权重。",
         "cognitive_fusion_weights": {
-            "description": "融合基础、结构、行为三大领域的权重。",
             "foundation": 0.33,
             "structure": 0.33,
             "behavior": 0.34
@@ -921,19 +921,19 @@
         "reversal_reliability_bonus_factor": 0.5,
         "capitulation_potential_bonus_factor": 0.5,
         "comment_bonus_factor": "在计算底部反转共振时，用于放大“反转可靠性”影响的奖励因子。",
+        "description_cascade_fusion_weights": "在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
         "cascade_fusion_weights": {
-          "description": "在计算趋势加速级联时，融合一阶导数(slope)和二阶导数(accel)的权重。",
           "slope": 0.3,
           "accel": 0.7
         },
+        "description_bottom_reversal_fusion_weights": "在融合多域底部反转信号时，对战术剧本信号的加权。",
         "bottom_reversal_fusion_weights": {
-            "description": "在融合多域底部反转信号时，对战术剧本信号的加权。",
             "base_resonance": 0.4,
             "panic_setup": 0.2,
             "v_reversal_playbook": 0.4
         },
+        "description_ignition_fusion_weights": "在融合多域点火信号时，对战术剧本信号的加权。",
         "ignition_fusion_weights": {
-            "description": "在融合多域点火信号时，对战术剧本信号的加权。",
             "base_resonance": 0.5,
             "chip_price_lag_playbook": 0.5
         },
@@ -944,8 +944,8 @@
             "flow_divergence": 0.4
           }
         },
+        "description_trend_health_fusion_weights": "为认知层专属的五维趋势健康度评估引擎提供权重。",
         "trend_health_fusion_weights": {
-          "description": "为认知层专属的五维趋势健康度评估引擎提供权重。",
           "alignment": 0.2,
           "velocity": 0.15,
           "acceleration": 0.15,
@@ -953,8 +953,8 @@
           "meta_dynamics": 0.3
         },
         "expansion_engine_periods": [1, 5, 13, 21, 55],
+        "description_expansion_engine_tf_weights": "认知扩展引擎中，用于MTF融合的周期权重。",
         "expansion_engine_tf_weights": {
-          "description": "认知扩展引擎中，用于MTF融合的周期权重。",
           "1": 0.05,
           "5": 0.2,
           "13": 0.3,
