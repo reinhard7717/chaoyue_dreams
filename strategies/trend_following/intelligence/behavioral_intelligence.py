@@ -207,10 +207,8 @@ class BehavioralIntelligence:
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增 · 纯净版】行为K线质量分计算引擎
-        - 核心职责: 严格只使用“价、量、时、空”四大行为要素，对单日K线质量进行评估。
-        - 核心逻辑: 融合“战役结果(阵地)”和“战术执行(效率)”两大纯行为支柱。
-        - 返回值: 一个在[-1, 1]区间的、纯粹的双极性行为质量分。
+        【V1.1 · 工具归位版】行为K线质量分计算引擎
+        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
         print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
         # --- 支柱一: 战役结果 (The Battle's Outcome) - 阵地控制权 ---
@@ -219,9 +217,12 @@ class BehavioralIntelligence:
         shadow_dominance = df.get('shadow_dominance_D', 0.0) # 这是一个[-1, 1]的指标
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
         # --- 支柱二: 战术执行 (The Tactical Execution) - 操盘效率与决心 ---
-        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', 0.5))
-        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', 0.5))
-        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', 0.5))
+        # [代码修改开始]
+        # 调用公共工具函数，并传入 df.index
+        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index)), df.index)
+        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', pd.Series(0.0, index=df.index)), df.index)
+        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', pd.Series(0.0, index=df.index)), df.index)
+        # [代码修改结束]
         bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
         pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
         # --- 最终融合: 两大纯行为支柱加权 ---
@@ -234,13 +235,8 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 职责净化版 · 行为公理诊断引擎】
-        - 核心思想: 遵循职责分离原则，此引擎只负责将最原始的“行为类”数据，提炼为高度浓缩的、纯静态的原子信号。
-        - 四大公理:
-          1. 价格行为 (Price Action): 价格运动的纯粹强度与位置。
-          2. 量能行为 (Volume Action): 市场活跃度与流动性状态。
-          3. 价量关系 (Price-Volume Relation): 价格运动的效率与健康度。
-          4. 日内形态 (Intraday Form): K线内部的多空博弈战果。
+        【V2.1 · 工具归位版】行为公理诊断引擎
+        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
         print("开始执行【V2.0 · 职责净化版 · 行为公理诊断引擎】...")
         states = {}
@@ -248,30 +244,32 @@ class BehavioralIntelligence:
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('volatility_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        # [代码修改开始]
         # --- 公理一: 价格行为 (Price Action) ---
-        price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), ascending=True, tf_weights=default_weights)
+        price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = price_upward_momentum.astype(np.float32)
-        price_downward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), ascending=True, tf_weights=default_weights)
+        price_downward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = price_downward_momentum.astype(np.float32)
-        bias_risk = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), ascending=True, tf_weights=long_term_weights)
+        bias_risk = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights)
         states['SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION'] = bias_risk.astype(np.float32)
         # --- 公理二: 量能行为 (Volume Action) ---
-        volume_burst = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), ascending=True, tf_weights=default_weights)
+        volume_burst = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = volume_burst.astype(np.float32)
-        volume_apathy = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), ascending=False, tf_weights=long_term_weights)
+        volume_apathy = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights)
         states['SCORE_BEHAVIOR_VOLUME_APATHY'] = volume_apathy.astype(np.float32)
         # --- 公理三: 价量关系 (Price-Volume Relation) ---
-        upward_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True, tf_weights=default_weights)
+        upward_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency.astype(np.float32)
-        downward_resistance = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=False, tf_weights=default_weights)
+        downward_resistance = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance.astype(np.float32)
         # --- 公理四: 日内形态 (Intraday Form) ---
-        intraday_bull_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True, tf_weights=default_weights)
+        intraday_bull_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control.astype(np.float32)
-        lower_shadow_absorption = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), ascending=True, tf_weights=default_weights)
+        lower_shadow_absorption = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_absorption.astype(np.float32)
-        upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), ascending=True, tf_weights=default_weights)
+        upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = upper_shadow_pressure.astype(np.float32)
+        # [代码修改结束]
         # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
         is_falling = (df['pct_change_D'] < 0).astype(float)
@@ -284,22 +282,18 @@ class BehavioralIntelligence:
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 压力-承接能量转化模型】
-        - 核心思想: 将压力视为势能，承接视为能量转化。机会的大小，正比于“被高质量吸收的压力”以及“力量对比的动能逆转”。
-        - 核心升级:
-          1. 承接质量评估: 融合承接效率(VPA)、控制力(VWAP)和主力意图，量化“能量转化率”。
-          2. 博弈动能计算: 对“日度净多头力量”求导，捕捉力量天平的倾斜加速度。
-          3. 能量动态分配: 基于“博弈动能”对最终的风险和机会进行非线性放大或衰减。
-        - 产出: 生成蕴含“势能转化”和“动能逆转”思想的 `SCORE_RISK_UNRESOLVED_PRESSURE` 和 `SCORE_OPPORTUNITY_PRESSURE_ABSORPTION`。
+        【V3.1 · 工具归位版】压力-承接能量转化模型
+        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
         print("开始执行【V3.0 · 压力-承接能量转化模型】...")
         states = {}
         df = self.strategy.df_indicators
         # --- 步骤一: 评估承接质量 (Absorption Quality) ---
-        # 证据1.1: 承接效率 (VPA)
-        absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), ascending=True)
-        # 证据1.2: 承接控制力 (VWAP)
-        absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), ascending=True)
+        # [代码修改开始]
+        # 调用公共工具函数，并传入 df.index
+        absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
+        absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
+        # [代码修改结束]
         # 证据1.3: 承接意图 (从-1,1映射到0,1)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
         # 融合得到承接质量，体现“三位一体”
