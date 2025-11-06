@@ -622,6 +622,33 @@ class FeatureEngineeringService:
         return all_dfs
         # [代码新增结束]
 
+    async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
+        """
+        【V1.0 · 新增】突破质量分计算专用通道
+        - 核心职责: 在确保所有依赖项都计算完毕后，调用计算器生成突破质量分，并将其集成到日线数据中。
+        """
+        # [代码新增开始]
+        if not params.get('enabled', False):
+            return all_dfs
+        timeframe = 'D'
+        if timeframe not in all_dfs or all_dfs[timeframe] is None:
+            return all_dfs
+        df_daily = all_dfs[timeframe]
+        # 注意：此时传入的 df_daily 的列名是带后缀的，我们需要先剥离后缀以供 calculator 使用
+        df_for_calc = df_daily.copy()
+        df_for_calc.columns = [c.removesuffix(f'_{timeframe}') for c in df_for_calc.columns]
+        # 调用计算器
+        result_df = await calculator.calculate_breakout_quality_score(df_daily=df_for_calc, params=params)
+        if result_df is not None and not result_df.empty:
+            # 将结果合并回原始的、带后缀的日线DataFrame
+            # result_df 的列名已经是 'breakout_quality_score_D'，无需再加后缀
+            df_daily = df_daily.join(result_df, how='left')
+            # 对新合并的列进行前向填充
+            df_daily[result_df.columns] = df_daily[result_df.columns].ffill()
+            all_dfs[timeframe] = df_daily
+            logger.info("突破质量分计算完成并已集成。")
+        return all_dfs
+        # [代码新增结束]
 
 
 

@@ -1221,9 +1221,9 @@ class IndicatorCalculator:
 
     async def calculate_breakout_quality_score(self, df_daily: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
         """
-        【V2.1 · 指挥链修复版】计算突破质量分。
-        - 核心修复: 修正了依赖列的查找逻辑。由于此方法在上游被调用时，传入的 df_daily 的列名后缀已被剥离，
-                    因此这里必须查找无后缀的列名，以确保能正确获取数据。
+        【V2.2 · 最终版】计算突破质量分。
+        - 核心思想: 真突破是能量、主导者、形态、结构、效率五个维度的共振。
+        - 依赖说明: 此方法依赖上游传入一个包含所有必需列（无后缀）的DataFrame。
         """
         if df_daily is None or df_daily.empty:
             return None
@@ -1231,43 +1231,32 @@ class IndicatorCalculator:
             def _sync_calc():
                 df = df_daily.copy()
                 weights = params.get('weights', {'volume': 0.2, 'driver': 0.3, 'price_action': 0.1, 'chips': 0.2, 'efficiency': 0.2})
-                
                 # [代码修改开始]
-                # 核心修复：此方法被调用时，传入的df_daily的列名后缀已被上游剥离。
-                # 因此，这里必须查找无后缀的列名。
+                # 修正：此方法在上游被调用时，应接收已剥离后缀的列名
                 required_cols = [
                     'volume', 'VOL_MA_21', 'main_force_flow_directionality',
                     'open', 'high', 'low', 'close',
                     'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
                 ]
-                # [代码修改结束]
-
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
-                    print(f"调试信息: 计算突破质量分(V2.1)失败，缺少必要列: {missing_cols}。可用列: {df.columns.tolist()}")
+                    print(f"调试信息: 计算突破质量分(V2.2)失败，缺少必要列: {missing_cols}。")
                     return None
-                
-                # [代码修改开始]
                 # 维度一：能量输入 (0-1分)
                 volume_ratio = df['volume'] / df['VOL_MA_21'].replace(0, np.nan)
                 score_volume = volume_ratio.rolling(60).rank(pct=True).fillna(0.5)
-
                 # 维度二：主导力量 (天然是-1到1分，映射到0-1)
                 score_driver = (df['main_force_flow_directionality'].fillna(0) + 1) / 2
-
                 # 维度三：价格形态 (0-1分)
                 price_range = (df['high'] - df['low']).replace(0, np.nan)
                 score_price_action = ((df['close'] - df['open']) / price_range).fillna(0).clip(0, 1)
-
                 # 维度四：筹码结构 (0-1分)
                 winner_rate_gain = df['total_winner_rate'].diff().fillna(0)
                 chip_breakthrough_eff = winner_rate_gain * df['dominant_peak_solidity']
                 score_chips = chip_breakthrough_eff.rolling(60).rank(pct=True).fillna(0.5)
-
                 # 维度五：攻击效率 (0-1分)
                 score_efficiency = df['VPA_EFFICIENCY'].rolling(60).rank(pct=True).fillna(0.5)
-                # [代码修改结束]
-                
+                # 加权融合
                 quality_score = (
                     score_volume * weights['volume'] +
                     score_driver * weights['driver'] +
@@ -1275,10 +1264,11 @@ class IndicatorCalculator:
                     score_chips * weights['chips'] +
                     score_efficiency * weights['efficiency']
                 )
+                # [代码修改结束]
                 return pd.DataFrame({'breakout_quality_score_D': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
-            logger.error(f"计算突破质量分(V2.1)时发生错误: {e}", exc_info=True)
+            logger.error(f"计算突破质量分(V2.2)时发生错误: {e}", exc_info=True)
             return None
 
 

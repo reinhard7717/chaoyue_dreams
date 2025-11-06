@@ -373,9 +373,8 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.1 · 均线势能生产调度版】为策略准备数据的统一入口。
-        - 核心升级: 在特征工程流程中，正式调度新增的 `calculate_ma_potential_metrics` 方法，
-                    确保在高级模式识别引擎运行前，生产出其必需的“均线势能”系列指标。
+        【V8.2 · 依赖编排修复版】为策略准备数据的统一入口。
+        - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         """
         # [代码修改开始]
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
@@ -383,50 +382,42 @@ class IndicatorService:
         if not all_dfs:
             return {}
         indicators_config = config.get('feature_engineering_params', {}).get('indicators', {})
-        # --- 新增步骤: 【形态增强信号计算】 ---
+        # --- 步骤 2: 【形态增强信号计算】 ---
         all_dfs = await self.feature_service.calculate_pattern_enhancement_signals(all_dfs, config, self.calculator)
-        # --- 步骤 2: 【第二道工序】计算元特征 (Hurst, CV等) ---
-        all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
         # --- 步骤 3: 【VPA效率指标计算】 ---
         all_dfs = await self.feature_service.calculate_vpa_features(all_dfs, config)
-        
-        # --- 步骤 4: 计算均线收敛度、势能和盘整期，作为高级模式识别的前置步骤 ---
-        # 旧的均线收敛度计算（如果仍然需要）
-        ma_conv_params = indicators_config.get('ma_convergence', {})
-        if ma_conv_params.get('enabled', False):
-            # 注意：旧的 calculate_ma_convergence 方法可能与新的势能指标有重叠，建议未来整合或废弃
-            all_dfs = await self.feature_service.calculate_ma_convergence(all_dfs, ma_conv_params)
-        
-        # 【核心新增】调用新的均线势能指标生产线
+        # --- 步骤 4: 【突破质量分计算】(核心修正：移至此处，确保依赖项已就绪) ---
+        bqs_params = indicators_config.get('breakout_quality_score', {})
+        if bqs_params.get('enabled', False):
+            all_dfs = await self.feature_service.calculate_breakout_quality(all_dfs, bqs_params, self.calculator)
+        # --- 步骤 5: 【元特征计算】 ---
+        all_dfs = await self.feature_service.calculate_meta_features(all_dfs, config)
+        # --- 步骤 6: 【均线势能计算】 ---
         ma_potential_params = indicators_config.get('ma_potential_metrics', {})
         if ma_potential_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_ma_potential_metrics(all_dfs, ma_potential_params)
-            
-        # 盘整期计算
+        # --- 步骤 7: 【盘整期计算】 ---
         consolidation_params = indicators_config.get('consolidation_period', {})
         if consolidation_params.get('enabled', False):
             all_dfs = await self.feature_service.calculate_consolidation_period(all_dfs, consolidation_params)
-            
-        # --- 步骤 5: 【斜率计算】 ---
+        # --- 步骤 8: 【斜率与加速度计算】 ---
         all_dfs = await self.feature_service.calculate_all_slopes(all_dfs, config)
-        # --- 步骤 6: 【加速度计算】 ---
         all_dfs = await self.feature_service.calculate_all_accelerations(all_dfs, config)
-        # 在所有基础特征和衍生特征计算完毕后，调用高级模式识别引擎
+        # --- 步骤 9: 【高级模式识别】 ---
         all_dfs = await self.feature_service.calculate_pattern_recognition_signals(all_dfs, config)
-        # --- 步骤 7: 【上下文信息注入】 ---
+        # --- 步骤 10: 【上下文信息注入】 ---
         if not all_dfs or 'D' not in all_dfs or all_dfs['D'].empty:
             return all_dfs
         df_daily = all_dfs['D']
         start_date = df_daily.index.min().date()
         end_date = df_daily.index.max().date()
-        # 注入游资信号
+        # (后续的上下文注入逻辑保持不变)
         hot_money_params = self._find_params_recursively(config, 'hot_money_params')
         if hot_money_params and hot_money_params.get('enabled', False):
             hm_signals_df = await self.context_service.prepare_hot_money_signals(stock_code, start_date, end_date, hot_money_params)
             if not hm_signals_df.empty:
                 df_daily = df_daily.merge(hm_signals_df, left_index=True, right_index=True, how='left')
                 for col in hm_signals_df.columns: df_daily[col] = df_daily[col].fillna(False).astype(bool)
-        # 注入市场情绪信号
         sentiment_params = self._find_params_recursively(config, 'market_sentiment_params')
         if sentiment_params and sentiment_params.get('enabled', False):
             sentiment_signals_df = await self.context_service.prepare_market_sentiment_signals(stock_code, start_date, end_date, sentiment_params)
@@ -436,7 +427,6 @@ class IndicatorService:
                 for col in sentiment_signals_df.columns:
                     fill_value = 0 if 'score' in col or 'rank' in col or 'ups' in col else False
                     df_daily[col] = df_daily[col].fillna(fill_value)
-        # 注入行业生命周期数据
         four_layer_params = self._find_params_recursively(config, 'four_layer_scoring_params')
         industry_params = four_layer_params.get('industry_lifecycle_scoring_params', {}) if four_layer_params else {}
         if industry_params and industry_params.get('enabled', False):
@@ -447,9 +437,6 @@ class IndicatorService:
                 df_daily = df_daily.merge(industry_lifecycle_df, left_index=True, right_index=True, how='left')
                 for col in industry_lifecycle_df.columns:
                     df_daily[col] = df_daily[col].ffill().fillna(0)
-            else:
-                print(f"    - [行业背景注入] 警告: 未能获取股票 {stock_code} 的融合行业生命周期数据。")
-        # --- 注入KPL题材热度信号 ---
         kpl_params = self._find_params_recursively(config, 'kpl_theme_params')
         if kpl_params and kpl_params.get('enabled', False):
             kpl_hotness_df = await self.context_service.analyze_kpl_theme_hotness(
@@ -461,8 +448,6 @@ class IndicatorService:
                 df_daily['THEME_HOTNESS_SCORE_D'].fillna(0, inplace=True)
             else:
                 df_daily['THEME_HOTNESS_SCORE_D'] = 0.0
-                print(f"    - [KPL题材热度注入] 未能获取到 {stock_code} 的KPL题材热度数据，该项得分将为0。")
-        # 注入聪明钱信号
         smart_money_params = self._find_params_recursively(config, 'smart_money_params')
         if smart_money_params and smart_money_params.get('enabled', False):
             smart_money_signals_df = await self.context_service.prepare_smart_money_signals(stock_code, start_date, end_date, smart_money_params)
@@ -757,8 +742,8 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.12 · 突破质量分整合版】根据配置为指定时间周期计算所有技术指标。
-        - 核心增加对 'breakout_quality_score' 的计算支持和流程编排。
+        【V110.13 · 职责分离版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修改: 移除了对 `breakout_quality_score` 的计算职责。该指标的计算已被移交至上层 `prepare_data_for_strategy` 流程中进行统一编排，以解决依赖顺序问题。
         """
         if not config:
             return df
@@ -779,7 +764,6 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
-            'breakout_quality_score': self.calculator.calculate_breakout_quality_score, # 新增：突破质量分方法映射
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty: return
@@ -787,13 +771,14 @@ class IndicatorService:
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # 增加 'breakout_quality_score' 到有序计算列表，确保其在依赖项之后计算
+        # [代码修改开始]
+        # 移除 'breakout_quality_score'
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
-            'fibonacci_levels',
-            'breakout_quality_score' # 新增：加入计算序列
+            'fibonacci_levels'
         ]
+        # [代码修改结束]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue
@@ -827,15 +812,11 @@ class IndicatorService:
                 try:
                     method_to_call = indicator_method_map[indicator_name]
                     # [代码修改开始]
-                    # 增加对 breakout_quality_score 的处理逻辑
-                    if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison', 'breakout_quality_score']:
-                        # 这些方法接收整个参数字典
+                    # 移除对 breakout_quality_score 的特殊处理
+                    if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
                         result_df = await method_to_call(df=df_for_calc, params=sub_config)
                         merge_results(result_df, df_for_calc)
-                        # breakout_quality_score 通常只有一个配置，处理完后跳出内层循环
-                        if indicator_name == 'breakout_quality_score':
-                            break
-                        continue # 对于其他两个，也继续外层循环
+                        continue
                     # [代码修改结束]
                     kwargs = {'df': df_for_calc}
                     periods = sub_config.get('periods')
