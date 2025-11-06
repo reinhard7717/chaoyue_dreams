@@ -222,11 +222,10 @@ class IndicatorCalculator:
             logger.error(f"计算 CCI (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
+    async def calculate_cmf(self, df: pd.DataFrame, period: int = 20, high_col='high', low_col='low', close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V2.1 异步优化版】计算 CMF (蔡金货币流量)。
-        - 指标含义: 衡量资金流入和流出的压力。CMF > 0 通常表示买方压力，CMF < 0 表示卖方压力。
-        - 优化: 将同步的 pandas-ta 计算移至工作线程执行，避免阻塞事件循环。
+        【V2.2 · 接口健壮性修复版】计算 CMF (蔡金货币流量)。
+        - 核心修复: 在函数签名中添加 suffix='' 参数，以优雅地接收并忽略上游可能泄漏的参数，防止TypeError。
         """
         required_cols = [high_col, low_col, close_col, volume_col]
         if df is None or df.empty or not all(col in df.columns for col in required_cols):
@@ -236,23 +235,19 @@ class IndicatorCalculator:
             logger.warning(f"计算 CMF (周期 {period}) 失败：数据长度 {len(df)} 小于周期 {period}。")
             return None
         try:
-            # 定义同步计算函数。
             def _sync_cmf():
-                # 直接调用 pandas_ta，它会返回一个带有正确列名（如 'CMF_20'）的 Series
                 cmf_series = ta.cmf(
                     high=df[high_col], 
                     low=df[low_col], 
                     close=df[close_col], 
                     volume=df[volume_col], 
                     length=period, 
-                    append=False # 确保不修改原始df
+                    append=False
                 )
                 if cmf_series is None or cmf_series.empty:
                     logger.warning(f"计算 CMF (周期 {period}) 返回了空结果。")
                     return None
-                # 将返回的 Series 转换为 DataFrame，以便上层服务进行合并
                 return cmf_series.to_frame()
-            # 在独立的线程中异步执行。
             return await asyncio.to_thread(_sync_cmf)
         except Exception as e:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
@@ -320,7 +315,7 @@ class IndicatorCalculator:
             return None
 
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
-        """【V1.1 · 命名净化版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
+        """【V1.2 · f-string修复版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
         if len(df) < period: return None
         try:
@@ -328,15 +323,21 @@ class IndicatorCalculator:
                 return ta.adx(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
             dmi_df = await asyncio.to_thread(_sync_dmi)
             if dmi_df is None or dmi_df.empty: return None
-            # 重命名为纯净的、不带后缀的标准名称
             rename_map = {
                 f'DMP_{period}': f'PDI_{period}',
                 f'DMN_{period}': f'NDI_{period}',
                 f'ADX_{period}': f'ADX_{period}'
             }
             result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
-            # 只返回我们关心的列
-            return result_df[['PDI_{period}', 'NDI_{period}', 'ADX_{period}']]
+            # [代码修改开始]
+            # 修复 f-string 遗忘错误
+            final_cols = [f'PDI_{period}', f'NDI_{period}', f'ADX_{period}']
+            # 确保所有列都存在再进行选择
+            existing_cols = [col for col in final_cols if col in result_df.columns]
+            if not existing_cols:
+                return None
+            return result_df[existing_cols]
+            # [代码修改结束]
         except Exception as e:
             logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None

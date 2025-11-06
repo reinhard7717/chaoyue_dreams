@@ -682,10 +682,10 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.16 · 装配线重建版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修复: 彻底修复了 merge_results 函数为空的致命缺陷，恢复了指标合并功能。
-        - 命名协议最终执行: 确保由 IndicatorCalculator 返回的、不带后缀的纯净指标列，
-                          在合并时被正确地添加上时间周期后缀 (如 _D, _W)。
+        【V110.17 · 参数隔离修复版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修复: 隔离了 'suffix' 参数的传递。不再将其普遍添加到 kwargs_iter 中，
+                      而是仅在调用真正需要它的函数（如boll_bands_and_width, vwap）时才显式添加。
+                      这彻底解决了因参数泄漏导致的 TypeError。
         """
         if not config:
             return df
@@ -705,20 +705,22 @@ class IndicatorService:
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
         }
-        # [代码修改开始]
-        # --- 修复 merge_results 函数 ---
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
                 return
             if isinstance(result_data, pd.Series):
                 result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
+                # [代码修改开始]
+                # 在合并时，为所有新列统一添加后缀
+                suffix = f"_{timeframe_key}"
+                rename_dict = {col: f"{col}{suffix}" for col in result_data.columns if not col.endswith(suffix)}
+                result_data.rename(columns=rename_dict, inplace=True)
                 for col in result_data.columns:
-                    # 直接将计算结果合并到目标DataFrame
                     target_df[col] = result_data[col]
+                # [代码修改结束]
             else:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # [代码修改结束]
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
@@ -780,7 +782,7 @@ class IndicatorService:
                         continue
                     if periods is None:
                         if indicator_name == 'obv':
-                            kwargs.update({'close_col': close_col_tf, 'volume_col': volume_col_tf, 'suffix': f"_{timeframe_key}"})
+                            kwargs.update({'close_col': close_col_tf, 'volume_col': volume_col_tf})
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
@@ -788,7 +790,10 @@ class IndicatorService:
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
                     for p_set in periods_to_iterate:
-                        kwargs_iter = {'df': df_for_calc, 'suffix': f"_{timeframe_key}"}
+                        # [代码修改开始]
+                        # 移除通用的 suffix，只在需要时添加
+                        kwargs_iter = {'df': df_for_calc}
+                        # [代码修改结束]
                         if indicator_name in ['ma', 'ema', 'rsi', 'roc', 'bias', 'mom']:
                             kwargs_iter.update({'period': p_set, 'close_col': close_col_tf})
                         elif indicator_name == 'vol_ma':
@@ -802,7 +807,10 @@ class IndicatorService:
                         elif indicator_name in ['dmi', 'kdj', 'atr', 'atrn', 'atrr']:
                              kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf})
                         elif indicator_name == 'boll_bands_and_width':
-                            kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0)), 'close_col': close_col_tf})
+                            # [代码修改开始]
+                            # 只在这里为需要的函数添加 suffix
+                            kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0)), 'close_col': close_col_tf, 'suffix': f"_{timeframe_key}"})
+                            # [代码修改结束]
                         elif indicator_name == 'cmf':
                             kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf, 'volume_col': volume_col_tf})
                         elif indicator_name == 'uo':
