@@ -40,28 +40,30 @@ class ProcessIntelligence:
 
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V2.3.0 · 信号分裂版】运行所有在配置中定义的元分析诊断任务。
-        - 核心升级: 新增对 'split_meta_analysis' 任务类型的支持，调用专属的信号分裂计算引擎。
+        【V3.0.0 · 统一引擎版】运行所有在配置中定义的元分析诊断任务。
+        - 核心升级: 统一了 'meta_analysis' 和 'strategy_sync' 的处理流程，
+                      所有关系诊断任务现在都由唯一的、更先进的 _diagnose_meta_relationship 引擎处理。
+                      移除了过时的 _diagnose_strategy_sync 和 _calculate_strategy_sync_relationship 方法。
         """
-        # print(f"      -> [过程情报引擎 V2.3.0 · 信号分裂版] 启动 (模式: {task_type_filter or 'all'})...")
         all_process_states = {}
         df = self.strategy.df_indicators
         if df.empty:
-            print(f"      -> [过程情报引擎 V2.3.0] 警告: 数据量不足，跳过诊断 (模式: {task_type_filter or 'all'})。")
             return {}
+        
         for config in self.diagnostics_config:
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
+            
             signal_name = config.get('name')
             signal_type = config.get('type')
             
-            # 增加对新任务类型的路由
-            custom_signal_type = config.get('signal_type')
             if not signal_name:
                 continue
-            # 增加对新任务类型的路由，为 'strategy_sync' 调用专属诊断方法
-            if signal_type == 'meta_analysis':
-                # 增加对新任务类型的路由
+
+            # [代码修改开始]
+            # 统一路由：无论是基础元分析还是策略同步，都使用同一个诊断引擎
+            if signal_type in ['meta_analysis', 'strategy_sync']:
+                custom_signal_type = config.get('signal_type')
                 if custom_signal_type == 'split_meta_analysis':
                     split_states = self._diagnose_split_meta_relationship(df, config)
                     if split_states:
@@ -70,12 +72,8 @@ class ProcessIntelligence:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
                         all_process_states.update(meta_states)
-            
-            elif signal_type == 'strategy_sync':
-                sync_states = self._diagnose_strategy_sync(df, config)
-                if sync_states:
-                    all_process_states.update(sync_states)
-        # print(f"      -> [过程情报引擎 V2.3.0] 分析完毕 (模式: {task_type_filter or 'all'})，共生成 {len(all_process_states)} 个过程元状态。")
+            # [代码修改结束]
+
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -268,73 +266,6 @@ class ProcessIntelligence:
         k = config.get('signal_b_factor_k', 1.0)
         relationship_score = (k * momentum_b_corrected - momentum_a) / (k + 1)
         return relationship_score.clip(-1, 1)
-
-    def _diagnose_strategy_sync(self, df: pd.DataFrame, config: dict) -> Dict[str, pd.Series]:
-        """
-        【V2.0 · 信号分裂版】战略同步诊断器
-        - 核心革命: 不再输出单一的双极性信号，而是将其在源头分裂为两个互斥的单极性信号：
-                      - <signal_name>: 只包含负向部分(风险)，代表趋势形成。
-                      - <signal_name>_RISE: 只包含正向部分(机会)，代表趋势消散。
-        - 收益: 彻底解决了下游计分和报告的逻辑混乱问题。
-        """
-        atomic_states = {}
-        signal_name = config.get('name')
-        
-        # 步骤1: 计算瞬时关系分 (逻辑不变)
-        relationship_series = self._calculate_strategy_sync_relationship(df, config)
-        
-        # 步骤2: 对关系分进行动态元分析 (逻辑不变)
-        relationship_trend = ta.linreg(relationship_series, length=self.meta_window).fillna(0)
-        relationship_accel = ta.linreg(relationship_trend, length=self.meta_window).fillna(0)
-        
-        # 步骤3: 归一化为双极性强度分 (逻辑不变)
-        bipolar_trend_strength = normalize_to_bipolar(relationship_trend, df.index, self.norm_window, self.bipolar_sensitivity)
-        bipolar_accel_strength = normalize_to_bipolar(relationship_accel, df.index, self.norm_window, self.bipolar_sensitivity)
-        
-        # 步骤4: 使用加权平均法融合 (逻辑不变)
-        trend_weight, accel_weight = self.meta_score_weights
-        meta_score = (bipolar_trend_strength * trend_weight + bipolar_accel_strength * accel_weight)
-        meta_score = np.clip(meta_score, -1, 1)
-        
-        # 信号分裂：将一个双极性信号拆分为两个单极性信号
-        # 风险信号 (DECAY): 只取负向部分，并转为正值，代表风险强度。
-        risk_part = meta_score.clip(upper=0).abs()
-        atomic_states[signal_name] = risk_part.astype(np.float32)
-        
-        # 机会信号 (RISE): 只取正向部分，代表机会强度。
-        opportunity_part = meta_score.clip(lower=0)
-        atomic_states[f"{signal_name}_RISE"] = opportunity_part.astype(np.float32)
-            
-        return atomic_states
-
-    def _calculate_strategy_sync_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V1.1 · 范围约束版】
-        - 核心修复: 对最终的 relationship_score 增加 .clip(-1, 1) 约束，彻底杜绝范围溢出问题。
-        """
-        signal_a_name = config.get('signal_A')
-        signal_b_name = config.get('signal_B')
-
-        signal_a = self.strategy.atomic_states.get(signal_a_name)
-        signal_b = self.strategy.atomic_states.get(signal_b_name)
-        
-        if signal_a is None or signal_b is None:
-            print(f"        -> [战略同步] 警告: 缺少战略信号 '{signal_a_name}' 或 '{signal_b_name}'。")
-            return pd.Series(dtype=np.float32)
-
-        momentum_a = (signal_a - 0.5) * 2
-        thrust_b = (signal_b - 0.5) * 2
-        
-        signal_b_factor_k = config.get('signal_b_factor_k', 1.0)
-        relationship_score = momentum_a * (1 + signal_b_factor_k * thrust_b)
-        
-        # 增加范围约束，防止数学溢出
-        relationship_score = relationship_score.clip(-1, 1)
-        
-        self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
-        self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
-        
-        return relationship_score
 
 
 

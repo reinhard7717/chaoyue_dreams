@@ -379,8 +379,8 @@
             "category": "过程层-战略",
             "type": "process",
             "score": 100,
-            "scoring_mode": "unipolar",
-            "description": "诊断'筹码看涨共振'与'行为看涨共振'的同步过程。这是一个事件，只加分。"
+            "scoring_mode": "bipolar",
+            "description": "【V3.0 引擎统一版】诊断'筹码看涨共振'与'行为看涨共振'的同步过程。正分代表两者同步改善，负分代表两者同步恶化或方向相反。"
         },
         "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD": {
             "cn_name": "【过程】资金领先结构",

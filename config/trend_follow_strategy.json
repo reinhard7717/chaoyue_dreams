@@ -492,9 +492,9 @@
             "task_type": "strategy",
             "relationship_type": "consensus",
             "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_STRUCT_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
-            "comment": "【逻辑修复】明确为'共识'关系。高分代表行为与筹码同步改善。"
+            "comment": "【逻辑修复】明确为'共识'关系。高分代表行为与筹码同步改善。修正了 signal_B 的名称。"
           },
           {
             "name": "PROCESS_STRATEGY_FF_VS_STRUCTURE_LEAD",
