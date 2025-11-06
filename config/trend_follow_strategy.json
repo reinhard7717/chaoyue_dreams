@@ -797,16 +797,16 @@
       },
       "chip_ultimate_params": {
         "enabled": true,
-        "description": "【V8.0 · 四大公理版】定义了基于“聚散、成本、心态、形态”四大核心公理的新筹码引擎参数。",
+        "description": "【V8.1 · 结构修正版】定义了基于“聚散、成本、心态、形态”四大核心公理的新筹码引擎参数。",
+        "description_tf_fusion_weights": "【全息共振】在融合多时间级别(MTF)的公理分数时，赋予不同周期的权重。",
         "tf_fusion_weights": {
-          "description": "【全息共振】在融合多时间级别(MTF)的公理分数时，赋予不同周期的权重。",
           "5": 0.4,
           "13": 0.3,
           "21": 0.2,
           "55": 0.1
         },
+        "description_axiom_weights": "融合四大筹码公理时的权重。",
         "axiom_weights": {
-          "description": "融合四大筹码公理时的权重。",
           "concentration": 0.3,
           "cost_structure": 0.3,
           "holder_sentiment": 0.2,
