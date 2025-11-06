@@ -209,7 +209,6 @@ class BehavioralIntelligence:
         - 核心逻辑重构: 遵循“职责分离”原则，本方法现在只聚焦于为【本模块生产的】纯粹行为原子信号注入动态因子（动量、潜力、推力）。
                         不再计算跨领域的 RESONANCE_HEALTH_D 等信号。
         """
-        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_dyn = get_param_value(p_conf.get('signal_dynamics_params'), {})
         momentum_span = get_param_value(p_dyn.get('momentum_span'), 5)
@@ -263,7 +262,6 @@ class BehavioralIntelligence:
         final_df = pd.concat([df, dynamics_df], axis=1)
         
         return final_df
-        # [代码修改结束]
 
     def _calculate_behavioral_day_quality(self, df: pd.DataFrame) -> pd.Series:
         """

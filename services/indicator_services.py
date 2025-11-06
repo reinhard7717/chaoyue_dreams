@@ -376,7 +376,6 @@ class IndicatorService:
         【V8.2 · 依赖编排修复版】为策略准备数据的统一入口。
         - 核心修复: 调整了特征计算的顺序，确保 `breakout_quality_score` 在其所有依赖项（如VPA_EFFICIENCY）计算完毕后才执行，从根本上解决了流程错乱问题。
         """
-        # [代码修改开始]
         # --- 步骤 1: 【第一道工序】准备基础数据和常规指标 ---
         all_dfs = await self._prepare_base_data_and_indicators(stock_code, config, trade_time, latest_only=latest_only)
         if not all_dfs:
@@ -458,7 +457,6 @@ class IndicatorService:
                     df_daily[col] = df_daily[col].fillna(False).astype(bool)
         all_dfs['D'] = df_daily
         return all_dfs
-        # [代码修改结束]
 
     async def _prepare_base_data_and_indicators(
         self,
@@ -771,14 +769,12 @@ class IndicatorService:
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # [代码修改开始]
         # 移除 'breakout_quality_score'
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
             'fibonacci_levels'
         ]
-        # [代码修改结束]
         for indicator_key in ordered_calc_keys:
             params = config.get(indicator_key)
             if not params or not params.get('enabled', False): continue

@@ -127,7 +127,6 @@ class StructuralIntelligence:
           2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
           3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
         """
-        # [代码修改开始]
         print("    -- [结构公理三: 结构稳定性] 正在诊断均线收敛度、长期支撑与趋势健康度...")
         # --- 证据1: 能量积蓄度 (Energy Accumulation) ---
         bbw_col = 'BBW_21_2.0_D'
@@ -176,4 +175,3 @@ class StructuralIntelligence:
         stability_score = (raw_stability_score * 2 - 1).clip(-1, 1)
         print(f"    -- [结构公理三: 结构稳定性] 诊断完成，最新分值: {stability_score.iloc[-1]:.4f}")
         return stability_score.astype(np.float32)
-        # [代码修改结束]
