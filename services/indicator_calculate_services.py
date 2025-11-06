@@ -26,8 +26,8 @@ class IndicatorCalculator:
         pass
 
     # --- 所有指标计算函数 async def calculate_* ---
-    async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
-        """计算 ATR (平均真实波幅)"""
+    async def calculate_atr(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 ATR (平均真实波幅)"""
         required_cols = [high_col, low_col, close_col]
         if df is None or df.empty or not all(col in df.columns for col in required_cols):
             logger.warning(f"计算 ATR 缺少必要列: {required_cols}。可用列: {df.columns.tolist() if df is not None else 'None'}")
@@ -42,11 +42,8 @@ class IndicatorCalculator:
             if atr_series is None or atr_series.empty:
                 logger.warning(f"ATR_{period} 计算结果为空。")
                 return None
-            # [代码修改开始]
-            # 修复列名，以匹配 pandas-ta 的输出格式并添加后缀
-            suffix = high_col[high_col.rfind('_'):] if '_' in high_col else ''
-            df_results = pd.DataFrame({f'ATR_{period}{suffix}': atr_series}, index=df.index)
-            # [代码修改结束]
+            # 返回纯净的、不带后缀的列名
+            df_results = pd.DataFrame({f'ATR_{period}': atr_series}, index=df.index)
             return df_results
         except Exception as e:
             logger.error(f"计算 ATR (周期 {period}) 出错: {e}", exc_info=True)
@@ -292,23 +289,23 @@ class IndicatorCalculator:
             logger.error(f"计算 KDJ (p={period}, sig={signal_period}, smooth={smooth_k_period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_ma(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
-        """[新增]计算 MA (简单移动平均线)"""
+    async def calculate_ma(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 MA (简单移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
         if len(df) < period: return None
         try:
             def _sync_ma():
-                # MA (Moving Average) 通常指的就是 SMA (Simple Moving Average)
                 return ta.sma(close=df[close_col], length=period, append=False)
             ma_series = await asyncio.to_thread(_sync_ma)
             if ma_series is None or not isinstance(ma_series, pd.Series) or ma_series.empty: return None
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({f'MA_{period}': ma_series}, index=df.index)
         except Exception as e:
             logger.error(f"计算 MA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
-        """计算 EMA (指数移动平均线)"""
+    async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 EMA (指数移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
         if len(df) < period: return None
         try:
@@ -316,13 +313,14 @@ class IndicatorCalculator:
                 return ta.ema(close=df[close_col], length=period, append=False)
             ema_series = await asyncio.to_thread(_sync_ema)
             if ema_series is None or not isinstance(ema_series, pd.Series) or ema_series.empty: return None
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({f'EMA_{period}': ema_series}, index=df.index)
         except Exception as e:
             logger.error(f"计算 EMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
-        """计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
+    async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
         if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
         if len(df) < period: return None
         try:
@@ -330,13 +328,15 @@ class IndicatorCalculator:
                 return ta.adx(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
             dmi_df = await asyncio.to_thread(_sync_dmi)
             if dmi_df is None or dmi_df.empty: return None
+            # 重命名为纯净的、不带后缀的标准名称
             rename_map = {
                 f'DMP_{period}': f'PDI_{period}',
                 f'DMN_{period}': f'NDI_{period}',
                 f'ADX_{period}': f'ADX_{period}'
             }
             result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
-            return result_df
+            # 只返回我们关心的列
+            return result_df[['PDI_{period}', 'NDI_{period}', 'ADX_{period}']]
         except Exception as e:
             logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None
@@ -424,8 +424,8 @@ class IndicatorCalculator:
             logger.error(f"计算 AMT_MA (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_macd(self, df: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9, close_col='close') -> Optional[pd.DataFrame]:
-        """计算移动平均收敛散度 (MACD)"""
+    async def calculate_macd(self, df: pd.DataFrame, period_fast: int = 12, period_slow: int = 26, signal_period: int = 9, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算移动平均收敛散度 (MACD)"""
         if df is None or df.empty or close_col not in df.columns:
             return None
         if len(df) < period_slow + signal_period:
@@ -434,11 +434,10 @@ class IndicatorCalculator:
             def _sync_macd():
                 return ta.macd(close=df[close_col], fast=period_fast, slow=period_slow, signal=signal_period, append=False)
             macd_df = await asyncio.to_thread(_sync_macd)
-            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if macd_df is None or macd_df.empty:
                 logger.warning(f"MACD (f={period_fast},s={period_slow},sig={signal_period}) 计算结果为空，可能数据量不足。")
                 return None
-            # ▲▲▲ 修改结束 ▲▲▲
+            # pandas-ta返回的列名已经包含了周期，是纯净的，直接返回即可
             return macd_df
         except Exception as e:
             logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
@@ -472,21 +471,22 @@ class IndicatorCalculator:
             logger.error(f"计算 MOM (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_obv(self, df: pd.DataFrame, close_col='close', volume_col='volume') -> Optional[pd.DataFrame]:
-        """计算 OBV (能量潮指标)"""
+    async def calculate_obv(self, df: pd.DataFrame, close_col='close', volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 OBV (能量潮指标)"""
         if df is None or df.empty or not all(c in df.columns for c in [close_col, volume_col]): return None
         try:
             def _sync_obv():
                 return ta.obv(close=df[close_col], volume=df[volume_col], append=False)
             obv_series = await asyncio.to_thread(_sync_obv)
             if obv_series is None or obv_series.empty: return None
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({'OBV': obv_series}, index=df.index)
         except Exception as e:
             logger.error(f"计算 OBV 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_roc(self, df: pd.DataFrame, period: int = 12, close_col='close') -> Optional[pd.DataFrame]:
-        """计算 ROC (价格变化率)"""
+    async def calculate_roc(self, df: pd.DataFrame, period: int = 12, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算 ROC (价格变化率)"""
         if df is None or df.empty or close_col not in df.columns: return None
         if len(df) <= period: return None
         try:
@@ -494,6 +494,7 @@ class IndicatorCalculator:
                 return ta.roc(close=df[close_col], length=period, append=False)
             roc_series = await asyncio.to_thread(_sync_roc)
             if roc_series is None or roc_series.empty: return None
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({f'ROC_{period}': roc_series}, index=df.index)
         except Exception as e:
             logger.error(f"计算 ROC (周期 {period}) 出错: {e}", exc_info=True)
@@ -554,24 +555,21 @@ class IndicatorCalculator:
             logger.error(f"计算 Volume ROC (周期 {period}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_rsi(self, df: pd.DataFrame, period: int, close_col='close') -> Optional[pd.DataFrame]:
-        """计算相对强弱指数 (RSI)"""
+    async def calculate_rsi(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算相对强弱指数 (RSI)"""
         if df is None or df.empty or close_col not in df.columns:
             return None
         if len(df) < period:
             return None
         try:
-            # 异步执行 pandas_ta 计算
             def _sync_rsi():
                 return ta.rsi(close=df[close_col], length=period, append=False)
             rsi_series = await asyncio.to_thread(_sync_rsi)
-            # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if rsi_series is None or not isinstance(rsi_series, pd.Series) or rsi_series.empty:
                 logger.warning(f"RSI (周期 {period}) 计算结果为空或无效，可能数据量不足。")
                 return None
-            #  在创建DataFrame时显式传入索引，更加安全
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({f'RSI_{period}': rsi_series}, index=df.index)
-            # ▲▲▲ 修改结束 ▲▲▲
         except Exception as e:
             logger.error(f"计算 RSI (周期 {period}) 出错: {e}", exc_info=True)
             return None
@@ -664,14 +662,15 @@ class IndicatorCalculator:
             logger.error(f"计算 Pivot Points 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_vol_ma(self, df: pd.DataFrame, period: int = 20, volume_col='volume') -> Optional[pd.DataFrame]:
-        """计算成交量的移动平均线 (VOL_MA)"""
+    async def calculate_vol_ma(self, df: pd.DataFrame, period: int = 20, volume_col='volume', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.1 · 命名净化版】计算成交量的移动平均线 (VOL_MA)"""
         if df is None or df.empty or volume_col not in df.columns: return None
+        if len(df) < period: return None
         try:
-            # --- 将同步的 rolling 计算移至线程中执行 ---
             def _sync_vol_ma():
                 return df[volume_col].rolling(window=period, min_periods=max(1, int(period*0.5))).mean()
             vol_ma_series = await asyncio.to_thread(_sync_vol_ma)
+            # 返回纯净的、不带后缀的列名
             return pd.DataFrame({f'VOL_MA_{period}': vol_ma_series})
         except Exception as e:
             logger.error(f"计算 VOL_MA (周期 {period}) 出错: {e}", exc_info=True)
@@ -764,7 +763,6 @@ class IndicatorCalculator:
         if df is None or df.empty or close_col not in df.columns:
             return None
         try:
-            # [代码修改开始]
             # 使用调用方传入的 close_col
             copp_df = df.ta.coppock(
                 close=df[close_col],
@@ -773,7 +771,6 @@ class IndicatorCalculator:
                 slow=long_roc_period,
                 append=False
             )
-            # [代码修改结束]
             if copp_df is not None and not copp_df.empty:
                 if isinstance(copp_df, pd.Series):
                     copp_df = copp_df.to_frame()
@@ -822,11 +819,10 @@ class IndicatorCalculator:
             logger.error(f"计算 Ultimate Oscillator 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_bias(self, df: pd.DataFrame, period: int = 20, close_col='close') -> Optional[pd.DataFrame]:
+    async def calculate_bias(self, df: pd.DataFrame, period: int = 20, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """
-        【V1.3 最终修正版】计算 BIAS，并强制重命名列以符合系统标准。
+        【V1.4 · 命名净化版】计算 BIAS，并强制重命名列以符合系统标准。
         """
-        # (此函数前面的调试代码和检查代码保持不变)
         if df is None or df.empty or close_col not in df.columns:
             logger.warning(f"BIAS计算失败：输入的DataFrame为空或缺少'{close_col}'列。")
             return None
@@ -835,16 +831,14 @@ class IndicatorCalculator:
             return None
         try:
             def _sync_bias() -> Optional[pd.Series]:
-                # pandas_ta.bias 会生成一个名为 'BIAS_SMA_{period}' 的列
                 return df.ta.bias(close=df[close_col], length=period, append=False)
             bias_series = await asyncio.to_thread(_sync_bias)
             if bias_series is None or bias_series.empty:
                 logger.warning(f"pandas_ta.bias 未能为周期 {period} 生成有效结果。")
                 return None
-            # 这是解决问题的核心：将 pandas_ta 生成的列名 'BIAS_SMA_20' 重命名为我们需要的标准格式 'BIAS_20'
+            # 返回纯净的、不带后缀的列名
             target_col_name = f"BIAS_{period}"
             bias_series.name = target_col_name
-            # 将重命名后的 Series 转换为 DataFrame
             result_df = pd.DataFrame(bias_series)
             return result_df
         except Exception as e:
@@ -896,7 +890,6 @@ class IndicatorCalculator:
             logger.warning(f"价格/成交量均线比率计算失败：缺少源列 {price_source_col} 或 {volume_source_col}")
             return None
         for period in periods:
-            # [代码修改开始]
             # 在查找依赖列和构建输出列时，都使用后缀
             price_ma_col = f"EMA_{period}{suffix}"
             vol_ma_col = f"VOL_MA_{period}{suffix}"
@@ -906,7 +899,6 @@ class IndicatorCalculator:
             if vol_ma_col in df.columns:
                 volume_ratio = df[volume_source_col] / df[vol_ma_col].replace(0, np.nan)
                 result_df[f'volume_vs_ma_{period}_ratio{suffix}'] = volume_ratio.fillna(1.0)
-            # [代码修改结束]
         return result_df
 
     async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
