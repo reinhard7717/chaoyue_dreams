@@ -26,7 +26,6 @@ class OffensiveLayer:
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
         
-        # [代码修改开始]
         # --- 真理探针 V2.0: 植入时区同步协议 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -35,11 +34,9 @@ class OffensiveLayer:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             print("\n" + "="*20 + f" [进攻层-真理探针 V2.0] @ {probe_date_naive.date()} " + "="*20)
             print(f"--- [探针时区检查] 探针日期 (naive): {probe_date_naive}")
-            
             # 尝试从情报总线中获取一个样本Series以检测时区
             target_tz = None
             first_series = next((s for s in all_available_signals.values() if isinstance(s, pd.Series) and not s.empty), None)
-            
             if first_series is not None and first_series.index.tz is not None:
                 target_tz = first_series.index.tz
                 print(f"--- [探针时区检查] 检测到数据帧时区: {target_tz}")
@@ -67,14 +64,12 @@ class OffensiveLayer:
                     else:
                         print(f"  -> 信号: {key:<50} | [探针警告] 无法在探针日期找到该信号值。")
             print("--- [探针 2/2] 开始计分循环，监控剧本信号的得分贡献 ---")
-        # [代码修改结束]
 
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_series = all_available_signals.get(signal_name)
             if signal_series is None or not isinstance(signal_series, pd.Series):
                 continue
-            
             is_playbook_signal = 'PLAYBOOK' in signal_name
 
             processed_signal_series = signal_series.astype(float)
@@ -116,15 +111,12 @@ class OffensiveLayer:
                         damper = 1.0 - suppression_factor
                         unipolar_series *= damper
                     bonus_amount += unipolar_series * positive_score
-            
-            # [代码修改开始]
             # --- 真理探针 2: 续 ---
             if is_playbook_signal and probe_date_for_loop is not None:
                 if probe_date_for_loop in bonus_amount.index:
                     final_contribution = bonus_amount.loc[probe_date_for_loop]
                     if final_contribution != 0:
                          print(f"    -> [计分中] 信号: {signal_name:<45} | 得分贡献: {final_contribution:.2f}")
-            # [代码修改结束]
 
             total_score += bonus_amount
             score_details_df[signal_name] = bonus_amount

@@ -49,13 +49,10 @@ class ProcessIntelligence:
         for config in self.diagnostics_config:
             if task_type_filter and config.get('task_type') != task_type_filter:
                 continue
-            
             signal_name = config.get('name')
             signal_type = config.get('type')
-            
             if not signal_name:
                 continue
-            # [代码修改开始]
             # 统一路由：无论是基础元分析还是策略同步，都使用同一个诊断引擎
             if signal_type in ['meta_analysis', 'strategy_sync']:
                 custom_signal_type = config.get('signal_type')
@@ -72,7 +69,6 @@ class ProcessIntelligence:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
                         all_process_states.update(meta_states)
-            # [代码修改结束]
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
@@ -85,17 +81,14 @@ class ProcessIntelligence:
         df_index = df.index
         relationship_type = config.get('relationship_type', 'consensus')
         def get_signal_series(signal_name: str, source_type: str) -> Optional[pd.Series]:
-            # [代码修改开始]
             series = None
             if source_type == 'atomic_states':
                 series = self.strategy.atomic_states.get(signal_name)
             else:
                 series = df.get(signal_name)
-            
             if series is None:
                 print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
             return series
-            # [代码修改结束]
         signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
         signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
@@ -144,7 +137,6 @@ class ProcessIntelligence:
             # 1. 计算“关系位移”(Displacement)，取代旧的“趋势”(Trend)
             # 它衡量关系分在meta_window周期内的净变化量，更真实地反映短期变化。
             relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
-            
             # 2. 计算“关系动量”(Momentum)，取代旧的“加速度”(Acceleration)
             # 它是“关系位移”的一阶导数，衡量关系变化本身的速度，即“势”的变化。
             relationship_momentum = relationship_displacement.diff(1).fillna(0)
@@ -161,7 +153,6 @@ class ProcessIntelligence:
                 window=self.norm_window,
                 sensitivity=self.bipolar_sensitivity
             )
-            
             # 4. 融合“位移”与“动量”，得到最终的元分析分数
             displacement_weight = self.meta_score_weights[0]
             momentum_weight = self.meta_score_weights[1]

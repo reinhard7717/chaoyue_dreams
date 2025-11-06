@@ -609,7 +609,6 @@ class BaseDAO(Generic[T]):
             for field_name, value in record.items():
                 # 检查这个key是否是模型的一个字段
                 field_obj = model_class._meta.get_field(field_name)
-                
                 # 如果值是一个模型实例 (代表外键)
                 if isinstance(value, models.Model):
                     column_name = field_obj.column
@@ -646,7 +645,6 @@ class BaseDAO(Generic[T]):
         except Exception as e:
             logger.error(f"调用 process_batch_async 时发生未知错误: {e}", exc_info=True)
             success_count = 0
-            
         # 6. 返回结果
         failed_count = total_records - success_count
         return {"尝试处理": total_records, "失败": failed_count, "创建/更新成功": success_count}
@@ -658,7 +656,6 @@ class BaseDAO(Generic[T]):
         """
         if not data_list:
             return 0
-            
         lock_key = f"db_lock:upsert:{model_class._meta.db_table}"
         total_processed = 0
         try:
@@ -684,7 +681,6 @@ class BaseDAO(Generic[T]):
         except Exception as lock_error:
             logger.error(f"获取Redis分布式锁 {lock_key} 失败或在持有锁期间发生未捕获的异常: {lock_error}", exc_info=True)
             return 0
-            
         return total_processed
 
     def _process_batch_mysql_upsert_sync(self, model_class, data_list, unique_fields, update_fields=None, **kwargs):

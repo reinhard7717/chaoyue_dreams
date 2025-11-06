@@ -149,7 +149,6 @@ class IndicatorDAO(BaseDAO):
                 trade_time_dt = self._safe_datetime(trade_time)
                 if trade_time_dt:
                     qs = qs.filter(trade_time__lte=trade_time_dt)
-            # [代码修改开始]
             # 修复：为不同时间级别的数据模型定义精确的字段列表
             if time_level_str == "d":
                 fields = ['trade_time', 'open_qfq', 'high_qfq', 'low_qfq', 'close_qfq', 'pre_close_qfq', 'vol', 'amount']
@@ -162,7 +161,6 @@ class IndicatorDAO(BaseDAO):
                 # 分钟线模型不包含 pre_close 字段
                 fields = ['trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount']
                 rename_map = {'vol': 'volume'}
-            # [代码修改结束]
             limited_qs = qs.order_by('-trade_time')[:limit]
             data_values = await sync_to_async(list)(limited_qs.values(*fields))
             if not data_values:
@@ -360,7 +358,6 @@ class IndicatorDAO(BaseDAO):
             df['trade_time'] = pd.to_datetime(df['trade_time'], utc=True)
             df.set_index('trade_time', inplace=True)
             df.rename(columns={'close': 'market_close'}, inplace=True)
-            
         # print(f"    [DAO] 获取到 {len(df)} 条指数 {market_code} 的行情数据。")
         return df
 

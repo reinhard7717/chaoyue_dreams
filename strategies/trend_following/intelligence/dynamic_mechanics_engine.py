@@ -42,11 +42,9 @@ class DynamicMechanicsEngine:
         ).clip(-1, 1)
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        # [代码修改开始]
         # 修正信号名称以符合融合层的契约
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        # [代码修改结束]
         return all_dynamic_states
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

@@ -136,7 +136,6 @@ class StructuralIntelligence:
                 health_score = normalize_score(df[f'SLOPE_5_MA_{p}_D'], df.index, norm_window).clip(0, 1)
                 health_scores.append(health_score)
             long_term_trend_health_score = np.mean(health_scores, axis=0)
-            
             # 融合基石支撑与长期趋势健康度
             foundation_health_score = (pd.Series(foundation_support_score, index=df.index) * pd.Series(long_term_trend_health_score, index=df.index)).pow(0.5)
         # --- 最终融合 ---

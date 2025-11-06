@@ -110,7 +110,6 @@ class MultiTimeframeTrendStrategy:
         all_details = records_from_tactical[1] + intraday_entry_details + risk_alert_details
         if all_signals:
             all_signals.sort(key=lambda x: x.trade_time)
-            
         print(f"🏁 [总指挥层] 完成处理 {stock_code}, 共生成 {len(all_signals)} 条主信号记录。")
         # 修正最终返回值的来源，确保返回5个列表
         return (all_signals, all_details, records_from_tactical[2], records_from_tactical[3], records_from_tactical[4])
@@ -131,7 +130,6 @@ class MultiTimeframeTrendStrategy:
             )
             if daily_analysis_df is None or daily_analysis_df.empty:
                 return (([], [], [], [], []), pd.DataFrame(), pd.DataFrame(), pd.DataFrame())
-            
             trend_follow_records = await self.tactical_engine.prepare_db_records(
                 stock_code=stock_code,
                 result_df=daily_analysis_df,
@@ -152,7 +150,6 @@ class MultiTimeframeTrendStrategy:
             all_daily_scores = trend_follow_records[2] + prophet_records[2]
             all_score_components = trend_follow_records[3] + prophet_records[3]
             all_daily_states = trend_follow_records[4] + prophet_records[4]
-            
             combined_records = (all_signals, all_details, all_daily_scores, all_score_components, all_daily_states)
             return (combined_records, daily_analysis_df, score_details_df, risk_details_df)
         except Exception as e:
@@ -253,7 +250,6 @@ class MultiTimeframeTrendStrategy:
             daily_score = row.get('entry_score', 0)
             bonus_score = get_val(entry_params.get('bonus_score'), 50)
             final_score = daily_score + bonus_score
-            
             # 创建 TradingSignal 对象
             signal_obj = TradingSignal(
                 stock_id=stock_code,
@@ -266,7 +262,6 @@ class MultiTimeframeTrendStrategy:
                 close_price=row.get(f'close_{minute_tf}'),
             )
             final_entry_signals.append(signal_obj)
-            
         # 返回一个元组，主信号列表在前，空的详情列表在后
         return (final_entry_signals, [])
 
@@ -308,13 +303,11 @@ class MultiTimeframeTrendStrategy:
         def process_alert_day(day_df: pd.DataFrame) -> Optional[Dict]:
             is_breaking = day_df[close_col] < day_df[vwap_col]
             first_break_mask = is_breaking & ~is_breaking.shift(1).fillna(False)
-            
             if not first_break_mask.any(): return None
             first_break_timestamp = first_break_mask.idxmax()
             first_alert_row = day_df.loc[first_break_timestamp]
             df_after_alert = day_df[day_df.index > first_break_timestamp]
             is_reclaimed = (df_after_alert[close_col] > df_after_alert[vwap_col]).any()
-            
             signal_type = '风险预警'
             if is_reclaimed:
                 # 威胁解除，不生成信号
@@ -322,7 +315,6 @@ class MultiTimeframeTrendStrategy:
             else:
                 final_reason = f"盘中于{first_break_timestamp.strftime('%H:%M')}跌破VWAP且至收盘未收复"
                 final_code = get_val(upthrust_params.get('alert_code'), 103)
-                
                 # 创建 TradingSignal 对象
                 return TradingSignal(
                     stock_id=stock_code,
@@ -339,7 +331,6 @@ class MultiTimeframeTrendStrategy:
             .groupby('monitoring_date', group_keys=False)\
             .apply(process_alert_day)\
             .dropna().tolist()
-            
         # 返回元组
         return (final_alerts, [])
     # ▼▼▼ 报告生成函数重大升级，以支持分级止盈 ▼▼▼
@@ -474,7 +465,6 @@ class MultiTimeframeTrendStrategy:
             # 步骤 1: 独立执行数据准备和战术引擎，并捕获所有返回结果
             # print("    -> [阶段 1/3] 正在执行核心策略计算，以捕获调试所需数据...")
             all_dfs = await self.indicator_service.prepare_data_for_strategy(stock_code, self.unified_config, end_date, latest_only=False)
-            
             engine_results = await self._run_tactical_engine(
                 stock_code, all_dfs, start_date_str=start_date
             )
@@ -496,17 +486,13 @@ class MultiTimeframeTrendStrategy:
                 print("    -> [信息] 法医探针在配置中被禁用，跳过解剖。")
             # 步骤 3: 使用本次运行的、唯一的 daily_analysis_df 生成最终报告
             # print(f"\n    -> [阶段 3/3] 正在筛选并展示目标时段 ({start_date} to {end_date}) 的所有信号和每日分数...")
-            
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
-            
             if isinstance(daily_analysis_df.index, pd.DatetimeIndex) and daily_analysis_df.index.tz is not None:
                 target_timezone = daily_analysis_df.index.tz
                 start_dt = start_dt.tz_localize(target_timezone)
                 end_dt = end_dt.tz_localize(target_timezone)
-            
             debug_period_df = daily_analysis_df[(daily_analysis_df.index >= start_dt) & (daily_analysis_df.index <= end_dt)]
-            
             if debug_period_df.empty:
                 print(f"[信息] 在指定时段 {start_date} to {end_date} 内没有找到任何分析数据。")
                 print(f"    -> 提示: 请检查完整数据(daily_analysis_df)的索引范围是否覆盖此期间。完整数据范围: {daily_analysis_df.index.min()} to {daily_analysis_df.index.max()}")
@@ -514,13 +500,10 @@ class MultiTimeframeTrendStrategy:
             print("\n" + "="*30 + " [全流程信号透视报告] " + "="*30)
             for trade_date, row in debug_period_df.iterrows():
                 time_str = trade_date.strftime('%Y-%m-%d')
-                
                 final_score_val = row.get('final_score', 'N/A')
                 signal_type = row.get('signal_type', '无信号')
-                
                 final_score_str = f"{final_score_val:<7.0f}" if isinstance(final_score_val, (int, float)) else "N/A"
                 print(f"\n{time_str} [最终得分: {final_score_str}] [最终信号: {signal_type}]")
-                
                 score_details_json = row.get('signal_details_cn', {})
                 if score_details_json and isinstance(score_details_json, dict):
                     offense_details = score_details_json.get('offense', [])
@@ -529,7 +512,6 @@ class MultiTimeframeTrendStrategy:
                         for item in offense_details:
                             if isinstance(item, dict):
                                 print(f"    - {item.get('name', 'N/A'):<20} ({item.get('score', 0):>5.0f})")
-                    
                     risk_details = score_details_json.get('risk', [])
                     if risk_details:
                         print("  --- 激活风险项 ---")
@@ -563,15 +545,12 @@ class MultiTimeframeTrendStrategy:
             print("\n--- [探针 1/3] 解剖：底部情景分 (Context Score) ---")
             ma55 = df.get('EMA_55_D', df['close_D'])
             rolling_high_55d = df['high_D'].rolling(window=55, min_periods=21).max()
-            
             wave_channel_height_top = (rolling_high_55d - ma55).replace(0, 1e-9)
             top_context_score = ((df['close_D'] - ma55) / wave_channel_height_top).clip(0, 1).fillna(0.5)
             price_pos_score = 1 - top_context_score
-            
             rsi_w_oversold_score = normalize_score(df.get('RSI_13_W', pd.Series(50, index=df.index)), df.index, window=52, ascending=False, default_value=0.5)
             cycle_phase = self.tactical_engine.atomic_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index)).fillna(0.0)
             cycle_trough_score = (1 - cycle_phase) / 2.0
-            
             bottom_context_score_values = np.maximum.reduce([price_pos_score.values, rsi_w_oversold_score.values, cycle_trough_score.values])
             bottom_context_score = pd.Series(bottom_context_score_values, index=df.index)
             # 提取探针当日的精确值用于打印
@@ -588,7 +567,6 @@ class MultiTimeframeTrendStrategy:
             # --- 探针 2: 核心逻辑重构，适配“奖励模式” ---
             print("\n--- [探针 2/3] 解剖：整体看涨反转触发分 (Trigger Score) ---")
             print("  -> 采用“奖励模式”公式进行反推: Trigger = Final Score / (1 + Context * Bonus Factor)")
-            
             p_chip_conf = get_params_block(self.tactical_engine, 'chip_ultimate_params', {})
             bonus_factor = get_param_value(p_chip_conf.get('bottom_context_bonus_factor'), 0.5)
             print(f"  -> 使用的奖励因子 (Bonus Factor): {bonus_factor}")
@@ -598,13 +576,10 @@ class MultiTimeframeTrendStrategy:
                 signal_name = f"SCORE_{prefix}_BOTTOM_REVERSAL_S_PLUS"
                 if signal_name in atomic_states:
                     final_score = atomic_states[signal_name].get(probe_ts, 0.0)
-                    
                     denominator = (1 + bottom_context_score_val * bonus_factor)
                     trigger_score = final_score / denominator if denominator > 0 else 0
-                    
                     all_trigger_scores[prefix] = trigger_score
                     print(f"  - {prefix:<12s} | 最终分: {final_score:.4f} | 反推触发分: {trigger_score:.4f}")
-            
             avg_trigger_score = np.nanmean(list(all_trigger_scores.values()))
             print(f"  - ✅ 平均触发分 (估算): {avg_trigger_score:.4f}")
             # --- 探针 3: 移除了内部的 import 语句 ---

@@ -41,11 +41,9 @@ class FundFlowIntelligence:
             axiom_increment * axiom_weights['increment']
         ).clip(-1, 1)
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        # [代码修改开始]
         # 修正信号名称以符合融合层的契约
         all_states['SCORE_FUND_FLOW_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_FUND_FLOW_BEARISH_RESONANCE'] = bearish_resonance
-        # [代码修改结束]
         return all_states
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

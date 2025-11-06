@@ -309,7 +309,6 @@ def fav_trend_following_list(request):
             score_lookups.add((tracker.stock_id, key_dates['initial']))
             # 收集筹码指标查询需求时，带上 stock_code
             chip_metrics_lookups.add((tracker.stock_id, stock_code, key_dates['initial']))
-            
             last_buy_tx = next((tx for tx in reversed(transactions) if tx.transaction_type == Transaction.TransactionType.BUY), None)
             if last_buy_tx:
                 key_dates['last_buy'] = last_buy_tx.transaction_date.date()

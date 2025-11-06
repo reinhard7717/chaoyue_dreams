@@ -18,7 +18,6 @@ class Command(BaseCommand):
                 # 在同步事务块内部，运行我们的异步主逻辑
                 asyncio.run(self.async_main())
             
-            
             self.stdout.write(self.style.SUCCESS("\n====== 数据迁移成功！所有操作已提交。 ======"))
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"迁移过程中发生严重错误: {e}"))

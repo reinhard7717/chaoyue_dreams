@@ -171,7 +171,6 @@ class IntradayDynamicsCalculator:
         if volume_profile.empty:
             self.distribution_result['distribution_data'] = {}
             return
-            
         # 将Series转换为字典，键为价格(str)，值为成交量(int)
         # 必须转换类型以确保JSON序列化兼容性
         distribution_dict = {str(price): int(volume) for price, volume in volume_profile.items()}

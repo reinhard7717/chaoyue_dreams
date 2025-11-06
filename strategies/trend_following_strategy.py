@@ -82,7 +82,6 @@ class TrendFollowStrategy:
         """
         if 'D' not in all_dfs:
             return pd.DataFrame()
-            
         merged_df = all_dfs['D'].copy()
         for tf, df in all_dfs.items():
             if tf == 'D' or df.empty:

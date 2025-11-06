@@ -39,7 +39,6 @@ class IntradayVolatilityAnalyzer:
         bbw_col = f"BBW_{self.boll_period}_{self.boll_std_dev}_{timeframe.replace('min','')}"
         if bbw_col in df.columns and not df[bbw_col].isnull().all(): # 确保BBW列存在且有数据
             bbw_series = df[bbw_col].dropna()
-            
             # BBW斜率
             if len(bbw_series) >= self.bbw_slope_period:
                 bbw_slope = np.polyfit(range(len(bbw_series[-self.bbw_slope_period:])), bbw_series[-self.bbw_slope_period:], 1)[0]

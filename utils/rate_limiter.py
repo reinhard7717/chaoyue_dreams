@@ -31,13 +31,10 @@ class DistributedRateLimiter:
             async with redis_client.pipeline(transaction=True) as pipe:
                 current_timestamp_ms = int(time.time() * 1000)
                 window_start_ms = current_timestamp_ms - self.period * 1000
-                
                 pipe.zremrangebyscore(self.redis_key, 0, window_start_ms)
                 pipe.zcard(self.redis_key)
-                
                 results = await pipe.execute()
                 current_count = results[1]
-                
                 # print(f"DEBUG: [Limiter: {self.redis_key}] 当前窗口请求数: {current_count}/{self.max_calls}")
                 if current_count < self.max_calls:
                     async with redis_client.pipeline(transaction=True) as write_pipe:
@@ -125,12 +122,10 @@ def with_rate_limit(name: str):
         async def wrapper(*args, **kwargs):
             # 从工厂获取指定的限流器实例
             limiter_instance = rate_limiter_factory.get_limiter(name=name)
-            
             # 将获取到的限流器实例通过关键字参数 'limiter' 注入
             # 如果调用者已经手动传入了 limiter，则不会覆盖
             if 'limiter' not in kwargs:
                 kwargs['limiter'] = limiter_instance
-            
             # 执行原始的异步函数，并传入包含 limiter 的参数
             return await func(*args, **kwargs)
         return wrapper

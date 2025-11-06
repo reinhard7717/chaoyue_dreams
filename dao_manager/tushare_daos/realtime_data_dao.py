@@ -121,20 +121,16 @@ class StockRealtimeDAO(BaseDAO):
             try:
                 # 使用 sync_to_async 包装同步的 tushare 调用，这是最佳实践
                 df = await sync_to_async(self.ts.realtime_tick)(ts_code=code, src='sina')
-                
                 # 探针 2: 检查 Tushare 原始返回
                 if df is None or df.empty:
                     print(f"    -> [探针] Tushare接口为 {code} 返回了空数据。")
                     return code, None
-                
                 print(f"    -> [探针] 成功获取 {code} 的原始逐笔数据 {len(df)} 条。开始处理...")
-                
                 # 数据清洗与格式化
                 df['trade_time'] = pd.to_datetime(f"{trade_date} " + df['TIME'], errors='coerce')
                 df['PRICE'] = pd.to_numeric(df['PRICE'], errors='coerce')
                 df['VOLUME'] = pd.to_numeric(df['VOLUME'], errors='coerce')
                 df['AMOUNT'] = pd.to_numeric(df['AMOUNT'], errors='coerce')
-                
                 # 探针 3: 检查关键列是否存在NaN，并删除
                 initial_rows = len(df)
                 df.dropna(subset=['trade_time', 'PRICE', 'VOLUME', 'AMOUNT'], inplace=True)
@@ -145,14 +141,11 @@ class StockRealtimeDAO(BaseDAO):
                     return code, None
                 # 单位转换：手 -> 股
                 df['VOLUME'] = (df['VOLUME'] * 100).astype(int)
-                
                 # 重命名并设置索引
                 df.rename(columns={'PRICE': 'price', 'VOLUME': 'volume', 'AMOUNT': 'amount', 'TYPE': 'type'}, inplace=True)
                 df.set_index('trade_time', inplace=True)
-                
                 # 探针 4: 确认最终处理完成
                 print(f"      -> [探针] {code}: 数据处理完成，最终有效数据 {len(df)} 条。")
-                
                 return code, df[['price', 'volume', 'amount', 'type']]
             except Exception as e:
                 # 探针 5: 捕获单次请求的异常
@@ -185,7 +178,6 @@ class StockRealtimeDAO(BaseDAO):
                 logger.info(f"数据库命中，正在将 {stock_code} 的逐笔数据回填到缓存...")
                 await self.cache_set.batch_append_real_ticks({stock_code: df_ticks_from_db})
                 return df_ticks_from_db
-            
             logger.warning(f"缓存和数据库中均未找到 {stock_code} on {trade_date} 的真实逐笔数据。")
             return None
         except Exception as e:
@@ -198,7 +190,6 @@ class StockRealtimeDAO(BaseDAO):
         """
         try:
             trade_date_obj = datetime.strptime(trade_date_str, '%Y-%m-%d').date()
-            
             # 使用 sync_to_async 执行同步的Django ORM查询
             query = StockTickData.objects.filter(
                 stock__stock_code=stock_code,
@@ -206,13 +197,11 @@ class StockRealtimeDAO(BaseDAO):
             ).order_by('trade_time').values(
                 'trade_time', 'price', 'volume', 'amount', 'type'
             )
-            
             ticks_list = await sync_to_async(list)(query)
             if not ticks_list:
                 return None
             df = pd.DataFrame(ticks_list)
             df.set_index('trade_time', inplace=True)
-            
             # 确保时区正确
             if df.index.tz is None:
                 df.index = df.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
@@ -223,7 +212,6 @@ class StockRealtimeDAO(BaseDAO):
             # 使用分数（时间戳）创建索引，这比依赖数据内部的时间字段更可靠
             df_ticks.index = pd.to_datetime([score for data, score in ticks_with_scores], unit='s')
             df_ticks.index.name = 'trade_time'
-            
             # 确保时区正确
             if df_ticks.index.tz is None:
                 df_ticks.index = df_ticks.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')
@@ -287,7 +275,6 @@ class StockRealtimeDAO(BaseDAO):
                     level5_dict_db = self.data_format_process.set_level5_data(stock, row)
                     db_realtime_list.append(real_dict_db)
                     db_level5_list.append(level5_dict_db)
-                    
                     # 准备缓存数据
                     real_dict_cache = self.data_format_process.set_realtime_tick_data(None, row)
                     level5_dict_cache = self.data_format_process.set_level5_data(None, row)
@@ -325,14 +312,12 @@ class StockRealtimeDAO(BaseDAO):
             min_score, max_score = int(start_dt_aware.timestamp()), int(end_dt_aware.timestamp())
             date_str_no_hyphen = trade_date.replace('-', '')
             pipe = await self.cache_manager.pipeline()
-            
             for code in stock_codes:
                 # 键名不变，但我们现在清楚里面存的是快照
                 ticks_key = self.cache_key_stock.intraday_ticks_realtime(code, date_str_no_hyphen)
                 level5_key = self.cache_key_stock.intraday_ticks_level5(code, date_str_no_hyphen)
                 pipe.zrangebyscore(ticks_key, min_score, max_score, withscores=True)
                 pipe.zrangebyscore(level5_key, min_score, max_score, withscores=True)
-            
             results = await pipe.execute()
             bulk_data_map = {}
             for i, stock_code in enumerate(stock_codes):
@@ -343,7 +328,6 @@ class StockRealtimeDAO(BaseDAO):
                 df_level5 = self._process_serialized_data(level5_with_scores, source='level5')
                 if df_quotes is not None or df_level5 is not None:
                     bulk_data_map[stock_code] = (df_quotes, df_level5)
-            
             return bulk_data_map
         except Exception as e:
             logger.error(f"批量获取行情快照和Level5数据时发生严重错误: {e}", exc_info=True)

@@ -69,7 +69,6 @@ class ChipIntelligence:
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2})
-        # [代码修改开始]
         # 步骤一：计算双极性“全息筹码健康分”
         bipolar_health = (
             concentration * axiom_weights['concentration'] +
@@ -92,7 +91,6 @@ class ChipIntelligence:
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = (1.0 - norm_bearish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = (1.0 - norm_bullish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_PULLBACK'] = (bullish_resonance * states['SCORE_CHIP_TOP_REVERSAL']).clip(0, 1).astype(np.float32)
-        # [代码修改结束]
         return states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):

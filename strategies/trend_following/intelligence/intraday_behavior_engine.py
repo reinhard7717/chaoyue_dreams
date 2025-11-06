@@ -91,7 +91,6 @@ class IntradayBehaviorEngine:
         """【V1.0 · 新增】日内行为公理二：诊断“控制能力”"""
         if 'vwap' not in df_minute.columns:
             return {"SCORE_INTRADAY_AXIOM_CONTROL": 0.0}
-            
         # 控制能力 = (收盘价 - VWAP) / VWAP
         # 正值代表多头控盘，负值代表空头控盘
         raw_control_score = (df_minute['close'] - df_minute['vwap']) / df_minute['vwap']
@@ -122,6 +121,5 @@ class IntradayBehaviorEngine:
             final_score = 1.0
         elif bearish_turn_signal.iloc[-1] > 0:
             final_score = -1.0
-            
         return {"SCORE_INTRADAY_AXIOM_TURNING": final_score}
 

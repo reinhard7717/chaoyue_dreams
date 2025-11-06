@@ -131,7 +131,6 @@ class RealtimeStrategy:
             # 修改行：各分析器现在返回 Dict[str, float]，包含量化值
             intraday_patterns_5min = self.pattern_recognizer.recognize_patterns(df_5min, '5min')
             intraday_patterns_30min = self.pattern_recognizer.recognize_patterns(df_30min, '30min') if current_kline_30min is not None else {}
-            
             volume_anomalies_5min = self.volume_analyzer.analyze_volume(df_5min, '5min')
             volatility_features_5min = self.volatility_analyzer.analyze_volatility(df_5min, '5min')
             advanced_vwap_features_5min = self.vwap_analyzer.analyze_vwap(df_5min, '5min')
@@ -139,7 +138,6 @@ class RealtimeStrategy:
             micro_price_features_5min = {}
             if prev_kline_5min is not None:
                 micro_price_features_5min = self.micro_price_analyzer.analyze_micro_price_action(current_kline_5min, prev_kline_5min)
-            
             multi_timeframe_confluence = self.multi_timeframe_analyzer.analyze_confluence(self.data)
             # 将所有特征合并到一个字典，方便传递给评分函数
             # 修改行：all_intraday_features 现在包含量化值
@@ -155,7 +153,6 @@ class RealtimeStrategy:
             }
             # --- 运行所有剧本并收集触发的剧本名称 ---
             triggered_playbooks = []
-            
             # 剧本1: 5分钟VWAP突破动能
             if self._check_5min_vwap_breakout(stock_code, current_kline_5min, prev_kline_5min):
                 triggered_playbooks.append("5min VWAP Breakout")
@@ -168,7 +165,6 @@ class RealtimeStrategy:
             # 剧本4: 盘中回调支撑反弹 (5分钟VWAP)
             if self._check_5min_pullback_rebound(stock_code, current_kline_5min, prev_kline_5min):
                 triggered_playbooks.append("5min VWAP Pullback Rebound")
-            
             # 剧本5: 盘中K线反转形态
             if self._check_intraday_candlestick_reversal(stock_code, current_kline_5min):
                 triggered_playbooks.append("Intraday Candlestick Reversal")
@@ -437,7 +433,6 @@ class RealtimeStrategy:
             metric_name = config['metric']
             direction = config['direction']
             tiers = config['tiers']
-            
             metric_value = all_intraday_features.get(metric_name)
             if metric_value is None or pd.isna(metric_value):
                 continue
@@ -473,7 +468,6 @@ class RealtimeStrategy:
                         score_added = tier['score_up'] if is_bullish_candle else tier['score_down']
                         reason_detail = tier['description']
                         break
-            
             if score_added != 0:
                 intraday_score += score_added
                 reasons.append(f"特征[{metric_name} - {reason_detail}]: {'+' if score_added > 0 else ''}{score_added}")

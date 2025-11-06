@@ -188,7 +188,6 @@ class StructuralProbes:
             print("\n  [链路层 1] 结构稳定性支柱解剖 (Structural Stability Dissection)")
             norm_window = 55
             default_series = pd.Series(0.0, index=df.index, dtype=np.float32)
-            
             # 1. 重算看涨组件: 堡垒完整度 (Fortress Integrity)
             print("    --- [看涨组件: 堡垒完整度] ---")
             static_support_dist_s = normalize_score(df.get('support_below_D', default_series), df.index, norm_window)
@@ -199,7 +198,6 @@ class StructuralProbes:
             main_force_support_s = normalize_score(df.get('main_force_support_strength_D', default_series), df.index, norm_window)
             dynamic_defense_s = (realized_support_s * peak_defense_s * main_force_support_s)**(1/3)
             bull_snapshot_series = (static_fortress_s * 0.4 + dynamic_defense_s * 0.6)
-            
             print(f"      - [静态城墙] 支撑距离: {get_val(static_support_dist_s, probe_date):.4f}, 支撑量: {get_val(static_support_vol_s, probe_date):.4f} -> 融合分: {get_val(static_fortress_s, probe_date):.4f}")
             print(f"      - [动态防御] 已实现支撑: {get_val(realized_support_s, probe_date):.4f}, 主峰防御: {get_val(peak_defense_s, probe_date):.4f}, 主力支撑: {get_val(main_force_support_s, probe_date):.4f} -> 融合分: {get_val(dynamic_defense_s, probe_date):.4f}")
             print(f"    - 【融合看涨快照分】: {get_val(bull_snapshot_series, probe_date):.4f}")

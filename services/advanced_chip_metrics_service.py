@@ -223,14 +223,12 @@ class AdvancedChipMetricsService:
                 context_for_calc['historical_components'] = pd.DataFrame.from_dict(historical_data_for_day, orient='index')
             else:
                 context_for_calc['historical_components'] = pd.DataFrame(columns=hist_comp_cols)
-            # [代码修改开始]
             # 移除所有探针，恢复生产逻辑
             if fund_flow_attributed_minute_map and trade_date in fund_flow_attributed_minute_map:
                 enhanced_minute_data = fund_flow_attributed_minute_map[trade_date]
             else:
                 raw_minute_data_for_day = minute_data_map.get(trade_date.date(), pd.DataFrame())
                 enhanced_minute_data = self._enhance_minute_data_fallback(raw_minute_data_for_day)
-            # [代码修改结束]
             context_for_calc['minute_data'] = enhanced_minute_data
             calculator = ChipFeatureCalculator(chip_data_for_calc, context_for_calc)
             daily_metrics = calculator.calculate_all_metrics()
@@ -282,7 +280,6 @@ class AdvancedChipMetricsService:
         def get_data(model, stock_pk, start_dt, end_dt):
             # 强制按交易时间升序排序
             qs = model.objects.filter(stock_id=stock_pk, trade_time__gte=start_dt, trade_time__lt=end_dt).values('trade_time', 'amount', 'vol', 'open', 'close', 'high', 'low').order_by('trade_time')
-            
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))

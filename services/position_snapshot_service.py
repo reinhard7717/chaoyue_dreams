@@ -28,7 +28,6 @@ class PositionSnapshotService:
             if not tracker:
                 logger.warning(f"Tracker ID {tracker_id} 不存在，无法重建快照。")
                 return 0
-            
             transactions = await self._get_transactions(tracker_id)
             if not transactions:
                 await self._delete_existing_snapshots(tracker)
@@ -38,7 +37,6 @@ class PositionSnapshotService:
             latest_trade_date = await sync_to_async(TradeCalendar.get_latest_trade_date)()
             end_date = latest_trade_date if latest_trade_date else date.today()
             logger.info(f"Tracker {tracker_id}: 准备重建快照，日期范围 {start_date} 到 {end_date}")
-            
             price_map = await self._get_price_map(tracker.stock.stock_code, start_date, end_date)
             if not price_map:
                 logger.warning(f"Tracker {tracker_id}: 未能获取到股票 {tracker.stock.stock_code} 在 {start_date} 到 {end_date} 期间的任何行情数据。")
@@ -63,7 +61,6 @@ class PositionSnapshotService:
                     elif tx.transaction_type == Transaction.TransactionType.SELL:
                         current_quantity -= tx.quantity
                     tx_idx -= 1
-                
                 if current_quantity > 0:
                     close_price_obj = price_map.get(current_date)
                     if close_price_obj:
@@ -85,7 +82,6 @@ class PositionSnapshotService:
                         is_trade_day = await sync_to_async(TradeCalendar.objects.filter(cal_date=current_date, is_open=True).exists)()
                         if is_trade_day:
                             logger.info(f"Tracker {tracker_id}: {current_date} 是交易日，但未找到收盘价，可能停牌。跳过快照。")
-                
                 current_date += timedelta(days=1)
             if snapshots_to_create:
                 await self._delete_existing_snapshots(tracker)

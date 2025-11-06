@@ -406,7 +406,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                 logger.warning(f"价格列 '{price_type}' 在 TF {tf_check} ({possible_tf_suffixes}) 未找到或全为 NaN。跳过指标 '{indicator_key}' 在此 TF 的检测。")
                 continue
             price_series = data[current_price_col] # 使用 current_price_col
-            
             indicator_col = None
             # 尝试根据模式和参数构建列名并查找
             try:
@@ -499,7 +498,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
 
             except Exception as e:
                  logger.warning(f"尝试构建或查找指标 '{indicator_key}' (内部键: '{internal_key_for_div}') 在 TF {tf_check} 的列名时出错: {e}")
-            
             # Fallback (原有的简单前缀后缀匹配，如果上面的构建逻辑都失败了)
             if indicator_col is None:
                  prefixes = indicator_scoring_info.get(indicator_key.lower(), {}).get('prefixes', [])
@@ -530,7 +528,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
             # current_find_peaks_params.update(base_find_peaks_params)
             # print(f"开始检测 TF {tf_check}: 价格 ('{current_price_col}') 与指标 ('{indicator_col}') 的背离 (lookback: {safe_lookback})...") # 使用 current_price_col
             # div_result = find_divergence_for_indicator(...)
-            
             # --- 以下为模拟 div_result 以便代码能继续 ---
             _mock_index = price_series.index
             div_result = pd.DataFrame(index=_mock_index)

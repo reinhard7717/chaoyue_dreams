@@ -358,29 +358,23 @@ class FeatureEngineeringService:
             periods = conv_config.get('periods', [])
             if not periods:
                 continue
-            
             # 确保 output_prefix 有一个默认值，例如 'MA_POTENTIAL'
             output_prefix = conv_config.get('output_column_prefix', 'MA_POTENTIAL')
-            
             for timeframe in conv_config.get('apply_on', []):
                 if timeframe not in all_dfs or all_dfs[timeframe].empty:
                     continue
-                
                 df = all_dfs[timeframe]
-                
                 # 1. 【军火库点验】: 确认计算所需的核心数据
                 ma_cols = [f"EMA_{p}_{timeframe}" for p in periods]
                 # ATR周期通常与均线簇中的中位数或平均周期相关，这里我们硬编码一个常用的14
                 atr_col = f"ATR_14_{timeframe}" 
                 required_cols = ma_cols + [atr_col]
-                
                 missing_cols = [col for col in required_cols if col not in df.columns]
                 if missing_cols:
                     logger.warning(f"均线系统势能分析失败({output_prefix}_{timeframe})：缺少核心数据列 {missing_cols}")
                     continue
                 try:
                     ma_df = df[ma_cols]
-                    
                     # 2. 【计算势能大小】: 均线张力指数 (MA_TENSION_INDEX)
                     ma_range = ma_df.max(axis=1) - ma_df.min(axis=1)
                     atr = df[atr_col].replace(0, np.nan)
@@ -424,11 +418,9 @@ class FeatureEngineeringService:
         """
         if not params.get('enabled', False):
             return all_dfs
-            
         timeframe = 'D' # 此特征通常在日线计算
         if timeframe not in all_dfs or all_dfs[timeframe].empty:
             return all_dfs
-            
         df = all_dfs[timeframe]
         boll_period = params.get('boll_period', 21)
         boll_std = params.get('boll_std', 2.0)
@@ -442,7 +434,6 @@ class FeatureEngineeringService:
             missing = [col for col in required_cols if col not in df.columns]
             logger.warning(f"盘整期计算跳过，依赖的列 '{', '.join(missing)}' 不存在。")
             return all_dfs
-            
         bbw_quantile = params.get('bbw_quantile', 0.25)
         roc_threshold = params.get('roc_threshold', 5.0)
         min_expanding_periods = boll_period * 2
@@ -457,12 +448,10 @@ class FeatureEngineeringService:
             consolidation_blocks = (is_consolidating != is_consolidating.shift()).cumsum()
             consolidating_df = df[is_consolidating].copy()
             grouped = consolidating_df.groupby(consolidation_blocks[is_consolidating])
-            
             df[f'dynamic_consolidation_high_{timeframe}'] = grouped[f'high_{timeframe}'].transform('max')
             df[f'dynamic_consolidation_low_{timeframe}'] = grouped[f'low_{timeframe}'].transform('min')
             df[f'dynamic_consolidation_avg_vol_{timeframe}'] = grouped[f'volume_{timeframe}'].transform('mean')
             df[f'dynamic_consolidation_duration_{timeframe}'] = grouped[f'high_{timeframe}'].transform('size')
-            
             fill_cols = [f'dynamic_consolidation_high_{timeframe}', f'dynamic_consolidation_low_{timeframe}', f'dynamic_consolidation_avg_vol_{timeframe}', f'dynamic_consolidation_duration_{timeframe}']
             df[fill_cols] = df[fill_cols].ffill()
         df[f'dynamic_consolidation_high_{timeframe}'] = df.get(f'dynamic_consolidation_high_{timeframe}', pd.Series(index=df.index)).fillna(df[f'high_{timeframe}'])
@@ -474,9 +463,9 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_enhancement_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict, calculator) -> Dict[str, pd.DataFrame]:
         """
-        【V1.2 · 职责净化修复版】形态增强信号编排器
-        - 核心修复: 移除了对 breakout_quality_score 的计算调用。该指标的计算已归位到 IndicatorService 的主流程中，以解决列名后缀不匹配的问题。
-        - 核心职责: 根据配置，调用计算器中新增的、依赖分钟数据的“超级原子信号”算法，并将其集成到日线数据中。
+        【V1.3 · 后门封堵版】形态增强信号编排器
+        - 核心修复: 封堵了命名协议的后门。在合并由外部计算器生成的、不带后缀的分钟级信号后，
+                      强制为这些新列添加 '_D' 后缀，确保数据流的绝对标准化。
         """
         params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
         if not params.get('enabled', False):
@@ -487,27 +476,30 @@ class FeatureEngineeringService:
         minute_tf = params.get('minute_level_tf', '60')
         df_minute = all_dfs.get(minute_tf)
         tasks = []
-        # 任务1: 日内VWAP偏离指数
         vwap_params = params.get('intraday_vwap_divergence', {})
         if vwap_params.get('enabled') and df_minute is not None:
             tasks.append(calculator.calculate_intraday_vwap_divergence_index(df_minute))
-        # 任务2: 对手盘衰竭指数
         exhaustion_params = params.get('counterparty_exhaustion', {})
         if exhaustion_params.get('enabled') and df_minute is not None:
             tasks.append(calculator.calculate_counterparty_exhaustion_index(df_minute, exhaustion_params.get('efficiency_window', 21)))
-        # 任务3: 突破质量分 (已从此方法中移除，其计算逻辑已整合到上游的 IndicatorService 主流程中)
         if not tasks:
             return all_dfs
         results = await asyncio.gather(*tasks)
+        new_cols_no_suffix = []
         for res_df in results:
             if res_df is not None and not res_df.empty:
-                # 将结果的索引标准化，以确保能与日线数据正确合并
+                new_cols_no_suffix.extend(res_df.columns)
                 res_df.index = pd.to_datetime(res_df.index, utc=True).normalize()
                 df_daily = df_daily.join(res_df, how='left')
-        # 对新合并的列进行前向填充，保证数据连续性
-        new_cols = [col for res_df in results if res_df is not None for col in res_df.columns]
-        if new_cols: # 增加判断，只有在有新列时才执行填充
-            df_daily[new_cols] = df_daily[new_cols].ffill()
+        # --- 命名协议强制执行 ---
+        # 为所有新合并的、没有后缀的列，强制添加 '_D' 后缀
+        rename_map = {col: f"{col}_D" for col in new_cols_no_suffix if col in df_daily.columns}
+        if rename_map:
+            df_daily.rename(columns=rename_map, inplace=True)
+        # 对新合并的列（现在已带后缀）进行前向填充
+        final_new_cols = list(rename_map.values())
+        if final_new_cols:
+            df_daily[final_new_cols] = df_daily[final_new_cols].ffill()
         all_dfs['D'] = df_daily
         logger.info("分钟级形态增强信号计算完成并已集成。")
         return all_dfs
@@ -522,22 +514,18 @@ class FeatureEngineeringService:
         for timeframe in params.get('apply_on', []):
             if timeframe not in all_dfs or all_dfs[timeframe] is None or all_dfs[timeframe].empty:
                 continue
-            
             df = all_dfs[timeframe]
-            
             # 从配置中获取参数
             ma_periods = params.get('ma_periods', [])
             ma_type = params.get('ma_type', 'EMA')
             tension_short_period = params.get('tension_short_period', 5)
             tension_long_period = params.get('tension_long_period', 55)
             norm_window = params.get('norm_window', 55)
-            
             # 1. 【军火库点验】: 确认计算所需的核心数据
             ma_cols = [f"{ma_type}_{p}_{timeframe}" for p in ma_periods]
             tension_cols = [f"{ma_type}_{tension_short_period}_{timeframe}", f"{ma_type}_{tension_long_period}_{timeframe}"]
             atr_col = f"ATR_14_{timeframe}" # 使用ATR进行波动率归一化
             required_cols = list(set(ma_cols + tension_cols + [atr_col]))
-            
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 logger.warning(f"均线系统势能分析失败({timeframe})：缺少核心数据列 {missing_cols}")
@@ -563,7 +551,6 @@ class FeatureEngineeringService:
                     n = len(ma_periods)
                     if n <= 1: return 0.0
                     return 1 - (6 * d_sq) / (n * (n**2 - 1))
-                
                 orderliness_score = ma_df.apply(spearman_corr, axis=1)
                 df[f'MA_POTENTIAL_ORDERLINESS_SCORE_{timeframe}'] = orderliness_score.fillna(0).astype(np.float32)
                 # 4. 【计算势能变化率】: 均线压缩率 (MA_POTENTIAL_COMPRESSION_RATE)
@@ -579,8 +566,9 @@ class FeatureEngineeringService:
 
     async def calculate_breakout_quality(self, all_dfs: Dict, params: dict, calculator) -> Dict:
         """
-        【V3.0 · 生产就绪版】突破质量分计算专用通道
-        - 核心修改: 移除了所有用于调试的print探针，将关键的失败信息转为标准的日志记录，使代码恢复至清洁的生产状态。
+        【V3.1 · 后门封堵版】突破质量分计算专用通道
+        - 核心修复: 封堵了命名协议的后门。在合并由外部计算器生成的、不带后缀的 'breakout_quality_score' 后，
+                      立即将其重命名为 'breakout_quality_score_D'，确保数据流的绝对标准化。
         """
         if not params.get('enabled', False):
             return all_dfs
@@ -588,40 +576,34 @@ class FeatureEngineeringService:
         if timeframe not in all_dfs or all_dfs[timeframe] is None:
             return all_dfs
         df_daily = all_dfs[timeframe]
-        # 定义一个无后缀的“原材料清单”
         required_materials = [
             'volume', 'VOL_MA_21', 'main_force_flow_directionality',
             'open', 'high', 'low', 'close',
             'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
         ]
-        # 构建一个全新的、列名完全标准化的 DataFrame
         df_standardized = pd.DataFrame(index=df_daily.index)
         missing_materials = []
         for material in required_materials:
             source_col_with_suffix = f"{material}_{timeframe}"
             if source_col_with_suffix in df_daily.columns:
                 df_standardized[material] = df_daily[source_col_with_suffix]
-            elif material in df_daily.columns:
-                df_standardized[material] = df_daily[material]
             else:
-                missing_materials.append(material)
-        # 如果缺少任何原材料，则停产并记录警告
+                missing_materials.append(source_col_with_suffix)
         if missing_materials:
             logger.warning(f"突破质量分计算中止，缺少标准化原材料: {missing_materials}")
             return all_dfs
-            
-        # 将100%符合规格的DataFrame送入计算器
         result_df = await calculator.calculate_breakout_quality_score(df_daily=df_standardized, params=params)
         if result_df is not None and not result_df.empty:
-            # 将生产出的成品合并回主数据流
             df_daily = df_daily.join(result_df, how='left')
-            df_daily[result_df.columns] = df_daily[result_df.columns].ffill()
+            # --- 命名协议强制执行 ---
+            # 将合并进来的、不带后缀的列，强制重命名为带 '_D' 后缀的标准格式
+            if 'breakout_quality_score' in df_daily.columns:
+                df_daily.rename(columns={'breakout_quality_score': 'breakout_quality_score_D'}, inplace=True)
+                df_daily['breakout_quality_score_D'] = df_daily['breakout_quality_score_D'].ffill()
             all_dfs[timeframe] = df_daily
             logger.info("突破质量分计算完成并已集成。")
         else:
-            # 如果计算器返回空结果，记录警告
             logger.warning("突破质量分计算器返回了None或空DataFrame，未集成。")
-            
         return all_dfs
 
 

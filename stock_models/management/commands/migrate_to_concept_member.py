@@ -27,7 +27,6 @@ class Command(BaseCommand):
         try:
             with transaction.atomic():
                 asyncio.run(self.async_main())
-            
             self.stdout.write(self.style.SUCCESS("\n====== 成分股数据迁移成功！所有操作已提交。 ======"))
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"迁移过程中发生严重错误: {e}"))
@@ -92,7 +91,6 @@ class Command(BaseCommand):
                             in_date=in_date_obj,
                             out_date=await self._parse_date(member_data['out_date'])
                         ))
-            
             if len(members_to_create) >= BULK_CREATE_BATCH_SIZE:
                 await ConceptMember.objects.abulk_create(members_to_create, ignore_conflicts=True)
                 count += len(members_to_create)
@@ -117,9 +115,7 @@ class Command(BaseCommand):
         async for member_data in ThsIndexMember.objects.values('ths_index_id', 'stock_id').aiterator():
             concept_code = member_data['ths_index_id'] # ths_index_id 实际上就是 ts_code
             stock_pk = member_data['stock_id'] # stock_id 实际上就是 stock_code
-            
             concept_id = concept_map.get(concept_code)
-            
             if concept_id and stock_pk:
                 members_to_create.append(ConceptMember(
                     concept_id=concept_id,
@@ -128,7 +124,6 @@ class Command(BaseCommand):
                     in_date=proxy_in_date, # 使用代理日期
                     out_date=None # out_date 永远为 None
                 ))
-            
             if len(members_to_create) >= BULK_CREATE_BATCH_SIZE:
                 await ConceptMember.objects.abulk_create(members_to_create, ignore_conflicts=True)
                 count += len(members_to_create)
@@ -149,9 +144,7 @@ class Command(BaseCommand):
         async for member_data in DcIndexMember.objects.values('dc_index_id', 'stock_id', 'trade_time').aiterator():
             concept_code = member_data['dc_index_id']
             stock_pk = member_data['stock_id']
-            
             concept_id = concept_map.get(concept_code)
-            
             if concept_id and stock_pk and member_data['trade_time']:
                 members_to_create.append(ConceptMember(
                     concept_id=concept_id,
@@ -179,9 +172,7 @@ class Command(BaseCommand):
         async for member_data in KplConceptConstituent.objects.values('concept_info_id', 'stock_id', 'trade_time').aiterator():
             concept_code = member_data['concept_info_id']
             stock_pk = member_data['stock_id']
-            
             concept_id = concept_map.get(concept_code)
-            
             if concept_id and stock_pk and member_data['trade_time']:
                 members_to_create.append(ConceptMember(
                     concept_id=concept_id,

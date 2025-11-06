@@ -194,14 +194,12 @@ def save_index_daily_history_task(self):
         # 对指数代码列表进行切片并分配执行任务
         for i in range(0, len(all_index_codes), INDEX_SLICE_SIZE):
             index_codes_slice = all_index_codes[i:i + INDEX_SLICE_SIZE]
-            
             # 代码修改处: 优化日志输出，使其更清晰
             log_msg = (
                 f"[{task_id}] 调度中: 分配第 {i // INDEX_SLICE_SIZE + 1} 个切片 "
                 f"(含 {len(index_codes_slice)} 个代码) 到执行队列 [SaveData_TimeTrade]..."
             )
             logger.info(log_msg)
-            
             # 分配执行任务
             save_index_daily_history_slice.delay(index_codes_slice)
         logger.info(f"[{task_id}] 调度任务完成 - 所有 {len(range(0, len(all_index_codes), INDEX_SLICE_SIZE))} 个指数切片任务已成功分配。")

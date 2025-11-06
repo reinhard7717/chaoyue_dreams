@@ -42,7 +42,6 @@ class SecurityMiddleware:
             # 使用Redis缓存来存储IP的请求记录
             cache_key = f"rate-limit:{ip}"
             request_count = cache.get(cache_key, 0) + 1
-            
             # cache.set(key, value, timeout)
             # 如果是第一次请求，我们会设置一个过期时间
             if request_count == 1:

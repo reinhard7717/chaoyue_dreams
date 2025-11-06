@@ -85,7 +85,6 @@ Requires core.js and SelectBox.js.
                     [field_name]
                 )
             );
-            
             const filter_selected_p = quickElement('p', selector_chosen, '', 'id', field_id + '_filter_selected');
             filter_selected_p.className = 'selector-filter';
             const search_filter_selected_label = quickElement('label', filter_selected_p, '', 'for', field_id + '_selected_input');
@@ -99,11 +98,9 @@ Requires core.js and SelectBox.js.
             filter_selected_input.id = field_id + '_selected_input';
             const to_box = quickElement('select', selector_chosen, '', 'id', field_id + '_to', 'multiple', '', 'size', from_box.size, 'name', from_box.name);
             to_box.className = 'filtered';
-            
             const warning_footer = quickElement('div', selector_chosen, '', 'class', 'list-footer-display');
             quickElement('span', warning_footer, '', 'id', field_id + '_list-footer-display-text');
             quickElement('span', warning_footer, ' (click to clear)', 'class', 'list-footer-display__clear');
-            
             const clear_all = quickElement('a', selector_chosen, gettext('Remove all'), 'title', interpolate(gettext('Click to remove all chosen %s at once.'), [field_name]), 'href', '#', 'id', field_id + '_remove_all_link');
             clear_all.className = 'selector-clearall';
             from_box.name = from_box.name + '_old';

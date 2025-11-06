@@ -29,10 +29,8 @@ class FusionIntelligence:
         elif name in self.strategy.df_indicators.columns:
             return self.strategy.df_indicators[name]
         else:
-            # [代码修改开始]
             # 默认值从 0.5 改为 0.0
             return pd.Series(default, index=self.strategy.df_indicators.index)
-            # [代码修改结束]
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """
@@ -120,7 +118,6 @@ class FusionIntelligence:
             bear_score_series = self._get_atomic_score(bear_signal_name, 0.5)
             bullish_scores.append(bull_score_series.values)
             bearish_scores.append(bear_score_series.values)
-            
             # [代码新增开始]
             if probe_date and probe_date in bull_score_series.index:
                 bull_val = bull_score_series.loc[probe_date]

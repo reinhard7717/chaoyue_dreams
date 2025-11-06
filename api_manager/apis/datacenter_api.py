@@ -22,12 +22,10 @@ class DataCenterAPI(BaseAPI):
         try:
             logger.info("开始请求龙虎榜数据API")
             response = await self.get('data/all/ld', expected_type='dict')
-            
             if not response:
                 logger.warning("龙虎榜API返回空响应")
                 return None
             return response
-            
         except Exception as e:
             logger.error(f"请求龙虎榜数据API出错: {str(e)}")
             return None
@@ -36,7 +34,6 @@ class DataCenterAPI(BaseAPI):
         获取近n日上榜个股
         Args:
             days: 统计天数，可选 5、10、30、60
-            
         Returns:
             Optional[List[Dict]]: 个股上榜统计数据，如请求失败则返回None
         """
@@ -46,7 +43,6 @@ class DataCenterAPI(BaseAPI):
             if days not in [5, 10, 30, 60]:
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
-            
             return await self.get(f'data/all/gg/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日上榜个股数据出错: {str(e)}")
@@ -56,7 +52,6 @@ class DataCenterAPI(BaseAPI):
         获取近n日营业部上榜统计
         Args:
             days: 统计天数，可选 5、10、30、60
-            
         Returns:
             Optional[List[Dict]]: 营业部上榜统计数据，如请求失败则返回None
         """
@@ -66,7 +61,6 @@ class DataCenterAPI(BaseAPI):
             if days not in [5, 10, 30, 60]:
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
-            
             return await self.get(f'data/all/yyb/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日营业部上榜统计数据出错: {str(e)}")
@@ -77,7 +71,6 @@ class DataCenterAPI(BaseAPI):
         获取近n日个股机构交易追踪
         Args:
             days: 统计天数，可选 5、10、30、60
-            
         Returns:
             Optional[List[Dict]]: 机构席位追踪数据，如请求失败则返回None
         """
@@ -87,7 +80,6 @@ class DataCenterAPI(BaseAPI):
             if days not in [5, 10, 30, 60]:
                 logger.error(f"无效的统计天数: {days}，必须是 5、10、30、60 之一")
                 return None
-            
             return await self.get(f'data/all/jgzz/{days}', expected_type='list')
         except Exception as e:
             logger.error(f"获取近{days}日个股机构交易追踪数据出错: {str(e)}")
@@ -97,7 +89,6 @@ class DataCenterAPI(BaseAPI):
         获取机构席位成交明细
         Args:
             days: 统计天数，可选 5、10、30、60
-            
         Returns:
             List[Dict]: 机构席位成交明细数据列表
         """
@@ -186,7 +177,6 @@ class DataCenterAPI(BaseAPI):
         """
         try:
             data = await self.get('data/all/zzdpm', expected_type='list')
-            
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取周涨跌排名失败: {data}")
@@ -204,7 +194,6 @@ class DataCenterAPI(BaseAPI):
         """
         try:
             data = await self.get('data/all/yzdpm', expected_type='list')
-            
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取月涨跌排名失败: {data}")
@@ -222,7 +211,6 @@ class DataCenterAPI(BaseAPI):
         """
         try:
             data = await self.get('data/all/bzqsg', expected_type='list')
-            
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取本周强势股失败: {data}")
@@ -240,7 +228,6 @@ class DataCenterAPI(BaseAPI):
         """
         try:
             data = await self.get('data/all/byqsg', expected_type='list')
-            
             # 检查是否是404错误或其他错误字符串
             if isinstance(data, str) and ("404" in data or "无资源" in data):
                 logger.warning(f"获取本月强势股失败: {data}")
@@ -285,7 +272,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 盈利能力数据，如请求失败则返回None
         """
@@ -299,7 +285,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 运营能力数据，如请求失败则返回None
         """
@@ -313,7 +298,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 成长能力数据，如请求失败则返回None
         """
@@ -327,7 +311,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 偿债能力数据，如请求失败则返回None
         """
@@ -341,7 +324,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 现金流量数据，如请求失败则返回None
         """
@@ -355,7 +337,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 业绩报表数据，如请求失败则返回None
         """
@@ -369,7 +350,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 业绩预告数据，如请求失败则返回None
         """
@@ -383,7 +363,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 业绩快报数据，如请求失败则返回None
         """
@@ -405,7 +384,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 机构持股汇总数据，如请求失败则返回None
         """
@@ -419,7 +397,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 基金重仓数据，如请求失败则返回None
         """
@@ -433,7 +410,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: 社保重仓数据，如请求失败则返回None
         """
@@ -447,7 +423,6 @@ class DataCenterAPI(BaseAPI):
         Args:
             year: 报告年份
             quarter: 报告季度，1:一季报，2：中报，3：三季报，4：年报
-            
         Returns:
             Optional[List[Dict]]: QFII重仓股数据，如请求失败则返回None
         """
@@ -563,7 +538,6 @@ class DataCenterAPI(BaseAPI):
         获取北向资金历史走势数据
         Args:
             period: 时间段，可选 1m、6m、1y、all
-            
         Returns:
             Optional[List[Dict]]: 北向资金历史走势数据，如请求失败则返回None
         """
@@ -576,7 +550,6 @@ class DataCenterAPI(BaseAPI):
         获取南向资金历史走势数据
         Args:
             period: 时间段，可选 1m、6m、1y、all
-            
         Returns:
             Optional[List[Dict]]: 南向资金历史走势数据，如请求失败则返回None
         """
@@ -603,7 +576,6 @@ class DataCenterAPI(BaseAPI):
         获取北向个股周期排名数据
         Args:
             period: 周期，可选 1D、3D、5D、10D、LM、LQ、LY
-            
         Returns:
             Optional[List[Dict]]: 北向个股周期排名数据，如请求失败则返回None
         """

@@ -269,21 +269,17 @@ class StockBasicInfoDao(BaseDAO):
             # 2. 数据清洗
             df = df.replace(['nan', 'NaN', ''], np.nan)
             df = df.where(pd.notnull(df), None)
-            
             # 3. [代码修改处] 批量获取所有相关的股票基础信息对象
             unique_ts_codes = df['ts_code'].unique().tolist()
             print(f"调试: 从API获取了 {len(df)} 条公司数据，涉及 {len(unique_ts_codes)} 个独立股票代码。")
-            
             # [代码修改处] 使用 get_stocks_by_codes 方法，一次性查询数据库，解决N+1问题
             stock_map = await self.get_stocks_by_codes(unique_ts_codes)
             print(f"调试: 批量从数据库获取了 {len(stock_map)} 个股票对象。")
             # 4. 准备批量写入的数据
             data_dicts_to_save = []
-            
             for row in df.itertuples():
                 # [代码修改处] 从预先查好的映射中获取股票对象，高效且无N+1问题
                 stock_instance = stock_map.get(row.ts_code)
-                
                 # 进行健壮性检查
                 if stock_instance and row.com_name:
                     company_dict = self.data_format_process.set_company_info_data(stock_instance, row)

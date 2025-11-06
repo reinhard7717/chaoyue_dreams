@@ -61,11 +61,9 @@ class JudgmentLayer:
                       确保任何来源的信号都能被正确回溯。
         """
         score_map = get_params_block(self.strategy, 'score_type_map', {})
-        # [代码修改开始]
         # 建立统一情报总线，确保能回溯所有来源的信号
         all_available_signals = self.strategy.atomic_states.copy()
         all_available_signals.update(self.strategy.playbook_states)
-        # [代码修改结束]
         df = self.strategy.df_indicators
         details_df_numeric = details_df.apply(pd.to_numeric, errors='coerce').fillna(0)
         def generate_summary_for_day(row):

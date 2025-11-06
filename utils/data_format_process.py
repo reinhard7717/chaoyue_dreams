@@ -432,7 +432,6 @@ class StockRealtimeDataFormatProcess(BaseDAO):
             "buy_price4": self._parse_number(getattr(df_data, "B4_P", None)),
             "buy_volume5": _process_volume(getattr(df_data, "B5_V", None)),
             "buy_price5": self._parse_number(getattr(df_data, "B5_P", None)),
-            
             "sell_volume1": _process_volume(getattr(df_data, "A1_V", None)),
             "sell_price1": self._parse_number(getattr(df_data, "A1_P", None)),
             "sell_volume2": _process_volume(getattr(df_data, "A2_V", None)),

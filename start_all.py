@@ -130,7 +130,6 @@ def main():
             for process, prefix in processes:
                 if print_output(process, prefix):
                     any_output = True
-            
             if not any_output:
                 time.sleep(0.1)
     except KeyboardInterrupt:

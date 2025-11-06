@@ -29,7 +29,6 @@ def _load_dynamic_scoring_map() -> dict:
         if not metadata:
             logger.warning("在 trend_follow_strategy.json 中未找到 'metadata' 模块，无法加载动态评分项名称。")
             return {}
-            
         # 遍历元数据，构建 "英文ID: 中文名" 的映射
         for key, value in metadata.items():
             if isinstance(value, dict) and 'cn_name' in value:

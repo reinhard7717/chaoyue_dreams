@@ -52,7 +52,6 @@ class PerformanceAnalyzer:
         if not all_events_to_analyze:
             print("      -> 未发现任何可供分析的事件。")
             return []
-            
         # 步骤2: 遍历每一个事件，模拟其后续表现
         all_trade_outcomes = []
         # 使用健壮的 get_params_block 获取权威的 score_map
@@ -61,7 +60,6 @@ class PerformanceAnalyzer:
             event_dates = event_series.index[event_series]
             if event_dates.empty:
                 continue
-            
             # [核心逻辑] 查找信号元数据以确定其角色
             signal_meta = score_map.get(signal_name, {})
             signal_type = signal_meta.get('type', 'positional').lower() # 默认为进攻型
@@ -111,7 +109,6 @@ class PerformanceAnalyzer:
         # 步骤2: 对所有收集到的信号进行统一过滤
         for signal_name, signal_series in all_events.items():
             signal_meta = score_map.get(signal_name)
-            
             # 核心过滤逻辑：
             # 1. 必须在 score_type_map 中有定义
             # 2. 定义中必须有 'type' 键
@@ -168,10 +165,8 @@ class PerformanceAnalyzer:
             if total_triggers == 0:
                 continue
             success_count = (group_df['outcome'] == 'success').sum()
-            
             # --- 引入分类评估指标 ---
             metric_name = "win_rate" # 默认指标名称
-            
             if signal_type == 'risk':
                 # 对于风险信号，计算“风险规避率”
                 effectiveness_pct = ((total_triggers - success_count) / total_triggers) if total_triggers > 0 else 0
@@ -179,12 +174,10 @@ class PerformanceAnalyzer:
             else:
                 # 对于进攻型信号，计算“胜率”
                 effectiveness_pct = (success_count / total_triggers) if total_triggers > 0 else 0
-            
             # --- 结束 ---
             avg_max_profit = group_df['max_profit_pct'].mean()
             avg_max_drawdown = group_df['max_drawdown_pct'].mean()
             avg_exit_days = group_df['exit_days'].mean()
-            
             result_entry = {
                 'signal_name': signal_name,
                 'signal_cn_name': signal_cn_name,
@@ -198,7 +191,6 @@ class PerformanceAnalyzer:
                 'avg_exit_days': avg_exit_days,
             }
             analysis_results.append(result_entry)
-            
         # 按效能指标降序排序
         analysis_results.sort(key=lambda x: x['effectiveness_pct'], reverse=True)
         return analysis_results

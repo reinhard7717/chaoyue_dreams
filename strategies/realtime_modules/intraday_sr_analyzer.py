@@ -80,7 +80,6 @@ class IntradaySRAnalyzer:
         if self.pivot_points_enabled and self.pivot_points:
             for level_name, level_value in self.pivot_points.items():
                 if pd.isna(level_value) or level_value == 0: continue
-                
                 # 价格在支撑位附近反弹
                 if level_name.startswith('S'):
                     # 价格触及支撑位
@@ -93,7 +92,6 @@ class IntradaySRAnalyzer:
                             sr_features[f"PRICE_REBOUNDING_FROM_{level_name}"] = 1.0 # 布尔值
                     else:
                         sr_features[f"PRICE_REBOUNDING_FROM_{level_name}"] = 0.0
-                
                 # 价格在阻力位附近受阻
                 elif level_name.startswith('R'):
                     # 价格触及阻力位
@@ -106,7 +104,6 @@ class IntradaySRAnalyzer:
                             sr_features[f"PRICE_REJECTED_AT_{level_name}"] = 1.0 # 布尔值
                     else:
                         sr_features[f"PRICE_REJECTED_AT_{level_name}"] = 0.0
-                
                 # 价格在PP附近
                 elif level_name == 'PP':
                     is_around_pp = (current_low <= level_value * (1 + tolerance_pct)) and \
@@ -122,12 +119,10 @@ class IntradaySRAnalyzer:
                 sr_features["PRICE_BELOW_PREV_CLOSE"] = 1.0 if current_price < prev_day_close * (1 - tolerance_pct) else 0.0
                 sr_features["PRICE_AROUND_PREV_CLOSE"] = 1.0 if ((current_low <= prev_day_close * (1 + tolerance_pct)) and \
                                                          (current_high >= prev_day_close * (1 - tolerance_pct))) else 0.0
-            
             if not pd.isna(prev_day_high) and prev_day_high != 0:
                 sr_features["PRICE_BREAKING_PREV_HIGH"] = 1.0 if current_price > prev_day_high * (1 + tolerance_pct) else 0.0
                 sr_features["PRICE_REJECTED_AT_PREV_HIGH"] = 1.0 if ((current_high >= prev_day_high * (1 - tolerance_pct)) and \
                                                              (current_price < prev_day_high * (1 - tolerance_pct))) else 0.0
-            
             if not pd.isna(prev_day_low) and prev_day_low != 0:
                 sr_features["PRICE_BREAKING_PREV_LOW"] = 1.0 if current_price < prev_day_low * (1 - tolerance_pct) else 0.0
                 sr_features["PRICE_REBOUNDING_FROM_PREV_LOW"] = 1.0 if ((current_low <= prev_day_low * (1 + tolerance_pct)) and \

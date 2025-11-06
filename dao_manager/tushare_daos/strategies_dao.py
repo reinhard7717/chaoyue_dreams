@@ -262,7 +262,6 @@ class StrategiesDAO(BaseDAO):
             buy_score=F('entry_score'),
             close_D=F('close_price'),
             signal_type=Value('日线趋势'),
-            
             # --- 布尔型信号字段 ---
             signal_take_profit=Case(
                 When(exit_signal_code__gt=0, then=Value(True)),
@@ -382,10 +381,8 @@ class StrategiesDAO(BaseDAO):
         """
         try:
             qs = StockDailyBasic.objects.filter(stock__stock_code=stock_code)
-            
             if trade_time:
                 qs = qs.filter(trade_time__lte=trade_time.date())
-            
             qs = qs.order_by('-trade_time')[:limit]
             fields_to_get = [
                 'trade_time',

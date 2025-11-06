@@ -99,7 +99,6 @@ class IntradayFeatureEngine:
             }
             # 3. 按分钟级别重新采样和聚合
             df_aggregated = df_ticks.resample(time_level).agg(aggregation_rules)
-            
             # 4. 重命名列，使其更清晰
             df_aggregated.rename(columns={
                 'aggressive_buy_volume': 'agg_buy_vol_sum',
@@ -127,16 +126,12 @@ class IntradayFeatureEngine:
             # 填充可能因join产生的NaN
             df_minute['agg_buy_vol_sum'].fillna(0, inplace=True)
             df_minute['agg_sell_vol_sum'].fillna(0, inplace=True)
-            
             # 1. 净主动成交量
             df_minute['net_aggressive_volume'] = df_minute['agg_buy_vol_sum'] - df_minute['agg_sell_vol_sum']
-            
             # 2. 净主动成交量Z-Score
             df_minute.ta.zscore(close=df_minute['net_aggressive_volume'], length=self.stats_window, append=True, col_names="net_agg_vol_zscore")
-            
             # 3. 净主动成交量斜率
             df_minute.ta.slope(close=df_minute['net_aggressive_volume'], length=self.slope_window, append=True, col_names="net_agg_vol_slope")
-            
             # 4. 价格与净主动成交量的滚动相关性
             corr = df_minute['close'].rolling(window=self.corr_window).corr(df_minute['net_aggressive_volume'])
             df_minute['corr_price_net_agg_vol'] = corr
@@ -294,11 +289,9 @@ class RealtimeServices:
             if df_features is None or df_features.empty:
                 print(f"  - 警告: {stock_code} 特征计算失败或结果为空，已跳过。")
                 continue
-            
             # 4. 将计算结果打包，准备发送给策略分析任务
             #    将DataFrame转换为list of dicts以便Celery传输
             calculated_data_list = df_features.to_dict('records')
-            
             # 创建Celery任务签名
             task_signature = run_realtime_strategy_for_stock.s(calculated_data_list)
             calculation_tasks.append(task_signature)

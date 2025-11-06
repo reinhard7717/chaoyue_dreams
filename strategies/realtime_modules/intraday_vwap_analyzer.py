@@ -69,7 +69,6 @@ class IntradayVWAPAnalyzer:
                 vwap_lower_channel = current_vwap - self.vwap_channel_std_dev * std_dev_diff
                 vwap_features["VWAP_UPPER_CHANNEL"] = vwap_upper_channel
                 vwap_features["VWAP_LOWER_CHANNEL"] = vwap_lower_channel
-                
                 # 价格触及通道的程度 (例如，触及下轨后反弹的幅度)
                 # 这里可以更复杂，暂时只返回布尔值
                 vwap_features["PRICE_TOUCHING_VWAP_LOWER_CHANNEL"] = 1.0 if (current_kline['low'] <= vwap_lower_channel and current_kline['close'] > vwap_lower_channel) else 0.0

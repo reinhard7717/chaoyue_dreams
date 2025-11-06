@@ -172,14 +172,12 @@ class AdvancedFundFlowMetricsService:
                 merged_df = pd.merge(merged_df, right_df, on='trade_time', how='left')
         merged_df = merged_df.sort_values('trade_time').set_index('trade_time')
         if not base_daily_df.empty:
-            # [代码修改开始]
             # 修复：在合并前，主动检查并移除与 base_daily_df 的重叠列，根除 'columns overlap' 错误。
             overlap_cols = merged_df.columns.intersection(base_daily_df.columns)
             if not overlap_cols.empty:
                 # 从资金流合并的DataFrame中丢弃重叠列，以 base_daily_df 的数据为准
                 merged_df = merged_df.drop(columns=overlap_cols)
             merged_df = merged_df.join(base_daily_df, how='left')
-            # [代码修改结束]
         return merged_df
 
     async def _get_daily_grouped_minute_data(self, stock_info: StockInfo, date_index: pd.DatetimeIndex, fetch_full_cols: bool = True):
@@ -372,10 +370,8 @@ class AdvancedFundFlowMetricsService:
             daily_data['daily_vwap'] = daily_vwap_from_minute
             minute_data_for_day = self._calculate_intraday_attribution_weights(minute_data_full, daily_data)
             day_results = {'trade_time': date}
-            # [代码修改开始]
             # 修复：将计算出的VWAP直接存入结果字典，以便最终成为DataFrame的一列
             day_results['daily_vwap'] = daily_vwap_from_minute
-            # [代码修改结束]
             for cost_type in cost_types:
                 size, direction = cost_type.split('_')
                 db_vol_key = f'{direction}_{size}_vol'
@@ -752,10 +748,8 @@ class AdvancedFundFlowMetricsService:
                     results['main_force_cmf'] = (mfm * df_cmf['main_force_net_vol']).sum() / df_cmf['main_force_net_vol'].abs().sum()
                 results['cmf_divergence_score'] = results.get('main_force_cmf', 0.0) - results.get('holistic_cmf', 0.0)
         if 'main_force_net_vol' in minute_data.columns and pd.notna(day_close):
-            # [代码修改开始]
             # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
             vp_global = minute_data.groupby(pd.cut(minute_data['minute_vwap'], bins=30, duplicates='drop'))['vol_shares'].sum()
-            # [代码修改结束]
             if not vp_global.empty:
                 vpoc_interval = vp_global.idxmax()
                 global_vpoc_price = vpoc_interval.mid

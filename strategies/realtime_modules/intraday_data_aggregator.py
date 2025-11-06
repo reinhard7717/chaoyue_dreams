@@ -68,7 +68,6 @@ class IntradayDataAggregator:
         all_processed_data = {self.base_timeframe: current_data}
         for tf_str in self.processed_timeframes:
             freq = self._convert_timeframe_to_freq(tf_str)
-            
             # 确保当前时间周期的数据至少有一行，并且时间戳是递增的
             if not self.data_buffer[tf_str].empty and current_data.index[-1] <= self.data_buffer[tf_str].index[-1]:
                 # 如果最新的1分钟数据时间戳小于或等于已聚合的最高时间戳，则无需重新聚合
@@ -78,7 +77,6 @@ class IntradayDataAggregator:
             # 聚合数据
             ohlcv_agg = current_data['volume'].resample(freq).apply(self._ohlcv_agg_func)
             ohlcv_agg = ohlcv_agg.dropna() # 移除空K线
-            
             if ohlcv_agg.empty:
                 all_processed_data[tf_str] = self.data_buffer[tf_str]
                 continue
@@ -93,11 +91,9 @@ class IntradayDataAggregator:
                     self.data_buffer[tf_str] = self.data_buffer[tf_str].sort_index()
             else:
                 self.data_buffer[tf_str] = ohlcv_agg
-            
             # 计算指标
             if len(self.data_buffer[tf_str]) >= self.min_data_points.get(tf_str, 1):
                 self._calculate_technical_indicators(self.data_buffer[tf_str], tf_str)
-            
             all_processed_data[tf_str] = self.data_buffer[tf_str]
             # print(f"  [数据聚合器] {tf_str} 聚合完成，当前数据量: {len(self.data_buffer[tf_str])}")
         return all_processed_data

@@ -44,7 +44,6 @@ class StockBasicAPI(BaseAPI):
         获取公司简介
         Args:
             stock_code: 股票代码
-            
         Returns:
             Dict[str, str]: 公司基本信息
         """
@@ -56,7 +55,6 @@ class StockBasicAPI(BaseAPI):
         获取所属指数
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 公司所属指数列表
         """
@@ -68,7 +66,6 @@ class StockBasicAPI(BaseAPI):
         获取近一年各季度利润
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 近一年各季度利润数据
         """
@@ -80,7 +77,6 @@ class StockBasicAPI(BaseAPI):
         获取近一年各季度现金流
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 近一年各季度现金流数据
         """
@@ -92,7 +88,6 @@ class StockBasicAPI(BaseAPI):
         获取近年业绩预告
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 近年业绩预告数据
         """
@@ -104,7 +99,6 @@ class StockBasicAPI(BaseAPI):
         获取财务指标
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 财务指标数据
         """
@@ -116,7 +110,6 @@ class StockBasicAPI(BaseAPI):
         获取十大股东
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 十大股东数据
         """
@@ -128,7 +121,6 @@ class StockBasicAPI(BaseAPI):
         获取十大流通股东
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 十大流通股东数据
         """
@@ -140,7 +132,6 @@ class StockBasicAPI(BaseAPI):
         获取股东变化趋势
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 股东变化趋势数据
         """
@@ -152,7 +143,6 @@ class StockBasicAPI(BaseAPI):
         获取基金持股
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 基金持股数据
         """
@@ -164,7 +154,6 @@ class StockBasicAPI(BaseAPI):
         获取所属板块
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 所属板块数据
         """
@@ -176,7 +165,6 @@ class StockBasicAPI(BaseAPI):
         获取经营范围
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 经营范围数据
         """
@@ -188,7 +176,6 @@ class StockBasicAPI(BaseAPI):
         获取主营业务
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 主营业务数据
         """
@@ -209,7 +196,6 @@ class StockBasicAPI(BaseAPI):
         根据指数、行业、概念找相关股票
         Args:
             index_code: 指数、行业、概念代码
-            
         Returns:
             List[Dict[str, str]]: 相关股票列表
         """
@@ -221,7 +207,6 @@ class StockBasicAPI(BaseAPI):
         根据股票找相关指数、行业、概念
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, str]]: 相关指数、行业、概念列表
         """

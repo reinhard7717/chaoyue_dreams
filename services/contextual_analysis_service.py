@@ -347,7 +347,6 @@ class ContextualAnalysisService:
                 hm_buyer_count=('hm_name', lambda x: x[hm_df.loc[x.index, 'net_amount'] > 0].nunique())
             )
             signals_df = signals_df.merge(hm_daily_summary, left_index=True, right_index=True, how='left')
-            
             # 信号1: 游资净买入
             signals_df['SMART_MONEY_HM_NET_BUY_D'] = signals_df['hm_net_amount'] > 0
             # 信号2: 游资协同攻击
@@ -359,7 +358,6 @@ class ContextualAnalysisService:
             # 按天聚合机构净买入额
             inst_daily_summary = top_inst_df.groupby('trade_date').agg(inst_net_buy=('net_buy', 'sum'))
             signals_df = signals_df.merge(inst_daily_summary, left_index=True, right_index=True, how='left')
-            
             # 信号3: 机构净买入
             signals_df['SMART_MONEY_INST_NET_BUY_D'] = signals_df['inst_net_buy'] > 0
         # 4. 处理协同与背离信号

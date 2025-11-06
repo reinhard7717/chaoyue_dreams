@@ -75,7 +75,6 @@ class IntelligenceLayer:
         def update_states(new_states: Dict):
             if isinstance(new_states, dict):
                 self.strategy.atomic_states.update(new_states)
-        # [代码修改开始]
         # --- 阶段一：基础原子情报层 (Foundation & Atomic Layer) ---
         # 这些引擎相对独立，主要生产各自领域的原子和共振信号
         update_states(self.cyclical_intel.run_cyclical_analysis_command(df))
@@ -97,7 +96,6 @@ class IntelligenceLayer:
         # 此层消费阶段三的态势和阶段一/二的原子/过程信号，生成最终剧本
         self._ignite_relational_dynamics_engine()
         self.cognitive_intel.synthesize_cognitive_scores(df)
-        # [代码修改结束]
         return self.strategy.atomic_states
 
     def deploy_forensic_probes(self):

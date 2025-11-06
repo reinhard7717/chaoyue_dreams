@@ -63,7 +63,6 @@ class BaseAPI:
         if url is None:
             logger.warning("URL为None，使用默认API类型")
             return 'default'
-            
         url_lower = url.lower()
         for api_type, patterns in self.url_patterns.items():
             for pattern in patterns:
@@ -75,7 +74,6 @@ class BaseAPI:
         """判断响应是否表示请求频率受限"""
         if not response_text:
             return False
-            
         for pattern in self.rate_limit_patterns:
             if re.search(pattern, response_text, re.IGNORECASE):
                 return True
@@ -111,7 +109,6 @@ class BaseAPI:
         """报告license使用出错"""
         if licence not in self.licence_usage:
             return
-            
         current_time = asyncio.get_event_loop().time()
         self.licence_usage[licence]["errors"] += 1
         # 如果是频率限制错误，进入冷却期
@@ -130,16 +127,13 @@ class BaseAPI:
         Args:
             text: 响应文本
             expected_type: 期望的返回数据类型('list', 'dict', None等)
-            
         Returns:
             Any: 解析后的数据
         """
         if not text:
             return {} if expected_type == 'dict' else [] if expected_type == 'list' else None
-            
         try:
             data = json.loads(text)
-            
             # 类型检查与转换
             if expected_type == 'list' and isinstance(data, dict):
                 # 尝试从字典中提取列表类型的字段
@@ -163,10 +157,8 @@ class BaseAPI:
                     return {}
                 
             return data
-            
         except json.JSONDecodeError as e:
             # logger.warning(f"JSON解析错误: {str(e)}, 文本: {text[:100]}...")
-            
             # 根据期望类型返回默认值
             if expected_type == 'dict':
                 return {}
@@ -185,36 +177,28 @@ class BaseAPI:
         try:
             # 获取会话
             session = await self.session
-            
             # 检测API类型
             api_type = self._detect_api_type(url)
-            
             # 获取license
             licence = self._get_licence(api_type)
             if not licence:
                 logger.error("无法获取可用license")
                 return {"error": "无法获取可用license"}
-            
             # 构建完整URL
             base_url = self.base_url.rstrip('/')
             url = url.lstrip('/')
-            
             # 清理URL，去除可能的股票名称
             if '-' in url:
                 url = url.split('-')[0]
-            
             # 添加license参数
             separator = '&' if '?' in url else '?'
             url_with_licence = f"{url}{separator}licence={licence}"
             full_url = f"{base_url}/{url_with_licence}"
-            
             logger.debug(f"请求URL: {full_url}, API类型: {api_type}")
-            
             # 合并请求头
             request_headers = {'Accept': 'application/json'}
             if headers:
                 request_headers.update(headers)
-            
             # 发送请求
             async with session.request(
                 method, 
@@ -225,14 +209,11 @@ class BaseAPI:
                 timeout=self.timeout
             ) as response:
                 text = await response.text()
-                
                 # 检查是否频率限制
                 is_rate_limited = self._is_rate_limited(text) or response.status == 429
-                
                 if is_rate_limited:
                     # logger.warning(f"检测到频率限制，licence: {licence}")
                     self._report_error(licence, is_rate_limit=True)
-                    
                     if retry_count < self.max_retry_count:
                         retry_delay = min(
                             self.retry_delay * (self.retry_delay_factor ** retry_count),
@@ -245,11 +226,9 @@ class BaseAPI:
                         )
                     else:
                         return {"error": "请求频率过高，请稍后再试"}
-                
                 elif response.status >= 400:
                     logger.error(f"HTTP错误 {response.status}: {full_url}")
                     self._report_error(licence)
-                    
                     if response.status >= 500 and retry_count < self.max_retry_count:
                         retry_delay = min(
                             self.retry_delay * (self.retry_delay_factor ** retry_count),
@@ -260,23 +239,19 @@ class BaseAPI:
                         return await self._make_request(
                             method, original_url, params, data, headers, expected_type, retry_count + 1
                         )
-                    
                     # 尝试解析响应
                     parsed_data = self._parse_response(text, expected_type)
                     if isinstance(parsed_data, dict) and not parsed_data.get("error"):
                         parsed_data["error"] = f"HTTP错误 {response.status}"
                     return parsed_data
-                
                 else:
                     # 成功请求，重置错误
                     self._reset_errors(licence)
-                    
                     # 解析响应
                     return self._parse_response(text, expected_type)
                     
         except aiohttp.ClientError as e:
             logger.error(f"HTTP客户端错误: {str(e)}")
-            
             if retry_count < self.max_retry_count:
                 retry_delay = min(
                     self.retry_delay * (self.retry_delay_factor ** retry_count),
@@ -287,12 +262,9 @@ class BaseAPI:
                 return await self._make_request(
                     method, original_url, params, data, headers, expected_type, retry_count + 1
                 )
-            
             return {"error": f"网络错误: {str(e)}"}
-            
         except asyncio.TimeoutError:
             logger.error(f"请求超时: {url}")
-            
             if retry_count < self.max_retry_count:
                 retry_delay = min(
                     self.retry_delay * (self.retry_delay_factor ** retry_count),
@@ -303,9 +275,7 @@ class BaseAPI:
                 return await self._make_request(
                     method, original_url, params, data, headers, expected_type, retry_count + 1
                 )
-            
             return {"error": "请求超时"}
-            
         except Exception as e:
             logger.error(f"API请求出错: {str(e)}")
             return {"error": f"未知错误: {str(e)}"}
@@ -317,14 +287,12 @@ class BaseAPI:
             params: URL参数
             headers: 请求头
             expected_type: 期望的返回数据类型('list', 'dict', None等)
-            
         Returns:
             Any: 响应数据
         """
         if url is None:
             logger.error("GET请求的URL不能为None")
             return {"error": "请求URL不能为空"}
-            
         return await self._make_request('GET', url, params=params, headers=headers, expected_type=expected_type)
     async def post(self, url: str, data: Dict = None, headers: Dict = None, expected_type: str = None) -> Any:
         """
@@ -334,14 +302,12 @@ class BaseAPI:
             data: 请求体数据
             headers: 请求头
             expected_type: 期望的返回数据类型('list', 'dict', None等)
-            
         Returns:
             Any: 响应数据
         """
         if url is None:
             logger.error("POST请求的URL不能为None")
             return {"error": "请求URL不能为空"}
-            
         return await self._make_request('POST', url, data=data, headers=headers, expected_type=expected_type)
     async def close(self):
         """关闭HTTP会话"""

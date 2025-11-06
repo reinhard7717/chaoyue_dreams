@@ -794,7 +794,6 @@ class CacheManager:
             if not serialized_members:
                 logger.debug(f"SMEMBERS 未找到成员或集合为空: key='{key}'")
                 return [] # 返回空列表表示集合为空
-            
             logger.debug(f"SMEMBERS 命中: key='{key}', 找到 {len(serialized_members)} 个成员。")
             # 反序列化每个成员
             deserialized_list = [self._deserialize(member) for member in serialized_members]
@@ -852,7 +851,6 @@ class CacheManager:
                 if client:
                     # print(f"  -> 正在安排关闭 Event Loop {loop_id} 的连接。")
                     close_tasks.append(client.close())
-            
             # 在持有锁的期间，立即清空上下文，防止新的请求进来
             self._contexts.clear()
         # 在锁之外，并发地执行所有关闭任务

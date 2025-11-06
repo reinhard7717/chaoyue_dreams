@@ -31,7 +31,6 @@ class TransactionService:
                 total_cost = Decimal(0)
                 # 使用一个在循环中迭代的平均成本变量
                 running_avg_cost = Decimal(0)
-                
                 print(f"开始为 Tracker ID: {tracker_id} 重新计算状态...") # 调试信息
                 for tx in transactions:
                     if tx.transaction_type == Transaction.TransactionType.BUY:
@@ -51,21 +50,17 @@ class TransactionService:
                             current_quantity = Decimal(0)
                             total_cost = Decimal(0)
                             running_avg_cost = Decimal(0)
-                
                 tracker.current_quantity = current_quantity
                 # 使用循环计算出的最终成本
                 tracker.average_cost = running_avg_cost
-                
                 # 根据最终数量更新状态
                 if tracker.current_quantity > 0:
                     tracker.status = PositionTracker.Status.HOLDING
                 else:
                     tracker.status = PositionTracker.Status.WATCHING
                     tracker.average_cost = Decimal(0) # 清仓后成本归零
-                
                 print(f"计算完成。最终状态: 数量={tracker.current_quantity}, 成本={tracker.average_cost:.2f}, 状态={tracker.status}") # 调试信息
                 tracker.save()
-            
             # 事务成功后，异步触发快照重建
             rebuild_snapshots_for_tracker_task.delay(tracker.id)
             logger.info(f"成功重新计算 Tracker {tracker_id} 的状态并触发快照重建。")

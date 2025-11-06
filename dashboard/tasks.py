@@ -44,12 +44,10 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
         async def main():
             # 1. 在异步上下文中创建顶层的 CacheManager
             cache_manager_instance = CacheManager()
-            
             # 2. 创建所有需要的 DAO 实例，并注入 cache_manager
             stock_basic_dao = StockBasicInfoDao(cache_manager_instance)
             stock_realtime_dao = StockRealtimeDAO(cache_manager_instance)
             strategy_dao = StrategiesDAO(cache_manager_instance)
-            
             # 3. 使用 asyncio.gather 并发执行所有数据获取任务
             #    这比串行调用 async_to_sync 快得多！
             results = await asyncio.gather(
@@ -58,10 +56,8 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                 strategy_dao.get_latest_strategy_result(stock_code),
                 return_exceptions=True # 捕获异常，防止一个失败导致全部失败
             )
-            
             # 4. 解包结果
             stock_obj, latest_tick, latest_strategy_result = results
-            
             # 检查是否有异常发生
             if isinstance(stock_obj, Exception):
                 logger.error(f"获取股票基本信息失败 for {stock_code}: {stock_obj}")
@@ -73,7 +69,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
                 logger.error(f"获取最新策略结果失败 for {stock_code}: {latest_strategy_result}")
             # 5. 获取关注该股票的用户 (这是同步DB操作，放在main之外)
             user_ids = list(FavoriteStock.objects.filter(stock=stock_obj).values_list('user_id', flat=True))
-            
             if not user_ids:
                 return
             if not latest_tick or isinstance(latest_tick, Exception):
@@ -82,7 +77,6 @@ def push_realtime_updates_for_stocks(updated_stock_codes: list):
             # 6. 构造 payload
             signal_score = getattr(latest_strategy_result, 'score', None) if latest_strategy_result and not isinstance(latest_strategy_result, Exception) else None
             signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
-            
             payload = {
                 'code': stock_code,
                 'current_price': latest_tick.get('current_price'),

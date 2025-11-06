@@ -51,7 +51,6 @@ class CognitiveIntelligence:
         - 新流程: 引擎的最终输出是所有独立的、经过动态证据锻造的剧本后验概率。
         - 状态归位: 不再污染 atomic_states，而是将所有剧本信号直接存入专属的 self.strategy.playbook_states。
         """
-        # [代码修改开始]
         # 清空旧的剧本状态，确保每次运行都是全新的
         self.strategy.playbook_states = {}
         
@@ -78,7 +77,6 @@ class CognitiveIntelligence:
         print(f"【V25.0 · 状态归位版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
         # 返回剧本信号，供 intelligence_layer 可能的日志记录或其他用途，但不用于更新 atomic_states
         return self.strategy.playbook_states
-        # [代码修改结束]
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
@@ -218,10 +216,8 @@ class CognitiveIntelligence:
         volume_spike = (self._get_atomic_score('volume_D') / vol_ma55.replace(0, 1.0)).fillna(1.0)
         volume_evidence = self._forge_dynamic_evidence(normalize_score(volume_spike, self.strategy.df_indicators.index, 55))
         process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0).clip(lower=0))
-        # [代码修改开始]
         # 修正信号名称以符合统一命名协议
         micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE', 0.0).clip(lower=0))
-        # [代码修改结束]
         evidence_scores = np.stack([
             upward_pressure.values, price_rebound_evidence.values, volume_evidence.values,
             process_evidence.values, micro_evidence.values
@@ -318,10 +314,8 @@ class CognitiveIntelligence:
                       因为它是一个原子/基础情报信号，而非融合层信号。
         """
         print("    -- [剧本推演] 板块轮动先锋 (动态证据)...")
-        # [代码修改开始]
         # 使用 _get_atomic_score 获取基础情报信号，而不是 _get_fused_score
         sector_flow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BULLISH_RESONANCE', 0.0).clip(lower=0))
-        # [代码修改结束]
         price_position = self._forge_dynamic_evidence(1 - normalize_score(self._get_atomic_score('BIAS_144_D', 0.0), self.strategy.df_indicators.index, 144))
         chip_cleanliness = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_CLEANLINESS', 0.0))
         hot_sector_cooling = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_HOT_SECTOR_COOLING', 0.0))
@@ -350,7 +344,6 @@ class CognitiveIntelligence:
             orderliness_score = self._forge_dynamic_evidence(1 - normalize_score(entropy, self.strategy.df_indicators.index, 144))
         else:
             orderliness_score = pd.Series(0.5, index=self.strategy.df_indicators.index)
-            
         # --- 2. 计算似然度 ---
         evidence_scores = np.stack([volatility_compression.values, volume_atrophy.values, orderliness_score.values], axis=0)
         evidence_weights = np.array([0.3, 0.3, 0.4])

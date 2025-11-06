@@ -40,7 +40,6 @@ class KlinePatternRecognizer:
             "body_ratios": {"decent": 0.5, "perfect": 0.7},  # 长实体定义
             "small_body_ratios": {"decent": 0.2, "perfect": 0.1}, # 小实体定义
             "doji_body_ratios": {"decent": 0.1, "perfect": 0.05},   # 十字星实体定义
-            
             # 特定形态参数
             "hammer": {
                 "lower_shadow_ratio": {"decent": 1.8, "perfect": 2.5}, # 锤子线下影线/实体

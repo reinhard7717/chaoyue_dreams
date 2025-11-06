@@ -25,13 +25,10 @@ def with_cache_manager(task_function):
             # 1. 创建 CacheManager 实例
             # print(f"任务 {task_id}: [装饰器] 正在创建 CacheManager...")
             cache_manager_instance = CacheManager()
-            
             # 2. 将实例注入到任务函数的关键字参数中
             kwargs['cache_manager'] = cache_manager_instance
-            
             # 3. 执行原始的任务函数
             return task_function(*args, **kwargs)
-            
         except Exception as e:
             logger.error(f"任务 {task_id} 在执行过程中发生未捕获的异常: {e}", exc_info=True)
             # 重新抛出异常，以便Celery能正确记录任务失败状态
@@ -69,14 +66,11 @@ def with_cache_manager_for_views(view_func):
             # 1. 创建 CacheManager 实例
             # print(f"视图 {view_name}: [装饰器] 正在创建 CacheManager...")
             cache_manager_instance = CacheManager()
-            
             # 2. 将实例注入到视图函数的关键字参数中
             kwargs['cache_manager'] = cache_manager_instance
-            
             # 3. 执行原始的视图函数
             response = view_func(*args, **kwargs)
             return response
-            
         except Exception as e:
             logger.error(f"视图 {view_name} 执行时发生未捕获的异常: {e}", exc_info=True)
             # 重新抛出异常，让Django的错误处理中间件接管

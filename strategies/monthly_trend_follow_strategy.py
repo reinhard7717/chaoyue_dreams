@@ -227,7 +227,6 @@ class MonthlyTrendFollowStrategy:
             elif is_pullback: entry_score = 95.0
             elif is_continuation: entry_score = 90.0
             elif is_breakout_obs: entry_score = 85.0
-            
             is_final_entry_signal = entry_score >= score_threshold
             rejection_code = 0
             if row.get('signal_ma_rejection', 0) == -1: rejection_code += 1
@@ -241,7 +240,6 @@ class MonthlyTrendFollowStrategy:
             for col in signal_columns:
                 if row.get(col, False):
                     triggered_playbooks.append(col.upper())
-            
             if exit_code > 0: triggered_playbooks.append(f'TAKE_PROFIT_CODE_{exit_code}')
             if rejection_code > 0: triggered_playbooks.append(f'REJECTION_CODE_{rejection_code}')
             context_snapshot = {k: v for k, v in row.items() if pd.notna(v)}
@@ -266,7 +264,6 @@ class MonthlyTrendFollowStrategy:
                 "context_snapshot": context_snapshot,
             }
             records.append(record)
-            
         return records
 
     def run_analysis(self, stock_code: str, params_file: str = "config/monthly_trend_follow_strategy.json", trade_time: Optional[str] = None, data_df: Optional[pd.DataFrame] = None, start_date_str: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[List[Dict[str, Any]]]]:

@@ -79,7 +79,6 @@ class IndicatorService:
         if not isinstance(df.index, pd.DatetimeIndex):
             print(f"      -> 结果: 索引不是 DatetimeIndex，无法分析时间范围。")
             return
-            
         start_time = df.index.min().strftime('%Y-%m-%d %H:%M:%S')
         end_time = df.index.max().strftime('%Y-%m-%d %H:%M:%S')
         count = len(df)
@@ -104,7 +103,6 @@ class IndicatorService:
             df = all_dfs[timeframe]
             if df is None or df.empty:
                 continue
-            
             print(f"\n--- 周期: {timeframe} (共 {len(df.columns)} 列) ---")
             # 为了美观，每5个列名换一行打印
             columns_list = sorted(df.columns.tolist())
@@ -138,7 +136,6 @@ class IndicatorService:
             'display.width', 200  # 调整宽度以适应控制台
         ):
             print(sampled_df)
-            
         print(f"--- [数据清查-阶段2: 检查完成] ---\n")
 
     # ▼▼▼ 一个可复用的、健壮的时区标准化辅助函数 ▼▼▼
@@ -221,7 +218,6 @@ class IndicatorService:
                 time_col = 'trade_date'
             elif 'trade_time' in df.columns: # 适用于分钟线
                 time_col = 'trade_time'
-            
             if time_col:
                 df[time_col] = pd.to_datetime(df[time_col], utc=True)
                 df.set_index(time_col, inplace=True)
@@ -271,11 +267,9 @@ class IndicatorService:
                             if tf: timeframes.add(str(tf))
                     elif key in ['timeframe', 'tf'] and isinstance(value, (str, int)):
                         if value: timeframes.add(str(value))
-                    
                     # 继续向内层递归
                     if isinstance(value, (dict, list)):
                         _recursive_search(value)
-            
             elif isinstance(data, list):
                 for item in data:
                     # 继续向内层递归
@@ -309,7 +303,6 @@ class IndicatorService:
             match = pattern.match(col)
             if match:
                 base_name, sum_period, deriv_type, deriv_period = match.groups()
-                
                 # 根据捕获组构建新的、标准化的列名
                 if sum_period:
                     # 处理带 _sum_ 的情况
@@ -319,7 +312,6 @@ class IndicatorService:
                     # 处理常规情况
                     # 例如: RSI_13_slope_5d -> SLOPE_5_RSI_13
                     new_name = f"{deriv_type.upper()}_{deriv_period}_{base_name}"
-                
                 rename_map[col] = new_name
             elif col.endswith('_D'):
                 # 保留对仅带 _D 后缀的列的处理逻辑
@@ -442,9 +434,13 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.13 · 数据源探针版】
-        - 核心升级: 植入“数据源探针”，在补充数据加载后、合并处理前，立即检查原始 `advanced_chips` DataFrame 的数据完整性，
-                      以验证数据在源头是否已经失效。
+        【V8.14 · 命名协议强制执行版】
+        - 核心重构: 重建数据处理流水线，解决外部数据合并后缺少时间周期后缀的致命缺陷。
+        - 新流程:
+          1. 所有补充数据（高级筹码、资金流等）合并到主数据帧后。
+          2. 立即对所有新合并的、且没有后缀的列，强制添加 '_D' 后缀。
+          3. 将这个完全标准化的DataFrame传递给下游指标计算函数。
+        - 收益: 确保了进入指标计算层的所有数据都带有明确的时间周期标识，彻底修复了“数据契约撕毁”问题。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -539,34 +535,6 @@ class IndicatorService:
                     supplemental_dfs[tag] = data
                 else:
                     raw_dfs[tag] = data
-        # [代码新增开始]
-        # --- 数据源探针 V3 ---
-        debug_params = config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            print("\n    -> [数据源探针 V3] 正在检查原始加载的数据...")
-            advanced_chip_df = supplemental_dfs.get('advanced_chips')
-            if advanced_chip_df is not None and not advanced_chip_df.empty:
-                advanced_chip_df_std = self._standardize_df_index_to_utc(advanced_chip_df)
-                if advanced_chip_df_std is not None:
-                    advanced_chip_df_std.index = advanced_chip_df_std.index.normalize()
-                    probe_date = probe_date_naive.tz_localize(advanced_chip_df_std.index.tz) if advanced_chip_df_std.index.tz else probe_date_naive
-                    probe_date = probe_date.normalize()
-                    if probe_date in advanced_chip_df_std.index:
-                        print("        -> 正在检查 'advanced_chips' 原始数据...")
-                        chip_row = advanced_chip_df_std.loc[probe_date]
-                        key_cols = [c for c in chip_row.index if 'concentration' in c or 'momentum' in c or 'conviction' in c or 'peak' in c or 'cost' in c]
-                        if not key_cols:
-                            print("           - [警告] 在 'advanced_chips' 原始数据中未找到任何关键指标列。")
-                        for col in key_cols:
-                            val = chip_row[col]
-                            print(f"           - [原始物证] 信号: {col:<50} | 当日值: {val:.4f}")
-                    else:
-                        print("        -> [数据源探针] 警告: 探针日期不在 'advanced_chips' 原始数据索引中。")
-            else:
-                print("        -> [数据源探针] 警告: 未加载到 'advanced_chips' 原始数据。")
-        # [代码新增结束]
         if 'D' not in raw_dfs:
             print(f"    - 错误: 最核心的日线数据获取失败，处理终止。")
             return {}
@@ -597,30 +565,31 @@ class IndicatorService:
             cols_to_ffill = [col for col in unique_new_cols if col in df_daily_master.columns]
             if cols_to_ffill:
                 df_daily_master[cols_to_ffill] = df_daily_master[cols_to_ffill].ffill()
+        # --- 命名协议强制执行 ---
+        # 在所有数据合并后，但在传递给指标计算器之前，强制为所有没有后缀的列添加 '_D' 后缀。
+        rename_map_daily = {
+            col: f"{col}_D"
+            for col in df_daily_master.columns
+            if not col.endswith(('_D', '_W', '_M')) and not any(col.endswith(f'_{i}') for i in range(100))
+        }
+        df_daily_master.rename(columns=rename_map_daily, inplace=True)
         raw_dfs['D'] = df_daily_master
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
                 if source_tf == 'D' and not df_daily.empty:
                     aggregation_rules = {
-                        'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+                        'open_D': 'first', 'high_D': 'max', 'low_D': 'min', 'close_D': 'last', 'volume_D': 'sum'
                     }
+                    # 动态构建聚合规则
                     for col in df_daily.columns:
-                        if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
-                            if col not in aggregation_rules:
+                        if col not in aggregation_rules:
+                            if 'amount' in col.lower() or 'vol' in col.lower() or 'net' in col.lower():
                                 aggregation_rules[col] = 'sum'
-                    for col in df_daily.columns:
-                        if 'rate' in col.lower():
-                            if col not in aggregation_rules:
+                            else: # 默认使用最后一个值
                                 aggregation_rules[col] = 'last'
-                    chip_related_keywords = ['chip_', 'concentration', 'peak_', 'winner', 'pressure', 'support', 'turnover_from']
-                    fund_flow_keywords = ['fund_flow', 'consensus', 'divergence', 'main_force', 'retail']
-                    for col in df_daily.columns:
-                        if any(keyword in col.lower() for keyword in chip_related_keywords + fund_flow_keywords):
-                            if col not in aggregation_rules:
-                                aggregation_rules[col] = 'last'
-                    if 'turnover_rate' in aggregation_rules:
-                        aggregation_rules['turnover_rate'] = 'mean'
+                    if 'turnover_rate_D' in aggregation_rules:
+                        aggregation_rules['turnover_rate_D'] = 'mean'
                     resample_period = 'W-FRI' if target_tf == 'W' else 'ME'
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
@@ -729,8 +698,9 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.13 · 职责分离版】根据配置为指定时间周期计算所有技术指标。
-        - 核心修改: 移除了对 `breakout_quality_score` 的计算职责。该指标的计算已被移交至上层 `prepare_data_for_strategy` 流程中进行统一编排，以解决依赖顺序问题。
+        【V110.14 · 职责净化版】根据配置为指定时间周期计算所有技术指标。
+        - 核心修改: 彻底移除了自身的后缀添加逻辑。现在它接收的DataFrame必须是已经完全标准化（带后缀）的。
+                      它的唯一职责就是计算配置中的指标。
         """
         if not config:
             return df
@@ -739,8 +709,9 @@ class IndicatorService:
             logger.warning(f"数据行数 ({len(df)}) 不足以满足周期 '{timeframe_key}' 的最大计算要求 ({max_required_period})，将跳过。")
             return df
         df_for_calc = df.copy()
-        if 'close' in df_for_calc.columns:
-            df_for_calc['pct_change'] = df_for_calc['close'].pct_change()
+        # 移除 pct_change 的计算，因为它应该在上游被标准化并添加后缀
+        # if f'close_{timeframe_key}' in df_for_calc.columns:
+        #     df_for_calc[f'pct_change_{timeframe_key}'] = df_for_calc[f'close_{timeframe_key}'].pct_change()
         indicator_method_map = {
             'ma': self.calculator.calculate_ma,
             'ema': self.calculator.calculate_ema, 'vol_ma': self.calculator.calculate_vol_ma, 'trix': self.calculator.calculate_trix,
@@ -758,7 +729,6 @@ class IndicatorService:
             if isinstance(result_data, pd.DataFrame):
                 for col in result_data.columns: target_df[col] = result_data[col]
             else: logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
-        # 移除 'breakout_quality_score'
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore', 
@@ -780,12 +750,12 @@ class IndicatorService:
                         macd_cfg = config.get('macd', {})
                         macd_periods = next((c.get('periods') for c in macd_cfg.get('configs', []) if timeframe_key in c.get('apply_on', [])), None)
                         if macd_periods:
-                            source_col_name = source_pattern_no_suffix.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2])
+                            source_col_name = source_pattern_no_suffix.format(fast=macd_periods[0], slow=macd_periods[1], signal=macd_periods[2]) + f"_{timeframe_key}"
                         else: continue
                         if source_col_name in df_for_calc.columns:
                             source_series = df_for_calc[source_col_name]
                             zscore_result = ((source_series - source_series.rolling(window=window).mean()) / source_series.rolling(window=window).std()).fillna(0)
-                            df_for_calc[output_col_name.removesuffix(f"_{timeframe_key}")] = zscore_result
+                            df_for_calc[output_col_name.removesuffix(f"_{timeframe_key}") + f"_{timeframe_key}"] = zscore_result
                         else:
                             logger.warning(f"Z-score计算失败：源列 '{source_col_name}' 在临时DataFrame中不存在。")
                     except Exception as e:
@@ -796,14 +766,11 @@ class IndicatorService:
                 if timeframe_key not in sub_config.get("apply_on", []): continue
                 try:
                     method_to_call = indicator_method_map[indicator_name]
-                    # [代码修改开始]
-                    # 移除对 breakout_quality_score 的特殊处理
                     if indicator_name in ['fibonacci_levels', 'price_volume_ma_comparison']:
-                        result_df = await method_to_call(df=df_for_calc, params=sub_config)
+                        result_df = await method_to_call(df=df_for_calc, params=sub_config, timeframe_key=timeframe_key)
                         merge_results(result_df, df_for_calc)
                         continue
-                    # [代码修改结束]
-                    kwargs = {'df': df_for_calc}
+                    kwargs = {'df': df_for_calc, 'timeframe_key': timeframe_key}
                     periods = sub_config.get('periods')
                     if indicator_name == 'vwap':
                         kwargs['anchor'] = 'D' if timeframe_key.isdigit() else timeframe_key
@@ -818,7 +785,7 @@ class IndicatorService:
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
                     for p_set in periods_to_iterate:
-                        kwargs_iter = {'df': df_for_calc}
+                        kwargs_iter = {'df': df_for_calc, 'timeframe_key': timeframe_key}
                         if indicator_name == 'macd': kwargs_iter.update({'period_fast': p_set[0], 'period_slow': p_set[1], 'signal_period': p_set[2]})
                         elif indicator_name == 'trix': kwargs_iter.update({'period': p_set[0], 'signal_period': p_set[1]})
                         elif indicator_name == 'coppock': kwargs_iter.update({'long_roc_period': p_set[0], 'short_roc_period': p_set[1], 'wma_period': p_set[2]})
@@ -830,25 +797,25 @@ class IndicatorService:
                         merge_results(result_df, df_for_calc)
                 except Exception as e:
                     logger.error(f"    - 计算指标 {indicator_name.upper()} (周期: {timeframe_key}) 时出错: {e}", exc_info=True)
-        suffix = f"_{timeframe_key}"
-        rename_map = {
-            col: f"{col}{suffix}" 
-            for col in df_for_calc.columns 
-            if not str(col).endswith(f"_{timeframe_key}")
-        }
-        final_df = df_for_calc.rename(columns=rename_map)
-        return final_df
+        # 移除自身的后缀添加逻辑，因为所有列都应该已经带有后缀了
+        # suffix = f"_{timeframe_key}"
+        # rename_map = {
+        #     col: f"{col}{suffix}" 
+        #     for col in df_for_calc.columns 
+        #     if not str(col).endswith(f"_{timeframe_key}")
+        # }
+        # final_df = df_for_calc.rename(columns=rename_map)
+        # return final_df
+        return df_for_calc
 
     async def _calculate_breadth_score(self, industry_code: str, trade_date: datetime.date) -> float:
         """计算内部强度分"""
         members = await self.indicator_dao.get_industry_members(industry_code)
         if not members:
             return 0.0
-            
         members_df = await self.indicator_dao.get_stocks_daily_close(members, trade_date)
         if members_df.empty:
             return 0.0
-            
         # 计算上涨家数占比
         members_df['is_up'] = members_df['close'] > members_df['pre_close']
         up_ratio = members_df['is_up'].sum() / len(members_df)
@@ -899,7 +866,6 @@ class IndicatorService:
             score = 0.6 # 较强协同性：大部分上涨
         elif rising_ratio > 0.3:
             score = 0.2 # 弱协同性：部分上涨
-            
         # print(f"      - [协同性] 上涨家数/总数: {rising_count}/{total_count} (占比: {rising_ratio:.2%}), 大涨家数: {strong_rising_count}，得分: {score}")
         return score
 
@@ -912,7 +878,6 @@ class IndicatorService:
         members = await self.indicator_dao.get_industry_members(industry_code)
         if not members:
             return 0.0
-            
         member_codes = [m.stock_id for m in members]
         # 2. 批量获取成分股当日基本面数据（包含涨停状态）
         # 假设 indicator_dao 有方法可以批量获取多只股票的单日基本面
@@ -928,7 +893,6 @@ class IndicatorService:
             score = 0.8 # 梯队形成
         elif limit_up_count >= 1:
             score = 0.4 # 有涨停股，热点发酵
-            
         # print(f"      - [涨停梯队] 发现 {limit_up_count} 家涨停，得分: {score}")
         return score
 

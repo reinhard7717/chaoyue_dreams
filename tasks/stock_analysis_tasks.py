@@ -209,7 +209,6 @@ def analyze_all_stocks_full_history(self, *, start_date_str: str = None, cache_m
         if not all_codes:
             logger.warning("[公共数据库] 未找到任何股票数据，任务终止")
             return {"status": "failed", "reason": "no stocks found"}
-            
         stock_count = len(all_codes)
         logger.info(f"[公共数据库] 准备为 {stock_count} 只股票建设全历史策略分数。")
         # --- 代码将 start_date_str 参数透传给子任务 ---
@@ -306,7 +305,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
             # 这里的 latest_trade_date 已经是 date 对象，可以直接使用
             start_of_day_aware = timezone.make_aware(datetime.combine(latest_trade_date, datetime.min.time()))
             end_of_day_aware = start_of_day_aware + timedelta(days=1)
-            
             with transaction.atomic():
                 deleted_scores_count, _ = StrategyDailyScore.objects.filter(trade_date=latest_trade_date).delete()
                 deleted_signals_count, _ = TradingSignal.objects.filter(
@@ -1093,7 +1091,6 @@ def calculate_strength_rank_for_date(self, trade_date_str: str, source: str, *, 
         if rank_df.empty:
             logger.warning(f"  [Map] {trade_date} (来源: {source.upper()}) 的排名计算结果为空。")
             return None
-            
         # 返回一个结构化的字典，而不是纯JSON字符串
         return {
             "trade_date": trade_date_str,
@@ -1241,10 +1238,8 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
         else:
             # 1. 将原始数据转换为DataFrame
             df = pd.DataFrame(raw_results)
-            
             # 2. 计算成功率
             df['success_rate'] = (df['successes'] / df['triggers']).where(df['triggers'] > 0, 0)
-            
             # 3. 格式化输出列
             df = df.rename(columns={
                 'cn_name': '信号名称',
@@ -1253,13 +1248,11 @@ def analyze_performance_for_stock(self, stock_code: str, start_date: str, end_da
                 'successes': '成功次数'
             })
             df['成功率(%)'] = df['success_rate'].apply(lambda x: f"{x:.1%}")
-            
             # 4. 排序并选择最终展示的列
             report_df = df.sort_values(
                 by=['类型', 'success_rate', '触发次数'], 
                 ascending=[True, False, False]
             )[['信号名称', '类型', '触发次数', '成功次数', '成功率(%)']]
-            
             # 5. 打印最终报告
             print("\n\n" + "="*30 + f" [{stock_code} 信号性能分析报告] " + "="*30)
             with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):

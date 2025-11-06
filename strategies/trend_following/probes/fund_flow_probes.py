@@ -80,7 +80,6 @@ class FundFlowProbes:
                 conc_score = get_val(concentration.get(p, pd.Series(0.0, index=df.index)), probe_date)
                 trans_score = get_val(power_transfer.get(p, pd.Series(0.0, index=df.index)), probe_date)
                 struct_score = get_val(internal_structure.get(p, pd.Series(0.0, index=df.index)), probe_date)
-                
                 period_bearish = (
                     np.clip(conc_score, -1, 0) * -1 * axiom_weights.get('concentration', 0) +
                     np.clip(trans_score, -1, 0) * -1 * axiom_weights.get('power_transfer', 0) +

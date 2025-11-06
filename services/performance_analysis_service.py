@@ -72,12 +72,10 @@ class PerformanceAnalysisService:
             if future_dates.empty:
                 return None
             trade_day = future_dates[0]
-            
             # 获取入场价和回测窗口
             entry_price = price_df.loc[trade_day, 'open_D']
             if pd.isna(entry_price) or entry_price <= 0:
                 return None
-            
             look_forward_df = price_df.loc[trade_day:].head(look_forward_days)
         except (KeyError, IndexError):
             return None
@@ -143,7 +141,6 @@ class PerformanceAnalysisService:
             signal_series = pivoted_df[signal_name].sort_index()
             signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
             signal_type = signal_meta.get('type', 'positional').lower()
-            
             event_dates = []
             if signal_type in ['trigger', 'composite', 'playbook']:
                 event_dates = signal_series[signal_series].index.tolist()
@@ -156,7 +153,6 @@ class PerformanceAnalysisService:
                     outcome = self._evaluate_defensive_signal(entry_date, price_df)
                 else:
                     outcome = self._evaluate_offensive_signal(entry_date, price_df)
-                
                 if outcome:
                     trade_outcomes.append({
                         'signal_name': signal_name,
@@ -166,7 +162,6 @@ class PerformanceAnalysisService:
         # 3. 聚合单只股票的结果，并为 Reduce 任务准备好加权数据
         if not trade_outcomes:
             return []
-            
         outcomes_df = pd.DataFrame(trade_outcomes)
         signal_groups = outcomes_df.groupby('signal_name')
         stock_results = []
@@ -174,7 +169,6 @@ class PerformanceAnalysisService:
             signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
             total_triggers = len(group_df)
             success_count = (group_df['outcome'] == 'success').sum()
-            
             # 计算平均值
             avg_max_profit = group_df['max_profit_pct'].mean()
             avg_max_drawdown = group_df['max_drawdown_pct'].mean()
@@ -219,7 +213,6 @@ class PerformanceAnalysisService:
         )
         if price_df_raw.empty:
             return None, None
-            
         price_df_raw.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
         price_df_raw.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         price_df_raw['trade_date'] = pd.to_datetime(price_df_raw['trade_date'])
@@ -253,10 +246,8 @@ class PerformanceAnalysisService:
                 continue
             for signal_name in pivoted_df.columns:
                 signal_series = pivoted_df[signal_name].sort_index()
-                
                 signal_meta = self.scoring_params.get('score_type_map', {}).get(signal_name, {})
                 signal_type = signal_meta.get('type', 'positional').lower()
-                
                 event_dates = []
                 # 根据信号的性质（状态 vs 事件）应用不同的评估协议
                 if signal_type in ['trigger', 'composite', 'playbook']:
@@ -277,7 +268,6 @@ class PerformanceAnalysisService:
                         outcome = self._evaluate_defensive_signal(entry_date, price_df)
                     else:
                         outcome = self._evaluate_offensive_signal(entry_date, price_df)
-                    
                     if outcome:
                         trade_outcomes.append({
                             'signal_name': signal_name,
@@ -355,7 +345,6 @@ class PerformanceAnalysisService:
         if all_prices_df.empty:
             logger.warning("未能获取到任何相关股票的日线行情数据。")
             return None, None
-            
         all_prices_df.rename(columns={'open': 'open_D', 'close': 'close_D', 'high': 'high_D', 'low': 'low_D'}, inplace=True)
         all_prices_df.rename(columns={'trade_time': 'trade_date'}, inplace=True)
         # 同样，将价格数据的日期也强制转换为datetime64[ns]类型
@@ -370,10 +359,8 @@ class PerformanceAnalysisService:
         try:
             # 确保 price_df 的索引是日期类型，以便进行定位
             price_df_indexed = price_df.set_index('trade_date').sort_index()
-            
             # 找到T日的索引位置
             entry_idx = price_df_indexed.index.get_loc(entry_date)
-            
             # 检查是否存在T+1日的数据
             if entry_idx + 1 >= len(price_df_indexed):
                 return None
@@ -392,7 +379,6 @@ class PerformanceAnalysisService:
                      # 如果连 open 都没有，则无法继续
                      return None
             entry_price = trade_day_row['open_D']
-            
             # 回测观察窗口从T+1日开始
             look_forward_df = price_df_indexed.iloc[entry_idx + 1 : entry_idx + 1 + self.look_forward_days]
         except (KeyError, IndexError):
@@ -438,7 +424,6 @@ class PerformanceAnalysisService:
         """
         if not trade_outcomes:
             return []
-            
         outcomes_df = pd.DataFrame(trade_outcomes)
         score_map = self.scoring_params.get('score_type_map', {})
         # 按信号名称分组
@@ -448,17 +433,14 @@ class PerformanceAnalysisService:
             # 从分组的第一行获取角色信息，因为同一信号的角色是固定的
             role = group_df['signal_type_role'].iloc[0]
             signal_meta = score_map.get(signal_name, {})
-            
             total_triggers = len(group_df)
             success_count = (group_df['outcome'] == 'success').sum()
             win_rate = (success_count / total_triggers) * 100 if total_triggers > 0 else 0
-            
             # 这里的 profit 和 drawdown 的含义是根据角色动态决定的
             # _evaluate_... 方法已经确保了这一点
             avg_max_profit = group_df['max_profit_pct'].mean() * 100
             avg_max_drawdown = group_df['max_drawdown_pct'].mean() * 100
             avg_exit_days = group_df['exit_days'].mean()
-            
             # 最终返回的字典结构是统一的，与数据库模型字段对应
             analysis_results.append({
                 'signal_name': signal_name,
@@ -471,7 +453,6 @@ class PerformanceAnalysisService:
                 'avg_max_drawdown_pct': round(avg_max_drawdown, 2),
                 'avg_exit_days': round(avg_exit_days, 1),
             })
-            
         analysis_results.sort(key=lambda x: x['win_rate_pct'], reverse=True)
         return analysis_results
 
@@ -496,13 +477,11 @@ class PerformanceAnalysisService:
         if not get_param_value(self.analyzer_params.get('enabled'), False):
             logger.info("性能分析模块在配置文件中被禁用。")
             return []
-            
         try:
             # 步骤2: 筛选出“功臣”信号的详情
             buy_signal_dates = df_indicators[df_indicators['signal_type'] == '买入信号'].index
             if buy_signal_dates.empty:
                 return []
-            
             # 过滤出仅在买入日活跃的信号及其得分
             filtered_score_details_df = score_details_df.loc[score_details_df.index.isin(buy_signal_dates)]
             # 移除在这些天从未触发过的信号列，进行优化

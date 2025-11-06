@@ -1742,7 +1742,6 @@ def schedule_repair_missing_cyq_data(self, *, cache_manager: CacheManager):
         print(f"[数据修复调度] 找到 {len(stock_codes)} 只股票，准备为每只股票派发修复检查任务。")
         for stock_code in stock_codes:
             repair_missing_cyq_data_for_stock.delay(stock_code=stock_code)
-            
         return len(stock_codes)
 
     try:

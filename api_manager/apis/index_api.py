@@ -64,7 +64,6 @@ class StockIndexAPI(BaseAPI):
         获取指数实时数据
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
-            
         Returns:
             Dict[str, Any]: 指数实时数据
         """
@@ -98,7 +97,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             Dict[str, Any]: 最新分时交易数据
         """
@@ -117,7 +115,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             List[Dict[str, Any]]: 历史分时交易数据列表
         """
@@ -137,7 +134,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             Dict[str, Any]: 最新KDJ指标数据
         """
@@ -156,7 +152,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             List[Dict[str, Any]]: 历史KDJ指标数据列表
         """
@@ -176,7 +171,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             Dict[str, Any]: 最新MACD指标数据
         """
@@ -195,7 +189,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             List[Dict[str, Any]]: 历史MACD指标数据列表
         """
@@ -215,7 +208,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             Dict[str, Any]: 最新MA指标数据
         """
@@ -234,7 +226,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             List[Dict[str, Any]]: 历史MA指标数据列表
         """
@@ -254,7 +245,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             Dict[str, Any]: 最新BOLL指标数据
         """
@@ -273,7 +263,6 @@ class StockIndexAPI(BaseAPI):
         Args:
             index_code: 指数代码，需包含sh/sz前缀，如：sh000001
             time_level: 时间级别，可选值：5、15、30、60、Day、Week、Month、Year
-            
         Returns:
             List[Dict[str, Any]]: 历史BOLL指标数据列表
         """

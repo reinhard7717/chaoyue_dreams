@@ -60,10 +60,8 @@ class Command(BaseCommand):
                 continue
             # 智能获取分数：优先取 'score'，其次取 'penalty_weight'，都没有则为 0
             score = meta.get('score', meta.get('penalty_weight', 0))
-            
             # 获取中文名，如果不存在则使用信号名本身
             cn_name = meta.get('cn_name', name)
-            
             # 获取类型
             type_str = meta.get('type', 'unknown')
             playbook_type = TYPE_MAP.get(type_str, Playbook.PlaybookType.UNKNOWN)
@@ -73,7 +71,6 @@ class Command(BaseCommand):
                 if (existing_obj.cn_name != cn_name or
                     float(existing_obj.default_score) != float(score) or
                     existing_obj.playbook_type != playbook_type):
-                    
                     existing_obj.cn_name = cn_name
                     existing_obj.default_score = score
                     existing_obj.playbook_type = playbook_type

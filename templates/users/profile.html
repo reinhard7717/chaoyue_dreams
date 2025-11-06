@@ -19,7 +19,6 @@
         {% endif %}
         <form method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
-            
             <div class="flex flex-col sm:flex-row gap-6">
                 <!-- 左侧：头像 -->
                 <div class="w-full sm:w-1/3">
@@ -39,7 +38,6 @@
                         {% endif %}
                     </div>
                 </div>
-                
                 <!-- 右侧：个人信息 -->
                 <div class="w-full sm:w-2/3 space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -59,7 +57,6 @@
                             {% endif %}
                         </div>
                     </div>
-                    
                     <div>
                         <label for="{{ form.email.id_for_label }}" class="block text-sm font-medium text-gray-700">电子邮箱</label>
                         {{ form.email }}
@@ -67,7 +64,6 @@
                         <p class="mt-2 text-sm text-red-600">{{ form.email.errors.0 }}</p>
                         {% endif %}
                     </div>
-                    
                     <div>
                         <label for="{{ form.phone.id_for_label }}" class="block text-sm font-medium text-gray-700">手机号码</label>
                         {{ form.phone }}
@@ -75,7 +71,6 @@
                         <p class="mt-2 text-sm text-red-600">{{ form.phone.errors.0 }}</p>
                         {% endif %}
                     </div>
-                    
                     <div>
                         <label for="{{ form.bio.id_for_label }}" class="block text-sm font-medium text-gray-700">个人简介</label>
                         {{ form.bio }}
@@ -83,7 +78,6 @@
                         <p class="mt-2 text-sm text-red-600">{{ form.bio.errors.0 }}</p>
                         {% endif %}
                     </div>
-                    
                     <div class="flex items-center">
                         {{ form.email_notification }}
                         <label for="{{ form.email_notification.id_for_label }}" class="ml-2 block text-sm text-gray-900">
@@ -92,7 +86,6 @@
                     </div>
                 </div>
             </div>
-            
             <div class="pt-5 border-t border-gray-200">
                 <div class="flex justify-end">
                     <button type="button" onclick="window.history.back()" class="py-2 px-4 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 mr-3">

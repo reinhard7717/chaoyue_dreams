@@ -110,7 +110,6 @@ class FundFlowDao(BaseDAO):
             print(f"DAO: 开始处理日期块: {chunk_start_str} 到 {chunk_end_str}")
             offset = 0
             limit = 6000
-            
             while True:
                 try:
                     df = self.ts_pro.moneyflow(**{
@@ -130,12 +129,9 @@ class FundFlowDao(BaseDAO):
                     df = pd.DataFrame()
                 if df.empty:
                     break
-                
                 all_dfs_for_market.append(df)
-                
                 if len(df) < limit:
                     break
-                
                 offset += limit
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何资金流向数据。")
@@ -158,7 +154,6 @@ class FundFlowDao(BaseDAO):
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
-            
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
             await self._save_all_to_db_native_upsert(
@@ -247,7 +242,6 @@ class FundFlowDao(BaseDAO):
             print(f"DAO: 开始处理同花顺资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
             offset = 0
             limit = 5000 # Tushare建议的单次最大limit
-            
             while True:
                 try:
                     # API调用现在使用分块的起止日期，并调用 moneyflow_ths 接口
@@ -266,12 +260,9 @@ class FundFlowDao(BaseDAO):
                     df = pd.DataFrame()
                 if df.empty:
                     break # 当前分块的当前分页无数据，结束此分块的分页
-                
                 all_dfs_for_market.append(df)
-                
                 if len(df) < limit:
                     break # 当前分块的数据已全部获取完毕
-                
                 offset += limit
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何同花顺资金流向数据。")
@@ -298,7 +289,6 @@ class FundFlowDao(BaseDAO):
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
-            
             # 准备最终要存入数据库的数据，丢弃辅助列
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
@@ -388,7 +378,6 @@ class FundFlowDao(BaseDAO):
             print(f"DAO: 开始处理东方财富资金流日期块: {chunk_start_str} 到 {chunk_end_str}")
             offset = 0
             limit = 5000 # Tushare建议的单次最大limit
-            
             while True:
                 try:
                     # API调用现在使用分块的起止日期，并调用 moneyflow_dc 接口
@@ -407,12 +396,9 @@ class FundFlowDao(BaseDAO):
                     df = pd.DataFrame()
                 if df.empty:
                     break # 当前分块的当前分页无数据，结束此分块的分页
-                
                 all_dfs_for_market.append(df)
-                
                 if len(df) < limit:
                     break # 当前分块的数据已全部获取完毕
-                
                 offset += limit
         if not all_dfs_for_market:
             logger.info("在所有日期块中均未获取到任何东方财富资金流向数据。")
@@ -439,7 +425,6 @@ class FundFlowDao(BaseDAO):
         for model, group_df in combined_df.groupby('target_model', sort=False):
             if group_df.empty:
                 continue
-            
             # 准备最终要存入数据库的数据，丢弃辅助列。注意：'name'字段在DC模型中是需要的，所以不丢弃。
             final_df = group_df.drop(columns=['ts_code', 'trade_date', 'target_model'])
             data_list = final_df.to_dict('records')
@@ -717,7 +702,6 @@ class FundFlowDao(BaseDAO):
             # 假设 industry_dao 中有批量获取的方法，这是最佳实践
             ths_index_map = await self.industry_dao.get_ths_indices_by_codes(unique_codes)
             df['ths_index'] = df['ts_code'].map(ths_index_map)
-            
             # 过滤掉数据库中不存在对应ThsIndex的记录
             df.dropna(subset=['ths_index'], inplace=True)
             if df.empty:
@@ -729,7 +713,6 @@ class FundFlowDao(BaseDAO):
                 continue
             # 3.3 向量化数据类型转换
             df['trade_time'] = pd.to_datetime(df['trade_date'], format='%Y%m%d').dt.date
-            
             # 3.4 准备用于保存的数据
             # 选择模型需要的列，确保命名与模型字段一致
             final_columns = [
@@ -783,7 +766,6 @@ class FundFlowDao(BaseDAO):
             if offset >= 100000:
                 logger.warning(f"大盘资金流向数据 - 东方财富 offset已达10万，停止拉取。")
                 break
-            
             try:
                 df = self.ts_pro.moneyflow_mkt_dc(**{
                     "trade_date": trade_date_str, "start_date": start_date_str, "end_date": end_date_str, "limit": limit, "offset": offset
@@ -798,9 +780,7 @@ class FundFlowDao(BaseDAO):
                 break
             if df.empty:
                 break
-            
             all_dfs.append(df)
-            
             if len(df) < limit:
                 break
             offset += limit
@@ -931,7 +911,6 @@ class FundFlowDao(BaseDAO):
         data_list = [item async for item in qs.values(*fields_to_get)]
         if not data_list:
             return pd.DataFrame()
-            
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
@@ -1040,7 +1019,6 @@ class FundFlowDao(BaseDAO):
         qs = TopInst.objects.filter(trade_date__range=(start_date, end_date))
         if stock_codes:
             qs = qs.filter(stock__stock_code__in=stock_codes)
-            
         qs = qs.select_related('stock')
         fields_to_get = [
             'trade_date',
@@ -1050,7 +1028,6 @@ class FundFlowDao(BaseDAO):
         data_list = [item async for item in qs.values(*fields_to_get)]
         if not data_list:
             return pd.DataFrame()
-            
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)
         return df
@@ -1122,12 +1099,9 @@ class FundFlowDao(BaseDAO):
                 df = pd.DataFrame()
             if df.empty:
                 break
-            
             all_dfs.append(df)
-            
             if len(df) < limit:
                 break
-            
             offset += limit
         # --- 后续的数据处理逻辑保持不变 ---
         if not all_dfs:
@@ -1191,11 +1165,9 @@ class FundFlowDao(BaseDAO):
         # 应用可选的股票代码过滤
         if stock_codes:
             qs = qs.filter(stock__stock_code__in=stock_codes)
-            
         # 应用可选的游资名称过滤
         if hm_names:
             qs = qs.filter(hm_name__in=hm_names)
-            
         # 使用select_related优化查询，避免N+1问题
         qs = qs.select_related('stock')
         # 定义需要返回的字段
@@ -1214,7 +1186,6 @@ class FundFlowDao(BaseDAO):
         if not data_list:
             print("DAO: 未查询到符合条件的游资数据。")
             return pd.DataFrame()
-            
         # 将结果转换为DataFrame并重命名列以保持一致性
         df = pd.DataFrame(data_list)
         df.rename(columns={'stock__stock_code': 'ts_code'}, inplace=True)

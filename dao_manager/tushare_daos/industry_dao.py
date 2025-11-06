@@ -1978,7 +1978,6 @@ class IndustryDao(BaseDAO):
             async for member in memberships:
                 if member.ths_index:
                     concepts.append({'code': member.ths_index.ts_code, 'name': member.ths_index.name, 'source': 'ths'})
-            
             await self.cache_manager.set(cache_key, concepts, timeout=3600 * 24)
             return concepts
         except Exception as e:

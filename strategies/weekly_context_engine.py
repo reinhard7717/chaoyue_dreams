@@ -434,7 +434,6 @@ class WeeklyContextEngine:
             if playbook_name in playbook_map:
                 if params.get('enabled', False):
                     results = playbook_map[playbook_name](df, params)
-                    
                     if isinstance(results, dict):
                         for signal_suffix, result_series in results.items():
                             # ▼▼▼: 规范化多信号输出的剧本名称 ▼▼▼

@@ -105,14 +105,11 @@ def save_quote_data_batch(stock_codes: List[str], cache_manager=None):
         for code in stock_codes:
             user_ids = user_ids_map.get(code)
             if not user_ids: continue
-            
             latest_tick, latest_strategy_result = await asyncio.gather(
                 stock_realtime_dao.get_latest_tick_data(code),
                 strategy_dao.get_latest_strategy_result(code)
             )
-            
             if not latest_tick: continue
-            
             signal_score = getattr(latest_strategy_result, 'score', None)
             signal = signal_score if isinstance(signal_score, dict) else {'type': 'hold', 'text': signal_score or 'N/A'}
             payload = {

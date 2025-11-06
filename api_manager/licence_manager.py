@@ -35,7 +35,6 @@ class LicenceManager:
                 logger.warning("未在settings中找到API_LICENCES_IG507配置，或配置为空列表")
             else:
                 logger.info(f"从settings中加载了{len(self._licenses)}个license")
-            
             self._current_index = 0
             self._last_use_time = {}  # 记录每个license最后使用时间
             self._request_history = defaultdict(list)  # 记录每个license请求历史
@@ -47,17 +46,14 @@ class LicenceManager:
             self._success_count = defaultdict(int)  # 记录每个license成功请求次数
             self._error_history = defaultdict(list)  # 记录每个license的错误历史
             self._api_type_stats = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))  # 记录每个license的API类型统计
-            
             # 从settings中获取速率限制和错误处理配置
             self._rate_limits = getattr(settings, 'API_RATE_LIMITS', {})
             self._error_settings = getattr(settings, 'API_ERROR_SETTINGS', {})
-            
             # 检查必要的配置是否存在
             if not self._rate_limits:
                 logger.error("未在settings中找到API_RATE_LIMITS配置")
             if not self._error_settings:
                 logger.error("未在settings中找到API_ERROR_SETTINGS配置")
-            
             self._initialized = True
             logger.info(f"初始化License管理器，共有{len(self._licenses)}个license")
     def get_licence(self, api_type='default', user_type='basic', ignore_limits=False):
@@ -67,7 +63,6 @@ class LicenceManager:
             api_type: API类型 (realtime, basic, index, market, fund_flow, technical, default)
             user_type: 用户类型 (basic, pro)
             ignore_limits: 是否忽略速率限制，仅在紧急情况下使用
-            
         Returns:
             str: license字符串
         """
@@ -76,13 +71,11 @@ class LicenceManager:
             if not self._licenses:
                 logger.error("没有可用的license")
                 return ""
-            
             # 尝试多次获取可用的license
             attempts = len(self._licenses)
             while attempts > 0:
                 licence = self._licenses[self._current_index]
                 self._current_index = (self._current_index + 1) % len(self._licenses)
-                
                 # 检查license是否可用
                 if ignore_limits or self._is_licence_available(licence, api_type, user_type):
                     # 记录使用情况
@@ -90,15 +83,11 @@ class LicenceManager:
                     self._last_use_time[licence] = current_time
                     self._request_history[licence].append(current_time)
                     self._request_counts[licence][api_type] += 1
-                    
                     # 清理旧的请求历史记录
                     self._clean_request_history(licence)
-                    
                     logger.debug(f"使用license: {licence}，API类型：{api_type}，用户类型：{user_type}")
                     return licence
-                
                 attempts -= 1
-            
             if ignore_limits:
                 # 如果忽略限制，强制返回一个license
                 licence = self._licenses[0]
@@ -118,7 +107,6 @@ class LicenceManager:
             licence: 要检查的license
             api_type: API类型
             user_type: 用户类型
-            
         Returns:
             bool: 是否可用
         """
@@ -149,7 +137,6 @@ class LicenceManager:
             burst = limit_config.get('burst')
             error_window = limit_config.get('error_window')
             min_success_rate = limit_config.get('min_success_rate')
-            
             if any(x is None for x in [rate, burst, error_window, min_success_rate]):
                 logger.error(f"API_RATE_LIMITS配置不完整: {api_type}.{user_type}")
                 return False
@@ -193,14 +180,11 @@ class LicenceManager:
         with self._lock:
             if licence not in self._licenses:
                 return
-            
             current_time = time.time()
-            
             # 更新错误计数
             self._error_count[licence] += 1
             self._consecutive_errors[licence] += 1
             self._error_history[licence].append(current_time)
-            
             # 限制错误历史记录大小
             default_config = self._rate_limits.get('default', {}).get('basic', {})
             max_history_size = default_config.get('error_history_size')
@@ -210,17 +194,14 @@ class LicenceManager:
                 
             if len(self._error_history[licence]) > max_history_size:
                 self._error_history[licence] = self._error_history[licence][-max_history_size:]
-            
             # 更新API类型统计
             if error_type:
                 self._api_type_stats[licence][error_type]['errors'] += 1
-            
             error_threshold = self._error_settings.get('error_threshold')
             consecutive_error_threshold = self._error_settings.get('consecutive_error_threshold')
             base_cooldown = self._error_settings.get('base_cooldown')
             max_cooldown = self._error_settings.get('max_cooldown')
             error_backoff = self._error_settings.get('error_backoff')
-            
             # 检查每个配置项是否存在
             missing_settings = []
             if error_threshold is None:
@@ -233,11 +214,9 @@ class LicenceManager:
                 missing_settings.append('max_cooldown')
             if error_backoff is None:
                 missing_settings.append('error_backoff')
-            
             if missing_settings:
                 logger.error(f"API_ERROR_SETTINGS配置不完整，缺少以下配置项：{', '.join(missing_settings)}")
                 return
-            
             # 检查是否达到连续错误阈值
             if self._consecutive_errors[licence] >= consecutive_error_threshold:
                 # 达到连续错误阈值，进入冷却期
@@ -247,10 +226,8 @@ class LicenceManager:
                             (self._consecutive_errors[licence] - consecutive_error_threshold) / consecutive_error_threshold),
                     max_cooldown
                 )
-                
                 self._cooldown_until[licence] = current_time + cooldown_time
                 logger.warning(f"License {licence} 已进入冷却期 {cooldown_time:.1f} 秒，连续错误次数: {self._consecutive_errors[licence]}")
-            
             # 检查是否达到总错误阈值
             if self._error_count[licence] >= error_threshold:
                 # 达到错误阈值，进入冷却期
@@ -260,7 +237,6 @@ class LicenceManager:
                             (self._error_count[licence] - error_threshold) / error_threshold),
                     max_cooldown
                 )
-                
                 self._cooldown_until[licence] = current_time + cooldown_time
                 logger.warning(f"License {licence} 已进入冷却期 {cooldown_time:.1f} 秒，错误次数: {self._error_count[licence]}")
     def reset_error_count(self, licence, api_type=None):
@@ -274,15 +250,12 @@ class LicenceManager:
             if licence in self._error_count:
                 self._success_count[licence] += 1
                 success_threshold = self._error_settings.get('success_threshold')
-                
                 if success_threshold is None:
                     logger.error("未找到API_ERROR_SETTINGS.success_threshold配置")
                     return
-                
                 # 更新API类型统计
                 if api_type:
                     self._api_type_stats[licence][api_type]['success'] += 1
-                
                 # 如果成功请求次数达到阈值，重置错误计数
                 if self._success_count[licence] >= success_threshold:
                     self._error_count[licence] = 0
@@ -298,7 +271,6 @@ class LicenceManager:
         with self._lock:
             stats = {}
             current_time = time.time()
-            
             for licence in self._licenses:
                 # 获取默认的错误窗口配置
                 default_config = self._rate_limits.get('default', {}).get('basic', {})
@@ -306,12 +278,10 @@ class LicenceManager:
                 if error_window is None:
                     logger.error("未找到API_RATE_LIMITS.default.basic.error_window配置")
                     continue
-                
                 # 计算错误率
                 error_history = [t for t in self._error_history[licence] if t > current_time - error_window]
                 total_requests = len([t for t in self._request_history[licence] if t > current_time - error_window])
                 error_rate = len(error_history) / total_requests if total_requests > 0 else 0
-                
                 # 计算API类型统计
                 api_stats = {}
                 for api_type, type_stats in self._api_type_stats[licence].items():
@@ -323,7 +293,6 @@ class LicenceManager:
                             'success_count': type_stats.get('success', 0),
                             'error_count': type_stats.get('errors', 0)
                         }
-                
                 stats[licence] = {
                     'active': self._is_active.get(licence, True),
                     'last_used': self._last_use_time.get(licence, 0),
@@ -338,5 +307,4 @@ class LicenceManager:
                     'error_rate': error_rate,
                     'api_stats': api_stats
                 }
-            
             return stats

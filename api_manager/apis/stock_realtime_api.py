@@ -25,7 +25,6 @@ class StockRealtimeAPI(BaseAPI):
         获取买卖五档盘口数据
         Args:
             stock_code: 股票代码
-            
         Returns:
             Dict[str, Any]: 买卖五档盘口数据
         """
@@ -37,7 +36,6 @@ class StockRealtimeAPI(BaseAPI):
         获取当天逐笔交易数据
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 当天逐笔交易数据列表
         """
@@ -49,7 +47,6 @@ class StockRealtimeAPI(BaseAPI):
         获取当天分时成交数据
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 当天分时成交数据列表
         """
@@ -61,7 +58,6 @@ class StockRealtimeAPI(BaseAPI):
         获取当天分价成交占比数据
         Args:
             stock_code: 股票代码
-            
         Returns:
             List[Dict[str, Any]]: 当天分价成交占比数据列表
         """

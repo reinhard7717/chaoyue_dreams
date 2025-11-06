@@ -119,7 +119,6 @@ class IntradayEngineOrchestrator:
                     code: json.dumps(info) for code, info in position_list.items()
                 })
             await pipe.execute()
-            
         logger.info(f"待买入池 ({len(watchlist)}只) 和持仓池 ({len(position_list)}只) 已成功写入Redis。")
         return True
 
@@ -185,7 +184,6 @@ class IntradayEngineOrchestrator:
         # 4. 将信号写入Redis，供Dashboard使用 (此部分逻辑不变)
         if all_signals:
             await self._save_signals_to_cache(all_signals)
-            
         print(f"本轮循环分析完成。产出 {len(all_signals)} 条信号。")
         return all_signals
 

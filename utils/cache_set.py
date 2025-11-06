@@ -156,15 +156,12 @@ class CacheSet():
             trade_datetime = base_dao._parse_datetime(trade_time_str)
             score = trade_datetime.timestamp()
             data_to_serialize = data_to_cache.copy()
-            
             #：递归转换数据结构中的 Decimal 对象
             data_to_serialize = convert_decimals(data_to_serialize)
-            
             if 'stock' in data_to_serialize:
                 stock_obj = data_to_serialize.pop('stock', None)
                 if stock_obj and hasattr(stock_obj, 'stock_code'):
                     data_to_serialize['stock_code'] = stock_obj.stock_code  # 注意：这里可能需要额外检查 stock_obj 中的 Decimal
-            
             member_bytes = umsgpack.packb(data_to_serialize, use_bin_type=True, default=_msgpack_default_packer)
             mapping_to_send = {member_bytes: score}
             cache_timeout = self.cache_manager.get_timeout(cc.TYPE_TIMESERIES)
@@ -450,7 +447,6 @@ class StockTimeTradeCacheSet(CacheSet):
         try:
             # 确保 Redis 客户端已连接
             redis_client = await self.cache_manager._ensure_client()
-            
             # 从 CacheManager 获取底层的 redis-py pipeline 对象
             async with redis_client.pipeline() as pipe:
                 # 步骤 A: 一次性设置所有键值对
@@ -484,14 +480,11 @@ class StockTimeTradeCacheSet(CacheSet):
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
                 today_str = datetime.now().strftime('%Y%m%d')
-                
                 for stock_code, kline_list in payload.items():
                     if not kline_list:
                         continue
-                    
                     # 1. 生成 ZSET 的缓存键
                     cache_key = self.cache_key_stock.intraday_minute_kline(stock_code, time_level, today_str)
-                    
                     # 2. 准备 ZADD 的 mapping 数据
                     #    - score: 使用 trade_time 的 timestamp() 作为分数，确保排序正确
                     #    - member: 序列化后的K线数据字典
@@ -504,7 +497,6 @@ class StockTimeTradeCacheSet(CacheSet):
                             member_data = kline_data.copy()
                             del member_data['trade_time']
                             zadd_mapping[self.cache_manager._serialize(member_data)] = score
-                    
                     if zadd_mapping:
                         # 3. 将 ZADD 命令添加到 pipeline
                         pipe.zadd(cache_key, zadd_mapping)
@@ -512,7 +504,6 @@ class StockTimeTradeCacheSet(CacheSet):
                         pipe.expire(cache_key, self.cache_manager.get_timeout('rt'))
                 # 5. 原子化地执行所有命令
                 await pipe.execute()
-            
             logger.debug(f"成功批量写入 {len(payload)} 只股票的盘中分钟K线到Redis ZSET。")
             return True
         except Exception as e:
@@ -661,7 +652,6 @@ class StockRealtimeCacheSet(CacheSet):
             redis_client = await self.cache_manager._ensure_client()
             async with redis_client.pipeline() as pipe:
                 today_str = datetime.now().strftime('%Y%m%d')
-                
                 # 统一处理函数，避免代码重复
                 def process_tick(stock_code: str, tick_data: dict, key_func, pipe_instance):
                     trade_time_val = tick_data.get('trade_time')
@@ -699,7 +689,6 @@ class StockRealtimeCacheSet(CacheSet):
                 for stock_code, tick_data in level5_payload.items():
                     process_tick(stock_code, tick_data, self.cache_key_stock.intraday_ticks_level5, pipe)
                 await pipe.execute()
-            
             logger.debug(f"成功批量追加 {len(realtime_payload)} 条行情Ticks和 {len(level5_payload)} 条盘口Ticks到Redis ZSET。")
             return True
         except Exception as e:
@@ -723,7 +712,6 @@ class StockRealtimeCacheSet(CacheSet):
                 for stock_code, df_ticks in tick_data_map.items():
                     if df_ticks is None or df_ticks.empty:
                         continue
-                    
                     # 准备要写入ZSET的 mapping {member: score}
                     mapping_to_add = {}
                     # DataFrame的索引是 trade_time
@@ -735,7 +723,6 @@ class StockRealtimeCacheSet(CacheSet):
                         # 序列化成员
                         serialized_member = self.cache_manager._serialize(member_data)
                         mapping_to_add[serialized_member] = score
-                    
                     if mapping_to_add:
                         # 获取新的缓存键
                         cache_key = self.cache_key_stock.intraday_real_ticks(stock_code, today_str_no_hyphen)
@@ -744,7 +731,6 @@ class StockRealtimeCacheSet(CacheSet):
                         pipe.expire(cache_key, timeout)
                 # 一次性执行所有命令
                 await pipe.execute()
-            
             logger.debug(f"成功批量追加 {len(tick_data_map)} 支股票的真实逐笔数据到Redis ZSET。")
             return True
         except Exception as e:

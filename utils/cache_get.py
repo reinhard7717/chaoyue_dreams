@@ -355,7 +355,6 @@ class StockRealtimeCacheGet(CacheGet):
             # 2. 定义当天的缓存键
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
-            
             # 3. 并发地从Redis获取两种Tick数据
             tasks = [
                 self.cache_manager.zrangebyscore(realtime_key, '-inf', '+inf', withscores=True),
@@ -420,7 +419,6 @@ class StockRealtimeCacheGet(CacheGet):
             # 2. 定义当天的缓存键
             realtime_key = self.cache_key_stock.intraday_ticks_realtime(stock_code, date_str_yyyymmdd)
             level5_key = self.cache_key_stock.intraday_ticks_level5(stock_code, date_str_yyyymmdd)
-            
             print(f"DEBUG_READ: [Ticks] ZRANGE from realtime_key='{realtime_key}'")
             print(f"DEBUG_READ: [Ticks] ZRANGE from level5_key='{level5_key}'")
             # 3. 并发地从Redis获取两种Tick数据
@@ -441,7 +439,6 @@ class StockRealtimeCacheGet(CacheGet):
                 [data for data, score in realtime_ticks],
                 index=pd.to_datetime([datetime.datetime.fromtimestamp(score) for data, score in realtime_ticks])
             )
-            
             if level5_ticks:
                 df_level5 = pd.DataFrame(
                     [data for data, score in level5_ticks],
@@ -468,7 +465,6 @@ class StockRealtimeCacheGet(CacheGet):
             date_str_yyyymmdd = date_obj.strftime('%Y%m%d')
             # 2. 获取新的缓存键
             cache_key = self.cache_key_stock.intraday_real_ticks(stock_code, date_str_yyyymmdd)
-            
             # 3. 从Redis获取数据
             # 使用 zrangebyscore 获取指定分数（时间戳）范围内的所有成员
             # '-inf', '+inf' 表示获取该键下的所有成员
@@ -478,14 +474,12 @@ class StockRealtimeCacheGet(CacheGet):
                 return None
             # 4. 将原始数据转换为DataFrame
             deserialized_data = [self.cache_manager._deserialize(data) for data, score in ticks_with_scores]
-            
             df_ticks = pd.DataFrame(deserialized_data)
             if df_ticks.empty:
                 return None
             # 使用分数（时间戳）创建索引，这比依赖数据内部的时间字段更可靠
             df_ticks.index = pd.to_datetime([score for data, score in ticks_with_scores], unit='s')
             df_ticks.index.name = 'trade_time'
-            
             # 确保时区正确
             if df_ticks.index.tz is None:
                 df_ticks.index = df_ticks.index.tz_localize('UTC').dt.tz_convert('Asia/Shanghai')

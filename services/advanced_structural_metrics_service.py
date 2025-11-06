@@ -43,7 +43,6 @@ class AdvancedStructuralMetricsService:
             all_dates_qs = DailyModel.objects.filter(stock=stock_info).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
         else:
-            # [代码修改开始]
             # 修复：明确定义处理起始日。如果用户指定了start_date_str，则以此为准；否则，使用基于数据库最新记录推算出的fetch_start_date。
             processing_start_date = start_date_str if start_date_str else fetch_start_date
             # 修复：回滚操作也应严格遵守用户指定的起始日期。
@@ -55,7 +54,6 @@ class AdvancedStructuralMetricsService:
             # 修复：使用正确的 processing_start_date 来确定需要计算和保存的日期范围。
             all_dates_qs = DailyModel.objects.filter(stock=stock_info, trade_time__gte=processing_start_date).values_list('trade_time', flat=True).order_by('trade_time')
             dates_to_process = pd.to_datetime(await sync_to_async(list)(all_dates_qs))
-            # [代码修改结束]
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] [结构指标] 没有需要处理的日期，任务结束。")
             return 0
@@ -140,7 +138,6 @@ class AdvancedStructuralMetricsService:
                 trade_time__gte=start_dt,
                 trade_time__lt=end_dt
             ).values('trade_time', 'open', 'high', 'low', 'close', 'vol', 'amount').order_by('trade_time')
-            
             return pd.DataFrame.from_records(qs)
         start_datetime = timezone.make_aware(datetime.combine(start_date, time.min))
         end_datetime = timezone.make_aware(datetime.combine(end_date, time.max))
@@ -223,10 +220,8 @@ class AdvancedStructuralMetricsService:
             continuous_group['minute_vwap'] = continuous_group['amount'] / continuous_group['vol'].replace(0, np.nan)
             continuous_group['minute_vwap'].fillna(method='ffill', inplace=True)
             continuous_group['minute_vwap'].fillna(group['open'].iloc[0], inplace=True)
-            # [代码修改开始]
             # 修复：将所有需要的ATR传递给计算引擎
             day_metric_dict = self._compute_all_structural_metrics(group, continuous_group, daily_series_for_day, atr_5_for_day, atr_14_for_day, atr_50_for_day, prev_day_metrics)
-            # [代码修改结束]
             day_metric_dict['trade_time'] = date
             prev_day_metrics = {
                 'vpoc': day_metric_dict.pop('_today_vpoc', np.nan),
@@ -322,10 +317,8 @@ class AdvancedStructuralMetricsService:
             results['tail_volume_acceleration'] = avg_vol_tail / avg_vol_pre_tail
         daily_vwap = group['amount'].sum() / total_volume if total_volume > 0 else day_close_qfq
         if total_volume > 0:
-            # [代码修改开始]
             # 修复：增加 duplicates='drop' 参数以处理涨跌停等价格无波动情况
             vp_proxy = continuous_group.groupby(pd.cut(continuous_group['close'], bins=20, duplicates='drop'))['vol'].sum()
-            # [代码修改结束]
             vp_prob = vp_proxy[vp_proxy > 0] / total_volume
             if not vp_prob.empty:
                 entropy = -np.sum(vp_prob * np.log2(vp_prob))
@@ -493,7 +486,6 @@ class AdvancedStructuralMetricsService:
             # 检查指标是否在排除列表中
             if col in SLOPE_ACCEL_EXCLUSIONS:
                 continue
-            
             if col in metrics_df.columns:
                 source_series = pd.to_numeric(metrics_df[col], errors='coerce')
                 if source_series.isnull().all():
@@ -537,7 +529,6 @@ class AdvancedStructuralMetricsService:
                 trade_time = record_data.pop('trade_time').date()
                 # 清理 NaN 值
                 defaults_data = {key: None if isinstance(value, float) and not np.isfinite(value) else value for key, value in record_data.items()}
-                
                 objs_to_create.append(
                     model(
                         stock=stock_obj,
@@ -556,7 +547,6 @@ class AdvancedStructuralMetricsService:
         for record_date, record_data in zip(df_filtered.index, records_list):
             record_data['trade_time'] = record_date
             records_for_atomic_save.append(record_data)
-            
         processed_count = await save_atomically(MetricsModel, stock_info, records_for_atomic_save)
         return processed_count
 
@@ -573,7 +563,6 @@ class AdvancedStructuralMetricsService:
                 trade_time__lt=end_date
             ).order_by('trade_time').values(*required_cols)
             return pd.DataFrame.from_records(qs)
-            
         df = await get_data()
         if not df.empty:
             df = df.set_index(pd.to_datetime(df['trade_time']))

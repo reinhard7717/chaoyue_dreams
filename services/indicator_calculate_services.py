@@ -67,11 +67,9 @@ class IndicatorCalculator:
                 atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
                 if atr_series is None or atr_series.empty:
                     return None
-                
                 # 2. 计算 ATRR，并处理收盘价为0的情况以避免除零错误
                 close_prices = df[close_col].replace(0, np.nan)
                 atrr_series = atr_series / close_prices
-                
                 # 3. 将结果Series转换为DataFrame并返回
                 return atrr_series.to_frame(name=f'ATRr_{period}')
             # 在独立的线程中异步执行同步计算函数。
@@ -94,28 +92,22 @@ class IndicatorCalculator:
         if len(df) < period:
             logger.warning(f"计算 ATRN 失败：数据行数 {len(df)} 小于周期 {period}。")
             return None
-            
         try:
             # 步骤3: 定义一个内部同步函数来执行计算。
             def _sync_atrn():
                 # pandas_ta 没有 atrn，我们先计算 atr
                 atr_series = ta.atr(high=df[high_col], low=df[low_col], close=df[close_col], length=period, append=False)
-                
                 if atr_series is None or atr_series.empty:
                     logger.warning(f"ATRN 计算失败：基础 ATR 计算返回了空结果。")
                     return None
                 # 获取收盘价序列，并处理收盘价为0的情况，避免除零错误
                 close_prices = df[close_col].replace(0, np.nan)
-                
                 # 手动进行归一化计算： (ATR / Close) * 100
                 atrn_series = (atr_series / close_prices) * 100
-                
                 # 将计算结果包装成一个DataFrame，并使用标准命名
                 return pd.DataFrame({f'ATRN_{period}': atrn_series})
-            
             # 步骤4: 异步执行同步函数。
             atrn_df = await asyncio.to_thread(_sync_atrn)
-            
             # 步骤5: 检查计算结果是否有效。
             if atrn_df is None or atrn_df.empty:
                 logger.warning(f"ATRN 计算返回了空结果。")
@@ -123,7 +115,6 @@ class IndicatorCalculator:
                 
             # 步骤6: 返回计算成功的DataFrame。
             return atrn_df
-            
         except Exception as e:
             # 步骤7: 捕获并记录异常。
             logger.error(f"计算 ATRN (period={period}) 时出错: {e}", exc_info=True)
@@ -148,12 +139,10 @@ class IndicatorCalculator:
                 bbands_df = ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
                 if bbands_df is None or bbands_df.empty:
                     return None
-                
                 # 标准化带宽百分比列
                 bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
                 if bbw_source_col in bbands_df.columns:
                     bbands_df[bbw_source_col] = bbands_df[bbw_source_col] / 100.0
-                
                 # 构建列名映射，以实现标准化命名
                 rename_map = {
                     f'BBL_{period}_{std_dev:.1f}': f'BBL_{period}_{std_dev:.1f}{suffix}',
@@ -162,13 +151,10 @@ class IndicatorCalculator:
                     bbw_source_col: f'BBW_{period}_{std_dev:.1f}{suffix}',
                     f'BBP_{period}_{std_dev:.1f}': f'BBP_{period}_{std_dev:.1f}{suffix}'
                 }
-                
                 result_df = bbands_df.rename(columns=rename_map)
-                
                 # 筛选出我们需要的列，确保返回结果的纯净性
                 final_columns = list(rename_map.values())
                 result_df = result_df[[col for col in final_columns if col in result_df.columns]]
-                
                 return result_df if not result_df.empty else None
             # 在线程中执行定义好的同步函数。
             return await asyncio.to_thread(_sync_bbands_calculation)
@@ -202,9 +188,7 @@ class IndicatorCalculator:
             def _sync_kc():
                 # --- 统一使用 ta.kc() 直接调用，其行为更可预测 ---
                 return ta.kc(high=df[high_col], low=df[low_col], close=df[close_col], length=ema_period, atr_length=atr_period, scalar=atr_multiplier, mamode="ema", append=False)
-            
             kc_df = await asyncio.to_thread(_sync_kc)
-            
             if kc_df is None or kc_df.empty:
                 logger.warning(f"肯特纳通道 (EMA周期 {ema_period}) 计算结果为空。")
                 return None
@@ -401,7 +385,6 @@ class IndicatorCalculator:
                 source_senkou_b: target_senkou_b,
                 source_chikou: target_chikou,
             }
-            
             result_df = ichi_df.rename(columns=rename_map)
             # 筛选出我们成功重命名的列，避免携带非预期的列
             final_columns = list(rename_map.values())
@@ -450,14 +433,12 @@ class IndicatorCalculator:
         try:
             def _sync_macd():
                 return ta.macd(close=df[close_col], fast=period_fast, slow=period_slow, signal=signal_period, append=False)
-            
             macd_df = await asyncio.to_thread(_sync_macd)
             # ▼▼▼ 增加对 None 返回值的健壮性检查 ▼▼▼
             if macd_df is None or macd_df.empty:
                 logger.warning(f"MACD (f={period_fast},s={period_slow},sig={signal_period}) 计算结果为空，可能数据量不足。")
                 return None
             # ▲▲▲ 修改结束 ▲▲▲
-            
             return macd_df
         except Exception as e:
             logger.error(f"计算 MACD (f={period_fast},s={period_slow},sig={signal_period}) 出错: {e}", exc_info=True)
@@ -555,7 +536,6 @@ class IndicatorCalculator:
         if len(df) <= period:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 VROC。")
             return None
-            
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_vroc():
@@ -589,7 +569,6 @@ class IndicatorCalculator:
             if rsi_series is None or not isinstance(rsi_series, pd.Series) or rsi_series.empty:
                 logger.warning(f"RSI (周期 {period}) 计算结果为空或无效，可能数据量不足。")
                 return None
-            
             #  在创建DataFrame时显式传入索引，更加安全
             return pd.DataFrame({f'RSI_{period}': rsi_series}, index=df.index)
             # ▲▲▲ 修改结束 ▲▲▲
@@ -719,7 +698,6 @@ class IndicatorCalculator:
         try:
             def _sync_vwap():
                 return df.ta.vwap(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], anchor=processed_anchor, append=False)
-            
             vwap_series = await asyncio.to_thread(_sync_vwap)
             if vwap_series is None or vwap_series.empty: return None
             # pandas-ta的vwap列名比较特殊，我们手动重命名以确保一致性
@@ -728,7 +706,6 @@ class IndicatorCalculator:
             # 我们统一将其命名为 VWAP_{suffix}
             new_name = f'VWAP{suffix}'
             vwap_series.name = new_name
-            
             return pd.DataFrame(vwap_series)
         except Exception as e:
             logger.error(f"计算 VWAP (anchor={anchor}) 出错: {e}", exc_info=True)
@@ -743,7 +720,6 @@ class IndicatorCalculator:
         if len(df) < period:
             logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 WILLR。")
             return None
-            
         try:
             # --- 将同步的 pandas-ta 调用移至线程中执行 ---
             def _sync_willr():
@@ -887,132 +863,53 @@ class IndicatorCalculator:
             logger.error(f"计算 BIAS (period={period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+    async def calculate_fibonacci_levels(self, df: pd.DataFrame, params: dict, timeframe_key: str) -> Optional[pd.DataFrame]:
         """
-        【V3.0 双引擎健壮版】计算斐波那契回撤水平。
-        - 核心升级: 引入“优雅降级”机制。优先使用精密的find_peaks动态引擎，
-                    如果动态引擎无法找到有效波段，则自动切换到基于滚动窗口的
-                    备用引擎，确保永远能产出有效的斐波那契水平。
+        【V1.1 · 标准化适配版】计算斐波那契回撤/扩展位。
+        - 核心修改: 适配上游传入的、已添加后缀的列名。
         """
-        fib_params = params.get('params', {})
-        if not params.get('enabled', False):
+        result_df = pd.DataFrame(index=df.index)
+        periods = params.get('periods', [])
+        # 根据传入的 timeframe_key 动态构建列名
+        high_col = f"high_{timeframe_key}"
+        low_col = f"low_{timeframe_key}"
+        if high_col not in df.columns or low_col not in df.columns:
+            logger.warning(f"斐波那契水平计算失败：缺少源列 {high_col} 或 {low_col}")
             return None
-        # print("    - [斐波那契分析 V3.0] 启动双引擎分析...")
-        try:
-            from scipy.signal import find_peaks, peak_prominences
-        except ImportError:
-            logger.error("缺少 'scipy' 库，无法计算动态斐波那契水平。请运行 'pip install scipy'。")
-            return None
-        # --- 主引擎：动态波段识别 ---
-        distance = fib_params.get('peak_distance', 13)
-        prominence_ratio = fib_params.get('peak_prominence_ratio', 0.05)
-        if 'close' not in df.columns:
-            logger.error("斐波那契计算失败：DataFrame中缺少 'close' 列。")
-            return None
-        def _find_peaks_sync(data, prominence_series):
-            candidate_indices, _ = find_peaks(data, distance=distance)
-            if len(candidate_indices) == 0:
-                return []
-            actual_prominences, _, _ = peak_prominences(data, candidate_indices)
-            custom_thresholds = prominence_series.iloc[candidate_indices]
-            valid_mask = actual_prominences >= custom_thresholds.values
-            return candidate_indices[valid_mask]
-        peak_prominence_series = df['close'] * prominence_ratio
-        peak_indices = await asyncio.to_thread(_find_peaks_sync, df['close'].values, peak_prominence_series)
-        trough_indices = await asyncio.to_thread(_find_peaks_sync, -df['close'].values, peak_prominence_series)
-        # --- 检查主引擎是否成功 ---
-        if len(peak_indices) > 0 and len(trough_indices) > 0:
-            # print("      -> [主引擎] 动态波段识别成功，正在计算...")
-            
-            temp_df = pd.DataFrame(index=df.index)
-            temp_df['swing_high_price'] = np.nan
-            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_price')] = df['close'].iloc[peak_indices]
-            temp_df['swing_high_price'].ffill(inplace=True)
-            temp_df['swing_low_price'] = np.nan
-            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_price')] = df['close'].iloc[trough_indices]
-            temp_df['swing_low_price'].ffill(inplace=True)
-            
-            temp_df['swing_high_date'] = pd.NaT
-            temp_df.iloc[peak_indices, temp_df.columns.get_loc('swing_high_date')] = df.index[peak_indices]
-            temp_df['swing_high_date'].ffill(inplace=True)
-            
-            temp_df['swing_low_date'] = pd.NaT
-            temp_df.iloc[trough_indices, temp_df.columns.get_loc('swing_low_date')] = df.index[trough_indices]
-            temp_df['swing_low_date'].ffill(inplace=True)
-            is_uptrend_pullback = temp_df['swing_high_date'] > temp_df['swing_low_date']
-            swing_range = abs(temp_df['swing_high_price'] - temp_df['swing_low_price'])
-            result_df = pd.DataFrame(index=df.index)
-            
-            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
-            for level in levels:
-                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
-                retr_price = temp_df['swing_high_price'] - swing_range * level
-                result_df[col_name] = np.where(is_uptrend_pullback, retr_price, np.nan)
-            # print("    - [斐波那契分析 V3.0] 主引擎计算完成。")
-            return result_df
-        # --- 如果主引擎失败，则启动备用引擎 ---
-        else:
-            print("      -> [备用引擎] 动态波段识别失败，切换至滚动窗口模式。")
-            result_df = pd.DataFrame(index=df.index)
-            lookback = fib_params.get('lookback_period', 120)
-            levels = fib_params.get('levels', [0.382, 0.5, 0.618])
-            if not all(c in df.columns for c in ['high', 'low']):
-                logger.error("斐波那契备用引擎计算失败：DataFrame中缺少 'high' 或 'low' 列。")
-                return None
-            rolling_high = df['high'].rolling(window=lookback).max()
-            rolling_low = df['low'].rolling(window=lookback).min()
+        fib_levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
+        for period in periods:
+            rolling_high = df[high_col].rolling(window=period).max()
+            rolling_low = df[low_col].rolling(window=period).min()
             price_range = rolling_high - rolling_low
-            for level in levels:
-                col_name = f'FIB_{level:.3f}'.replace('0.', '0_')
-                result_df[col_name] = rolling_high - (price_range * level)
-            
-            # print("    - [斐波那契分析 V3.0] 备用引擎计算完成。")
-            return result_df
+            for level in fib_levels:
+                level_name = str(level).replace('.', '_')
+                result_df[f'fib_{level_name}_support_{period}_{timeframe_key}'] = rolling_low + (price_range * level)
+                result_df[f'fib_{level_name}_resistance_{period}_{timeframe_key}'] = rolling_high - (price_range * level)
+        return result_df
 
-    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict) -> Optional[pd.DataFrame]:
+    async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, timeframe_key: str) -> Optional[pd.DataFrame]:
         """
-        【V1.7 · 职责净化版】计算价格/成交量与各自均线的比率。
-        - 核心重构: 移除了方法内部对 'apply_on' 和后缀处理的冗余逻辑。
-                    现在方法假定调用者已完成时间周期过滤，并传入了正确的、无后缀的DataFrame。
-                    这使得本方法职责更单一，只专注于核心计算。
+        【V4.1 · 标准化适配版】计算价格/成交量与各自均线的比率。
+        - 核心修改: 适配上游传入的、已添加后缀的列名。
         """
-        # 移除 enabled 检查，因为调用者已处理
-        try:
-            # 定义同步计算函数。
-            def _sync_pv_ma_comparison():
-                # 直接从 params 获取参数，不再需要复杂的后缀处理
-                periods = params.get('periods', [])
-                price_source_col = params.get('price_source')
-                volume_source_col = params.get('volume_source')
-                
-                if not all([periods, price_source_col, volume_source_col]):
-                    logger.warning("计算价比/量比缺少关键参数 (periods, price_source, volume_source)。")
-                    return None
-                
-                result_df = pd.DataFrame(index=df.index)
-                for p in periods:
-                    # --- 计算价格与均线比 ---
-                    price_ma_col = price_source_col if p == 1 else f'EMA_{p}'
-                    if price_source_col in df.columns and price_ma_col in df.columns:
-                        price_ma_series = df[price_ma_col].replace(0, np.nan)
-                        ratio = df[price_source_col] / price_ma_series
-                        result_df[f'price_vs_ma_{p}'] = ratio.fillna(1.0)
-                    else:
-                        logger.warning(f"计算 price_vs_ma_{p} 失败: 缺少列 {price_source_col} 或 {price_ma_col}")
-                    # --- 计算成交量与均量比 ---
-                    vol_ma_col = volume_source_col if p == 1 else f'VOL_MA_{p}'
-                    if volume_source_col in df.columns and vol_ma_col in df.columns:
-                        vol_ma_series = df[vol_ma_col].replace(0, np.nan)
-                        ratio = df[volume_source_col] / vol_ma_series
-                        result_df[f'volume_vs_ma_{p}'] = ratio.fillna(1.0)
-                    else:
-                        logger.warning(f"计算 volume_vs_ma_{p} 失败: 缺少列 {volume_source_col} 或 {vol_ma_col}")
-                return result_df if not result_df.empty else None
-            # 在独立的线程中异步执行。
-            return await asyncio.to_thread(_sync_pv_ma_comparison)
-        except Exception as e:
-            logger.error(f"计算价格/成交量与均线比率时发生未知错误: {e}", exc_info=True)
+        result_df = pd.DataFrame(index=df.index)
+        periods = params.get('periods', [])
+        # 根据传入的 timeframe_key 动态构建列名
+        price_source_col = f"{params.get('price_source', 'close')}_{timeframe_key}"
+        volume_source_col = f"{params.get('volume_source', 'volume')}_{timeframe_key}"
+        if price_source_col not in df.columns or volume_source_col not in df.columns:
+            logger.warning(f"价格/成交量均线比率计算失败：缺少源列 {price_source_col} 或 {volume_source_col}")
             return None
+        for period in periods:
+            price_ma_col = f"EMA_{period}_{timeframe_key}"
+            vol_ma_col = f"VOL_MA_{period}_{timeframe_key}"
+            if price_ma_col in df.columns:
+                price_ratio = df[price_source_col] / df[price_ma_col].replace(0, np.nan)
+                result_df[f'price_vs_ma_{period}_ratio_{timeframe_key}'] = price_ratio.fillna(1.0)
+            if vol_ma_col in df.columns:
+                volume_ratio = df[volume_source_col] / df[vol_ma_col].replace(0, np.nan)
+                result_df[f'volume_vs_ma_{period}_ratio_{timeframe_key}'] = volume_ratio.fillna(1.0)
+        return result_df
 
     async def calculate_donchian(self, df: pd.DataFrame, period: int = 21, high_col='high', low_col='low') -> Optional[pd.DataFrame]:
         """计算唐奇安通道 (Donchian Channels)"""
@@ -1137,13 +1034,11 @@ class IndicatorCalculator:
             missing = [name for name, col in zip(['open', 'high', 'low', 'close', 'volume'], required_cols) if col is None]
             logger.warning(f"计算对手盘衰竭指数失败：分钟数据缺少基础列: {missing}。")
             return None
-            
         try:
             def _sync_calc():
                 df = df_minute.copy()
                 df['directional_thrust'] = (df[close_col] - df[open_col]) * df[volume_col]
                 df['total_energy'] = (df[high_col] - df[low_col]) * df[volume_col]
-                
                 # [代码修改开始]
                 # 步骤1: 先聚合简单的求和项
                 daily_sums = df.resample('D').agg({
@@ -1157,20 +1052,14 @@ class IndicatorCalculator:
                 if daily_ohlc.empty:
                     return None
                 daily_ohlc['pct_change'] = (daily_ohlc['close'] / daily_ohlc['open'].replace(0, np.nan) - 1).fillna(0)
-                
                 # 步骤3: 合并结果，形成最终的日级别聚合DataFrame
                 daily_agg = daily_sums.join(daily_ohlc[['pct_change']], how='inner')
                 # [代码修改结束]
-                
                 daily_agg['conversion_efficiency'] = (daily_agg['daily_thrust'] / daily_agg['daily_energy'].replace(0, np.nan)).fillna(0)
-                
                 efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
-                
                 is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
                 is_selling_exhaustion = (daily_agg['pct_change'] < 0) & (efficiency_zscore > 0.5)
-                
                 exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
-                
                 return pd.DataFrame({'counterparty_exhaustion_index_D': exhaustion_index})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
@@ -1199,14 +1088,11 @@ class IndicatorCalculator:
                 if missing_cols:
                     logger.warning(f"计算突破质量分(V2.4)失败，缺少必要列: {missing_cols}。")
                     return None
-                
                 # 维度一：能量输入 (0-1分)
                 volume_ratio = df['volume'] / df['VOL_MA_21'].replace(0, np.nan)
                 score_volume = volume_ratio.rolling(60).rank(pct=True).fillna(0.5)
-                
                 # 维度二：主导力量 (天然是-1到1分，映射到0-1)
                 score_driver = (df['main_force_flow_directionality'].fillna(0) + 1) / 2
-                
                 # 维度三：价格形态 (0-1分)
                 price_range = (df['high'] - df['low']).replace(0, np.nan)
                 raw_price_action = ((df['close'] - df['open']) / price_range).fillna(0)
@@ -1215,10 +1101,8 @@ class IndicatorCalculator:
                 winner_rate_gain = df['total_winner_rate'].diff().fillna(0)
                 chip_breakthrough_eff = winner_rate_gain * df['dominant_peak_solidity']
                 score_chips = chip_breakthrough_eff.rolling(60).rank(pct=True).fillna(0.5)
-                
                 # 维度五：攻击效率 (0-1分)
                 score_efficiency = df['VPA_EFFICIENCY'].rolling(60).rank(pct=True).fillna(0.5)
-                
                 # 加权融合
                 quality_score = (
                     score_volume * weights['volume'] +
@@ -1228,7 +1112,6 @@ class IndicatorCalculator:
                     score_efficiency * weights['efficiency']
                 ).clip(0, 1)
                 # [代码修改结束]
-                
                 return pd.DataFrame({'breakout_quality_score_D': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:

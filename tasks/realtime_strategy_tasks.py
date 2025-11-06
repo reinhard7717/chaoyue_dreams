@@ -155,7 +155,6 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
         # 7. 保存信号 (如果存在)
         if signal_result:
             strategies_dao = StrategiesDAO(cache_manager)
-            
             # 确保 signal_result['entry_time'] 是 aware datetime
             if signal_result['entry_time'].tzinfo is None:
                 signal_result['entry_time'] = timezone.make_aware(signal_result['entry_time'])
@@ -172,7 +171,6 @@ def run_intraday_strategy_for_single_stock(self, stock_code: str, trade_date_str
                 signal_reason=signal_result['reason'],
                 # 可以考虑将 intraday_rating 存入一个额外的 JSON 字段，如果模型支持的话
             )
-            
             # 使用 StrategiesDAO 保存信号。
             # save_strategy_signals 方法期望一个包含五类记录的元组，
             # 对于盘中信号，我们只有 TradingSignal，其他列表为空。
