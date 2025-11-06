@@ -66,15 +66,16 @@
           "description": "计算对手盘衰竭指数，衡量趋势推动方的能量消耗。",
           "efficiency_window": 21
         },
-        "breakout_quality": {
+        "breakout_quality_score": {
           "enabled": true,
+          "apply_on": ["D"],
           "description": "对突破行为进行“质量审查”，过滤假突破。",
-          "volume_ma_period": 21,
-          "volume_multiplier": 1.5,
           "weights": {
-            "volume": 0.4,
-            "main_force_flow": 0.4,
-            "chip_concentration": 0.2
+            "volume": 0.2,
+            "driver": 0.3,
+            "price_action": 0.1,
+            "chips": 0.2,
+            "efficiency": 0.2
           }
         }
       }
