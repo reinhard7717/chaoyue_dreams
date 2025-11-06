@@ -74,7 +74,6 @@ class StructuralIntelligence:
         bear_score = bear_alignment * bear_velocity
         # 生成双极性分数
         trend_form_score = pd.Series(bull_score - bear_score, index=df.index).clip(-1, 1)
-        print(f"    -- [结构公理一: 趋势形态] 诊断完成，最新分值: {trend_form_score.iloc[-1]:.4f}")
         return trend_form_score.astype(np.float32)
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:

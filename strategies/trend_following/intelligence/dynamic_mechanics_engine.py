@@ -15,16 +15,18 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 逻辑修复版】动态力学引擎总指挥
-        - 核心修复: 修正了终极信号合成逻辑。不再对双极性公理分进行错误的 clip 操作，
-                      而是先加权融合成一个总体的双极性健康分，然后使用标准工具分裂为
-                      正确的、互斥的看涨/看跌共振分。
+        【V5.2 · 指挥覆盖探针版】动态力学引擎总指挥
+        - 探针植入: 在方法入口处增加探针，明确打印引擎是因配置被跳过还是正常启动，
+                      以验证“配置性停机”的诊断。
         """
-        all_dynamic_states = {}
+        # [代码新增开始]
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
-            print("动态力学引擎已在配置中禁用，跳过。")
+            print("-> [指挥覆盖探针] 动态力学引擎在配置中被禁用，跳过分析。")
             return {}
+        print("-> [指挥覆盖探针] 动态力学引擎已启用，开始分析...")
+        # [代码新增结束]
+        all_dynamic_states = {}
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = self._diagnose_axiom_momentum(df, norm_window)
@@ -34,20 +36,16 @@ class DynamicMechanicsEngine:
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'momentum': 0.3, 'inertia': 0.3, 'stability': 0.2, 'energy': 0.2
         })
-        # [代码修改开始]
-        # 步骤一: 将所有双极性公理分进行加权融合，得到一个总体的双极性健康分
         bipolar_health = (
             all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] * axiom_weights['momentum'] +
             all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] * axiom_weights['inertia'] +
             all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] * axiom_weights['stability'] +
             all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] * axiom_weights['energy']
         ).clip(-1, 1)
-        # 步骤二: 使用标准工具将双极性健康分分裂为互斥的看涨和看跌共振分
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_dynamic_states['SCORE_DYN_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         all_dynamic_states['SCORE_DYN_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        # [代码修改结束]
         return all_dynamic_states
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

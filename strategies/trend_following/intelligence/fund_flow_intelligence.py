@@ -15,43 +15,35 @@ class FundFlowIntelligence:
 
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V21.0 · 三大公理重构版】资金流情报分析总指挥
-        - 核心重构: 废弃旧的复杂诊断，引入基于资金博弈本质的“共识、信念、存量”三大公理。
-        - 核心流程:
-          1. 诊断三大公理，生成纯粹的资金流原子信号。
-          2. 融合三大公理，合成终极的资金流共振信号。
+        【V21.1 · 指挥覆盖探针版】资金流情报分析总指挥
+        - 探针植入: 在方法入口处增加探针，明确打印引擎是因配置被跳过还是正常启动。
         """
-        print("启动【V21.0 · 三大公理重构版】资金流情报分析...")
-        all_states = {}
+        # [代码修改开始]
         p_conf = get_params_block(self.strategy, 'fund_flow_ultimate_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
-            print("资金流情报引擎已在配置中禁用，跳过。")
+            print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
+        print("-> [指挥覆盖探针] 资金流情报引擎已启用，开始分析...")
+        # [代码修改结束]
+        all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
-        # --- 步骤一: 诊断三大公理 ---
-        print("工序一: 正在诊断三大资金流公理...")
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)
         axiom_conviction = self._diagnose_axiom_conviction(df, norm_window)
         axiom_increment = self._diagnose_axiom_increment(df, norm_window)
         all_states['SCORE_FF_AXIOM_CONSENSUS'] = axiom_consensus
         all_states['SCORE_FF_AXIOM_CONVICTION'] = axiom_conviction
         all_states['SCORE_FF_AXIOM_INCREMENT'] = axiom_increment
-        # --- 步骤二: 融合三大公理，合成终极信号 ---
-        print("工序二: 正在合成终极资金流信号...")
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
             'consensus': 0.5, 'conviction': 0.3, 'increment': 0.2
         })
-        # 构造一个融合了所有公理的原始双极性健康分
         bipolar_health = (
             axiom_consensus * axiom_weights['consensus'] +
             axiom_conviction * axiom_weights['conviction'] +
             axiom_increment * axiom_weights['increment']
         ).clip(-1, 1)
-        # 分解为互斥的单极性共振分
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_FF_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_FF_BEARISH_RESONANCE'] = bearish_resonance
-        print("【V21.0 · 三大公理重构版】资金流情报分析完成。")
         return all_states
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

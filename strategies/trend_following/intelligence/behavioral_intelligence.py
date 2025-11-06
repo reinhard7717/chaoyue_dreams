@@ -23,28 +23,24 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 职责净化版】行为情报模块总指挥
-        - 核心重构: 遵循“三层金字塔”架构，本模块只负责生产纯粹的“行为原子信号”。
-          1. 调用 `_diagnose_behavioral_axioms` 基于“价、量、关系、形态”四大公理，提炼核心原子信号。
-          2. 调用 `_calculate_signal_dynamics` 为这些原子信号注入动态因子。
-          3. 调用 `diagnose_ultimate_behavioral_signals` 将所有信息合成为本领域的终极输出。
+        【V5.1 · 指挥覆盖探针版】行为情报模块总指挥
+        - 探针植入: 在方法入口处增加探针，确认此模块是否被情报层总指挥官正确调用。
         """
+        # [代码新增开始]
+        print("-> [指挥覆盖探针] 行为情报引擎已启用，开始分析...")
+        # [代码新增结束]
         df = self.strategy.df_indicators
         all_behavioral_states = {}
-        # 工序一: 基于行为公理，生产纯粹的原子信号
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        # 将新生成的原子信号合并到主DataFrame，为下一步做准备
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
-        # 工序二: 为行为信号进行动态赋能
         df_with_dynamics = self._calculate_signal_dynamics(df)
         dynamic_cols = [c for c in df_with_dynamics.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))]
         self.strategy.atomic_states.update(df_with_dynamics[dynamic_cols])
         all_behavioral_states.update(df_with_dynamics[dynamic_cols])
-        # 工序三: 合成行为领域的终极信号
         ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df_with_dynamics, atomic_signals=self.strategy.atomic_states)
         if ultimate_behavioral_states:
             all_behavioral_states.update(ultimate_behavioral_states)

@@ -51,19 +51,16 @@ class CognitiveIntelligence:
         - 新流程: 引擎的最终输出是所有独立的、经过动态证据锻造的剧本后验概率。
         - 状态归位: 不再污染 atomic_states，而是将所有剧本信号直接存入专属的 self.strategy.playbook_states。
         """
-        print("启动【V25.0 · 状态归位版】认知推演引擎...")
         # [代码修改开始]
         # 清空旧的剧本状态，确保每次运行都是全新的
         self.strategy.playbook_states = {}
         
         # --- 步骤一: 建立先验信念 (逻辑不变) ---
-        print("  -- [认知层] 步骤一: 正在建立先验信念...")
         priors = self._establish_prior_beliefs()
         # 先验概率作为中间计算结果，可以放入原子状态供调试
         self.strategy.atomic_states.update(priors)
         
         # --- 步骤二: 并行推演所有战术剧本，直接获得“动态后验概率” ---
-        print("  -- [认知层] 步骤二: 正在进行贝叶斯推演，获取动态后验概率...")
         playbook_scores = {}
         playbook_scores.update(self._deduce_suppressive_accumulation(priors))
         playbook_scores.update(self._deduce_chasing_accumulation(priors))
