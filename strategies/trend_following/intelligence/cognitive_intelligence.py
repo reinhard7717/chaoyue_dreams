@@ -89,7 +89,6 @@ class CognitiveIntelligence:
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        # [代码修改开始]
         # --- 废弃脆弱的乘法模型 ---
         # prior_trend = (market_regime.clip(lower=0) * trend_quality.clip(lower=0)).pow(0.5)
         # --- 采用更健壮的加权平均模型 ---
@@ -108,7 +107,6 @@ class CognitiveIntelligence:
                 print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
-        # [代码修改结束]
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         prior_reversal = (market_pressure.abs() * (1 - market_regime.abs())).pow(0.5)
