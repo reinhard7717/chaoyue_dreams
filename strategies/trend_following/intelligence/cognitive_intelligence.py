@@ -185,6 +185,7 @@ class CognitiveIntelligence:
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
+        
         # --- 级联探针: 认知层 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

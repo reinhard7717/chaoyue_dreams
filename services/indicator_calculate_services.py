@@ -329,7 +329,6 @@ class IndicatorCalculator:
                 f'ADX_{period}': f'ADX_{period}'
             }
             result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
-            # [代码修改开始]
             # 修复 f-string 遗忘错误
             final_cols = [f'PDI_{period}', f'NDI_{period}', f'ADX_{period}']
             # 确保所有列都存在再进行选择
@@ -337,7 +336,6 @@ class IndicatorCalculator:
             if not existing_cols:
                 return None
             return result_df[existing_cols]
-            # [代码修改结束]
         except Exception as e:
             logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
             return None

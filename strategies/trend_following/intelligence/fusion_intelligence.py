@@ -85,7 +85,10 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 级联探针版】冶炼“趋势质量” (Trend Quality)
+        【V1.2 · 默认值语义修复版】冶炼“趋势质量” (Trend Quality)
+        - 核心修复: 在获取用于几何平均的单极性共振分数时，将默认值从 0.5 修正为 1.0。
+                      这遵循了正确的数学逻辑：在几何平均中，缺失的证据应被视为中性证据（值为1），
+                      其对数贡献为0，从而不会错误地拉低整体共识分数。
         - 探针植入: 打印其依赖的所有领域共振分，以诊断融合结果为中性的根源。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
@@ -96,7 +99,6 @@ class FusionIntelligence:
         ]
         bullish_scores = []
         bearish_scores = []
-        # --- 级联探针: 融合层 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_date = None
@@ -107,21 +109,18 @@ class FusionIntelligence:
             else:
                 probe_date = probe_date_naive
             print(f"    -> [融合层探针] @ {probe_date.date()} 检查趋势质量的证据链:")
-
         for source in resonance_sources:
             bull_signal_name = f'SCORE_{source}_BULLISH_RESONANCE'
             bear_signal_name = f'SCORE_{source}_BEARISH_RESONANCE'
-            bull_score_series = self._get_atomic_score(bull_signal_name, 0.5)
-            bear_score_series = self._get_atomic_score(bear_signal_name, 0.5)
+            # 核心修复：对于几何平均，缺失的信号默认值应为1.0，而不是0.5
+            bull_score_series = self._get_atomic_score(bull_signal_name, 1.0)
+            bear_score_series = self._get_atomic_score(bear_signal_name, 1.0)
             bullish_scores.append(bull_score_series.values)
             bearish_scores.append(bear_score_series.values)
-            # [代码新增开始]
             if probe_date and probe_date in bull_score_series.index:
                 bull_val = bull_score_series.loc[probe_date]
                 bear_val = bear_score_series.loc[probe_date]
                 print(f"       - {source:<18s} | 看涨共振: {bull_val:.4f} | 看跌共振: {bear_val:.4f}")
-            # [代码新增结束]
-
         safe_bullish_scores = np.maximum(np.stack(bullish_scores), 1e-9)
         holistic_bullish_consensus = np.exp(np.mean(np.log(safe_bullish_scores), axis=0))
         safe_bearish_scores = np.maximum(np.stack(bearish_scores), 1e-9)
