@@ -1433,7 +1433,6 @@ def train_transformer_model(
                          new_lr_after_scheduler = optimizer.param_groups[0]['lr']
                          if new_lr_after_scheduler != lr_before_scheduler_step:
                               logger.info(f"Epoch {current_epoch+1}: 学习率调度器调整学习率至 {new_lr_after_scheduler:.2e}.")
-
                     # 早停逻辑 (使用 current_best_model_filepath)
                     if early_stopping_patience > 0:
                         if consecutive_nan_metric_epochs >= nan_metric_patience:

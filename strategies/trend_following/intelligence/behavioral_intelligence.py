@@ -28,7 +28,6 @@ class BehavioralIntelligence:
         """
         # [代码新增开始]
         print("-> [指挥覆盖探针] 行为情报引擎已启用，开始分析...")
-        # [代码新增结束]
         df = self.strategy.df_indicators
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)

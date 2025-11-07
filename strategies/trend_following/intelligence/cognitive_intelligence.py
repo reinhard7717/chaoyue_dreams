@@ -185,8 +185,6 @@ class CognitiveIntelligence:
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        
-        # [代码新增开始]
         # --- 级联探针: 认知层 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -198,7 +196,6 @@ class CognitiveIntelligence:
                 print(f"      -> [认知层探针] @ {probe_date.date()} for '主力拉升抢筹':")
                 print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
                 print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
-        # [代码新增结束]
 
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}

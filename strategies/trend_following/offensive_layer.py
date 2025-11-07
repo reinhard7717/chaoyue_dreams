@@ -50,7 +50,6 @@ class OffensiveLayer:
             else:
                 print(f"--- [探针时区检查] 未检测到数据帧时区，将使用 naive 日期。")
                 probe_date_for_loop = probe_date_naive
-
             print("--- [探针 1/2] 检查计分前'统一情报总线'中的剧本信号原始值 ---")
             playbook_keys = [k for k in all_available_signals.keys() if 'PLAYBOOK' in k]
             if not playbook_keys:
@@ -71,7 +70,6 @@ class OffensiveLayer:
             if signal_series is None or not isinstance(signal_series, pd.Series):
                 continue
             is_playbook_signal = 'PLAYBOOK' in signal_name
-
             processed_signal_series = signal_series.astype(float)
             scoring_mode = meta.get('scoring_mode', 'unipolar')
             context_role = meta.get('context_role', 'neutral')
@@ -117,7 +115,6 @@ class OffensiveLayer:
                     final_contribution = bonus_amount.loc[probe_date_for_loop]
                     if final_contribution != 0:
                          print(f"    -> [计分中] 信号: {signal_name:<45} | 得分贡献: {final_contribution:.2f}")
-
             total_score += bonus_amount
             score_details_df[signal_name] = bonus_amount
         return total_score.fillna(0), score_details_df.fillna(0)

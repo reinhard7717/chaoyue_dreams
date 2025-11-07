@@ -16,48 +16,80 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
-    def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    def run_chip_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 超级原子信号版】筹码情报总指挥
-        - 核心升级: 新增“超级原子信号工程化”步骤，负责精炼和铸造更具实战意义的复合信号，
-                      以支撑认知层更复杂的战术剧本推演。
-        - 新增信号:
-          - SCORE_CHIP_CLEANLINESS: 筹码干净度，衡量上方套牢盘和短期获利盘的综合压力。
-          - SCORE_CHIP_LOCKDOWN_DEGREE: 筹码锁定度，衡量市场中总的不愿交易的筹码比例。
+        【V2.5 · 真理探针植入版】筹码情报分析总指挥
+        - 核心升级: 植入三层“真理探针”，深度追踪数据在引擎内部的流转，以诊断信号归零的根本原因。
         """
-        all_chip_states = {}
-        periods = [5, 13, 21, 55] # 筹码分析更侧重中长周期
-        # 步骤一: 诊断四大公理，生成纯粹的筹码原子信号
-        concentration_scores = self._diagnose_axiom_concentration(df, periods)
-        cost_structure_scores = self._diagnose_axiom_cost_structure(df, periods)
-        holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
-        peak_integrity_scores = self._diagnose_axiom_peak_integrity(df, periods)
-        # 将公理的诊断结果存入原子状态，供上层追溯
-        all_chip_states['SCORE_CHIP_AXIOM_CONCENTRATION'] = concentration_scores
-        all_chip_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = cost_structure_scores
-        all_chip_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = holder_sentiment_scores
-        all_chip_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = peak_integrity_scores
-        # 步骤二: 合成筹码领域的终极信号
-        ultimate_signals = self._synthesize_ultimate_signals(
-            df,
-            concentration_scores,
-            cost_structure_scores,
-            holder_sentiment_scores,
-            peak_integrity_scores
-        )
-        all_chip_states.update(ultimate_signals)
-        # 步骤三 (新增): 工程化超级原子信号
-        # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
-        chip_fault = df.get('chip_fault_blockage_ratio_D', 0.5)
-        profit_pressure = df.get('imminent_profit_taking_supply_D', 0.5)
-        cleanliness_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
-        all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
-        # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
-        locked_profit = df.get('locked_profit_rate_D', 0.0)
-        locked_loss = df.get('locked_loss_rate_D', 0.0)
-        lockdown_degree = (locked_profit + locked_loss).clip(0, 1).fillna(0.0)
-        all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
-        return all_chip_states
+        p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
+        if not get_param_value(p_conf.get('enabled'), True):
+            print("-> [指挥覆盖探针] 筹码情报引擎在配置中被禁用，跳过分析。")
+            return {}
+        print("-> [指挥覆盖探针] 筹码情报引擎已启用，开始分析...")
+        all_states = {}
+        periods = get_param_value(p_conf.get('periods'), [5, 13, 21, 55])
+        # --- 真理探针 V2.5 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            if df.index.tz:
+                probe_date = probe_date_naive.tz_localize(df.index.tz)
+            else:
+                probe_date = probe_date_naive
+            print(f"    -> [CHIP引擎探针] @ {probe_date.date()} 启动...")
+            
+            # --- 探针一: 输入层检查 ---
+            print("      -> [探针 1/3] 检查所有依赖的底层信号当日值:")
+            required_signals_for_probe = [
+                'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
+                'winner_loser_momentum_D', 'cost_divergence_normalized_D',
+                'winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
+                'dominant_peak_cost_D', 'dominant_peak_solidity_D', 'close_D'
+            ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods]
+            
+            for signal in required_signals_for_probe:
+                if signal in df.columns and probe_date in df.index:
+                    val = df.loc[probe_date, signal]
+                    print(f"         - 信号: {signal:<45s} | 当日值: {val:.4f}")
+                else:
+                    print(f"         - 信号: {signal:<45s} | 状态: 未找到")
+
+        axiom_concentration = self._diagnose_axiom_concentration(df, periods)
+        axiom_cost_structure = self._diagnose_axiom_cost_structure(df, periods)
+        axiom_holder_sentiment = self._diagnose_axiom_holder_sentiment(df, periods)
+        axiom_peak_integrity = self._diagnose_axiom_peak_integrity(df, periods)
+        all_states['SCORE_CHIP_AXIOM_CONCENTRATION'] = axiom_concentration
+        all_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = axiom_cost_structure
+        all_states['SCORE_CHIP_AXIOM_HOLDER_SENTIMENT'] = axiom_holder_sentiment
+        all_states['SCORE_CHIP_AXIOM_PEAK_INTEGRITY'] = axiom_peak_integrity
+        # --- 探针二: 公理层检查 ---
+        if probe_date:
+            print("      -> [探针 2/3] 检查各公理诊断引擎输出的当日分数:")
+            print(f"         - 公理: 聚散 (Concentration) | 当日分数: {axiom_concentration.loc[probe_date]:.4f}")
+            print(f"         - 公理: 成本 (Cost)         | 当日分数: {axiom_cost_structure.loc[probe_date]:.4f}")
+            print(f"         - 公理: 心态 (Sentiment)    | 当日分数: {axiom_holder_sentiment.loc[probe_date]:.4f}")
+            print(f"         - 公理: 形态 (Integrity)    | 当日分数: {axiom_peak_integrity.loc[probe_date]:.4f}")
+
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
+            'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2
+        })
+        bipolar_health = (
+            axiom_concentration * axiom_weights['concentration'] +
+            axiom_cost_structure * axiom_weights['cost_structure'] +
+            axiom_holder_sentiment * axiom_weights['holder_sentiment'] +
+            axiom_peak_integrity * axiom_weights['peak_integrity']
+        ).clip(-1, 1)
+        # --- 探针三: 融合层检查 ---
+        if probe_date:
+            print("      -> [探针 3/3] 检查最终融合前的双极性健康分:")
+            print(f"         - 融合健康分 (bipolar_health) | 当日值: {bipolar_health.loc[probe_date]:.4f}")
+
+        bullish_resonance, bearish_resonance = utils.bipolar_to_exclusive_unipolar(bipolar_health)
+        all_states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance
+        all_states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance
+        return all_states
 
     def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: pd.Series, cost_structure: pd.Series, holder_sentiment: pd.Series, peak_integrity: pd.Series) -> Dict[str, pd.Series]:
         """

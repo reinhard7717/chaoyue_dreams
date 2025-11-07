@@ -96,8 +96,6 @@ class FusionIntelligence:
         ]
         bullish_scores = []
         bearish_scores = []
-        
-        # [代码新增开始]
         # --- 级联探针: 融合层 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -109,7 +107,6 @@ class FusionIntelligence:
             else:
                 probe_date = probe_date_naive
             print(f"    -> [融合层探针] @ {probe_date.date()} 检查趋势质量的证据链:")
-        # [代码新增结束]
 
         for source in resonance_sources:
             bull_signal_name = f'SCORE_{source}_BULLISH_RESONANCE'

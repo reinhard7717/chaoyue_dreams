@@ -495,7 +495,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                         indicator_col = potential_col_search
                     # else:
                     #     logger.debug(f"Constructed name '{expected_col_name_final}' and fallback '{potential_col_search}' not found for {indicator_key} TF {tf_check_str}")
-
             except Exception as e:
                  logger.warning(f"尝试构建或查找指标 '{indicator_key}' (内部键: '{internal_key_for_div}') 在 TF {tf_check} 的列名时出错: {e}")
             # Fallback (原有的简单前缀后缀匹配，如果上面的构建逻辑都失败了)
@@ -518,7 +517,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
                         # 为了简单，这里选择第一个找到的
                         indicator_col = potential_cols[0]
                         logger.debug(f"Fallback prefix-suffix lookup for '{indicator_key}' in TF {tf_check} found potential column: '{indicator_col}' using prefixes: {prefixes}")
-
             if indicator_col is None or data[indicator_col].isnull().all():
                 logger.warning(f"指标 '{indicator_key}' (内部键: '{internal_key_for_div}') 在 TF {tf_check} 的列未找到或全为 NaN。尝试的列名构建可能为 '{expected_col_name_final if 'expected_col_name_final' in locals() else 'N/A'}'。跳过。")
                 continue
@@ -536,14 +534,12 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
             if check_hidden_bullish: div_result['hidden_bullish'] = pd.Series(False, index=_mock_index)
             if check_hidden_bearish: div_result['hidden_bearish'] = pd.Series(False, index=_mock_index)
             # --- 模拟结束 ---
-
             for div_type_col_name in div_result.columns:
                 parts = indicator_col.split('_')
                 indi_name_part = parts[0]
                 params_part = "_".join(parts[1:-1]) if len(parts) > 2 and parts[-1] == tf_check_str else "_".join(parts[1:]) # 尝试更灵活地提取参数部分
                 if params_part.endswith(f"_{tf_check_str}"): # 如果参数部分错误地包含了时间框架后缀
                     params_part = params_part[:-len(f"_{tf_check_str}")]
-
                 clean_div_type = "".join(word.capitalize() for word in div_type_col_name.split('_'))
                 detailed_col_name = f'DIV_{indi_name_part}'
                 if params_part:
