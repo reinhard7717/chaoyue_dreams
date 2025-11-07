@@ -589,12 +589,10 @@ class IndicatorService:
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
                     if not df_resampled.empty:
-                        # [代码修改开始]
                         # --- 重采样命名协议修复 ---
                         # 在重采样后，立即将列名中的 '_D' 替换为目标周期的后缀，如 '_W'
                         rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
                         df_resampled.rename(columns=rename_map_resampled, inplace=True)
-                        # [代码修改结束]
                         if target_tf == 'W':
                             df_synthetic_indicators = self._calculate_synthetic_weekly_indicators(df_daily, df_resampled)
                             df_resampled = df_resampled.merge(df_synthetic_indicators, left_index=True, right_index=True, how='left')
@@ -627,7 +625,6 @@ class IndicatorService:
         - 核心修复: 更新内部逻辑，使其使用带有 '_D' 后缀的日线列名进行计算，以适应上游的标准化流程。
         """
         synthetic_indicators = pd.DataFrame(index=df_weekly.index)
-        # [代码修改开始]
         # --- 1. 合成周线CMF (Chaikin Money Flow) ---
         # 使用带 '_D' 后缀的列名
         mfm = ((df_daily['close_D'] - df_daily['low_D']) - (df_daily['high_D'] - df_daily['close_D'])) / (df_daily['high_D'] - df_daily['low_D'])
@@ -656,7 +653,6 @@ class IndicatorService:
             rs = avg_gain / (avg_loss + 1e-9) 
             rsi = 100 - (100 / (1 + rs))
             synthetic_indicators['RSI_13_W'] = rsi
-        # [代码修改结束]
         return synthetic_indicators
 
     def _get_max_period_for_timeframe(self, config: dict, timeframe_key: str) -> int:
@@ -790,10 +786,8 @@ class IndicatorService:
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
                     for p_set in periods_to_iterate:
-                        # [代码修改开始]
                         # 移除通用的 suffix，只在需要时添加
                         kwargs_iter = {'df': df_for_calc}
-                        # [代码修改结束]
                         if indicator_name in ['ma', 'ema', 'rsi', 'roc', 'bias', 'mom']:
                             kwargs_iter.update({'period': p_set, 'close_col': close_col_tf})
                         elif indicator_name == 'vol_ma':
@@ -807,10 +801,8 @@ class IndicatorService:
                         elif indicator_name in ['dmi', 'kdj', 'atr', 'atrn', 'atrr']:
                              kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf})
                         elif indicator_name == 'boll_bands_and_width':
-                            # [代码修改开始]
                             # 只在这里为需要的函数添加 suffix
                             kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0)), 'close_col': close_col_tf, 'suffix': f"_{timeframe_key}"})
-                            # [代码修改结束]
                         elif indicator_name == 'cmf':
                             kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf, 'volume_col': volume_col_tf})
                         elif indicator_name == 'uo':

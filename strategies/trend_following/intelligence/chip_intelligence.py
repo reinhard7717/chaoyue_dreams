@@ -117,131 +117,113 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.3 · 物证探针版】筹码公理一：诊断筹码“聚散”动态
-        - 核心升级: 调用升级后的物证探针。
+        【V2.4 · 数学重构版】筹码公理一：诊断筹码“聚散”动态
+        - 核心修复: 遵循“先归一，后融合”原则。不再对原始值进行武断缩放，而是先将“集中度水平”和“集中趋势”
+                      分别归一化为[-1, 1]的双极性分数，然后再进行加权融合，确保模型在不同市场环境下的健壮性。
         """
         required_signals = [
-            'short_term_concentration_90pct_D',
-            'long_term_concentration_90pct_D',
-            'winner_concentration_90pct_D'
+            'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D'
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
         self._run_integrity_probe(df, required_signals, "聚散")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        scores_by_period = {}
-        concentration_level = (
-            df.get('short_term_concentration_90pct_D', pd.Series(50.0, index=df.index)) +
-            df.get('long_term_concentration_90pct_D', pd.Series(50.0, index=df.index)) +
-            df.get('winner_concentration_90pct_D', pd.Series(50.0, index=df.index))
-        ) / 3.0
+        # 证据1: 集中度水平。将原始的0-100值，通过减去50构造一个原始双极性序列。
+        concentration_level_raw = (
+            df.get('short_term_concentration_90pct_D', 50.0) +
+            df.get('long_term_concentration_90pct_D', 50.0) +
+            df.get('winner_concentration_90pct_D', 50.0)
+        ) / 3.0 - 50.0
+        # 证据2: 集中度趋势。直接使用斜率作为原始序列。
+        concentration_trend_raw = pd.Series(0.0, index=df.index)
         for p in periods:
             slope_col = f'SLOPE_{p}_winner_concentration_90pct_D'
             if slope_col in df.columns:
-                concentration_trend = df.get(slope_col, pd.Series(0.0, index=df.index))
-                raw_bipolar_series = (concentration_level - 50) + (concentration_trend * 20)
-                scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.0)
+                concentration_trend_raw += df.get(slope_col, 0.0)
+        concentration_trend_raw /= len(periods)
+        # 分别对“水平”和“趋势”进行多时间框架自适应双极性归一化
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        final_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.values())
-        if total_weight > 0:
-            valid_scores = {p: s for p, s in scores_by_period.items() if p in tf_weights}
-            if valid_scores:
-                for p, weight in tf_weights.items():
-                    if p in valid_scores:
-                        final_score += valid_scores[p] * (weight / total_weight)
-        return final_score.clip(-1, 1)
+        level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
+        trend_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
+        # 融合归一化后的分数
+        final_score = (level_score * 0.3 + trend_score * 0.7).clip(-1, 1)
+        return final_score
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.3 · 物证探针版】筹码公理二：诊断“成本结构”动态
-        - 核心升级: 调用升级后的物证探针。
+        【V2.4 · 数学重构版】筹码公理二：诊断“成本结构”动态
+        - 核心修复: 遵循“先归一，后融合”原则。将尺度差异巨大的 'winner_loser_momentum_D' 和 'cost_divergence_normalized_D'
+                      分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
         """
-        required_signals = [
-            'winner_loser_momentum_D',
-            'cost_divergence_normalized_D'
-        ]
+        required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D']
         self._run_integrity_probe(df, required_signals, "成本")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        scores_by_period = {}
-        raw_bipolar_series = (
-            df.get('winner_loser_momentum_D', pd.Series(0.0, index=df.index)) -
-            df.get('cost_divergence_normalized_D', pd.Series(0.0, index=df.index))
-        )
-        for p in periods:
-            scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.0)
+        # 证据1: 获利盘与亏损盘的动量
+        momentum_raw = df.get('winner_loser_momentum_D', pd.Series(0.0, index=df.index))
+        # 证据2: 成本发散度
+        divergence_raw = df.get('cost_divergence_normalized_D', pd.Series(0.0, index=df.index))
+        # 分别对两个证据进行多时间框架自适应双极性归一化
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        final_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.values())
-        if total_weight > 0:
-            for p, weight in tf_weights.items():
-                if p in scores_by_period:
-                    final_score += scores_by_period[p] * (weight / total_weight)
-        return final_score.clip(-1, 1)
+        momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
+        divergence_score = utils.get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
+        # 融合归一化后的分数：我们期望动量为正（获利盘强），发散为负（成本集中），所以是 momentum_score - divergence_score
+        final_score = (momentum_score - divergence_score).clip(-1, 1)
+        return final_score
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.3 · 物证探针版】筹码公理三：诊断“持股心态”动态
-        - 核心升级: 调用升级后的物证探针。
+        【V2.4 · 数学重构版】筹码公理三：诊断“持股心态”动态
+        - 核心修复: 遵循“先归一，后融合”原则。将三个尺度不同的心态指标分别归一化，再进行融合。
+                      'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
         """
-        required_signals = [
-            'winner_conviction_index_D',
-            'loser_pain_index_D',
-            'chip_fatigue_index_D'
-        ]
+        required_signals = ['winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D']
         self._run_integrity_probe(df, required_signals, "心态")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        scores_by_period = {}
-        raw_bipolar_series = (
-            df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index)) -
-            df.get('loser_pain_index_D', pd.Series(0.0, index=df.index)) -
-            df.get('chip_fatigue_index_D', pd.Series(0.0, index=df.index))
-        )
-        for p in periods:
-            scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=0.8)
+        # 证据1: 赢家信念 (正向)
+        conviction_raw = df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index))
+        # 证据2: 输家痛苦 (负向)
+        pain_raw = df.get('loser_pain_index_D', pd.Series(0.0, index=df.index))
+        # 证据3: 筹码疲劳 (负向)
+        fatigue_raw = df.get('chip_fatigue_index_D', pd.Series(0.0, index=df.index))
+        # 分别归一化
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        final_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.values())
-        if total_weight > 0:
-            for p, weight in tf_weights.items():
-                if p in scores_by_period:
-                    final_score += scores_by_period[p] * (weight / total_weight)
-        return final_score.clip(-1, 1)
+        conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights, sensitivity=1.0)
+        pain_score = utils.get_adaptive_mtf_normalized_bipolar_score(pain_raw, df.index, tf_weights, sensitivity=1.0)
+        fatigue_score = utils.get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df.index, tf_weights, sensitivity=1.0)
+        # 融合归一化后的分数
+        final_score = (conviction_score - pain_score - fatigue_score).clip(-1, 1)
+        return final_score
 
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.3 · 物证探针版】筹码公理四：诊断“筹码峰形态”
-        - 核心升级: 调用升级后的物证探针。
+        【V2.4 · 数学重构版】筹码公理四：诊断“筹码峰形态”
+        - 核心修复: 遵循“先归一，后融合”原则。将“价格与筹码峰的距离”和“筹码峰的坚实度”分别归一化，
+                      然后相乘。相乘的逻辑是合理的，代表“坚实度”对“价格偏离”信号的确认或证伪。
         """
-        required_signals = [
-            'dominant_peak_cost_D',
-            'dominant_peak_solidity_D'
-        ]
+        required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D']
         self._run_integrity_probe(df, required_signals, "形态")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        scores_by_period = {}
+        # 证据1: 价格与主筹码峰的偏离度
         price_vs_peak_raw = df['close_D'] - df.get('dominant_peak_cost_D', df['close_D'])
-        peak_solidity = df.get('dominant_peak_solidity_D', pd.Series(0.5, index=df.index))
-        raw_bipolar_series = price_vs_peak_raw * peak_solidity
-        for p in periods:
-            scores_by_period[p] = normalize_to_bipolar(raw_bipolar_series, df.index, window=p, sensitivity=1.2)
+        # 证据2: 主筹码峰的坚实度
+        peak_solidity_raw = df.get('dominant_peak_solidity_D', pd.Series(0.5, index=df.index))
+        # 分别归一化
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        final_score = pd.Series(0.0, index=df.index)
-        total_weight = sum(tf_weights.values())
-        if total_weight > 0:
-            for p, weight in tf_weights.items():
-                if p in scores_by_period:
-                    final_score += scores_by_period[p] * (weight / total_weight)
-        return final_score.clip(-1, 1)
+        price_vs_peak_score = utils.get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
+        # 坚实度是正向指标，值越大越好，所以使用单极性归一化
+        peak_solidity_score = utils.get_adaptive_mtf_normalized_score(peak_solidity_raw, df.index, ascending=True, tf_weights=tf_weights)
+        # 融合：价格偏离度 * 坚实度确认。坚实度越高，价格偏离的信号越可信。
+        final_score = (price_vs_peak_score * peak_solidity_score).clip(-1, 1)
+        return final_score
 
 

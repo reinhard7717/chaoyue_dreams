@@ -853,11 +853,9 @@ class IndicatorCalculator:
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])
-        # [代码修改开始]
         # 使用传入的后缀构建列名
         high_col = f"high{suffix}"
         low_col = f"low{suffix}"
-        # [代码修改结束]
         if high_col not in df.columns or low_col not in df.columns:
             logger.warning(f"斐波那契水平计算失败：缺少源列 {high_col} 或 {low_col}")
             return None
@@ -882,11 +880,9 @@ class IndicatorCalculator:
         """
         result_df = pd.DataFrame(index=df.index)
         periods = params.get('periods', [])
-        # [代码修改开始]
         # 使用传入的后缀构建列名
         price_source_col = f"{params.get('price_source', 'close')}{suffix}"
         volume_source_col = f"{params.get('volume_source', 'volume')}{suffix}"
-        # [代码修改结束]
         if price_source_col not in df.columns or volume_source_col not in df.columns:
             logger.warning(f"价格/成交量均线比率计算失败：缺少源列 {price_source_col} 或 {volume_source_col}")
             return None
