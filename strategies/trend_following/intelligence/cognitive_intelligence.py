@@ -80,18 +80,36 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】建立先验信念
-        - 核心职责: 将融合层的四大态势，转化为用于贝叶斯推演的“先验概率”。
+        【V1.1 · 信念融合重构版】建立先验信念
+        - 核心重构: 废弃了脆弱的乘法融合模型 (A*B)，改为更健壮的加权平均模型 (A*w1 + B*w2)。
+                      这避免了因单一维度评分为零或负值而导致先验概率被“一票否决”的问题，
+                      使模型能更好地适应A股充满噪声和矛盾信号的实战环境。
+        - 探针植入: 新增探针，打印计算先验概率所依赖的两个核心态势分及其最终结果。
         """
         states = {}
-        # 先验1: 市场处于趋势状态的概率 P(Trend)
-        # 证据: 市场政权为正(趋势) * 趋势质量为正(健康)
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        prior_trend = (market_regime.clip(lower=0) * trend_quality.clip(lower=0)).pow(0.5)
+        # [代码修改开始]
+        # --- 废弃脆弱的乘法模型 ---
+        # prior_trend = (market_regime.clip(lower=0) * trend_quality.clip(lower=0)).pow(0.5)
+        # --- 采用更健壮的加权平均模型 ---
+        # 权重可以根据策略的偏好进行配置
+        regime_weight = 0.5
+        quality_weight = 0.5
+        prior_trend = (market_regime.clip(lower=0) * regime_weight + trend_quality.clip(lower=0) * quality_weight)
+        # --- 新增探针，监控先验概率的计算过程 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
+            if probe_date in market_regime.index:
+                print(f"    -> [先验信念探针] @ {probe_date.date()}:")
+                print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
+                print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
+                print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
+        # [代码修改结束]
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
-        # 先验2: 市场处于反转临界点的概率 P(Reversal)
-        # 证据: 市场压力巨大 * 市场政权趋向反转
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         prior_reversal = (market_pressure.abs() * (1 - market_regime.abs())).pow(0.5)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
