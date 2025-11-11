@@ -80,24 +80,23 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 概率映射修复版】建立先验信念
+        【V1.3 · 反转概率修复版】建立先验信念
         - 核心重构: 修正了双极性分数到概率的映射方式。将 `clip(lower=0)` 替换为 `(score + 1) / 2`，
                       确保中性信号贡献 0.5 的概率，避免了因错误映射导致先验概率被过度压制为零的问题。
+        - 核心修复: 重构了 `prior_reversal` 的计算逻辑，废弃了 `(1 - market_regime.abs())` 的“一票否决”机制。
+                      改为将市场压力和市场政权强度都视为对反转先验概率的正面贡献，并进行加权平均。
         - 探针植入: 新增探针，打印计算先验概率所依赖的两个核心态势分及其最终结果。
         """
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         # --- 采用更健壮的加权平均模型 ---
-        # 权重可以根据策略的偏好进行配置
         regime_weight = 0.5
         quality_weight = 0.5
-        # [代码修改开始]
         # 核心修复：将双极性分数 [-1, 1] 映射到 [0, 1] 的概率
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
         prior_trend = (market_regime_prob * regime_weight + trend_quality_prob * quality_weight).clip(0, 1)
-        # [代码修改结束]
         # --- 新增探针，监控先验概率的计算过程 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -108,15 +107,32 @@ class CognitiveIntelligence:
                 print(f"    -> [先验信念探针] @ {probe_date.date()}:")
                 print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
-                # [代码修改开始]
                 print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
-                # [代码修改结束]
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
-        prior_reversal = (market_pressure.abs() * (1 - market_regime.abs())).pow(0.5)
+        # [代码修改开始]
+        # 核心修复：修正 prior_reversal 的计算逻辑
+        # 之前的逻辑 (1 - market_regime.abs()) 会在市场处于强趋势时（market_regime.abs()接近1）将 prior_reversal 归零，
+        # 这不合理，因为强趋势也可能发生反转。
+        # 新逻辑：反转概率应与市场压力和当前政权强度（因为强政权最终会反转）都正相关。
+        # 采用加权平均，确保即使在强政权下，反转概率也不会被一票否决。
+        reversal_pressure_weight = 0.6
+        reversal_regime_strength_weight = 0.4
+        prior_reversal = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
+        # [代码修改结束]
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
+        # [代码新增开始]
+        # 探针打印 prior_reversal
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
+            if probe_date in market_pressure.index:
+                print(f"       - 市场压力分 (market_pressure): {market_pressure.loc[probe_date]:.4f}")
+                print(f"       - 市场政权绝对值 (market_regime.abs()): {market_regime.abs().loc[probe_date]:.4f}")
+                print(f"       - 最终反转先验概率 (prior_reversal): {prior_reversal.loc[probe_date]:.4f}")
+        # [代码新增结束]
         return states
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
