@@ -159,29 +159,37 @@ class CognitiveIntelligence:
 
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 风险信号重构版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V2.5 · 风险信号重构版】贝叶斯推演：“趋势衰竭”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
         - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
         - 【增强】引入多维度背离信号，更准确地捕捉趋势内在动能的衰竭。
+        - 【优化】引入“趋势质量”和“新高强度”作为反向证据，抑制上涨日的误报。
+        - 【新增】引入“周期顶风险”作为强力证据。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
-        # 证据1: 价格与动量顶背离
+        # 证据1: 价格与动量顶背离 (PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE)
         price_momentum_divergence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0))
-        # 证据2: 赢家信念衰减
+        # 证据2: 赢家信念衰减 (PROCESS_META_WINNER_CONVICTION_DECAY)
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
-        # 证据3: 上涨停滞 (效率低下)
+        # 证据3: 上涨停滞 (效率低下) (VPA_EFFICIENCY_D)
         stagnation = self._forge_dynamic_evidence((1 - normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55)).clip(0, 1))
-        # 证据4: 筹码分布恶化 (长期集中度下降)
+        # 证据4: 筹码分布恶化 (长期集中度下降) (SLOPE_5_long_term_concentration_90pct_D)
         concentration_slope = self._get_atomic_score('SLOPE_5_long_term_concentration_90pct_D', 0.0)
         chip_distribution_evidence = self._forge_dynamic_evidence(normalize_score(concentration_slope.clip(upper=0).abs(), self.strategy.df_indicators.index, 55))
-        # [代码新增开始]
-        # 证据5: 基础层看跌背离 (如RSI顶背离)
+        # 证据5: 基础层看跌背离 (如RSI顶背离) (SCORE_FOUNDATION_BEARISH_DIVERGENCE)
         foundation_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FOUNDATION_BEARISH_DIVERGENCE', 0.0))
-        # 证据6: 力学层看跌背离 (如动量与惯性背离)
+        # 证据6: 力学层看跌背离 (如动量与惯性背离) (SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE)
         dynamic_mechanics_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE', 0.0))
-        # 证据7: 行为层看跌背离 (如价量顶背离)
+        # 证据7: 行为层看跌背离 (如价量顶背离) (SCORE_BEHAVIOR_BEARISH_DIVERGENCE)
         behavior_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 0.0))
+        # [代码新增开始]
+        # 证据8 (反向证据): 趋势质量 (FUSION_BIPOLAR_TREND_QUALITY) - 趋势质量越高，衰竭风险越低
+        trend_quality_inverse = self._forge_dynamic_evidence(1 - self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0))
+        # 证据9 (反向证据): 新高强度 (CONTEXT_NEW_HIGH_STRENGTH) - 新高强度越高，衰竭风险越低
+        new_high_strength_inverse = self._forge_dynamic_evidence(1 - self._get_atomic_score('CONTEXT_NEW_HIGH_STRENGTH', 0.0))
+        # 证据10: 周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP) - 周期顶风险越高，衰竭风险越高
+        cyclical_top_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_CYCLICAL_TOP', 0.0))
         # [代码新增结束]
         # --- 2. 计算似然度 ---
         evidence_scores = np.stack([
@@ -189,24 +197,30 @@ class CognitiveIntelligence:
             winner_conviction_decay.values,
             stagnation.values,
             chip_distribution_evidence.values,
-            # [代码新增开始]
             foundation_bearish_divergence.values,
             dynamic_mechanics_bearish_divergence.values,
-            behavior_bearish_divergence.values
+            behavior_bearish_divergence.values,
+            # [代码新增开始]
+            trend_quality_inverse.values,
+            new_high_strength_inverse.values,
+            cyclical_top_risk.values
             # [代码新增结束]
         ], axis=0)
         # [代码修改开始]
-        # 调整权重以适应新增证据，并突出多维度背离的重要性
-        evidence_weights = np.array([0.2, 0.15, 0.1, 0.15, 0.15, 0.15, 0.1])
+        # 调整权重以适应新增证据，并突出多维度背离和周期顶的重要性，同时降低反向证据的权重
+        evidence_weights = np.array([0.15, 0.1, 0.05, 0.1, 0.15, 0.15, 0.1, -0.05, -0.05, 0.15])
         # [代码修改结束]
-        evidence_weights /= evidence_weights.sum()
+        evidence_weights /= np.sum(np.abs(evidence_weights)) # 确保权重和为1，即使有负权重
         safe_scores = np.maximum(evidence_scores, 1e-9)
-        likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
+        # 对于反向证据，我们需要将其转换为负贡献，或者在计算似然度时进行特殊处理
+        # 这里我们直接在权重中体现正负，然后进行加权平均，再映射到似然度
+        weighted_evidence_sum = np.sum(safe_scores * evidence_weights[:, np.newaxis], axis=0)
+        # 将加权和映射到 [0, 1] 范围作为似然度，例如使用 sigmoid 或线性映射
+        # 简单线性映射: (x - min_val) / (max_val - min_val)
+        # 假设 weighted_evidence_sum 范围在 [-1, 1] 之间
+        likelihood = pd.Series((weighted_evidence_sum + 1) / 2, index=self.strategy.df_indicators.index).clip(0.01, 0.99)
         # --- 3. 获取先验概率 ---
-        # [代码修改开始]
-        # 修正：趋势衰竭是反转风险，应使用反转先验概率
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
-        # [代码修改结束]
         # --- 4. 计算后验概率 (最终风险分) ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         # 将剧本信号也存储到 atomic_states，以便其他剧本可以访问
@@ -215,12 +229,12 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 反转概率修复版】建立先验信念
+        【V1.4 · 反转概率优化版】建立先验信念
         - 核心重构: 修正了双极性分数到概率的映射方式。将 `clip(lower=0)` 替换为 `(score + 1) / 2`，
                       确保中性信号贡献 0.5 的概率，避免了因错误映射导致先验概率被过度压制为零的问题。
         - 核心修复: 重构了 `prior_reversal` 的计算逻辑，废弃了 `(1 - market_regime.abs())` 的“一票否决”机制。
                       改为将市场压力和市场政权强度都视为对反转先验概率的正面贡献，并进行加权平均。
-        - 探针植入: 新增探针，打印计算先验概率所依赖的两个核心态势分及其最终结果。
+        - 【优化】在计算 `prior_reversal` 时，引入 `CONTEXT_TREND_CONFIRMED` 作为抑制因子。
         """
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
@@ -232,7 +246,7 @@ class CognitiveIntelligence:
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
         prior_trend = (market_regime_prob * regime_weight + trend_quality_prob * quality_weight).clip(0, 1)
-        # --- 新增探针，监控先验概率的计算过程 ---
+        # --- 内部探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -254,7 +268,20 @@ class CognitiveIntelligence:
         # 采用加权平均，确保即使在强政权下，反转概率也不会被一票否决。
         reversal_pressure_weight = 0.6
         reversal_regime_strength_weight = 0.4
-        prior_reversal = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
+        # [代码新增开始]
+        # 引入趋势确认信号作为抑制因子
+        trend_confirmed = self._get_atomic_score('CONTEXT_TREND_CONFIRMED', 0.0)
+        # 如果趋势被高度确认 (trend_confirmed 接近 1)，则反转先验概率应被抑制
+        # 抑制因子 = (1 - trend_confirmed)
+        # 例如，如果 trend_confirmed = 0.8，抑制因子 = 0.2，则反转概率会乘以 0.2
+        # 如果 trend_confirmed = 0.0，抑制因子 = 1.0，则不抑制
+        suppression_factor = (1 - trend_confirmed).clip(0, 1)
+        # [代码新增结束]
+        prior_reversal_raw = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
+        # [代码修改开始]
+        # 应用抑制因子
+        prior_reversal = (prior_reversal_raw * suppression_factor).clip(0, 1)
+        # [代码修改结束]
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
         # 探针打印 prior_reversal
         if probe_dates_str:
@@ -263,6 +290,10 @@ class CognitiveIntelligence:
             if probe_date in market_pressure.index:
                 print(f"       - 市场压力分 (market_pressure): {market_pressure.loc[probe_date]:.4f}")
                 print(f"       - 市场政权绝对值 (market_regime.abs()): {market_regime.abs().loc[probe_date]:.4f}")
+                # [代码新增开始]
+                print(f"       - 趋势确认分 (trend_confirmed): {trend_confirmed.loc[probe_date]:.4f}")
+                print(f"       - 抑制因子 (suppression_factor): {suppression_factor.loc[probe_date]:.4f}")
+                # [代码新增结束]
                 print(f"       - 最终反转先验概率 (prior_reversal): {prior_reversal.loc[probe_date]:.4f}")
         return states
 
