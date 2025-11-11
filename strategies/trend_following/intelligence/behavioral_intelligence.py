@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, Tuple, Optional, List
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_to_bipolar, normalize_score, get_adaptive_mtf_normalized_score, get_adaptive_mtf_normalized_bipolar_score, bipolar_to_exclusive_unipolar
 
 class BehavioralIntelligence:
     """
