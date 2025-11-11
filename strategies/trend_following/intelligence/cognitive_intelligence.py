@@ -99,30 +99,119 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 背离证据增强版】贝叶斯推演：“高位派发”风险剧本
+        【V3.3 · 风险信号重构版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
-        - 【新增】引入市场矛盾（看跌背离）作为证据。
+        - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
+        - 【增强】引入更多直接反映主力派发和筹码分散的证据，提高信号区分度。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
-        capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
-        price_at_high = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('BIAS_55_D'), self.strategy.df_indicators.index, 55))
-        efficiency_evidence = self._forge_dynamic_evidence((1 - normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55)).clip(0, 1))
-        process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(lower=0))
-        chip_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # --- 1. 收集并锻造所有相关证据 ---
+        # 证据1: 资本对抗 (主力资金流出) - 负值代表主力流出，取绝对值后clip(lower=0)
+        capital_confrontation_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
+        # 证据2: 价格处于高位 (超买风险)
+        price_overextension_risk = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION', 0.0))
+        # 证据3: 上涨效率低下 (价涨量增，但效率不高，主力出货迹象)
+        low_upward_efficiency = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
+        # 证据4: 主力盈亏与资金流背离 (赚钱卖出)
+        profit_vs_flow_bearish = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
+        # 证据5: 筹码分散 (筹码集中度下降)
+        chip_dispersion_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 证据6: 市场矛盾中的看跌背离 (顶背离)
         market_contradiction_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(upper=0).abs())
+        # [代码新增开始]
+        # 证据7: 上影线抛压 (直接的卖出压力)
+        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE', 0.0))
+        # 证据8: 资金流看跌背离 (价格上涨但资金流出)
+        fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
+        # 证据9: 筹码看跌背离 (价格上涨但筹码分散)
+        chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
+        # [代码新增结束]
+        # --- 2. 计算似然度 P(证据 | 高位派发) ---
         evidence_scores = np.stack([
-            capital_confrontation.values, price_at_high.values, efficiency_evidence.values,
-            process_evidence.values, chip_evidence.values,
-            market_contradiction_bearish.values
+            capital_confrontation_bearish.values,
+            price_overextension_risk.values,
+            low_upward_efficiency.values,
+            profit_vs_flow_bearish.values,
+            chip_dispersion_evidence.values,
+            market_contradiction_bearish.values,
+            # [代码新增开始]
+            upper_shadow_pressure.values,
+            fund_flow_bearish_divergence.values,
+            chip_bearish_divergence.values
+            # [代码新增结束]
         ], axis=0)
-        evidence_weights = np.array([0.2, 0.1, 0.2, 0.2, 0.2, 0.1])
+        # [代码修改开始]
+        # 调整权重以适应新增证据，并突出关键派发信号
+        evidence_weights = np.array([0.15, 0.1, 0.1, 0.15, 0.15, 0.1, 0.15, 0.05, 0.05])
+        # [代码修改结束]
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
-        prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
+        # --- 3. 获取先验概率 P(反转) ---
+        # [代码修改开始]
+        # 修正：高位派发是反转风险，应使用反转先验概率
+        prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
+        # [代码修改结束]
+        # --- 4. 计算后验概率 (最终风险分) ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
+
+    def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V2.4 · 风险信号重构版】贝叶斯推演：“趋势衰竭”风险剧本
+        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
+        - 【增强】引入多维度背离信号，更准确地捕捉趋势内在动能的衰竭。
+        """
+        print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
+        # --- 1. 收集并锻造所有相关证据 ---
+        # 证据1: 价格与动量顶背离
+        price_momentum_divergence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0))
+        # 证据2: 赢家信念衰减
+        winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
+        # 证据3: 上涨停滞 (效率低下)
+        stagnation = self._forge_dynamic_evidence((1 - normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55)).clip(0, 1))
+        # 证据4: 筹码分布恶化 (长期集中度下降)
+        concentration_slope = self._get_atomic_score('SLOPE_5_long_term_concentration_90pct_D', 0.0)
+        chip_distribution_evidence = self._forge_dynamic_evidence(normalize_score(concentration_slope.clip(upper=0).abs(), self.strategy.df_indicators.index, 55))
+        # [代码新增开始]
+        # 证据5: 基础层看跌背离 (如RSI顶背离)
+        foundation_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FOUNDATION_BEARISH_DIVERGENCE', 0.0))
+        # 证据6: 力学层看跌背离 (如动量与惯性背离)
+        dynamic_mechanics_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE', 0.0))
+        # 证据7: 行为层看跌背离 (如价量顶背离)
+        behavior_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_BEARISH_DIVERGENCE', 0.0))
+        # [代码新增结束]
+        # --- 2. 计算似然度 ---
+        evidence_scores = np.stack([
+            price_momentum_divergence.values,
+            winner_conviction_decay.values,
+            stagnation.values,
+            chip_distribution_evidence.values,
+            # [代码新增开始]
+            foundation_bearish_divergence.values,
+            dynamic_mechanics_bearish_divergence.values,
+            behavior_bearish_divergence.values
+            # [代码新增结束]
+        ], axis=0)
+        # [代码修改开始]
+        # 调整权重以适应新增证据，并突出多维度背离的重要性
+        evidence_weights = np.array([0.2, 0.15, 0.1, 0.15, 0.15, 0.15, 0.1])
+        # [代码修改结束]
+        evidence_weights /= evidence_weights.sum()
+        safe_scores = np.maximum(evidence_scores, 1e-9)
+        likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
+        # --- 3. 获取先验概率 ---
+        # [代码修改开始]
+        # 修正：趋势衰竭是反转风险，应使用反转先验概率
+        prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
+        # [代码修改结束]
+        # --- 4. 计算后验概率 (最终风险分) ---
+        posterior_prob = (likelihood * prior_prob).clip(0, 1)
+        # 将剧本信号也存储到 atomic_states，以便其他剧本可以访问
+        self.strategy.atomic_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
+        return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
@@ -303,35 +392,6 @@ class CognitiveIntelligence:
         # --- 4. 计算后验概率 ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING': posterior_prob.astype(np.float32)}
-
-    def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V2.3 · 动态证据版】贝叶斯推演：“趋势衰竭”风险剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
-        - 【修复】将计算出的剧本信号也存储到 `self.strategy.atomic_states`，以便其他剧本可以访问。
-        """
-        print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
-        # --- 1. 收集并锻造所有相关证据 ---
-        divergence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0))
-        winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
-        stagnation = self._forge_dynamic_evidence((1 - normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55)).clip(0, 1))
-        concentration_slope = self._get_atomic_score('SLOPE_5_long_term_concentration_90pct_D', 0.0)
-        chip_distribution_evidence = self._forge_dynamic_evidence(normalize_score(concentration_slope.clip(upper=0).abs(), self.strategy.df_indicators.index, 55))
-        # --- 2. 计算似然度 ---
-        evidence_scores = np.stack([divergence.values, winner_conviction_decay.values, stagnation.values, chip_distribution_evidence.values], axis=0)
-        evidence_weights = np.array([0.3, 0.3, 0.1, 0.3])
-        evidence_weights /= evidence_weights.sum()
-        safe_scores = np.maximum(evidence_scores, 1e-9)
-        likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
-        # --- 3. 获取先验概率 ---
-        prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 (最终风险分) ---
-        posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        # [代码新增开始]
-        # 将剧本信号也存储到 atomic_states，以便其他剧本可以访问
-        self.strategy.atomic_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
-        # [代码新增结束]
-        return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
 
     def _deduce_divergence_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
