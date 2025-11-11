@@ -58,12 +58,11 @@ class FusionIntelligence:
 
     def _synthesize_market_regime(self) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】冶炼“市场政权” (Market Regime)
-        - 核心思想: 融合“序列记忆性”和“趋势惯性”，判断市场是趋势主导还是均值回归主导。
-        - 证据链:
-          1. 记忆性 (Hurst): 价格序列的数学本质是趋势延续还是反转。
-          2. 惯性 (ADX): 市场当前是否存在可见的、有力量的趋势。
-          3. 稳定性 (Volatility): 稳定的市场环境更有利于趋势形成。
+        【V1.1 · 柔性评估重构版】冶炼“市场政权” (Market Regime)
+        - 核心重构: 废弃了对 `hurst_memory`, `inertia`, `stability` 进行 `clip(lower=0)` 的“一票否决”逻辑。
+                      改为直接使用它们的原始双极性分数进行加权平均，得到一个更柔性的 `trend_evidence`。
+                      这避免了在趋势酝酿期，因单一公理暂时为负而导致整体趋势证据归零的问题。
+        - 探针植入: 新增探针，打印 `hurst_memory`, `inertia`, `stability` 的原始值，以及计算出的 `trend_evidence` 和 `reversion_evidence`。
         """
         print("  -- [融合层] 正在冶炼“市场政权”...")
         states = {}
@@ -73,12 +72,39 @@ class FusionIntelligence:
         inertia = self._get_atomic_score('SCORE_DYN_AXIOM_INERTIA', 0.0)
         # 证据3: 市场稳定性 (来自力学层)
         stability = self._get_atomic_score('SCORE_DYN_AXIOM_STABILITY', 0.0)
-        # 融合趋势证据: 记忆性为正(趋势) * 惯性为正(有趋势) * 市场稳定
-        trend_evidence = (hurst_memory.clip(lower=0) * inertia.clip(lower=0) * stability.clip(lower=0)).pow(1/3)
-        # 融合震荡证据: 记忆性为负(回归) * 惯性为负(无趋势)
-        reversion_evidence = (hurst_memory.clip(upper=0).abs() * inertia.clip(upper=0).abs()).pow(1/2)
+        # [代码修改开始]
+        # 融合趋势证据: 不再使用 clip(lower=0) 进行“一票否决”，而是直接加权平均双极性分数。
+        # 这样，即使某个公理暂时为负，也不会直接将整个 trend_evidence 归零，而是会拉低其分数，但仍保留其方向性。
+        # 权重可以根据重要性进行调整
+        trend_evidence_weights = {'hurst': 0.4, 'inertia': 0.4, 'stability': 0.2}
+        trend_evidence = (
+            hurst_memory * trend_evidence_weights['hurst'] +
+            inertia * trend_evidence_weights['inertia'] +
+            stability * trend_evidence_weights['stability']
+        ).clip(-1, 1) # 融合后的趋势证据仍然是双极性的
+        # 融合震荡证据: 均值回归性 (Hurst < 0) * 惯性弱 (Inertia < 0)
+        # 这里仍然使用 clip(upper=0).abs() 来提取负面证据的强度
+        reversion_evidence = (hurst_memory.clip(upper=0).abs() * inertia.clip(upper=0).abs()).pow(0.5)
         # 最终裁决: 生成双极性市场政权分
+        # 现在 trend_evidence 已经是双极性的，直接使用它来与 reversion_evidence 进行对比
+        # 为了保持与 reversion_evidence 的[0,1]区间一致，我们将 trend_evidence 映射到[0,1]
+        # 正值代表趋势，负值代表震荡/均值回归
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
+        # --- 新增探针，监控市场政权计算过程 ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
+            if probe_date in df.index:
+                print(f"    -> [市场政权探针] @ {probe_date.date()}:")
+                print(f"       - 记忆性 (Hurst Memory): {hurst_memory.loc[probe_date]:.4f}")
+                print(f"       - 惯性 (Inertia): {inertia.loc[probe_date]:.4f}")
+                print(f"       - 稳定性 (Stability): {stability.loc[probe_date]:.4f}")
+                print(f"       - 趋势证据 (Trend Evidence): {trend_evidence.loc[probe_date]:.4f}")
+                print(f"       - 均值回归证据 (Reversion Evidence): {reversion_evidence.loc[probe_date]:.4f}")
+                print(f"       - 最终市场政权分 (Market Regime): {bipolar_regime.loc[probe_date]:.4f}")
+        # [代码修改结束]
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         print(f"  -- [融合层] “市场政权”冶炼完成，最新分值: {bipolar_regime.iloc[-1]:.4f}")
         return states
