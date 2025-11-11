@@ -80,22 +80,24 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 信念融合重构版】建立先验信念
-        - 核心重构: 废弃了脆弱的乘法融合模型 (A*B)，改为更健壮的加权平均模型 (A*w1 + B*w2)。
-                      这避免了因单一维度评分为零或负值而导致先验概率被“一票否决”的问题，
-                      使模型能更好地适应A股充满噪声和矛盾信号的实战环境。
+        【V1.2 · 概率映射修复版】建立先验信念
+        - 核心重构: 修正了双极性分数到概率的映射方式。将 `clip(lower=0)` 替换为 `(score + 1) / 2`，
+                      确保中性信号贡献 0.5 的概率，避免了因错误映射导致先验概率被过度压制为零的问题。
         - 探针植入: 新增探针，打印计算先验概率所依赖的两个核心态势分及其最终结果。
         """
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        # --- 废弃脆弱的乘法模型 ---
-        # prior_trend = (market_regime.clip(lower=0) * trend_quality.clip(lower=0)).pow(0.5)
         # --- 采用更健壮的加权平均模型 ---
         # 权重可以根据策略的偏好进行配置
         regime_weight = 0.5
         quality_weight = 0.5
-        prior_trend = (market_regime.clip(lower=0) * regime_weight + trend_quality.clip(lower=0) * quality_weight)
+        # [代码修改开始]
+        # 核心修复：将双极性分数 [-1, 1] 映射到 [0, 1] 的概率
+        market_regime_prob = (market_regime + 1) / 2
+        trend_quality_prob = (trend_quality + 1) / 2
+        prior_trend = (market_regime_prob * regime_weight + trend_quality_prob * quality_weight).clip(0, 1)
+        # [代码修改结束]
         # --- 新增探针，监控先验概率的计算过程 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -106,6 +108,10 @@ class CognitiveIntelligence:
                 print(f"    -> [先验信念探针] @ {probe_date.date()}:")
                 print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
+                # [代码修改开始]
+                print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
+                print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
+                # [代码修改结束]
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
