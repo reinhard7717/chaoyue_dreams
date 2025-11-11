@@ -124,39 +124,6 @@ class CognitiveIntelligence:
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH': posterior_prob.astype(np.float32)}
 
-    def _deduce_divergence_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 新增】贝叶斯推演：“背离反转”剧本
-        - 核心逻辑: 专门利用融合层的“市场矛盾”信号来推演趋势反转的可能性。
-        """
-        print("    -- [剧本推演] 背离反转 (动态证据)...")
-        # --- 1. 收集并锻造所有相关证据 ---
-        # 市场矛盾信号本身就是双极性的，正值代表看涨背离，负值代表看跌背离
-        market_contradiction = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0))
-        # 市场压力，反转的必要条件
-        market_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).abs())
-        # 趋势衰竭风险，趋势反转的另一个证据
-        trend_exhaustion_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_TREND_EXHAUSTION', 0.0))
-        # --- 2. 计算似然度 P(证据 | 背离反转) ---
-        # 我们希望市场矛盾信号是正向的（看涨背离），并且市场压力大，趋势有衰竭迹象
-        # 因此，将市场矛盾信号的看涨部分 (clip(lower=0)) 作为主要证据
-        bullish_contradiction_evidence = market_contradiction.clip(lower=0)
-        evidence_scores = np.stack([
-            bullish_contradiction_evidence.values,
-            market_pressure.values,
-            trend_exhaustion_risk.values
-        ], axis=0)
-        evidence_weights = np.array([0.5, 0.3, 0.2])
-        evidence_weights /= evidence_weights.sum()
-        safe_scores = np.maximum(evidence_scores, 1e-9)
-        likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
-        likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
-        # --- 3. 获取先验概率 P(反转) ---
-        prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 (最终信号分) ---
-        posterior_prob = (likelihood * prior_prob).clip(0, 1)
-        return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': posterior_prob.astype(np.float32)}
-
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
         【V1.3 · 反转概率修复版】建立先验信念
@@ -339,8 +306,9 @@ class CognitiveIntelligence:
 
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 动态证据版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V2.3 · 动态证据版】贝叶斯推演：“趋势衰竭”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        - 【修复】将计算出的剧本信号也存储到 `self.strategy.atomic_states`，以便其他剧本可以访问。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         # --- 1. 收集并锻造所有相关证据 ---
@@ -357,9 +325,49 @@ class CognitiveIntelligence:
         likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
         # --- 3. 获取先验概率 ---
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        # --- 4. 计算后验概率 ---
+        # --- 4. 计算后验概率 (最终风险分) ---
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
+        # [代码新增开始]
+        # 将剧本信号也存储到 atomic_states，以便其他剧本可以访问
+        self.strategy.atomic_states['COGNITIVE_RISK_TREND_EXHAUSTION'] = posterior_prob.astype(np.float32)
+        # [代码新增结束]
         return {'COGNITIVE_RISK_TREND_EXHAUSTION': posterior_prob.astype(np.float32)}
+
+    def _deduce_divergence_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V1.1 · 信号源修复版】贝叶斯推演：“背离反转”剧本
+        - 核心逻辑: 专门利用融合层的“市场矛盾”信号来推演趋势反转的可能性。
+        - 【修复】通过 `_get_atomic_score` 正确获取 `COGNITIVE_RISK_TREND_EXHAUSTION`。
+        """
+        print("    -- [剧本推演] 背离反转 (动态证据)...")
+        # --- 1. 收集并锻造所有相关证据 ---
+        # 市场矛盾信号本身就是双极性的，正值代表看涨背离，负值代表看跌背离
+        market_contradiction = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0))
+        # 市场压力，反转的必要条件
+        market_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).abs())
+        # 趋势衰竭风险，趋势反转的另一个证据
+        # [代码修改开始]
+        trend_exhaustion_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_TREND_EXHAUSTION', 0.0))
+        # [代码修改结束]
+        # --- 2. 计算似然度 P(证据 | 背离反转) ---
+        # 我们希望市场矛盾信号是正向的（看涨背离），并且市场压力大，趋势有衰竭迹象
+        # 因此，将市场矛盾信号的看涨部分 (clip(lower=0)) 作为主要证据
+        bullish_contradiction_evidence = market_contradiction.clip(lower=0)
+        evidence_scores = np.stack([
+            bullish_contradiction_evidence.values,
+            market_pressure.values,
+            trend_exhaustion_risk.values
+        ], axis=0)
+        evidence_weights = np.array([0.5, 0.3, 0.2])
+        evidence_weights /= evidence_weights.sum()
+        safe_scores = np.maximum(evidence_scores, 1e-9)
+        likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
+        likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
+        # --- 3. 获取先验概率 P(反转) ---
+        prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
+        # --- 4. 计算后验概率 (最终信号分) ---
+        posterior_prob = (likelihood * prior_prob).clip(0, 1)
+        return {'COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL': posterior_prob.astype(np.float32)}
 
     def _deduce_sector_rotation_vanguard(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """

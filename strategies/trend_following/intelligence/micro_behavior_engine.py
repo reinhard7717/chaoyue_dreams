@@ -75,22 +75,22 @@ class MicroBehaviorEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】微观行为公理四：诊断“微观背离”
+        【V1.1 · 信号修复版】微观行为公理四：诊断“微观背离”
+        - 核心修复: 将依赖信号 'active_buy_amount_D' 和 'active_sell_amount_D' 修正为实际存在的
+                      'active_buying_support_D' 和 'active_selling_pressure_D'。
         - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
           - 看涨背离：价格下跌但主动买盘增强。
           - 看跌背离：价格上涨但主动卖盘增强。
         """
-        # 证据1: 价格变化趋势
         price_trend = normalize_to_bipolar(self._get_signal(df, 'pct_change_D'), df.index, norm_window)
-        # 证据2: 主动买卖盘趋势 (使用主动买入量与主动卖出量的差值变化)
-        active_buy_sell_diff = self._get_signal(df, 'active_buy_amount_D') - self._get_signal(df, 'active_sell_amount_D')
+        # [代码修改开始]
+        # 修正为实际存在的信号名称
+        active_buy_support = self._get_signal(df, 'active_buying_support_D')
+        active_sell_pressure = self._get_signal(df, 'active_selling_pressure_D')
+        # 使用主动买入支撑和主动卖出压力的差值变化来代表订单流趋势
+        active_buy_sell_diff = active_buy_support - active_sell_pressure
+        # [代码修改结束]
         order_flow_trend = normalize_to_bipolar(active_buy_sell_diff.diff(1), df.index, norm_window)
-        # 融合：当价格趋势与订单流趋势相反时，产生背离信号
-        # 看涨背离：价格下跌（负）但订单流积极（正）
-        # 看跌背离：价格上涨（正）但订单流消极（负）
-        # 我们可以用 (order_flow_trend - price_trend) 来捕捉这种矛盾
-        # 价涨订单流负: (负 - 正) = 负 -> 看跌背离
-        # 价跌订单流正: (正 - 负) = 正 -> 看涨背离
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
