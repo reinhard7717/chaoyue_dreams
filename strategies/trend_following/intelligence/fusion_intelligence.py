@@ -65,6 +65,7 @@ class FusionIntelligence:
         - 探针植入: 新增探针，打印 `hurst_memory`, `inertia`, `stability` 的原始值，以及计算出的 `trend_evidence` 和 `reversion_evidence`。
         """
         print("  -- [融合层] 正在冶炼“市场政权”...")
+        df = self.strategy.df_indicators
         states = {}
         # 证据1: 序列记忆性 (来自周期层)
         hurst_memory = self._get_atomic_score('SCORE_CYCLICAL_HURST_MEMORY', 0.0)
