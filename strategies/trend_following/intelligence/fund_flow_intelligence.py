@@ -24,7 +24,6 @@ class FundFlowIntelligence:
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 资金流情报引擎在配置中被禁用，跳过分析。")
             return {}
-        print("-> [指挥覆盖探针] 资金流情报引擎已启用，开始分析...")
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_consensus = self._diagnose_axiom_consensus(df, norm_window)

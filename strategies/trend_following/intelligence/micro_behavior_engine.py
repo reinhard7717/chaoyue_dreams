@@ -44,7 +44,6 @@ class MicroBehaviorEngine:
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 微观行为引擎在配置中被禁用，跳过分析。")
             return {}
-        print("-> [指挥覆盖探针] 微观行为引擎已启用，开始分析...")
         all_states = {}
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
         axiom_deception = self._diagnose_axiom_deception(df, norm_window)

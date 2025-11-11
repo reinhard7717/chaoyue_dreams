@@ -26,7 +26,6 @@ class BehavioralIntelligence:
         【V5.1 · 指挥覆盖探针版】行为情报模块总指挥
         - 探针植入: 在方法入口处增加探针，确认此模块是否被情报层总指挥官正确调用。
         """
-        print("-> [指挥覆盖探针] 行为情报引擎已启用，开始分析...")
         df = self.strategy.df_indicators
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)

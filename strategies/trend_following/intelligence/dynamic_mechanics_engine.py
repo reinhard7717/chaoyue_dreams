@@ -25,7 +25,6 @@ class DynamicMechanicsEngine:
         if not get_param_value(p_conf.get('enabled'), True):
             print("-> [指挥覆盖探针] 动态力学引擎在配置中被禁用，跳过分析。")
             return {}
-        print("-> [指挥覆盖探针] 动态力学引擎已启用，开始分析...")
         all_dynamic_states = {}
         df = self.strategy.df_indicators
         norm_window = get_param_value(p_conf.get('norm_window'), 55)
@@ -48,19 +47,6 @@ class DynamicMechanicsEngine:
             axiom_stability * axiom_weights['stability'] +
             axiom_energy * axiom_weights['energy']
         ).clip(-1, 1)
-        # --- 内部探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [力学引擎内部探针] @ {probe_date.date()}:")
-                print(f"       - 动量公理分 (Momentum): {axiom_momentum.loc[probe_date]:.4f}")
-                print(f"       - 惯性公理分 (Inertia): {axiom_inertia.loc[probe_date]:.4f}")
-                print(f"       - 稳定公理分 (Stability): {axiom_stability.loc[probe_date]:.4f}")
-                print(f"       - 能量公理分 (Energy): {axiom_energy.loc[probe_date]:.4f}")
-                print(f"       - 融合健康分 (Bipolar Health): {bipolar_health.loc[probe_date]:.4f}")
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)

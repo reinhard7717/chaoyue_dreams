@@ -84,17 +84,6 @@ class ChipIntelligence:
         ).clip(-1, 1)
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        # --- 内部探针 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(df.index.tz) if df.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [CHIP引擎内部探针] @ {probe_date.date()}:")
-                print(f"       - 公理融合后健康分 (bipolar_health): {bipolar_health.loc[probe_date]:.4f}")
-                print(f"       - 分裂后看涨共振 (bullish_resonance): {bullish_resonance.loc[probe_date]:.4f}")
-                print(f"       - 分裂后看跌共振 (bearish_resonance): {bearish_resonance.loc[probe_date]:.4f}")
         states['SCORE_CHIP_BULLISH_RESONANCE'] = bullish_resonance.fillna(0).astype(np.float32)
         states['SCORE_CHIP_BEARISH_RESONANCE'] = bearish_resonance.fillna(0).astype(np.float32)
         bullish_momentum = bullish_resonance.diff().fillna(0)
@@ -143,7 +132,7 @@ class ChipIntelligence:
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D'
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
-        self._run_integrity_probe(df, required_signals, "聚散")
+        # self._run_integrity_probe(df, required_signals, "聚散")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
@@ -176,7 +165,7 @@ class ChipIntelligence:
                       分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
         """
         required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D']
-        self._run_integrity_probe(df, required_signals, "成本")
+        # self._run_integrity_probe(df, required_signals, "成本")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
@@ -200,7 +189,7 @@ class ChipIntelligence:
                       'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
         """
         required_signals = ['winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D']
-        self._run_integrity_probe(df, required_signals, "心态")
+        # self._run_integrity_probe(df, required_signals, "心态")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
@@ -227,7 +216,7 @@ class ChipIntelligence:
                       然后相乘。相乘的逻辑是合理的，代表“坚实度”对“价格偏离”信号的确认或证伪。
         """
         required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D']
-        self._run_integrity_probe(df, required_signals, "形态")
+        # self._run_integrity_probe(df, required_signals, "形态")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
@@ -253,7 +242,7 @@ class ChipIntelligence:
           - 看跌背离：价格上涨但筹码集中度下降（主力派发）。
         """
         required_signals = ['pct_change_D', 'SLOPE_5_short_term_concentration_90pct_D']
-        self._run_integrity_probe(df, required_signals, "背离")
+        # self._run_integrity_probe(df, required_signals, "背离")
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)

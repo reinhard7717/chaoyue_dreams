@@ -125,22 +125,7 @@ class FusionIntelligence:
         # 为了保持与 reversion_evidence 的[0,1]区间一致，我们将 trend_evidence 映射到[0,1]
         # 正值代表趋势，负值代表震荡/均值回归
         bipolar_regime = (trend_evidence - reversion_evidence).clip(-1, 1)
-        # --- 新增探针，监控市场政权计算过程 ---
-        debug_params = get_params_block(self.strategy, 'debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0])
-            probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
-            if probe_date in df.index:
-                print(f"    -> [市场政权探针] @ {probe_date.date()}:")
-                print(f"       - 记忆性 (Hurst Memory): {hurst_memory.loc[probe_date]:.4f}")
-                print(f"       - 惯性 (Inertia): {inertia.loc[probe_date]:.4f}")
-                print(f"       - 稳定性 (Stability): {stability.loc[probe_date]:.4f}")
-                print(f"       - 趋势证据 (Trend Evidence): {trend_evidence.loc[probe_date]:.4f}")
-                print(f"       - 均值回归证据 (Reversion Evidence): {reversion_evidence.loc[probe_date]:.4f}")
-                print(f"       - 最终市场政权分 (Market Regime): {bipolar_regime.loc[probe_date]:.4f}")
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
-        print(f"  -- [融合层] “市场政权”冶炼完成，最新分值: {bipolar_regime.iloc[-1]:.4f}")
         return states
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
@@ -151,7 +136,6 @@ class FusionIntelligence:
                       其对数贡献为0，从而不会错误地拉低整体共识分数。
         - 探针植入: 打印其依赖的所有领域共振分，以诊断融合结果为中性的根源。
         """
-        print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         resonance_sources = [
             'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS', 
@@ -188,7 +172,6 @@ class FusionIntelligence:
         bipolar_quality = (pd.Series(holistic_bullish_consensus, index=self.strategy.df_indicators.index) - 
                            pd.Series(holistic_bearish_consensus, index=self.strategy.df_indicators.index)).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
         return states
 
     def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
