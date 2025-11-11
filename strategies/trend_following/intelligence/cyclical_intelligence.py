@@ -15,36 +15,55 @@ class CyclicalIntelligence:
 
     def run_cyclical_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 双星系统版】周期情报分析总指挥
+        【V2.1 · 双星系统版】周期情报分析总指挥
         - 核心重构: 建立FFT(频谱结构)与Hurst(序列记忆)的“双星系统”架构。
         - 核心流程:
           1. 诊断公理一 (FFT): 提取市场的周期性特征。
           2. 诊断公理二 (Hurst): 提取市场的记忆性特征（趋势/均值回归）。
-          3. 融合裁决: 综合FFT和Hurst的诊断，输出一个更可靠的“趋势政权”评分。
+          3. 【新增】诊断周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)。
+          4. 融合裁决: 综合FFT和Hurst的诊断，输出一个更可靠的“趋势政权”评分。
         """
-        # print("启动【V2.0 · 双星系统版】周期情报分析...")
         all_cyclical_states = {}
         p = get_params_block(self.strategy, 'cyclical_analysis_params')
         if not get_param_value(p.get('enabled'), True):
             print("周期情报分析已在配置中禁用，跳过。")
             return {}
         # --- 公理一: 频谱结构 (FFT) ---
-        # print("工序一: 正在诊断市场频谱结构 (FFT)...")
         fft_states = self.diagnose_market_cycles_with_fft(df, p)
         all_cyclical_states.update(fft_states)
         # --- 公理二: 序列记忆 (Hurst) ---
-        # print("工序二: 正在诊断市场序列记忆 (Hurst)...")
         hurst_states = self.diagnose_market_memory_with_hurst(df, p)
         all_cyclical_states.update(hurst_states)
+        # [代码新增开始]
+        # --- 诊断周期顶风险 ---
+        cyclical_top_risk = self._diagnose_cyclical_top_risk(df, fft_states)
+        all_cyclical_states.update(cyclical_top_risk)
+        # [代码新增结束]
         # --- 融合裁决: 趋势政权 ---
-        # print("工序三: 正在融合裁决最终的趋势政权...")
         fft_trend_score = fft_states.get('SCORE_CYCLICAL_FFT_TREND_REGIME', pd.Series(0.5, index=df.index))
         hurst_trend_score = hurst_states.get('SCORE_CYCLICAL_HURST_TREND_REGIME', pd.Series(0.5, index=df.index))
         # 只有当两个独立维度都指向趋势时，才认为趋势政权成立
         final_trend_regime_score = (fft_trend_score * hurst_trend_score).pow(0.5)
         all_cyclical_states['SCORE_TRENDING_REGIME'] = final_trend_regime_score.astype(np.float32)
-        # print("【V2.0 · 双星系统版】周期情报分析完成。")
         return all_cyclical_states
+
+    def _diagnose_cyclical_top_risk(self, df: pd.DataFrame, fft_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
+        - 核心逻辑: 融合主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。
+        """
+        # 证据1: 主导周期强度 (DOMINANT_CYCLE_POWER)
+        dominant_power = fft_states.get('DOMINANT_CYCLE_POWER', pd.Series(0.0, index=df.index))
+        # 证据2: 当前相位 (DOMINANT_CYCLE_PHASE)
+        # 相位接近 +1 (波峰) 时风险最高
+        dominant_phase = fft_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index))
+        # 将相位 [-1, 1] 映射到 [0, 1]，并强调接近 1 的值
+        # 例如，使用 (phase + 1) / 2 映射到 [0, 1]，然后平方或指数化以强调波峰
+        phase_contribution = ((dominant_phase + 1) / 2).pow(2) # 平方强调波峰
+        # 融合：周期强度 * 相位贡献
+        # 只有当周期强度高且处于波峰时，风险才高
+        cyclical_top_risk = (dominant_power * phase_contribution).fillna(0.0)
+        return {'COGNITIVE_RISK_CYCLICAL_TOP': cyclical_top_risk.astype(np.float32)}
 
     def diagnose_market_cycles_with_fft(self, df: pd.DataFrame, params: dict) -> Dict[str, pd.Series]:
         """

@@ -23,14 +23,21 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.1 · 指挥覆盖探针版】行为情报模块总指挥
+        【V5.2 · 指挥覆盖探针版】行为情报模块总指挥
         - 探针植入: 在方法入口处增加探针，确认此模块是否被情报层总指挥官正确调用。
+        - 【新增】计算并发布 `CONTEXT_NEW_HIGH_STRENGTH` 信号。
         """
         df = self.strategy.df_indicators
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
+        # [代码新增开始]
+        # 计算并发布 CONTEXT_NEW_HIGH_STRENGTH 信号
+        context_new_high_strength = self._diagnose_context_new_high_strength(df)
+        self.strategy.atomic_states.update(context_new_high_strength)
+        all_behavioral_states.update(context_new_high_strength)
+        # [代码新增结束]
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -271,6 +278,25 @@ class BehavioralIntelligence:
         states['SCORE_RISK_STAGNATION'] = (is_rising * volume_burst * (1.0 - upward_efficiency)).pow(1/3).astype(np.float32)
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * volume_burst * price_downward_momentum).pow(1/2).astype(np.float32)
         return states
+
+    def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
+        - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
+        """
+        # 证据1: 价格突破强度 (使用当日涨幅作为代理，或更复杂的突破信号)
+        # 假设 pct_change_D 越大，价格突破强度越高
+        price_breakthrough_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=55, ascending=True)
+        # 证据2: 均线斜率 (长期均线向上倾斜，代表趋势健康)
+        # 使用 EMA_55 的5日斜率
+        ma_slope_score = normalize_score(df.get('SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index)), df.index, window=55, ascending=True)
+        # 证据3: BIAS健康度 (价格不应过度偏离均线，否则可能超买)
+        # BIAS_55_D 越小越好（但不能为负太多），所以我们希望它在合理范围内
+        # 1 - normalize_score(BIAS_55_D.clip(lower=0)) 表示正向乖离越小越健康
+        bias_health_score = 1 - normalize_score(df.get('BIAS_55_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, window=55, ascending=True)
+        # 融合：三者乘积的几何平均
+        new_high_strength = (price_breakthrough_score * ma_slope_score * bias_health_score).pow(1/3).fillna(0.0)
+        return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
 
     def _resolve_pressure_absorption_dynamics(self, provisional_pressure: pd.Series, intent_diagnosis: pd.Series) -> Dict[str, pd.Series]:
         """

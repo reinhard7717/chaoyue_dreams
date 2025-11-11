@@ -15,12 +15,13 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V6.1 · 背离公理增强版】基础情报分析总指挥
+        【V6.2 · 背离公理增强版】基础情报分析总指挥
         - 核心重构: 废弃旧的混合诊断模式，引入基于经典指标的“趋势、摆动、流体、波动”四大公理。
         - 核心流程:
           1. 诊断四大公理，生成纯粹的基础层原子信号。
           2. 【新增】诊断基础背离公理。
-          3. 融合所有公理，合成终极的基础层共振信号和背离信号。
+          3. 【新增】计算并发布 `CONTEXT_TREND_CONFIRMED` 信号。
+          4. 融合所有公理，合成终极的基础层共振信号和背离信号。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -40,9 +41,14 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_AXIOM_OSCILLATOR'] = axiom_oscillator
         all_states['SCORE_FOUNDATION_AXIOM_FLOW'] = axiom_flow
         all_states['SCORE_FOUNDATION_AXIOM_VOLATILITY'] = axiom_volatility
-        # --- 步骤二: 融合所有公理，合成终极信号 ---
+        # [代码新增开始]
+        # --- 步骤二: 计算并发布 CONTEXT_TREND_CONFIRMED 信号 ---
+        context_trend_confirmed = self._diagnose_context_trend_confirmed(df, norm_window)
+        all_states.update(context_trend_confirmed)
+        # [代码新增结束]
+        # --- 步骤三: 融合所有公理，合成终极信号 ---
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'trend': 0.4, 'oscillator': 0.2, 'flow': 0.3, 'volatility': 0.1, 'divergence': 0.0 # [代码修改] 新增divergence权重
+            'trend': 0.4, 'oscillator': 0.2, 'flow': 0.3, 'volatility': 0.1, 'divergence': 0.0
         })
         # 构造一个融合了所有公理的原始双极性健康分
         # 注意：波动公理正分代表稳定，对趋势是正面贡献
@@ -61,6 +67,25 @@ class FoundationIntelligence:
         all_states['SCORE_FOUNDATION_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_FOUNDATION_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
+
+    def _diagnose_context_trend_confirmed(self, df: pd.DataFrame, norm_window: int) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
+        - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
+        """
+        # 证据1: 趋势强度 (ADX)
+        adx_score = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        # 证据2: 趋势方向 (PDI/NDI)
+        # PDI > NDI 且 PDI 向上，代表多头方向确认
+        pdi_gt_ndi = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
+        pdi_slope = normalize_score(df.get('SLOPE_5_PDI_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        direction_score = (pdi_gt_ndi * pdi_slope).pow(0.5)
+        # 证据3: BIAS健康度 (价格不应过度偏离均线，否则可能超买)
+        # 1 - normalize_score(BIAS_55_D.clip(lower=0)) 表示正向乖离越小越健康
+        bias_health_score = 1 - normalize_score(df.get('BIAS_55_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+        # 融合：三者乘积的几何平均
+        trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
+        return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
