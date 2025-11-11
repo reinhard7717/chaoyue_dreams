@@ -46,13 +46,14 @@ class BehavioralIntelligence:
 
     def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V5.0 · 范式统一版】行为领域终极合成器
+        【V5.1 · 背离信号增强版】行为领域终极合成器
         - 核心重构: 废弃旧的健康度/机会度模型，全面转向“双极性健康分 -> 共振分”的标准范式，
                       以解决下游引擎的信号失联问题。
         - 新逻辑:
           1. 分别计算“看涨健康度”与“看跌健康度”。
           2. 合成为一个双极性的“行为健康总分”。
           3. 使用标准工具分裂为互斥的“看涨共振分”和“看跌共振分”。
+          4. 【新增】引入行为层面的看涨/看跌背离信号。
         """
         states = {}
         # 1. 计算看涨健康度 (Bullish Health)
@@ -74,11 +75,12 @@ class BehavioralIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
         states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         states['SCORE_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        # 5. 引入行为层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
+        states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return states
 
-    # ==============================================================================
-    # 以下为新增的原子信号中心和降级的原子诊断引擎
-    # ==============================================================================
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.0 · 新增】安全地从原子状态库或主数据帧中获取分数。
@@ -196,14 +198,15 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.1 · 工具归位版】行为公理诊断引擎
+        【V2.2 · 背离公理增强版】行为公理诊断引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
+        - 【新增】引入行为公理五：价量背离。
         """
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
-        long_term_weights = get_param_value(p_mtf.get('volatility_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
+        long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         # --- 公理一: 价格行为 (Price Action) ---
         price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = price_upward_momentum.astype(np.float32)
@@ -228,6 +231,39 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_absorption.astype(np.float32)
         upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
         states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = upper_shadow_pressure.astype(np.float32)
+        # --- 公理五: 价量背离 (Price-Volume Divergence) ---
+        # 逻辑：价格变化方向与成交量变化方向的矛盾
+        # 价格上涨 (pct_change_D > 0) 但成交量萎缩 (volume_apathy 高) -> 看跌背离
+        # 价格下跌 (pct_change_D < 0) 但成交量放大 (volume_burst 高) -> 看涨背离 (恐慌盘)
+        price_change_bipolar = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
+        volume_change_bipolar = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55) # 使用成交量变化作为量能方向
+        # 看涨背离：价格下跌（负）但成交量放大（正） -> 负负得正，或价格下跌但量能变化为正
+        bullish_divergence_raw = (price_change_bipolar.clip(upper=0).abs() * volume_change_bipolar.clip(lower=0))
+        # 看跌背离：价格上涨（正）但成交量萎缩（负） -> 正负得负，或价格上涨但量能变化为负
+        bearish_divergence_raw = (price_change_bipolar.clip(lower=0) * volume_change_bipolar.clip(upper=0).abs())
+        # 融合为双极性分数
+        # 这里需要重新思考融合逻辑，直接相减可能不准确
+        # 我们可以定义一个背离分数：当价格和量能方向相反时，分数越高
+        # 例如：(价格上涨 * 量能萎缩) - (价格下跌 * 量能放大)
+        # 简化为：(价格方向 * -1 * 量能方向)
+        # 价格上涨 (正) * 量能萎缩 (负) -> 负值 (看跌背离)
+        # 价格下跌 (负) * 量能放大 (正) -> 负值 (看涨背离，因为是负负得正)
+        # 让我们使用更直观的：
+        # 看涨背离：价格下跌（负）但量能积极（正）
+        # 看跌背离：价格上涨（正）但量能消极（负）
+        # 价格趋势：normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
+        # 量能趋势：normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
+        price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
+        volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
+        # 当 price_trend 和 volume_trend 符号相反时，产生背离信号
+        # 如果 price_trend > 0 且 volume_trend < 0 (价涨量缩) -> 看跌背离
+        # 如果 price_trend < 0 且 volume_trend > 0 (价跌量增) -> 看涨背离
+        # 我们可以用 (volume_trend - price_trend) 来捕捉这种矛盾
+        # 价涨量缩: (负 - 正) = 负 -> 看跌背离
+        # 价跌量增: (正 - 负) = 正 -> 看涨背离
+        # 这样，正值代表看涨背离，负值代表看跌背离
+        divergence_score = (volume_trend - price_trend).clip(-1, 1)
+        states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
         # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
         is_falling = (df['pct_change_D'] < 0).astype(float)

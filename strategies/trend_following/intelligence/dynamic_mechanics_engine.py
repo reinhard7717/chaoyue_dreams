@@ -15,10 +15,11 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 探针植入版】动态力学引擎总指挥
+        【V5.5 · 背离公理增强版】动态力学引擎总指挥
         - 核心修复: 修正了输出的共振信号名称，将 'SCORE_DYN_*' 修正为 'SCORE_DYNAMIC_MECHANICS_*'，
                       以严格遵守与融合层的情报供应契约。
         - 探针植入: 新增探针，打印各公理的最终得分，以便追踪融合结果。
+        - 【新增】引入力学背离公理。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -32,12 +33,14 @@ class DynamicMechanicsEngine:
         axiom_inertia = self._diagnose_axiom_inertia(df, norm_window)
         axiom_stability = self._diagnose_axiom_stability(df, norm_window)
         axiom_energy = self._diagnose_axiom_energy(df, norm_window)
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        all_dynamic_states['SCORE_DYN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = axiom_momentum
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = axiom_inertia
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = axiom_stability
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = axiom_energy
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'momentum': 0.3, 'inertia': 0.3, 'stability': 0.2, 'energy': 0.2
+            'momentum': 0.3, 'inertia': 0.3, 'stability': 0.2, 'energy': 0.2, 'divergence': 0.0 # [代码修改] 新增divergence权重
         })
         bipolar_health = (
             axiom_momentum * axiom_weights['momentum'] +
@@ -45,7 +48,6 @@ class DynamicMechanicsEngine:
             axiom_stability * axiom_weights['stability'] +
             axiom_energy * axiom_weights['energy']
         ).clip(-1, 1)
-        # [代码新增开始]
         # --- 内部探针 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -59,12 +61,35 @@ class DynamicMechanicsEngine:
                 print(f"       - 稳定公理分 (Stability): {axiom_stability.loc[probe_date]:.4f}")
                 print(f"       - 能量公理分 (Energy): {axiom_energy.loc[probe_date]:.4f}")
                 print(f"       - 融合健康分 (Bipolar Health): {bipolar_health.loc[probe_date]:.4f}")
-        # [代码新增结束]
         from strategies.trend_following.utils import bipolar_to_exclusive_unipolar
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
+        # 引入力学层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_dynamic_states
+
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】力学公理五：诊断“力学背离”
+        - 核心逻辑: 诊断价格动量与惯性之间的背离。
+          - 看涨背离：价格动量减弱（负）但惯性增强（正） -> 预示趋势可能反转向上。
+          - 看跌背离：价格动量增强（正）但惯性减弱（负） -> 预示趋势可能反转向下。
+        """
+        # 证据1: 价格动量 (来自_diagnose_axiom_momentum)
+        momentum_score = self._diagnose_axiom_momentum(df, norm_window)
+        # 证据2: 惯性 (来自_diagnose_axiom_inertia)
+        inertia_score = self._diagnose_axiom_inertia(df, norm_window)
+        # 融合：当动量与惯性方向相反时，产生背离信号
+        # 看涨背离：动量负（价跌）但惯性正（趋势自我维持能力强）
+        # 看跌背离：动量正（价涨）但惯性负（趋势自我维持能力弱）
+        # 我们可以用 (inertia_score - momentum_score) 来捕捉这种矛盾
+        # 动量正惯性负: (负 - 正) = 负 -> 看跌背离
+        # 动量负惯性正: (正 - 负) = 正 -> 看涨背离
+        divergence_score = (inertia_score - momentum_score).clip(-1, 1)
+        return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """【V1.0 · 新增】力学公理一：诊断“动量”"""

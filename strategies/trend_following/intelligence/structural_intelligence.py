@@ -22,9 +22,10 @@ class StructuralIntelligence:
 
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V4.0 · 矛与盾融合版】结构情报分析总指挥
+        【V4.1 · 背离公理增强版】结构情报分析总指挥
         - 核心升级: 指挥旗下三大公理诊断引擎。其中“结构稳定性”公理已升级，
                       融合了EMA的短期收敛性(矛)与MA的长期支撑性(盾)，实现攻守兼备的结构评估。
+        - 【新增】引入结构背离公理。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'structural_ultimate_params', {})
@@ -36,12 +37,14 @@ class StructuralIntelligence:
         axiom_trend_form = self._diagnose_axiom_trend_form(df, norm_window)
         axiom_mtf_cohesion = self._diagnose_axiom_mtf_cohesion(df, norm_window, axiom_trend_form)
         axiom_stability = self._diagnose_axiom_stability(df, norm_window)
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        all_states['SCORE_STRUCT_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_STRUCT_AXIOM_TREND_FORM'] = axiom_trend_form
         all_states['SCORE_STRUCT_AXIOM_MTF_COHESION'] = axiom_mtf_cohesion
         all_states['SCORE_STRUCT_AXIOM_STABILITY'] = axiom_stability
-        # --- 步骤二: 融合三大公理，合成终极信号 ---
+        # --- 步骤二: 融合所有公理，合成终极信号 ---
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'trend_form': 0.5, 'mtf_cohesion': 0.3, 'stability': 0.2
+            'trend_form': 0.5, 'mtf_cohesion': 0.3, 'stability': 0.2, 'divergence': 0.0 # [代码修改] 新增divergence权重
         })
         bipolar_health = (
             axiom_trend_form * axiom_weights['trend_form'] +
@@ -51,7 +54,39 @@ class StructuralIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_STRUCTURE_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_STRUCTURE_BEARISH_RESONANCE'] = bearish_resonance
+        # 引入结构层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_states['SCORE_STRUCTURE_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_states['SCORE_STRUCTURE_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
+
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】结构公理四：诊断“结构背离”
+        - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
+          - 看涨背离：价格下跌但均线排列开始收敛或转好。
+          - 看跌背离：价格上涨但均线排列开始发散或恶化。
+        """
+        ma_periods = [5, 13, 21, 55]
+        required_cols = [f'EMA_{p}_D' for p in ma_periods]
+        if not all(col in df.columns for col in required_cols):
+            # logger.warning("诊断结构背离失败：缺少必要的EMA列。") # [代码修改] 移除logger，使用print
+            print("诊断结构背离失败：缺少必要的EMA列。")
+            return pd.Series(0.0, index=df.index)
+        # 证据1: 价格变化趋势
+        price_trend = normalize_to_bipolar(df.get('pct_change_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        # 证据2: 均线排列健康度变化趋势 (使用多头排列的斜率)
+        # 我们可以使用EMA5和EMA55的相对位置和斜率来判断均线结构趋势
+        ema_short_long_diff = df.get('EMA_5_D', pd.Series(0.0, index=df.index)) - df.get('EMA_55_D', pd.Series(0.0, index=df.index))
+        ma_structure_trend = normalize_to_bipolar(ema_short_long_diff.diff(1), df.index, norm_window)
+        # 融合：当价格趋势与均线结构趋势相反时，产生背离信号
+        # 看涨背离：价格下跌（负）但均线结构改善（正）
+        # 看跌背离：价格上涨（正）但均线结构恶化（负）
+        # 我们可以用 (ma_structure_trend - price_trend) 来捕捉这种矛盾
+        # 价涨结构恶化: (负 - 正) = 负 -> 看跌背离
+        # 价跌结构改善: (正 - 负) = 正 -> 看涨背离
+        divergence_score = (ma_structure_trend - price_trend).clip(-1, 1)
+        return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """【V1.0 · 新增】结构公理一：诊断“趋势形态”"""

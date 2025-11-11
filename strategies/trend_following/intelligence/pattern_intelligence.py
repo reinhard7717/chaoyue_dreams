@@ -15,7 +15,8 @@ class PatternIntelligence:
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.0 · 清洁版】形态分析总指挥
+        【V8.1 · 背离信号增强版】形态分析总指挥
+        - 【新增】将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号。
         """
         # 移除了所有过程性print语句
         all_states = {}
@@ -42,6 +43,10 @@ class PatternIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance
+        # 将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_states['SCORE_PATTERN_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_states['SCORE_PATTERN_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

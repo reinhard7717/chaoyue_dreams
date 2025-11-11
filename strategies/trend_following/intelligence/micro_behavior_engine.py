@@ -22,11 +22,23 @@ class MicroBehaviorEngine:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
 
+    def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
+        """
+        【V1.0 · 新增】信号获取哨兵方法
+        - 核心职责: 安全地从DataFrame获取信号。
+        - 预警机制: 如果信号不存在，打印明确的警告信息，并返回一个包含默认值的Series，以防止程序崩溃。
+        """
+        if signal_name not in df.columns:
+            print(f"    -> [微观行为引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[signal_name]
+
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 命名协议修复版】微观行为诊断引擎总指挥
+        【V5.3 · 背离公理增强版】微观行为诊断引擎总指挥
         - 核心修复: 修正了输出的共振信号名称，将 'SCORE_MICRO_*' 修正为 'SCORE_MICRO_BEHAVIOR_*'，
                       以严格遵守与融合层的情报供应契约。
+        - 【新增】引入微观背离公理。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -38,11 +50,13 @@ class MicroBehaviorEngine:
         axiom_deception = self._diagnose_axiom_deception(df, norm_window)
         axiom_probe = self._diagnose_axiom_probe(df, norm_window)
         axiom_efficiency = self._diagnose_axiom_efficiency(df, norm_window)
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        all_states['SCORE_MICRO_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
         all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
         all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3
+            'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3, 'divergence': 0.0 # [代码修改] 新增divergence权重
         })
         bipolar_health = (
             axiom_deception * axiom_weights['deception'] +
@@ -53,18 +67,32 @@ class MicroBehaviorEngine:
         # 修正信号名称以符合融合层的契约
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance
+        # 引入微观行为层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
 
-    def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】信号获取哨兵方法
-        - 核心职责: 安全地从DataFrame获取信号。
-        - 预警机制: 如果信号不存在，打印明确的警告信息，并返回一个包含默认值的Series，以防止程序崩溃。
+        【V1.0 · 新增】微观行为公理四：诊断“微观背离”
+        - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
+          - 看涨背离：价格下跌但主动买盘增强。
+          - 看跌背离：价格上涨但主动卖盘增强。
         """
-        if signal_name not in df.columns:
-            print(f"    -> [微观行为引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
-            return pd.Series(default_value, index=df.index)
-        return df[signal_name]
+        # 证据1: 价格变化趋势
+        price_trend = normalize_to_bipolar(self._get_signal(df, 'pct_change_D'), df.index, norm_window)
+        # 证据2: 主动买卖盘趋势 (使用主动买入量与主动卖出量的差值变化)
+        active_buy_sell_diff = self._get_signal(df, 'active_buy_amount_D') - self._get_signal(df, 'active_sell_amount_D')
+        order_flow_trend = normalize_to_bipolar(active_buy_sell_diff.diff(1), df.index, norm_window)
+        # 融合：当价格趋势与订单流趋势相反时，产生背离信号
+        # 看涨背离：价格下跌（负）但订单流积极（正）
+        # 看跌背离：价格上涨（正）但订单流消极（负）
+        # 我们可以用 (order_flow_trend - price_trend) 来捕捉这种矛盾
+        # 价涨订单流负: (负 - 正) = 负 -> 看跌背离
+        # 价跌订单流正: (正 - 负) = 正 -> 看涨背离
+        divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
+        return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """

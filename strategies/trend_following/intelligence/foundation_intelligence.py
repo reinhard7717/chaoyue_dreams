@@ -15,11 +15,12 @@ class FoundationIntelligence:
 
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V6.0 · 四大公理重构版】基础情报分析总指挥
+        【V6.1 · 背离公理增强版】基础情报分析总指挥
         - 核心重构: 废弃旧的混合诊断模式，引入基于经典指标的“趋势、摆动、流体、波动”四大公理。
         - 核心流程:
           1. 诊断四大公理，生成纯粹的基础层原子信号。
-          2. 融合四大公理，合成终极的基础层共振信号。
+          2. 【新增】诊断基础背离公理。
+          3. 融合所有公理，合成终极的基础层共振信号和背离信号。
         """
         all_states = {}
         p_conf = get_params_block(self.strategy, 'foundation_ultimate_params', {})
@@ -33,13 +34,15 @@ class FoundationIntelligence:
         axiom_oscillator = self._diagnose_axiom_oscillator(df, norm_window)
         axiom_flow = self._diagnose_axiom_flow(df, norm_window)
         axiom_volatility = self._diagnose_axiom_volatility(df, norm_window)
+        axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
+        all_states['SCORE_FOUNDATION_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_FOUNDATION_AXIOM_TREND'] = axiom_trend
         all_states['SCORE_FOUNDATION_AXIOM_OSCILLATOR'] = axiom_oscillator
         all_states['SCORE_FOUNDATION_AXIOM_FLOW'] = axiom_flow
         all_states['SCORE_FOUNDATION_AXIOM_VOLATILITY'] = axiom_volatility
-        # --- 步骤二: 融合四大公理，合成终极信号 ---
+        # --- 步骤二: 融合所有公理，合成终极信号 ---
         axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'trend': 0.4, 'oscillator': 0.2, 'flow': 0.3, 'volatility': 0.1
+            'trend': 0.4, 'oscillator': 0.2, 'flow': 0.3, 'volatility': 0.1, 'divergence': 0.0 # [代码修改] 新增divergence权重
         })
         # 构造一个融合了所有公理的原始双极性健康分
         # 注意：波动公理正分代表稳定，对趋势是正面贡献
@@ -53,7 +56,31 @@ class FoundationIntelligence:
         bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
         all_states['SCORE_FOUNDATION_BULLISH_RESONANCE'] = bullish_resonance
         all_states['SCORE_FOUNDATION_BEARISH_RESONANCE'] = bearish_resonance
+        # 引入基础层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
+        all_states['SCORE_FOUNDATION_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_states['SCORE_FOUNDATION_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return all_states
+
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0 · 新增】基础公理五：诊断“基础背离”
+        - 核心逻辑: 诊断价格趋势与摆动指标（如RSI）之间的背离。
+          - 看涨背离：价格创新低但RSI未创新低。
+          - 看跌背离：价格创新高但RSI未创新高。
+        """
+        # 证据1: 价格趋势 (使用收盘价的斜率)
+        price_trend = normalize_to_bipolar(df.get('SLOPE_13_close_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        # 证据2: 摆动指标趋势 (使用RSI的斜率)
+        oscillator_trend = normalize_to_bipolar(df.get('SLOPE_13_RSI_13_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        # 融合：当价格趋势与摆动指标趋势相反时，产生背离信号
+        # 看涨背离：价格下跌（负）但RSI趋势向上（正）
+        # 看跌背离：价格上涨（正）但RSI趋势向下（负）
+        # 我们可以用 (oscillator_trend - price_trend) 来捕捉这种矛盾
+        # 价涨RSI跌: (负 - 正) = 负 -> 看跌背离
+        # 价跌RSI涨: (正 - 负) = 正 -> 看涨背离
+        divergence_score = (oscillator_trend - price_trend).clip(-1, 1)
+        return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:
         """【V1.0 · 新增】基础公理一：诊断“趋势”"""

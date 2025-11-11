@@ -18,12 +18,13 @@ class ChipIntelligence:
 
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V9.0 · 超级原子信号版】筹码情报总指挥
+        【V9.1 · 背离公理增强版】筹码情报总指挥
         - 核心升级: 新增“超级原子信号工程化”步骤，负责精炼和铸造更具实战意义的复合信号，
                       以支撑认知层更复杂的战术剧本推演。
         - 新增信号:
           - SCORE_CHIP_CLEANLINESS: 筹码干净度，衡量上方套牢盘和短期获利盘的综合压力。
           - SCORE_CHIP_LOCKDOWN_DEGREE: 筹码锁定度，衡量市场中总的不愿交易的筹码比例。
+          - 【新增】筹码背离公理。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55] # 筹码分析更侧重中长周期
@@ -32,6 +33,9 @@ class ChipIntelligence:
         cost_structure_scores = self._diagnose_axiom_cost_structure(df, periods)
         holder_sentiment_scores = self._diagnose_axiom_holder_sentiment(df, periods)
         peak_integrity_scores = self._diagnose_axiom_peak_integrity(df, periods)
+        # 诊断筹码背离公理
+        divergence_scores = self._diagnose_axiom_divergence(df, periods)
+        all_chip_states['SCORE_CHIP_AXIOM_DIVERGENCE'] = divergence_scores
         # 将公理的诊断结果存入原子状态，供上层追溯
         all_chip_states['SCORE_CHIP_AXIOM_CONCENTRATION'] = concentration_scores
         all_chip_states['SCORE_CHIP_AXIOM_COST_STRUCTURE'] = cost_structure_scores
@@ -43,7 +47,8 @@ class ChipIntelligence:
             concentration_scores,
             cost_structure_scores,
             holder_sentiment_scores,
-            peak_integrity_scores
+            peak_integrity_scores,
+            divergence_scores
         )
         all_chip_states.update(ultimate_signals)
         # 步骤三 (新增): 工程化超级原子信号
@@ -59,17 +64,18 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
         return all_chip_states
 
-    def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: pd.Series, cost_structure: pd.Series, holder_sentiment: pd.Series, peak_integrity: pd.Series) -> Dict[str, pd.Series]:
+    def _synthesize_ultimate_signals(self, df: pd.DataFrame, concentration: pd.Series, cost_structure: pd.Series, holder_sentiment: pd.Series, peak_integrity: pd.Series, divergence: pd.Series) -> Dict[str, pd.Series]:
         """
-        【V8.3 · 内部探针版】终极信号合成器
+        【V8.4 · 背离信号增强版】终极信号合成器
         - 核心修复: 修正了终极信号合成逻辑。不再对双极性公理分进行错误的 clip 操作，
                       而是先加权融合成一个总体的双极性健康分，然后使用标准工具分裂为
                       正确的、互斥的看涨/看跌共振分。同时简化了后续信号的生成逻辑。
         - 探针植入: 增加内部探针，打印融合前的 bipolar_health 和分裂后的共振分数，以确认计算正确性。
+        - 【新增】引入筹码层面的看涨/看跌背离信号。
         """
         states = {}
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
-        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2})
+        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {'concentration': 0.3, 'cost_structure': 0.3, 'holder_sentiment': 0.2, 'peak_integrity': 0.2, 'divergence': 0.0}) # [代码修改] 新增divergence权重
         bipolar_health = (
             concentration * axiom_weights['concentration'] +
             cost_structure * axiom_weights['cost_structure'] +
@@ -100,6 +106,10 @@ class ChipIntelligence:
         states['SCORE_CHIP_BOTTOM_REVERSAL'] = (1.0 - norm_bearish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TOP_REVERSAL'] = (1.0 - norm_bullish_momentum).clip(0, 1).astype(np.float32)
         states['SCORE_CHIP_TACTICAL_PULLBACK'] = (bullish_resonance * states['SCORE_CHIP_TOP_REVERSAL']).clip(0, 1).astype(np.float32)
+        # 引入筹码层面的看涨/看跌背离信号
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(divergence)
+        states['SCORE_CHIP_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        states['SCORE_CHIP_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         return states
 
     def _run_integrity_probe(self, df: pd.DataFrame, required_signals: list, probe_name: str):
@@ -235,4 +245,28 @@ class ChipIntelligence:
         final_score = (price_vs_peak_score * peak_solidity_score).clip(-1, 1)
         return final_score
 
+    def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
+        """
+        【V1.0 · 新增】筹码公理五：诊断筹码“背离”动态
+        - 核心逻辑: 诊断价格行为与筹码集中度之间的背离。
+          - 看涨背离：价格下跌但筹码集中度上升（主力吸筹）。
+          - 看跌背离：价格上涨但筹码集中度下降（主力派发）。
+        """
+        required_signals = ['pct_change_D', 'SLOPE_5_short_term_concentration_90pct_D']
+        self._run_integrity_probe(df, required_signals, "背离")
+        missing_signals = [s for s in required_signals if s not in df.columns]
+        if missing_signals:
+            return pd.Series(0.0, index=df.index)
+        # 证据1: 价格变化趋势
+        price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
+        # 证据2: 筹码集中度变化趋势 (使用短期集中度斜率)
+        concentration_trend = normalize_to_bipolar(df.get('SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index)), df.index, window=55)
+        # 融合：当价格趋势与筹码集中度趋势相反时，产生背离信号
+        # 看涨背离：价格下跌（负）但筹码集中（正） -> 正值
+        # 看跌背离：价格上涨（正）但筹码分散（负） -> 负值
+        # 我们可以用 (concentration_trend - price_trend) 来捕捉这种矛盾
+        # 价涨筹码分散: (负 - 正) = 负 -> 看跌背离
+        # 价跌筹码集中: (正 - 负) = 正 -> 看涨背离
+        divergence_score = (concentration_trend - price_trend).clip(-1, 1)
+        return divergence_score.astype(np.float32)
 

@@ -50,6 +50,12 @@
             "type": "context",
             "description": "【结构公理三】诊断当前价格结构的稳定性。正分代表高稳定性（收敛、有支撑），负分代表低稳定性（发散、无支撑）。"
         },
+        "SCORE_STRUCT_AXIOM_DIVERGENCE": {
+            "cn_name": "【结构公理】结构背离",
+            "category": "结构层-原子",
+            "type": "context",
+            "description": "【结构公理四】诊断价格与均线结构之间的背离。正分代表看涨背离（如价格下跌但均线结构开始收敛），负分代表看跌背离（如价格上涨但均线结构开始发散）。"
+        },
         "SCORE_PATTERN_AXIOM_DIVERGENCE": {
             "cn_name": "【形态公理】背离",
             "category": "形态层-原子",
@@ -86,6 +92,12 @@
             "type": "context",
             "description": "【微观公理三】诊断主力操盘的效率。正分代表“价涨量缩”式的高效拉升，负分代表“价涨量增”式的滞涨或派发。"
         },
+        "SCORE_MICRO_AXIOM_DIVERGENCE": {
+            "cn_name": "【微观公理】微观背离",
+            "category": "微观行为-原子",
+            "type": "context",
+            "description": "【微观公理四】诊断价格行为与微观订单流之间的背离。正分代表看涨背离（如价格下跌但主动买盘增强），负分代表看跌背离（如价格上涨但主动卖盘增强）。"
+        },
         "SCORE_INTRADAY_AXIOM_ATTACK": {
             "cn_name": "【日内公理】攻击强度",
             "category": "日内行为-原子",
@@ -117,6 +129,12 @@
             "type": "risk",
             "penalty_weight": -700,
             "description": "【三体博弈模型】基于“主力卖、散户买”的资金流背离，识别主力在高位派发筹码的风险。"
+        },
+        "FUSION_BIPOLAR_MARKET_CONTRADICTION": {
+            "cn_name": "【融合】市场矛盾",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【V1.0 · 新增】融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。正分代表看涨矛盾（如底背离），负分代表看跌矛盾（如顶背离）。"
         },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
@@ -195,6 +213,12 @@
             "type": "risk",
             "penalty_weight": -400,
             "description": "【行为公理四】纯粹衡量上影线所代表的日内抛售压力。"
+        },
+        "SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE": {
+            "cn_name": "【行为】价量背离",
+            "category": "行为层-原子",
+            "type": "context",
+            "description": "【行为公理五】诊断价格行为与量能行为的背离。正分代表看涨背离（如价跌量增），负分代表看跌背离（如价涨量缩）。"
         },
         "SCORE_OPPORTUNITY_SELLING_EXHAUSTION": {
             "cn_name": "【行为机会】卖盘衰竭",
@@ -455,6 +479,13 @@
             "score": 750,
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
         },
+        "COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL": {
+            "cn_name": "【认知剧本】背离反转",
+            "category": "认知层-剧本",
+            "type": "positional",
+            "score": 850,
+            "description": "【V1.0 · 新增】基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
+        },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",
             "category": "认知层-风险",
@@ -493,6 +524,18 @@
             "category": "内部计分-微观行为",
             "type": "risk",
             "description": "【V5.0 · 公理化版】基于三大微观行为公理，形成的看跌共振分。"
+        },
+        "SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE": {
+            "cn_name": "【微观】看涨背离",
+            "category": "内部计分-微观行为",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于微观行为公理，诊断价格行为与微观订单流之间的看涨背离。"
+        },
+        "SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE": {
+            "cn_name": "【微观】看跌背离",
+            "category": "内部计分-微观行为",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于微观行为公理，诊断价格行为与微观订单流之间的看跌背离。"
         },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",
@@ -540,19 +583,37 @@
             "type": "context",
             "description": "【筹码公理四】诊断主筹码峰的稳固性。正分代表筹码峰形成有效支撑，负分代表其构成压力。"
         },
+        "SCORE_CHIP_AXIOM_DIVERGENCE": {
+            "cn_name": "【筹码公理】筹码背离",
+            "category": "筹码层-原子",
+            "type": "context",
+            "description": "【筹码公理五】诊断价格行为与筹码集中度之间的背离。正分代表看涨背离（如价跌筹码集中），负分代表看跌背离（如价涨筹码分散）。"
+        },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
         "SCORE_CHIP_BULLISH_RESONANCE": {
             "cn_name": "【筹码】看涨共振",
             "category": "内部计分-筹码",
             "type": "dynamic",
-            "description": "【V8.0 · 公理化版】基于“聚散、成本、心态、形态”四大筹码公理，形成的静态看涨共振分。"
+            "description": "【V8.0 · 公理化版】基于“聚散、成本、心态、形态”四大筹码公理，形成的看涨共振分。"
         },
         "SCORE_CHIP_BEARISH_RESONANCE": {
             "cn_name": "【筹码】看跌共振",
             "category": "内部计分-筹码",
             "type": "risk",
-            "description": "【V8.0 · 公理化版】基于四大筹码公理，形成的静态看跌共振分。"
+            "description": "【V8.0 · 公理化版】基于四大筹码公理，形成的看跌共振分。"
+        },
+        "SCORE_CHIP_BULLISH_DIVERGENCE": {
+            "cn_name": "【筹码】看涨背离",
+            "category": "内部计分-筹码",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于筹码公理，诊断价格行为与筹码集中度之间的看涨背离。"
+        },
+        "SCORE_CHIP_BEARISH_DIVERGENCE": {
+            "cn_name": "【筹码】看跌背离",
+            "category": "内部计分-筹码",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于筹码公理，诊断价格行为与筹码集中度之间的看跌背离。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
         "RESONANCE_BULLISH_D": {
@@ -593,6 +654,18 @@
             "type": "risk",
             "description": "【V5.0 · 范式统一版】基于四大行为公理，形成的看跌共振分。"
         },
+        "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": {
+            "cn_name": "【行为】看涨背离",
+            "category": "内部计分-行为",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于行为公理，诊断价格行为与量能行为之间的看涨背离。"
+        },
+        "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": {
+            "cn_name": "【行为】看跌背离",
+            "category": "内部计分-行为",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
+        },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
         "SCORE_FUND_FLOW_BULLISH_RESONANCE": {
             "cn_name": "【资金流】看涨共振",
@@ -605,6 +678,18 @@
             "category": "内部计分-资金流",
             "type": "risk",
             "description": "【V21.0 · 公理化版】基于三大资金流公理，形成的看跌共振分。"
+        },
+        "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": {
+            "cn_name": "【资金流】看涨背离",
+            "category": "内部计分-资金流",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于资金流公理，诊断价格行为与资金流之间的看涨背离。"
+        },
+        "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": {
+            "cn_name": "【资金流】看跌背离",
+            "category": "内部计分-资金流",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于资金流公理，诊断价格行为与资金流之间的看跌背离。"
         },
         "SCORE_FF_AXIOM_CONSENSUS": {
             "cn_name": "【资金流公理】共识与分歧",
@@ -624,6 +709,12 @@
             "type": "context",
             "description": "【资金流公理三】诊断市场资金的增量变化。正分代表增量资金入场，负分代表存量资金消耗或流出。"
         },
+        "SCORE_FF_AXIOM_DIVERGENCE": {
+            "cn_name": "【资金流公理】资金背离",
+            "category": "资金流层-原子",
+            "type": "context",
+            "description": "【资金流公理四】诊断价格行为与资金流之间的背离。正分代表看涨背离（如价跌资金流入），负分代表看跌背离（如价涨资金流出）。"
+        },
         "说明_structural_ultimate": "--- 结构层-终极信号 (现为内部状态) ---",
         "SCORE_STRUCTURE_BULLISH_RESONANCE": {
             "cn_name": "【结构】看涨共振",
@@ -636,6 +727,18 @@
             "category": "内部计分-结构",
             "type": "risk",
             "description": "【V4.0 · 公理化版】基于三大结构公理，形成的看跌共振分。"
+        },
+        "SCORE_STRUCTURE_BULLISH_DIVERGENCE": {
+            "cn_name": "【结构】看涨背离",
+            "category": "内部计分-结构",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于结构公理，诊断价格与均线结构之间的看涨背离。"
+        },
+        "SCORE_STRUCTURE_BEARISH_DIVERGENCE": {
+            "cn_name": "【结构】看跌背离",
+            "category": "内部计分-结构",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于结构公理，诊断价格与均线结构之间的看跌背离。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 (现为内部状态) ---",
         "SCORE_DYN_AXIOM_MOMENTUM": {
@@ -662,6 +765,12 @@
             "type": "context",
             "description": "【力学公理四】诊断推动价格运动的“燃料”是否充足。正分代表健康的能量支持，负分代表能量衰竭或背离。"
         },
+        "SCORE_DYN_AXIOM_DIVERGENCE": {
+            "cn_name": "【力学公理】力学背离",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理五】诊断价格动量与惯性之间的背离。正分代表看涨背离（如价跌动量减弱但惯性增强），负分代表看跌背离（如价涨动量增强但惯性减弱）。"
+        },
         "SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE": {
             "cn_name": "【力学】看涨共振",
             "category": "内部计分-力学",
@@ -673,6 +782,18 @@
             "category": "内部计分-力学",
             "type": "risk",
             "description": "【V5.0 · 公理化版】基于四大力学公理，形成的看跌共振分。"
+        },
+        "SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE": {
+            "cn_name": "【力学】看涨背离",
+            "category": "内部计分-力学",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于力学公理，诊断价格动量与惯性之间的看涨背离。"
+        },
+        "SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE": {
+            "cn_name": "【力学】看跌背离",
+            "category": "内部计分-力学",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 (现为内部状态) ---",
         "SCORE_FOUNDATION_BULLISH_RESONANCE": {
@@ -686,6 +807,18 @@
             "category": "内部计分-基础",
             "type": "risk",
             "description": "【V6.0 · 公理化版】基于四大基础公理，形成的看跌共振分。"
+        },
+        "SCORE_FOUNDATION_BULLISH_DIVERGENCE": {
+            "cn_name": "【基础】看涨背离",
+            "category": "内部计分-基础",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于基础公理，诊断价格趋势与摆动指标之间的看涨背离。"
+        },
+        "SCORE_FOUNDATION_BEARISH_DIVERGENCE": {
+            "cn_name": "【基础】看跌背离",
+            "category": "内部计分-基础",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于基础公理，诊断价格趋势与摆动指标之间的看跌背离。"
         },
         "SCORE_FOUNDATION_AXIOM_TREND": {
             "cn_name": "【基础公理】趋势",
@@ -711,6 +844,12 @@
             "type": "context",
             "description": "【基础公理四】基于BBW和ATR，诊断市场的波动性状态。正分代表波动收敛（稳定），负分代表波动放大（不稳定）。"
         },
+        "SCORE_FOUNDATION_AXIOM_DIVERGENCE": {
+            "cn_name": "【基础公理】基础背离",
+            "category": "基础层-原子",
+            "type": "context",
+            "description": "【基础公理五】诊断价格趋势与摆动指标之间的背离。正分代表看涨背离（如价创新低RSI不创新低），负分代表看跌背离（如价创新高RSI不创新高）。"
+        },
         "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
         "SCORE_PATTERN_BULLISH_RESONANCE": {
             "cn_name": "【形态】看涨共振",
@@ -723,6 +862,18 @@
             "category": "内部计分-形态",
             "type": "risk",
             "description": "【V7.0 · 公理化版】基于三大形态公理，形成的看跌共振分。"
+        },
+        "SCORE_PATTERN_BULLISH_DIVERGENCE": {
+            "cn_name": "【形态】看涨背离",
+            "category": "内部计分-形态",
+            "type": "dynamic",
+            "description": "【V1.0 · 新增】基于形态公理，诊断价格与动量之间的看涨背离。"
+        },
+        "SCORE_PATTERN_BEARISH_DIVERGENCE": {
+            "cn_name": "【形态】看跌背离",
+            "category": "内部计分-形态",
+            "type": "risk",
+            "description": "【V1.0 · 新增】基于形态公理，诊断价格与动量之间的看跌背离。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "说明_cyclical_intelligence": "--- 周期层信号 (Cyclical Intelligence) ---",

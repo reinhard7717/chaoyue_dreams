@@ -34,8 +34,9 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """
-        【V3.0 · 战场态势引擎】运行所有融合诊断任务。
+        【V3.1 · 市场矛盾增强版】运行所有融合诊断任务。
         - 核心流程: 依次冶炼四大战场态势，并发布到原子状态库。
+        - 【新增】冶炼“市场矛盾”态势。
         """
         print("启动【V3.0 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
@@ -51,10 +52,44 @@ class FusionIntelligence:
         # 步骤四: 冶炼“资本对抗”
         confrontation_states = self._synthesize_capital_confrontation()
         all_fusion_states.update(confrontation_states)
-        # 步骤五: 将新生成的融合信号立即发布，供后续认知层使用
+        # 步骤五: 冶炼“市场矛盾”
+        contradiction_states = self._synthesize_market_contradiction()
+        all_fusion_states.update(contradiction_states)
+        # 步骤六: 将新生成的融合信号立即发布，供后续认知层使用
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
+
+    def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 新增】冶炼“市场矛盾” (Market Contradiction)
+        - 核心思想: 融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。
+        - 证据链: 收集所有领域的看涨背离和看跌背离信号，进行加权融合。
+        """
+        print("  -- [融合层] 正在冶炼“市场矛盾”...")
+        states = {}
+        # 定义所有领域的背离信号源
+        divergence_sources = [
+            'FOUNDATION', 'STRUCTURE', 'PATTERN', 'DYNAMIC_MECHANICS',
+            'CHIP', 'FUND_FLOW', 'MICRO_BEHAVIOR', 'BEHAVIOR' # BEHAVIOR层也有自己的背离信号
+        ]
+        bullish_divergence_scores = []
+        bearish_divergence_scores = []
+        for source in divergence_sources:
+            bull_signal_name = f'SCORE_{source}_BULLISH_DIVERGENCE'
+            bear_signal_name = f'SCORE_{source}_BEARISH_DIVERGENCE'
+            bullish_divergence_scores.append(self._get_atomic_score(bull_signal_name, 0.0).values)
+            bearish_divergence_scores.append(self._get_atomic_score(bear_signal_name, 0.0).values)
+        # 在各类背离内部，取最大值，代表最强的背离信号
+        net_bullish_divergence = np.maximum.reduce(bullish_divergence_scores)
+        net_bearish_divergence = np.maximum.reduce(bearish_divergence_scores)
+        # 最终裁决: 生成双极性市场矛盾分
+        # 正值代表看涨矛盾（如底背离），负值代表看跌矛盾（如顶背离）
+        bipolar_contradiction = (pd.Series(net_bullish_divergence, index=self.strategy.df_indicators.index) -
+                                 pd.Series(net_bearish_divergence, index=self.strategy.df_indicators.index)).clip(-1, 1)
+        states['FUSION_BIPOLAR_MARKET_CONTRADICTION'] = bipolar_contradiction.astype(np.float32)
+        print(f"  -- [融合层] “市场矛盾”冶炼完成，最新分值: {bipolar_contradiction.iloc[-1]:.4f}")
+        return states
 
     def _synthesize_market_regime(self) -> Dict[str, pd.Series]:
         """
@@ -73,7 +108,6 @@ class FusionIntelligence:
         inertia = self._get_atomic_score('SCORE_DYN_AXIOM_INERTIA', 0.0)
         # 证据3: 市场稳定性 (来自力学层)
         stability = self._get_atomic_score('SCORE_DYN_AXIOM_STABILITY', 0.0)
-        # [代码修改开始]
         # 融合趋势证据: 不再使用 clip(lower=0) 进行“一票否决”，而是直接加权平均双极性分数。
         # 这样，即使某个公理暂时为负，也不会直接将整个 trend_evidence 归零，而是会拉低其分数，但仍保留其方向性。
         # 权重可以根据重要性进行调整
@@ -105,7 +139,6 @@ class FusionIntelligence:
                 print(f"       - 趋势证据 (Trend Evidence): {trend_evidence.loc[probe_date]:.4f}")
                 print(f"       - 均值回归证据 (Reversion Evidence): {reversion_evidence.loc[probe_date]:.4f}")
                 print(f"       - 最终市场政权分 (Market Regime): {bipolar_regime.loc[probe_date]:.4f}")
-        # [代码修改结束]
         states['FUSION_BIPOLAR_MARKET_REGIME'] = bipolar_regime.astype(np.float32)
         print(f"  -- [融合层] “市场政权”冶炼完成，最新分值: {bipolar_regime.iloc[-1]:.4f}")
         return states
