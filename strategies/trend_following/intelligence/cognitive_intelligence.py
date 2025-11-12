@@ -119,21 +119,22 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.5 · 风险信号重构版】贝叶斯推演：“高位派发”风险剧本
+        【V3.6 · 风险信号重构版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
         - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
         - 【增强】引入更多直接反映主力派发和筹码分散的证据，提高信号区分度。
         - 【修复】将 `SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION` 替换为融合层信号 `FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT` 的负向部分。
+        - 【修复】将 `SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE` 替换为融合层信号 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的负向部分。
         """
         print("    -- [剧本推演] 高位派发风险 (动态证据)...")
         capital_confrontation_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
-        # 修改行: 使用融合层信号 FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT 的负向部分作为风险证据
         price_overextension_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
         low_upward_efficiency = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
         profit_vs_flow_bearish = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         chip_dispersion_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         market_contradiction_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(upper=0).abs())
-        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE', 0.0))
+        # 修改行: 使用融合层信号 FUSION_BIPOLAR_UPPER_SHADOW_INTENT 的负向部分作为风险证据
+        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
         evidence_scores = np.stack([
@@ -575,14 +576,15 @@ class CognitiveIntelligence:
 
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.1 · 风险信号重构版】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心逻辑: 识别筹码派发背景下的诱多收割行为。
+        - 【修复】将 `SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE` 替换为融合层信号 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的负向部分。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
         # 证据1: 微观欺骗 (SCORE_MICRO_AXIOM_DECEPTION 负向，即伪装派发)
         micro_deception_bearish = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0).clip(upper=0).abs())
-        # 证据2: 上影线抛压 (SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE)
-        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE', 0.0))
+        # 修改行: 使用融合层信号 FUSION_BIPOLAR_UPPER_SHADOW_INTENT 的负向部分作为风险证据
+        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
         # 证据3: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向)
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         # 证据4: 价格上涨 (pct_change_D 正向)
