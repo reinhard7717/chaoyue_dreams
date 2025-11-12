@@ -87,12 +87,12 @@
       "atan_ma_angle": {
         "enabled": true,
         "description": "【新增】均线角度 (ATAN)。",
-        "configs": [{ "apply_on": ["D"], "ma_col": "EMA_55_D" }]
+        "configs": [{ "apply_on": ["D"], "ma_col": "EMA_55" }]
       },
       "ma_velocity_acceleration": {
         "enabled": true,
         "description": "【新增】均线速度和加速度。",
-        "configs": [{ "apply_on": ["D"], "ma_col": "EMA_55_D", "ema_period": 3, "sma_period": 3 }]
+        "configs": [{ "apply_on": ["D"], "ma_col": "EMA_55", "ema_period": 3, "sma_period": 3 }]
       },
       "zigzag": {
         "enabled": true,
