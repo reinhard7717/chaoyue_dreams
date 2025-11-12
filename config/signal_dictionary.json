@@ -237,12 +237,11 @@
             "score": 400,
             "description": "【衍生信号】融合了“价跌”、“量缩”和“下跌抵抗”三大证据，识别卖盘力量耗尽的潜在反转点。"
         },
-        "SCORE_RISK_STAGNATION": {
-            "cn_name": "【行为风险】滞涨风险",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -700,
-            "description": "【衍生信号】融合了“价涨”、“量增”和“上涨费力”三大证据，识别多头力量衰竭的滞涨风险。"
+        "INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW": { 
+            "cn_name": "【内部】上涨衰竭原始分", 
+            "category": "内部计分-行为", 
+            "type": "context", 
+            "description": "【衍生信号】融合了“价涨”、“量增”、“上涨费力”、“微观低效”和“多维度抛压”等证据，识别多头力量衰竭的原始信号，作为融合层判断的输入。" 
         },
         "SCORE_BOARD_EARTH_HEAVEN": {
             "cn_name": "【行为】地天板",
