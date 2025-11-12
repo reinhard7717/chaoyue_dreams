@@ -71,12 +71,11 @@ class ProcessIntelligence:
         return all_process_states
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
-        """
-        【V2.6.0 · 主力紧迫度定制版】
-        - 核心升级: 植入真理探针，当获取不到依赖的原子信号时，打印明确警告。
-        - 【新增】为 `PROCESS_META_MAIN_FORCE_URGENCY` 信号定制化计算逻辑。
-        """
-        signal_name = config.get('name') # 新增行
+        signal_name = config.get('name')
+        if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
+            return self._calculate_main_force_urgency_relationship(df, config)
+        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND': # 修改行: 增加对 PROCESS_META_COST_ADVANTAGE_TREND 的判断
+            return self._calculate_cost_advantage_trend_relationship(df, config) # 修改行: 调用定制化方法
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
@@ -98,9 +97,6 @@ class ProcessIntelligence:
             if change_type == 'diff':
                 return series.diff(1).fillna(0)
             return ta.percent_return(series, length=1).fillna(0)
-        # 修改行: 为 PROCESS_META_MAIN_FORCE_URGENCY 信号定制化计算逻辑
-        if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
-            return self._calculate_main_force_urgency_relationship(df, config)
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
@@ -114,6 +110,57 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
+
+    def _calculate_cost_advantage_trend_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        print("    -> [过程层] 正在计算 PROCESS_META_COST_ADVANTAGE_TREND (深度博弈四象限版)...")
+        df_index = df.index
+        std_window = self.std_window
+        bipolar_sensitivity = self.bipolar_sensitivity
+        price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
+        main_force_cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        P_change = normalize_to_bipolar(price_change, df_index, std_window, bipolar_sensitivity)
+        CA_change = normalize_to_bipolar(main_force_cost_advantage.diff(1).fillna(0), df_index, std_window, bipolar_sensitivity)
+        MF_flow = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index)), df_index, std_window, bipolar_sensitivity)
+        Chip_conc = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
+        Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
+        Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
+        Up_eff_bipolar = (Up_eff_unipolar * 2 - 1).clip(-1, 1)
+        Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_APATHY', pd.Series(0.5, index=df_index))
+        Vol_apathy_bipolar = (Vol_apathy_unipolar * 2 - 1).clip(-1, 1)
+        Q1_base = (P_change.clip(lower=0) + CA_change.clip(lower=0)) / 2
+        Q1_confirm = (MF_flow.clip(lower=0) + Chip_conc.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3
+        Q1_final = Q1_base * Q1_confirm
+        Q2_base = (P_change.clip(upper=0).abs() + CA_change.clip(upper=0).abs()) / 2
+        MF_flow_bearish = MF_flow.clip(upper=0).abs()
+        Chip_conc_bearish = Chip_conc.clip(upper=0).abs()
+        Down_eff_bearish = Up_eff_bipolar.clip(upper=0).abs()
+        Q2_confirm = (MF_flow_bearish + Chip_conc_bearish + Down_eff_bearish) / 3
+        Q2_final = Q2_base * Q2_confirm * -1
+        Q3_base = (P_change.clip(upper=0).abs() + CA_change.clip(lower=0)) / 2
+        Q3_confirm = (MF_flow.clip(lower=0) + Chip_conc.clip(lower=0) + Micro_decep.clip(lower=0) + Vol_apathy_bipolar.clip(lower=0)) / 4
+        Q3_final = Q3_base * Q3_confirm
+        Q4_base = (P_change.clip(lower=0) + CA_change.clip(upper=0).abs()) / 2
+        MF_flow_bearish_Q4 = MF_flow.clip(upper=0).abs()
+        Chip_conc_bearish_Q4 = Chip_conc.clip(upper=0).abs()
+        Micro_decep_bearish_Q4 = Micro_decep.clip(upper=0).abs()
+        Up_eff_bearish_Q4 = Up_eff_bipolar.clip(upper=0).abs()
+        Q4_confirm = (MF_flow_bearish_Q4 + Chip_conc_bearish_Q4 + Micro_decep_bearish_Q4 + Up_eff_bearish_Q4) / 4
+        Q4_final = Q4_base * Q4_confirm * -1
+        final_score = (Q1_final * 0.4 + Q2_final * 0.3 + Q3_final * 0.2 + Q4_final * 0.1)
+        final_score = final_score.clip(-1, 1)
+        self.strategy.atomic_states[f"_DEBUG_P_change"] = P_change
+        self.strategy.atomic_states[f"_DEBUG_CA_change"] = CA_change
+        self.strategy.atomic_states[f"_DEBUG_MF_flow"] = MF_flow
+        self.strategy.atomic_states[f"_DEBUG_Chip_conc"] = Chip_conc
+        self.strategy.atomic_states[f"_DEBUG_Micro_decep"] = Micro_decep
+        self.strategy.atomic_states[f"_DEBUG_Up_eff_bipolar"] = Up_eff_bipolar
+        self.strategy.atomic_states[f"_DEBUG_Vol_apathy_bipolar"] = Vol_apathy_bipolar
+        self.strategy.atomic_states[f"_DEBUG_Q1_final"] = Q1_final
+        self.strategy.atomic_states[f"_DEBUG_Q2_final"] = Q2_final
+        self.strategy.atomic_states[f"_DEBUG_Q3_final"] = Q3_final
+        self.strategy.atomic_states[f"_DEBUG_Q4_final"] = Q4_final
+        print(f"    -> [过程层] PROCESS_META_COST_ADVANTAGE_TREND 计算完成，最新分值: {final_score.iloc[-1]:.4f}")
+        return final_score.astype(np.float32)
 
     def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series: # 新增方法
         """
