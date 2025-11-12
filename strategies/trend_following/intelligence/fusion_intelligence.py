@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict
-from strategies.trend_following.utils import get_params_block, get_adaptive_mtf_normalized_bipolar_score
+from strategies.trend_following.utils import get_params_block, get_adaptive_mtf_normalized_bipolar_score, normalize_score, normalize_to_bipolar
 
 class FusionIntelligence:
     """
@@ -35,9 +35,9 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 价格超买意图版】运行所有融合诊断任务。
+        【V3.4 · 价格超买与上影线意图版】运行所有融合诊断任务。
         - 核心流程: 依次冶炼四大战场态势，并发布到原子状态库。
-        - 【新增】冶炼“市场矛盾”态势和“价格超买意图”态势。
+        - 【新增】冶炼“市场矛盾”态势、“价格超买意图”态势和“上影线意图”态势。
         """
         print("启动【V3.0 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
@@ -56,10 +56,13 @@ class FusionIntelligence:
         # 步骤五: 冶炼“市场矛盾”
         contradiction_states = self._synthesize_market_contradiction()
         all_fusion_states.update(contradiction_states)
-        # 【新增行】步骤六: 冶炼“价格超买意图”
-        overextension_intent_states = self._synthesize_price_overextension_intent() # 新增行
-        all_fusion_states.update(overextension_intent_states) # 新增行
-        # 步骤七: 将新生成的融合信号立即发布，供后续认知层使用
+        # 步骤六: 冶炼“价格超买意图”
+        overextension_intent_states = self._synthesize_price_overextension_intent()
+        all_fusion_states.update(overextension_intent_states)
+        # 步骤七: 冶炼“上影线意图”
+        upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
+        all_fusion_states.update(upper_shadow_intent_states)
+        # 步骤八: 将新生成的融合信号立即发布，供后续认知层使用
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
@@ -262,7 +265,7 @@ class FusionIntelligence:
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
         return states
 
-    def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]: # 新增方法
+    def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]:
         """
         【V1.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
         - 核心思想: 综合判断价格偏离均线是强力进攻还是真实超买风险。
@@ -275,6 +278,7 @@ class FusionIntelligence:
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
+        df_index = self.strategy.df_indicators.index
         # 1. 获取行为层价格超买原始分 (0到1，越高越超买)
         overextension_raw = self._get_atomic_score('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
         # 2. 获取其他维度的支持/抑制信号 (均为双极性 [-1, 1])
@@ -285,28 +289,9 @@ class FusionIntelligence:
         # 3. 综合判断逻辑
         # 将 overextension_raw 从 [0, 1] 映射到 [-1, 1]，0.5为中性，1为极度超买
         overextension_bipolar = (overextension_raw * 2 - 1).clip(-1, 1)
-        # 积极信号 (支持进攻)
-        bullish_support = (
-            fund_flow_consensus.clip(lower=0) * 0.3 + # 主力买入
-            chip_concentration.clip(lower=0) * 0.2 + # 筹码集中
-            structural_trend_form.clip(lower=0) * 0.3 + # 结构健康
-            micro_efficiency.clip(lower=0) * 0.2 # 效率高
-        )
-        # 消极信号 (指示风险)
-        bearish_pressure = (
-            fund_flow_consensus.clip(upper=0).abs() * 0.3 + # 主力卖出
-            chip_concentration.clip(upper=0).abs() * 0.2 + # 筹码分散
-            structural_trend_form.clip(upper=0).abs() * 0.3 + # 结构恶化
-            micro_efficiency.clip(upper=0).abs() * 0.2 # 效率低
-        )
         # 综合意图分数
-        # 当 overextension_bipolar 为正（超买）时，bullish_support 越大，越是进攻；bearish_pressure 越大，越是风险。
-        # 当 overextension_bipolar 为负（超卖）时，此信号意义不大，应趋近于0。
-        # 我们可以用 overextension_bipolar 作为基础，然后用其他信号进行修正。
-        # 修正因子：当超买时，如果支持信号强，则修正因子为正；如果压力信号强，则修正因子为负。
-        # 修正因子 = (bullish_support - bearish_pressure)
-        # 最终意图 = overextension_bipolar * (1 + 修正因子)
-        # 简化为：
+        # 当 overextension_bipolar 为正（超买）时，如果支持信号强，则修正因子为正；如果压力信号强，则修正因子为负。
+        # 最终意图 = overextension_bipolar * 基础权重 + 各维度修正
         overextension_intent = (
             overextension_bipolar * 0.4 + # 基础超买程度
             fund_flow_consensus * 0.2 + # 资金流向
@@ -316,4 +301,111 @@ class FusionIntelligence:
         ).clip(-1, 1)
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {overextension_intent.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_upper_shadow_intent(self) -> Dict[str, pd.Series]: # 修改方法
+        """
+        【V2.0 · 深度博弈版】冶炼“上影线意图” (Upper Shadow Intent)
+        - 核心思想: 综合判断上影线是真抛压（空头意图）还是洗盘/试探（多头意图）。
+        - 证据链:
+          1. 行为层上影线原始分 (INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW)
+          2. 价格涨跌 (pct_change_D)
+          3. 主力资金流向 (main_force_net_flow_calibrated_D)
+          4. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION)
+          5. 微观欺骗 (SCORE_MICRO_AXIOM_DECEPTION)
+          6. 上涨效率 (SCORE_BEHAVIOR_UPWARD_EFFICIENCY)
+          7. 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM)
+          8. 成交量爆发 (SCORE_BEHAVIOR_VOLUME_BURST)
+        - 输出: [-1, 1] 的双极性分数，负分代表真抛压风险，正分代表偏向多头意图（如洗盘、试探）。
+        """
+        print("  -- [融合层] 正在冶炼“上影线意图” (深度博弈版)...")
+        states = {}
+        df = self.strategy.df_indicators
+        df_index = df.index
+        norm_window = 55 # 统一归一化窗口
+
+        # 1. 获取行为层上影线原始分 (0到1，越高上影线越强)
+        upper_shadow_normalized = self._get_atomic_score('INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
+
+        # 2. 获取其他维度的支持/抑制信号 (转换为 [-1, 1] 双极性或 [0, 1] 单极性)
+        pct_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
+        main_force_flow = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index)), df_index, norm_window)
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0) # [-1, 1]
+        micro_deception = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0) # [-1, 1]
+        upward_efficiency = (self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1) # 转换为双极性
+        structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0) # [-1, 1]
+        volume_burst = (self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_BURST', 0.5) * 2 - 1).clip(-1, 1) # 转换为双极性
+
+        # 3. 价格背景判断
+        is_up_day = (pct_change > 0).astype(float)
+        is_down_day = (pct_change < 0).astype(float)
+        is_flat_day = ((pct_change == 0) | (pct_change.abs() < 0.005)).astype(float) # 定义平盘日
+
+        # 4. 计算多头意图分数 (Bullish Intent Score) - 范围 [0, 1]
+        # 这些因素，当为正时，表明上影线背后是多头意图（洗盘、试探）
+        bullish_intent_components = [
+            main_force_flow.clip(lower=0), # 主力净流入
+            chip_concentration.clip(lower=0), # 筹码集中
+            micro_deception.clip(lower=0), # 微观欺骗为伪装派发（实为吸筹）
+            upward_efficiency.clip(lower=0), # 上涨效率高
+            structural_trend_form.clip(lower=0) # 结构趋势向上
+        ]
+        # 权重分配：主力资金和筹码集中度最为关键
+        bullish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1]) # 权重和为1
+        bullish_intent_score = sum(w * s for w, s in zip(bullish_weights, bullish_intent_components)).clip(0, 1)
+
+        # 5. 计算空头意图分数 (Bearish Intent Score) - 范围 [0, 1]
+        # 这些因素，当为正时，表明上影线背后是空头意图（派发、诱多）
+        bearish_intent_components = [
+            main_force_flow.clip(upper=0).abs(), # 主力净流出
+            chip_concentration.clip(upper=0).abs(), # 筹码分散
+            micro_deception.clip(upper=0).abs(), # 微观欺骗为伪装吸筹（实为派发）
+            (1 - upward_efficiency.clip(lower=0)), # 上涨效率低 (1-效率高)
+            structural_trend_form.clip(upper=0).abs() # 结构趋势向下
+        ]
+        # 权重分配：同样主力资金和筹码分散度最为关键
+        bearish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1]) # 权重和为1
+        bearish_intent_score = sum(w * s for w, s in zip(bearish_weights, bearish_intent_components)).clip(0, 1)
+
+        # 6. 综合净意图方向 (Net Intent Direction) - 范围 [-1, 1]
+        # 正值代表多头意图占优，负值代表空头意图占优
+        net_intent_direction = (bullish_intent_score - bearish_intent_score).clip(-1, 1)
+
+        # 7. 成交量信念乘数 (Volume Conviction Multiplier) - 范围 [0, 1]
+        # 高量能 (volume_burst=1) 意味着信念乘数为1，低量能 (volume_burst=-1) 意味着信念乘数为0
+        # 这样，低量能的上影线，无论意图如何，其最终信号强度都会被削弱
+        volume_conviction_multiplier = (volume_burst + 1) / 2 # 将 [-1, 1] 映射到 [0, 1]
+
+        # 8. 基础意图分数 (Base Intent Score)
+        # 原始上影线强度 * 净意图方向 * 成交量信念乘数
+        base_intent_score = upper_shadow_normalized * net_intent_direction * volume_conviction_multiplier
+
+        # 9. 价格背景的条件调整
+        final_intent = pd.Series(0.0, index=df_index)
+
+        # 调整1: 上涨日 (is_up_day)
+        # 上涨日的上影线，如果净意图为正（洗盘/试探），则放大其积极性；如果净意图为负（诱多/派发），则放大其消极性。
+        up_day_adjusted_intent = base_intent_score * (1 + base_intent_score.abs() * 0.5) # 意图越明确，放大效果越强
+        final_intent = final_intent.mask(is_up_day.astype(bool), up_day_adjusted_intent)
+
+        # 调整2: 下跌日 (is_down_day)
+        # 下跌日的上影线，通常是抛压。即使有少量多头证据，也应大幅削弱其积极性，并强化其消极性。
+        # 基础惩罚：-upper_shadow_normalized * 0.8 (即使没有其他空头证据，也至少是较强的抛压)
+        # 叠加空头意图：-upper_shadow_normalized * bearish_intent_score * 0.5
+        # 少量多头缓解：+upper_shadow_normalized * bullish_intent_score * 0.2 (缓解作用有限)
+        down_day_adjusted_intent = (
+            -upper_shadow_normalized * 0.8 # 基础抛压
+            - upper_shadow_normalized * bearish_intent_score * 0.5 # 叠加空头意图
+            + upper_shadow_normalized * bullish_intent_score * 0.2 # 少量多头缓解
+        ) * volume_conviction_multiplier # 依然受量能信念影响
+        final_intent = final_intent.mask(is_down_day.astype(bool), down_day_adjusted_intent)
+
+        # 调整3: 平盘日 (is_flat_day)
+        # 平盘日的上影线，意图相对模糊，信号强度减半。
+        flat_day_adjusted_intent = base_intent_score * 0.5
+        final_intent = final_intent.mask(is_flat_day.astype(bool), flat_day_adjusted_intent)
+
+        final_intent = final_intent.clip(-1, 1)
+        states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
+        print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
         return states
