@@ -95,7 +95,6 @@ class CognitiveProbes:
         print("\n  [链路层 3] 原始风险融合 (Raw Risk Fusion)")
         recalc_raw_risk = max(euphoric_risk_score, distribution_risk_score, structural_risk_score)
         print(f"    - 【探针重算原始风险】: max({euphoric_risk_score:.2f}, {distribution_risk_score:.2f}, {structural_risk_score:.2f}) = {recalc_raw_risk:.4f}")
-        
         print("\n  [链路层 4] 趋势韧性神盾解剖 (Aegis Shield Dissection - 双支柱架构)")
         p_cognitive = get_params_block(self.strategy, 'cognitive_intelligence_params', {})
         p_shield = get_param_value(p_cognitive.get('trend_resilience_shield_params'), {})
@@ -136,7 +135,6 @@ class CognitiveProbes:
         # --- 融合 ---
         recalc_shield_score = (recalc_static_resilience * (1 + recalc_dynamic_bonus)).clip(0, 1)
         print(f"    - 【探针重算神盾总分】: {recalc_static_resilience:.4f} * (1 + {recalc_dynamic_bonus:.4f}) = {recalc_shield_score:.4f}")
-        
         print("\n  [链路层 5] 最终风险裁决 (Final Risk Adjudication)")
         recalc_final_score = recalc_raw_risk * (1.0 - recalc_shield_score)
         print(f"    - 【探针重算最终风险】: {recalc_raw_risk:.4f} * (1.0 - {recalc_shield_score:.4f}) = {recalc_final_score:.4f}")

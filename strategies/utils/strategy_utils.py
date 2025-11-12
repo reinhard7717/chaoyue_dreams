@@ -288,7 +288,6 @@ def detect_divergence(data: pd.DataFrame, dd_params: Dict, naming_config: Dict, 
         if not isinstance(indi_naming_conf, dict):
             logger.warning(f"指标 '{indicator_key}' (尝试使用主配置键 '{main_config_lookup_key}') 在命名规范中未找到或配置无效，跳过背离检测。")
             continue
-        
         # 假设 dd_params 中的键是小写 internal_key，或需要进一步映射到实际用于匹配模式的内部名称
         internal_key_for_div = indicator_key.lower()
         # 特殊处理，将 dd_params 中的 indicator_key (如 'macd_hist') 映射到

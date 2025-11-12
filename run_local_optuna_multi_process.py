@@ -136,7 +136,6 @@ def objective(trial, strategy, item_name, epochs):
             only_return_val_metric=True,
             trial=trial  # 传入 trial
         )
-        
         # 检查返回值的有效性
         if returned_val_mae is None or (isinstance(returned_val_mae, float) and np.isnan(returned_val_mae)):
             # 如果返回值为 None 或 NaN，说明训练未完成或被内部剪枝，或者返回了无效值
@@ -146,7 +145,6 @@ def objective(trial, strategy, item_name, epochs):
             # 如果返回了有效值，则更新 val_mae 并打印
             val_mae = returned_val_mae
             print(f"[Optuna][{item_name}] Trial {trial.number} 训练完成，val_mae={val_mae:.6f}")
-        
         return val_mae
     except optuna.exceptions.TrialPruned:
         # 这个异常块是 Optuna 期望的，当 Trial 被剪枝时，会重新抛出此异常

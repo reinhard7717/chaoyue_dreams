@@ -51,40 +51,67 @@ class FundFlowIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】资金流公理一：诊断“共识与分歧”"""
+        """
+        【V1.1 · 博弈烈度增强版】资金流公理一：诊断“共识与分歧”
+        - 【新增】引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
+        """
+        df_index = df.index
         main_force_flow = df.get('net_xl_amount_calibrated_D', 0) + df.get('net_lg_amount_calibrated_D', 0)
         retail_flow = df.get('net_md_amount_calibrated_D', 0) + df.get('net_sh_amount_calibrated_D', 0)
         raw_bipolar_series = main_force_flow - retail_flow
-        consensus_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
+        # 新增行: 获取主力散户博弈烈度
+        battle_intensity_raw = df.get('mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index))
+        # 归一化博弈烈度，越高越好，但作为乘数因子，需要映射到 [0, 1]
+        battle_intensity_factor = normalize_score(battle_intensity_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
+        # 原始共识分数
+        consensus_score_base = normalize_to_bipolar(raw_bipolar_series, df_index, window=norm_window, sensitivity=1.0)
+        # 修改行: 融合博弈烈度。高烈度时，放大共识信号；低烈度时，削弱共识信号。
+        # 乘数因子 (1 + battle_intensity_factor * 0.5) 可以放大共识，但不会改变方向
+        consensus_score = (consensus_score_base * (1 + battle_intensity_factor * 0.5)).clip(-1, 1) # 调整放大系数
+        # 新增探针
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [资金流共识探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - main_force_flow: {main_force_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - retail_flow: {retail_flow.loc[probe_date_for_loop]:.4f}")
+                print(f"       - battle_intensity_raw: {battle_intensity_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - battle_intensity_factor: {battle_intensity_factor.loc[probe_date_for_loop]:.4f}")
+                print(f"       - consensus_score_base: {consensus_score_base.loc[probe_date_for_loop]:.4f}")
+                print(f"       - consensus_score: {consensus_score.loc[probe_date_for_loop]:.4f}")
         return consensus_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 探针增强与归一化修复版】资金流公理二：诊断“信念与决心”
+        【V1.3 · 探针增强与归一化修复版】资金流公理二：诊断“信念与决心”
         - 核心升级: 增加调试探针，打印关键中间值。
         - 核心修复: 对 `conviction_index` 和 `cost_advantage` 进行归一化，避免原始值过大导致截断。
+        - 【新增】引入 `main_force_price_impact_ratio` (主力价格冲击比率) 作为判断主力信念和效率的重要证据。
         """
         df_index = df.index
         conviction_index_raw = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
         cost_advantage_raw = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
         t0_efficiency_raw = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
-
+        price_impact_raw = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index)) # 新增行
         # 修改行: 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
         # 赢家信念和成本优势越高越好，所以归一化后应为正
         conviction_index_bipolar = normalize_to_bipolar(conviction_index_raw, df_index, window=norm_window, sensitivity=10.0) # 调整敏感度
         cost_advantage_bipolar = normalize_to_bipolar(cost_advantage_raw, df_index, window=norm_window, sensitivity=100.0) # 调整敏感度
-
         # t0_efficiency 越高，对信念的负面影响越大，所以归一化后应为负
         t0_efficiency_bipolar = normalize_to_bipolar(t0_efficiency_raw, df_index, window=norm_window, sensitivity=0.5)
-
+        # 价格冲击比率：越高越好，正向贡献
+        price_impact_bipolar = normalize_to_bipolar(price_impact_raw, df_index, window=norm_window, sensitivity=10.0) # 新增行: 归一化价格冲击比率
         # 重新加权融合
         raw_bipolar_series = (
-            conviction_index_bipolar * 0.4 +
-            cost_advantage_bipolar * 0.4 -
-            t0_efficiency_bipolar * 0.2 # 降低 t0_efficiency 的权重
+            conviction_index_bipolar * 0.35 +
+            cost_advantage_bipolar * 0.35 +
+            price_impact_bipolar * 0.2 - # 新增行: 价格冲击比率权重
+            t0_efficiency_bipolar * 0.1 # 降低 t0_efficiency 的权重
         ).clip(-1, 1)
         conviction_score = normalize_to_bipolar(raw_bipolar_series, df_index, window=norm_window, sensitivity=1.0)
-
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -96,9 +123,11 @@ class FundFlowIntelligence:
                 print(f"       - conviction_index_raw: {conviction_index_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - cost_advantage_raw: {cost_advantage_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - t0_efficiency_raw: {t0_efficiency_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - conviction_index_bipolar: {conviction_index_bipolar.loc[probe_date_for_loop]:.4f}") # 新增行
-                print(f"       - cost_advantage_bipolar: {cost_advantage_bipolar.loc[probe_date_for_loop]:.4f}") # 新增行
+                print(f"       - price_impact_raw: {price_impact_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - conviction_index_bipolar: {conviction_index_bipolar.loc[probe_date_for_loop]:.4f}")
+                print(f"       - cost_advantage_bipolar: {cost_advantage_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - t0_efficiency_bipolar: {t0_efficiency_bipolar.loc[probe_date_for_loop]:.4f}")
+                print(f"       - price_impact_bipolar: {price_impact_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - raw_bipolar_series: {raw_bipolar_series.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
         return conviction_score.astype(np.float32)

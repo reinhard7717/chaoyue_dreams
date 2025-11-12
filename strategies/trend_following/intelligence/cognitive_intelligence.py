@@ -305,7 +305,6 @@ class CognitiveIntelligence:
         """
         states = {}
         df_index = self.strategy.df_indicators.index
-        
         # 融合所有看涨剧本的分数
         bullish_playbooks = [
             'COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION',
@@ -319,7 +318,6 @@ class CognitiveIntelligence:
         # 取所有看涨剧本中的最高分作为当天的看涨总分
         cognitive_bullish_score = np.maximum.reduce([s.values for s in bullish_scores])
         states['COGNITIVE_BULLISH_SCORE'] = pd.Series(cognitive_bullish_score, index=df_index, dtype=np.float32)
-        
         # 融合所有看跌剧本的分数
         bearish_playbooks = [
             'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH',
@@ -329,7 +327,6 @@ class CognitiveIntelligence:
         # 取所有看跌剧本中的最高分作为当天的看跌总分
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
-        
         return states
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -356,7 +353,6 @@ class CognitiveIntelligence:
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)
         prior_prob = priors.get('COGNITIVE_PRIOR_TREND_PROB', pd.Series(0.0, index=likelihood.index))
-        
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:

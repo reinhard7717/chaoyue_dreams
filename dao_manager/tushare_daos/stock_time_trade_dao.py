@@ -1213,7 +1213,6 @@ class StockTimeTradeDAO(BaseDAO):
         # --- 初始化用于最终批量操作的容器 ---
         all_data_dicts_for_db = []
         all_data_for_cache = {} # 使用字典来收集所有待缓存数据 {ts_code: data_dict}
-        
         offset = 0
         limit = 6000
         page_num = 1

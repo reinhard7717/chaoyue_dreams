@@ -25,7 +25,6 @@ class OffensiveLayer:
         p_context_suppression = get_params_block(self.strategy, 'contextual_suppression_params', {})
         bottom_context_threshold = get_param_value(p_context_suppression.get('bottom_context_threshold'), 0.9)
         top_context_threshold = get_param_value(p_context_suppression.get('top_context_threshold'), 0.9)
-        
         # --- 真理探针 V2.0: 植入时区同步协议 ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

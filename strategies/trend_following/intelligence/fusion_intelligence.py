@@ -115,10 +115,11 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 趋势质量探针版】冶炼“趋势质量” (Trend Quality)
+        【V1.5 · 趋势质量探针版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         - 【新增】增加调试探针，打印组成公理在探针日期的值及其贡献。
+        - 【新增】引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -167,6 +168,9 @@ class FusionIntelligence:
         # 形态层公理
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
+        # 新增行: 主力在主峰区的净流入
+        # 假设 main_force_on_peak_flow_D 已经通过 ProcessIntelligence 归一化为双极性分数
+        main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0) 
         # 定义所有组成公理及其权重
         # 这是一个示例性的加权融合，实际权重需要通过回测和优化确定
         components_and_weights = {
@@ -195,10 +199,10 @@ class FusionIntelligence:
             'behavior_downward_resistance': (behavior_downward_resistance, 0.03),
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
             'pattern_reversal': (pattern_reversal, 0.02), # 反转信号对趋势质量有影响
-            'pattern_breakout': (pattern_breakout, 0.03) # 突破信号对趋势质量有影响
+            'pattern_breakout': (pattern_breakout, 0.03), # 突破信号对趋势质量有影响
+            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.05) # 新增行: 主力在主峰区的净流入
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
-        
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [趋势质量探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
             
@@ -349,7 +353,6 @@ class FusionIntelligence:
         df = self.strategy.df_indicators
         df_index = df.index
         norm_window = 55 # 统一归一化窗口
-
         # --- Debugging setup ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -359,7 +362,6 @@ class FusionIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
                 probe_date_for_loop = None # Reset if not in index
-
         # 1. 核心超买证据 (越高越超买)
         # 行为层价格超买原始分 (0到1，越高越超买) 转换为双极性
         overextension_raw_bipolar = (self._get_atomic_score('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
@@ -372,7 +374,6 @@ class FusionIntelligence:
         # RSI (RSI_13_D) 越高，超买程度越高
         rsi_raw = df.get('RSI_13_D', pd.Series(50.0, index=df_index))
         rsi_score = normalize_to_bipolar(rsi_raw, df_index, window=norm_window, sensitivity=10.0)
-
         # 核心超买证据的加权和
         core_overextension_sum = (
             overextension_raw_bipolar * 0.2 +
@@ -380,7 +381,6 @@ class FusionIntelligence:
             rsi_score * 0.15 +
             winner_rate_score * 0.15
         )
-
         # 2. 趋势健康证据 (越高越健康，越支持抢筹，越降低超买风险)
         # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS) [-1, 1]
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
@@ -396,7 +396,6 @@ class FusionIntelligence:
         body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
         upper_shadow_ratio_raw = df.get('upper_shadow_ratio_D', pd.Series(0.0, index=df_index))
         upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1 # 上影线越短越好，所以反向
-
         # 趋势健康证据的加权和
         health_sum = (
             fund_flow_consensus * 0.1 +
@@ -406,11 +405,9 @@ class FusionIntelligence:
             body_score * 0.04 +
             upper_shadow_score * 0.03
         )
-
         # 最终融合: 核心超买证据 - 趋势健康证据
         # 如果健康证据强，则会降低超买意图；如果健康证据弱（甚至负），则会增加超买意图。
         final_overextension_intent = (core_overextension_sum - health_sum).clip(-1, 1)
-
         # --- Debugging output for probe date ---
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [价格超买意图探针] @ {probe_date_for_loop.date()}:")
@@ -427,7 +424,6 @@ class FusionIntelligence:
             print(f"       - upper_shadow_score: {upper_shadow_score.loc[probe_date_for_loop]:.4f}")
             print(f"       - health_sum: {health_sum.loc[probe_date_for_loop]:.4f}")
             print(f"       - final_overextension_intent: {final_overextension_intent.loc[probe_date_for_loop]:.4f}")
-
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
         return states
@@ -553,7 +549,6 @@ class FusionIntelligence:
         # 1. 均线排列分 (EMA5 vs EMA21)
         ema5 = df.get('EMA_5_D', pd.Series(0.0, index=df_index))
         ema21 = df.get('EMA_21_D', pd.Series(0.0, index=df_index))
-        
         # 确保EMA数据存在且有效
         if ema5.isnull().all() or ema21.isnull().all():
             print("    -> [趋势结构分] 警告: 缺少EMA5或EMA21数据，均线排列分将为0。")
@@ -617,10 +612,8 @@ class FusionIntelligence:
         # 权重分配 (示例，需优化)
         weights = np.array([0.4, 0.4, 0.2]) # 排列和斜率更重要
         components = [alignment_score, slope_score, divergence_score]
-        
         # 确保所有分量都是 Series，并且索引对齐
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        
         # 修改行: 从加权几何平均改为加权算术平均，避免“一票否决”效应
         final_trend_structure_score = (
             aligned_components[0] * weights[0] +

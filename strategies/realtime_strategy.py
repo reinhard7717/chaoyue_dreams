@@ -477,7 +477,6 @@ class RealtimeStrategy:
             if all_intraday_features.get(feature_name, 0.0) > 0.5:
                 intraday_score += score
                 reasons.append(f"特征[{feature_name}]: {'+' if score > 0 else ''}{score}")
-        
         # 4. 与日线策略结合
         daily_entry_score = daily_signal_info.get('entry_score', 0)
         daily_risk_score = daily_signal_info.get('risk_score', 0)
@@ -508,7 +507,6 @@ class RealtimeStrategy:
         # 如果分数在 BUY 和 SELL 之间，则为 NEUTRAL
         elif buy_thresh > intraday_score > sell_thresh:
             final_rating = "NEUTRAL"
-        
         # 组合理由
         combined_reason = f"盘中综合评分: {intraday_score:.0f}。详情: " + "; ".join(reasons)
         if len(combined_reason) > 500: # 限制理由长度
