@@ -50,6 +50,7 @@ class FusionIntelligence:
         all_fusion_states.update(overextension_intent_states)
         upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
         all_fusion_states.update(upper_shadow_intent_states)
+        # 新增行: 冶炼“滞涨风险”
         stagnation_risk_states = self._synthesize_stagnation_risk()
         all_fusion_states.update(stagnation_risk_states)
         # 新增行: 冶炼“趋势结构分”
@@ -58,82 +59,6 @@ class FusionIntelligence:
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
-
-    def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
-        """
-        【V1.0 · 趋势结构分】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
-        - 核心思想: 评估5日和21日均线系统的结构性健康度，提供更稳定、更具方向性的判断。
-        - 证据链:
-          1. 均线排列分 (5日EMA vs 21日EMA)
-          2. 均线斜率分 (5日EMA斜率和21日EMA斜率)
-          3. 均线发散/收敛分 (5日EMA与21日EMA的乖离率及其变化率)
-        - 输出: [-1, 1] 的双极性分数，正分代表多头趋势结构，负分代表空头趋势结构。
-        """
-        print("  -- [融合层] 正在冶炼“趋势结构分”...")
-        states = {}
-        df = self.strategy.df_indicators
-        df_index = df.index
-        norm_window = 55 # 统一归一化窗口
-
-        # 1. 均线排列分 (EMA5 vs EMA21)
-        ema5 = df.get('EMA_5_D', pd.Series(0.0, index=df_index))
-        ema21 = df.get('EMA_21_D', pd.Series(0.0, index=df_index))
-        # 确保均线数据存在且有效
-        if ema5.isnull().all() or ema21.isnull().all():
-            print("    -> [趋势结构分] 警告: 缺少EMA5或EMA21数据，均线排列分将为0。")
-            alignment_score = pd.Series(0.0, index=df_index)
-        else:
-            # EMA5 > EMA21 为正，反之为负，归一化到 [-1, 1]
-            raw_alignment = (ema5 - ema21) / ema21.abs().replace(0, np.nan) # 相对距离
-            alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=0.01) # 敏感度调整
-
-        # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
-        slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))
-        slope_ema21 = df.get('SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index))
-        if slope_ema5.isnull().all() or slope_ema21.isnull().all():
-            print("    -> [趋势结构分] 警告: 缺少EMA斜率数据，均线斜率分将为0。")
-            slope_score = pd.Series(0.0, index=df_index)
-        else:
-            # 两个斜率都为正，则为强正分；都为负，则为强负分；一正一负，则为中性或弱分
-            norm_slope_ema5 = normalize_to_bipolar(slope_ema5, df_index, window=norm_window, sensitivity=0.005)
-            norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, window=norm_window, sensitivity=0.005)
-            slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1) # 5日斜率权重更高
-
-        # 3. 均线发散/收敛分 (EMA5与EMA21的乖离率及其变化率)
-        # 乖离率 = (EMA5 - EMA21) / EMA21
-        if ema5.isnull().all() or ema21.isnull().all():
-            print("    -> [趋势结构分] 警告: 缺少EMA数据，均线发散/收敛分将为0。")
-            divergence_score = pd.Series(0.0, index=df_index)
-        else:
-            ma_bias_raw = (ema5 - ema21) / ema21.abs().replace(0, np.nan)
-            # 乖离率的斜率，反映发散/收敛的速度
-            ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
-            # 健康的发散（正乖离率且乖离率上升）为正分
-            # 健康的收敛（负乖离率且乖离率下降）为正分
-            # 过度发散（正乖离率且乖离率下降）为负分
-            # 过度收敛（负乖离率且乖离率上升）为负分
-            norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, window=norm_window, sensitivity=0.02)
-            norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, window=norm_window, sensitivity=0.001)
-            # 融合逻辑：当乖离率为正且乖离率斜率为正时，为强正分；当乖离率为负且乖离率斜率为负时，为强负分。
-            # 否则，为中性或负分。
-            divergence_score = (norm_ma_bias * norm_ma_bias_slope).clip(-1, 1) # 乘法可以捕捉同向共振
-
-        # 4. 融合所有子分数
-        # 权重分配 (示例，需优化)
-        weights = np.array([0.4, 0.4, 0.2]) # 排列和斜率更重要
-        components = [alignment_score, slope_score, divergence_score]
-        # 确保所有分量都是 Series，并且索引对齐
-        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        # 避免 log(0) 错误，将所有分量加上一个极小值，并映射到 [0, 1] 范围进行几何平均
-        safe_components = [(comp + 1) / 2 + 1e-9 for comp in aligned_components] # 映射到 [0, 1]
-        # 计算加权几何平均
-        trend_structure_score_raw = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_components, weights)], axis=0), index=df_index)
-        # 将结果从 [0, 1] 映射回 [-1, 1]
-        final_trend_structure_score = (trend_structure_score_raw * 2 - 1).clip(-1, 1)
-
-        states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
-        print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
-        return states
 
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
         """
@@ -537,4 +462,114 @@ class FusionIntelligence:
         final_intent = final_intent.clip(-1, 1)
         states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
         print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
+        """
+        【V1.2 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        - 核心优化:
+          1. 修正 `divergence_score` 逻辑，改为加权算术平均，避免乘法带来的反直觉结果。
+          2. 修正最终融合方式，从加权几何平均改为加权算术平均，减少单个极端负值对整体分数的“一票否决”效应。
+          3. 增加调试探针，输出关键中间计算结果。
+        """
+        print("  -- [融合层] 正在冶炼“趋势结构分”...")
+        states = {}
+        df = self.strategy.df_indicators
+        df_index = df.index
+        norm_window = 55 # 统一归一化窗口
+
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            # 确保探针日期与df_index的时区一致
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None # Reset if not in index
+
+        # 1. 均线排列分 (EMA5 vs EMA21)
+        ema5 = df.get('EMA_5_D', pd.Series(0.0, index=df_index))
+        ema21 = df.get('EMA_21_D', pd.Series(0.0, index=df_index))
+        
+        # 确保EMA数据存在且有效
+        if ema5.isnull().all() or ema21.isnull().all():
+            print("    -> [趋势结构分] 警告: 缺少EMA5或EMA21数据，均线排列分将为0。")
+            alignment_score = pd.Series(0.0, index=df_index)
+        else:
+            # EMA5 > EMA21 为正，反之为负，归一化到 [-1, 1]
+            # 使用一个小的epsilon防止除以零
+            raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9)) # 相对距离
+            alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=0.01) # 敏感度调整
+
+        # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
+        slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))
+        slope_ema21 = df.get('SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index))
+        if slope_ema5.isnull().all() or slope_ema21.isnull().all():
+            print("    -> [趋势结构分] 警告: 缺少EMA斜率数据，均线斜率分将为0。")
+            slope_score = pd.Series(0.0, index=df_index)
+        else:
+            # 归一化斜率到双极性分数
+            norm_slope_ema5 = normalize_to_bipolar(slope_ema5, df_index, window=norm_window, sensitivity=0.005)
+            norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, window=norm_window, sensitivity=0.005)
+            # 加权平均归一化后的斜率
+            slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1) # 5日斜率权重更高
+
+        # 3. 均线发散/收敛分 (EMA5与EMA21的乖离率及其变化率)
+        # 乖离率 = (EMA5 - EMA21) / EMA21
+        if ema5.isnull().all() or ema21.isnull().all():
+            print("    -> [趋势结构分] 警告: 缺少EMA数据，均线发散/收敛分将为0。")
+            divergence_score = pd.Series(0.0, index=df_index)
+        else:
+            ma_bias_raw = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9))
+            # 乖离率的斜率，反映发散/收敛的速度
+            ma_bias_slope_raw = ma_bias_raw.diff(1).fillna(0)
+            
+            # 归一化乖离率和乖离率斜率
+            norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, window=norm_window, sensitivity=0.02)
+            norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, window=norm_window, sensitivity=0.001)
+            
+            # 修改行: 修正 divergence_score 逻辑为加权算术平均
+            # 目标：当乖离率为正且乖离率斜率为正时，为强正分；当乖离率为负且乖离率斜率为负时，为强负分。
+            # 当乖离率为负但乖离率斜率为正（负乖离缩小，结构改善）时，应为正分。
+            # 当乖离率为正但乖离率斜率为负（正乖离缩小，结构恶化）时，应为负分。
+            # 简单的加权平均可以更好地捕捉这种关系。
+            divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
+
+        # --- Debugging output for probe date ---
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [趋势结构分探针] @ {probe_date_for_loop.date()}:")
+            print(f"       - EMA5: {ema5.loc[probe_date_for_loop]:.4f}")
+            print(f"       - EMA21: {ema21.loc[probe_date_for_loop]:.4f}")
+            print(f"       - SLOPE_5_EMA_5_D: {slope_ema5.loc[probe_date_for_loop]:.4f}")
+            print(f"       - SLOPE_5_EMA_21_D: {slope_ema21.loc[probe_date_for_loop]:.4f}")
+            print(f"       - raw_alignment: {raw_alignment.loc[probe_date_for_loop]:.4f}")
+            print(f"       - alignment_score: {alignment_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - norm_slope_ema5: {norm_slope_ema5.loc[probe_date_for_loop]:.4f}")
+            print(f"       - norm_slope_ema21: {norm_slope_ema21.loc[probe_date_for_loop]:.4f}")
+            print(f"       - slope_score: {slope_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - ma_bias_raw: {ma_bias_raw.loc[probe_date_for_loop]:.4f}")
+            print(f"       - ma_bias_slope_raw: {ma_bias_slope_raw.loc[probe_date_for_loop]:.4f}")
+            print(f"       - norm_ma_bias: {norm_ma_bias.loc[probe_date_for_loop]:.4f}")
+            print(f"       - norm_ma_bias_slope: {norm_ma_bias_slope.loc[probe_date_for_loop]:.4f}")
+            print(f"       - divergence_score: {divergence_score.loc[probe_date_for_loop]:.4f}")
+
+        # 4. 融合所有子分数
+        # 权重分配 (示例，需优化)
+        weights = np.array([0.4, 0.4, 0.2]) # 排列和斜率更重要
+        components = [alignment_score, slope_score, divergence_score]
+        
+        # 确保所有分量都是 Series，并且索引对齐
+        aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
+        
+        # 修改行: 从加权几何平均改为加权算术平均，避免“一票否决”效应
+        final_trend_structure_score = (
+            aligned_components[0] * weights[0] +
+            aligned_components[1] * weights[1] +
+            aligned_components[2] * weights[2]
+        ).clip(-1, 1) # 确保最终分数在 [-1, 1] 范围内
+
+        states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
+        print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states
