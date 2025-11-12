@@ -1209,12 +1209,12 @@
       },
       "fused_risk_scoring": {
         "enabled": true,
-        "说明": "【V1.1 · 纯粹原子版】风险元融合模块的配置，用于合成顶层风险分。",
+        "说明": "【V1.2 · 融合信号适配版】风险元融合模块的配置，用于合成顶层风险分。",
         "risk_categories": {
           "behavioral_risk": {
             "PROCESS_META_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 },
-            "SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION": { "weight": 1.0 },
-            "SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE": { "weight": 1.0 },
+            "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": { "weight": 1.0, "comment": "融合层价格超买意图的负向部分代表风险" },
+            "FUSION_BIPOLAR_UPPER_SHADOW_INTENT": { "weight": 1.0, "comment": "融合层上影线意图的负向部分代表风险" },
             "SCORE_RISK_STAGNATION": { "weight": 1.0 },
             "SCORE_RISK_LIQUIDITY_DRAIN": { "weight": 1.0 }
           },
