@@ -242,21 +242,35 @@ class CognitiveIntelligence:
 
     def _establish_prior_beliefs(self) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 反转概率优化版】建立先验信念
-        - 核心重构: 修正了双极性分数到概率的映射方式。将 `clip(lower=0)` 替换为 `(score + 1) / 2`，
-                      确保中性信号贡献 0.5 的概率，避免了因错误映射导致先验概率被过度压制为零的问题。
-        - 核心修复: 重构了 `prior_reversal` 的计算逻辑，废弃了 `(1 - market_regime.abs())` 的“一票否决”机制。
-                      改为将市场压力和市场政权强度都视为对反转先验概率的正面贡献，并进行加权平均。
-        - 【优化】在计算 `prior_reversal` 时，引入 `CONTEXT_TREND_CONFIRMED` 作为抑制因子。
+        【V1.5 · 趋势结构强化版】建立先验信念
+        - 核心升级: 将融合层的“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE) 融入到
+                      “趋势先验概率” (COGNITIVE_PRIOR_TREND_PROB) 的计算中，以提供更稳定、更具结构性的背景判断。
         """
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        regime_weight = 0.5
-        quality_weight = 0.5
+        # 新增行: 获取融合层的趋势结构分
+        trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
+
+        # 调整趋势先验概率的权重，引入趋势结构分
+        # 示例权重，需要根据回测优化
+        regime_weight = 0.3
+        quality_weight = 0.3
+        # 新增行: 趋势结构分的权重
+        structure_weight = 0.4
+
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
-        prior_trend = (market_regime_prob * regime_weight + trend_quality_prob * quality_weight).clip(0, 1)
+        # 新增行: 趋势结构分转换为概率
+        trend_structure_prob = (trend_structure_score + 1) / 2
+
+        # 修改行: 融合趋势结构分到趋势先验概率中
+        prior_trend = (
+            market_regime_prob * regime_weight +
+            trend_quality_prob * quality_weight +
+            trend_structure_prob * structure_weight # 新增行: 融合趋势结构分
+        ).clip(0, 1)
+
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -266,10 +280,13 @@ class CognitiveIntelligence:
                 print(f"    -> [先验信念探针] @ {probe_date.date()}:")
                 print(f"       - 市场政权分 (market_regime): {market_regime.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量分 (trend_quality): {trend_quality.loc[probe_date]:.4f}")
+                print(f"       - 趋势结构分 (trend_structure_score): {trend_structure_score.loc[probe_date]:.4f}") # 新增行
                 print(f"       - 市场政权概率 (market_regime_prob): {market_regime_prob.loc[probe_date]:.4f}")
                 print(f"       - 趋势质量概率 (trend_quality_prob): {trend_quality_prob.loc[probe_date]:.4f}")
+                print(f"       - 趋势结构概率 (trend_structure_prob): {trend_structure_prob.loc[probe_date]:.4f}") # 新增行
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
+
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         reversal_pressure_weight = 0.6
         reversal_regime_strength_weight = 0.4
@@ -278,6 +295,7 @@ class CognitiveIntelligence:
         prior_reversal_raw = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
         prior_reversal = (prior_reversal_raw * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
+
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive

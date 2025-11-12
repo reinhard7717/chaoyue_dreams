@@ -117,6 +117,12 @@
             "description": "【日内公理三】诊断分钟级别KDJ的超买/超卖区转折信号。正分代表看涨转折，负分代表看跌转折。"
         },
         "说明_fusion_intelligence": "--- 融合层信号 (Fusion Intelligence) ---",
+        "FUSION_BIPOLAR_TREND_STRUCTURE_SCORE": {
+            "cn_name": "【融合】趋势结构分",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【V1.0 · 趋势结构分】融合5日和21日均线的排列、斜率和发散/收敛状态，评估趋势的结构性健康度。正分代表多头趋势结构，负分代表空头趋势结构。"
+        },
         "FUSION_BIPOLAR_LIQUIDITY_DYNAMICS": {
             "cn_name": "【融合】流动性博弈动态",
             "category": "融合层-环境",
