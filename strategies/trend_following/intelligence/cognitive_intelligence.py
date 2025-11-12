@@ -615,26 +615,57 @@ class CognitiveIntelligence:
 
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.1 · 风险信号重构版】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.2 · 深度博弈版】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心逻辑: 识别筹码派发背景下的诱多收割行为。
-        - 【修复】将 `SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE` 替换为融合层信号 `FUSION_BIPOLAR_UPPER_SHADOW_INTENT` 的负向部分。
+        - 【增强】引入更多维度证据，包括主力资金流出、赢家信念衰减、零售狂热等，以更全面地捕捉诱多派发本质。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
-        # 证据1: 微观欺骗 (SCORE_MICRO_AXIOM_DECEPTION 负向，即伪装派发)
-        micro_deception_bearish = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0).clip(upper=0).abs())
-        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
-        # 证据3: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向)
-        chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
-        # 证据4: 价格上涨 (pct_change_D 正向)
+        # 证据1: 价格上涨 (诱多表象)
         price_rising = self._forge_dynamic_evidence(normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21).clip(lower=0))
+        # 证据2: 微观欺骗 (伪装派发)
+        micro_deception_bearish = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0).clip(upper=0).abs())
+        # 证据3: 上影线抛压 (真实抛压)
+        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
+        # 证据4: 筹码分散 (派发核心)
+        chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
+        # 证据5: 主力资金净流出 (直接派发)
+        main_force_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
+        # 证据6: 赚钱卖出 (主力T+0效率负向，即赚钱卖出)
+        profit_vs_flow_bearish = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
+        # 证据7: 赢家信念衰减 (获利盘动摇)
+        winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
+        # 证据8: 散户狂热主力撤退 (直接捕捉牛市陷阱)
+        retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
+        # 证据9: 价格超买意图负向 (价格高但缺乏真实支撑)
+        price_overextension_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
+        # 证据10: 长期获利盘派发风险 (更深层次的派发确认)
+        long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0)) # 新增行
         evidence_scores = np.stack([
+            price_rising.values,
             micro_deception_bearish.values,
             upper_shadow_pressure.values,
             chip_dispersion.values,
-            price_rising.values
+            main_force_outflow.values,
+            profit_vs_flow_bearish.values,
+            winner_conviction_decay.values,
+            retail_fomo_retreat_risk.values,
+            price_overextension_risk.values,
+            long_term_profit_distribution_risk.values # 新增行
         ], axis=0)
-        evidence_weights = np.array([0.3, 0.3, 0.2, 0.2])
-        evidence_weights /= evidence_weights.sum()
+        # 权重分配：
+        evidence_weights = np.array([
+            0.05, # price_rising (作为背景条件，权重低，但必须存在)
+            0.12, # micro_deception_bearish
+            0.12, # upper_shadow_pressure
+            0.12, # chip_dispersion
+            0.12, # main_force_outflow
+            0.08, # profit_vs_flow_bearish
+            0.08, # winner_conviction_decay
+            0.10, # retail_fomo_retreat_risk
+            0.08, # price_overextension_risk
+            0.11  # long_term_profit_distribution_risk (新增)
+        ])
+        evidence_weights /= evidence_weights.sum() # 归一化权重
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
         likelihood = pd.Series(likelihood_values, index=self.strategy.df_indicators.index)

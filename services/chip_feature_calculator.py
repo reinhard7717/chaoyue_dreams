@@ -143,8 +143,8 @@ class ChipFeatureCalculator:
 
     def _compute_cross_day_flow_metrics(self, context: dict) -> dict:
         """
-        【V2.1 · 生产就绪版】
-        - 核心修改: 移除所有调试探针。
+        【V2.2 · 局部变量初始化修复版】
+        - 核心修复: 初始化 `total_sell_vol_today` 局部变量，避免 `UnboundLocalError`。
         """
         results = {}
         minute_df = context.get('minute_data')
@@ -165,6 +165,7 @@ class ChipFeatureCalculator:
         # --- 2. 流量质量与供给压力 (Flow Quality & Pressure) ---
         pre_close = context.get('pre_close')
         required_cols_2 = ['minute_vwap', 'main_force_sell_vol', 'retail_sell_vol']
+        total_sell_vol_today = 0.0 # 修改行: 初始化 total_sell_vol_today
         if minute_df is not None and not minute_df.empty and pd.notna(pre_close) and all(c in minute_df.columns for c in required_cols_2):
             total_sell_vol_today = (minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']).sum()
             if total_sell_vol_today > 0:
@@ -218,18 +219,14 @@ class ChipFeatureCalculator:
         prev_dominant_peak_cost = context.get('prev_dominant_peak_cost')
         today_dominant_peak_cost = context.get('dominant_peak_cost')
         if prev_chip_dist is not None and not prev_chip_dist.empty and all(pd.notna(v) for v in [prev_dominant_peak_cost, today_dominant_peak_cost]):
-            # 定义昨日的肩区
             prev_upper_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 1.02) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 1.07)]
             prev_lower_shoulder_df = prev_chip_dist[(prev_chip_dist['price'] >= prev_dominant_peak_cost * 0.93) & (prev_chip_dist['price'] <= prev_dominant_peak_cost * 0.98)]
-            # 定义今日的肩区
             today_upper_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 1.02) & (self.df['price'] <= today_dominant_peak_cost * 1.07)]
             today_lower_shoulder_df = self.df[(self.df['price'] >= today_dominant_peak_cost * 0.93) & (self.df['price'] <= today_dominant_peak_cost * 0.98)]
-            # 计算各区筹码量
             chip_vol_upper_yesterday = prev_upper_shoulder_df['percent'].sum()
             chip_vol_lower_yesterday = prev_lower_shoulder_df['percent'].sum()
             chip_vol_upper_today = today_upper_shoulder_df['percent'].sum()
             chip_vol_lower_today = today_lower_shoulder_df['percent'].sum()
-            # 计算增长率
             upper_growth = (chip_vol_upper_today / chip_vol_upper_yesterday - 1) * 100 if chip_vol_upper_yesterday > 0 else (100 if chip_vol_upper_today > 0 else 0)
             lower_growth = (chip_vol_lower_today / chip_vol_lower_yesterday - 1) * 100 if chip_vol_lower_yesterday > 0 else (100 if chip_vol_lower_today > 0 else 0)
             results['peak_shoulder_growth_rate'] = upper_growth - lower_growth
