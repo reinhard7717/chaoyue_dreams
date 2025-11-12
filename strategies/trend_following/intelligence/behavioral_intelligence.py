@@ -162,107 +162,57 @@ class BehavioralIntelligence:
         return day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """
-        【V2.7 · 上涨衰竭重构版】行为公理诊断引擎
-        - 核心修改: 调用从 utils.py 导入的公共归一化工具。
-        - 【新增】引入行为公理五：价量背离。
-        - 【修改】将 `SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION` 更名为 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`。
-        - 【修改】将 `SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE` 更名为 `INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW`。
-        - 【重构】移除 `SCORE_RISK_STAGNATION`，新增 `INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW`，并采用更全面的多维度融合逻辑。
-        """
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        # --- 公理一: 价格行为 (Price Action) ---
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
-        # --- 公理二: 量能行为 (Volume Action) ---
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
-        # --- 公理三: 价量关系 (Price-Volume Relation) ---
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
-        # --- 公理四: 日内形态 (Intraday Form) ---
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        # --- 公理五: 价量背离 (Price-Volume Divergence) ---
         price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
         volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
         divergence_score = (volume_trend - price_trend).clip(-1, 1)
         states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
-        # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
-        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_APATHY']).pow(1/3).astype(np.float32)
         is_falling = (df['pct_change_D'] < 0).astype(float)
+        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_APATHY']).pow(1/3).astype(np.float32)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_APATHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32)
-        # 修改行: 移除 SCORE_RISK_STAGNATION 的旧计算
-        # states['SCORE_RISK_STAGNATION'] = (is_rising * states['SCORE_BEHAVIOR_VOLUME_BURST'] * (1.0 - states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])).pow(1/3).astype(np.float32)
+        # 新增行: 行为层新增中性、原子级的“滞涨证据原始分”
+        # 滞涨证据原始分：量化价格上涨但效率低下的行为特征，不直接给出风险判断。
+        # 融合价格上涨动能、上涨效率、成交量爆发和日内多头控制力等行为层原子信号。
+        # 所有分量归一化到 [0, 1] 范围，0为无证据，1为强证据。
+        # 使用加权几何平均融合。
+        # 1. 价格上涨动能 (越高越有滞涨可能，因为涨幅大但效率低)
+        price_up_momentum_evidence = states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'].clip(0, 1)
+        # 2. 上涨效率低下 (反向指标，效率越低证据越强)
+        upward_efficiency_evidence = (1 - states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY']).clip(0, 1)
+        # 3. 成交量爆发 (量能越大，但效率低，越有滞涨可能)
+        volume_burst_evidence = states['SCORE_BEHAVIOR_VOLUME_BURST'].clip(0, 1)
+        # 4. 日内多头控制力减弱 (反向指标，控制力越弱证据越强)
+        intraday_bull_control_evidence = (1 - states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL']).clip(0, 1)
+        # 融合所有滞涨证据 (加权几何平均)
+        # 权重分配 (示例，需优化)
+        evidence_components = [
+            price_up_momentum_evidence,
+            upward_efficiency_evidence,
+            volume_burst_evidence,
+            intraday_bull_control_evidence
+        ]
+        weights_stagnation_evidence = np.array([0.2, 0.3, 0.3, 0.2])
+        aligned_evidence_components = [comp.reindex(df.index, fill_value=0.0) for comp in evidence_components]
+        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components]
+        stagnation_evidence_raw_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights_stagnation_evidence)], axis=0), index=df.index)
+        states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32) # 仅在价格上涨时才计算滞涨证据
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
-        # 新增行: 计算 INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW
-        states['INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW'] = self._calculate_rally_exhaustion_raw(df, is_rising, default_weights).astype(np.float32)
         return states
-
-    def _calculate_rally_exhaustion_raw(self, df: pd.DataFrame, is_rising: pd.Series, default_weights: Dict) -> pd.Series:
-        """
-        【V1.0 · 多维度融合版】计算内部行为-上涨衰竭原始分。
-        - 核心逻辑: 融合行为、微观行为、资金流和筹码等多维度证据，识别上涨过程中的衰竭迹象。
-        - 输出: [0, 1] 的单极性分数，代表上涨衰竭的原始强度。
-        """
-        print("    -> [行为情报引擎] 正在计算 INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW...")
-        # 1. 核心行为证据 (0-1)
-        volume_effort = self._get_atomic_score(df, 'SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
-        upward_inefficiency = 1.0 - self._get_atomic_score(df, 'SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) # 0.5为中性，1.0为最差效率
-        upper_shadow_raw = self._get_atomic_score(df, 'INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
-
-        # 2. 微观行为证据 (0-1)
-        # SCORE_MICRO_AXIOM_EFFICIENCY 是双极性 [-1, 1]，负值代表低效，取其负向绝对值
-        micro_inefficiency = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_EFFICIENCY', 0.0).clip(upper=0).abs()
-
-        # 3. 资金流证据 (0-1)
-        # SCORE_FF_AXIOM_CONSENSUS 是双极性 [-1, 1]，负值代表主力卖出，取其负向绝对值
-        mf_selling_pressure = self._get_atomic_score(df, 'SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
-        # PROCESS_META_PROFIT_VS_FLOW 是双极性 [-1, 1]，负值代表主力赚钱卖出，取其负向绝对值
-        mf_t0_profit_taking = self._get_atomic_score(df, 'PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs()
-
-        # 4. 筹码结构证据 (0-1)
-        # SCORE_CHIP_AXIOM_CONCENTRATION 是双极性 [-1, 1]，负值代表筹码分散，取其负向绝对值
-        chip_dispersion = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(upper=0).abs()
-        # SCORE_CHIP_AXIOM_HOLDER_SENTIMENT 是双极性 [-1, 1]，负值代表信念动摇，取其负向绝对值
-        holder_sentiment_decay = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0).clip(upper=0).abs()
-
-        # 5. 加权融合 (权重总和为1)
-        # 权重分配：核心低效指标和主力资金流出/抛压指标权重较高
-        w_vol = 0.10
-        w_up_ineff = 0.20
-        w_micro_ineff = 0.20
-        w_shadow = 0.15
-        w_mf_sell = 0.15
-        w_chip_disp = 0.10
-        w_holder_decay = 0.05
-        w_t0_profit = 0.05
-
-        raw_exhaustion_score = (
-            w_vol * volume_effort +
-            w_up_ineff * upward_inefficiency +
-            w_micro_ineff * micro_inefficiency +
-            w_shadow * upper_shadow_raw +
-            w_mf_sell * mf_selling_pressure +
-            w_chip_disp * chip_dispersion +
-            w_holder_decay * holder_sentiment_decay +
-            w_t0_profit * mf_t0_profit_taking
-        )
-
-        # 只有在价格上涨时，才计算上涨衰竭风险，否则为0
-        final_raw_score = raw_exhaustion_score * is_rising
-
-        # 归一化到 [0, 1] 范围
-        normalized_score = get_adaptive_mtf_normalized_score(final_raw_score, df.index, ascending=True, tf_weights=default_weights)
-        print(f"    -> [行为情报引擎] INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW 计算完成，最新分值: {normalized_score.iloc[-1]:.4f}")
-        return normalized_score
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

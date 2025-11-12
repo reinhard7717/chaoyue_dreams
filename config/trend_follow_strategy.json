@@ -1212,7 +1212,6 @@
             "PROCESS_META_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 },
             "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": { "weight": 1.0, "comment": "融合层价格超买意图的负向部分代表风险" },
             "FUSION_BIPOLAR_UPPER_SHADOW_INTENT": { "weight": 1.0, "comment": "融合层上影线意图的负向部分代表风险" },
-            "SCORE_RISK_STAGNATION": { "weight": 1.0 },
             "SCORE_RISK_LIQUIDITY_DRAIN": { "weight": 1.0 }
           },
           "chip_risk": {
@@ -1265,6 +1264,9 @@
             "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": { "weight": 1.0, "description": "T+0套利压力风险，主力短期派发行为。" },
             "COGNITIVE_RISK_KEY_SUPPORT_BREAK": { "weight": 2.5, "description": "关键支撑破位风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
             "COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE": { "weight": 2.4, "description": "高位结构瓦解风险，结构顶部与主力派发、散户接盘的共振。" }
+          },
+          "fusion_risk": {
+            "FUSION_RISK_STAGNATION": { "weight": 1.0 }
           }
         },
         "resonance_penalty_params": {
@@ -1280,7 +1282,7 @@
           "base_weights": {
             "behavioral_risk": 1.0, "chip_risk": 1.5, "fund_flow_risk": 1.2,
             "dynamic_mechanics_risk": 0.8, "structural_risk": 1.0, "foundation_risk": 0.8,
-            "cognitive_risk": 1.5
+            "cognitive_risk": 1.5, "fusion_risk": 1.0
           }
         }
       },

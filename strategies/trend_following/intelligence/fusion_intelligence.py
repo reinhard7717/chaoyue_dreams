@@ -34,35 +34,25 @@ class FusionIntelligence:
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
-        """
-        【V3.4 · 价格超买与上影线意图版】运行所有融合诊断任务。
-        - 核心流程: 依次冶炼四大战场态势，并发布到原子状态库。
-        - 【新增】冶炼“市场矛盾”态势、“价格超买意图”态势和“上影线意图”态势。
-        """
         print("启动【V3.0 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
-        # 步骤一: 冶炼“市场政权”
         regime_states = self._synthesize_market_regime()
         all_fusion_states.update(regime_states)
-        # 步骤二: 冶炼“趋势质量”
         quality_states = self._synthesize_trend_quality()
         all_fusion_states.update(quality_states)
-        # 步骤三: 冶炼“市场压力”
         pressure_states = self._synthesize_market_pressure()
         all_fusion_states.update(pressure_states)
-        # 步骤四: 冶炼“资本对抗”
         confrontation_states = self._synthesize_capital_confrontation()
         all_fusion_states.update(confrontation_states)
-        # 步骤五: 冶炼“市场矛盾”
         contradiction_states = self._synthesize_market_contradiction()
         all_fusion_states.update(contradiction_states)
-        # 步骤六: 冶炼“价格超买意图”
         overextension_intent_states = self._synthesize_price_overextension_intent()
         all_fusion_states.update(overextension_intent_states)
-        # 步骤七: 冶炼“上影线意图”
         upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
         all_fusion_states.update(upper_shadow_intent_states)
-        # 步骤八: 将新生成的融合信号立即发布，供后续认知层使用
+        # 新增行: 冶炼“滞涨风险”
+        stagnation_risk_states = self._synthesize_stagnation_risk()
+        all_fusion_states.update(stagnation_risk_states)
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
@@ -238,6 +228,67 @@ class FusionIntelligence:
                             pd.Series(net_downward_pressure, index=self.strategy.df_indicators.index)).clip(-1, 1)
         states['FUSION_BIPOLAR_MARKET_PRESSURE'] = bipolar_pressure.astype(np.float32)
         print(f"  -- [融合层] “市场压力”冶炼完成，最新分值: {bipolar_pressure.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_stagnation_risk(self) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 深度博弈版】冶炼“滞涨风险” (FUSION_RISK_STAGNATION)
+        - 核心思想: 综合多维度证据，精确识别多头力量衰竭与空头隐秘积蓄的滞涨风险。
+        - 证据链:
+          1. 行为层滞涨证据原始分 (INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW)
+          2. 价格超买意图 (FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT 的负向部分)
+          3. 上影线抛压意图 (FUSION_BIPOLAR_UPPER_SHADOW_INTENT 的负向部分)
+          4. 主力资金流出背离 (SCORE_FF_AXIOM_CONSENSUS 的负向部分)
+          5. 筹码集中度下降 (SCORE_CHIP_AXIOM_CONCENTRATION 的负向部分)
+          6. 获利盘供给压力 (imminent_profit_taking_supply_D)
+          7. 趋势确认度下降 (CONTEXT_TREND_CONFIRMED 的反向)
+          8. 市场情绪亢奋 (retail_fomo_premium_index_D)
+        - 输出: [0, 1] 的风险分数，0表示无风险，1表示最大风险。
+        """
+        print("  -- [融合层] 正在冶炼“滞涨风险”...")
+        states = {}
+        df_index = self.strategy.df_indicators.index
+        # 1. 行为层滞涨证据原始分 (来自行为层)
+        stagnation_evidence_raw = self._get_atomic_score('INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', 0.0)
+        # 2. 价格超买意图 (来自融合层，负向部分代表风险)
+        price_overextension_risk = self._get_atomic_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs()
+        # 3. 上影线抛压意图 (来自融合层，负向部分代表风险)
+        upper_shadow_pressure_risk = self._get_atomic_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs()
+        # 4. 主力资金流出背离 (来自资金流层，负向共识代表风险)
+        fund_flow_bearish_risk = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs()
+        # 5. 筹码集中度下降 (来自筹码层，负向集中度代表风险)
+        chip_dispersion_risk = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(upper=0).abs()
+        # 6. 获利盘供给压力 (来自筹码高级指标，需要归一化)
+        profit_taking_supply_risk = normalize_score(self.strategy.df_indicators.get('imminent_profit_taking_supply_D', 0.0), df_index, window=55, ascending=True).clip(0, 1)
+        # 7. 趋势确认度下降 (来自基础层上下文，反向代表风险)
+        trend_confirmation_risk = (1 - self._get_atomic_score('CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
+        # 8. 市场情绪亢奋 (来自资金流高级指标，需要归一化)
+        retail_fomo_risk = normalize_score(self.strategy.df_indicators.get('retail_fomo_premium_index_D', 0.0), df_index, window=55, ascending=True).clip(0, 1)
+        # 9. 价格上涨或横盘的前提条件 (滞涨风险的前提)
+        is_price_stagnant_or_rising = (self.strategy.df_indicators['pct_change_D'] >= -0.005).astype(float)
+        # 融合所有风险证据 (加权几何平均)
+        # 权重分配需要根据回测结果进行优化，这里给出示例权重
+        risk_components = [
+            stagnation_evidence_raw,        # 行为层原始证据 (权重高)
+            price_overextension_risk,       # 价格超买意图 (权重中高)
+            upper_shadow_pressure_risk,     # 上影线抛压意图 (权重高)
+            fund_flow_bearish_risk,         # 主力资金流出背离 (权重高)
+            chip_dispersion_risk,           # 筹码集中度下降 (权重高)
+            profit_taking_supply_risk,      # 获利盘供给压力 (权重中)
+            trend_confirmation_risk,        # 趋势确认度下降 (权重中低)
+            retail_fomo_risk                # 市场情绪亢奋 (权重中)
+        ]
+        weights = np.array([0.15, 0.15, 0.15, 0.15, 0.15, 0.10, 0.05, 0.10])
+        # 确保所有风险分量都是 Series，并且索引对齐
+        aligned_risk_components = [comp.reindex(df_index, fill_value=0.0) for comp in risk_components]
+        # 避免 log(0) 错误，将所有分量加上一个极小值
+        safe_risk_components = [comp + 1e-9 for comp in aligned_risk_components]
+        # 计算加权几何平均
+        stagnation_risk_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_risk_components, weights)], axis=0), index=df_index)
+        # 最终风险分只在价格上涨或横盘时有效，否则为0
+        final_stagnation_risk = (stagnation_risk_score * is_price_stagnant_or_rising).clip(0, 1)
+        states['FUSION_RISK_STAGNATION'] = final_stagnation_risk.astype(np.float32)
+        print(f"  -- [融合层] “滞涨风险”冶炼完成，最新分值: {final_stagnation_risk.iloc[-1]:.4f}")
         return states
 
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
