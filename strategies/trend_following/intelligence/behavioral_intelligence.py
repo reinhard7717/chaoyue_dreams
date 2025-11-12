@@ -101,7 +101,6 @@ class BehavioralIntelligence:
         - 核心逻辑重构: 遵循“职责分离”原则，本方法现在只聚焦于为【本模块生产的】纯粹行为原子信号注入动态因子（动量、潜力、推力）。
                         不再计算跨领域的 RESONANCE_HEALTH_D 等信号。
         - 【修改】移除对 `SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE` 的动态增强。
-        - 【新增】为 `INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW` 提供动态增强。
         """
         p_conf = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_dyn = get_param_value(p_conf.get('signal_dynamics_params'), {})
@@ -119,7 +118,7 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
             'SCORE_OPPORTUNITY_LOCKUP_RALLY',
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION',
-            'INTERNAL_BEHAVIOR_RALLY_EXHAUSTION_RAW', # 修改行: 新增上涨衰竭原始分的动态增强
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 修改行: 新增上涨衰竭原始分的动态增强
             'SCORE_RISK_LIQUIDITY_DRAIN'
         ]
         for signal_name in atomic_signals_to_enhance:
