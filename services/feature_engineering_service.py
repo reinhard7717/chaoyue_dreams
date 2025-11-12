@@ -248,8 +248,9 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.2 · 势能分析集成与逻辑强化版】高级模式识别信号生产线
-        - 核心升级: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
+        【V3.3 · 通达信模式集成版】高级模式识别信号生产线
+        - 核心升级: 集成通达信公式中的“霸占”和“WW1”模式，增强对主力吸筹和底部反转的识别能力。
+        - 核心修复: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
         - 解决方案: 直接集成并使用我们最先进的“均线系统势能分析”三大核心指标（张力、有序性、压缩速率），
                       将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
         - 逻辑强化: 细化了盘整、吸筹、突破、派发等模式的判断条件，引入更多高级筹码、资金流和VPA效率指标进行多因子共振确认。
@@ -263,6 +264,7 @@ class FeatureEngineeringService:
         required_cols = [
             # 基础数据
             'high_D', 'low_D', 'close_D', 'volume_D', 'pct_change_D', 'VOL_MA_21_D', 'BBW_21_2.0_D', 'ATR_14_D', 'ADX_14_D',
+            'open_D', 'amount_D', # 新增: 用于计算通达信模式
             # 新版高级筹码指标
             'chip_health_score_D', 'structural_resilience_index_D', 'suppressive_accumulation_intensity_D',
             'rally_distribution_intensity_D', 'winner_conviction_index_D', 'cost_structure_skewness_D',
@@ -271,9 +273,9 @@ class FeatureEngineeringService:
             'main_force_net_flow_calibrated_D', 'main_force_execution_alpha_D', 'dip_absorption_power_D',
             'main_force_on_peak_flow_D', 'flow_efficiency_index_D', 'main_force_flow_directionality_D',
             # 新版均线系统势能指标 (核心升级)
-            'MA_POTENTIAL_TENSION_INDEX_D', # 修正列名，移除_SHORT
-            'MA_POTENTIAL_ORDERLINESS_SCORE_D', # 修正列名，移除_SHORT
-            'MA_POTENTIAL_COMPRESSION_RATE_D', # 修正列名，移除_SHORT
+            'MA_POTENTIAL_TENSION_INDEX_D',
+            'MA_POTENTIAL_ORDERLINESS_SCORE_D',
+            'MA_POTENTIAL_COMPRESSION_RATE_D',
             # VPA效率指标
             'VPA_EFFICIENCY_D'
         ]
@@ -338,13 +340,54 @@ class FeatureEngineeringService:
         # 证据e: VPA效率低下。价格上涨但VPA效率低，说明拉升吃力，抛压大。
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
-        # --- 3. 【信号整合与输出】 ---
-        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D']
+
+        # --- 3. 【通达信模式集成】 ---
+        # "霸占"模式: 成交额巨量放大，同时价格处于相对低位
+        # FF:=(EMA(EE,5) / REF(EMA(EE,5),5)); WW:=((100 * (CLOSE - DD)) / (CC - DD));
+        # 霸占:=FILTER(((((((FF>=2))AND(WW<35)))AND(BARSCOUNT(CLOSE)>30))OR(((((FF>=2))AND(WW<100)))AND(BARSCOUNT(CLOSE)<50))),90);
+        # 假设 DD = LLV(C,120), CC = HHV(C,120)
+        # 确保 amount_D 存在
+        if 'amount_D' in df.columns:
+            # 计算 FF (成交额EMA的相对变化)
+            ema_amount_5 = df['amount_D'].ewm(span=5, adjust=False).mean()
+            ff_ratio = ema_amount_5 / ema_amount_5.shift(1)
+            # 计算 WW (价格在120日高低区间的相对位置)
+            llv_c_120 = df['close_D'].rolling(window=120, min_periods=1).min()
+            hhv_c_120 = df['close_D'].rolling(window=120, min_periods=1).max()
+            ww_position = (df['close_D'] - llv_c_120) / (hhv_c_120 - llv_c_120).replace(0, np.nan) * 100
+            # 霸占条件
+            cond_ff_high = (ff_ratio >= 2)
+            cond_ww_low = (ww_position < 35)
+            cond_ww_any = (ww_position < 100) # 原始公式中BARSCOUNT(CLOSE)<50时WW<100，这里简化为WW<100
+            cond_bars_gt_30 = (df.index.to_series().diff().dt.days.cumsum().fillna(0) > 30) # 简化BARSCOUNT(CLOSE)>30
+            cond_bars_lt_50 = (df.index.to_series().diff().dt.days.cumsum().fillna(0) < 50) # 简化BARSCOUNT(CLOSE)<50
+            # 霸占模式的逻辑
+            is_bazhan = (cond_ff_high & cond_ww_low & cond_bars_gt_30) | (cond_ff_high & cond_ww_any & cond_bars_lt_50)
+            df['IS_BAZHAN_D'] = is_bazhan.fillna(False)
+        else:
+            df['IS_BAZHAN_D'] = False
+            logger.warning("高级模式识别引擎缺少 'amount_D' 列，无法计算 '霸占' 模式。")
+
+        # "WW1"模式: 跳空低开高走放量
+        # WW1:=FILTER(O<REF(L,1) AND C>O AND VOL>REF(V,1),13);
+        if 'open_D' in df.columns and 'volume_D' in df.columns:
+            cond_open_below_prev_low = (df['open_D'] < df['low_D'].shift(1))
+            cond_close_above_open = (df['close_D'] > df['open_D'])
+            cond_volume_increase = (df['volume_D'] > df['volume_D'].shift(1))
+            is_ww1 = cond_open_below_prev_low & cond_close_above_open & cond_volume_increase
+            # 原始公式有FILTER(..., 13)，表示连续13天内出现过一次。这里简化为当日出现。
+            df['IS_WW1_D'] = is_ww1.fillna(False)
+        else:
+            df['IS_WW1_D'] = False
+            logger.warning("高级模式识别引擎缺少 'open_D' 或 'volume_D' 列，无法计算 'WW1' 模式。")
+
+        # --- 4. 【信号整合与输出】 ---
+        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D', 'IS_BAZHAN_D', 'IS_WW1_D'] # 修改行: 增加新模式
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.2 势能分析集成与逻辑强化版)分析完成。")
+        logger.info("高级模式识别引擎(V3.3 通达信模式集成版)分析完成。") # 修改行
         return all_dfs
 
     async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:

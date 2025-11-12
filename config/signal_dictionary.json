@@ -1,6 +1,6 @@
 {
     "score_type_map": {
-        "说明": "【V88.3 · 深度博弈版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
+        "说明": "【V88.4 · 通达信模式与均线动态增强版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
@@ -269,6 +269,18 @@
             "penalty_weight": -2000,
             "description": "【原子风险】识别“天地板”模式的风险强度。"
         },
+        "IS_BAZHAN_D": {
+            "cn_name": "【模式】霸占模式",
+            "category": "模式层-原子",
+            "type": "context",
+            "description": "【通达信模式】识别成交额巨量放大，同时价格处于相对低位的主力吸筹模式。"
+        },
+        "IS_WW1_D": {
+            "cn_name": "【模式】WW1模式",
+            "category": "模式层-原子",
+            "type": "context",
+            "description": "【通达信模式】识别跳空低开高走放量的K线形态，是强烈的看涨反转信号。"
+        },
         "说明_process_intelligence": "--- 过程层信号 (Process Intelligence) ---",
         "PROCESS_META_STOCK_SECTOR_SYNC": {
             "cn_name": "【过程】个股板块同步",
@@ -411,6 +423,14 @@
             "score": 280,
             "scoring_mode": "bipolar",
             "description": "【V2.0 重构】诊断'价格'与'主力成本优势'的共识趋势。正分代表价格上涨的同时主力成本优势扩大，是极强的看涨信号。"
+        },
+        "PROCESS_META_MAIN_FORCE_CONTROL": {
+            "cn_name": "【过程】主力控盘",
+            "category": "过程层-基础",
+            "type": "process",
+            "score": 250,
+            "scoring_mode": "bipolar",
+            "description": "【V1.0】诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。正分代表主力控盘强且趋势向上。"
         },
         "PROCESS_META_PROFIT_VS_FLOW": {
             "cn_name": "【过程】主力盈亏vs流量",
@@ -890,6 +910,12 @@
             "type": "context",
             "description": "【力学公理四】诊断推动价格运动的“燃料”是否充足。正分代表健康的能量支持，负分代表能量衰竭或背离。"
         },
+        "SCORE_DYN_AXIOM_MA_ACCELERATION": {
+            "cn_name": "【力学公理】均线动态",
+            "category": "力学层-原子",
+            "type": "context",
+            "description": "【力学公理六】诊断均线的速度和加速度，评估趋势的内在变化。正分代表均线加速向上，负分代表均线加速向下。"
+        },
         "SCORE_DYN_AXIOM_DIVERGENCE": {
             "cn_name": "【力学公理】力学背离",
             "category": "力学层-原子",
@@ -951,7 +977,7 @@
             "type": "context",
             "description": "【基础公理五】诊断价格趋势与摆动指标之间的背离。正分代表看涨背离（如价创新低RSI不创新低），负分代表看跌背离（如价创新高RSI不创新高）。"
         },
-        "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
+        "说明_pattern_ultimate": "--- 形态层-终极信号 (现为内部状态) ---",
         "SCORE_PATTERN_BULLISH_DIVERGENCE": {
             "cn_name": "【形态】看涨背离",
             "category": "内部计分-形态",

@@ -66,9 +66,10 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 结构质量增强版】结构公理一：诊断“趋势形态”
+        【V1.2 · 结构质量增强与均线角度版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
+        - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -91,12 +92,16 @@ class StructuralIntelligence:
         burstiness_score = normalize_score(volume_burstiness_raw, df_index, norm_window, ascending=True).fillna(0.0)
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
+        # 新增均线角度作为趋势证据
+        ma_angle_raw = df.get('ATAN_ANGLE_EMA_55_D', pd.Series(0.0, index=df_index))
+        ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0) # 敏感度调整
         # 融合新的指标
         # 爆裂度作为乘数因子，增强趋势的强度
         # 上涨推力效能直接增强多头分数
         # 下跌吸收效能直接增强空头分数（下跌趋势的效率）
-        bull_score = pd.Series(bull_alignment * bull_velocity, index=df_index) * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1
-        bear_score = pd.Series(bear_alignment * bear_velocity, index=df_index) * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1
+        # 均线角度直接增强多头/空头分数
+        bull_score = pd.Series(bull_alignment * bull_velocity, index=df_index) * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1
+        bear_score = pd.Series(bear_alignment * bear_velocity, index=df_index) * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1 + ma_angle_score.clip(upper=0).abs() * 0.1
         trend_form_score = (bull_score - bear_score).clip(-1, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -109,6 +114,7 @@ class StructuralIntelligence:
                 print(f"       - bull_velocity: {bull_velocity[df.index.get_loc(probe_date_for_loop)]:.4f}")
                 print(f"       - burstiness_score: {burstiness_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - upward_efficacy_score: {upward_efficacy_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - ma_angle_score: {ma_angle_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_score: {bull_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bear_score: {bear_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_form_score: {trend_form_score.loc[probe_date_for_loop]:.4f}")

@@ -76,6 +76,8 @@ class ProcessIntelligence:
             return self._calculate_main_force_urgency_relationship(df, config)
         if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND': # 增加对 PROCESS_META_COST_ADVANTAGE_TREND 的判断
             return self._calculate_cost_advantage_trend_relationship(df, config) # 调用定制化方法
+        if signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL': # 新增对 PROCESS_META_MAIN_FORCE_CONTROL 的判断
+            return self._calculate_main_force_control_relationship(df, config) # 调用定制化方法
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
@@ -89,8 +91,8 @@ class ProcessIntelligence:
             if series is None:
                 print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
             return series
-        signal_a = get_signal_series(signal_a_name, config.get('source_A', 'df'))
-        signal_b = get_signal_series(signal_b_name, config.get('source_B', 'df'))
+        signal_a = get_signal_series(config.get('signal_A'), config.get('source_A', 'df'))
+        signal_b = get_signal_series(config.get('signal_B'), config.get('source_B', 'df'))
         if signal_a is None or signal_b is None:
             return pd.Series(dtype=np.float32)
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
@@ -227,6 +229,53 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_initial_urgency_score"] = initial_urgency_score
         self.strategy.atomic_states[f"_DEBUG_final_urgency_score_raw"] = final_urgency_score
         return final_urgency_score.astype(np.float32)
+
+    def _calculate_main_force_control_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
+        """
+        【V1.0】计算“主力控盘”的专属关系分数。
+        - 核心逻辑: 诊断主力控盘的强度和趋势，基于通达信公式中的“控盘”和“有庄控盘”逻辑。
+        - 证据链:
+          1. 控盘指标 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
+          2. 控盘趋势 (控盘>REF(控盘,1) AND 控盘>0)
+          3. 主力资金净流入 (main_force_net_flow_calibrated_D)
+        - 输出: [-1, 1] 的双极性分数，正分代表主力控盘强且趋势向上，负分代表控盘弱或趋势向下。
+        """
+        print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (主力控盘)...")
+        df_index = df.index
+        std_window = self.std_window
+        bipolar_sensitivity = self.bipolar_sensitivity
+        # 1. 计算 VARN1 (EMA(EMA(CLOSE,13),13))
+        ema13 = ta.ema(close=df['close_D'], length=13, append=False)
+        varn1 = ta.ema(close=ema13, length=13, append=False)
+        # 2. 计算控盘 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
+        # 避免除以零
+        prev_varn1 = varn1.shift(1).replace(0, np.nan)
+        kongpan_raw = (varn1 - prev_varn1) / prev_varn1 * 1000
+        # 3. 计算有庄控盘 (控盘>REF(控盘,1) AND 控盘>0)
+        youzhuang_kongpan = (kongpan_raw > kongpan_raw.shift(1)) & (kongpan_raw > 0)
+        # 4. 主力资金净流入作为确认
+        main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
+        # 5. 归一化为双极性分数
+        kongpan_score = normalize_to_bipolar(kongpan_raw, df_index, std_window, bipolar_sensitivity)
+        main_force_flow_score = normalize_to_bipolar(main_force_net_flow, df_index, std_window, bipolar_sensitivity)
+        # 6. 融合：控盘强度 * 控盘趋势 * 主力资金流
+        # 只有在有庄控盘为True时，才考虑控盘强度和资金流
+        final_control_score = pd.Series(0.0, index=df_index)
+        # 将 youzhuang_kongpan 转换为 float 类型，以便进行乘法运算
+        youzhuang_kongpan_float = youzhuang_kongpan.astype(float)
+        # 控盘分数和资金流分数都为正时，才贡献正分
+        final_control_score = (kongpan_score.clip(lower=0) * main_force_flow_score.clip(lower=0) * youzhuang_kongpan_float).pow(1/3)
+        # 如果控盘分数或资金流分数是负的，则贡献负分
+        final_control_score = final_control_score.mask(kongpan_score < 0, kongpan_score.clip(upper=0))
+        final_control_score = final_control_score.mask(main_force_flow_score < 0, main_force_flow_score.clip(upper=0))
+        # 最终分数在 [-1, 1] 之间
+        final_control_score = final_control_score.clip(-1, 1)
+        self.strategy.atomic_states[f"_DEBUG_kongpan_raw"] = kongpan_raw
+        self.strategy.atomic_states[f"_DEBUG_youzhuang_kongpan"] = youzhuang_kongpan
+        self.strategy.atomic_states[f"_DEBUG_kongpan_score"] = kongpan_score
+        self.strategy.atomic_states[f"_DEBUG_main_force_flow_score"] = main_force_flow_score
+        print(f"    -> [过程层] PROCESS_META_MAIN_FORCE_CONTROL 计算完成，最新分值: {final_control_score.iloc[-1]:.4f}")
+        return final_control_score.astype(np.float32)
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """

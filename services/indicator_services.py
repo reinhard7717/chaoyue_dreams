@@ -678,10 +678,11 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.17 · 参数隔离修复版】根据配置为指定时间周期计算所有技术指标。
+        【V110.18 · 通达信指标集成版】根据配置为指定时间周期计算所有技术指标。
         - 核心修复: 隔离了 'suffix' 参数的传递。不再将其普遍添加到 kwargs_iter 中，
                       而是仅在调用真正需要它的函数（如boll_bands_and_width, vwap）时才显式添加。
                       这彻底解决了因参数泄漏导致的 TypeError。
+        - 【新增】集成 calculate_dma, calculate_atan_ma_angle, calculate_ma_velocity_acceleration, calculate_zigzag 方法。
         """
         if not config:
             return df
@@ -700,6 +701,10 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
+            'dma': self.calculator.calculate_dma, # 新增
+            'atan_ma_angle': self.calculator.calculate_atan_ma_angle, # 新增
+            'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration, # 新增
+            'zigzag': self.calculator.calculate_zigzag, # 新增
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
@@ -719,8 +724,8 @@ class IndicatorService:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
-            'price_volume_ma_comparison', 'zscore', 
-            'fibonacci_levels'
+            'price_volume_ma_comparison', 'zscore',
+            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag' # 新增
         ]
         close_col_tf = f'close_{timeframe_key}'
         high_col_tf = f'high_{timeframe_key}'
@@ -773,6 +778,38 @@ class IndicatorService:
                             'close_col': close_col_tf, 'volume_col': volume_col_tf,
                             'suffix': f"_{timeframe_key}"
                         })
+                        result_df = await method_to_call(**kwargs)
+                        merge_results(result_df, df_for_calc)
+                        continue
+                    if indicator_name == 'dma': # 新增 DMA 计算逻辑
+                        smooth_factor_col = sub_config.get('smooth_factor_col')
+                        if smooth_factor_col and smooth_factor_col in df_for_calc.columns:
+                            kwargs.update({'smooth_factor_series': df_for_calc[smooth_factor_col], 'close_col': close_col_tf})
+                            result_df = await method_to_call(**kwargs)
+                            merge_results(result_df, df_for_calc)
+                        else:
+                            logger.warning(f"DMA计算失败：缺少平滑因子列 '{smooth_factor_col}'。")
+                        continue
+                    if indicator_name == 'atan_ma_angle': # 新增 ATAN 均线角度计算逻辑
+                        ma_col_to_angle = sub_config.get('ma_col')
+                        if ma_col_to_angle and ma_col_to_angle in df_for_calc.columns:
+                            kwargs.update({'ma_col': ma_col_to_angle})
+                            result_df = await method_to_call(**kwargs)
+                            merge_results(result_df, df_for_calc)
+                        else:
+                            logger.warning(f"ATAN 均线角度计算失败：缺少均线列 '{ma_col_to_angle}'。")
+                        continue
+                    if indicator_name == 'ma_velocity_acceleration': # 新增均线速度加速度计算逻辑
+                        ma_col_to_calc = sub_config.get('ma_col')
+                        if ma_col_to_calc and ma_col_to_calc in df_for_calc.columns:
+                            kwargs.update({'ma_col': ma_col_to_calc, 'ema_period': sub_config.get('ema_period', 3), 'sma_period': sub_config.get('sma_period', 3)})
+                            result_df = await method_to_call(**kwargs)
+                            merge_results(result_df, df_for_calc)
+                        else:
+                            logger.warning(f"均线速度加速度计算失败：缺少均线列 '{ma_col_to_calc}'。")
+                        continue
+                    if indicator_name == 'zigzag': # 新增 ZIGZAG 计算逻辑
+                        kwargs.update({'period': sub_config.get('period', 3), 'percent': sub_config.get('percent', 5.0), 'close_col': close_col_tf})
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue

@@ -77,14 +77,16 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.5 · 数学重构与峰融合增强版】筹码公理一：诊断筹码“聚散”动态
+        【V2.6 · 数学重构与峰融合增强版】筹码公理一：诊断筹码“聚散”动态
         - 核心修复: 遵循“先归一，后融合”原则。不再对原始值进行武断缩放，而是先将“集中度水平”和“集中趋势”
                       分别归一化为[-1, 1]的双极性分数，然后再进行加权融合，确保模型在不同市场环境下的健壮性。
         - 引入 `peak_fusion_indicator` (筹码峰融合指标) 作为判断筹码集中度的重要证据。
+        - 【新增】引入 ZIGZAG 趋势作为辅助证据，增强对集中度有效性的判断。
         """
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
-            'peak_fusion_indicator_D' # 增加 peak_fusion_indicator_D
+            'peak_fusion_indicator_D', # 增加 peak_fusion_indicator_D
+            'ZIG_5_5.0_D' # 新增 ZIGZAG 信号
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -101,14 +103,18 @@ class ChipIntelligence:
             if slope_col in df.columns:
                 concentration_trend_raw += df.get(slope_col, 0.0)
         concentration_trend_raw /= len(periods)
-        peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index)) # 新增行
+        peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index))
+        # 新增 ZIGZAG 趋势作为辅助证据
+        zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index)).diff(1).fillna(0)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
         trend_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
-        fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0) # 归一化融合指标，越高越好
-        # 融合 fusion_score
-        final_score = (level_score * 0.3 + trend_score * 0.4 + fusion_score * 0.3).clip(-1, 1) # 调整权重
+        fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0)
+        # 归一化 ZIGZAG 趋势，向上为正，向下为负
+        zigzag_score = utils.get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.1)
+        # 融合 fusion_score 和 zigzag_score
+        final_score = (level_score * 0.25 + trend_score * 0.35 + fusion_score * 0.25 + zigzag_score * 0.15).clip(-1, 1) # 调整权重
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -119,6 +125,7 @@ class ChipIntelligence:
                 print(f"       - level_score: {level_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - trend_score: {trend_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fusion_score: {fusion_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - zigzag_score: {zigzag_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 

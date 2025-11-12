@@ -368,9 +368,10 @@ class CognitiveIntelligence:
 
     def _deduce_capitulation_reversal(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.4 · 纯粹原子版】贝叶斯推演：“恐慌投降反转”剧本
+        【V3.5 · 纯粹原子与WW1模式版】贝叶斯推演：“恐慌投降反转”剧本
         - 核心修复: 将证据 'SCORE_MICRO_BULLISH_RESONANCE' 修正为 'PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL'，
                       以符合新的信号生成职责。
+        - 【新增】引入“WW1”模式作为恐慌投降反转的证据。
         """
         print("    -- [剧本推演] 恐慌投降反转 (动态证据)...")
         upward_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(lower=0))
@@ -380,11 +381,12 @@ class CognitiveIntelligence:
         volume_evidence = self._forge_dynamic_evidence(normalize_score(volume_spike, self.strategy.df_indicators.index, 55))
         process_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0).clip(lower=0))
         micro_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL', 0.0).clip(lower=0))
+        ww1_mode = self._forge_dynamic_evidence(self._get_atomic_score('IS_WW1_D', 0.0).astype(float)) # 新增行
         evidence_scores = np.stack([
             upward_pressure.values, price_rebound_evidence.values, volume_evidence.values,
-            process_evidence.values, micro_evidence.values
+            process_evidence.values, micro_evidence.values, ww1_mode.values # 修改行
         ], axis=0)
-        evidence_weights = np.array([0.1, 0.2, 0.2, 0.3, 0.2])
+        evidence_weights = np.array([0.1, 0.2, 0.15, 0.25, 0.15, 0.15]) # 调整权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
@@ -395,16 +397,18 @@ class CognitiveIntelligence:
 
     def _deduce_leading_dragon_awakening(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 军备换装版】贝叶斯推演：“龙头苏醒”剧本
+        【V1.3 · 军备换装与霸占模式版】贝叶斯推演：“龙头苏醒”剧本
         - 核心修复: 将证据 'relative_strength_vs_index_D' 替换为更精准的 'industry_strength_rank_D'。
+        - 【新增】引入“霸占”模式作为龙头苏醒的证据。
         """
         print("    -- [剧本推演] 龙头苏醒 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
         breakout_quality = self._forge_dynamic_evidence(self._get_atomic_score('breakout_quality_score_D', 0.0))
         sector_sync = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STOCK_SECTOR_SYNC', 0.0).clip(lower=0))
         relative_strength = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('industry_strength_rank_D', 0.5), self.strategy.df_indicators.index, 55))
-        evidence_scores = np.stack([capital_confrontation.values, breakout_quality.values, sector_sync.values, relative_strength.values], axis=0)
-        evidence_weights = np.array([0.3, 0.3, 0.2, 0.2])
+        bazhan_mode = self._forge_dynamic_evidence(self._get_atomic_score('IS_BAZHAN_D', 0.0).astype(float)) # 新增行
+        evidence_scores = np.stack([capital_confrontation.values, breakout_quality.values, sector_sync.values, relative_strength.values, bazhan_mode.values], axis=0) # 修改行
+        evidence_weights = np.array([0.25, 0.25, 0.15, 0.15, 0.2]) # 调整权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
         likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)

@@ -115,11 +115,12 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.5 · 趋势质量探针版】冶炼“趋势质量” (Trend Quality)
+        【V1.6 · 均线动态增强版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         - 增加调试探针，打印组成公理在探针日期的值及其贡献。
         - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
+        - 【新增】引入均线动态（速度和加速度）作为趋势质量的组成部分。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -148,6 +149,7 @@ class FusionIntelligence:
         dynamic_inertia = self._get_atomic_score('SCORE_DYN_AXIOM_INERTIA', 0.0)
         dynamic_stability = self._get_atomic_score('SCORE_DYN_AXIOM_STABILITY', 0.0)
         dynamic_energy = self._get_atomic_score('SCORE_DYN_AXIOM_ENERGY', 0.0)
+        dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0) # 新增行
         # 资金流层公理
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
@@ -170,7 +172,7 @@ class FusionIntelligence:
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
         # 主力在主峰区的净流入
         # 假设 main_force_on_peak_flow_D 已经通过 ProcessIntelligence 归一化为双极性分数
-        main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0) 
+        main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0)
         # 定义所有组成公理及其权重
         # 这是一个示例性的加权融合，实际权重需要通过回测和优化确定
         components_and_weights = {
@@ -185,6 +187,7 @@ class FusionIntelligence:
             'dynamic_inertia': (dynamic_inertia, 0.1),
             'dynamic_stability': (dynamic_stability, 0.05),
             'dynamic_energy': (dynamic_energy, 0.05),
+            'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.05), # 新增权重
             'fund_flow_consensus': (fund_flow_consensus, 0.05),
             'fund_flow_conviction': (fund_flow_conviction, 0.05),
             'fund_flow_increment': (fund_flow_increment, 0.05),

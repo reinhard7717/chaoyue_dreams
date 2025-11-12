@@ -253,6 +253,95 @@ class IndicatorCalculator:
             logger.error(f"计算 CMF (周期 {period}) 时发生未知异常: {e}", exc_info=True)
             return None
 
+    async def calculate_dma(self, df: pd.DataFrame, smooth_factor_series: pd.Series, close_col: str = 'close') -> Optional[pd.DataFrame]:
+        """
+        【V1.0】计算 DMA (动态移动平均线)。
+        - 核心逻辑: DMA 的平滑因子是一个动态变化的 Series，而不是固定的周期。
+        - 数学公式: DMA = (CLOSE * smooth_factor + REF(DMA,1) * (1 - smooth_factor))
+        """
+        if df is None or df.empty or close_col not in df.columns:
+            logger.warning(f"计算 DMA 失败：输入 DataFrame 为空或缺少 '{close_col}' 列。")
+            return None
+        if smooth_factor_series is None or smooth_factor_series.empty:
+            logger.warning(f"计算 DMA 失败：平滑因子 Series 为空。")
+            return None
+        # 确保 smooth_factor_series 的索引与 df 对齐
+        smooth_factor_series = smooth_factor_series.reindex(df.index, fill_value=0).clip(0, 1) # 平滑因子应在 [0, 1] 之间
+        try:
+            def _sync_dma():
+                dma_series = pd.Series(np.nan, index=df.index)
+                # 初始值
+                dma_series.iloc[0] = df[close_col].iloc[0]
+                for i in range(1, len(df)):
+                    sf = smooth_factor_series.iloc[i]
+                    if pd.isna(sf) or sf == 0: # 如果平滑因子为0，则DMA保持不变
+                        dma_series.iloc[i] = dma_series.iloc[i-1]
+                    else:
+                        dma_series.iloc[i] = df[close_col].iloc[i] * sf + dma_series.iloc[i-1] * (1 - sf)
+                return dma_series
+            dma_series = await asyncio.to_thread(_sync_dma)
+            if dma_series is None or dma_series.empty:
+                logger.warning(f"DMA 计算结果为空。")
+                return None
+            return pd.DataFrame({'DMA': dma_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 DMA (close_col={close_col}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_atan_ma_angle(self, df: pd.DataFrame, ma_col: str) -> Optional[pd.DataFrame]:
+        """
+        【V1.0】计算均线的角度 (ATAN)。
+        - 核心逻辑: 将均线的日间变化率转换为角度，反映均线的陡峭程度。
+        - 数学公式: ATAN((MA / REF(MA,1) - 1) * 100) * 180 / PI
+        """
+        if df is None or df.empty or ma_col not in df.columns:
+            logger.warning(f"计算 ATAN 均线角度失败：输入 DataFrame 为空或缺少 '{ma_col}' 列。")
+            return None
+        try:
+            def _sync_atan_angle():
+                ma_series = df[ma_col]
+                # 避免除以零
+                prev_ma = ma_series.shift(1).replace(0, np.nan)
+                # 计算变化率
+                change_rate = (ma_series / prev_ma - 1) * 100
+                # 计算角度，并转换为度
+                angle_series = np.arctan(change_rate) * 180 / np.pi
+                return angle_series
+            angle_series = await asyncio.to_thread(_sync_atan_angle)
+            if angle_series is None or angle_series.empty:
+                logger.warning(f"ATAN 均线角度计算结果为空。")
+                return None
+            return pd.DataFrame({f'ATAN_ANGLE_{ma_col}': angle_series}, index=df.index)
+        except Exception as e:
+            logger.error(f"计算 ATAN 均线角度 (ma_col={ma_col}) 出错: {e}", exc_info=True)
+            return None
+
+    async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
+        """【V1.2 · f-string修复版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
+        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
+        if len(df) < period: return None
+        try:
+            def _sync_dmi():
+                return ta.adx(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
+            dmi_df = await asyncio.to_thread(_sync_dmi)
+            if dmi_df is None or dmi_df.empty: return None
+            rename_map = {
+                f'DMP_{period}': f'PDI_{period}',
+                f'DMN_{period}': f'NDI_{period}',
+                f'ADX_{period}': f'ADX_{period}'
+            }
+            result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
+            # 修复 f-string 遗忘错误
+            final_cols = [f'PDI_{period}', f'NDI_{period}', f'ADX_{period}']
+            # 确保所有列都存在再进行选择
+            existing_cols = [col for col in final_cols if col in result_df.columns]
+            if not existing_cols:
+                return None
+            return result_df[existing_cols]
+        except Exception as e:
+            logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
+            return None
+
     async def calculate_kdj(self, df: pd.DataFrame, period: int = 9, signal_period: int = 3, smooth_k_period: int = 3, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:
         """计算KDJ指标"""
         required_cols = [high_col, low_col, close_col]
@@ -299,6 +388,44 @@ class IndicatorCalculator:
             logger.error(f"计算 MA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
+    async def calculate_ma_velocity_acceleration(self, df: pd.DataFrame, ma_col: str, ema_period: int = 3, sma_period: int = 3) -> Optional[pd.DataFrame]:
+        """
+        【V1.0】计算均线的速度和加速度。
+        - 核心逻辑: 速度是均线变化率的平滑，加速度是速度的平滑变化。
+        - 数学公式:
+          速度 = SMA(EMA((MA - REF(MA,1))/REF(MA,1), ema_period) * 100, sma_period, 1)
+          加速度 = EMA((速度 - REF(速度,1)), ema_period)
+        """
+        if df is None or df.empty or ma_col not in df.columns:
+            logger.warning(f"计算均线速度加速度失败：输入 DataFrame 为空或缺少 '{ma_col}' 列。")
+            return None
+        try:
+            def _sync_calc():
+                ma_series = df[ma_col]
+                # 避免除以零
+                prev_ma = ma_series.shift(1).replace(0, np.nan)
+                # 均线变化率
+                ma_change_rate = (ma_series / prev_ma - 1) * 100
+                # 速度: EMA平滑变化率，再SMA平滑
+                velocity_ema = ta.ema(close=ma_change_rate, length=ema_period, append=False)
+                velocity_series = ta.sma(close=velocity_ema, length=sma_period, append=False)
+                # 加速度: EMA平滑速度的变化
+                prev_velocity = velocity_series.shift(1)
+                acceleration_series = ta.ema(close=(velocity_series - prev_velocity), length=ema_period, append=False)
+                results_df = pd.DataFrame({
+                    f'MA_VELOCITY_{ma_col}': velocity_series,
+                    f'MA_ACCELERATION_{ma_col}': acceleration_series
+                }, index=df.index)
+                return results_df
+            results_df = await asyncio.to_thread(_sync_calc)
+            if results_df is None or results_df.empty:
+                logger.warning(f"均线速度加速度计算结果为空。")
+                return None
+            return results_df
+        except Exception as e:
+            logger.error(f"计算均线速度加速度 (ma_col={ma_col}) 出错: {e}", exc_info=True)
+            return None
+
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
         """【V1.1 · 命名净化版】计算 EMA (指数移动平均线)"""
         if df is None or df.empty or close_col not in df.columns: return None
@@ -314,30 +441,82 @@ class IndicatorCalculator:
             logger.error(f"计算 EMA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
-        """【V1.2 · f-string修复版】计算 DMI (动向指标), 包括 PDI (+DI), NDI (-DI), ADX"""
-        if df is None or df.empty or not all(c in df.columns for c in [high_col, low_col, close_col]): return None
-        if len(df) < period: return None
+    async def calculate_zigzag(self, df: pd.DataFrame, period: int = 3, percent: float = 5.0, close_col: str = 'close') -> Optional[pd.DataFrame]:
+        """
+        【V1.0】计算 ZIGZAG 指标。
+        - 核心逻辑: 识别价格的主要趋势和转折点，过滤掉小于指定百分比的波动。
+        - 注意: pandas_ta 没有直接的 zigzag 实现，这里需要手动实现或使用其他库。
+                为了简化，这里将使用一个基于百分比回撤的简化逻辑。
+        """
+        if df is None or df.empty or close_col not in df.columns:
+            logger.warning(f"计算 ZIGZAG 失败：输入 DataFrame 为空或缺少 '{close_col}' 列。")
+            return None
+        if len(df) < period:
+            logger.warning(f"数据行数 ({len(df)}) 不足以计算周期为 {period} 的 ZIGZAG。")
+            return None
         try:
-            def _sync_dmi():
-                return ta.adx(high=df[high_col], low=df[low_col], close=df[close_col], length=period)
-            dmi_df = await asyncio.to_thread(_sync_dmi)
-            if dmi_df is None or dmi_df.empty: return None
-            rename_map = {
-                f'DMP_{period}': f'PDI_{period}',
-                f'DMN_{period}': f'NDI_{period}',
-                f'ADX_{period}': f'ADX_{period}'
-            }
-            result_df = dmi_df.rename(columns={k: v for k, v in rename_map.items() if k in dmi_df.columns})
-            # 修复 f-string 遗忘错误
-            final_cols = [f'PDI_{period}', f'NDI_{period}', f'ADX_{period}']
-            # 确保所有列都存在再进行选择
-            existing_cols = [col for col in final_cols if col in result_df.columns]
-            if not existing_cols:
+            def _sync_zigzag():
+                prices = df[close_col].values
+                zigzag_points = [prices[0]]
+                zigzag_indices = [0]
+                last_peak = prices[0]
+                last_peak_idx = 0
+                last_trough = prices[0]
+                last_trough_idx = 0
+                trend = 0 # 0: flat, 1: up, -1: down
+                for i in range(1, len(prices)):
+                    current_price = prices[i]
+                    if trend == 0:
+                        if current_price >= last_peak * (1 + percent / 100):
+                            trend = 1
+                            last_peak = current_price
+                            last_peak_idx = i
+                        elif current_price <= last_trough * (1 - percent / 100):
+                            trend = -1
+                            last_trough = current_price
+                            last_trough_idx = i
+                    elif trend == 1: # Up trend
+                        if current_price > last_peak:
+                            last_peak = current_price
+                            last_peak_idx = i
+                        elif current_price <= last_peak * (1 - percent / 100):
+                            # New trough detected
+                            zigzag_points.append(last_peak)
+                            zigzag_indices.append(last_peak_idx)
+                            last_trough = current_price
+                            last_trough_idx = i
+                            trend = -1
+                    elif trend == -1: # Down trend
+                        if current_price < last_trough:
+                            last_trough = current_price
+                            last_trough_idx = i
+                        elif current_price >= last_trough * (1 + percent / 100):
+                            # New peak detected
+                            zigzag_points.append(last_trough)
+                            zigzag_indices.append(last_trough_idx)
+                            last_peak = current_price
+                            last_peak_idx = i
+                            trend = 1
+                # Add the last point
+                if trend == 1:
+                    zigzag_points.append(last_peak)
+                    zigzag_indices.append(last_peak_idx)
+                elif trend == -1:
+                    zigzag_points.append(last_trough)
+                    zigzag_indices.append(last_trough_idx)
+                zigzag_series = pd.Series(np.nan, index=df.index)
+                for i in range(len(zigzag_points)):
+                    zigzag_series.iloc[zigzag_indices[i]] = zigzag_points[i]
+                # 前向填充，使每个点都有一个zigzag值，代表其所属的zigzag段
+                zigzag_series = zigzag_series.ffill().bfill()
+                return zigzag_series
+            zigzag_series = await asyncio.to_thread(_sync_zigzag)
+            if zigzag_series is None or zigzag_series.empty:
+                logger.warning(f"ZIGZAG (period={period}, percent={percent}) 计算结果为空。")
                 return None
-            return result_df[existing_cols]
+            return pd.DataFrame({f'ZIG_{period}_{percent}': zigzag_series}, index=df.index)
         except Exception as e:
-            logger.error(f"计算 DMI (周期 {period}) 出错: {e}", exc_info=True)
+            logger.error(f"计算 ZIGZAG (period={period}, percent={percent}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_ichimoku(self, df: pd.DataFrame, tenkan_period: int = 9, kijun_period: int = 26, senkou_period: int = 52, name_suffix: Optional[str] = None, high_col='high', low_col='low', close_col='close') -> Optional[pd.DataFrame]:

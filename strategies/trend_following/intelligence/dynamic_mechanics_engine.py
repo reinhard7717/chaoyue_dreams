@@ -13,10 +13,10 @@ class DynamicMechanicsEngine:
 
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.7 · 纯粹原子版】动态力学引擎总指挥
+        【V5.8 · 均线动态增强版】动态力学引擎总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出力学领域的原子公理信号和力学背离信号。
-        - 移除信号: SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE, SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE, BIPOLAR_DYNAMIC_MECHANICS_DOMAIN_HEALTH, SCORE_DYNAMIC_MECHANICS_BOTTOM_REVERSAL, SCORE_DYNAMIC_MECHANICS_TOP_REVERSAL。
+        - 【新增】集成均线速度和加速度作为新的力学公理。
         """
         p_conf = get_params_block(self.strategy, 'dynamic_mechanics_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -29,12 +29,14 @@ class DynamicMechanicsEngine:
         axiom_inertia = self._diagnose_axiom_inertia(df, norm_window)
         axiom_stability = self._diagnose_axiom_stability(df, norm_window)
         axiom_energy = self._diagnose_axiom_energy(df, norm_window)
+        axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df, norm_window) # 新增行
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = axiom_momentum
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = axiom_inertia
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = axiom_stability
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = axiom_energy
+        all_dynamic_states['SCORE_DYN_AXIOM_MA_ACCELERATION'] = axiom_ma_dynamics # 新增行
         # 引入力学层面的看涨/看跌背离信号 (保持不变)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
@@ -64,12 +66,13 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.2 · 稳健融合重构版】力学公理二：诊断“惯性”
+        【V2.3 · 均线动态增强版】力学公理二：诊断“惯性”
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 1. 将趋势强度(ADX)、序列记忆(Hurst)、路径平滑度(Fractal)分别评估为[0,1]的“惯性质量分”。
                    2. 将这三个质量分加权平均，得到一个总体的“惯性质量”。
                    3. 使用趋势方向(PDI/NDI)作为最终的符号，决定惯性是看涨还是看跌。
                    这从根本上解决了因单一维度疲软而导致“一票否决”的系统性风险。
+        - 【新增】引入均线速度和加速度作为惯性判断的证据。
         """
         adx_strength = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
@@ -81,10 +84,15 @@ class DynamicMechanicsEngine:
             fractal_smoothness = normalize_score(fractal_dim, df.index, norm_window, ascending=False)
         else:
             fractal_smoothness = pd.Series(0.5, index=df.index)
+        # 新增均线速度和加速度作为惯性证据
+        ma_velocity = normalize_score(df.get('MA_VELOCITY_EMA_55_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        ma_acceleration = normalize_score(df.get('MA_ACCELERATION_EMA_55_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         inertia_quality = (
-            adx_strength * 0.4 +
-            hurst_quality * 0.4 +
-            fractal_smoothness * 0.2
+            adx_strength * 0.3 +
+            hurst_quality * 0.3 +
+            fractal_smoothness * 0.1 +
+            ma_velocity * 0.15 + # 新增权重
+            ma_acceleration * 0.15 # 新增权重
         ).clip(0, 1)
         adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float) * 2 - 1
         inertia_score = (inertia_quality * adx_direction).clip(-1, 1)
@@ -130,3 +138,26 @@ class DynamicMechanicsEngine:
             cmf_bipolar * 0.5
         ).clip(-1, 1)
         return energy_score.astype(np.float32)
+
+    def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
+        """
+        【V1.0】力学公理六：诊断“均线动态”
+        - 核心逻辑: 融合均线的速度和加速度，评估趋势的内在变化。
+        - 正分代表均线加速向上，负分代表均线加速向下。
+        """
+        df_index = df.index
+        # 假设我们关注 EMA55 的动态
+        ma_col = 'EMA_55_D'
+        velocity_col = f'MA_VELOCITY_{ma_col}_D'
+        acceleration_col = f'MA_ACCELERATION_{ma_col}_D'
+        if velocity_col not in df.columns or acceleration_col not in df.columns:
+            print(f"    -> [均线动态探针] 警告: 缺少均线速度或加速度列 ({velocity_col}, {acceleration_col})，使用默认值0.0。")
+            return pd.Series(0.0, index=df_index)
+        velocity_raw = df.get(velocity_col, pd.Series(0.0, index=df_index))
+        acceleration_raw = df.get(acceleration_col, pd.Series(0.0, index=df_index))
+        # 归一化速度和加速度
+        velocity_score = normalize_to_bipolar(velocity_raw, df_index, norm_window)
+        acceleration_score = normalize_to_bipolar(acceleration_raw, df_index, norm_window)
+        # 融合：速度和加速度都为正时，分数最高
+        ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
+        return ma_dynamics_score.astype(np.float32)
