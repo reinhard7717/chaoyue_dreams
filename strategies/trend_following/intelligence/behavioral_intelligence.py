@@ -237,9 +237,9 @@ class BehavioralIntelligence:
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
 
-    def _diagnose_upper_shadow_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 新增方法
+    def _diagnose_upper_shadow_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 深度博弈版】诊断行为风险：上影线抛压 (SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE)
+        【V2.1 · 深度博弈版】诊断行为风险：上影线抛压 (SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE)
         - 核心逻辑: 综合考虑上影线强度、价格涨跌、主力资金流向、筹码集中度变化、微观欺骗意图和上涨效率，
                     以更全面、精确地判断上影线是真抛压还是洗盘/诱多。
         - 数据来源:
@@ -250,6 +250,7 @@ class BehavioralIntelligence:
             5. SCORE_MICRO_AXIOM_DECEPTION (微观欺骗，双极性)
             6. VPA_EFFICIENCY_D (量价效率)
         - 输出: [0, 1] 的风险分数，分数越高代表风险越大。
+        - 【修复】直接从 `self.strategy.atomic_states` 获取跨模块原子信号。
         """
         print("    -- [行为引擎] 诊断上影线抛压风险 (深度博弈版)...")
         # 1. 获取核心参数和信号
@@ -262,8 +263,10 @@ class BehavioralIntelligence:
         main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D', 0.0)
         vpa_efficiency_raw = self._get_signal(df, 'VPA_EFFICIENCY_D', 0.5)
         # 从 atomic_states 获取双极性信号
-        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0) # [-1, 1]
-        micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0) # [-1, 1]
+        # 修改行: 直接从 self.strategy.atomic_states 获取
+        chip_concentration = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df.index)) # [-1, 1]
+        # 修改行: 直接从 self.strategy.atomic_states 获取
+        micro_deception = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df.index)) # [-1, 1]
         # 2. 归一化基础信号
         # 基础上影线强度，越高风险越大，归一化到 [0, 1]
         base_upper_shadow_score = normalize_score(upper_shadow_raw, df.index, norm_window, ascending=True)
