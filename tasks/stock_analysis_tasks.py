@@ -663,13 +663,8 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.0 · 中央枢纽重构版】
-    - 核心重构: 将本任务升级为“数据准备与分发司令部”，统一处理基础数据，根除下游服务间的数据冲突。
-    - 核心流程:
-      1. 统一加载所有原始数据。
-      2. 预先合并日线行情和日线基本面数据，创建干净、无冲突的 `base_daily_df`。
-      3. 将 `base_daily_df` 作为标准“弹药”分发给资金流和筹码服务。
-      4. 改造对下游服务的调用接口，以适应新的数据分发模式。
+    【V34.1 · 审计熔断深化版】
+    - 核心修正: 优化审计熔断日志，当区块因数据缺失被跳过时，详细列出缺失的具体数据源。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -695,13 +690,13 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)
         context_df = ff_hist_df.join(chip_hist_df, how='outer')
-        max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days, 260) # 确保至少回溯260天
+        max_lookback_days = max(chip_service.max_lookback_days, fund_flow_service.max_lookback_days, 260)
         global_lookback_start_date = dates_to_process.min() - timedelta(days=max_lookback_days)
         all_daily_data_for_lookback_qs = DailyModel.objects.filter(
             stock=stock_info,
             trade_time__gte=global_lookback_start_date,
             trade_time__lte=dates_to_process.max()
-        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'vol').order_by('trade_time') # 新增 vol
+        ).values('trade_time', 'high_qfq', 'low_qfq', 'close_qfq', 'vol').order_by('trade_time')
         all_daily_data_for_lookback_df = pd.DataFrame(await sync_to_async(list)(all_daily_data_for_lookback_qs))
         all_daily_data_for_lookback_df['trade_time'] = pd.to_datetime(all_daily_data_for_lookback_df['trade_time'])
         all_daily_data_for_lookback_df.set_index('trade_time', inplace=True)
@@ -713,7 +708,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         all_daily_data_for_lookback_df['low_20d'] = all_daily_data_for_lookback_df['low_qfq'].rolling(window=20, min_periods=1).min()
         all_daily_data_for_lookback_df['high_5d'] = all_daily_data_for_lookback_df['high_qfq'].rolling(window=5, min_periods=1).max()
         all_daily_data_for_lookback_df['low_5d'] = all_daily_data_for_lookback_df['low_qfq'].rolling(window=5, min_periods=1).min()
-        all_daily_data_for_lookback_df['turnover_vol_5d'] = all_daily_data_for_lookback_df['vol'].rolling(window=5, min_periods=1).sum() * 100 # 转换为股
+        all_daily_data_for_lookback_df['turnover_vol_5d'] = all_daily_data_for_lookback_df['vol'].rolling(window=5, min_periods=1).sum() * 100
         high_5d_map_global = all_daily_data_for_lookback_df['high_5d'].to_dict()
         low_5d_map_global = all_daily_data_for_lookback_df['low_5d'].to_dict()
         turnover_vol_5d_map_global = all_daily_data_for_lookback_df['turnover_vol_5d'].to_dict()
@@ -727,7 +722,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             date: trade_dates_series_global.iloc[idx - 20] if idx >= 20 else pd.NaT
             for date, idx in date_index_map.items()
         }
-        health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365) # 回溯约一年
+        health_score_hist_lookback_date = dates_to_process.min().date() - timedelta(days=365)
         health_score_components = [
             'cost_15pct', 'cost_85pct', 'weight_avg_cost',
             'cost_divergence_normalized', 'dominant_peak_profit_margin',
@@ -793,13 +788,20 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     source_df = data_dfs.get(source_name)
                     if source_df is None or source_df.empty or date.date() not in pd.to_datetime(source_df['trade_time']).dt.date.values:
                         is_chunk_valid = False
-                        reason = f"上游核心数据源 '{source_name}' 缺失"
-                        chunk_missing_records.append({'stock_code': stock_code, 'trade_date': str(date.date()), 'reason': reason})
+                        reason_str = f"上游核心数据源 '{source_name}' 缺失"
+                        chunk_missing_records.append({
+                            'stock_code': stock_code,
+                            'trade_date': str(date.date()),
+                            'reason': reason_str,
+                            'missing_source': source_name # 修改行: 增加 missing_source 字段
+                        })
                         break
                 if not is_chunk_valid:
                     break
             if not is_chunk_valid:
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因数据缺失被跳过。")
+                for missing_rec in chunk_missing_records:
+                    logger.warning(f"    -> 详细: 日期 {missing_rec['trade_date']}, 缺失上游核心数据源: '{missing_rec['missing_source']}'") # 修改行: 打印 missing_source
                 all_failures.extend(chunk_missing_records)
                 continue
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
