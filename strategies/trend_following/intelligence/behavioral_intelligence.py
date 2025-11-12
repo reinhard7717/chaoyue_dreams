@@ -49,7 +49,7 @@ class BehavioralIntelligence:
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.0 · 新增】安全地从原子状态库或主数据帧中获取分数。
+        【V1.0】安全地从原子状态库或主数据帧中获取分数。
         - 核心职责: 统一信号获取路径，优先从 self.strategy.atomic_states 获取，
                       若无则从主数据帧 df 获取，最后提供默认值，确保数据流的稳定性。
         """
@@ -186,7 +186,7 @@ class BehavioralIntelligence:
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
+        【V1.0】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
         - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
         """
         price_breakthrough_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=55, ascending=True)

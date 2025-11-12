@@ -42,7 +42,7 @@ class CognitiveIntelligence:
 
     def _get_playbook_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
-        【V1.0 · 新增】安全地从剧本状态库中获取已计算的剧本分数。
+        【V1.0】安全地从剧本状态库中获取已计算的剧本分数。
         - 核心职责: 统一剧本信号获取路径，优先从 self.strategy.playbook_states 获取，
                       若无则返回默认值，确保数据流的稳定性。
         - 预警机制: 如果信号不存在，打印明确的警告信息。
@@ -437,7 +437,7 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, raw_evidence: pd.Series, is_bipolar: bool = False) -> pd.Series:
         """
-        【V1.0 · 新增】动态证据锻造厂
+        【V1.0】动态证据锻造厂
         - 核心职责: 将一个静态的原始证据信号，锻造成一个融合了“状态-速度-加速度”的动态证据。
         - 数学逻辑: DynamicEvidence = w_s * State + w_v * Velocity + w_a * Acceleration
         """
@@ -461,7 +461,7 @@ class CognitiveIntelligence:
     # [代码新增开始]
     def _deduce_long_term_profit_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“长期获利盘派发”风险剧本
+        【V1.0】贝叶斯推演：“长期获利盘派发”风险剧本
         - 核心逻辑: 识别长期获利盘的派发迹象。
         """
         print("    -- [剧本推演] 长期获利盘派发风险 (动态证据)...")
@@ -487,7 +487,7 @@ class CognitiveIntelligence:
 
     def _deduce_market_uncertainty_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“市场方向不明”风险剧本
+        【V1.0】贝叶斯推演：“市场方向不明”风险剧本
         - 核心逻辑: 量化市场的不可预测性，通常表现为混沌、无趋势。
         """
         print("    -- [剧本推演] 市场方向不明风险 (动态证据)...")
@@ -573,7 +573,7 @@ class CognitiveIntelligence:
 
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.0】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心逻辑: 识别筹码派发背景下的诱多收割行为。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
@@ -602,7 +602,7 @@ class CognitiveIntelligence:
 
     def _deduce_liquidity_trap_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“流动性陷阱”风险剧本
+        【V1.0】贝叶斯推演：“流动性陷阱”风险剧本
         - 核心逻辑: 资金流出与流动性枯竭的共振。
         """
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
@@ -628,7 +628,7 @@ class CognitiveIntelligence:
 
     def _deduce_t0_arbitrage_pressure_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“T+0套利压力”风险剧本
+        【V1.0】贝叶斯推演：“T+0套利压力”风险剧本
         - 核心逻辑: 主力短期派发行为，通过高频T+0操作获利。
         """
         print("    -- [剧本推演] T+0套利压力风险 (动态证据)...")
@@ -654,7 +654,7 @@ class CognitiveIntelligence:
 
     def _deduce_key_support_break_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“关键支撑破位”风险剧本
+        【V1.0】贝叶斯推演：“关键支撑破位”风险剧本
         - 核心逻辑: 恐慌抛售击穿所有关键支撑的系统性风险。
         """
         print("    -- [剧本推演] 关键支撑破位风险 (动态证据)...")
@@ -713,7 +713,7 @@ class CognitiveIntelligence:
 
     def _deduce_market_uncertainty_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“市场方向不明”风险剧本
+        【V1.0】贝叶斯推演：“市场方向不明”风险剧本
         - 核心逻辑: 量化市场的不可预测性，通常表现为混沌、无趋势。
         """
         print("    -- [剧本推演] 市场方向不明风险 (动态证据)...")

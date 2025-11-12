@@ -506,7 +506,7 @@ class FeatureEngineeringService:
 
     async def calculate_ma_potential_metrics(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V1.0 · 新增】均线系统势能分析引擎
+        【V1.0】均线系统势能分析引擎
         - 核心职责: 根据 ma_potential_metrics 配置，计算均线系统的“张力”、“有序度”、“压缩率”三大核心势能指标。
         """
         if not params.get('enabled', False):

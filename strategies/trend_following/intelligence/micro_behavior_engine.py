@@ -22,7 +22,7 @@ class MicroBehaviorEngine:
 
     def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
         """
-        【V1.0 · 新增】信号获取哨兵方法
+        【V1.0】信号获取哨兵方法
         - 核心职责: 安全地从DataFrame获取信号。
         - 预警机制: 如果信号不存在，打印明确的警告信息，并返回一个包含默认值的Series，以防止程序崩溃。
         """

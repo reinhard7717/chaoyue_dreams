@@ -90,7 +90,7 @@ class AdvancedStructuralMetricsService:
 
     async def _initialize_context(self, stock_code: str, is_incremental: bool, start_date_str: str = None):
         """
-        【V1.0 · 新增】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
+        【V1.0】初始化计算上下文，确定股票实体、目标模型、计算模式和日期范围。
         """
         stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
         MetricsModel = get_advanced_structural_metrics_model_by_code(stock_code)
@@ -506,7 +506,7 @@ class AdvancedStructuralMetricsService:
 
     async def _prepare_and_save_data(self, stock_info, MetricsModel, final_df: pd.DataFrame):
         """
-        【V1.0 · 新增】准备数据并以原子方式批量保存到数据库。
+        【V1.0】准备数据并以原子方式批量保存到数据库。
         """
         if final_df.empty:
             return 0
@@ -552,7 +552,7 @@ class AdvancedStructuralMetricsService:
 
     async def _load_historical_metrics(self, model, stock_info, end_date):
         """
-        【V1.0 · 新增】从数据库加载并净化历史高级结构指标。
+        【V1.0】从数据库加载并净化历史高级结构指标。
         """
         @sync_to_async
         def get_data():

@@ -36,7 +36,7 @@
       },
       "ma_potential_metrics": {
         "enabled": true,
-        "description": "【V1.0 · 新增】计算均线系统的势能指标，为高级模式识别引擎提供“张力”、“有序度”、“压缩率”三大核心输入。",
+        "description": "【V1.0】计算均线系统的势能指标，为高级模式识别引擎提供“张力”、“有序度”、“压缩率”三大核心输入。",
         "apply_on": ["D"],
         "ma_periods": [5, 13, 21, 55, 89],
         "ma_type": "EMA",
@@ -55,7 +55,7 @@
       },
       "pattern_enhancement_signals": {
         "enabled": true,
-        "description": "【V1.0 · 新增】为形态公理提供更高维度的“超级原子信号”。",
+        "description": "【V1.0】为形态公理提供更高维度的“超级原子信号”。",
         "minute_level_tf": "60",
         "intraday_vwap_divergence": {
           "enabled": true,
@@ -82,7 +82,7 @@
     },
     "meta_feature_params": {
       "enabled": true,
-      "description": "【V1.0 · 新增】元特征计算参数，用于诊断市场的混沌、分形与信息熵。",
+      "description": "【V1.0】元特征计算参数，用于诊断市场的混沌、分形与信息熵。",
       "hurst_window": 144,
       "fractal_dimension_window": 100,
       "sample_entropy_window": 10,
@@ -211,7 +211,7 @@
         "min_entry_score_for_db": { "value": 50 }
       },
       "prophet_oracle": {
-        "说明": "【V1.0 · 新增】先知神谕策略专属配置模块。",
+        "说明": "【V1.0】先知神谕策略专属配置模块。",
         "strategy_info": {
           "name": { "value": "ProphetSignal" },
           "save_all_days": { "value": false },
@@ -298,7 +298,7 @@
         "deep_bearish_threshold": 0.05,
         "meta_dynamics_context_params": {
           "enabled": true,
-          "description": "【V1.0 · 新增】元动力上下文奖励。当长期趋势下跌减速时，为底部信号提供额外加成。",
+          "description": "【V1.0】元动力上下文奖励。当长期趋势下跌减速时，为底部信号提供额外加成。",
           "long_ma_period": 55,
           "short_slope_period": 5,
           "bonus_factor": 0.3
@@ -779,7 +779,7 @@
         },
         "selling_pressure_params": {
           "enabled": true,
-          "description": "【V1.0 · 新增】'上影线抛压风险'信号的专属配置。",
+          "description": "【V1.0】'上影线抛压风险'信号的专属配置。",
           "periods": [5, 13, 21, 55],
           "tf_weights": { "5": 0.4, "13": 0.3, "21": 0.2, "55": 0.1 }
         },
@@ -878,7 +878,7 @@
       },
       "consolidation_breakout_params": {
         "enabled": true,
-        "description": "【V1.0 · 新增】结构性盘整突破诊断引擎参数。",
+        "description": "【V1.0】结构性盘整突破诊断引擎参数。",
         "min_consolidation_duration": 5,
         "volume_confirmation_ma_period": 21,
         "min_closing_strength": 0.7
@@ -1093,7 +1093,7 @@
           "55": 0.15
         },
         "expansion_signal_specific_configs": {
-          "description": "【V1.0 · 新增】为特定的认知扩展信号提供覆盖配置。",
+          "description": "【V1.0】为特定的认知扩展信号提供覆盖配置。",
           "COGNITIVE_RISK_LIQUIDITY_TRAP": {
             "fusion_method": "arithmetic",
             "description": "明确为流动性陷阱信号配置使用算术平均融合，以提高稳健性。"
@@ -1148,7 +1148,7 @@
       },
       "intraday_behavior_engine_params": {
         "enabled": true,
-        "description": "【V1.0 · 新增】日内行为引擎，用于分钟级数据的深度战术分析。",
+        "description": "【V1.0】日内行为引擎，用于分钟级数据的深度战术分析。",
         "trix_params": { "enabled": true, "period": 13, "signal_period": 8 },
         "kdj_params": { "enabled": true, "period": 13, "signal_period": 5, "smooth_k_period": 3 },
         "squeeze_params": { "enabled": true, "bb_period": 21, "kc_period": 21, "atr_period": 13 },

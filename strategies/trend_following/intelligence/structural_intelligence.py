@@ -48,7 +48,7 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】结构公理四：诊断“结构背离”
+        【V1.0】结构公理四：诊断“结构背离”
         - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
           - 看涨背离：价格下跌但均线排列开始收敛或转好。
           - 看跌背离：价格上涨但均线排列开始发散或恶化。
@@ -65,7 +65,7 @@ class StructuralIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】结构公理一：诊断“趋势形态”"""
+        """【V1.0】结构公理一：诊断“趋势形态”"""
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
@@ -84,7 +84,7 @@ class StructuralIntelligence:
         return trend_form_score.astype(np.float32)
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
-        """【V1.0 · 新增】结构公理二：诊断“多周期协同”"""
+        """【V1.0】结构公理二：诊断“多周期协同”"""
         ma_periods_w = [5, 13, 21, 55]
         required_cols_w = [f'EMA_{p}_W' for p in ma_periods_w]
         if not all(col in df.columns for col in required_cols_w):

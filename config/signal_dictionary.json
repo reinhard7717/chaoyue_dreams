@@ -134,7 +134,7 @@
             "cn_name": "【融合】市场矛盾",
             "category": "融合层-环境",
             "type": "context",
-            "description": "【V1.0 · 新增】融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。正分代表看涨矛盾（如底背离），负分代表看跌矛盾（如顶背离）。"
+            "description": "【V1.0】融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。正分代表看涨矛盾（如底背离），负分代表看跌矛盾（如顶背离）。"
         },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
@@ -427,112 +427,112 @@
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，基础领域（趋势、摆动、流体、波动）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，基础领域（趋势、摆动、流体、波动）的底部反转信号。"
         },
         "PROCESS_META_FOUNDATION_TOP_REVERSAL": {
             "cn_name": "【过程】基础顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，基础领域（趋势、摆动、流体、波动）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，基础领域（趋势、摆动、流体、波动）的顶部反转信号。"
         },
         "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL": {
             "cn_name": "【过程】结构底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的底部反转信号。"
         },
         "PROCESS_META_STRUCTURE_TOP_REVERSAL": {
             "cn_name": "【过程】结构顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的顶部反转信号。"
         },
         "PROCESS_META_PATTERN_BOTTOM_REVERSAL": {
             "cn_name": "【过程】形态底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，形态领域（背离、反转、突破）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，形态领域（背离、反转、突破）的底部反转信号。"
         },
         "PROCESS_META_PATTERN_TOP_REVERSAL": {
             "cn_name": "【过程】形态顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，形态领域（背离、反转、突破）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，形态领域（背离、反转、突破）的顶部反转信号。"
         },
         "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL": {
             "cn_name": "【过程】力学底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的底部反转信号。"
         },
         "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": {
             "cn_name": "【过程】力学顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的顶部反转信号。"
         },
         "PROCESS_META_CHIP_BOTTOM_REVERSAL": {
             "cn_name": "【过程】筹码底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的底部反转信号。"
         },
         "PROCESS_META_CHIP_TOP_REVERSAL": {
             "cn_name": "【过程】筹码顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的顶部反转信号。"
         },
         "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL": {
             "cn_name": "【过程】资金流底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，资金流领域（共识、信念、存量）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，资金流领域（共识、信念、存量）的底部反转信号。"
         },
         "PROCESS_META_FUND_FLOW_TOP_REVERSAL": {
             "cn_name": "【过程】资金流顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，资金流领域（共识、信念、存量）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，资金流领域（共识、信念、存量）的顶部反转信号。"
         },
         "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL": {
             "cn_name": "【过程】微观行为底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，微观行为领域（伪装、试探、效率）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，微观行为领域（伪装、试探、效率）的底部反转信号。"
         },
         "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL": {
             "cn_name": "【过程】微观行为顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，微观行为领域（伪装、试探、效率）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，微观行为领域（伪装、试探、效率）的顶部反转信号。"
         },
         "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL": {
             "cn_name": "【过程】行为底部反转",
             "category": "过程层-反转",
             "type": "process",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的底部反转信号。"
+            "description": "【V1.0】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的底部反转信号。"
         },
         "PROCESS_META_BEHAVIOR_TOP_REVERSAL": {
             "cn_name": "【过程】行为顶部反转",
             "category": "过程层-反转",
             "type": "risk",
             "scoring_mode": "unipolar",
-            "description": "【V1.0 · 新增】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的顶部反转信号。"
+            "description": "【V1.0】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的顶部反转信号。"
         },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
@@ -596,7 +596,7 @@
             "category": "认知层-剧本",
             "type": "positional",
             "score": 850,
-            "description": "【V1.0 · 新增】基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
+            "description": "【V1.0】基于动态证据，推演由多维度背离引发的趋势反转剧本上演的后验概率。"
         },
         "COGNITIVE_RISK_CYCLICAL_TOP": {
             "cn_name": "【认知风险】周期顶风险",
@@ -746,13 +746,13 @@
             "cn_name": "【筹码】看涨背离",
             "category": "内部计分-筹码",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于筹码公理，诊断价格行为与筹码集中度之间的看涨背离。"
+            "description": "【V1.0】基于筹码公理，诊断价格行为与筹码集中度之间的看涨背离。"
         },
         "SCORE_CHIP_BEARISH_DIVERGENCE": {
             "cn_name": "【筹码】看跌背离",
             "category": "内部计分-筹码",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于筹码公理，诊断价格行为与筹码集中度之间的看跌背离。"
+            "description": "【V1.0】基于筹码公理，诊断价格行为与筹码集中度之间的看跌背离。"
         },
         "说明_behavioral_ultimate": "--- 行为层-终极信号 (现为内部状态) ---",
         "RESONANCE_BULLISH_D": {
@@ -785,26 +785,26 @@
             "cn_name": "【行为】看涨背离",
             "category": "内部计分-行为",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于行为公理，诊断价格行为与量能行为之间的看涨背离。"
+            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看涨背离。"
         },
         "SCORE_BEHAVIOR_BEARISH_DIVERGENCE": {
             "cn_name": "【行为】看跌背离",
             "category": "内部计分-行为",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
+            "description": "【V1.0】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
         "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": {
             "cn_name": "【资金流】看涨背离",
             "category": "内部计分-资金流",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于资金流公理，诊断价格行为与资金流之间的看涨背离。"
+            "description": "【V1.0】基于资金流公理，诊断价格行为与资金流之间的看涨背离。"
         },
         "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": {
             "cn_name": "【资金流】看跌背离",
             "category": "内部计分-资金流",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于资金流公理，诊断价格行为与资金流之间的看跌背离。"
+            "description": "【V1.0】基于资金流公理，诊断价格行为与资金流之间的看跌背离。"
         },
         "SCORE_FF_AXIOM_CONSENSUS": {
             "cn_name": "【资金流公理】共识与分歧",
@@ -835,13 +835,13 @@
             "cn_name": "【结构】看涨背离",
             "category": "内部计分-结构",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于结构公理，诊断价格与均线结构之间的看涨背离。"
+            "description": "【V1.0】基于结构公理，诊断价格与均线结构之间的看涨背离。"
         },
         "SCORE_STRUCTURE_BEARISH_DIVERGENCE": {
             "cn_name": "【结构】看跌背离",
             "category": "内部计分-结构",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于结构公理，诊断价格与均线结构之间的看跌背离。"
+            "description": "【V1.0】基于结构公理，诊断价格与均线结构之间的看跌背离。"
         },
         "说明_dynamic_mechanics_ultimate": "--- 力学层-终极信号 (现为内部状态) ---",
         "SCORE_DYN_AXIOM_MOMENTUM": {
@@ -878,26 +878,26 @@
             "cn_name": "【力学】看涨背离",
             "category": "内部计分-力学",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于力学公理，诊断价格动量与惯性之间的看涨背离。"
+            "description": "【V1.0】基于力学公理，诊断价格动量与惯性之间的看涨背离。"
         },
         "SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE": {
             "cn_name": "【力学】看跌背离",
             "category": "内部计分-力学",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
+            "description": "【V1.0】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 (现为内部状态) ---",
         "SCORE_FOUNDATION_BULLISH_DIVERGENCE": {
             "cn_name": "【基础】看涨背离",
             "category": "内部计分-基础",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于基础公理，诊断价格趋势与摆动指标之间的看涨背离。"
+            "description": "【V1.0】基于基础公理，诊断价格趋势与摆动指标之间的看涨背离。"
         },
         "SCORE_FOUNDATION_BEARISH_DIVERGENCE": {
             "cn_name": "【基础】看跌背离",
             "category": "内部计分-基础",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于基础公理，诊断价格趋势与摆动指标之间的看跌背离。"
+            "description": "【V1.0】基于基础公理，诊断价格趋势与摆动指标之间的看跌背离。"
         },
         "SCORE_FOUNDATION_AXIOM_TREND": {
             "cn_name": "【基础公理】趋势",
@@ -934,13 +934,13 @@
             "cn_name": "【形态】看涨背离",
             "category": "内部计分-形态",
             "type": "dynamic",
-            "description": "【V1.0 · 新增】基于形态公理，诊断价格与动量之间的看涨背离。"
+            "description": "【V1.0】基于形态公理，诊断价格与动量之间的看涨背离。"
         },
         "SCORE_PATTERN_BEARISH_DIVERGENCE": {
             "cn_name": "【形态】看跌背离",
             "category": "内部计分-形态",
             "type": "risk",
-            "description": "【V1.0 · 新增】基于形态公理，诊断价格与动量之间的看跌背离。"
+            "description": "【V1.0】基于形态公理，诊断价格与动量之间的看跌背离。"
         },
         "说明_atomic_signals": "--- 原子信号层 (Atomic Signals) ---",
         "说明_cyclical_intelligence": "--- 周期层信号 (Cyclical Intelligence) ---",

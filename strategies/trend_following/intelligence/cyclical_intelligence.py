@@ -49,7 +49,7 @@ class CyclicalIntelligence:
 
     def _diagnose_cyclical_top_risk(self, df: pd.DataFrame, fft_states: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
+        【V1.0】诊断认知风险信号：周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)
         - 核心逻辑: 融合主导周期强度和当前相位，当市场处于一个强周期的波峰位置时，此风险分会显著提高。
         """
         # 证据1: 主导周期强度 (DOMINANT_CYCLE_POWER)

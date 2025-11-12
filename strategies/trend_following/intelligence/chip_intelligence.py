@@ -166,7 +166,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V1.0 · 新增】筹码公理五：诊断筹码“背离”动态
+        【V1.0】筹码公理五：诊断筹码“背离”动态
         - 核心逻辑: 诊断价格行为与筹码集中度之间的背离。
           - 看涨背离：价格下跌但筹码集中度上升（主力吸筹）。
           - 看跌背离：价格上涨但筹码集中度下降（主力派发）。

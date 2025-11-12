@@ -97,7 +97,7 @@ class ChipProbes:
 
     def _deploy_bottom_accumulation_lockdown_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 新增】底部吸筹锁仓探针
+        【探针 V1.0】底部吸筹锁仓探针
         - 核心职责: 深度解剖“底部吸筹锁仓”信号的“设置-触发-确认”三段式逻辑，
                       定位信号未触发或误触发的根本原因。
         """

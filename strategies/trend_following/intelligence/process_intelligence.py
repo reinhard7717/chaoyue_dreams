@@ -237,7 +237,7 @@ class ProcessIntelligence:
 
     def _diagnose_signal_decay(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】信号衰减诊断器
+        【V1.0】信号衰减诊断器
         - 核心职责: 专门用于计算单个信号的负向变化（衰减）强度。
         - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
         - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
@@ -264,7 +264,7 @@ class ProcessIntelligence:
 
     def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]: # 新增方法
         """
-        【V1.0 · 新增】通用领域反转诊断器
+        【V1.0】通用领域反转诊断器
         - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
                       然后从健康度的变化中派生底部反转和顶部反转信号。
         - 命名规范: 输出信号为 PROCESS_META_DOMAIN_BOTTOM_REVERSAL 和 PROCESS_META_DOMAIN_TOP_REVERSAL。

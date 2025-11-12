@@ -1018,7 +1018,7 @@ def save_stocks_minute_data_history_task(cache_manager=None):
 @with_cache_manager
 def save_1min_data_history_batch(stock_code: str, cache_manager=None):
     """
-    【V1.0 · 新增执行器】
+    【V1.0执行器】
     从Tushare获取单只股票的全量历史1分钟K线数据并保存。
     Args:
         stock_code (str): 股票代码。
@@ -1042,7 +1042,7 @@ def save_1min_data_history_batch(stock_code: str, cache_manager=None):
 @with_cache_manager
 def save_stocks_1min_data_history_task(cache_manager=None):
     """
-    【V1.0 · 新增调度器】
+    【V1.0调度器】
     为所有股票分派获取全量历史1分钟K线数据的任务。
     """
     logger.info(f"任务启动: save_stocks_1min_data_history_task (调度器模式)")
@@ -1383,7 +1383,7 @@ def refetch_incomplete_cyq_chips(record_threshold=1000):
 @with_cache_manager
 def save_stk_limit_data_today_task(cache_manager=None):
     """
-    【V1.0 · 新增】获取并保存【当日】全市场股票的涨跌停价格。
+    【V1.0】获取并保存【当日】全市场股票的涨跌停价格。
     - 核心逻辑:
       1. 检查当天是否为交易日。
       2. 如果是，则调用DAO方法获取并保存当天的涨跌停价格数据。
@@ -1419,7 +1419,7 @@ def save_stk_limit_data_today_task(cache_manager=None):
 @with_cache_manager
 def save_stk_limit_data_yesterday_task(cache_manager=None):
     """
-    【V1.0 · 新增】获取并保存【昨日】（即上一个交易日）全市场股票的涨跌停价格。
+    【V1.0】获取并保存【昨日】（即上一个交易日）全市场股票的涨跌停价格。
     - 核心逻辑:
       1. 使用 TradeCalendar 查找今天之前的最近一个交易日。
       2. 如果找到，则调用DAO方法获取并保存该交易日的涨跌停价格数据。

@@ -561,7 +561,7 @@ def calculate_tactical_reversal_score(
     norm_window: int
 ) -> pd.Series:
     """
-    【V1.0 · 新增】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
+    【V1.0】战术反转信号计算器 (赫尔墨斯的飞翼鞋)
     - 战略意义: 捕捉上升趋势中的健康回调买点。它模拟了飞行员的操作：先获得飞行许可，再等待有利气流，最后点燃引擎。
     - 核心公式: 战术反转分 = 飞行许可 * 有利气流 * 引擎推力
     """
@@ -865,7 +865,7 @@ def bipolar_to_exclusive_unipolar(bipolar_score: pd.Series) -> Tuple[pd.Series, 
 
 def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index, ascending: bool = True, tf_weights: Dict = None) -> pd.Series:
     """
-    【V1.0 · 新增】多时间框架(MTF)自适应归一化引擎
+    【V1.0】多时间框架(MTF)自适应归一化引擎
     - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行百分位排名归一化，并加权融合，
                   最终产出一个综合了多周期动态的、在[0, 1]区间的标准分数。
     - 依赖: normalize_score
@@ -899,7 +899,7 @@ def get_adaptive_mtf_normalized_score(series: pd.Series, target_index: pd.Index,
 
 def get_adaptive_mtf_normalized_bipolar_score(series: pd.Series, target_index: pd.Index, tf_weights: Dict = None, sensitivity: float = 1.0) -> pd.Series:
     """
-    【V1.0 · 新增】多时间框架(MTF)自适应双极性归一化引擎
+    【V1.0】多时间框架(MTF)自适应双极性归一化引擎
     - 核心职责: 将一个原始指标序列，通过在多个时间窗口上进行Z-score和tanh归一化，并加权融合，
                   最终产出一个综合了多周期动态的、在[-1, 1]区间的标准分数。
     - 依赖: normalize_to_bipolar

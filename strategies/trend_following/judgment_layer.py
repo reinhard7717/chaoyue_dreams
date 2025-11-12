@@ -182,7 +182,7 @@ class JudgmentLayer:
 
     def _get_dominant_offense_type(self, score_details_df: pd.DataFrame) -> pd.Series:
         """
-        【V1.0 · 新增】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。
+        【V1.0】识别每日最强的进攻信号及其类型 ('positional' 或 'dynamic')。
         """
         if score_details_df is None or score_details_df.empty:
             return pd.Series('unknown', index=self.strategy.df_indicators.index)

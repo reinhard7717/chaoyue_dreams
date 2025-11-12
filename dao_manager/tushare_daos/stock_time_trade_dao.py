@@ -196,7 +196,7 @@ class StockTimeTradeDAO(BaseDAO):
 
     async def get_kl_data_for_chart(self, stock_code: str, start_date: date, end_date: date) -> List[Dict]:
         """
-        【V1.0 · 新增】为前端图表获取K线数据。
+        【V1.0】为前端图表获取K线数据。
         - 核心职责: 根据股票代码和日期范围，从正确的分表中查询OHLC和成交量数据。
         - 数据格式: 返回一个适合直接JSON序列化的字典列表。
         """

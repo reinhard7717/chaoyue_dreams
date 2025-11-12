@@ -72,7 +72,7 @@ class IntradayBehaviorEngine:
         return final_scores
 
     async def _diagnose_axiom_attack(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0 · 新增】日内行为公理一：诊断“攻击强度”"""
+        """【V1.0】日内行为公理一：诊断“攻击强度”"""
         # 攻击强度 = K线实体方向与大小 * 成交额变化
         # 1. K线实体强度 (归一化到 [-1, 1])
         body = df_minute['close'] - df_minute['open']
@@ -88,7 +88,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
 
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0 · 新增】日内行为公理二：诊断“控制能力”"""
+        """【V1.0】日内行为公理二：诊断“控制能力”"""
         if 'vwap' not in df_minute.columns:
             return {"SCORE_INTRADAY_AXIOM_CONTROL": 0.0}
         # 控制能力 = (收盘价 - VWAP) / VWAP
@@ -99,7 +99,7 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
 
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0 · 新增】日内行为公理三：诊断“博弈转折”"""
+        """【V1.0】日内行为公理三：诊断“博弈转折”"""
         kdj_params = self.params.get('kdj_params', {})
         k_col = f"K_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         d_col = f"D_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"

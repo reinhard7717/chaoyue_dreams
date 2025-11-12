@@ -43,7 +43,7 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】力学公理五：诊断“力学背离”
+        【V1.0】力学公理五：诊断“力学背离”
         - 核心逻辑: 诊断价格动量与惯性之间的背离。
           - 看涨背离：价格动量减弱（负）但惯性增强（正） -> 预示趋势可能反转向上。
           - 看跌背离：价格动量增强（正）但惯性减弱（负） -> 预示趋势可能反转向下。
@@ -54,7 +54,7 @@ class DynamicMechanicsEngine:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】力学公理一：诊断“动量”"""
+        """【V1.0】力学公理一：诊断“动量”"""
         roc = df.get('ROC_12_D', pd.Series(0.0, index=df.index))
         macd_h = df.get('MACDh_13_34_8_D', pd.Series(0.0, index=df.index))
         roc_score = normalize_to_bipolar(roc, df.index, norm_window)

@@ -632,7 +632,7 @@ def summarize_computation_failures(results):
 @with_cache_manager
 def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V1.0 · 新增】为单只股票预计算高级结构与行为指标的Celery任务。
+    【V1.0】为单只股票预计算高级结构与行为指标的Celery任务。
     - 核心职责: 调用 AdvancedStructuralMetricsService，执行分钟级数据的锻造任务。
     """
     async def main(incremental_flag: bool, start_date_override: str):
@@ -966,7 +966,7 @@ def precompute_all_stocks_advanced_metrics(self, start_date_str: str = None, is_
 def test_precompute_and_verify_structural_metrics(self):
     # [代码新增开始]
     """
-    【V1.0 · 新增】用于测试结构指标计算并验证其完整性的独立任务。
+    【V1.0】用于测试结构指标计算并验证其完整性的独立任务。
     - 核心职责:
       1. 针对特定股票（'000001.SZ'）和特定起始日期（'2025-05-01'）触发一次性的高级结构指标计算。
       2. 计算完成后，查询数据库中该股票的最新一条结构指标记录。

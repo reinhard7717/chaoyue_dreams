@@ -508,7 +508,7 @@ class AdvancedFundFlowMetricsService:
 
     def _attribute_minute_volume_to_players(self, minute_df: pd.DataFrame) -> pd.DataFrame:
         """
-        【V1.0 · 新增】将基础成交量归因为主力/散户的核心辅助函数。
+        【V1.0】将基础成交量归因为主力/散户的核心辅助函数。
         - 核心职责: 聚合基础的 *_vol_attr 列，生成 main_force_* 和 retail_* 级别的成交量列。
         """
         df = minute_df.copy()

@@ -62,7 +62,7 @@ class FusionIntelligence:
 
     def _synthesize_market_contradiction(self) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】冶炼“市场矛盾” (Market Contradiction)
+        【V1.0】冶炼“市场矛盾” (Market Contradiction)
         - 核心思想: 融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。
         - 证据链: 收集所有领域的看涨背离和看跌背离信号，进行加权融合。
         """
@@ -235,7 +235,7 @@ class FusionIntelligence:
 
     def _synthesize_capital_confrontation(self) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】冶炼“资本对抗” (Capital Confrontation)
+        【V1.0】冶炼“资本对抗” (Capital Confrontation)
         - 核心思想: 深度洞察A股的博弈核心——主力与散户的对抗。
         - 证据链:
           1. 资金流对抗 (FundFlow): 主力与散户的资金流方向是否相反。

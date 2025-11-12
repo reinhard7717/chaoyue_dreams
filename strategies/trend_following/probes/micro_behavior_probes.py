@@ -6,7 +6,7 @@ from strategies.trend_following.utils import get_params_block, get_param_value, 
 
 class MicroBehaviorProbes:
     """
-    【V1.0 · 新增】微观行为探针模块
+    【V1.0】微观行为探针模块
     - 核心职责: 提供对 micro_behavior_engine.py 中复杂信号的穿透式解剖能力。
     """
     def __init__(self, intelligence_layer_instance):
@@ -19,7 +19,7 @@ class MicroBehaviorProbes:
 
     def _deploy_euphoric_acceleration_transmutation_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 新增】亢奋加速嬗变探针
+        【探针 V1.0】亢奋加速嬗变探针
         - 核心职责: 深度解剖“亢奋加速”信号从一个中性的“亢奋事件”，
                       在“看涨上下文护盾”的调节下，最终嬗变为“风险”或“机会”的全过程。
         """

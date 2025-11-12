@@ -123,7 +123,7 @@ class BehavioralProbes:
 
     def _deploy_liquidity_dynamics_probe(self, probe_date: pd.Timestamp):
         """
-        【探针 V1.0 · 新增】流动性动态探针
+        【探针 V1.0】流动性动态探针
         - 核心职责: 深度解剖全新的双极性流动性信号，验证“锁仓惜售”和“流动性枯竭/恐慌抛售”的计算逻辑。
         """
         print("\n" + "="*25 + f" [行为探针] 正在启用 💧【流动性动态探针 V1.0】💧 " + "="*25)

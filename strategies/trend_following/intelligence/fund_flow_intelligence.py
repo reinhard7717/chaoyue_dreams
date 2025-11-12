@@ -40,7 +40,7 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】资金流公理四：诊断“资金背离”
+        【V1.0】资金流公理四：诊断“资金背离”
         - 核心逻辑: 诊断价格行为与资金流之间的背离。
           - 看涨背离：价格下跌但主力资金净流入。
           - 看跌背离：价格上涨但主力资金净流出。
@@ -51,7 +51,7 @@ class FundFlowIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_consensus(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】资金流公理一：诊断“共识与分歧”"""
+        """【V1.0】资金流公理一：诊断“共识与分歧”"""
         main_force_flow = df.get('net_xl_amount_calibrated_D', 0) + df.get('net_lg_amount_calibrated_D', 0)
         retail_flow = df.get('net_md_amount_calibrated_D', 0) + df.get('net_sh_amount_calibrated_D', 0)
         raw_bipolar_series = main_force_flow - retail_flow
@@ -59,7 +59,7 @@ class FundFlowIntelligence:
         return consensus_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】资金流公理二：诊断“信念与决心”"""
+        """【V1.0】资金流公理二：诊断“信念与决心”"""
         conviction_index = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df.index))
         cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df.index))
         t0_efficiency = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df.index))
@@ -68,7 +68,7 @@ class FundFlowIntelligence:
         return conviction_score.astype(np.float32)
 
     def _diagnose_axiom_increment(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】资金流公理三：诊断“存量博弈”"""
+        """【V1.0】资金流公理三：诊断“存量博弈”"""
         net_flow = df.get('net_flow_calibrated_D', pd.Series(0.0, index=df.index))
         turnover_slope = df.get(f'SLOPE_5_turnover_rate_f_D', pd.Series(0.0, index=df.index))
         raw_bipolar_series = net_flow - (turnover_slope.clip(lower=0) * df.get('circ_mv_D', 1e9) * 0.01)

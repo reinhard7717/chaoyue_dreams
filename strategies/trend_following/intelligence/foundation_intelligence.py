@@ -47,7 +47,7 @@ class FoundationIntelligence:
 
     def _diagnose_context_trend_confirmed(self, df: pd.DataFrame, norm_window: int) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
+        【V1.0】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
         - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
         """
         adx_score = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
@@ -60,7 +60,7 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.0 · 新增】基础公理五：诊断“基础背离”
+        【V1.0】基础公理五：诊断“基础背离”
         - 核心逻辑: 诊断价格趋势与摆动指标（如RSI）之间的背离。
           - 看涨背离：价格创新低但RSI未创新低。
           - 看跌背离：价格创新高但RSI未创新高。
@@ -71,7 +71,7 @@ class FoundationIntelligence:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:
-        """【V1.0 · 新增】基础公理一：诊断“趋势”"""
+        """【V1.0】基础公理一：诊断“趋势”"""
         macd_h = df.get('MACDh_13_34_8_D', pd.Series(0.0, index=df.index))
         macd_score = normalize_to_bipolar(macd_h, df.index, norm_window)
         fusion_weights = params.get('ma_health_fusion_weights', {'alignment': 0.5, 'slope': 0.5})
@@ -89,20 +89,20 @@ class FoundationIntelligence:
         return trend_score.astype(np.float32)
 
     def _diagnose_axiom_oscillator(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】基础公理二：诊断“摆动”"""
+        """【V1.0】基础公理二：诊断“摆动”"""
         rsi = df.get('RSI_13_D', pd.Series(50.0, index=df.index))
         raw_bipolar_series = rsi - 50.0
         oscillator_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=10.0)
         return oscillator_score.astype(np.float32)
 
     def _diagnose_axiom_flow(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】基础公理三：诊断“流体”"""
+        """【V1.0】基础公理三：诊断“流体”"""
         cmf = df.get('CMF_21_D', pd.Series(0.0, index=df.index))
         flow_score = normalize_to_bipolar(cmf, df.index, window=norm_window, sensitivity=0.1)
         return flow_score.astype(np.float32)
 
     def _diagnose_axiom_volatility(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0 · 新增】基础公理四：诊断“波动”"""
+        """【V1.0】基础公理四：诊断“波动”"""
         bbw = df.get('BBW_21_2.0_D', pd.Series(0.0, index=df.index))
         atr_pct = df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / df['close_D']
         raw_volatility = bbw + atr_pct
