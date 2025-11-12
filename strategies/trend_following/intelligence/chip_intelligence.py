@@ -126,23 +126,42 @@ class ChipIntelligence:
 
     def _diagnose_axiom_holder_sentiment(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.4 · 数学重构版】筹码公理三：诊断“持股心态”动态
+        【V2.5 · 数学重构版】筹码公理三：诊断“持股心态”动态
         - 核心修复: 遵循“先归一，后融合”原则。将三个尺度不同的心态指标分别归一化，再进行融合。
                       'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
+        - 核心优化: 调整 pain_score 和 fatigue_score 的权重，避免在积极行情下过度惩罚。
         """
+        df_index = df.index
         required_signals = ['winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
-            return pd.Series(0.0, index=df.index)
-        conviction_raw = df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index))
-        pain_raw = df.get('loser_pain_index_D', pd.Series(0.0, index=df.index))
-        fatigue_raw = df.get('chip_fatigue_index_D', pd.Series(0.0, index=df.index))
+            return pd.Series(0.0, index=df_index)
+        conviction_raw = df.get('winner_conviction_index_D', pd.Series(0.0, index=df_index))
+        pain_raw = df.get('loser_pain_index_D', pd.Series(0.0, index=df_index))
+        fatigue_raw = df.get('chip_fatigue_index_D', pd.Series(0.0, index=df_index))
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df.index, tf_weights, sensitivity=1.0)
-        pain_score = utils.get_adaptive_mtf_normalized_bipolar_score(pain_raw, df.index, tf_weights, sensitivity=1.0)
-        fatigue_score = utils.get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df.index, tf_weights, sensitivity=1.0)
-        final_score = (conviction_score - pain_score - fatigue_score).clip(-1, 1)
+        conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, sensitivity=1.0)
+        pain_score = utils.get_adaptive_mtf_normalized_bipolar_score(pain_raw, df_index, tf_weights, sensitivity=1.0)
+        fatigue_score = utils.get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=1.0)
+        # 修改行: 调整 pain_score 和 fatigue_score 的权重
+        final_score = (conviction_score * 0.6 - pain_score * 0.2 - fatigue_score * 0.2).clip(-1, 1) # 降低负面因素的权重
+
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [持股心态探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - conviction_raw: {conviction_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - pain_raw: {pain_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - fatigue_raw: {fatigue_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - pain_score: {pain_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - fatigue_score: {fatigue_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 
     def _diagnose_axiom_peak_integrity(self, df: pd.DataFrame, periods: list) -> pd.Series:

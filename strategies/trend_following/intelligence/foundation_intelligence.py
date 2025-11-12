@@ -96,9 +96,25 @@ class FoundationIntelligence:
         return oscillator_score.astype(np.float32)
 
     def _diagnose_axiom_flow(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】基础公理三：诊断“流体”"""
-        cmf = df.get('CMF_21_D', pd.Series(0.0, index=df.index))
-        flow_score = normalize_to_bipolar(cmf, df.index, window=norm_window, sensitivity=0.1)
+        """
+        【V1.1 · 探针增强版】基础公理三：诊断“流体”
+        - 核心升级: 增加调试探针，打印 CMF 原始值和归一化分数。
+        """
+        df_index = df.index
+        cmf = df.get('CMF_21_D', pd.Series(0.0, index=df_index))
+        # 修改行: 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
+        flow_score = normalize_to_bipolar(cmf, df_index, window=norm_window, sensitivity=0.5) # 提高敏感度
+
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [基础流体探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - CMF_21_D: {cmf.loc[probe_date_for_loop]:.4f}")
+                print(f"       - flow_score: {flow_score.loc[probe_date_for_loop]:.4f}")
         return flow_score.astype(np.float32)
 
     def _diagnose_axiom_volatility(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

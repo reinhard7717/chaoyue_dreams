@@ -59,12 +59,39 @@ class FundFlowIntelligence:
         return consensus_score.astype(np.float32)
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】资金流公理二：诊断“信念与决心”"""
-        conviction_index = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df.index))
-        cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df.index))
-        t0_efficiency = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df.index))
-        raw_bipolar_series = conviction_index + cost_advantage - (t0_efficiency * 2)
-        conviction_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
+        """
+        【V1.1 · 探针增强版】资金流公理二：诊断“信念与决心”
+        - 核心升级: 增加调试探针，打印关键中间值。
+        - 核心修复: 调整 t0_efficiency 的处理方式，先归一化再加权，避免其原始值过大导致过度惩罚。
+        """
+        df_index = df.index
+        conviction_index = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
+        cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        t0_efficiency = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
+
+        # 修改行: 将 t0_efficiency 先归一化到 [-1, 1] 范围，再进行加权
+        # 假设 t0_efficiency 越高，对信念的负面影响越大，所以 normalize_to_bipolar 应该 ascending=True
+        # 但这里是减法，所以直接使用 normalize_to_bipolar 即可
+        t0_efficiency_bipolar = normalize_to_bipolar(t0_efficiency, df_index, window=norm_window, sensitivity=0.5) # 调整敏感度
+
+        # 重新加权融合，降低 t0_efficiency 的直接惩罚力度
+        raw_bipolar_series = (conviction_index * 0.5 + cost_advantage * 0.4 - t0_efficiency_bipolar * 0.1).clip(-1, 1) # 降低 t0_efficiency 的权重
+        conviction_score = normalize_to_bipolar(raw_bipolar_series, df_index, window=norm_window, sensitivity=1.0)
+
+        # --- Debugging output for probe date ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                print(f"    -> [资金流信念探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - conviction_index: {conviction_index.loc[probe_date_for_loop]:.4f}")
+                print(f"       - cost_advantage: {cost_advantage.loc[probe_date_for_loop]:.4f}")
+                print(f"       - t0_efficiency: {t0_efficiency.loc[probe_date_for_loop]:.4f}")
+                print(f"       - t0_efficiency_bipolar: {t0_efficiency_bipolar.loc[probe_date_for_loop]:.4f}")
+                print(f"       - raw_bipolar_series: {raw_bipolar_series.loc[probe_date_for_loop]:.4f}")
+                print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
         return conviction_score.astype(np.float32)
 
     def _diagnose_axiom_increment(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
