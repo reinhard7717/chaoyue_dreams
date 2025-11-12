@@ -55,38 +55,38 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.3 · 剧本依赖优化版】总指挥
+        【V25.4 · 剧本状态实时同步版】总指挥
         - 核心升级: 优化剧本推演顺序，确保被依赖的剧本在其依赖者之前被计算。
-        - 状态归位: 不再污染 atomic_states，而是将所有剧本信号直接存入专属的 self.strategy.playbook_states。
+        - 核心修复: 每次剧本推演完成后，立即将结果更新到 `self.strategy.playbook_states`，
+                      确保 `_get_playbook_score` 能够实时获取到已计算的剧本信号。
         """
-        self.strategy.playbook_states = {}
+        self.strategy.playbook_states = {} # 初始化剧本状态库
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
-        playbook_scores = {}
-        # 优先计算被其他剧本依赖的风险信号
-        playbook_scores.update(self._deduce_distribution_at_high(priors)) # 修改行: 提前计算
-        playbook_scores.update(self._deduce_retail_fomo_retreat_risk(priors)) # 新增行: 提前计算
-        playbook_scores.update(self._deduce_trend_exhaustion_risk(priors)) # 修改行: 提前计算
 
-        # 计算其他机会和风险剧本
-        playbook_scores.update(self._deduce_suppressive_accumulation(priors))
-        playbook_scores.update(self._deduce_chasing_accumulation(priors))
-        playbook_scores.update(self._deduce_capitulation_reversal(priors))
-        playbook_scores.update(self._deduce_leading_dragon_awakening(priors))
-        playbook_scores.update(self._deduce_sector_rotation_vanguard(priors))
-        playbook_scores.update(self._deduce_energy_compression_breakout(priors))
-        playbook_scores.update(self._deduce_divergence_reversal(priors))
-        playbook_scores.update(self._deduce_long_term_profit_distribution_risk(priors))
-        playbook_scores.update(self._deduce_market_uncertainty_risk(priors))
-        playbook_scores.update(self._deduce_harvest_confirmation_risk(priors))
-        playbook_scores.update(self._deduce_bull_trap_distribution_risk(priors))
-        playbook_scores.update(self._deduce_liquidity_trap_risk(priors))
-        playbook_scores.update(self._deduce_t0_arbitrage_pressure_risk(priors))
-        playbook_scores.update(self._deduce_key_support_break_risk(priors))
-        playbook_scores.update(self._deduce_high_level_structural_collapse_risk(priors))
+        # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
+        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
+        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
 
-        self.strategy.playbook_states.update(playbook_scores)
-        print(f"【V25.3 · 剧本依赖优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
+        # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
+        self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
+        self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
+        self.strategy.playbook_states.update(self._deduce_capitulation_reversal(priors))
+        self.strategy.playbook_states.update(self._deduce_leading_dragon_awakening(priors))
+        self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
+        self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
+        self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors))
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_liquidity_trap_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors))
+
+        print(f"【V25.4 · 剧本状态实时同步版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
         return self.strategy.playbook_states
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
