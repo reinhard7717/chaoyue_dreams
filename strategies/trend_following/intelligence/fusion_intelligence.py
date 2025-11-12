@@ -466,11 +466,12 @@ class FusionIntelligence:
 
     def _synthesize_trend_structure_score(self) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
+        【V1.3 · 趋势结构分优化版】冶炼“趋势结构分” (FUSION_BIPOLAR_TREND_STRUCTURE_SCORE)
         - 核心优化:
           1. 修正 `divergence_score` 逻辑，改为加权算术平均，避免乘法带来的反直觉结果。
           2. 修正最终融合方式，从加权几何平均改为加权算术平均，减少单个极端负值对整体分数的“一票否决”效应。
           3. 增加调试探针，输出关键中间计算结果。
+          4. 【新增】调整 `alignment_score` 的 `normalize_to_bipolar` 敏感度，避免微小均线交叉被过度放大。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
@@ -501,7 +502,8 @@ class FusionIntelligence:
             # EMA5 > EMA21 为正，反之为负，归一化到 [-1, 1]
             # 使用一个小的epsilon防止除以零
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9)) # 相对距离
-            alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=0.01) # 敏感度调整
+            # 修改行: 增加 normalize_to_bipolar 的 sensitivity 参数
+            alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0) # 敏感度调整
 
         # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
         slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))

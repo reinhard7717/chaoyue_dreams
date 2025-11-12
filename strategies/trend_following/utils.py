@@ -353,15 +353,20 @@ def calculate_context_scores(df: pd.DataFrame, atomic_states: Dict) -> Tuple[pd.
 
 def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int, sensitivity: float = 1.0, default_value: float = 0.0) -> pd.Series:
     """
-    【V2.1 · 赫尔墨斯之翼注释升级版】双极归一化引擎 (力学罗盘)
+    【V2.2 · 赫尔墨斯之翼注释升级版】双极归一化引擎 (力学罗盘)
     - 战略意义: 用于将一个指标的变化率或原始值，转化为一个同时蕴含【方向】和【强度】的标准化分数。
                 它是构建“速度 vs 加速度”、“推力 vs 阻力”等力学分析模型的核心工具。
                 +1 代表极强的正向偏离，-1 代表极强的负向偏离，0 代表符合近期常态。
     - 核心逻辑: 采用滚动Z-score并使用tanh函数进行平滑压缩，完美适用于四象限分析。
     - :param sensitivity: 敏感度因子。值越小，Z-score的绝对值越大，得分越快地趋近于±1。
-                          战术上，调小此参数可放大微小变化的信号强度，用于捕捉早期拐点。
+                            战术上，调小此参数可放大微小变化的信号强度，用于捕捉早期拐点。
+                            【V2.2 修正】默认敏感度从1.0调整为2.0，以减少微小波动被过度放大到极端值。
     - :return: 归一化到(-1, 1)区间的pd.Series。
     """
+    # 修改行: 默认敏感度从1.0调整为2.0
+    if sensitivity == 1.0: # 仅当使用默认值时才修改
+        sensitivity = 2.0
+
     if series is None or series.isnull().all() or series.empty:
         return pd.Series(default_value, index=target_index, dtype=np.float32)
     series = series.reindex(target_index)
