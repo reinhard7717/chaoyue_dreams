@@ -298,7 +298,6 @@ def analyze_all_stocks(self, *, cache_manager: CacheManager):
         # 1.4 确定权威日期 
         trade_time_str = latest_trade_date.strftime('%Y-%m-%d')
         logger.info(f"【权威日期确定】: {trade_time_str}。该日已有 {actual_stock_count} 支股票筹码数据就绪。")
-
         # 步骤2: 使用权威日期进行精确的数据清理 
         logger.info(f"步骤2: 清理 {trade_time_str} 的旧策略数据，确保幂等性...")
         try:

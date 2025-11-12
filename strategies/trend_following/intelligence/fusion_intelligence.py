@@ -115,12 +115,23 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 纯粹原子版】冶炼“趋势质量” (Trend Quality)
+        【V1.4 · 趋势质量探针版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
+        - 【新增】增加调试探针，打印组成公理在探针日期的值及其贡献。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
+        df_index = self.strategy.df_indicators.index
+        # --- Debugging setup ---
+        debug_params = get_params_block(self.strategy, 'debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        probe_date_for_loop = None
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0])
+            probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
+            if probe_date_for_loop not in df_index:
+                probe_date_for_loop = None # Reset if not in index
         # 收集各领域公理信号
         # 基础层公理
         foundation_trend = self._get_atomic_score('SCORE_FOUNDATION_AXIOM_TREND', 0.0)
@@ -156,45 +167,48 @@ class FusionIntelligence:
         # 形态层公理
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
-        # 融合所有公理，形成一个整体的双极性趋势质量分
-        # 这里需要根据每个公理的性质和对趋势质量的贡献进行加权
+        # 定义所有组成公理及其权重
         # 这是一个示例性的加权融合，实际权重需要通过回测和优化确定
-        bipolar_quality = (
-            # 基础层
-            foundation_trend * 0.1 +
-            foundation_oscillator * -0.05 + # 摆动指标超买/超卖对趋势质量有负面影响
-            foundation_flow * 0.05 +
-            foundation_volatility * 0.05 + # 低波动对趋势有利
-            # 结构层
-            structural_trend_form * 0.15 +
-            structural_mtf_cohesion * 0.1 +
-            structural_stability * 0.1 +
-            # 力学层
-            dynamic_momentum * 0.1 +
-            dynamic_inertia * 0.1 +
-            dynamic_stability * 0.05 +
-            dynamic_energy * 0.05 +
-            # 资金流层
-            fund_flow_consensus * 0.05 +
-            fund_flow_conviction * 0.05 +
-            fund_flow_increment * 0.05 +
-            # 筹码层
-            chip_concentration * 0.05 +
-            chip_cost_structure * 0.05 +
-            chip_holder_sentiment * 0.05 +
-            chip_peak_integrity * 0.05 +
-            # 微观行为层
-            micro_deception * 0.02 + # 伪装吸筹对趋势质量有正面影响
-            micro_probe * 0.02 + # 试探确认对趋势质量有正面影响
-            micro_efficiency * 0.02 + # 高效率对趋势质量有正面影响
-            # 行为层
-            behavior_upward_efficiency * 0.03 +
-            behavior_downward_resistance * 0.03 +
-            behavior_intraday_bull_control * 0.02 +
-            # 形态层
-            pattern_reversal * 0.02 + # 反转信号对趋势质量有影响
-            pattern_breakout * 0.03 # 突破信号对趋势质量有影响
-        ).clip(-1, 1)
+        components_and_weights = {
+            'foundation_trend': (foundation_trend, 0.1),
+            'foundation_oscillator': (foundation_oscillator, -0.05), # 摆动指标超买/超卖对趋势质量有负面影响
+            'foundation_flow': (foundation_flow, 0.05),
+            'foundation_volatility': (foundation_volatility, 0.05), # 低波动对趋势有利
+            'structural_trend_form': (structural_trend_form, 0.15),
+            'structural_mtf_cohesion': (structural_mtf_cohesion, 0.1),
+            'structural_stability': (structural_stability, 0.1),
+            'dynamic_momentum': (dynamic_momentum, 0.1),
+            'dynamic_inertia': (dynamic_inertia, 0.1),
+            'dynamic_stability': (dynamic_stability, 0.05),
+            'dynamic_energy': (dynamic_energy, 0.05),
+            'fund_flow_consensus': (fund_flow_consensus, 0.05),
+            'fund_flow_conviction': (fund_flow_conviction, 0.05),
+            'fund_flow_increment': (fund_flow_increment, 0.05),
+            'chip_concentration': (chip_concentration, 0.05),
+            'chip_cost_structure': (chip_cost_structure, 0.05),
+            'chip_holder_sentiment': (chip_holder_sentiment, 0.05),
+            'chip_peak_integrity': (chip_peak_integrity, 0.05),
+            'micro_deception': (micro_deception, 0.02), # 伪装吸筹对趋势质量有正面影响
+            'micro_probe': (micro_probe, 0.02), # 试探确认对趋势质量有正面影响
+            'micro_efficiency': (micro_efficiency, 0.02), # 高效率对趋势质量有正面影响
+            'behavior_upward_efficiency': (behavior_upward_efficiency, 0.03),
+            'behavior_downward_resistance': (behavior_downward_resistance, 0.03),
+            'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
+            'pattern_reversal': (pattern_reversal, 0.02), # 反转信号对趋势质量有影响
+            'pattern_breakout': (pattern_breakout, 0.03) # 突破信号对趋势质量有影响
+        }
+        bipolar_quality = pd.Series(0.0, index=df_index)
+        
+        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            print(f"    -> [趋势质量探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
+            
+        for name, (series, weight) in components_and_weights.items():
+            if not series.empty:
+                contribution = series * weight
+                bipolar_quality += contribution
+                if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+                    print(f"       - {name:<30}: 原始值={series.loc[probe_date_for_loop]:.4f}, 权重={weight:.2f}, 贡献={contribution.loc[probe_date_for_loop]:.4f}")
+        bipolar_quality = bipolar_quality.clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
         print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
         return states
@@ -377,10 +391,8 @@ class FusionIntelligence:
         df = self.strategy.df_indicators
         df_index = df.index
         norm_window = 55 # 统一归一化窗口
-
         # 1. 获取行为层上影线原始分 (0到1，越高上影线越强)
         upper_shadow_normalized = self._get_atomic_score('INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
-
         # 2. 获取其他维度的支持/抑制信号 (转换为 [-1, 1] 双极性或 [0, 1] 单极性)
         pct_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
         main_force_flow = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index)), df_index, norm_window)
@@ -389,12 +401,10 @@ class FusionIntelligence:
         upward_efficiency = (self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1) # 转换为双极性
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0) # [-1, 1]
         volume_burst = (self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_BURST', 0.5) * 2 - 1).clip(-1, 1) # 转换为双极性
-
         # 3. 价格背景判断
         is_up_day = (pct_change > 0).astype(float)
         is_down_day = (pct_change < 0).astype(float)
         is_flat_day = ((pct_change == 0) | (pct_change.abs() < 0.005)).astype(float) # 定义平盘日
-
         # 4. 计算多头意图分数 (Bullish Intent Score) - 范围 [0, 1]
         # 这些因素，当为正时，表明上影线背后是多头意图（洗盘、试探）
         bullish_intent_components = [
@@ -407,7 +417,6 @@ class FusionIntelligence:
         # 权重分配：主力资金和筹码集中度最为关键
         bullish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1]) # 权重和为1
         bullish_intent_score = sum(w * s for w, s in zip(bullish_weights, bullish_intent_components)).clip(0, 1)
-
         # 5. 计算空头意图分数 (Bearish Intent Score) - 范围 [0, 1]
         # 这些因素，当为正时，表明上影线背后是空头意图（派发、诱多）
         bearish_intent_components = [
@@ -420,28 +429,22 @@ class FusionIntelligence:
         # 权重分配：同样主力资金和筹码分散度最为关键
         bearish_weights = np.array([0.35, 0.25, 0.2, 0.1, 0.1]) # 权重和为1
         bearish_intent_score = sum(w * s for w, s in zip(bearish_weights, bearish_intent_components)).clip(0, 1)
-
         # 6. 综合净意图方向 (Net Intent Direction) - 范围 [-1, 1]
         # 正值代表多头意图占优，负值代表空头意图占优
         net_intent_direction = (bullish_intent_score - bearish_intent_score).clip(-1, 1)
-
         # 7. 成交量信念乘数 (Volume Conviction Multiplier) - 范围 [0, 1]
         # 高量能 (volume_burst=1) 意味着信念乘数为1，低量能 (volume_burst=-1) 意味着信念乘数为0
         # 这样，低量能的上影线，无论意图如何，其最终信号强度都会被削弱
         volume_conviction_multiplier = (volume_burst + 1) / 2 # 将 [-1, 1] 映射到 [0, 1]
-
         # 8. 基础意图分数 (Base Intent Score)
         # 原始上影线强度 * 净意图方向 * 成交量信念乘数
         base_intent_score = upper_shadow_normalized * net_intent_direction * volume_conviction_multiplier
-
         # 9. 价格背景的条件调整
         final_intent = pd.Series(0.0, index=df_index)
-
         # 调整1: 上涨日 (is_up_day)
         # 上涨日的上影线，如果净意图为正（洗盘/试探），则放大其积极性；如果净意图为负（诱多/派发），则放大其消极性。
         up_day_adjusted_intent = base_intent_score * (1 + base_intent_score.abs() * 0.5) # 意图越明确，放大效果越强
         final_intent = final_intent.mask(is_up_day.astype(bool), up_day_adjusted_intent)
-
         # 调整2: 下跌日 (is_down_day)
         # 下跌日的上影线，通常是抛压。即使有少量多头证据，也应大幅削弱其积极性，并强化其消极性。
         # 基础惩罚：-upper_shadow_normalized * 0.8 (即使没有其他空头证据，也至少是较强的抛压)
@@ -453,12 +456,10 @@ class FusionIntelligence:
             + upper_shadow_normalized * bullish_intent_score * 0.2 # 少量多头缓解
         ) * volume_conviction_multiplier # 依然受量能信念影响
         final_intent = final_intent.mask(is_down_day.astype(bool), down_day_adjusted_intent)
-
         # 调整3: 平盘日 (is_flat_day)
         # 平盘日的上影线，意图相对模糊，信号强度减半。
         flat_day_adjusted_intent = base_intent_score * 0.5
         final_intent = final_intent.mask(is_flat_day.astype(bool), flat_day_adjusted_intent)
-
         final_intent = final_intent.clip(-1, 1)
         states['FUSION_BIPOLAR_UPPER_SHADOW_INTENT'] = final_intent.astype(np.float32)
         print(f"  -- [融合层] “上影线意图”冶炼完成，最新分值: {final_intent.iloc[-1]:.4f}")
@@ -478,7 +479,6 @@ class FusionIntelligence:
         df = self.strategy.df_indicators
         df_index = df.index
         norm_window = 55 # 统一归一化窗口
-
         # --- Debugging setup ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -489,7 +489,6 @@ class FusionIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
                 probe_date_for_loop = None # Reset if not in index
-
         # 1. 均线排列分 (EMA5 vs EMA21)
         ema5 = df.get('EMA_5_D', pd.Series(0.0, index=df_index))
         ema21 = df.get('EMA_21_D', pd.Series(0.0, index=df_index))
@@ -504,7 +503,6 @@ class FusionIntelligence:
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9)) # 相对距离
             # 修改行: 增加 normalize_to_bipolar 的 sensitivity 参数
             alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0) # 敏感度调整
-
         # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
         slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))
         slope_ema21 = df.get('SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index))
@@ -517,7 +515,6 @@ class FusionIntelligence:
             norm_slope_ema21 = normalize_to_bipolar(slope_ema21, df_index, window=norm_window, sensitivity=0.005)
             # 加权平均归一化后的斜率
             slope_score = (norm_slope_ema5 * 0.6 + norm_slope_ema21 * 0.4).clip(-1, 1) # 5日斜率权重更高
-
         # 3. 均线发散/收敛分 (EMA5与EMA21的乖离率及其变化率)
         # 乖离率 = (EMA5 - EMA21) / EMA21
         if ema5.isnull().all() or ema21.isnull().all():
@@ -538,7 +535,6 @@ class FusionIntelligence:
             # 当乖离率为正但乖离率斜率为负（正乖离缩小，结构恶化）时，应为负分。
             # 简单的加权平均可以更好地捕捉这种关系。
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
-
         # --- Debugging output for probe date ---
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [趋势结构分探针] @ {probe_date_for_loop.date()}:")
@@ -556,7 +552,6 @@ class FusionIntelligence:
             print(f"       - norm_ma_bias: {norm_ma_bias.loc[probe_date_for_loop]:.4f}")
             print(f"       - norm_ma_bias_slope: {norm_ma_bias_slope.loc[probe_date_for_loop]:.4f}")
             print(f"       - divergence_score: {divergence_score.loc[probe_date_for_loop]:.4f}")
-
         # 4. 融合所有子分数
         # 权重分配 (示例，需优化)
         weights = np.array([0.4, 0.4, 0.2]) # 排列和斜率更重要
@@ -571,7 +566,6 @@ class FusionIntelligence:
             aligned_components[1] * weights[1] +
             aligned_components[2] * weights[2]
         ).clip(-1, 1) # 确保最终分数在 [-1, 1] 范围内
-
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states

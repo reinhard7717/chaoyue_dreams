@@ -2071,7 +2071,6 @@ fixed.replace = function (search, replacement) {
           args[0] = new String(args[0]);
           groupsObject = args[0];
         } // Store named backreferences
-
         for (var i = 0; i < captureNames.length; ++i) {
           if (captureNames[i]) {
             groupsObject[captureNames[i]] = args[i + 1];
@@ -2111,7 +2110,6 @@ fixed.replace = function (search, replacement) {
           // backference that does not refer to an existing group.
           // Using `indexOf` since having groups with the same name is already an error,
           // otherwise would need `lastIndexOf`.
-
           var n = captureNames ? (0, _indexOf["default"])(captureNames).call(captureNames, bracketed) : -1;
           if (n < 0) {
             throw new SyntaxError("Backreference to undefined group ".concat($0));
@@ -2120,7 +2118,6 @@ fixed.replace = function (search, replacement) {
         } // Handle `$`-prefixed variable
         // Handle space/blank first because type conversion with `+` drops space padding
         // and converts spaces and empty strings to `0`
-
         if (dollarToken === '' || dollarToken === ' ') {
           throw new SyntaxError("Invalid token ".concat($0));
         }
@@ -2143,7 +2140,6 @@ fixed.replace = function (search, replacement) {
           return (0, _slice["default"])(_context5 = args[args.length - 1]).call(_context5, args[args.length - 2] + args[0].length);
         } // Handle numbered backreference without braces
         // Type-convert and drop leading zero
-
         dollarToken = +dollarToken; // XRegExp behavior for `$n` and `$nn`:
         // - Backrefs end after 1 or 2 digits. Use `${..}` or `$<..>` for more digits.
         // - `$1` is an error if no capturing groups.
@@ -2163,7 +2159,6 @@ fixed.replace = function (search, replacement) {
           }
           return args[dollarToken] || '';
         } // `$` followed by an unsupported char is an error, unlike native JS
-
         throw new SyntaxError("Invalid token ".concat($0));
       }
     });

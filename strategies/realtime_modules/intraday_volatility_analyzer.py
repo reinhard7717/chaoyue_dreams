@@ -69,7 +69,6 @@ class IntradayVolatilityAnalyzer:
             volatility_features["BBW_EXPANDING"] = 0.0
             volatility_features["BBW_PERCENTILE"] = np.nan
             volatility_features["BBW_IS_SQUEEZED"] = 0.0
-
         # 日内振幅
         if 'open' in current_kline and 'high' in current_kline and 'low' in current_kline and current_kline['open'] != 0:
             intraday_range_pct = (current_kline['high'] - current_kline['low']) / current_kline['open']

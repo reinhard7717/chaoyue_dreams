@@ -66,13 +66,11 @@ class CognitiveIntelligence:
         self.strategy.playbook_states = {} # 初始化剧本状态库
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
-
         # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
         self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
         self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 修改行: 提前计算此剧本
         self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
-
         # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
         self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
@@ -89,7 +87,6 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
         self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
         self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors))
-
         print(f"【V25.5 · 剧本依赖顺序修复版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
         return self.strategy.playbook_states
 
@@ -193,7 +190,6 @@ class CognitiveIntelligence:
         cyclical_top_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_CYCLICAL_TOP', 0.0))
         # 6. 趋势质量的反向证据 (低趋势质量是风险证据)
         trend_quality_inverse = self._forge_dynamic_evidence(1 - self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0).clip(lower=0))
-
         evidence_scores = np.stack([
             price_momentum_divergence.values,
             winner_conviction_decay.values,
@@ -251,26 +247,22 @@ class CognitiveIntelligence:
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
         # 新增行: 获取融合层的趋势结构分
         trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
-
         # 调整趋势先验概率的权重，引入趋势结构分
         # 示例权重，需要根据回测优化
         regime_weight = 0.3
         quality_weight = 0.3
         # 新增行: 趋势结构分的权重
         structure_weight = 0.4
-
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
         # 新增行: 趋势结构分转换为概率
         trend_structure_prob = (trend_structure_score + 1) / 2
-
         # 修改行: 融合趋势结构分到趋势先验概率中
         prior_trend = (
             market_regime_prob * regime_weight +
             trend_quality_prob * quality_weight +
             trend_structure_prob * structure_weight # 新增行: 融合趋势结构分
         ).clip(0, 1)
-
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -286,7 +278,6 @@ class CognitiveIntelligence:
                 print(f"       - 趋势结构概率 (trend_structure_prob): {trend_structure_prob.loc[probe_date]:.4f}") # 新增行
                 print(f"       - 最终趋势先验概率 (prior_trend): {prior_trend.loc[probe_date]:.4f}")
         states['COGNITIVE_PRIOR_TREND_PROB'] = prior_trend.astype(np.float32)
-
         market_pressure = self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0)
         reversal_pressure_weight = 0.6
         reversal_regime_strength_weight = 0.4
@@ -295,7 +286,6 @@ class CognitiveIntelligence:
         prior_reversal_raw = (market_pressure.abs() * reversal_pressure_weight + market_regime.abs() * reversal_regime_strength_weight).clip(0, 1)
         prior_reversal = (prior_reversal_raw * suppression_factor).clip(0, 1)
         states['COGNITIVE_PRIOR_REVERSAL_PROB'] = prior_reversal.astype(np.float32)
-
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date = probe_date_naive.tz_localize(self.strategy.df_indicators.index.tz) if self.strategy.df_indicators.index.tz else probe_date_naive
@@ -377,7 +367,6 @@ class CognitiveIntelligence:
                 print(f"      -> [认知层探针] @ {probe_date.date()} for '主力拉升抢筹':")
                 print(f"         - 先验概率 (P(Trend)): {prior_prob.loc[probe_date]:.4f}")
                 print(f"         - 似然度 (P(证据|剧本)): {likelihood.loc[probe_date]:.4f}")
-
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION': posterior_prob.astype(np.float32)}
 

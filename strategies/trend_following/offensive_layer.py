@@ -63,7 +63,6 @@ class OffensiveLayer:
                     else:
                         print(f"  -> 信号: {key:<50} | [探针警告] 无法在探针日期找到该信号值。")
             print("--- [探针 2/2] 开始计分循环，监控剧本信号的得分贡献 ---")
-
         for signal_name, meta in score_map.items():
             if not isinstance(meta, dict): continue
             signal_series = all_available_signals.get(signal_name)

@@ -183,31 +183,25 @@ class ProcessIntelligence:
         main_force_cost_accel_raw = df.get(f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index)) # 主力主动买入成本的加速度
         main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
         chip_concentration_change = df.get(f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index))
-
         # 2. 归一化为双极性分数
         price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_accel_bipolar = normalize_to_bipolar(main_force_cost_accel_raw, df_index, std_window, self.bipolar_sensitivity)
         main_force_net_flow_bipolar = normalize_to_bipolar(main_force_net_flow, df_index, std_window, self.bipolar_sensitivity)
         chip_concentration_change_bipolar = normalize_to_bipolar(chip_concentration_change, df_index, std_window, self.bipolar_sensitivity)
-
         # 3. 核心紧迫度计算：主力成本抬升速度 vs 价格上涨速度
         # 当主力成本抬升速度显著快于价格上涨速度时，紧迫度高
         # 这里的关键是比较“变化率的相对强度”，而不是绝对值
         # 我们可以用 (成本变化率 - 价格变化率) 来衡量这种相对强度
         relative_urgency_speed = (main_force_cost_change_bipolar - price_change_bipolar).clip(-1, 1)
-
         # 4. 引入加速度作为确认因子：成本抬升的加速度越快，紧迫度越高
         # 加速度直接作为正向贡献
         accel_confirmation = main_force_cost_accel_bipolar
-
         # 5. 主力资金净流入作为乘数因子：只有在主力资金净流入的背景下，紧迫度才有效
         # 将资金流从 [-1, 1] 映射到 [0, 1]，负值变为0，正值保持
         main_force_flow_multiplier = (main_force_net_flow_bipolar + 1) / 2
-
         # 6. 筹码集中度变化作为辅助确认：筹码集中度上升，进一步确认主力吸筹意图
         chip_concentration_confirmation = chip_concentration_change_bipolar.clip(lower=0) # 只考虑集中度上升
-
         # 7. 综合紧迫度分数
         # 权重分配 (示例，需优化)
         w_speed = 0.4 # 相对速度最重要
@@ -219,23 +213,19 @@ class ProcessIntelligence:
             accel_confirmation * w_accel +
             chip_concentration_confirmation * w_chip
         ) / (w_speed + w_accel + w_chip)
-
         # 8. 最终紧迫度：乘以主力资金净流入乘数
         # 只有在主力资金净流入为正时，紧迫度才会被放大；如果主力资金流出，则紧迫度分数会被压制
         final_urgency_score = (initial_urgency_score * main_force_flow_multiplier).clip(-1, 1)
-
         # 9. 进一步的条件判断：只有在价格上涨的背景下，才认为存在“紧迫度”
         # 如果价格下跌，即使主力成本下降很快，也不是我们定义的“紧迫度”
         # 我们可以将价格下跌时的紧迫度分数强制为负值或0
         final_urgency_score = final_urgency_score.mask(price_change_bipolar < 0, final_urgency_score.clip(upper=0)) # 价格下跌时，紧迫度只能为负或0
-
         self.strategy.atomic_states[f"_DEBUG_relative_urgency_speed"] = relative_urgency_speed
         self.strategy.atomic_states[f"_DEBUG_accel_confirmation"] = accel_confirmation
         self.strategy.atomic_states[f"_DEBUG_main_force_flow_multiplier"] = main_force_flow_multiplier
         self.strategy.atomic_states[f"_DEBUG_chip_concentration_confirmation"] = chip_concentration_confirmation
         self.strategy.atomic_states[f"_DEBUG_initial_urgency_score"] = initial_urgency_score
         self.strategy.atomic_states[f"_DEBUG_final_urgency_score_raw"] = final_urgency_score
-
         return final_urgency_score.astype(np.float32)
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
