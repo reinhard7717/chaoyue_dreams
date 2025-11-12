@@ -165,7 +165,7 @@ class ChipFeatureCalculator:
         # --- 2. 流量质量与供给压力 (Flow Quality & Pressure) ---
         pre_close = context.get('pre_close')
         required_cols_2 = ['minute_vwap', 'main_force_sell_vol', 'retail_sell_vol']
-        total_sell_vol_today = 0.0 # 修改行: 初始化 total_sell_vol_today
+        total_sell_vol_today = 0.0 # 初始化 total_sell_vol_today
         if minute_df is not None and not minute_df.empty and pd.notna(pre_close) and all(c in minute_df.columns for c in required_cols_2):
             total_sell_vol_today = (minute_df['main_force_sell_vol'] + minute_df['retail_sell_vol']).sum()
             if total_sell_vol_today > 0:
@@ -242,7 +242,7 @@ class ChipFeatureCalculator:
         minute_df = context.get('minute_data')
         total_daily_vol = context.get('daily_turnover_volume')
         close_price = context.get('close_price')
-        atr_14d = context.get('atr_14d') # 新增行: 获取 atr_14d
+        atr_14d = context.get('atr_14d') # 获取 atr_14d
         # 1. 战术序列流 (Intraday Tactical Flow)
         required_cols_1 = ['minute_vwap', 'main_force_net_vol', 'vol']
         if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
@@ -265,17 +265,17 @@ class ChipFeatureCalculator:
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
-        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0: # 修改行: 增加 atr_14d 的判断
-            # 修改行: 重新定义 active_winners_df
+        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0: # 增加 atr_14d 的判断
+            # 重新定义 active_winners_df
             active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)]
             if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
                 active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
                 results['active_winner_avg_cost'] = active_winner_avg_cost
                 if active_winner_avg_cost > 0: results['active_winner_profit_margin'] = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
-            else: # 新增行: 如果没有活跃获利盘，则设置默认值
+            else: # 如果没有活跃获利盘，则设置默认值
                 results['active_winner_avg_cost'] = np.nan
                 results['active_winner_profit_margin'] = 0.0 # 默认利润率为0
-        else: # 新增行: 如果 close_price 或 atr_14d 无效，也设置默认值
+        else: # 如果 close_price 或 atr_14d 无效，也设置默认值
             results['active_winner_avg_cost'] = np.nan
             results['active_winner_profit_margin'] = 0.0
         losers_df = self.df[self.df['price'] > close_price]
@@ -292,7 +292,7 @@ class ChipFeatureCalculator:
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None))
             reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0)
             results['winner_conviction_index'] = hesitation_factor * margin_factor * reinforcement_factor * 100
-        else: # 新增行: 如果有任何一个前置条件缺失，则设置默认值
+        else: # 如果有任何一个前置条件缺失，则设置默认值
             results['winner_conviction_index'] = 0.0
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
@@ -539,7 +539,7 @@ class ChipFeatureCalculator:
             if not losers_df.empty and losers_df['percent'].sum() > 0:
                 loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
                 if loser_avg_cost > 0: results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100
-            # 修改行: 重新定义 active_winner_rate 和 active_loser_rate
+            # 重新定义 active_winner_rate 和 active_loser_rate
             if pd.notna(atr_14d) and atr_14d > 0:
                 # 活跃获利盘：成本在 (close_price - 2*ATR, close_price) 之间
                 active_winner_mask = (self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)

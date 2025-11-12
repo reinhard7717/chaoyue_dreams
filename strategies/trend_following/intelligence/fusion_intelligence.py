@@ -50,10 +50,10 @@ class FusionIntelligence:
         all_fusion_states.update(overextension_intent_states)
         upper_shadow_intent_states = self._synthesize_upper_shadow_intent()
         all_fusion_states.update(upper_shadow_intent_states)
-        # 新增行: 冶炼“滞涨风险”
+        # 冶炼“滞涨风险”
         stagnation_risk_states = self._synthesize_stagnation_risk()
         all_fusion_states.update(stagnation_risk_states)
-        # 新增行: 冶炼“趋势结构分”
+        # 冶炼“趋势结构分”
         trend_structure_states = self._synthesize_trend_structure_score()
         all_fusion_states.update(trend_structure_states)
         self.strategy.atomic_states.update(all_fusion_states)
@@ -118,8 +118,8 @@ class FusionIntelligence:
         【V1.5 · 趋势质量探针版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
-        - 【新增】增加调试探针，打印组成公理在探针日期的值及其贡献。
-        - 【新增】引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
+        - 增加调试探针，打印组成公理在探针日期的值及其贡献。
+        - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -168,7 +168,7 @@ class FusionIntelligence:
         # 形态层公理
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
-        # 新增行: 主力在主峰区的净流入
+        # 主力在主峰区的净流入
         # 假设 main_force_on_peak_flow_D 已经通过 ProcessIntelligence 归一化为双极性分数
         main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0) 
         # 定义所有组成公理及其权重
@@ -200,7 +200,7 @@ class FusionIntelligence:
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
             'pattern_reversal': (pattern_reversal, 0.02), # 反转信号对趋势质量有影响
             'pattern_breakout': (pattern_breakout, 0.03), # 突破信号对趋势质量有影响
-            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.05) # 新增行: 主力在主峰区的净流入
+            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.05) # 主力在主峰区的净流入
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
@@ -529,7 +529,7 @@ class FusionIntelligence:
           1. 修正 `divergence_score` 逻辑，改为加权算术平均，避免乘法带来的反直觉结果。
           2. 修正最终融合方式，从加权几何平均改为加权算术平均，减少单个极端负值对整体分数的“一票否决”效应。
           3. 增加调试探针，输出关键中间计算结果。
-          4. 【新增】调整 `alignment_score` 的 `normalize_to_bipolar` 敏感度，避免微小均线交叉被过度放大。
+          4. 调整 `alignment_score` 的 `normalize_to_bipolar` 敏感度，避免微小均线交叉被过度放大。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
@@ -557,7 +557,7 @@ class FusionIntelligence:
             # EMA5 > EMA21 为正，反之为负，归一化到 [-1, 1]
             # 使用一个小的epsilon防止除以零
             raw_alignment = (ema5 - ema21) / (ema21.abs().replace(0, 1e-9)) # 相对距离
-            # 修改行: 增加 normalize_to_bipolar 的 sensitivity 参数
+            # 增加 normalize_to_bipolar 的 sensitivity 参数
             alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0) # 敏感度调整
         # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
         slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))
@@ -585,7 +585,7 @@ class FusionIntelligence:
             norm_ma_bias = normalize_to_bipolar(ma_bias_raw, df_index, window=norm_window, sensitivity=0.02)
             norm_ma_bias_slope = normalize_to_bipolar(ma_bias_slope_raw, df_index, window=norm_window, sensitivity=0.001)
             
-            # 修改行: 修正 divergence_score 逻辑为加权算术平均
+            # 修正 divergence_score 逻辑为加权算术平均
             # 目标：当乖离率为正且乖离率斜率为正时，为强正分；当乖离率为负且乖离率斜率为负时，为强负分。
             # 当乖离率为负但乖离率斜率为正（负乖离缩小，结构改善）时，应为正分。
             # 当乖离率为正但乖离率斜率为负（正乖离缩小，结构恶化）时，应为负分。
@@ -614,7 +614,7 @@ class FusionIntelligence:
         components = [alignment_score, slope_score, divergence_score]
         # 确保所有分量都是 Series，并且索引对齐
         aligned_components = [comp.reindex(df_index, fill_value=0.0) for comp in components]
-        # 修改行: 从加权几何平均改为加权算术平均，避免“一票否决”效应
+        # 从加权几何平均改为加权算术平均，避免“一票否决”效应
         final_trend_structure_score = (
             aligned_components[0] * weights[0] +
             aligned_components[1] * weights[1] +

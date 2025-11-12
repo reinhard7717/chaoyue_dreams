@@ -363,7 +363,7 @@ def normalize_to_bipolar(series: pd.Series, target_index: pd.Index, window: int,
                             【V2.2 修正】默认敏感度从1.0调整为2.0，以减少微小波动被过度放大到极端值。
     - :return: 归一化到(-1, 1)区间的pd.Series。
     """
-    # 修改行: 默认敏感度从1.0调整为2.0
+    # 默认敏感度从1.0调整为2.0
     if sensitivity == 1.0: # 仅当使用默认值时才修改
         sensitivity = 2.0
 

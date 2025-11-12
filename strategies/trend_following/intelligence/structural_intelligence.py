@@ -67,7 +67,7 @@ class StructuralIntelligence:
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 结构质量增强版】结构公理一：诊断“趋势形态”
-        - 【新增】引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
+        - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         """
         df_index = df.index
@@ -83,7 +83,7 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df_index)
         bull_velocity = np.mean([normalize_score(df[col], df_index, norm_window, ascending=True).values for col in slope_cols], axis=0)
         bear_velocity = np.mean([normalize_score(df[col], df_index, norm_window, ascending=False).values for col in slope_cols], axis=0)
-        # 新增行: 获取并归一化 volume_burstiness_index_D 和 upward_thrust_efficacy_D
+        # 获取并归一化 volume_burstiness_index_D 和 upward_thrust_efficacy_D
         volume_burstiness_raw = df.get('volume_burstiness_index_D', pd.Series(0.0, index=df_index))
         upward_thrust_efficacy_raw = df.get('upward_thrust_efficacy_D', pd.Series(0.0, index=df_index))
         downward_absorption_efficacy_raw = df.get('downward_absorption_efficacy_D', pd.Series(0.0, index=df_index)) # 假设也有这个指标
@@ -91,14 +91,13 @@ class StructuralIntelligence:
         burstiness_score = normalize_score(volume_burstiness_raw, df_index, norm_window, ascending=True).fillna(0.0)
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
-        # 修改行: 融合新的指标
+        # 融合新的指标
         # 爆裂度作为乘数因子，增强趋势的强度
         # 上涨推力效能直接增强多头分数
         # 下跌吸收效能直接增强空头分数（下跌趋势的效率）
         bull_score = pd.Series(bull_alignment * bull_velocity, index=df_index) * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1
         bear_score = pd.Series(bear_alignment * bear_velocity, index=df_index) * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1
         trend_form_score = (bull_score - bear_score).clip(-1, 1)
-        # 新增探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -118,7 +117,7 @@ class StructuralIntelligence:
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
         【V1.1 · 趋势效率增强版】结构公理二：诊断“多周期协同”
-        - 【新增】引入 `trend_efficiency_ratio_D` (趋势效率比) 来增强多周期协同的质量判断。
+        - 引入 `trend_efficiency_ratio_D` (趋势效率比) 来增强多周期协同的质量判断。
         """
         df_index = df.index
         ma_periods_w = [5, 13, 21, 55]
@@ -134,13 +133,12 @@ class StructuralIntelligence:
         bull_velocity_w = np.mean([normalize_score(df[col], df_index, norm_window, ascending=True).values for col in slope_cols_w], axis=0)
         bear_velocity_w = np.mean([normalize_score(df[col], df_index, norm_window, ascending=False).values for col in slope_cols_w], axis=0)
         weekly_trend_form_score = pd.Series(bull_alignment_w * bull_velocity_w - bear_alignment_w * bear_velocity_w, index=df_index).clip(-1, 1)
-        # 新增行: 获取并归一化 trend_efficiency_ratio_D
+        # 获取并归一化 trend_efficiency_ratio_D
         trend_efficiency_raw = df.get('trend_efficiency_ratio_D', pd.Series(0.0, index=df_index))
         efficiency_score = normalize_score(trend_efficiency_raw, df_index, norm_window, ascending=True).fillna(0.0)
-        # 修改行: 融合效率分数
+        # 融合效率分数
         # 效率分数作为乘数因子，增强协同的质量
         cohesion_score = (daily_trend_form_score * weekly_trend_form_score * (1 + efficiency_score * 0.5)).fillna(0).clip(-1, 1) # 调整乘数因子
-        # 新增探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -163,8 +161,8 @@ class StructuralIntelligence:
           2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
           3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
         - 核心修复: 将 `raw_stability_score` 的计算从乘法改为加权平均，避免“一票否决”效应。
-        - 【新增】增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
-        - 【新增】引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volatility_skew_index_D` (波动率偏度指数)
+        - 增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
+        - 引入 `vpoc_consensus_strength_D` (VPOC共识强度) 和 `volatility_skew_index_D` (波动率偏度指数)
                    来增强对结构稳定性的判断。
         """
         df_index = df.index
@@ -177,7 +175,7 @@ class StructuralIntelligence:
         long_term_ma_periods = [55, 144]
         required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
         required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods]
-        # 新增行: 获取并归一化 vpoc_consensus_strength_D
+        # 获取并归一化 vpoc_consensus_strength_D
         vpoc_consensus_raw = df.get('vpoc_consensus_strength_D', pd.Series(0.0, index=df_index))
         vpoc_consensus_score = normalize_score(vpoc_consensus_raw, df_index, norm_window, ascending=True).fillna(0.0)
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
@@ -198,14 +196,14 @@ class StructuralIntelligence:
                 health_score = normalize_score(df[f'SLOPE_5_MA_{p}_D'], df_index, norm_window, ascending=True).clip(0, 1)
                 health_scores.append(health_score)
             long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
-            # 修改行: 融合 vpoc_consensus_strength_D 到 foundation_health_score
+            # 融合 vpoc_consensus_strength_D 到 foundation_health_score
             foundation_health_score = (foundation_support_score * long_term_trend_health_score * (1 + vpoc_consensus_score * 0.5)).pow(1/3) # 几何平均，调整权重
-        # 修改行: 将 raw_stability_score 的计算从乘法改为加权平均
+        # 将 raw_stability_score 的计算从乘法改为加权平均
         raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5) # 赋予基石支撑更高权重
-        # 新增行: 获取并归一化 volatility_skew_index_D
+        # 获取并归一化 volatility_skew_index_D
         volatility_skew_raw = df.get('volatility_skew_index_D', pd.Series(0.0, index=df_index))
         volatility_skew_score = normalize_to_bipolar(volatility_skew_raw, df_index, norm_window, sensitivity=0.5).fillna(0.0) # 归一化到 [-1, 1]
-        # 修改行: 融合 volatility_skew_score 到最终的 stability_score
+        # 融合 volatility_skew_score 到最终的 stability_score
         stability_score = ((raw_stability_score * 2 - 1) * 0.8 + volatility_skew_score * 0.2).clip(-1, 1) # 调整权重
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})

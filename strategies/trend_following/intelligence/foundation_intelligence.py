@@ -102,7 +102,7 @@ class FoundationIntelligence:
         """
         df_index = df.index
         cmf = df.get('CMF_21_D', pd.Series(0.0, index=df_index))
-        # 修改行: 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
+        # 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
         flow_score = normalize_to_bipolar(cmf, df_index, window=norm_window, sensitivity=0.5) # 提高敏感度
         # --- Debugging output for probe date ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})

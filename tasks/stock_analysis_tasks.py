@@ -830,7 +830,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if not chunk_core_metrics_df.empty:
                 new_hist_data = chunk_core_metrics_df[chunk_core_metrics_df.columns.intersection(health_score_components)]
                 if not new_hist_data.empty:
-                    # 修改行: 确保 historical_components_df 的索引唯一
+                    # 确保 historical_components_df 的索引唯一
                     historical_components_df = pd.concat([historical_components_df, new_hist_data])
                     historical_components_df = historical_components_df[~historical_components_df.index.duplicated(keep='last')].sort_index()
                     if all(c in historical_components_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):

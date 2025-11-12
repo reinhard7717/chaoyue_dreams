@@ -20,7 +20,7 @@ class CyclicalIntelligence:
         - 核心流程:
           1. 诊断公理一 (FFT): 提取市场的周期性特征。
           2. 诊断公理二 (Hurst): 提取市场的记忆性特征（趋势/均值回归）。
-          3. 【新增】诊断周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)。
+          3. 诊断周期顶风险 (COGNITIVE_RISK_CYCLICAL_TOP)。
           4. 融合裁决: 综合FFT和Hurst的诊断，输出一个更可靠的“趋势政权”评分。
         """
         all_cyclical_states = {}

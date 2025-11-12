@@ -80,11 +80,11 @@ class ChipIntelligence:
         【V2.5 · 数学重构与峰融合增强版】筹码公理一：诊断筹码“聚散”动态
         - 核心修复: 遵循“先归一，后融合”原则。不再对原始值进行武断缩放，而是先将“集中度水平”和“集中趋势”
                       分别归一化为[-1, 1]的双极性分数，然后再进行加权融合，确保模型在不同市场环境下的健壮性。
-        - 【新增】引入 `peak_fusion_indicator` (筹码峰融合指标) 作为判断筹码集中度的重要证据。
+        - 引入 `peak_fusion_indicator` (筹码峰融合指标) 作为判断筹码集中度的重要证据。
         """
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
-            'peak_fusion_indicator_D' # 修改行: 增加 peak_fusion_indicator_D
+            'peak_fusion_indicator_D' # 增加 peak_fusion_indicator_D
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -106,10 +106,9 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
         trend_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
-        fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0) # 新增行: 归一化融合指标，越高越好
-        # 修改行: 融合 fusion_score
+        fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0) # 归一化融合指标，越高越好
+        # 融合 fusion_score
         final_score = (level_score * 0.3 + trend_score * 0.4 + fusion_score * 0.3).clip(-1, 1) # 调整权重
-        # 新增探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -128,9 +127,9 @@ class ChipIntelligence:
         【V2.5 · 数学重构与偏度增强版】筹码公理二：诊断“成本结构”动态
         - 核心修复: 遵循“先归一，后融合”原则。将尺度差异巨大的 'winner_loser_momentum_D' 和 'cost_divergence_normalized_D'
                       分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
-        - 【新增】引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
+        - 引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
         """
-        required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D'] # 修改行: 增加 cost_structure_skewness_D
+        required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D'] # 增加 cost_structure_skewness_D
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             print(f"    -> [筹码成本结构探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
@@ -142,11 +141,10 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = utils.get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
-        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5) # 新增行: 归一化偏度，正偏度为正分
-        # 修改行: 融合 skewness_score
+        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5) # 归一化偏度，正偏度为正分
+        # 融合 skewness_score
         # 融合逻辑：动量（正向）- 发散（负向）+ 偏度（正向）
         final_score = (momentum_score * 0.4 + skewness_score * 0.3 - divergence_score * 0.3).clip(-1, 1) # 调整权重
-        # 新增探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -166,12 +164,12 @@ class ChipIntelligence:
         - 核心修复: 遵循“先归一，后融合”原则。将三个尺度不同的心态指标分别归一化，再进行融合。
                       'winner_conviction' 为正向贡献，'loser_pain' 和 'chip_fatigue' 为负向贡献。
         - 核心优化: 调整 `pain_score` 和 `fatigue_score` 的 `sensitivity`，避免在积极行情下过度惩罚。
-        - 【新增】引入 `locked_profit_rate` 和 `locked_loss_rate` 作为判断持股心态的重要证据。
+        - 引入 `locked_profit_rate` 和 `locked_loss_rate` 作为判断持股心态的重要证据。
         """
         df_index = df.index
         required_signals = [
             'winner_conviction_index_D', 'loser_pain_index_D', 'chip_fatigue_index_D',
-            'locked_profit_rate_D', 'locked_loss_rate_D' # 修改行: 增加 locked_profit_rate_D, locked_loss_rate_D
+            'locked_profit_rate_D', 'locked_loss_rate_D' # 增加 locked_profit_rate_D, locked_loss_rate_D
         ]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -194,7 +192,7 @@ class ChipIntelligence:
         locked_profit_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_profit_raw, df_index, tf_weights, sensitivity=20.0) # 新增行
         # 锁定亏损盘：越高越差，负向贡献
         locked_loss_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_loss_raw, df_index, tf_weights, sensitivity=20.0) # 新增行
-        # 修改行: 调整权重并融合 locked_profit_score 和 locked_loss_score
+        # 调整权重并融合 locked_profit_score 和 locked_loss_score
         final_score = (
             conviction_score * 0.4 +
             locked_profit_score * 0.2 -
@@ -202,7 +200,6 @@ class ChipIntelligence:
             fatigue_score * 0.15 -
             locked_loss_score * 0.1
         ).clip(-1, 1) # 调整权重
-        # 新增探针
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:

@@ -69,7 +69,7 @@ class CognitiveIntelligence:
         # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
         self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 修改行: 提前计算此剧本
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 提前计算此剧本
         self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
         # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
@@ -94,7 +94,7 @@ class CognitiveIntelligence:
         """
         【V3.2 · 背离证据增强版】贝叶斯推演：“主力打压吸筹”剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
-        - 【新增】引入市场矛盾（看涨背离）作为证据。
+        - 引入市场矛盾（看涨背离）作为证据。
         """
         print("    -- [剧本推演] 主力打压吸筹 (动态证据)...")
         capital_confrontation = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(lower=0))
@@ -164,7 +164,7 @@ class CognitiveIntelligence:
         - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
         - 【增强】引入多维度背离信号、资金流、筹码、结构、微观行为等证据，更准确地捕捉趋势内在动能的衰竭。
         - 【优化】引入“趋势质量”和“新高强度”作为反向证据，抑制上涨日的误报。
-        - 【新增】引入“周期顶风险”作为强力证据。
+        - 引入“周期顶风险”作为强力证据。
         - 【修复】修正 `trend_quality_inverse` 和 `new_high_strength_inverse` 的权重为正。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
@@ -245,23 +245,23 @@ class CognitiveIntelligence:
         states = {}
         market_regime = self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0)
         trend_quality = self._get_fused_score('FUSION_BIPOLAR_TREND_QUALITY', 0.0)
-        # 新增行: 获取融合层的趋势结构分
+        # 获取融合层的趋势结构分
         trend_structure_score = self._get_fused_score('FUSION_BIPOLAR_TREND_STRUCTURE_SCORE', 0.0)
         # 调整趋势先验概率的权重，引入趋势结构分
         # 示例权重，需要根据回测优化
         regime_weight = 0.3
         quality_weight = 0.3
-        # 新增行: 趋势结构分的权重
+        # 趋势结构分的权重
         structure_weight = 0.4
         market_regime_prob = (market_regime + 1) / 2
         trend_quality_prob = (trend_quality + 1) / 2
-        # 新增行: 趋势结构分转换为概率
+        # 趋势结构分转换为概率
         trend_structure_prob = (trend_structure_score + 1) / 2
-        # 修改行: 融合趋势结构分到趋势先验概率中
+        # 融合趋势结构分到趋势先验概率中
         prior_trend = (
             market_regime_prob * regime_weight +
             trend_quality_prob * quality_weight +
-            trend_structure_prob * structure_weight # 新增行: 融合趋势结构分
+            trend_structure_prob * structure_weight # 融合趋势结构分
         ).clip(0, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])

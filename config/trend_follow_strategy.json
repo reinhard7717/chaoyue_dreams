@@ -175,7 +175,7 @@
     "detrend_method": "linear",
     "comment_detrend_method": "去趋势方法，'linear'表示线性去趋势，是标准做法。",
     "hurst_period": 144,
-    "comment_hurst_period": "【新增】Hurst指数计算窗口，单位：日。"
+    "comment_hurst_period": "Hurst指数计算窗口，单位：日。"
   },
   "strategy_params": {
     "trend_follow": {
@@ -640,7 +640,7 @@
               {"name": "SCORE_FOUNDATION_AXIOM_FLOW", "weight": 0.3},
               {"name": "SCORE_FOUNDATION_AXIOM_VOLATILITY", "weight": 0.1}
             ],
-            "comment": "【新增】基础领域反转信号，由过程层生成。"
+            "comment": "基础领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL",
@@ -655,7 +655,7 @@
               {"name": "SCORE_STRUCT_AXIOM_MTF_COHESION", "weight": 0.3},
               {"name": "SCORE_STRUCT_AXIOM_STABILITY", "weight": 0.2}
             ],
-            "comment": "【新增】结构领域反转信号，由过程层生成。"
+            "comment": "结构领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_PATTERN_BOTTOM_REVERSAL",
@@ -670,7 +670,7 @@
               {"name": "SCORE_PATTERN_AXIOM_REVERSAL", "weight": 0.4},
               {"name": "SCORE_PATTERN_AXIOM_BREAKOUT", "weight": 0.2}
             ],
-            "comment": "【新增】形态领域反转信号，由过程层生成。"
+            "comment": "形态领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL",
@@ -686,7 +686,7 @@
               {"name": "SCORE_DYN_AXIOM_STABILITY", "weight": 0.2},
               {"name": "SCORE_DYN_AXIOM_ENERGY", "weight": 0.2}
             ],
-            "comment": "【新增】力学领域反转信号，由过程层生成。"
+            "comment": "力学领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_CHIP_BOTTOM_REVERSAL",
@@ -702,7 +702,7 @@
               {"name": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "weight": 0.2},
               {"name": "SCORE_CHIP_AXIOM_PEAK_INTEGRITY", "weight": 0.2}
             ],
-            "comment": "【新增】筹码领域反转信号，由过程层生成。"
+            "comment": "筹码领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
@@ -717,7 +717,7 @@
               {"name": "SCORE_FF_AXIOM_CONVICTION", "weight": 0.3},
               {"name": "SCORE_FF_AXIOM_INCREMENT", "weight": 0.2}
             ],
-            "comment": "【新增】资金流领域反转信号，由过程层生成。"
+            "comment": "资金流领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL",
@@ -732,7 +732,7 @@
               {"name": "SCORE_MICRO_AXIOM_PROBE", "weight": 0.3},
               {"name": "SCORE_MICRO_AXIOM_EFFICIENCY", "weight": 0.3}
             ],
-            "comment": "【新增】微观行为领域反转信号，由过程层生成。"
+            "comment": "微观行为领域反转信号，由过程层生成。"
           },
           {
             "name": "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL",
@@ -751,7 +751,7 @@
               {"name": "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE", "weight": 0.2},
               {"name": "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL", "weight": 0.1}
             ],
-            "comment": "【新增】行为领域反转信号，由过程层生成。"
+            "comment": "行为领域反转信号，由过程层生成。"
           }
         ],
         "main_force_urgency_params": {
@@ -1043,7 +1043,7 @@
             "behavior": 0.34
         },
         "trend_resilience_shield_params": {
-          "description": "【新增】趋势韧性神盾参数",
+          "description": "趋势韧性神盾参数",
           "enabled": { "value": true },
           "fusion_weights": {
             "trend_quality": 0.4,

@@ -21,7 +21,7 @@ class ProcessIntelligence:
         - 核心修复: 彻底移除在代码中硬编码的 `genesis_diagnostics` 列表。
         - 核心升级: 确保 `process_intelligence_params.diagnostics` 配置是诊断任务的唯一真相来源，
                       消除了重复执行的严重BUG，并遵循了“配置即代码”的最佳实践。
-        - 【新增】支持生成原子情报领域的反转信号。
+        - 支持生成原子情报领域的反转信号。
         """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
@@ -74,8 +74,8 @@ class ProcessIntelligence:
         signal_name = config.get('name')
         if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
             return self._calculate_main_force_urgency_relationship(df, config)
-        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND': # 修改行: 增加对 PROCESS_META_COST_ADVANTAGE_TREND 的判断
-            return self._calculate_cost_advantage_trend_relationship(df, config) # 修改行: 调用定制化方法
+        if signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND': # 增加对 PROCESS_META_COST_ADVANTAGE_TREND 的判断
+            return self._calculate_cost_advantage_trend_relationship(df, config) # 调用定制化方法
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index

@@ -118,7 +118,7 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
             'SCORE_OPPORTUNITY_LOCKUP_RALLY',
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION',
-            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 修改行: 新增上涨衰竭原始分的动态增强
+            'INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW', # 新增上涨衰竭原始分的动态增强
             'SCORE_RISK_LIQUIDITY_DRAIN'
         ]
         for signal_name in atomic_signals_to_enhance:
@@ -184,7 +184,7 @@ class BehavioralIntelligence:
         is_falling = (df['pct_change_D'] < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_APATHY']).pow(1/3).astype(np.float32)
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_APATHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32)
-        # 新增行: 行为层新增中性、原子级的“滞涨证据原始分”
+        # 行为层新增中性、原子级的“滞涨证据原始分”
         # 滞涨证据原始分：量化价格上涨但效率低下的行为特征，不直接给出风险判断。
         # 融合价格上涨动能、上涨效率、成交量爆发和日内多头控制力等行为层原子信号。
         # 所有分量归一化到 [0, 1] 范围，0为无证据，1为强证据。
