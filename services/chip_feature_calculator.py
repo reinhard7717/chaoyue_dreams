@@ -233,12 +233,16 @@ class ChipFeatureCalculator:
         return results
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
-        """【V7.3 · 生产就绪版】移除所有诊断探针。"""
+        """
+        【V7.4 · 生产就绪版】移除所有诊断探针。
+        - 【修复】重新定义 `active_winner_profit_margin` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃获利盘的利润垫。
+        """
         import datetime
         results = {}
         minute_df = context.get('minute_data')
         total_daily_vol = context.get('daily_turnover_volume')
         close_price = context.get('close_price')
+        atr_14d = context.get('atr_14d') # 新增行: 获取 atr_14d
         # 1. 战术序列流 (Intraday Tactical Flow)
         required_cols_1 = ['minute_vwap', 'main_force_net_vol', 'vol']
         if minute_df is not None and not minute_df.empty and pd.notna(total_daily_vol) and total_daily_vol > 0 and all(c in minute_df.columns for c in required_cols_1):
@@ -261,17 +265,22 @@ class ChipFeatureCalculator:
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
-        if pd.notna(close_price):
-            high_20d, low_20d = context.get('high_20d'), context.get('low_20d')
-            if pd.notna(high_20d) and pd.notna(low_20d):
-                active_winners_df = self.df[(self.df['price'] >= low_20d) & (self.df['price'] <= high_20d) & (self.df['price'] < close_price)]
-                if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
-                    active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
-                    results['active_winner_avg_cost'] = active_winner_avg_cost
-                    if active_winner_avg_cost > 0: results['active_winner_profit_margin'] = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
-            losers_df = self.df[self.df['price'] > close_price]
-            if not losers_df.empty and losers_df['percent'].sum() > 0:
-                results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
+        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0: # 修改行: 增加 atr_14d 的判断
+            # 修改行: 重新定义 active_winners_df
+            active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)]
+            if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
+                active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
+                results['active_winner_avg_cost'] = active_winner_avg_cost
+                if active_winner_avg_cost > 0: results['active_winner_profit_margin'] = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
+            else: # 新增行: 如果没有活跃获利盘，则设置默认值
+                results['active_winner_avg_cost'] = np.nan
+                results['active_winner_profit_margin'] = 0.0 # 默认利润率为0
+        else: # 新增行: 如果 close_price 或 atr_14d 无效，也设置默认值
+            results['active_winner_avg_cost'] = np.nan
+            results['active_winner_profit_margin'] = 0.0
+        losers_df = self.df[self.df['price'] > close_price]
+        if not losers_df.empty and losers_df['percent'].sum() > 0:
+            results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
         # 3. 获利盘信念 (Winner Conviction)
         active_profit_margin = results.get('active_winner_profit_margin')
         bullish_reinforcement = context.get('upward_impulse_purity')
@@ -283,6 +292,8 @@ class ChipFeatureCalculator:
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None))
             reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0)
             results['winner_conviction_index'] = hesitation_factor * margin_factor * reinforcement_factor * 100
+        else: # 新增行: 如果有任何一个前置条件缺失，则设置默认值
+            results['winner_conviction_index'] = 0.0
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
@@ -316,7 +327,6 @@ class ChipFeatureCalculator:
             else:
                 results['intraday_new_loser_pressure'] = 0.0
         # 5. 集合竞价解构
-        atr_14d = context.get('atr_14d')
         results['auction_intent_signal'] = 0.0
         results['auction_closing_position'] = 0.0
         # 移除所有探针，恢复生产逻辑
@@ -416,8 +426,9 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.1 · 断层指标鲁棒性增强版】
+        【V11.2 · 断层指标鲁棒性增强版】
         - 核心优化: 为 `chip_fault_blockage_ratio` 增加默认值0.0，确保在无断层时该指标有明确输出，而非NULL。
+        - 【修复】重新定义 `active_winner_rate` 和 `active_loser_rate` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃筹码。
         """
         results = {}
         close_price = self.ctx.get('close_price')
@@ -528,13 +539,24 @@ class ChipFeatureCalculator:
             if not losers_df.empty and losers_df['percent'].sum() > 0:
                 loser_avg_cost = np.average(losers_df['price'], weights=losers_df['percent'])
                 if loser_avg_cost > 0: results['loser_loss_margin_avg'] = (close_price / loser_avg_cost - 1) * 100
-            high_20d, low_20d = self.ctx.get('high_20d'), self.ctx.get('low_20d')
-            if pd.notna(high_20d) and pd.notna(low_20d):
-                active_mask = (self.df['price'] >= low_20d) & (self.df['price'] <= high_20d)
-                results['active_winner_rate'] = self.df[active_mask & (self.df['price'] < close_price)]['percent'].sum()
-                results['active_loser_rate'] = self.df[active_mask & (self.df['price'] > close_price)]['percent'].sum()
-                results['locked_profit_rate'] = self.df[~active_mask & (self.df['price'] < close_price)]['percent'].sum()
-                results['locked_loss_rate'] = self.df[~active_mask & (self.df['price'] > close_price)]['percent'].sum()
+            # 修改行: 重新定义 active_winner_rate 和 active_loser_rate
+            if pd.notna(atr_14d) and atr_14d > 0:
+                # 活跃获利盘：成本在 (close_price - 2*ATR, close_price) 之间
+                active_winner_mask = (self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)
+                results['active_winner_rate'] = self.df[active_winner_mask]['percent'].sum()
+                # 活跃套牢盘：成本在 (close_price, close_price + 2*ATR) 之间
+                active_loser_mask = (self.df['price'] > close_price) & (self.df['price'] <= close_price + 2 * atr_14d)
+                results['active_loser_rate'] = self.df[active_loser_mask]['percent'].sum()
+            else: # 如果ATR无效，则回退到默认值
+                results['active_winner_rate'] = 0.0
+                results['active_loser_rate'] = 0.0
+            # 锁定利润盘和锁定亏损盘的计算保持不变
+            # 锁定利润盘：获利盘中，不在活跃获利盘范围内的部分
+            locked_profit_mask = (self.df['price'] < close_price) & (~active_winner_mask if pd.notna(atr_14d) else (self.df['price'] < close_price))
+            results['locked_profit_rate'] = self.df[locked_profit_mask]['percent'].sum()
+            # 锁定亏损盘：套牢盘中，不在活跃套牢盘范围内的部分
+            locked_loss_mask = (self.df['price'] > close_price) & (~active_loser_mask if pd.notna(atr_14d) else (self.df['price'] > close_price))
+            results['locked_loss_rate'] = self.df[locked_loss_mask]['percent'].sum()
         # 5. 断层动态 (鲁棒性优化)
         peak_cost = results.get('dominant_peak_cost')
         results['chip_fault_blockage_ratio'] = 0.0 # 为指标设置默认值0.0
