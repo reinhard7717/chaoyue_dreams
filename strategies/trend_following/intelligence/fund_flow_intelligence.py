@@ -60,22 +60,29 @@ class FundFlowIntelligence:
 
     def _diagnose_axiom_conviction(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 探针增强版】资金流公理二：诊断“信念与决心”
+        【V1.2 · 探针增强与归一化修复版】资金流公理二：诊断“信念与决心”
         - 核心升级: 增加调试探针，打印关键中间值。
-        - 核心修复: 调整 t0_efficiency 的处理方式，先归一化再加权，避免其原始值过大导致过度惩罚。
+        - 核心修复: 对 `conviction_index` 和 `cost_advantage` 进行归一化，避免原始值过大导致截断。
         """
         df_index = df.index
-        conviction_index = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
-        cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
-        t0_efficiency = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
+        conviction_index_raw = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
+        cost_advantage_raw = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        t0_efficiency_raw = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
 
-        # 修改行: 将 t0_efficiency 先归一化到 [-1, 1] 范围，再进行加权
-        # 假设 t0_efficiency 越高，对信念的负面影响越大，所以 normalize_to_bipolar 应该 ascending=True
-        # 但这里是减法，所以直接使用 normalize_to_bipolar 即可
-        t0_efficiency_bipolar = normalize_to_bipolar(t0_efficiency, df_index, window=norm_window, sensitivity=0.5) # 调整敏感度
+        # 修改行: 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
+        # 赢家信念和成本优势越高越好，所以归一化后应为正
+        conviction_index_bipolar = normalize_to_bipolar(conviction_index_raw, df_index, window=norm_window, sensitivity=10.0) # 调整敏感度
+        cost_advantage_bipolar = normalize_to_bipolar(cost_advantage_raw, df_index, window=norm_window, sensitivity=100.0) # 调整敏感度
 
-        # 重新加权融合，降低 t0_efficiency 的直接惩罚力度
-        raw_bipolar_series = (conviction_index * 0.5 + cost_advantage * 0.4 - t0_efficiency_bipolar * 0.1).clip(-1, 1) # 降低 t0_efficiency 的权重
+        # t0_efficiency 越高，对信念的负面影响越大，所以归一化后应为负
+        t0_efficiency_bipolar = normalize_to_bipolar(t0_efficiency_raw, df_index, window=norm_window, sensitivity=0.5)
+
+        # 重新加权融合
+        raw_bipolar_series = (
+            conviction_index_bipolar * 0.4 +
+            cost_advantage_bipolar * 0.4 -
+            t0_efficiency_bipolar * 0.2 # 降低 t0_efficiency 的权重
+        ).clip(-1, 1)
         conviction_score = normalize_to_bipolar(raw_bipolar_series, df_index, window=norm_window, sensitivity=1.0)
 
         # --- Debugging output for probe date ---
@@ -86,9 +93,11 @@ class FundFlowIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [资金流信念探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - conviction_index: {conviction_index.loc[probe_date_for_loop]:.4f}")
-                print(f"       - cost_advantage: {cost_advantage.loc[probe_date_for_loop]:.4f}")
-                print(f"       - t0_efficiency: {t0_efficiency.loc[probe_date_for_loop]:.4f}")
+                print(f"       - conviction_index_raw: {conviction_index_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - cost_advantage_raw: {cost_advantage_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - t0_efficiency_raw: {t0_efficiency_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - conviction_index_bipolar: {conviction_index_bipolar.loc[probe_date_for_loop]:.4f}") # 新增行
+                print(f"       - cost_advantage_bipolar: {cost_advantage_bipolar.loc[probe_date_for_loop]:.4f}") # 新增行
                 print(f"       - t0_efficiency_bipolar: {t0_efficiency_bipolar.loc[probe_date_for_loop]:.4f}")
                 print(f"       - raw_bipolar_series: {raw_bipolar_series.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")

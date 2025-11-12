@@ -103,13 +103,14 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_stability(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.3 · 物理直观重构版】结构公理三：诊断“结构稳定性”
+        【V2.4 · 物理直观重构版】结构公理三：诊断“结构稳定性”
         - 核心重构: 废除对间接且脆弱的 'MA_CONV_CV_SHORT_D' 的依赖。将“能量积蓄度”的评估核心完全聚焦于更直观、更稳健的布林带宽度(BBW)指标。
         - 诊断维度:
           1. 能量积蓄度 (Energy Accumulation): 直接使用BBW的收缩程度。
           2. 基石支撑度 (Foundation Support): 价格是否站稳在关键长期MA(55, 144)之上。
           3. 长期趋势健康度 (Long-term Trend Health): 关键长期MA自身的斜率方向。
         - 核心修复: 将 `raw_stability_score` 的计算从乘法改为加权平均，避免“一票否决”效应。
+        - 【新增】增加探针，打印 `foundation_support_score` 和 `long_term_trend_health_score`。
         """
         df_index = df.index
         bbw_col = 'BBW_21_2.0_D'
@@ -124,18 +125,23 @@ class StructuralIntelligence:
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
             print("诊断结构稳定性失败：缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
+            foundation_support_score = pd.Series(0.5, index=df_index) # 新增行
+            long_term_trend_health_score = pd.Series(0.5, index=df_index) # 新增行
         else:
             support_scores = []
             for p in long_term_ma_periods:
-                support_score = normalize_score(df['close_D'] - df[f'MA_{p}_D'], df_index, norm_window).clip(0, 1)
+                # 价格高于MA越多，支撑越强，分数越高
+                support_score = normalize_score(df['close_D'] - df[f'MA_{p}_D'], df_index, norm_window, ascending=True).clip(0, 1)
                 support_scores.append(support_score)
-            foundation_support_score = np.mean(support_scores, axis=0)
+            foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index) # 修改行: 转换为Series
             health_scores = []
             for p in long_term_ma_periods:
-                health_score = normalize_score(df[f'SLOPE_5_MA_{p}_D'], df_index, norm_window).clip(0, 1)
+                # MA斜率越大，趋势越健康，分数越高
+                health_score = normalize_score(df[f'SLOPE_5_MA_{p}_D'], df_index, norm_window, ascending=True).clip(0, 1)
                 health_scores.append(health_score)
-            long_term_trend_health_score = np.mean(health_scores, axis=0)
-            foundation_health_score = (pd.Series(foundation_support_score, index=df_index) * pd.Series(long_term_trend_health_score, index=df_index)).pow(0.5)
+            long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index) # 修改行: 转换为Series
+            # 融合基石支撑和长期趋势健康度，取几何平均
+            foundation_health_score = (foundation_support_score * long_term_trend_health_score).pow(0.5)
         # 修改行: 将 raw_stability_score 的计算从乘法改为加权平均
         raw_stability_score = (energy_accumulation_score * 0.4 + foundation_health_score * 0.6).fillna(0.5) # 赋予基石支撑更高权重
         stability_score = (raw_stability_score * 2 - 1).clip(-1, 1)
@@ -149,6 +155,8 @@ class StructuralIntelligence:
             if probe_date_for_loop is not None and probe_date_for_loop in df_index:
                 print(f"    -> [结构稳定性探针] @ {probe_date_for_loop.date()}:")
                 print(f"       - energy_accumulation_score: {energy_accumulation_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - foundation_support_score: {foundation_support_score.loc[probe_date_for_loop]:.4f}") # 新增行
+                print(f"       - long_term_trend_health_score: {long_term_trend_health_score.loc[probe_date_for_loop]:.4f}") # 新增行
                 print(f"       - foundation_health_score: {foundation_health_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - raw_stability_score: {raw_stability_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
