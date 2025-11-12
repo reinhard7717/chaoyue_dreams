@@ -248,8 +248,9 @@ class FeatureEngineeringService:
 
     async def calculate_pattern_recognition_signals(self, all_dfs: Dict[str, pd.DataFrame], config: dict) -> Dict[str, pd.DataFrame]:
         """
-        【V3.3 · 通达信模式集成版】高级模式识别信号生产线
+        【V3.4 · 通达信模式与AAA指标集成版】高级模式识别信号生产线
         - 核心升级: 集成通达信公式中的“霸占”和“WW1”模式，增强对主力吸筹和底部反转的识别能力。
+        - 【新增】计算通达信公式中的 AAA 指标，作为 DMA 的平滑因子。
         - 核心修复: 彻底摆脱对外部复合指标(如 breakout_quality_score)的依赖，解决流程依赖倒置问题。
         - 解决方案: 直接集成并使用我们最先进的“均线系统势能分析”三大核心指标（张力、有序性、压缩速率），
                       将模式识别的逻辑从简单的形态判断，升维到对市场“状态”与“势能”的综合评估，更直指A股博弈本质。
@@ -286,7 +287,15 @@ class FeatureEngineeringService:
             print("当前可用的列名包括:")
             print(df.columns.tolist())
             return all_dfs
-        # --- 2. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
+        # --- 2. 【通达信 AAA 指标计算】 ---
+        # AAA:=ABS((2*CLOSE+HIGH+LOW)/4-MA(CLOSE,N))/MA(CLOSE,N); N:=30;
+        n_period_for_aaa = 30
+        ma_close_n = df['close_D'].rolling(window=n_period_for_aaa, min_periods=1).mean()
+        weighted_price = (2 * df['close_D'] + df['high_D'] + df['low_D']) / 4
+        aaa_series = (weighted_price - ma_close_n).abs() / ma_close_n.replace(0, np.nan)
+        df['AAA_D'] = aaa_series.fillna(0)
+
+        # --- 3. 【战场状态定义】: 基于“状态+势能”的多因子共振 ---
         # 【状态一：高势能盘整 (High-Potential Consolidation)】
         # 定义：均线系统被高度压缩（弹簧压紧），但方向尚不明朗。这是变盘的温床。
         # 证据a: 高张力。均线张力指数处于历史低位（值越小，张力越高）。
@@ -341,7 +350,7 @@ class FeatureEngineeringService:
         cond_vpa_inefficient_dist = (df['pct_change_D'] > 0) & (df['VPA_EFFICIENCY_D'] < df['VPA_EFFICIENCY_D'].rolling(21).quantile(0.2))
         df['IS_DISTRIBUTION_D'] = cond_rally_dist | (cond_main_force_outflow & cond_winner_conviction_drop & cond_resilience_drop & cond_vpa_inefficient_dist)
 
-        # --- 3. 【通达信模式集成】 ---
+        # --- 4. 【通达信模式集成】 ---
         # "霸占"模式: 成交额巨量放大，同时价格处于相对低位
         # FF:=(EMA(EE,5) / REF(EMA(EE,5),5)); WW:=((100 * (CLOSE - DD)) / (CC - DD));
         # 霸占:=FILTER(((((((FF>=2))AND(WW<35)))AND(BARSCOUNT(CLOSE)>30))OR(((((FF>=2))AND(WW<100)))AND(BARSCOUNT(CLOSE)<50))),90);
@@ -381,13 +390,13 @@ class FeatureEngineeringService:
             df['IS_WW1_D'] = False
             logger.warning("高级模式识别引擎缺少 'open_D' 或 'volume_D' 列，无法计算 'WW1' 模式。")
 
-        # --- 4. 【信号整合与输出】 ---
-        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D', 'IS_BAZHAN_D', 'IS_WW1_D'] # 修改行: 增加新模式
+        # --- 5. 【信号整合与输出】 ---
+        pattern_cols = ['IS_HIGH_POTENTIAL_CONSOLIDATION_D', 'IS_ACCUMULATION_D', 'IS_BREAKOUT_D', 'IS_DISTRIBUTION_D', 'IS_BAZHAN_D', 'IS_WW1_D']
         for col in pattern_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
         all_dfs[timeframe] = df
-        logger.info("高级模式识别引擎(V3.3 通达信模式集成版)分析完成。") # 修改行
+        logger.info("高级模式识别引擎(V3.4 通达信模式与AAA指标集成版)分析完成。")
         return all_dfs
 
     async def calculate_ma_convergence(self, all_dfs: Dict[str, pd.DataFrame], params: dict) -> Dict[str, pd.DataFrame]:

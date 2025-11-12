@@ -66,10 +66,11 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.2 · 结构质量增强与均线角度版】结构公理一：诊断“趋势形态”
+        【V1.3 · 结构质量增强与均线角度列名修复版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
+        - 【修复】修正了引用均线角度列名时，避免了双重后缀问题。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -93,7 +94,9 @@ class StructuralIntelligence:
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         # 新增均线角度作为趋势证据
-        ma_angle_raw = df.get('ATAN_ANGLE_EMA_55_D', pd.Series(0.0, index=df_index))
+        ma_col_base = 'EMA_55_D' # 原始均线列名
+        # 修正列名引用，不再额外添加 _D 后缀
+        ma_angle_raw = df.get(f'ATAN_ANGLE_{ma_col_base}', pd.Series(0.0, index=df_index))
         ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0) # 敏感度调整
         # 融合新的指标
         # 爆裂度作为乘数因子，增强趋势的强度
