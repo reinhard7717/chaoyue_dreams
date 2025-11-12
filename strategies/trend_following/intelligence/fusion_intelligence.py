@@ -335,25 +335,21 @@ class FusionIntelligence:
 
     def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]:
         """
-        【V2.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
-        - 核心思想: 综合判断价格偏离均线是强力进攻还是真实超买风险。
+        【V3.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心思想: 综合判断价格偏离均线是强力进攻（抢筹）还是真实超买风险。
+        - 核心逻辑: 将超买证据与趋势健康证据分离，通过加权求和与减法操作，
+                      实现对“抢筹”与“超买”的量化区分。
         - 证据链:
-          1. 行为层价格超买原始分 (INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW)
-          2. 资金流共识 (SCORE_FF_AXIOM_CONSENSUS)
-          3. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION)
-          4. 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM)
-          5. 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY)
-          6. 【新增】乖离率 (BIAS_21_D)
-          7. 【新增】获利盘比例 (total_winner_rate_D)
-          8. 【新增】RSI (RSI_13_D)
-          9. 【新增】K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
-        - 输出: [-1, 1] 的双极性分数，正分代表超买意图，负分代表超卖意图。
+          1. 核心超买证据: 行为层原始超买、乖离率、RSI、获利盘比例。
+          2. 趋势健康证据: 资金流共识、筹码集中度、结构趋势形态、微观效率、K线实体与影线。
+        - 输出: [-1, 1] 的双极性分数，正分代表超买风险，负分代表健康上涨（抢筹）。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
         df = self.strategy.df_indicators
         df_index = df.index
         norm_window = 55 # 统一归一化窗口
+
         # --- Debugging setup ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
@@ -363,86 +359,75 @@ class FusionIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
                 probe_date_for_loop = None # Reset if not in index
-        # 1. 行为层价格超买原始分 (0到1，越高越超买)
-        # 转换为双极性，0.5为中性，1为极度超买，0为极度超卖
+
+        # 1. 核心超买证据 (越高越超买)
+        # 行为层价格超买原始分 (0到1，越高越超买) 转换为双极性
         overextension_raw_bipolar = (self._get_atomic_score('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
-        # 2. 资金流共识 (SCORE_FF_AXIOM_CONSENSUS) [-1, 1]
-        fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # 3. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION) [-1, 1]
-        # 筹码集中度高，超买风险低；筹码分散，超买风险高
-        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
-        # 4. 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM) [-1, 1]
-        # 趋势形态健康，超买风险低；趋势形态恶化，超买风险高
-        structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        # 5. 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY) [-1, 1]
-        # 微观效率高，超买风险低；微观效率低，超买风险高
-        micro_efficiency = (self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
-        # 6. 【新增】乖离率 (BIAS_21_D)
-        # 乖离率越高，超买程度越高
+        # 乖离率 (BIAS_21_D) 越高，超买程度越高
         bias_raw = df.get('BIAS_21_D', pd.Series(0.0, index=df_index))
-        bias_score = normalize_to_bipolar(bias_raw, df_index, window=norm_window, sensitivity=0.05) # 调整敏感度
-        # 7. 【新增】获利盘比例 (total_winner_rate_D)
-        # 获利盘比例越高，超买风险越高
+        bias_score = normalize_to_bipolar(bias_raw, df_index, window=norm_window, sensitivity=0.05)
+        # 获利盘比例 (total_winner_rate_D) 越高，超买风险越高
         winner_rate_raw = df.get('total_winner_rate_D', pd.Series(0.0, index=df_index))
-        winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, window=norm_window, sensitivity=0.1, default_value=-1.0) # 获利盘低时为负分
-        # 8. 【新增】RSI (RSI_13_D)
-        # RSI越高，超买程度越高
+        winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, window=norm_window, sensitivity=0.1, default_value=-1.0)
+        # RSI (RSI_13_D) 越高，超买程度越高
         rsi_raw = df.get('RSI_13_D', pd.Series(50.0, index=df_index))
-        rsi_score = normalize_to_bipolar(rsi_raw, df_index, window=norm_window, sensitivity=10.0) # 调整敏感度
-        # 9. 【新增】K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
-        # 实体饱满，上影线短 -> 抢筹；实体小，上影线长 -> 超买
+        rsi_score = normalize_to_bipolar(rsi_raw, df_index, window=norm_window, sensitivity=10.0)
+
+        # 核心超买证据的加权和
+        core_overextension_sum = (
+            overextension_raw_bipolar * 0.2 +
+            bias_score * 0.2 +
+            rsi_score * 0.15 +
+            winner_rate_score * 0.15
+        )
+
+        # 2. 趋势健康证据 (越高越健康，越支持抢筹，越降低超买风险)
+        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS) [-1, 1]
+        fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
+        # 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION) [-1, 1]
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        # 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM) [-1, 1]
+        structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
+        # 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY) [-1, 1]
+        micro_efficiency = (self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
+        # K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
+        # 实体饱满，上影线短 -> 健康
         body_ratio_raw = df.get('body_ratio_D', pd.Series(0.0, index=df_index))
-        upper_shadow_ratio_raw = df.get('upper_shadow_ratio_D', pd.Series(0.0, index=df_index))
-        
-        # 实体比率越高越好 (正向贡献)
         body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
-        # 上影线比率越高越差 (负向贡献)
-        upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1
-        # 融合所有证据
-        # 权重分配需要根据回测结果进行优化，这里给出示例权重
-        # 正向权重：表示该指标越高，越倾向于超买/过热
-        # 负向权重：表示该指标越高，越倾向于抢筹/健康
-        
-        # 核心超买指标
-        overextension_components = [
-            overextension_raw_bipolar, # 行为层原始超买
-            bias_score,                # 乖离率
-            rsi_score,                 # RSI
-            winner_rate_score          # 获利盘比例
-        ]
-        overextension_weights = np.array([0.2, 0.2, 0.15, 0.15]) # 权重和为0.7
-        # 修正/验证指标 (判断是抢筹还是超买)
-        validation_components = [
-            fund_flow_consensus,       # 资金流共识 (正向：抢筹，负向：超买)
-            chip_concentration,        # 筹码集中度 (正向：抢筹，负向：超买)
-            structural_trend_form,     # 结构趋势形态 (正向：抢筹，负向：超买)
-            micro_efficiency,          # 微观效率 (正向：抢筹，负向：超买)
-            body_score,                # K线实体 (正向：抢筹，负向：超买)
-            upper_shadow_score         # K线上影线 (正向：抢筹，负向：超买)
-        ]
-        validation_weights = np.array([0.1, 0.05, 0.05, 0.03, 0.04, 0.03]) # 权重和为0.3
-        # 计算加权平均
-        fused_overextension_score = pd.Series(0.0, index=df_index)
-        for comp, weight in zip(overextension_components, overextension_weights):
-            fused_overextension_score += comp * weight
-        for comp, weight in zip(validation_components, validation_weights):
-            fused_overextension_score += comp * weight # 注意这里是加，因为validation_components本身已经包含了方向性
-        # 确保最终分数在 [-1, 1] 范围内
-        final_overextension_intent = fused_overextension_score.clip(-1, 1)
+        upper_shadow_ratio_raw = df.get('upper_shadow_ratio_D', pd.Series(0.0, index=df_index))
+        upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1 # 上影线越短越好，所以反向
+
+        # 趋势健康证据的加权和
+        health_sum = (
+            fund_flow_consensus * 0.1 +
+            chip_concentration * 0.05 +
+            structural_trend_form * 0.05 +
+            micro_efficiency * 0.03 +
+            body_score * 0.04 +
+            upper_shadow_score * 0.03
+        )
+
+        # 最终融合: 核心超买证据 - 趋势健康证据
+        # 如果健康证据强，则会降低超买意图；如果健康证据弱（甚至负），则会增加超买意图。
+        final_overextension_intent = (core_overextension_sum - health_sum).clip(-1, 1)
+
         # --- Debugging output for probe date ---
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [价格超买意图探针] @ {probe_date_for_loop.date()}:")
             print(f"       - overextension_raw_bipolar: {overextension_raw_bipolar.loc[probe_date_for_loop]:.4f}")
+            print(f"       - bias_score: {bias_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - winner_rate_score: {winner_rate_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - rsi_score: {rsi_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - core_overextension_sum: {core_overextension_sum.loc[probe_date_for_loop]:.4f}")
             print(f"       - fund_flow_consensus: {fund_flow_consensus.loc[probe_date_for_loop]:.4f}")
             print(f"       - chip_concentration: {chip_concentration.loc[probe_date_for_loop]:.4f}")
             print(f"       - structural_trend_form: {structural_trend_form.loc[probe_date_for_loop]:.4f}")
             print(f"       - micro_efficiency: {micro_efficiency.loc[probe_date_for_loop]:.4f}")
-            print(f"       - bias_score: {bias_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - winner_rate_score: {winner_rate_score.loc[probe_date_for_loop]:.4f}")
-            print(f"       - rsi_score: {rsi_score.loc[probe_date_for_loop]:.4f}")
             print(f"       - body_score: {body_score.loc[probe_date_for_loop]:.4f}")
             print(f"       - upper_shadow_score: {upper_shadow_score.loc[probe_date_for_loop]:.4f}")
+            print(f"       - health_sum: {health_sum.loc[probe_date_for_loop]:.4f}")
             print(f"       - final_overextension_intent: {final_overextension_intent.loc[probe_date_for_loop]:.4f}")
+
         states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = final_overextension_intent.astype(np.float32)
         print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {final_overextension_intent.iloc[-1]:.4f}")
         return states
