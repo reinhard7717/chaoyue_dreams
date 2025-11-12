@@ -1,3 +1,4 @@
+# 文件: strategies/trend_following/intelligence/process_intelligence.py
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -59,10 +60,10 @@ class ProcessIntelligence:
                     if decay_states:
                         all_process_states.update(decay_states)
                 # 新增路由到领域反转诊断器
-                elif custom_signal_type == 'domain_reversal': # 新增行
-                    reversal_states = self._diagnose_domain_reversal(df, config) # 新增行
-                    if reversal_states: # 新增行
-                        all_process_states.update(reversal_states) # 新增行
+                elif custom_signal_type == 'domain_reversal':
+                    reversal_states = self._diagnose_domain_reversal(df, config)
+                    if reversal_states:
+                        all_process_states.update(reversal_states)
                 else:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
@@ -71,9 +72,11 @@ class ProcessIntelligence:
 
     def _calculate_instantaneous_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series:
         """
-        【V2.5.0 · 真理探针版】
+        【V2.6.0 · 主力紧迫度定制版】
         - 核心升级: 植入真理探针，当获取不到依赖的原子信号时，打印明确警告。
+        - 【新增】为 `PROCESS_META_MAIN_FORCE_URGENCY` 信号定制化计算逻辑。
         """
+        signal_name = config.get('name') # 新增行
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         df_index = df.index
@@ -95,6 +98,9 @@ class ProcessIntelligence:
             if change_type == 'diff':
                 return series.diff(1).fillna(0)
             return ta.percent_return(series, length=1).fillna(0)
+        # 修改行: 为 PROCESS_META_MAIN_FORCE_URGENCY 信号定制化计算逻辑
+        if signal_name == 'PROCESS_META_MAIN_FORCE_URGENCY':
+            return self._calculate_main_force_urgency_relationship(df, config)
         change_a = get_change_series(signal_a, config.get('change_type_A', 'pct'))
         change_b = get_change_series(signal_b, config.get('change_type_B', 'pct'))
         momentum_a = normalize_to_bipolar(change_a, df_index, self.std_window, self.bipolar_sensitivity)
@@ -108,6 +114,82 @@ class ProcessIntelligence:
         self.strategy.atomic_states[f"_DEBUG_momentum_{signal_a_name}"] = momentum_a
         self.strategy.atomic_states[f"_DEBUG_thrust_{signal_b_name}"] = thrust_b
         return relationship_score
+
+    def _calculate_main_force_urgency_relationship(self, df: pd.DataFrame, config: Dict) -> pd.Series: # 新增方法
+        """
+        【V1.0 · 深度博弈版】计算“主力紧迫度”的专属关系分数。
+        - 核心逻辑: 衡量主力买入成本的抬升速度是否显著快于价格的上涨速度，并结合主力资金净流入进行确认。
+        - 证据链:
+          1. 价格变化率 (`pct_change_D`)
+          2. 主力主动买入成本变化率 (`SLOPE_X_active_winner_avg_cost_D`)
+          3. 主力主动买入成本变化加速度 (`ACCEL_X_active_winner_avg_cost_D`)
+          4. 主力资金净流入 (`main_force_net_flow_calibrated_D`)
+          5. 筹码集中度变化 (`SLOPE_X_short_term_concentration_90pct_D`)
+        - 输出: [-1, 1] 的双极性分数，正分代表主力紧迫度高，负分代表紧迫度低或主力不积极。
+        """
+        df_index = df.index
+        norm_window = self.norm_window
+        std_window = self.std_window
+        # 1. 获取核心信号
+        price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
+        main_force_cost_change_raw = df.get(f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index)) # 主力主动买入成本的斜率
+        main_force_cost_accel_raw = df.get(f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index)) # 主力主动买入成本的加速度
+        main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
+        chip_concentration_change = df.get(f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index))
+
+        # 2. 归一化为双极性分数
+        price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
+        main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
+        main_force_cost_accel_bipolar = normalize_to_bipolar(main_force_cost_accel_raw, df_index, std_window, self.bipolar_sensitivity)
+        main_force_net_flow_bipolar = normalize_to_bipolar(main_force_net_flow, df_index, std_window, self.bipolar_sensitivity)
+        chip_concentration_change_bipolar = normalize_to_bipolar(chip_concentration_change, df_index, std_window, self.bipolar_sensitivity)
+
+        # 3. 核心紧迫度计算：主力成本抬升速度 vs 价格上涨速度
+        # 当主力成本抬升速度显著快于价格上涨速度时，紧迫度高
+        # 这里的关键是比较“变化率的相对强度”，而不是绝对值
+        # 我们可以用 (成本变化率 - 价格变化率) 来衡量这种相对强度
+        relative_urgency_speed = (main_force_cost_change_bipolar - price_change_bipolar).clip(-1, 1)
+
+        # 4. 引入加速度作为确认因子：成本抬升的加速度越快，紧迫度越高
+        # 加速度直接作为正向贡献
+        accel_confirmation = main_force_cost_accel_bipolar
+
+        # 5. 主力资金净流入作为乘数因子：只有在主力资金净流入的背景下，紧迫度才有效
+        # 将资金流从 [-1, 1] 映射到 [0, 1]，负值变为0，正值保持
+        main_force_flow_multiplier = (main_force_net_flow_bipolar + 1) / 2
+
+        # 6. 筹码集中度变化作为辅助确认：筹码集中度上升，进一步确认主力吸筹意图
+        chip_concentration_confirmation = chip_concentration_change_bipolar.clip(lower=0) # 只考虑集中度上升
+
+        # 7. 综合紧迫度分数
+        # 权重分配 (示例，需优化)
+        w_speed = 0.4 # 相对速度最重要
+        w_accel = 0.3 # 加速度次之
+        w_chip = 0.2 # 筹码集中度确认
+        # 初始紧迫度 = (相对速度 * 权重 + 加速度 * 权重 + 筹码集中度 * 权重)
+        initial_urgency_score = (
+            relative_urgency_speed * w_speed +
+            accel_confirmation * w_accel +
+            chip_concentration_confirmation * w_chip
+        ) / (w_speed + w_accel + w_chip)
+
+        # 8. 最终紧迫度：乘以主力资金净流入乘数
+        # 只有在主力资金净流入为正时，紧迫度才会被放大；如果主力资金流出，则紧迫度分数会被压制
+        final_urgency_score = (initial_urgency_score * main_force_flow_multiplier).clip(-1, 1)
+
+        # 9. 进一步的条件判断：只有在价格上涨的背景下，才认为存在“紧迫度”
+        # 如果价格下跌，即使主力成本下降很快，也不是我们定义的“紧迫度”
+        # 我们可以将价格下跌时的紧迫度分数强制为负值或0
+        final_urgency_score = final_urgency_score.mask(price_change_bipolar < 0, final_urgency_score.clip(upper=0)) # 价格下跌时，紧迫度只能为负或0
+
+        self.strategy.atomic_states[f"_DEBUG_relative_urgency_speed"] = relative_urgency_speed
+        self.strategy.atomic_states[f"_DEBUG_accel_confirmation"] = accel_confirmation
+        self.strategy.atomic_states[f"_DEBUG_main_force_flow_multiplier"] = main_force_flow_multiplier
+        self.strategy.atomic_states[f"_DEBUG_chip_concentration_confirmation"] = chip_concentration_confirmation
+        self.strategy.atomic_states[f"_DEBUG_initial_urgency_score"] = initial_urgency_score
+        self.strategy.atomic_states[f"_DEBUG_final_urgency_score_raw"] = final_urgency_score
+
+        return final_urgency_score.astype(np.float32)
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
@@ -262,7 +344,7 @@ class ProcessIntelligence:
         decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
         return {signal_name: decay_score.astype(np.float32)}
 
-    def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]: # 新增方法
+    def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
         【V1.0】通用领域反转诊断器
         - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
