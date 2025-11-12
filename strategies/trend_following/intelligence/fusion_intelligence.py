@@ -115,17 +115,17 @@ class FusionIntelligence:
 
     def _synthesize_trend_quality(self) -> Dict[str, pd.Series]:
         """
-        【V1.6 · 均线动态增强版】冶炼“趋势质量” (Trend Quality)
+        【V1.7 · 均线动态增强与主力峰区流量权重修正版】冶炼“趋势质量” (Trend Quality)
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         - 增加调试探针，打印组成公理在探针日期的值及其贡献。
         - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
         - 【新增】引入均线动态（速度和加速度）作为趋势质量的组成部分。
+        - 【修正】调整 `main_force_on_peak_flow` 的权重，避免其在融合时贡献过大。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         df_index = self.strategy.df_indicators.index
-        # --- Debugging setup ---
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         probe_date_for_loop = None
@@ -133,53 +133,41 @@ class FusionIntelligence:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop not in df_index:
-                probe_date_for_loop = None # Reset if not in index
-        # 收集各领域公理信号
-        # 基础层公理
+                probe_date_for_loop = None
         foundation_trend = self._get_atomic_score('SCORE_FOUNDATION_AXIOM_TREND', 0.0)
         foundation_oscillator = self._get_atomic_score('SCORE_FOUNDATION_AXIOM_OSCILLATOR', 0.0)
         foundation_flow = self._get_atomic_score('SCORE_FOUNDATION_AXIOM_FLOW', 0.0)
         foundation_volatility = self._get_atomic_score('SCORE_FOUNDATION_AXIOM_VOLATILITY', 0.0)
-        # 结构层公理
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         structural_mtf_cohesion = self._get_atomic_score('SCORE_STRUCT_AXIOM_MTF_COHESION', 0.0)
         structural_stability = self._get_atomic_score('SCORE_STRUCT_AXIOM_STABILITY', 0.0)
-        # 力学层公理
         dynamic_momentum = self._get_atomic_score('SCORE_DYN_AXIOM_MOMENTUM', 0.0)
         dynamic_inertia = self._get_atomic_score('SCORE_DYN_AXIOM_INERTIA', 0.0)
         dynamic_stability = self._get_atomic_score('SCORE_DYN_AXIOM_STABILITY', 0.0)
         dynamic_energy = self._get_atomic_score('SCORE_DYN_AXIOM_ENERGY', 0.0)
-        dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0) # 新增行
-        # 资金流层公理
+        dynamic_ma_acceleration = self._get_atomic_score('SCORE_DYN_AXIOM_MA_ACCELERATION', 0.0)
         fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
         fund_flow_conviction = self._get_atomic_score('SCORE_FF_AXIOM_CONVICTION', 0.0)
         fund_flow_increment = self._get_atomic_score('SCORE_FF_AXIOM_INCREMENT', 0.0)
-        # 筹码层公理
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
         chip_cost_structure = self._get_atomic_score('SCORE_CHIP_AXIOM_COST_STRUCTURE', 0.0)
         chip_holder_sentiment = self._get_atomic_score('SCORE_CHIP_AXIOM_HOLDER_SENTIMENT', 0.0)
         chip_peak_integrity = self._get_atomic_score('SCORE_CHIP_AXIOM_PEAK_INTEGRITY', 0.0)
-        # 微观行为层公理
         micro_deception = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0)
         micro_probe = self._get_atomic_score('SCORE_MICRO_AXIOM_PROBE', 0.0)
         micro_efficiency = self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.0)
-        # 行为层原子信号 (部分作为公理使用)
         behavior_upward_efficiency = self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.0)
         behavior_downward_resistance = self._get_atomic_score('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', 0.0)
         behavior_intraday_bull_control = self._get_atomic_score('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', 0.0)
-        # 形态层公理
         pattern_reversal = self._get_atomic_score('SCORE_PATTERN_AXIOM_REVERSAL', 0.0)
         pattern_breakout = self._get_atomic_score('SCORE_PATTERN_AXIOM_BREAKOUT', 0.0)
-        # 主力在主峰区的净流入
-        # 假设 main_force_on_peak_flow_D 已经通过 ProcessIntelligence 归一化为双极性分数
+        # 主力在主峰区的净流入 (现在应该已经被归一化到 [-1, 1] 范围)
         main_force_on_peak_flow = self._get_atomic_score('main_force_on_peak_flow_D', 0.0)
-        # 定义所有组成公理及其权重
-        # 这是一个示例性的加权融合，实际权重需要通过回测和优化确定
         components_and_weights = {
             'foundation_trend': (foundation_trend, 0.1),
-            'foundation_oscillator': (foundation_oscillator, -0.05), # 摆动指标超买/超卖对趋势质量有负面影响
+            'foundation_oscillator': (foundation_oscillator, -0.05),
             'foundation_flow': (foundation_flow, 0.05),
-            'foundation_volatility': (foundation_volatility, 0.05), # 低波动对趋势有利
+            'foundation_volatility': (foundation_volatility, 0.05),
             'structural_trend_form': (structural_trend_form, 0.15),
             'structural_mtf_cohesion': (structural_mtf_cohesion, 0.1),
             'structural_stability': (structural_stability, 0.1),
@@ -187,7 +175,7 @@ class FusionIntelligence:
             'dynamic_inertia': (dynamic_inertia, 0.1),
             'dynamic_stability': (dynamic_stability, 0.05),
             'dynamic_energy': (dynamic_energy, 0.05),
-            'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.05), # 新增权重
+            'dynamic_ma_acceleration': (dynamic_ma_acceleration, 0.05),
             'fund_flow_consensus': (fund_flow_consensus, 0.05),
             'fund_flow_conviction': (fund_flow_conviction, 0.05),
             'fund_flow_increment': (fund_flow_increment, 0.05),
@@ -195,20 +183,19 @@ class FusionIntelligence:
             'chip_cost_structure': (chip_cost_structure, 0.05),
             'chip_holder_sentiment': (chip_holder_sentiment, 0.05),
             'chip_peak_integrity': (chip_peak_integrity, 0.05),
-            'micro_deception': (micro_deception, 0.02), # 伪装吸筹对趋势质量有正面影响
-            'micro_probe': (micro_probe, 0.02), # 试探确认对趋势质量有正面影响
-            'micro_efficiency': (micro_efficiency, 0.02), # 高效率对趋势质量有正面影响
+            'micro_deception': (micro_deception, 0.02),
+            'micro_probe': (micro_probe, 0.02),
+            'micro_efficiency': (micro_efficiency, 0.02),
             'behavior_upward_efficiency': (behavior_upward_efficiency, 0.03),
             'behavior_downward_resistance': (behavior_downward_resistance, 0.03),
             'behavior_intraday_bull_control': (behavior_intraday_bull_control, 0.02),
-            'pattern_reversal': (pattern_reversal, 0.02), # 反转信号对趋势质量有影响
-            'pattern_breakout': (pattern_breakout, 0.03), # 突破信号对趋势质量有影响
-            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.05) # 主力在主峰区的净流入
+            'pattern_reversal': (pattern_reversal, 0.02),
+            'pattern_breakout': (pattern_breakout, 0.03),
+            'main_force_on_peak_flow': (main_force_on_peak_flow, 0.02) # 修正权重，从0.05降低到0.02
         }
         bipolar_quality = pd.Series(0.0, index=df_index)
         if probe_date_for_loop is not None and probe_date_for_loop in df_index:
             print(f"    -> [趋势质量探针] @ {probe_date_for_loop.date()}: 组成公理贡献明细")
-            
         for name, (series, weight) in components_and_weights.items():
             if not series.empty:
                 contribution = series * weight
