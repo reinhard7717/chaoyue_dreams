@@ -21,9 +21,10 @@ class BehavioralIntelligence:
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.4 · 纯粹原子版】行为情报模块总指挥
+        【V5.5 · 深度博弈版】行为情报模块总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出行为领域的原子公理信号、行为背离信号和上下文信号。
+        - 【新增】引入深度博弈版的上影线抛压风险诊断。
         - 移除信号: SCORE_BEHAVIOR_BULLISH_RESONANCE, SCORE_BEHAVIOR_BEARISH_RESONANCE, BIPOLAR_BEHAVIORAL_DOMAIN_HEALTH, SCORE_BEHAVIOR_BOTTOM_REVERSAL, SCORE_BEHAVIOR_TOP_REVERSAL。
         """
         df = self.strategy.df_indicators
@@ -38,6 +39,10 @@ class BehavioralIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
         all_behavioral_states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_behavioral_states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
+        # 【新增行】诊断深度博弈版的上影线抛压风险
+        upper_shadow_risk = self._diagnose_upper_shadow_pressure_risk(df) # 新增行
+        self.strategy.atomic_states.update(upper_shadow_risk) # 新增行
+        all_behavioral_states.update(upper_shadow_risk) # 新增行
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -60,6 +65,17 @@ class BehavioralIntelligence:
         else:
             print(f"     -> [行为情报引擎警告] 信号 '{name}' 不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
+
+    def _get_signal(self, df: pd.DataFrame, signal_name: str, default_value: float = 0.0) -> pd.Series:
+        """
+        【V1.0】信号获取哨兵方法
+        - 核心职责: 安全地从DataFrame获取信号。
+        - 预警机制: 如果信号不存在，打印明确的警告信息，并返回一个包含默认值的Series，以防止程序崩溃。
+        """
+        if signal_name not in df.columns:
+            print(f"    -> [行为情报引擎警告] 依赖信号 '{signal_name}' 在数据帧中不存在，将使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[signal_name]
 
     def _generate_all_atomic_signals(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
@@ -93,14 +109,14 @@ class BehavioralIntelligence:
         atomic_signals_to_enhance = [
             'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
             'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
-            'SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION',
+            # 'SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION', # 风险信号不直接增强动态
             'SCORE_BEHAVIOR_VOLUME_BURST',
             'SCORE_BEHAVIOR_VOLUME_APATHY',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
             'SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION',
-            'SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE',
+            # 'SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE', # 风险信号不直接增强动态
             'SCORE_OPPORTUNITY_LOCKUP_RALLY',
             'SCORE_OPPORTUNITY_SELLING_EXHAUSTION',
             'SCORE_RISK_STAGNATION',
@@ -147,9 +163,10 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.3 · 纯粹原子版】行为公理诊断引擎
+        【V2.4 · 纯粹原子版】行为公理诊断引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 【新增】引入行为公理五：价量背离。
+        - 【移除】SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE 的计算，现在由独立方法处理。
         """
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -169,7 +186,7 @@ class BehavioralIntelligence:
         # --- 公理四: 日内形态 (Intraday Form) ---
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        # 【移除行】states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         # --- 公理五: 价量背离 (Price-Volume Divergence) ---
         price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
         volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
@@ -219,3 +236,76 @@ class BehavioralIntelligence:
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
+
+    def _diagnose_upper_shadow_pressure_risk(self, df: pd.DataFrame) -> Dict[str, pd.Series]: # 新增方法
+        """
+        【V2.0 · 深度博弈版】诊断行为风险：上影线抛压 (SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE)
+        - 核心逻辑: 综合考虑上影线强度、价格涨跌、主力资金流向、筹码集中度变化、微观欺骗意图和上涨效率，
+                    以更全面、精确地判断上影线是真抛压还是洗盘/诱多。
+        - 数据来源:
+            1. upper_shadow_selling_pressure_D (原始上影线强度)
+            2. pct_change_D (当日涨跌幅)
+            3. main_force_net_flow_calibrated_D (主力资金净流向)
+            4. SCORE_CHIP_AXIOM_CONCENTRATION (筹码集中度，双极性)
+            5. SCORE_MICRO_AXIOM_DECEPTION (微观欺骗，双极性)
+            6. VPA_EFFICIENCY_D (量价效率)
+        - 输出: [0, 1] 的风险分数，分数越高代表风险越大。
+        """
+        print("    -- [行为引擎] 诊断上影线抛压风险 (深度博弈版)...")
+        # 1. 获取核心参数和信号
+        p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
+        p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
+        default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
+        norm_window = 55 # 统一归一化窗口
+        upper_shadow_raw = self._get_signal(df, 'upper_shadow_selling_pressure_D', 0.0)
+        pct_change = self._get_signal(df, 'pct_change_D', 0.0)
+        main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D', 0.0)
+        vpa_efficiency_raw = self._get_signal(df, 'VPA_EFFICIENCY_D', 0.5)
+        # 从 atomic_states 获取双极性信号
+        chip_concentration = self._get_atomic_score(df, 'SCORE_CHIP_AXIOM_CONCENTRATION', 0.0) # [-1, 1]
+        micro_deception = self._get_atomic_score(df, 'SCORE_MICRO_AXIOM_DECEPTION', 0.0) # [-1, 1]
+        # 2. 归一化基础信号
+        # 基础上影线强度，越高风险越大，归一化到 [0, 1]
+        base_upper_shadow_score = normalize_score(upper_shadow_raw, df.index, norm_window, ascending=True)
+        # 3. 价格背景判断
+        is_up_day = (pct_change > 0).astype(float)
+        is_down_day = (pct_change < 0).astype(float)
+        # 4. 主力资金流向影响 (转换为风险放大/缓解因子)
+        # 主力资金流出 (负值) 增加风险，流入 (正值) 降低风险
+        main_force_flow_bipolar = normalize_to_bipolar(main_force_flow_raw, df.index, norm_window)
+        # mf_risk_factor: 流出时为正，流入时为负，范围 [-1, 1]
+        mf_risk_factor = -main_force_flow_bipolar
+        # 5. 筹码集中度影响 (转换为风险放大/缓解因子)
+        # 筹码分散 (负值) 增加风险，集中 (正值) 降低风险
+        # chip_risk_factor: 分散时为正，集中时为负，范围 [-1, 1]
+        chip_risk_factor = -chip_concentration
+        # 6. 微观欺骗意图影响 (转换为风险放大/缓解因子)
+        # 伪装派发 (负值) 增加风险，伪装吸筹 (正值) 降低风险
+        # deception_risk_factor: 伪装派发时为正，伪装吸筹时为负，范围 [-1, 1]
+        deception_risk_factor = -micro_deception
+        # 7. 上涨效率影响 (仅在上涨日考虑，转换为风险放大/缓解因子)
+        # 上涨效率低 (VPA_EFFICIENCY_D 接近0) 增加风险，效率高 (接近1) 降低风险
+        vpa_efficiency_score = normalize_score(vpa_efficiency_raw, df.index, norm_window, ascending=True)
+        # vpa_risk_factor: 效率低时为正，效率高时为负，范围 [-1, 1]
+        vpa_risk_factor = (1 - vpa_efficiency_score) * is_up_day - vpa_efficiency_score * is_up_day # 仅在上涨日生效
+        # 8. 综合修正因子 (加权平均)
+        # 权重需要根据实际市场表现进行优化，这里给出初步设定
+        w_mf = 0.3 # 主力资金流向权重
+        w_chip = 0.25 # 筹码集中度权重
+        w_deception = 0.2 # 微观欺骗权重
+        w_vpa = 0.15 # 上涨效率权重
+        # 综合修正因子，范围大致在 [-1, 1] 之间
+        combined_influence = (
+            mf_risk_factor * w_mf +
+            chip_risk_factor * w_chip +
+            deception_risk_factor * w_deception +
+            vpa_risk_factor * w_vpa
+        ) / (w_mf + w_chip + w_deception + w_vpa) # 归一化权重和
+        # 9. 最终风险分数计算
+        # 基础风险分数 (0到1) 乘以一个放大/缓解系数 (1 + 修正因子)
+        # 修正因子范围 [-1, 1]，所以 (1 + 修正因子) 范围 [0, 2]
+        # 这样，如果修正因子为负（缓解风险），最终风险会降低；如果为正（放大风险），最终风险会升高。
+        # 额外考虑下跌日的上影线，通常风险更高，给予一个基础放大
+        down_day_amplification = is_down_day * 0.5 # 下跌日上影线额外放大0.5倍风险
+        final_risk_score = (base_upper_shadow_score * (1 + combined_influence + down_day_amplification)).clip(0, 1)
+        return {'SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE': final_risk_score.astype(np.float32)}
