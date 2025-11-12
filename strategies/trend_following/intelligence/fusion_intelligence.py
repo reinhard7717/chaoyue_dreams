@@ -1,3 +1,4 @@
+# 文件: strategies/trend_following/intelligence/fusion_intelligence.py
 import pandas as pd
 import numpy as np
 from typing import Dict
@@ -34,9 +35,9 @@ class FusionIntelligence:
 
     def run_fusion_diagnostics(self) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 市场矛盾增强版】运行所有融合诊断任务。
+        【V3.3 · 价格超买意图版】运行所有融合诊断任务。
         - 核心流程: 依次冶炼四大战场态势，并发布到原子状态库。
-        - 【新增】冶炼“市场矛盾”态势。
+        - 【新增】冶炼“市场矛盾”态势和“价格超买意图”态势。
         """
         print("启动【V3.0 · 战场态势引擎】融合情报分析...")
         all_fusion_states = {}
@@ -55,7 +56,10 @@ class FusionIntelligence:
         # 步骤五: 冶炼“市场矛盾”
         contradiction_states = self._synthesize_market_contradiction()
         all_fusion_states.update(contradiction_states)
-        # 步骤六: 将新生成的融合信号立即发布，供后续认知层使用
+        # 【新增行】步骤六: 冶炼“价格超买意图”
+        overextension_intent_states = self._synthesize_price_overextension_intent() # 新增行
+        all_fusion_states.update(overextension_intent_states) # 新增行
+        # 步骤七: 将新生成的融合信号立即发布，供后续认知层使用
         self.strategy.atomic_states.update(all_fusion_states)
         print(f"【V3.0 · 战场态势引擎】分析完成，生成 {len(all_fusion_states)} 个融合态势信号。")
         return all_fusion_states
@@ -119,7 +123,7 @@ class FusionIntelligence:
         - 核心修复: 不再消费原子层的“共振”信号，而是直接消费各原子情报模块的**公理信号**。
         - 核心逻辑: 融合各领域公理的双极性分数，形成一个整体的趋势质量判断。
         """
-        print("  -- [融合层] 正在冶炼“趋势质量”...") # 新增行
+        print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
         # 收集各领域公理信号
         # 基础层公理
@@ -196,7 +200,7 @@ class FusionIntelligence:
             pattern_breakout * 0.03 # 突破信号对趋势质量有影响
         ).clip(-1, 1)
         states['FUSION_BIPOLAR_TREND_QUALITY'] = bipolar_quality.astype(np.float32)
-        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}") # 新增行
+        print(f"  -- [融合层] “趋势质量”冶炼完成，最新分值: {bipolar_quality.iloc[-1]:.4f}")
         return states
 
     def _synthesize_market_pressure(self) -> Dict[str, pd.Series]:
@@ -220,11 +224,11 @@ class FusionIntelligence:
         ]
         upward_pressure_scores = []
         downward_pressure_scores = []
-        for signal_name in reversal_sources: # 修改行
-            if 'BOTTOM_REVERSAL' in signal_name: # 修改行
-                upward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values) # 修改行
-            elif 'TOP_REVERSAL' in signal_name: # 修改行
-                downward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values) # 修改行
+        for signal_name in reversal_sources:
+            if 'BOTTOM_REVERSAL' in signal_name:
+                upward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
+            elif 'TOP_REVERSAL' in signal_name:
+                downward_pressure_scores.append(self._get_atomic_score(signal_name, 0.0).values)
         net_upward_pressure = np.maximum.reduce(upward_pressure_scores)
         net_downward_pressure = np.maximum.reduce(downward_pressure_scores)
         bipolar_pressure = (pd.Series(net_upward_pressure, index=self.strategy.df_indicators.index) -
@@ -256,4 +260,60 @@ class FusionIntelligence:
         bipolar_confrontation = (flow_confrontation * 0.5 + chip_transfer * 0.3 + deception * 0.2).clip(-1, 1)
         states['FUSION_BIPOLAR_CAPITAL_CONFRONTATION'] = bipolar_confrontation.astype(np.float32)
         print(f"  -- [融合层] “资本对抗”冶炼完成，最新分值: {bipolar_confrontation.iloc[-1]:.4f}")
+        return states
+
+    def _synthesize_price_overextension_intent(self) -> Dict[str, pd.Series]: # 新增方法
+        """
+        【V1.0 · 深度博弈版】冶炼“价格超买意图” (Price Overextension Intent)
+        - 核心思想: 综合判断价格偏离均线是强力进攻还是真实超买风险。
+        - 证据链:
+          1. 行为层价格超买原始分 (INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW)
+          2. 资金流共识 (SCORE_FF_AXIOM_CONSENSUS)
+          3. 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION)
+          4. 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM)
+          5. 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY)
+        """
+        print("  -- [融合层] 正在冶炼“价格超买意图”...")
+        states = {}
+        # 1. 获取行为层价格超买原始分 (0到1，越高越超买)
+        overextension_raw = self._get_atomic_score('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.0)
+        # 2. 获取其他维度的支持/抑制信号 (均为双极性 [-1, 1])
+        fund_flow_consensus = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
+        chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0)
+        structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
+        micro_efficiency = self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.0)
+        # 3. 综合判断逻辑
+        # 将 overextension_raw 从 [0, 1] 映射到 [-1, 1]，0.5为中性，1为极度超买
+        overextension_bipolar = (overextension_raw * 2 - 1).clip(-1, 1)
+        # 积极信号 (支持进攻)
+        bullish_support = (
+            fund_flow_consensus.clip(lower=0) * 0.3 + # 主力买入
+            chip_concentration.clip(lower=0) * 0.2 + # 筹码集中
+            structural_trend_form.clip(lower=0) * 0.3 + # 结构健康
+            micro_efficiency.clip(lower=0) * 0.2 # 效率高
+        )
+        # 消极信号 (指示风险)
+        bearish_pressure = (
+            fund_flow_consensus.clip(upper=0).abs() * 0.3 + # 主力卖出
+            chip_concentration.clip(upper=0).abs() * 0.2 + # 筹码分散
+            structural_trend_form.clip(upper=0).abs() * 0.3 + # 结构恶化
+            micro_efficiency.clip(upper=0).abs() * 0.2 # 效率低
+        )
+        # 综合意图分数
+        # 当 overextension_bipolar 为正（超买）时，bullish_support 越大，越是进攻；bearish_pressure 越大，越是风险。
+        # 当 overextension_bipolar 为负（超卖）时，此信号意义不大，应趋近于0。
+        # 我们可以用 overextension_bipolar 作为基础，然后用其他信号进行修正。
+        # 修正因子：当超买时，如果支持信号强，则修正因子为正；如果压力信号强，则修正因子为负。
+        # 修正因子 = (bullish_support - bearish_pressure)
+        # 最终意图 = overextension_bipolar * (1 + 修正因子)
+        # 简化为：
+        overextension_intent = (
+            overextension_bipolar * 0.4 + # 基础超买程度
+            fund_flow_consensus * 0.2 + # 资金流向
+            chip_concentration * 0.15 + # 筹码结构
+            structural_trend_form * 0.15 + # 结构形态
+            micro_efficiency * 0.1 # 微观效率
+        ).clip(-1, 1)
+        states['FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT'] = overextension_intent.astype(np.float32)
+        print(f"  -- [融合层] “价格超买意图”冶炼完成，最新分值: {overextension_intent.iloc[-1]:.4f}")
         return states

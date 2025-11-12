@@ -39,10 +39,10 @@ class BehavioralIntelligence:
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
         all_behavioral_states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_behavioral_states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        # 【新增行】诊断深度博弈版的上影线抛压风险
-        upper_shadow_risk = self._diagnose_upper_shadow_pressure_risk(df) # 新增行
-        self.strategy.atomic_states.update(upper_shadow_risk) # 新增行
-        all_behavioral_states.update(upper_shadow_risk) # 新增行
+        # 诊断深度博弈版的上影线抛压风险
+        upper_shadow_risk = self._diagnose_upper_shadow_pressure_risk(df)
+        self.strategy.atomic_states.update(upper_shadow_risk)
+        all_behavioral_states.update(upper_shadow_risk)
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -109,7 +109,7 @@ class BehavioralIntelligence:
         atomic_signals_to_enhance = [
             'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
             'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
-            # 'SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION', # 风险信号不直接增强动态
+            # 'INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', # 风险信号不直接增强动态
             'SCORE_BEHAVIOR_VOLUME_BURST',
             'SCORE_BEHAVIOR_VOLUME_APATHY',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
@@ -163,10 +163,11 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.4 · 纯粹原子版】行为公理诊断引擎
+        【V2.5 · 纯粹原子版】行为公理诊断引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 【新增】引入行为公理五：价量背离。
-        - 【移除】SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE 的计算，现在由独立方法处理。
+        - 【修改】将 `SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION` 更名为 `INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW`，
+                  并将其视为内部原始分，不再直接赋予风险属性。
         """
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
@@ -176,7 +177,8 @@ class BehavioralIntelligence:
         # --- 公理一: 价格行为 (Price Action) ---
         states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
+        # 修改行: 将风险信号转为内部原始分
+        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         # --- 公理二: 量能行为 (Volume Action) ---
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
@@ -186,7 +188,7 @@ class BehavioralIntelligence:
         # --- 公理四: 日内形态 (Intraday Form) ---
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        # 【移除行】states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        # 【移除行】states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] 的计算，现在由独立方法处理。
         # --- 公理五: 价量背离 (Price-Volume Divergence) ---
         price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
         volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
@@ -263,10 +265,8 @@ class BehavioralIntelligence:
         main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D', 0.0)
         vpa_efficiency_raw = self._get_signal(df, 'VPA_EFFICIENCY_D', 0.5)
         # 从 atomic_states 获取双极性信号
-        # 修改行: 直接从 self.strategy.atomic_states 获取
-        chip_concentration = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df.index)) # [-1, 1]
-        # 修改行: 直接从 self.strategy.atomic_states 获取
-        micro_deception = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df.index)) # [-1, 1]
+        chip_concentration = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df.index))
+        micro_deception = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df.index))
         # 2. 归一化基础信号
         # 基础上影线强度，越高风险越大，归一化到 [0, 1]
         base_upper_shadow_score = normalize_score(upper_shadow_raw, df.index, norm_window, ascending=True)

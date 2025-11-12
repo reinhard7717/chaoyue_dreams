@@ -1,6 +1,6 @@
 {
     "score_type_map": {
-        "说明": "【V88.1 · 深度博弈版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
+        "说明": "【V88.2 · 深度博弈版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
@@ -136,6 +136,12 @@
             "type": "context",
             "description": "【V1.0】融合各情报领域（行为、筹码、资金流、结构、力学、形态、微观）的背离信号。正分代表看涨矛盾（如底背离），负分代表看跌矛盾（如顶背离）。"
         },
+        "FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT": {
+            "cn_name": "【融合】价格超买意图",
+            "category": "融合层-环境",
+            "type": "context",
+            "description": "【V1.0 · 深度博弈版】融合行为层价格超买原始分、主力资金流、筹码结构、结构形态和微观效率，综合判断当前价格的超买是真风险（负分）还是强力进攻（正分）。"
+        },
         "说明_predictive_intelligence": "--- 预测层信号 (Predictive Intelligence) ---",
         "PREDICTIVE_RISK_CLIMACTIC_RUN_EXHAUSTION": {
             "cn_name": "【预测风险】高潮衰竭",
@@ -164,12 +170,11 @@
             "type": "context",
             "description": "【行为公理一】纯粹衡量价格下跌的动能强度，基于当日跌幅的绝对值进行自适应归一化。"
         },
-        "SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION": {
-            "cn_name": "【行为风险】价格超买",
-            "category": "行为层-风险",
-            "type": "risk",
-            "penalty_weight": -300,
-            "description": "【行为公理一】基于价格与长期均线的乖离率，衡量价格位置的超买风险。"
+        "INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW": {
+            "cn_name": "【内部】价格超买原始分",
+            "category": "内部计分-行为",
+            "type": "context",
+            "description": "【行为公理一】基于价格与长期均线的乖离率，衡量价格位置的超买程度原始分，作为融合层判断的输入。"
         },
         "SCORE_BEHAVIOR_VOLUME_BURST": {
             "cn_name": "【行为】成交量爆发",
