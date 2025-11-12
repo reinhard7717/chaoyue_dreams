@@ -641,16 +641,18 @@ class AdvancedFundFlowMetricsService:
 
     def _compute_all_behavioral_metrics(self, minute_data: pd.DataFrame, daily_data: pd.Series) -> dict:
         """
-        【V3.16 · 分箱鲁棒性增强与主力峰区流量归一化版】
+        【V3.17 · 分箱鲁棒性增强与主力峰区流量归一化及类型兼容版】
         - 核心修复: 在所有 pd.cut 调用中增加 duplicates='drop' 参数，以处理因涨跌停等极端行情导致的价格无波动情况，根除 'Bin edges must be unique' 错误。
         - 【新增】对 `main_force_on_peak_flow` 进行归一化处理，使其值在合理范围内，避免在融合时权重异常。
+        - 【修复】将 `daily_total_amount` 明确转换为 `float` 类型，解决 `float` 和 `decimal.Decimal` 之间除法运算的 `TypeError`。
         """
         from scipy.signal import find_peaks
         results = {}
         if minute_data.empty:
             return results
         daily_total_volume = daily_data.get('vol', 0) * 100
-        daily_total_amount = daily_data.get('amount', 0) * 1000 # 获取日总成交额
+        # 修改行: 确保 daily_total_amount 为浮点数类型
+        daily_total_amount = pd.to_numeric(daily_data.get('amount', 0), errors='coerce') * 1000
         daily_vwap = daily_data.get('daily_vwap')
         atr = daily_data.get('atr_14d')
         day_open, day_close = daily_data.get('open_qfq'), daily_data.get('close_qfq')
@@ -760,15 +762,11 @@ class AdvancedFundFlowMetricsService:
                 ]
                 if not peak_zone_df.empty:
                     mf_net_vol_on_peak = peak_zone_df['main_force_net_vol'].sum()
-                    # [代码修改开始]
-                    # 归一化 main_force_on_peak_flow
                     if daily_total_amount > 0:
-                        # 将净流入金额转换为占日总成交额的比例，并进行 tanh 压缩
                         normalized_mf_on_peak_flow = np.tanh((mf_net_vol_on_peak * global_vpoc_price) / daily_total_amount)
                         results['main_force_on_peak_flow'] = normalized_mf_on_peak_flow
                     else:
                         results['main_force_on_peak_flow'] = 0.0
-                    # [代码修改结束]
                 mf_net_buy_df = minute_data[minute_data['main_force_net_vol'] > 0]
                 if not mf_net_buy_df.empty:
                     vp_mf = mf_net_buy_df.groupby(pd.cut(mf_net_buy_df['minute_vwap'], bins=30, duplicates='drop'))['main_force_net_vol'].sum()
