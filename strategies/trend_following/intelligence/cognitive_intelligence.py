@@ -40,42 +40,53 @@ class CognitiveIntelligence:
             print(f"    -> [认知层警告] 原子信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。")
             return pd.Series(default, index=self.strategy.df_indicators.index)
 
+    def _get_playbook_score(self, name: str, default: float = 0.0) -> pd.Series:
+        """
+        【V1.0 · 新增】安全地从剧本状态库中获取已计算的剧本分数。
+        - 核心职责: 统一剧本信号获取路径，优先从 self.strategy.playbook_states 获取，
+                      若无则返回默认值，确保数据流的稳定性。
+        - 预警机制: 如果信号不存在，打印明确的警告信息。
+        """
+        if name in self.strategy.playbook_states: # 新增行
+            return self.strategy.playbook_states[name] # 新增行
+        else: # 新增行
+            print(f"    -> [认知层警告] 剧本信号 '{name}' 不存在，无法作为证据！返回默认值 {default}。") # 新增行
+            return pd.Series(default, index=self.strategy.df_indicators.index) # 新增行
+
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.2 · 扩展风险剧本增强版】总指挥
-        - 核心重构: 废弃了最终的融合步骤 `_fuse_and_adjudicate_playbooks`。
-        - 新流程: 引擎的最终输出是所有独立的、经过动态证据锻造的剧本后验概率。
+        【V25.3 · 剧本依赖优化版】总指挥
+        - 核心升级: 优化剧本推演顺序，确保被依赖的剧本在其依赖者之前被计算。
         - 状态归位: 不再污染 atomic_states，而是将所有剧本信号直接存入专属的 self.strategy.playbook_states。
-        - 【新增】引入“背离反转”剧本。
-        - 【新增】引入所有扩展风险剧本。
         """
         self.strategy.playbook_states = {}
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
         playbook_scores = {}
+        # 优先计算被其他剧本依赖的风险信号
+        playbook_scores.update(self._deduce_distribution_at_high(priors)) # 修改行: 提前计算
+        playbook_scores.update(self._deduce_retail_fomo_retreat_risk(priors)) # 新增行: 提前计算
+        playbook_scores.update(self._deduce_trend_exhaustion_risk(priors)) # 修改行: 提前计算
+
+        # 计算其他机会和风险剧本
         playbook_scores.update(self._deduce_suppressive_accumulation(priors))
         playbook_scores.update(self._deduce_chasing_accumulation(priors))
         playbook_scores.update(self._deduce_capitulation_reversal(priors))
-        playbook_scores.update(self._deduce_distribution_at_high(priors))
         playbook_scores.update(self._deduce_leading_dragon_awakening(priors))
         playbook_scores.update(self._deduce_sector_rotation_vanguard(priors))
-        playbook_scores.update(self._deduce_trend_exhaustion_risk(priors))
         playbook_scores.update(self._deduce_energy_compression_breakout(priors))
         playbook_scores.update(self._deduce_divergence_reversal(priors))
-        # [代码新增开始]
-        # 新增扩展风险剧本
         playbook_scores.update(self._deduce_long_term_profit_distribution_risk(priors))
         playbook_scores.update(self._deduce_market_uncertainty_risk(priors))
-        playbook_scores.update(self._deduce_retail_fomo_retreat_risk(priors))
         playbook_scores.update(self._deduce_harvest_confirmation_risk(priors))
         playbook_scores.update(self._deduce_bull_trap_distribution_risk(priors))
         playbook_scores.update(self._deduce_liquidity_trap_risk(priors))
         playbook_scores.update(self._deduce_t0_arbitrage_pressure_risk(priors))
         playbook_scores.update(self._deduce_key_support_break_risk(priors))
         playbook_scores.update(self._deduce_high_level_structural_collapse_risk(priors))
-        # [代码新增结束]
+
         self.strategy.playbook_states.update(playbook_scores)
-        print(f"【V25.0 · 状态归位版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
+        print(f"【V25.3 · 剧本依赖优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
         return self.strategy.playbook_states
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -108,7 +119,7 @@ class CognitiveIntelligence:
 
     def _deduce_distribution_at_high(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 风险信号重构版】贝叶斯推演：“高位派发”风险剧本
+        【V3.4 · 风险信号重构版】贝叶斯推演：“高位派发”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
         - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
         - 【增强】引入更多直接反映主力派发和筹码分散的证据，提高信号区分度。
@@ -506,7 +517,7 @@ class CognitiveIntelligence:
 
     def _deduce_retail_fomo_retreat_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“散户狂热主力撤退”风险剧本
+        【V1.1 · 风险剧本】贝叶斯推演：“散户狂热主力撤退”风险剧本
         - 核心逻辑: 识别经典的牛市陷阱，散户Fomo情绪高涨，但主力资金却在悄然撤退。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
@@ -535,12 +546,13 @@ class CognitiveIntelligence:
 
     def _deduce_harvest_confirmation_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“收割确认”风险剧本
+        【V1.1 · 风险剧本】贝叶斯推演：“收割确认”风险剧本
         - 核心逻辑: 确认上冲派发是否伴随真实利润兑现，即主力在高位出货。
+        - 【修复】从 playbook_states 获取 COGNITIVE_RISK_DISTRIBUTION_AT_HIGH。
         """
         print("    -- [剧本推演] 收割确认风险 (动态证据)...")
         # 证据1: 高位派发风险 (COGNITIVE_RISK_DISTRIBUTION_AT_HIGH)
-        high_distribution_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0))
+        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0)) # 修改行
         # 证据2: 主力T+0效率高 (PROCESS_META_PROFIT_VS_FLOW 负向)
         high_t0_efficiency = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         # 证据3: 赢家信念衰减 (PROCESS_META_WINNER_CONVICTION_DECAY)
@@ -671,16 +683,17 @@ class CognitiveIntelligence:
 
     def _deduce_high_level_structural_collapse_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.0 · 新增】贝叶斯推演：“高位结构瓦解”风险剧本
+        【V1.1 · 风险剧本】贝叶斯推演：“高位结构瓦解”风险剧本
         - 核心逻辑: 结构顶部与主力派发、散户接盘的共振。
+        - 【修复】从 playbook_states 获取 COGNITIVE_RISK_DISTRIBUTION_AT_HIGH 和 COGNITIVE_RISK_RETAIL_FOMO_RETREAT。
         """
         print("    -- [剧本推演] 高位结构瓦解风险 (动态证据)...")
         # 证据1: 高位派发风险 (COGNITIVE_RISK_DISTRIBUTION_AT_HIGH)
-        high_distribution_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0))
+        high_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_DISTRIBUTION_AT_HIGH', 0.0)) # 修改行
         # 证据2: 结构趋势形态恶化 (SCORE_STRUCT_AXIOM_TREND_FORM 负向)
         structural_trend_deterioration = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(upper=0).abs())
         # 证据3: 散户狂热主力撤退风险 (COGNITIVE_RISK_RETAIL_FOMO_RETREAT)
-        retail_fomo_retreat = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
+        retail_fomo_retreat = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0)) # 修改行
         # 证据4: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向)
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         evidence_scores = np.stack([
