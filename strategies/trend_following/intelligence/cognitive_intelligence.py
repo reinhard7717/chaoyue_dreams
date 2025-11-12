@@ -56,11 +56,13 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.4 · 剧本状态实时同步版】总指挥
+        【V25.5 · 剧本依赖顺序修复版】总指挥
         - 核心升级: 优化剧本推演顺序，确保被依赖的剧本在其依赖者之前被计算。
         - 核心修复: 每次剧本推演完成后，立即将结果更新到 `self.strategy.playbook_states`，
                       确保 `_get_playbook_score` 能够实时获取到已计算的剧本信号。
+        - 【修复】调整剧本计算顺序，确保 `COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION` 在 `COGNITIVE_RISK_TREND_EXHAUSTION` 之前计算。
         """
+        print("启动【V25.5 · 剧本依赖顺序修复版】认知情报分析...") # 修改行
         self.strategy.playbook_states = {} # 初始化剧本状态库
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
@@ -68,7 +70,8 @@ class CognitiveIntelligence:
         # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
         self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors)) # 确保在其他依赖它的剧本之前计算
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 修改行: 提前计算此剧本
+        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
 
         # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
@@ -78,7 +81,7 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
         self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
         self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
+        # self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 移除行: 已提前计算
         self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
         self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors))
         self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors))
@@ -87,7 +90,7 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
         self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors))
 
-        print(f"【V25.4 · 剧本状态实时同步版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
+        print(f"【V25.5 · 剧本依赖顺序修复版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
         return self.strategy.playbook_states
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
