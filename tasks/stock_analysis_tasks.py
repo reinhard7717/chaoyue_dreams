@@ -662,8 +662,9 @@ def precompute_advanced_structural_metrics_for_stock(self, stock_code: str, is_i
 @with_cache_manager
 def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: bool = True, start_date_str: str = None, *, cache_manager: CacheManager):
     """
-    【V34.1 · 审计熔断深化版】
+    【V34.2 · 审计熔断深化版】
     - 核心修正: 优化审计熔断日志，当区块因数据缺失被跳过时，详细列出缺失的具体数据源。
+    - 【修复】解决 `historical_components_df` 在 `pd.concat` 后可能出现重复索引的问题，确保其唯一性。
     """
     async def main(incremental_flag: bool, start_date_override: str):
         from services.fund_flow_service import AdvancedFundFlowMetricsService
@@ -741,11 +742,11 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             return df
         chip_hist_comp_df = await load_historical_components(ChipMetricsModel, chip_hist_fields, stock_info, health_score_hist_lookback_date)
         ff_hist_comp_df = await load_historical_components(FundFlowMetricsModel, ff_hist_fields, stock_info, health_score_hist_lookback_date)
-        if not chip_hist_comp_df.empty and all(c in chip_hist_comp_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
-            valid_mask = chip_hist_comp_df['weight_avg_cost'] > 0
-            chip_hist_comp_df.loc[valid_mask, 'concentration_70pct'] = \
-                (chip_hist_comp_df.loc[valid_mask, 'cost_85pct'] - chip_hist_comp_df.loc[valid_mask, 'cost_15pct']) / chip_hist_comp_df.loc[valid_mask, 'weight_avg_cost']
         historical_components_df = chip_hist_comp_df.join(ff_hist_comp_df, how='outer')
+        if not historical_components_df.empty and all(c in historical_components_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
+            valid_mask = historical_components_df['weight_avg_cost'] > 0
+            historical_components_df.loc[valid_mask, 'concentration_70pct'] = \
+                (historical_components_df.loc[valid_mask, 'cost_85pct'] - historical_components_df.loc[valid_mask, 'cost_15pct']) / historical_components_df.loc[valid_mask, 'weight_avg_cost']
         CHUNK_SIZE = 50
         all_final_metrics_to_save = pd.DataFrame()
         cross_chunk_memory = {}
@@ -792,7 +793,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                             'stock_code': stock_code,
                             'trade_date': str(date.date()),
                             'reason': reason_str,
-                            'missing_source': source_name # 修改行: 增加 missing_source 字段
+                            'missing_source': source_name
                         })
                         break
                 if not is_chunk_valid:
@@ -800,7 +801,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if not is_chunk_valid:
                 logger.warning(f"[{stock_code}] [审计熔断] 区块 {chunk_dates.min().date()} to {chunk_dates.max().date()} 因数据缺失被跳过。")
                 for missing_rec in chunk_missing_records:
-                    logger.warning(f"    -> 详细: 日期 {missing_rec['trade_date']}, 缺失上游核心数据源: '{missing_rec['missing_source']}'") # 修改行: 打印 missing_source
+                    logger.warning(f"    -> 详细: 日期 {missing_rec['trade_date']}, 缺失上游核心数据源: '{missing_rec['missing_source']}'")
                 all_failures.extend(chunk_missing_records)
                 continue
             daily_df = data_dfs["daily_data"].set_index(pd.to_datetime(data_dfs["daily_data"]['trade_time'])).drop(columns='trade_time')
@@ -830,7 +831,9 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             if not chunk_core_metrics_df.empty:
                 new_hist_data = chunk_core_metrics_df[chunk_core_metrics_df.columns.intersection(health_score_components)]
                 if not new_hist_data.empty:
-                    historical_components_df = pd.concat([historical_components_df, new_hist_data]).sort_index()
+                    # 修改行: 确保 historical_components_df 的索引唯一
+                    historical_components_df = pd.concat([historical_components_df, new_hist_data])
+                    historical_components_df = historical_components_df[~historical_components_df.index.duplicated(keep='last')].sort_index()
                     if all(c in historical_components_df.columns for c in ['cost_15pct', 'cost_85pct', 'weight_avg_cost']):
                         valid_mask = historical_components_df['weight_avg_cost'] > 0
                         historical_components_df.loc[valid_mask, 'concentration_70pct'] = \
