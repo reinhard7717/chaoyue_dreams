@@ -288,32 +288,31 @@ class IndicatorCalculator:
             logger.error(f"计算 DMA (close_col={close_col}) 出错: {e}", exc_info=True)
             return None
 
-    async def calculate_atan_ma_angle(self, df: pd.DataFrame, ma_col: str) -> Optional[pd.DataFrame]:
+    async def calculate_atan_ma_angle(self, df: pd.DataFrame, ma_col_base: str, timeframe_key: str) -> Optional[pd.DataFrame]:
         """
-        【V1.0】计算均线的角度 (ATAN)。
+        【V1.1】计算均线的角度 (ATAN)。
         - 核心逻辑: 将均线的日间变化率转换为角度，反映均线的陡峭程度。
         - 数学公式: ATAN((MA / REF(MA,1) - 1) * 100) * 180 / PI
+        - 【修复】返回未带时间框架后缀的列名，由上层统一添加。
         """
-        if df is None or df.empty or ma_col not in df.columns:
-            logger.warning(f"计算 ATAN 均线角度失败：输入 DataFrame 为空或缺少 '{ma_col}' 列。")
+        ma_col_full = f"{ma_col_base}_{timeframe_key}"
+        if df is None or df.empty or ma_col_full not in df.columns:
+            logger.warning(f"计算 ATAN 均线角度失败：输入 DataFrame 为空或缺少 '{ma_col_full}' 列。")
             return None
         try:
             def _sync_atan_angle():
-                ma_series = df[ma_col]
-                # 避免除以零
+                ma_series = df[ma_col_full]
                 prev_ma = ma_series.shift(1).replace(0, np.nan)
-                # 计算变化率
                 change_rate = (ma_series / prev_ma - 1) * 100
-                # 计算角度，并转换为度
                 angle_series = np.arctan(change_rate) * 180 / np.pi
                 return angle_series
             angle_series = await asyncio.to_thread(_sync_atan_angle)
             if angle_series is None or angle_series.empty:
                 logger.warning(f"ATAN 均线角度计算结果为空。")
                 return None
-            return pd.DataFrame({f'ATAN_ANGLE_{ma_col}': angle_series}, index=df.index)
+            return pd.DataFrame({f'ATAN_ANGLE_{ma_col_base}': angle_series}, index=df.index)
         except Exception as e:
-            logger.error(f"计算 ATAN 均线角度 (ma_col={ma_col}) 出错: {e}", exc_info=True)
+            logger.error(f"计算 ATAN 均线角度 (ma_col_base={ma_col_base}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_dmi(self, df: pd.DataFrame, period: int = 14, high_col='high', low_col='low', close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:
@@ -388,33 +387,31 @@ class IndicatorCalculator:
             logger.error(f"计算 MA (周期 {period}) 时发生未知错误: {e}", exc_info=True)
             return None
 
-    async def calculate_ma_velocity_acceleration(self, df: pd.DataFrame, ma_col: str, ema_period: int = 3, sma_period: int = 3) -> Optional[pd.DataFrame]:
+    async def calculate_ma_velocity_acceleration(self, df: pd.DataFrame, ma_col_base: str, timeframe_key: str, ema_period: int = 3, sma_period: int = 3) -> Optional[pd.DataFrame]:
         """
-        【V1.0】计算均线的速度和加速度。
+        【V1.1】计算均线的速度和加速度。
         - 核心逻辑: 速度是均线变化率的平滑，加速度是速度的平滑变化。
         - 数学公式:
           速度 = SMA(EMA((MA - REF(MA,1))/REF(MA,1), ema_period) * 100, sma_period, 1)
           加速度 = EMA((速度 - REF(速度,1)), ema_period)
+        - 【修复】返回未带时间框架后缀的列名，由上层统一添加。
         """
-        if df is None or df.empty or ma_col not in df.columns:
-            logger.warning(f"计算均线速度加速度失败：输入 DataFrame 为空或缺少 '{ma_col}' 列。")
+        ma_col_full = f"{ma_col_base}_{timeframe_key}"
+        if df is None or df.empty or ma_col_full not in df.columns:
+            logger.warning(f"计算均线速度加速度失败：输入 DataFrame 为空或缺少 '{ma_col_full}' 列。")
             return None
         try:
             def _sync_calc():
-                ma_series = df[ma_col]
-                # 避免除以零
+                ma_series = df[ma_col_full]
                 prev_ma = ma_series.shift(1).replace(0, np.nan)
-                # 均线变化率
                 ma_change_rate = (ma_series / prev_ma - 1) * 100
-                # 速度: EMA平滑变化率，再SMA平滑
                 velocity_ema = ta.ema(close=ma_change_rate, length=ema_period, append=False)
                 velocity_series = ta.sma(close=velocity_ema, length=sma_period, append=False)
-                # 加速度: EMA平滑速度的变化
                 prev_velocity = velocity_series.shift(1)
                 acceleration_series = ta.ema(close=(velocity_series - prev_velocity), length=ema_period, append=False)
                 results_df = pd.DataFrame({
-                    f'MA_VELOCITY_{ma_col}': velocity_series,
-                    f'MA_ACCELERATION_{ma_col}': acceleration_series
+                    f'MA_VELOCITY_{ma_col_base}': velocity_series,
+                    f'MA_ACCELERATION_{ma_col_base}': acceleration_series
                 }, index=df.index)
                 return results_df
             results_df = await asyncio.to_thread(_sync_calc)
@@ -423,7 +420,7 @@ class IndicatorCalculator:
                 return None
             return results_df
         except Exception as e:
-            logger.error(f"计算均线速度加速度 (ma_col={ma_col}) 出错: {e}", exc_info=True)
+            logger.error(f"计算均线速度加速度 (ma_col_base={ma_col_base}) 出错: {e}", exc_info=True)
             return None
 
     async def calculate_ema(self, df: pd.DataFrame, period: int, close_col='close', suffix: str = '') -> Optional[pd.DataFrame]:

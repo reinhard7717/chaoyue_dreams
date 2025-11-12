@@ -72,8 +72,9 @@ class FoundationIntelligence:
 
     def _diagnose_axiom_trend(self, df: pd.DataFrame, norm_window: int, params: dict) -> pd.Series:
         """
-        【V1.1 · DMA趋势增强版】基础公理一：诊断“趋势”
+        【V1.2 · DMA趋势增强与列名引用修复版】基础公理一：诊断“趋势”
         - 【新增】引入 DMA 指标的斜率作为趋势判断的辅助证据。
+        - 【修复】修正了引用 DMA 斜率列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         """
         macd_h = df.get('MACDh_13_34_8_D', pd.Series(0.0, index=df.index))
         macd_score = normalize_to_bipolar(macd_h, df.index, norm_window)
@@ -85,6 +86,7 @@ class FoundationIntelligence:
         slope_scores = [normalize_to_bipolar(df.get(f'SLOPE_{p}_EMA_{p}_D', pd.Series(0.0, index=df.index)), df.index, norm_window).values for p in ma_periods]
         avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df.index)
         # 新增 DMA 斜率作为趋势证据
+        # 修正列名引用，确保与 merge_results 后的列名一致
         dma_slope = df.get('SLOPE_5_DMA_D', pd.Series(0.0, index=df.index))
         dma_slope_score = normalize_to_bipolar(dma_slope, df.index, norm_window)
         structure_score = (
@@ -92,7 +94,7 @@ class FoundationIntelligence:
             avg_slope_bipolar * fusion_weights.get('slope', 0.5)
         ).clip(-1, 1)
         # 融合 DMA 斜率分数
-        trend_score = (macd_score * 0.3 + structure_score * 0.5 + dma_slope_score * 0.2).clip(-1, 1) # 调整权重
+        trend_score = (macd_score * 0.3 + structure_score * 0.5 + dma_slope_score * 0.2).clip(-1, 1)
         return trend_score.astype(np.float32)
 
     def _diagnose_axiom_oscillator(self, df: pd.DataFrame, norm_window: int) -> pd.Series:

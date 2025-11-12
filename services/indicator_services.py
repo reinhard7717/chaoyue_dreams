@@ -434,9 +434,10 @@ class IndicatorService:
         latest_only: bool = False
     ) -> Dict[str, pd.DataFrame]:
         """
-        【V8.17 · 重采样命名协议修复版】
+        【V8.18 · AAA指标前置与重采样命名协议修复版】
         - 核心修复: 解决了从日线重采样（resample）到周/月线时，列名未被正确更新（如 close_D 未变为 close_W）的致命缺陷。
         - 新流程: 在 resample 之后，立即对新生成的 DataFrame 进行列名重命名，将 '_D' 后缀替换为目标时间周期后缀（如 '_W'）。
+        - 【新增】在日线数据准备完成后，立即计算 AAA 指标，确保其在 DMA 计算前可用。
         """
         required_tfs = self._discover_required_timeframes_from_config(config)
         pattern_enhancement_params = config.get('feature_engineering_params', {}).get('indicators', {}).get('pattern_enhancement_signals', {})
@@ -450,16 +451,16 @@ class IndicatorService:
             return {}
         if latest_only:
             max_lookback = self._get_max_lookback_period(config)
-            safety_buffer = 100 
+            safety_buffer = 100
             base_needed_bars = max_lookback + safety_buffer
             print(f"    - [闪电模式启动] 策略最大回溯期: {max_lookback}, 安全缓冲: {safety_buffer}, 最终加载: {base_needed_bars} 条记录。")
         else:
             base_needed_bars = config.get('feature_engineering_params', {}).get('base_needed_bars', 1200)
         base_tfs_to_fetch = set()
-        resample_map = {} 
+        resample_map = {}
         for tf in required_tfs:
             if tf in ['W', 'M']:
-                base_tfs_to_fetch.add('D') 
+                base_tfs_to_fetch.add('D')
                 resample_map[tf] = 'D'
             else:
                 base_tfs_to_fetch.add(tf)
@@ -570,6 +571,13 @@ class IndicatorService:
         if 'close_D' in df_daily_master.columns:
             df_daily_master['pct_change_D'] = df_daily_master['close_D'].pct_change().fillna(0)
         raw_dfs['D'] = df_daily_master
+        # NEW STEP: Calculate AAA_D for the daily dataframe
+        # This needs to happen before _calculate_indicators_for_timescale is called for 'D'
+        # because DMA depends on AAA_D.
+        if 'D' in raw_dfs and not raw_dfs['D'].empty:
+            temp_dfs = {'D': raw_dfs['D']}
+            temp_dfs = await self.feature_service.calculate_aaa_indicator(temp_dfs)
+            raw_dfs['D'] = temp_dfs['D']
         if resample_map:
             df_daily = raw_dfs['D']
             for target_tf, source_tf in resample_map.items():
@@ -589,8 +597,6 @@ class IndicatorService:
                     df_resampled = df_daily.resample(resample_period).agg(aggregation_rules)
                     df_resampled.dropna(how='all', inplace=True)
                     if not df_resampled.empty:
-                        # --- 重采样命名协议修复 ---
-                        # 在重采样后，立即将列名中的 '_D' 替换为目标周期的后缀，如 '_W'
                         rename_map_resampled = {col: col.replace('_D', f'_{target_tf}') for col in df_resampled.columns if col.endswith('_D')}
                         df_resampled.rename(columns=rename_map_resampled, inplace=True)
                         if target_tf == 'W':
@@ -678,11 +684,12 @@ class IndicatorService:
 
     async def _calculate_indicators_for_timescale(self, df: pd.DataFrame, config: dict, timeframe_key: str) -> pd.DataFrame:
         """
-        【V110.18 · 通达信指标集成版】根据配置为指定时间周期计算所有技术指标。
+        【V110.19 · 通达信指标集成与列名修复版】根据配置为指定时间周期计算所有技术指标。
         - 核心修复: 隔离了 'suffix' 参数的传递。不再将其普遍添加到 kwargs_iter 中，
                       而是仅在调用真正需要它的函数（如boll_bands_and_width, vwap）时才显式添加。
                       这彻底解决了因参数泄漏导致的 TypeError。
         - 【新增】集成 calculate_dma, calculate_atan_ma_angle, calculate_ma_velocity_acceleration, calculate_zigzag 方法。
+        - 【修复】修正了 `atan_ma_angle` 和 `ma_velocity_acceleration` 的参数传递，以避免列名重复后缀问题。
         """
         if not config:
             return df
@@ -701,10 +708,10 @@ class IndicatorService:
             'uo': self.calculator.calculate_uo, 'vwap': self.calculator.calculate_vwap, 'atr': self.calculator.calculate_atr,
             'fibonacci_levels': self.calculator.calculate_fibonacci_levels,
             'price_volume_ma_comparison': self.calculator.calculate_price_volume_ma_comparison,
-            'dma': self.calculator.calculate_dma, # 新增
-            'atan_ma_angle': self.calculator.calculate_atan_ma_angle, # 新增
-            'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration, # 新增
-            'zigzag': self.calculator.calculate_zigzag, # 新增
+            'dma': self.calculator.calculate_dma,
+            'atan_ma_angle': self.calculator.calculate_atan_ma_angle,
+            'ma_velocity_acceleration': self.calculator.calculate_ma_velocity_acceleration,
+            'zigzag': self.calculator.calculate_zigzag,
         }
         def merge_results(result_data, target_df):
             if result_data is None or result_data.empty:
@@ -712,20 +719,17 @@ class IndicatorService:
             if isinstance(result_data, pd.Series):
                 result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
-                # [代码修改开始]
-                # 在合并时，为所有新列统一添加后缀
                 suffix = f"_{timeframe_key}"
                 rename_dict = {col: f"{col}{suffix}" for col in result_data.columns if not col.endswith(suffix)}
                 result_data.rename(columns=rename_dict, inplace=True)
                 for col in result_data.columns:
                     target_df[col] = result_data[col]
-                # [代码修改结束]
             else:
                 logger.warning(f"指标计算返回了未知类型 {type(result_data)}，已跳过。")
         ordered_calc_keys = [
             'ma', 'ema', 'vol_ma', 'macd', 'dmi', 'rsi', 'roc', 'boll_bands_and_width', 'kdj', 'trix', 'coppock', 'cmf', 'bias', 'atr', 'obv', 'vwap', 'uo',
             'price_volume_ma_comparison', 'zscore',
-            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag' # 新增
+            'fibonacci_levels', 'dma', 'atan_ma_angle', 'ma_velocity_acceleration', 'zigzag'
         ]
         close_col_tf = f'close_{timeframe_key}'
         high_col_tf = f'high_{timeframe_key}'
@@ -781,7 +785,7 @@ class IndicatorService:
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
                         continue
-                    if indicator_name == 'dma': # 新增 DMA 计算逻辑
+                    if indicator_name == 'dma':
                         smooth_factor_col = sub_config.get('smooth_factor_col')
                         if smooth_factor_col and smooth_factor_col in df_for_calc.columns:
                             kwargs.update({'smooth_factor_series': df_for_calc[smooth_factor_col], 'close_col': close_col_tf})
@@ -790,25 +794,25 @@ class IndicatorService:
                         else:
                             logger.warning(f"DMA计算失败：缺少平滑因子列 '{smooth_factor_col}'。")
                         continue
-                    if indicator_name == 'atan_ma_angle': # 新增 ATAN 均线角度计算逻辑
-                        ma_col_to_angle = sub_config.get('ma_col')
-                        if ma_col_to_angle and ma_col_to_angle in df_for_calc.columns:
-                            kwargs.update({'ma_col': ma_col_to_angle})
+                    if indicator_name == 'atan_ma_angle':
+                        ma_col_base = sub_config.get('ma_col')
+                        if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
+                            kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key})
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:
-                            logger.warning(f"ATAN 均线角度计算失败：缺少均线列 '{ma_col_to_angle}'。")
+                            logger.warning(f"ATAN 均线角度计算失败：缺少均线列 '{ma_col_base}_{timeframe_key}'。")
                         continue
-                    if indicator_name == 'ma_velocity_acceleration': # 新增均线速度加速度计算逻辑
-                        ma_col_to_calc = sub_config.get('ma_col')
-                        if ma_col_to_calc and ma_col_to_calc in df_for_calc.columns:
-                            kwargs.update({'ma_col': ma_col_to_calc, 'ema_period': sub_config.get('ema_period', 3), 'sma_period': sub_config.get('sma_period', 3)})
+                    if indicator_name == 'ma_velocity_acceleration':
+                        ma_col_base = sub_config.get('ma_col')
+                        if ma_col_base and f"{ma_col_base}_{timeframe_key}" in df_for_calc.columns:
+                            kwargs.update({'ma_col_base': ma_col_base, 'timeframe_key': timeframe_key, 'ema_period': sub_config.get('ema_period', 3), 'sma_period': sub_config.get('sma_period', 3)})
                             result_df = await method_to_call(**kwargs)
                             merge_results(result_df, df_for_calc)
                         else:
-                            logger.warning(f"均线速度加速度计算失败：缺少均线列 '{ma_col_to_calc}'。")
+                            logger.warning(f"均线速度加速度计算失败：缺少均线列 '{ma_col_base}_{timeframe_key}'。")
                         continue
-                    if indicator_name == 'zigzag': # 新增 ZIGZAG 计算逻辑
+                    if indicator_name == 'zigzag':
                         kwargs.update({'period': sub_config.get('period', 3), 'percent': sub_config.get('percent', 5.0), 'close_col': close_col_tf})
                         result_df = await method_to_call(**kwargs)
                         merge_results(result_df, df_for_calc)
@@ -823,7 +827,6 @@ class IndicatorService:
                     is_nested_list = isinstance(periods[0], list) if periods else False
                     periods_to_iterate = [periods] if is_multi_param and not is_nested_list else periods
                     for p_set in periods_to_iterate:
-                        # 移除通用的 suffix，只在需要时添加
                         kwargs_iter = {'df': df_for_calc}
                         if indicator_name in ['ma', 'ema', 'rsi', 'roc', 'bias', 'mom']:
                             kwargs_iter.update({'period': p_set, 'close_col': close_col_tf})
@@ -838,7 +841,6 @@ class IndicatorService:
                         elif indicator_name in ['dmi', 'kdj', 'atr', 'atrn', 'atrr']:
                              kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf})
                         elif indicator_name == 'boll_bands_and_width':
-                            # 只在这里为需要的函数添加 suffix
                             kwargs_iter.update({'period': p_set, 'std_dev': float(sub_config.get('std_dev', 2.0)), 'close_col': close_col_tf, 'suffix': f"_{timeframe_key}"})
                         elif indicator_name == 'cmf':
                             kwargs_iter.update({'period': p_set, 'high_col': high_col_tf, 'low_col': low_col_tf, 'close_col': close_col_tf, 'volume_col': volume_col_tf})

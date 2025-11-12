@@ -66,11 +66,11 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.3 · 结构质量增强与均线角度列名修复版】结构公理一：诊断“趋势形态”
+        【V1.4 · 结构质量增强与均线角度列名引用修复版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
-        - 【修复】修正了引用均线角度列名时，避免了双重后缀问题。
+        - 【修复】修正了引用均线角度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -85,24 +85,17 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df_index)
         bull_velocity = np.mean([normalize_score(df[col], df_index, norm_window, ascending=True).values for col in slope_cols], axis=0)
         bear_velocity = np.mean([normalize_score(df[col], df_index, norm_window, ascending=False).values for col in slope_cols], axis=0)
-        # 获取并归一化 volume_burstiness_index_D 和 upward_thrust_efficacy_D
         volume_burstiness_raw = df.get('volume_burstiness_index_D', pd.Series(0.0, index=df_index))
         upward_thrust_efficacy_raw = df.get('upward_thrust_efficacy_D', pd.Series(0.0, index=df_index))
-        downward_absorption_efficacy_raw = df.get('downward_absorption_efficacy_D', pd.Series(0.0, index=df_index)) # 假设也有这个指标
-        # 归一化到 [0, 1]
+        downward_absorption_efficacy_raw = df.get('downward_absorption_efficacy_D', pd.Series(0.0, index=df_index))
         burstiness_score = normalize_score(volume_burstiness_raw, df_index, norm_window, ascending=True).fillna(0.0)
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
-        # 新增均线角度作为趋势证据
-        ma_col_base = 'EMA_55_D' # 原始均线列名
-        # 修正列名引用，不再额外添加 _D 后缀
-        ma_angle_raw = df.get(f'ATAN_ANGLE_{ma_col_base}', pd.Series(0.0, index=df_index))
-        ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0) # 敏感度调整
-        # 融合新的指标
-        # 爆裂度作为乘数因子，增强趋势的强度
-        # 上涨推力效能直接增强多头分数
-        # 下跌吸收效能直接增强空头分数（下跌趋势的效率）
-        # 均线角度直接增强多头/空头分数
+        ma_col_base = 'EMA_55'
+        timeframe_key = 'D'
+        # 修正列名引用，确保与 merge_results 后的列名一致
+        ma_angle_raw = df.get(f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index))
+        ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0)
         bull_score = pd.Series(bull_alignment * bull_velocity, index=df_index) * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1
         bear_score = pd.Series(bear_alignment * bear_velocity, index=df_index) * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1 + ma_angle_score.clip(upper=0).abs() * 0.1
         trend_form_score = (bull_score - bear_score).clip(-1, 1)

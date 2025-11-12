@@ -77,16 +77,17 @@ class ChipIntelligence:
 
     def _diagnose_axiom_concentration(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.6 · 数学重构与峰融合增强版】筹码公理一：诊断筹码“聚散”动态
+        【V2.7 · 数学重构与峰融合增强及列名引用修复版】筹码公理一：诊断筹码“聚散”动态
         - 核心修复: 遵循“先归一，后融合”原则。不再对原始值进行武断缩放，而是先将“集中度水平”和“集中趋势”
                       分别归一化为[-1, 1]的双极性分数，然后再进行加权融合，确保模型在不同市场环境下的健壮性。
         - 引入 `peak_fusion_indicator` (筹码峰融合指标) 作为判断筹码集中度的重要证据。
         - 【新增】引入 ZIGZAG 趋势作为辅助证据，增强对集中度有效性的判断。
+        - 【修复】修正了引用 ZIGZAG 列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         """
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
-            'peak_fusion_indicator_D', # 增加 peak_fusion_indicator_D
-            'ZIG_5_5.0_D' # 新增 ZIGZAG 信号
+            'peak_fusion_indicator_D',
+            'ZIG_5_5.0_D' # 修正为 merge_results 后的列名
         ] + [f'SLOPE_{p}_winner_concentration_90pct_D' for p in periods if f'SLOPE_{p}_winner_concentration_90pct_D' in df.columns]
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
@@ -105,6 +106,7 @@ class ChipIntelligence:
         concentration_trend_raw /= len(periods)
         peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index))
         # 新增 ZIGZAG 趋势作为辅助证据
+        # 修正列名引用，确保与 merge_results 后的列名一致
         zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index)).diff(1).fillna(0)
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})

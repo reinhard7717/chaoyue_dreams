@@ -66,14 +66,14 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V2.4 · 均线动态增强与列名修复版】力学公理二：诊断“惯性”
+        【V2.5 · 均线动态增强与列名引用修复版】力学公理二：诊断“惯性”
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 1. 将趋势强度(ADX)、序列记忆(Hurst)、路径平滑度(Fractal)分别评估为[0,1]的“惯性质量分”。
                    2. 将这三个质量分加权平均，得到一个总体的“惯性质量”。
                    3. 使用趋势方向(PDI/NDI)作为最终的符号，决定惯性是看涨还是看跌。
                    这从根本上解决了因单一维度疲软而导致“一票否决”的系统性风险。
         - 【新增】引入均线速度和加速度作为惯性判断的证据。
-        - 【修复】修正了引用均线速度和加速度列名时，避免了双重后缀问题。
+        - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         """
         adx_strength = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
@@ -85,11 +85,11 @@ class DynamicMechanicsEngine:
             fractal_smoothness = normalize_score(fractal_dim, df.index, norm_window, ascending=False)
         else:
             fractal_smoothness = pd.Series(0.5, index=df.index)
-        # 新增均线速度和加速度作为惯性证据
-        ma_col_base = 'EMA_55_D' # 原始均线列名
-        # 修正列名引用，不再额外添加 _D 后缀
-        ma_velocity = normalize_score(df.get(f'MA_VELOCITY_{ma_col_base}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        ma_acceleration = normalize_score(df.get(f'MA_ACCELERATION_{ma_col_base}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
+        timeframe_key = 'D' # 明确时间框架
+        # 修正列名引用，确保与 merge_results 后的列名一致
+        ma_velocity = normalize_score(df.get(f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        ma_acceleration = normalize_score(df.get(f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
         inertia_quality = (
             adx_strength * 0.3 +
             hurst_quality * 0.3 +
@@ -144,17 +144,17 @@ class DynamicMechanicsEngine:
 
     def _diagnose_axiom_ma_dynamics(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.1 · 列名修复版】力学公理六：诊断“均线动态”
+        【V1.2 · 列名引用修复版】力学公理六：诊断“均线动态”
         - 核心逻辑: 融合均线的速度和加速度，评估趋势的内在变化。
         - 正分代表均线加速向上，负分代表均线加速向下。
-        - 【修复】修正了引用均线速度和加速度列名时，避免了双重后缀问题。
+        - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         """
         df_index = df.index
-        # 假设我们关注 EMA55 的动态
-        ma_col_base = 'EMA_55_D' # 原始均线列名，已包含 _D 后缀
-        # 修正列名引用，不再额外添加 _D 后缀
-        velocity_col = f'MA_VELOCITY_{ma_col_base}'
-        acceleration_col = f'MA_ACCELERATION_{ma_col_base}'
+        ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
+        timeframe_key = 'D' # 明确时间框架
+        # 修正列名引用，确保与 merge_results 后的列名一致
+        velocity_col = f'MA_VELOCITY_{ma_col_base}_{timeframe_key}'
+        acceleration_col = f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}'
         if velocity_col not in df.columns or acceleration_col not in df.columns:
             print(f"    -> [均线动态探针] 警告: 缺少均线速度或加速度列 ({velocity_col}, {acceleration_col})，使用默认值0.0。")
             return pd.Series(0.0, index=df_index)
