@@ -1,5 +1,3 @@
-# 文件: strategies/trend_following/intelligence/pattern_intelligence.py
-
 import pandas as pd
 import numpy as np
 from typing import Dict
@@ -15,10 +13,11 @@ class PatternIntelligence:
 
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V8.1 · 背离信号增强版】形态分析总指挥
-        - 【新增】将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号。
+        【V8.3 · 纯粹原子版】形态分析总指挥
+        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
+        - 核心职责: 只输出形态领域的原子公理信号和形态背离信号。
+        - 移除信号: SCORE_PATTERN_BULLISH_RESONANCE, SCORE_PATTERN_BEARISH_RESONANCE, BIPOLAR_PATTERN_DOMAIN_HEALTH, SCORE_PATTERN_BOTTOM_REVERSAL, SCORE_PATTERN_TOP_REVERSAL。
         """
-        # 移除了所有过程性print语句
         all_states = {}
         p_conf = get_params_block(self.strategy, 'pattern_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -31,19 +30,7 @@ class PatternIntelligence:
         all_states['SCORE_PATTERN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_states['SCORE_PATTERN_AXIOM_REVERSAL'] = axiom_reversal
         all_states['SCORE_PATTERN_AXIOM_BREAKOUT'] = axiom_breakout
-        # --- 步骤二: 融合三大公理，合成终极信号 ---
-        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'divergence': 0.4, 'reversal': 0.4, 'breakout': 0.2
-        })
-        bipolar_health = (
-            axiom_divergence * axiom_weights['divergence'] +
-            axiom_reversal * axiom_weights['reversal'] +
-            axiom_breakout * axiom_weights['breakout']
-        ).clip(-1, 1)
-        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        all_states['SCORE_PATTERN_BULLISH_RESONANCE'] = bullish_resonance
-        all_states['SCORE_PATTERN_BEARISH_RESONANCE'] = bearish_resonance
-        # 将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号
+        # 将形态公理一（背离）的双极性分数分裂为看涨/看跌背离信号 (保持不变)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_PATTERN_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_PATTERN_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -53,7 +40,6 @@ class PatternIntelligence:
         """
         【V3.0 · 清洁版】形态公理一：诊断“背离”
         """
-        # 移除了所有过程性print语句
         price_slope = df.get('SLOPE_13_close_D', pd.Series(0, index=df.index))
         momentum_slope = df.get('SLOPE_13_intraday_vwap_div_index_D', pd.Series(0, index=df.index))
         bullish_divergence_strength = ((price_slope < 0) & (momentum_slope > 0)).astype(float)
@@ -66,7 +52,6 @@ class PatternIntelligence:
         """
         【V3.0 · 清洁版】形态公理二：诊断“反转”
         """
-        # 移除了所有过程性print语句和探针
         raw_reversal_score = df.get('counterparty_exhaustion_index_D', pd.Series(0, index=df.index))
         reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
         return reversal_score.astype(np.float32)
@@ -75,7 +60,6 @@ class PatternIntelligence:
         """
         【V3.0 · 清洁版】形态公理三：诊断“突破”
         """
-        # 移除了所有过程性print语句和探针
         is_breakout_up = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
         is_breakout_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
         breakout_direction = is_breakout_up - is_breakout_down

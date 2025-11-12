@@ -1,5 +1,3 @@
-# 文件: strategies/trend_following/intelligence/micro_behavior_engine.py
-# 微观行为诊断引擎
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
@@ -35,10 +33,10 @@ class MicroBehaviorEngine:
 
     def run_micro_behavior_synthesis(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V5.3 · 背离公理增强版】微观行为诊断引擎总指挥
-        - 核心修复: 修正了输出的共振信号名称，将 'SCORE_MICRO_*' 修正为 'SCORE_MICRO_BEHAVIOR_*'，
-                      以严格遵守与融合层的情报供应契约。
-        - 【新增】引入微观背离公理。
+        【V5.5 · 纯粹原子版】微观行为诊断引擎总指挥
+        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
+        - 核心职责: 只输出微观行为领域的原子公理信号和微观背离信号。
+        - 移除信号: SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE, SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE, BIPOLAR_MICRO_BEHAVIOR_DOMAIN_HEALTH, SCORE_MICRO_BEHAVIOR_BOTTOM_REVERSAL, SCORE_MICRO_BEHAVIOR_TOP_REVERSAL。
         """
         p_conf = get_params_block(self.strategy, 'micro_behavior_params', {})
         if not get_param_value(p_conf.get('enabled'), True):
@@ -54,19 +52,7 @@ class MicroBehaviorEngine:
         all_states['SCORE_MICRO_AXIOM_DECEPTION'] = axiom_deception
         all_states['SCORE_MICRO_AXIOM_PROBE'] = axiom_probe
         all_states['SCORE_MICRO_AXIOM_EFFICIENCY'] = axiom_efficiency
-        axiom_weights = get_param_value(p_conf.get('axiom_weights'), {
-            'deception': 0.4, 'probe': 0.3, 'efficiency': 0.3, 'divergence': 0.0 # [代码修改] 新增divergence权重
-        })
-        bipolar_health = (
-            axiom_deception * axiom_weights['deception'] +
-            axiom_probe * axiom_weights['probe'] +
-            axiom_efficiency * axiom_weights['efficiency']
-        ).clip(-1, 1)
-        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_health)
-        # 修正信号名称以符合融合层的契约
-        all_states['SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance
-        all_states['SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance
-        # 引入微观行为层面的看涨/看跌背离信号
+        # 引入微观行为层面的看涨/看跌背离信号 (保持不变)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_states['SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
         all_states['SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
@@ -82,13 +68,9 @@ class MicroBehaviorEngine:
           - 看跌背离：价格上涨但主动卖盘增强。
         """
         price_trend = normalize_to_bipolar(self._get_signal(df, 'pct_change_D'), df.index, norm_window)
-        # [代码修改开始]
-        # 修正为实际存在的信号名称
         active_buy_support = self._get_signal(df, 'active_buying_support_D')
         active_sell_pressure = self._get_signal(df, 'active_selling_pressure_D')
-        # 使用主动买入支撑和主动卖出压力的差值变化来代表订单流趋势
         active_buy_sell_diff = active_buy_support - active_sell_pressure
-        # [代码修改结束]
         order_flow_trend = normalize_to_bipolar(active_buy_sell_diff.diff(1), df.index, norm_window)
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
@@ -99,27 +81,17 @@ class MicroBehaviorEngine:
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
         - 逻辑修正: 明确使用 'SLOPE_5_short_term_concentration_90pct_D' 作为筹码集中度变化的证据。
         """
-        # 核心逻辑：寻找“表象”与“实质”的背离
-        # 证据1: 资金流表象 vs 筹码实质
-        # 表象：主力资金净流出
         main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D')
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
-        # 实质：筹码仍在集中
-        # 明确使用短期集中度斜率作为证据
         chip_concentration_slope = self._get_signal(df, 'SLOPE_5_short_term_concentration_90pct_D')
         chip_concentration_increase = chip_concentration_slope.clip(lower=0)
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
-        # 证据2: 交易颗粒度表象 vs 订单实质
-        # 表象：交易颗粒度变小（伪装成散户）
         granularity_slope = self._get_signal(df, 'SLOPE_5_inferred_active_order_size_D')
         granularity_decrease = -granularity_slope.clip(upper=0)
-        # 实质：主力控盘度提升
         control_leverage_slope = self._get_signal(df, 'SLOPE_5_main_force_control_leverage_D')
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
-        # 融合两大欺骗证据
         raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
-        # 使用双极归一化进行最终裁决
         deception_score = normalize_to_bipolar(raw_deception_score, df.index, window=norm_window)
         return deception_score.astype(np.float32)
 
@@ -128,30 +100,18 @@ class MicroBehaviorEngine:
         【V1.1 · 健壮性修复版】微观行为公理二：诊断“试探与确认”
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
         """
-        # 核心逻辑：分析带长影线的K线背后的真实意图
         total_range = (self._get_signal(df, 'high_D') - self._get_signal(df, 'low_D')).replace(0, np.nan)
-        # 证据1: 上影线试探 (正分)
-        # 表象：长上影线
         upper_shadow_ratio = ((self._get_signal(df, 'high_D') - np.maximum(self._get_signal(df, 'open_D'), self._get_signal(df, 'close_D'))) / total_range).fillna(0)
-        # 实质：主力资金并未净流出
         main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D')
         main_force_not_outflow = main_force_flow_raw.clip(lower=0)
         probe_up_score = upper_shadow_ratio * main_force_not_outflow
-        # 证据2: 下影线试探 (正分)
-        # 表象：长下影线
         lower_shadow_ratio = ((np.minimum(self._get_signal(df, 'open_D'), self._get_signal(df, 'close_D')) - self._get_signal(df, 'low_D')) / total_range).fillna(0)
-        # 实质：主力资金净流入
         main_force_inflow = main_force_flow_raw.clip(lower=0)
         probe_down_score = lower_shadow_ratio * main_force_inflow
-        # 证据3: 诱多式突破 (负分)
-        # 表象：突破近期高点
         breakout_high = (self._get_signal(df, 'close_D') > self._get_signal(df, 'high_D').rolling(21).max().shift(1)).astype(float)
-        # 实质：主力资金并未跟进
         main_force_not_inflow = -main_force_flow_raw.clip(upper=0)
         fake_breakout_score = breakout_high * main_force_not_inflow
-        # 融合所有试探行为
         raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
-        # 使用双极归一化进行最终裁决
         probe_score = normalize_to_bipolar(raw_probe_score, df.index, window=norm_window)
         return probe_score.astype(np.float32)
 
@@ -160,20 +120,12 @@ class MicroBehaviorEngine:
         【V1.1 · 健壮性修复版】微观行为公理三：诊断“成本与效率”
         - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
         """
-        # 核心逻辑：衡量“投入”与“产出”的比率
-        # 投入：成交额放大程度
         amount_series = self._get_signal(df, 'amount_D')
         amount_ma = amount_series.rolling(norm_window).mean().replace(0, np.nan)
         amount_input = (amount_series / amount_ma).fillna(1.0)
-        # 产出：价格变化幅度
         pct_change_series = self._get_signal(df, 'pct_change_D')
-        price_output = pct_change_series.abs() * 100 # 乘以100放大
-        # 效率 = 产出 / 投入
-        # 为了避免除以0，并处理方向，我们使用更稳健的公式
-        # 效率分 = 价格变化方向 * (价格变化幅度 - k * 成交额放大程度)
-        # 正价格变化，但成交额放大过多，效率分也可能为负（滞涨）
-        k = 0.1 # 调节系数
+        price_output = pct_change_series.abs() * 100
+        k = 0.1
         raw_efficiency_score = np.sign(pct_change_series) * (price_output - k * amount_input)
-        # 使用双极归一化进行最终裁决
         efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
         return efficiency_score.astype(np.float32)

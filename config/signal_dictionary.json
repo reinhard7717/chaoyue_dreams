@@ -1,6 +1,6 @@
 {
     "score_type_map": {
-        "说明": "【V87.0 · 命名协议同步版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
+        "说明": "【V88.0 · 纯粹原子版】这是一个与所有情报引擎完成“大一统”重构后的代码完全匹配的权威字典。修正了所有基础情报引擎的共振信号名称，以符合统一命名协议。",
         "说明_internal_scores": "--- 内部计分项 (不直接计分) ---",
         "ALERT_LEVEL": {
             "cn_name": "【战术】警报等级",
@@ -422,6 +422,118 @@
             "scoring_mode": "bipolar",
             "description": "诊断主力买入成本的变化率是否超越价格本身的变化率。正分代表主力在加速、追高买入。"
         },
+        "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】基础底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，基础领域（趋势、摆动、流体、波动）的底部反转信号。"
+        },
+        "PROCESS_META_FOUNDATION_TOP_REVERSAL": {
+            "cn_name": "【过程】基础顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，基础领域（趋势、摆动、流体、波动）的顶部反转信号。"
+        },
+        "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】结构底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的底部反转信号。"
+        },
+        "PROCESS_META_STRUCTURE_TOP_REVERSAL": {
+            "cn_name": "【过程】结构顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，结构领域（趋势形态、多周期协同、结构稳定性）的顶部反转信号。"
+        },
+        "PROCESS_META_PATTERN_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】形态底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，形态领域（背离、反转、突破）的底部反转信号。"
+        },
+        "PROCESS_META_PATTERN_TOP_REVERSAL": {
+            "cn_name": "【过程】形态顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，形态领域（背离、反转、突破）的顶部反转信号。"
+        },
+        "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】力学底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的底部反转信号。"
+        },
+        "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": {
+            "cn_name": "【过程】力学顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，力学领域（动量、惯性、稳定性、能量）的顶部反转信号。"
+        },
+        "PROCESS_META_CHIP_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】筹码底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的底部反转信号。"
+        },
+        "PROCESS_META_CHIP_TOP_REVERSAL": {
+            "cn_name": "【过程】筹码顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，筹码领域（聚散、成本结构、持股心态、筹码峰形态）的顶部反转信号。"
+        },
+        "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】资金流底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，资金流领域（共识、信念、存量）的底部反转信号。"
+        },
+        "PROCESS_META_FUND_FLOW_TOP_REVERSAL": {
+            "cn_name": "【过程】资金流顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，资金流领域（共识、信念、存量）的顶部反转信号。"
+        },
+        "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】微观行为底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，微观行为领域（伪装、试探、效率）的底部反转信号。"
+        },
+        "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL": {
+            "cn_name": "【过程】微观行为顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，微观行为领域（伪装、试探、效率）的顶部反转信号。"
+        },
+        "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL": {
+            "cn_name": "【过程】行为底部反转",
+            "category": "过程层-反转",
+            "type": "process",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的底部反转信号。"
+        },
+        "PROCESS_META_BEHAVIOR_TOP_REVERSAL": {
+            "cn_name": "【过程】行为顶部反转",
+            "category": "过程层-反转",
+            "type": "risk",
+            "scoring_mode": "unipolar",
+            "description": "【V1.0 · 新增】由过程层生成的，行为领域（价格行为、量能行为、价量关系、日内形态）的顶部反转信号。"
+        },
         "说明_cognitive_intelligence": "--- 认知层信号 (Cognitive Intelligence) ---",
         "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "cn_name": "【认知剧本】主力打压吸筹",
@@ -506,6 +618,69 @@
             "type": "risk",
             "description": "融合所有顶层认知风险信号，代表当天的综合看跌强度（等同于融合风险总分）。"
         },
+        "COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION": {
+            "cn_name": "【认知风险】长期获利盘派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1500,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演长期获利盘派发导致趋势反转的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_MARKET_UNCERTAINTY": {
+            "cn_name": "【认知风险】市场方向不明",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1000,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演市场混沌、无趋势，方向不明导致风险加剧的剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": {
+            "cn_name": "【认知风险】散户狂热主力撤退",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2000,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演散户Fomo情绪高涨，但主力资金却在悄然撤退的牛市陷阱剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_HARVEST_CONFIRMATION": {
+            "cn_name": "【认知风险】收割确认",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1800,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演上冲派发伴随真实利润兑现，主力在高位出货的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION": {
+            "cn_name": "【认知风险】主力诱多派发",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2200,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演筹码派发背景下的诱多收割行为的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_LIQUIDITY_TRAP": {
+            "cn_name": "【认知风险】流动性陷阱",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1200,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演资金流出与流动性枯竭共振的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": {
+            "cn_name": "【认知风险】T+0套利压力",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -1000,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演主力短期高频T+0操作获利，导致市场承压的风险剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_KEY_SUPPORT_BREAK": {
+            "cn_name": "【认知风险】关键支撑破位",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2500,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演恐慌抛售击穿所有关键支撑，导致系统性风险的剧本上演的后验概率。"
+        },
+        "COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE": {
+            "cn_name": "【认知风险】高位结构瓦解",
+            "category": "认知层-风险",
+            "type": "risk",
+            "penalty_weight": -2400,
+            "description": "【贝叶斯推演 V1.0】基于动态证据，推演结构顶部与主力派发、散户接盘共振，导致高位结构瓦解的风险剧本上演的后验概率。"
+        },
         "SCORE_CONTEXT_DEEP_BOTTOM_ZONE": {
             "cn_name": "【内部】深度底部区域",
             "category": "内部计分-上下文",
@@ -513,30 +688,6 @@
             "description": "融合了年内价格位置和周线RSI超卖，评估当前是否处于深度价值区域。"
         },
         "说明_micro_behavior_engine": "--- 微观行为引擎信号 (MicroBehavior Engine) ---",
-        "SCORE_MICRO_BEHAVIOR_BULLISH_RESONANCE": {
-            "cn_name": "【微观】看涨共振",
-            "category": "内部计分-微观行为",
-            "type": "dynamic",
-            "description": "【V5.0 · 公理化版】基于“伪装、试探、效率”三大微观行为公理，形成的看涨共振分。"
-        },
-        "SCORE_MICRO_BEHAVIOR_BEARISH_RESONANCE": {
-            "cn_name": "【微观】看跌共振",
-            "category": "内部计分-微观行为",
-            "type": "risk",
-            "description": "【V5.0 · 公理化版】基于三大微观行为公理，形成的看跌共振分。"
-        },
-        "SCORE_MICRO_BEHAVIOR_BULLISH_DIVERGENCE": {
-            "cn_name": "【微观】看涨背离",
-            "category": "内部计分-微观行为",
-            "type": "dynamic",
-            "description": "【V1.0 · 新增】基于微观行为公理，诊断价格行为与微观订单流之间的看涨背离。"
-        },
-        "SCORE_MICRO_BEHAVIOR_BEARISH_DIVERGENCE": {
-            "cn_name": "【微观】看跌背离",
-            "category": "内部计分-微观行为",
-            "type": "risk",
-            "description": "【V1.0 · 新增】基于微观行为公理，诊断价格行为与微观订单流之间的看跌背离。"
-        },
         "INTERNAL_SCORE_VOLUME_CALMNESS": {
             "cn_name": "【内部】成交量静谧度",
             "category": "内部计分-战术",
@@ -591,18 +742,6 @@
         },
         "说明_ultimate_signals": "--- 终极信号层 (Ultimate Signals) ---",
         "说明_chip_ultimate": "--- 筹码层-终极信号 (现为内部状态) ---",
-        "SCORE_CHIP_BULLISH_RESONANCE": {
-            "cn_name": "【筹码】看涨共振",
-            "category": "内部计分-筹码",
-            "type": "dynamic",
-            "description": "【V8.0 · 公理化版】基于“聚散、成本、心态、形态”四大筹码公理，形成的看涨共振分。"
-        },
-        "SCORE_CHIP_BEARISH_RESONANCE": {
-            "cn_name": "【筹码】看跌共振",
-            "category": "内部计分-筹码",
-            "type": "risk",
-            "description": "【V8.0 · 公理化版】基于四大筹码公理，形成的看跌共振分。"
-        },
         "SCORE_CHIP_BULLISH_DIVERGENCE": {
             "cn_name": "【筹码】看涨背离",
             "category": "内部计分-筹码",
@@ -642,18 +781,6 @@
             "penalty_weight": -800,
             "description": "【V3.0 · 终极信号】融合所有原子情报层看跌共振信号的几何平均值，代表综合的看跌风险。"
         },
-        "SCORE_BEHAVIOR_BULLISH_RESONANCE": {
-            "cn_name": "【行为】看涨共振",
-            "category": "内部计分-行为",
-            "type": "dynamic",
-            "description": "【V5.0 · 范式统一版】基于“价、量、关系、形态”四大行为公理，形成的看涨共振分。"
-        },
-        "SCORE_BEHAVIOR_BEARISH_RESONANCE": {
-            "cn_name": "【行为】看跌共振",
-            "category": "内部计分-行为",
-            "type": "risk",
-            "description": "【V5.0 · 范式统一版】基于四大行为公理，形成的看跌共振分。"
-        },
         "SCORE_BEHAVIOR_BULLISH_DIVERGENCE": {
             "cn_name": "【行为】看涨背离",
             "category": "内部计分-行为",
@@ -667,18 +794,6 @@
             "description": "【V1.0 · 新增】基于行为公理，诊断价格行为与量能行为之间的看跌背离。"
         },
         "说明_fund_flow_ultimate": "--- 资金流层-终极信号 (现为内部状态) ---",
-        "SCORE_FUND_FLOW_BULLISH_RESONANCE": {
-            "cn_name": "【资金流】看涨共振",
-            "category": "内部计分-资金流",
-            "type": "dynamic",
-            "description": "【V21.0 · 公理化版】基于“共识、信念、存量”三大资金流公理，形成的看涨共振分。"
-        },
-        "SCORE_FUND_FLOW_BEARISH_RESONANCE": {
-            "cn_name": "【资金流】看跌共振",
-            "category": "内部计分-资金流",
-            "type": "risk",
-            "description": "【V21.0 · 公理化版】基于三大资金流公理，形成的看跌共振分。"
-        },
         "SCORE_FUND_FLOW_BULLISH_DIVERGENCE": {
             "cn_name": "【资金流】看涨背离",
             "category": "内部计分-资金流",
@@ -716,18 +831,6 @@
             "description": "【资金流公理四】诊断价格行为与资金流之间的背离。正分代表看涨背离（如价跌资金流入），负分代表看跌背离（如价涨资金流出）。"
         },
         "说明_structural_ultimate": "--- 结构层-终极信号 (现为内部状态) ---",
-        "SCORE_STRUCTURE_BULLISH_RESONANCE": {
-            "cn_name": "【结构】看涨共振",
-            "category": "内部计分-结构",
-            "type": "dynamic",
-            "description": "【V4.0 · 公理化版】基于“趋势形态、多周期协同、结构稳定性”三大结构公理，形成的看涨共振分。"
-        },
-        "SCORE_STRUCTURE_BEARISH_RESONANCE": {
-            "cn_name": "【结构】看跌共振",
-            "category": "内部计分-结构",
-            "type": "risk",
-            "description": "【V4.0 · 公理化版】基于三大结构公理，形成的看跌共振分。"
-        },
         "SCORE_STRUCTURE_BULLISH_DIVERGENCE": {
             "cn_name": "【结构】看涨背离",
             "category": "内部计分-结构",
@@ -771,18 +874,6 @@
             "type": "context",
             "description": "【力学公理五】诊断价格动量与惯性之间的背离。正分代表看涨背离（如价跌动量减弱但惯性增强），负分代表看跌背离（如价涨动量增强但惯性减弱）。"
         },
-        "SCORE_DYNAMIC_MECHANICS_BULLISH_RESONANCE": {
-            "cn_name": "【力学】看涨共振",
-            "category": "内部计分-力学",
-            "type": "dynamic",
-            "description": "【V5.0 · 公理化版】基于“动量、惯性、稳定性、能量”四大力学公理，形成的看涨共振分。"
-        },
-        "SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE": {
-            "cn_name": "【力学】看跌共振",
-            "category": "内部计分-力学",
-            "type": "risk",
-            "description": "【V5.0 · 公理化版】基于四大力学公理，形成的看跌共振分。"
-        },
         "SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE": {
             "cn_name": "【力学】看涨背离",
             "category": "内部计分-力学",
@@ -796,18 +887,6 @@
             "description": "【V1.0 · 新增】基于力学公理，诊断价格动量与惯性之间的看跌背离。"
         },
         "说明_foundation_ultimate": "--- 基础层-终极信号 (现为内部状态) ---",
-        "SCORE_FOUNDATION_BULLISH_RESONANCE": {
-            "cn_name": "【基础】看涨共振",
-            "category": "内部计分-基础",
-            "type": "dynamic",
-            "description": "【V6.0 · 公理化版】基于“趋势、摆动、流体、波动”四大基础公理，形成的看涨共振分。"
-        },
-        "SCORE_FOUNDATION_BEARISH_RESONANCE": {
-            "cn_name": "【基础】看跌共振",
-            "category": "内部计分-基础",
-            "type": "risk",
-            "description": "【V6.0 · 公理化版】基于四大基础公理，形成的看跌共振分。"
-        },
         "SCORE_FOUNDATION_BULLISH_DIVERGENCE": {
             "cn_name": "【基础】看涨背离",
             "category": "内部计分-基础",
@@ -851,18 +930,6 @@
             "description": "【基础公理五】诊断价格趋势与摆动指标之间的背离。正分代表看涨背离（如价创新低RSI不创新低），负分代表看跌背离（如价创新高RSI不创新高）。"
         },
         "说明_pattern_intelligence": "--- 形态层-终极信号 (现为内部状态) ---",
-        "SCORE_PATTERN_BULLISH_RESONANCE": {
-            "cn_name": "【形态】看涨共振",
-            "category": "内部计分-形态",
-            "type": "dynamic",
-            "description": "【V7.0 · 公理化版】基于“背离、反转、突破”三大形态公理，形成的看涨共振分。"
-        },
-        "SCORE_PATTERN_BEARISH_RESONANCE": {
-            "cn_name": "【形态】看跌共振",
-            "category": "内部计分-形态",
-            "type": "risk",
-            "description": "【V7.0 · 公理化版】基于三大形态公理，形成的看跌共振分。"
-        },
         "SCORE_PATTERN_BULLISH_DIVERGENCE": {
             "cn_name": "【形态】看涨背离",
             "category": "内部计分-形态",
@@ -923,7 +990,7 @@
             "cn_name": "【周期】当前相位",
             "category": "周期层-环境",
             "type": "context",
-            "description": "当前价格在主导周期中所处的位置，-1代表波谷，+1代表波峰。"
+            "description": "-1代表波谷，+1代表波峰。"
         },
         "SCORE_TRENDING_REGIME": {
             "cn_name": "【市场状态】趋势市得分",

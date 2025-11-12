@@ -497,8 +497,8 @@
             "type": "strategy_sync",
             "task_type": "strategy",
             "relationship_type": "consensus",
-            "signal_A": "SCORE_CHIP_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_BEHAVIOR_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_A": "SCORE_CHIP_AXIOM_CONCENTRATION", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【逻辑修复】明确为'共识'关系。高分代表行为与筹码同步改善。修正了 signal_B 的名称。"
           },
@@ -507,8 +507,8 @@
             "type": "strategy_sync",
             "task_type": "strategy",
             "relationship_type": "divergence",
-            "signal_A": "SCORE_STRUCTURE_BULLISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_FUND_FLOW_BULLISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_A": "SCORE_STRUCT_AXIOM_TREND_FORM", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_FF_AXIOM_CONSENSUS", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【V2.1 命名协议修复】1.明确为'背离'。2.废除k=-1.0。3.交换A/B信号，新逻辑为(资金流变化-结构变化)，正分代表资金领先结构。4.修正signal_B为全称。"
           },
@@ -517,8 +517,8 @@
             "type": "strategy_sync",
             "task_type": "strategy",
             "relationship_type": "consensus",
-            "signal_A": "SCORE_DYNAMIC_MECHANICS_BEARISH_RESONANCE", "source_A": "atomic_states", "change_type_A": "diff",
-            "signal_B": "SCORE_CHIP_BEARISH_RESONANCE", "source_B": "atomic_states", "change_type_B": "diff",
+            "signal_A": "SCORE_DYN_AXIOM_MOMENTUM", "source_A": "atomic_states", "change_type_A": "diff",
+            "signal_B": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "source_B": "atomic_states", "change_type_B": "diff",
             "signal_b_factor_k": 1.0,
             "comment": "【V2.1 命名协议修复】明确为'共识'关系。高分代表力学风险与筹码风险同步恶化。修正signal_A为全称。"
           },
@@ -627,6 +627,133 @@
             "source_signal": "winner_conviction_index_D",
             "source_type": "df",
             "comment": "【V2.0 · 逻辑重铸】诊断赢家信念的衰减。使用专属的衰减分析器，直接计算信号的负向变化。"
+          },
+          {
+            "name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "FOUNDATION",
+            "output_bottom_reversal_name": "PROCESS_META_FOUNDATION_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_FOUNDATION_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_FOUNDATION_AXIOM_TREND", "weight": 0.4},
+              {"name": "SCORE_FOUNDATION_AXIOM_OSCILLATOR", "weight": 0.2},
+              {"name": "SCORE_FOUNDATION_AXIOM_FLOW", "weight": 0.3},
+              {"name": "SCORE_FOUNDATION_AXIOM_VOLATILITY", "weight": 0.1}
+            ],
+            "comment": "【新增】基础领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "STRUCTURE",
+            "output_bottom_reversal_name": "PROCESS_META_STRUCTURE_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_STRUCTURE_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_STRUCT_AXIOM_TREND_FORM", "weight": 0.5},
+              {"name": "SCORE_STRUCT_AXIOM_MTF_COHESION", "weight": 0.3},
+              {"name": "SCORE_STRUCT_AXIOM_STABILITY", "weight": 0.2}
+            ],
+            "comment": "【新增】结构领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_PATTERN_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "PATTERN",
+            "output_bottom_reversal_name": "PROCESS_META_PATTERN_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_PATTERN_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_PATTERN_AXIOM_DIVERGENCE", "weight": 0.4},
+              {"name": "SCORE_PATTERN_AXIOM_REVERSAL", "weight": 0.4},
+              {"name": "SCORE_PATTERN_AXIOM_BREAKOUT", "weight": 0.2}
+            ],
+            "comment": "【新增】形态领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "DYNAMIC_MECHANICS",
+            "output_bottom_reversal_name": "PROCESS_META_DYNAMIC_MECHANICS_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_DYN_AXIOM_MOMENTUM", "weight": 0.3},
+              {"name": "SCORE_DYN_AXIOM_INERTIA", "weight": 0.3},
+              {"name": "SCORE_DYN_AXIOM_STABILITY", "weight": 0.2},
+              {"name": "SCORE_DYN_AXIOM_ENERGY", "weight": 0.2}
+            ],
+            "comment": "【新增】力学领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_CHIP_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "CHIP",
+            "output_bottom_reversal_name": "PROCESS_META_CHIP_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_CHIP_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_CHIP_AXIOM_CONCENTRATION", "weight": 0.3},
+              {"name": "SCORE_CHIP_AXIOM_COST_STRUCTURE", "weight": 0.3},
+              {"name": "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT", "weight": 0.2},
+              {"name": "SCORE_CHIP_AXIOM_PEAK_INTEGRITY", "weight": 0.2}
+            ],
+            "comment": "【新增】筹码领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "FUND_FLOW",
+            "output_bottom_reversal_name": "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_FUND_FLOW_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_FF_AXIOM_CONSENSUS", "weight": 0.5},
+              {"name": "SCORE_FF_AXIOM_CONVICTION", "weight": 0.3},
+              {"name": "SCORE_FF_AXIOM_INCREMENT", "weight": 0.2}
+            ],
+            "comment": "【新增】资金流领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "MICRO_BEHAVIOR",
+            "output_bottom_reversal_name": "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_MICRO_BEHAVIOR_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_MICRO_AXIOM_DECEPTION", "weight": 0.4},
+              {"name": "SCORE_MICRO_AXIOM_PROBE", "weight": 0.3},
+              {"name": "SCORE_MICRO_AXIOM_EFFICIENCY", "weight": 0.3}
+            ],
+            "comment": "【新增】微观行为领域反转信号，由过程层生成。"
+          },
+          {
+            "name": "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL",
+            "type": "meta_analysis",
+            "task_type": "base",
+            "signal_type": "domain_reversal",
+            "domain_name": "BEHAVIOR",
+            "output_bottom_reversal_name": "PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL",
+            "output_top_reversal_name": "PROCESS_META_BEHAVIOR_TOP_REVERSAL",
+            "axioms": [
+              {"name": "SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM", "weight": 0.2},
+              {"name": "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM", "weight": -0.2},
+              {"name": "SCORE_BEHAVIOR_VOLUME_BURST", "weight": 0.1},
+              {"name": "SCORE_BEHAVIOR_VOLUME_APATHY", "weight": -0.1},
+              {"name": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "weight": 0.2},
+              {"name": "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE", "weight": 0.2},
+              {"name": "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL", "weight": 0.1}
+            ],
+            "comment": "【新增】行为领域反转信号，由过程层生成。"
           }
         ]
       },
@@ -973,30 +1100,30 @@
           }
         },
         "playbook_synergies": {
-          "description": "【V3.1 · 信号净化版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
+          "description": "【V3.2 · 信号净化版】为每个战术剧本配置其“协同信号”和“风险信号”，以激活空间维度分析。",
           "COGNITIVE_PLAYBOOK_SUPPRESSIVE_ACCUMULATION": {
             "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
-            "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
+            "risk": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_CHIP_AXIOM_CONCENTRATION"]
           },
           "COGNITIVE_PLAYBOOK_CHASING_ACCUMULATION": {
-            "synergistic": ["SCORE_STRUCTURE_BULLISH_RESONANCE", "SCORE_FF_BULLISH_RESONANCE"],
+            "synergistic": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_FF_AXIOM_CONSENSUS"],
             "risk": ["COGNITIVE_RISK_TREND_EXHAUSTION"]
           },
           "COGNITIVE_PLAYBOOK_CAPITULATION_REVERSAL": {
-            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE"],
+            "synergistic": ["FUSION_BIPOLAR_MARKET_PRESSURE", "PROCESS_META_MICRO_BEHAVIOR_BOTTOM_REVERSAL"],
             "risk": []
           },
           "COGNITIVE_RISK_DISTRIBUTION_AT_HIGH": {
-            "synergistic": ["SCORE_STRUCTURE_BEARISH_RESONANCE"],
+            "synergistic": ["SCORE_STRUCT_AXIOM_TREND_FORM", "SCORE_CHIP_AXIOM_CONCENTRATION"],
             "risk": []
           },
           "COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING": {
-            "synergistic": ["PROCESS_META_STOCK_SECTOR_SYNC", "SCORE_STRUCTURE_BULLISH_RESONANCE"],
+            "synergistic": ["PROCESS_META_STOCK_SECTOR_SYNC", "SCORE_STRUCT_AXIOM_TREND_FORM"],
             "risk": ["PROCESS_META_HOT_SECTOR_COOLING"]
           },
           "COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD": {
-            "synergistic": ["PROCESS_META_HOT_SECTOR_COOLING"],
-            "risk": ["SCORE_STRUCTURE_BEARISH_RESONANCE"]
+            "synergistic": ["PROCESS_META_HOT_SECTOR_COOLING", "PROCESS_META_FUND_FLOW_BOTTOM_REVERSAL"],
+            "risk": ["SCORE_STRUCT_AXIOM_TREND_FORM"]
           },
           "COGNITIVE_RISK_TREND_EXHAUSTION": {
             "synergistic": ["PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE", "PROCESS_META_WINNER_CONVICTION_DECAY"],
@@ -1072,58 +1199,66 @@
       },
       "fused_risk_scoring": {
         "enabled": true,
-        "说明": "【V1.0】风险元融合模块的配置，用于合成顶层风险分。",
+        "说明": "【V1.1 · 纯粹原子版】风险元融合模块的配置，用于合成顶层风险分。",
         "risk_categories": {
           "behavioral_risk": {
-            "SCORE_BEHAVIOR_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 }
+            "PROCESS_META_BEHAVIOR_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION": { "weight": 1.0 },
+            "SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE": { "weight": 1.0 },
+            "SCORE_RISK_STAGNATION": { "weight": 1.0 },
+            "SCORE_RISK_LIQUIDITY_DRAIN": { "weight": 1.0 }
           },
           "chip_risk": {
-            "SCORE_CHIP_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_CHIP_TOP_REVERSAL": {"weight": 1.0},
-            "SCORE_CHIP_HADES_TRAP": {"weight": 1.0, "说明": "牛市陷阱风险"}
+            "PROCESS_META_CHIP_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_CHIP_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_CHIP_AXIOM_CONCENTRATION": { "weight": -1.0, "comment": "筹码集中度低（负值）代表风险" },
+            "SCORE_CHIP_AXIOM_HOLDER_SENTIMENT": { "weight": -1.0, "comment": "持股心态差（负值）代表风险" }
           },
           "fund_flow_risk": {
-            "SCORE_FF_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_FF_TOP_REVERSAL": { "weight": 1.2 }
+            "PROCESS_META_FUND_FLOW_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_FUND_FLOW_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_FF_AXIOM_CONSENSUS": { "weight": -1.0, "comment": "资金流共识差（负值）代表风险" },
+            "SCORE_FF_AXIOM_CONVICTION": { "weight": -1.0, "comment": "资金流信念差（负值）代表风险" }
           },
           "dynamic_mechanics_risk": {
-            "SCORE_DYN_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_DYN_TOP_REVERSAL": { "weight": 1.2 }
+            "PROCESS_META_DYNAMIC_MECHANICS_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_DYNAMIC_MECHANICS_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_DYN_AXIOM_MOMENTUM": { "weight": -1.0, "comment": "动量差（负值）代表风险" },
+            "SCORE_DYN_AXIOM_INERTIA": { "weight": -1.0, "comment": "惯性差（负值）代表风险" }
           },
           "structural_risk": {
-            "SCORE_STRUCTURE_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_STRUCTURE_TOP_REVERSAL": { "weight": 1.2 }
+            "PROCESS_META_STRUCTURE_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_STRUCTURE_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_STRUCT_AXIOM_TREND_FORM": { "weight": -1.0, "comment": "趋势形态差（负值）代表风险" },
+            "SCORE_STRUCT_AXIOM_MTF_COHESION": { "weight": -1.0, "comment": "多周期协同差（负值）代表风险" }
           },
           "foundation_risk": {
-            "SCORE_FOUNDATION_BEARISH_RESONANCE": { "weight": 1.0 },
-            "SCORE_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 },
-            "SCORE_FOUNDATION_VOL_EXPANSION_RISK": { "weight": 0.8 },
-            "SCORE_FOUNDATION_PANIC_SELLING_RISK": { "weight": 1.5 },
-            "SCORE_RISK_VPA_EFFICIENCY_DECLINING": { "weight": 1.0 },
-            "SCORE_RISK_VPA_VOLUME_ACCELERATING": { "weight": 1.0 }
+            "PROCESS_META_FOUNDATION_TOP_REVERSAL": { "weight": 1.2 },
+            "SCORE_FOUNDATION_BEARISH_DIVERGENCE": { "weight": 1.0 },
+            "SCORE_FOUNDATION_AXIOM_TREND": { "weight": -1.0, "comment": "趋势差（负值）代表风险" },
+            "SCORE_FOUNDATION_AXIOM_OSCILLATOR": { "weight": 1.0, "comment": "摆动指标超买（正值）代表风险" }
           },
-        "cognitive_risk": {
-          "说明": "【V3.0 · 双极性信号适配版】将所有认知层风险的裁决权统一上交给新的终极顶部风险信号。",
-          "COGNITIVE_RISK_COMPREHENSIVE_TOP": { "weight": 2.5 },
-          "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
-          "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
-          "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
-        },
-         "cyclical_risk": {
+          "cognitive_risk": {
+            "说明": "【V3.0 · 双极性信号适配版】将所有认知层风险的裁决权统一上交给新的终极顶部风险信号。",
+            "COGNITIVE_RISK_COMPREHENSIVE_TOP": { "weight": 2.5 },
+            "COGNITIVE_SCORE_RISK_POWER_SHIFT_TO_RETAIL": { "weight": 1.0 },
+            "COGNITIVE_SCORE_RISK_MAIN_FORCE_CONVICTION_WEAKENING": { "weight": 1.2 },
+            "COGNITIVE_SCORE_TRUE_RETREAT_RISK": { "weight": 1.8 }
+          },
+          "cyclical_risk": {
             "COGNITIVE_RISK_CYCLICAL_TOP": { "weight": 1.0, "description": "周期顶风险，当市场处于强周期的波峰时，此风险会显著提高。" }
-         },
-         "cognitive_expansion_risk": {
-            "COGNITIVE_RISK_OLD_GUARD_RETREAT": { "weight": 1.5, "description": "旧神的黄昏风险，识别长期获利盘的派发迹象。" },
-            "COGNITIVE_RISK_HECATE_CROSSROADS": { "weight": 2.0, "description": "赫卡忒的十字路口风险，量化市场的不可预测性。" },
-            "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": { "weight": 2.0, "description": "散户狂热与主力撤退风险，识别经典的牛市陷阱。" },
+          },
+          "cognitive_expansion_risk": {
+            "COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION": { "weight": 1.5, "description": "长期获利盘派发风险，识别长期获利盘的派发迹象。" },
+            "COGNITIVE_RISK_MARKET_UNCERTAINTY": { "weight": 2.0, "description": "市场方向不明风险，量化市场的不可预测性。" },
+            "COGNITIVE_RISK_RETAIL_FOMO_RETREAT": { "weight": 2.0, "description": "散户狂热主力撤退风险，识别经典的牛市陷阱。" },
             "COGNITIVE_RISK_HARVEST_CONFIRMATION": { "weight": 1.8, "description": "收割确认风险，确认上冲派发是否伴随真实利润兑现。" },
-            "COGNITIVE_RISK_SIREN_SONG": { "weight": 2.2, "description": "塞壬之歌风险，识别筹码派发背景下的诱多收割行为。" },
+            "COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION": { "weight": 2.2, "description": "主力诱多派发风险，识别筹码派发背景下的诱多收割行为。" },
             "COGNITIVE_RISK_LIQUIDITY_TRAP": { "weight": 1.2, "description": "流动性陷阱风险，资金流出与流动性枯竭的共振。" },
             "COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE": { "weight": 1.0, "description": "T+0套利压力风险，主力短期派发行为。" },
-            "COGNITIVE_RISK_DAM_BREACH": { "weight": 2.5, "description": "堤坝溃决风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
-            "COGNITIVE_RISK_OLYMPUS_CRUMBLING": { "weight": 2.4, "description": "奥林匹斯之崩风险，结构顶部与主力派发、散户接盘的共振。" }
-         }
+            "COGNITIVE_RISK_KEY_SUPPORT_BREAK": { "weight": 2.5, "description": "关键支撑破位风险，恐慌抛售击穿所有关键支撑的系统性风险。" },
+            "COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE": { "weight": 2.4, "description": "高位结构瓦解风险，结构顶部与主力派发、散户接盘的共振。" }
+          }
         },
         "resonance_penalty_params": {
           "enabled": true,

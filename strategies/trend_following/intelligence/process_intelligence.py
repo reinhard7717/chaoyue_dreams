@@ -1,12 +1,9 @@
-# 文件: strategies/trend_following/intelligence/process_intelligence.py
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
 from typing import Dict, List, Optional
 
-## 导入新的归一化工具 ##
 from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar
-# ##
 
 class ProcessIntelligence:
     """
@@ -19,28 +16,26 @@ class ProcessIntelligence:
     """
     def __init__(self, strategy_instance):
         """
-        【V3.2.0 · 单一来源版】
+        【V3.3.0 · 领域反转生成版】
         - 核心修复: 彻底移除在代码中硬编码的 `genesis_diagnostics` 列表。
         - 核心升级: 确保 `process_intelligence_params.diagnostics` 配置是诊断任务的唯一真相来源，
                       消除了重复执行的严重BUG，并遵循了“配置即代码”的最佳实践。
+        - 【新增】支持生成原子情报领域的反转信号。
         """
         self.strategy = strategy_instance
         self.params = get_params_block(self.strategy, 'process_intelligence_params', {})
-        # 加载唯一的、权威的信号元数据字典
         self.score_type_map = get_params_block(self.strategy, 'score_type_map', {})
         self.norm_window = get_param_value(self.params.get('norm_window'), 55)
         self.std_window = get_param_value(self.params.get('std_window'), 21)
         self.meta_window = get_param_value(self.params.get('meta_window'), 5)
         self.bipolar_sensitivity = get_param_value(self.params.get('bipolar_sensitivity'), 1.0)
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
-        # 移除硬编码的 'genesis_diagnostics' 列表
-        # 直接从配置文件加载所有诊断任务，确保其为唯一真相来源
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
-        【V3.1.0 · 衰减分析版】运行所有在配置中定义的元分析诊断任务。
-        - 核心升级: 新增对 'decay_analysis' 任务类型的支持，调用专属的信号衰减计算引擎。
+        【V3.2.0 · 衰减与反转分析版】运行所有在配置中定义的元分析诊断任务。
+        - 核心升级: 新增对 'decay_analysis' 和 'domain_reversal' 任务类型的支持。
         """
         all_process_states = {}
         df = self.strategy.df_indicators
@@ -53,18 +48,21 @@ class ProcessIntelligence:
             signal_type = config.get('type')
             if not signal_name:
                 continue
-            # 统一路由：无论是基础元分析还是策略同步，都使用同一个诊断引擎
             if signal_type in ['meta_analysis', 'strategy_sync']:
                 custom_signal_type = config.get('signal_type')
                 if custom_signal_type == 'split_meta_analysis':
                     split_states = self._diagnose_split_meta_relationship(df, config)
                     if split_states:
                         all_process_states.update(split_states)
-                # 新增路由到衰减分析器
                 elif custom_signal_type == 'decay_analysis':
                     decay_states = self._diagnose_signal_decay(df, config)
                     if decay_states:
                         all_process_states.update(decay_states)
+                # 新增路由到领域反转诊断器
+                elif custom_signal_type == 'domain_reversal': # 新增行
+                    reversal_states = self._diagnose_domain_reversal(df, config) # 新增行
+                    if reversal_states: # 新增行
+                        all_process_states.update(reversal_states) # 新增行
                 else:
                     meta_states = self._diagnose_meta_relationship(df, config)
                     if meta_states:
@@ -133,14 +131,8 @@ class ProcessIntelligence:
         if diagnosis_mode == 'direct_confirmation':
             meta_score = relationship_score
         else:
-            # --- “希格斯场”分析法核心实现 ---
-            # 1. 计算“关系位移”(Displacement)，取代旧的“趋势”(Trend)
-            # 它衡量关系分在meta_window周期内的净变化量，更真实地反映短期变化。
             relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
-            # 2. 计算“关系动量”(Momentum)，取代旧的“加速度”(Acceleration)
-            # 它是“关系位移”的一阶导数，衡量关系变化本身的速度，即“势”的变化。
             relationship_momentum = relationship_displacement.diff(1).fillna(0)
-            # 3. 将“位移”和“动量”归一化为双极性强度分
             bipolar_displacement_strength = normalize_to_bipolar(
                 series=relationship_displacement,
                 target_index=df_index,
@@ -153,22 +145,18 @@ class ProcessIntelligence:
                 window=self.norm_window,
                 sensitivity=self.bipolar_sensitivity
             )
-            # 4. 融合“位移”与“动量”，得到最终的元分析分数
             displacement_weight = self.meta_score_weights[0]
             momentum_weight = self.meta_score_weights[1]
             meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
-        # --- 情境门控逻辑 (保持不变) ---
         if diagnosis_mode == 'gated_meta_analysis':
             gate_condition_config = config.get('gate_condition', {})
             gate_type = gate_condition_config.get('type')
-            gate_is_open = pd.Series(True, index=df_index) # 默认门是打开的
+            gate_is_open = pd.Series(True, index=df_index)
             if gate_type == 'price_vs_ma':
                 ma_period = gate_condition_config.get('ma_period', 5)
                 ma_series = df.get(f'EMA_{ma_period}_D')
                 if ma_series is not None:
-                    # 门控条件：仅当收盘价低于指定均线时，门才打开
                     gate_is_open = df['close_D'] < ma_series
-            # 应用门控：只有当门打开时，信号才能通过
             meta_score = meta_score * gate_is_open.astype(float)
         signal_meta = self.score_type_map.get(signal_name, {})
         scoring_mode = signal_meta.get('scoring_mode', 'bipolar')
@@ -189,12 +177,9 @@ class ProcessIntelligence:
         if not opportunity_signal_name or not risk_signal_name:
             print(f"        -> [分裂元分析] 警告: 缺少 'output_names' 配置，无法进行信号分裂。")
             return {}
-        # 步骤1: 计算瞬时关系分
         relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return {}
-        # 步骤2: 对关系分进行动态元分析，得到最终的双极性 meta_score
-        # --- “希格斯场”分析法核心实现 ---
         relationship_displacement = relationship_score.diff(self.meta_window).fillna(0)
         relationship_momentum = relationship_displacement.diff(1).fillna(0)
         bipolar_displacement_strength = normalize_to_bipolar(
@@ -213,11 +198,8 @@ class ProcessIntelligence:
         momentum_weight = self.meta_score_weights[1]
         meta_score = (bipolar_displacement_strength * displacement_weight + bipolar_momentum_strength * momentum_weight)
         meta_score = meta_score.clip(-1, 1)
-        # 步骤3: 信号分裂
-        # 机会信号: 只取正向部分，代表机会强度
         opportunity_part = meta_score.clip(lower=0)
         states[opportunity_signal_name] = opportunity_part.astype(np.float32)
-        # 风险信号: 只取负向部分，并转为正值，代表风险强度
         risk_part = meta_score.clip(upper=0).abs()
         states[risk_signal_name] = risk_part.astype(np.float32)
         return states
@@ -267,7 +249,7 @@ class ProcessIntelligence:
         if not source_signal_name:
             print(f"        -> [衰减分析] 警告: 缺少 'source_signal' 配置。")
             return {}
-        # 获取源信号
+        source_series = None
         if source_type == 'atomic_states':
             source_series = self.strategy.atomic_states.get(source_signal_name)
         else:
@@ -275,17 +257,47 @@ class ProcessIntelligence:
         if source_series is None:
             print(f"        -> [衰减分析] 警告: 缺少源信号 '{source_signal_name}'。")
             return {}
-        # 1. 计算信号的一阶差分（变化）
         signal_change = source_series.diff(1).fillna(0)
-        # 2. 只保留负值（衰减），并取绝对值
         decay_magnitude = signal_change.clip(upper=0).abs()
-        # 3. 归一化衰减幅度
         decay_score = normalize_score(decay_magnitude, df_index, window=self.norm_window, ascending=True)
         return {signal_name: decay_score.astype(np.float32)}
 
-
-
-
-
-
-
+    def _diagnose_domain_reversal(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]: # 新增方法
+        """
+        【V1.0 · 新增】通用领域反转诊断器
+        - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
+                      然后从健康度的变化中派生底部反转和顶部反转信号。
+        - 命名规范: 输出信号为 PROCESS_META_DOMAIN_BOTTOM_REVERSAL 和 PROCESS_META_DOMAIN_TOP_REVERSAL。
+        """
+        domain_name = config.get('domain_name')
+        axiom_configs = config.get('axioms', [])
+        output_bottom_name = config.get('output_bottom_reversal_name')
+        output_top_name = config.get('output_top_reversal_name')
+        if not domain_name or not axiom_configs or not output_bottom_name or not output_top_name:
+            print(f"        -> [领域反转诊断] 警告: 配置不完整，跳过领域 '{domain_name}' 的反转诊断。")
+            return {}
+        df_index = df.index
+        domain_health_components = []
+        total_weight = 0.0
+        for axiom_config in axiom_configs:
+            axiom_name = axiom_config.get('name')
+            axiom_weight = axiom_config.get('weight', 0.0)
+            axiom_score = self.strategy.atomic_states.get(axiom_name, pd.Series(0.0, index=df_index))
+            domain_health_components.append(axiom_score * axiom_weight)
+            total_weight += axiom_weight
+        if total_weight == 0:
+            print(f"        -> [领域反转诊断] 警告: 领域 '{domain_name}' 的公理权重总和为0，无法计算健康度。")
+            return {}
+        # 计算该领域的双极性健康度
+        bipolar_domain_health = (sum(domain_health_components) / total_weight).clip(-1, 1)
+        # 从健康度派生反转信号
+        # 底部反转信号：当健康度从负值区域开始向上改善时
+        bottom_reversal_raw = (bipolar_domain_health.diff(1).clip(lower=0) * (1 - bipolar_domain_health.clip(lower=0))).fillna(0)
+        bottom_reversal_score = normalize_score(bottom_reversal_raw, df_index, 21, ascending=True)
+        # 顶部反转信号：当健康度从正值区域开始向下恶化时
+        top_reversal_raw = (bipolar_domain_health.diff(1).clip(upper=0).abs() * (1 + bipolar_domain_health.clip(upper=0))).fillna(0)
+        top_reversal_score = normalize_score(top_reversal_raw, df_index, 21, ascending=True)
+        return {
+            output_bottom_name: bottom_reversal_score.astype(np.float32),
+            output_top_name: top_reversal_score.astype(np.float32)
+        }

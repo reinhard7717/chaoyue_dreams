@@ -1,5 +1,4 @@
 # 文件: strategies/trend_following/intelligence/behavioral_intelligence.py
-# 行为与模式识别模块
 import pandas as pd
 import numpy as np
 import pandas_ta as ta
@@ -18,26 +17,27 @@ class BehavioralIntelligence:
         :param strategy_instance: 策略主实例的引用。
         """
         self.strategy = strategy_instance
-        # K线形态识别器可能需要在这里初始化或传入
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
-        【V5.2 · 指挥覆盖探针版】行为情报模块总指挥
-        - 探针植入: 在方法入口处增加探针，确认此模块是否被情报层总指挥官正确调用。
-        - 【新增】计算并发布 `CONTEXT_NEW_HIGH_STRENGTH` 信号。
+        【V5.4 · 纯粹原子版】行为情报模块总指挥
+        - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
+        - 核心职责: 只输出行为领域的原子公理信号、行为背离信号和上下文信号。
+        - 移除信号: SCORE_BEHAVIOR_BULLISH_RESONANCE, SCORE_BEHAVIOR_BEARISH_RESONANCE, BIPOLAR_BEHAVIORAL_DOMAIN_HEALTH, SCORE_BEHAVIOR_BOTTOM_REVERSAL, SCORE_BEHAVIOR_TOP_REVERSAL。
         """
         df = self.strategy.df_indicators
         all_behavioral_states = {}
         atomic_signals = self._diagnose_behavioral_axioms(df)
         self.strategy.atomic_states.update(atomic_signals)
         all_behavioral_states.update(atomic_signals)
-        # [代码新增开始]
-        # 计算并发布 CONTEXT_NEW_HIGH_STRENGTH 信号
         context_new_high_strength = self._diagnose_context_new_high_strength(df)
         self.strategy.atomic_states.update(context_new_high_strength)
         all_behavioral_states.update(context_new_high_strength)
-        # [代码新增结束]
+        # 引入行为层面的看涨/看跌背离信号 (保持不变)
+        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
+        all_behavioral_states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
+        all_behavioral_states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         for k, v in atomic_signals.items():
             if k not in df.columns:
                 df[k] = v
@@ -45,47 +45,7 @@ class BehavioralIntelligence:
         dynamic_cols = [c for c in df_with_dynamics.columns if c.startswith(('MOMENTUM_', 'POTENTIAL_', 'THRUST_', 'RESONANCE_'))]
         self.strategy.atomic_states.update(df_with_dynamics[dynamic_cols])
         all_behavioral_states.update(df_with_dynamics[dynamic_cols])
-        ultimate_behavioral_states = self.diagnose_ultimate_behavioral_signals(df_with_dynamics, atomic_signals=self.strategy.atomic_states)
-        if ultimate_behavioral_states:
-            all_behavioral_states.update(ultimate_behavioral_states)
         return all_behavioral_states
-
-    def diagnose_ultimate_behavioral_signals(self, df: pd.DataFrame, atomic_signals: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
-        """
-        【V5.1 · 背离信号增强版】行为领域终极合成器
-        - 核心重构: 废弃旧的健康度/机会度模型，全面转向“双极性健康分 -> 共振分”的标准范式，
-                      以解决下游引擎的信号失联问题。
-        - 新逻辑:
-          1. 分别计算“看涨健康度”与“看跌健康度”。
-          2. 合成为一个双极性的“行为健康总分”。
-          3. 使用标准工具分裂为互斥的“看涨共振分”和“看跌共振分”。
-          4. 【新增】引入行为层面的看涨/看跌背离信号。
-        """
-        states = {}
-        # 1. 计算看涨健康度 (Bullish Health)
-        # 证据: 上涨有效率 * 下跌有抵抗 * 日内多头能控盘
-        bullish_health = (
-            atomic_signals.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df.index)) *
-            atomic_signals.get('SCORE_BEHAVIOR_DOWNWARD_RESISTANCE', pd.Series(0.5, index=df.index)) *
-            atomic_signals.get('SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL', pd.Series(0.5, index=df.index))
-        ).pow(1/3)
-        # 2. 计算看跌健康度 (Bearish Health / Risk)
-        # 证据: 取“滞涨风险”和“流动性流失风险”中的最大值
-        bearish_health = np.maximum(
-            atomic_signals.get('SCORE_RISK_STAGNATION', pd.Series(0.0, index=df.index)),
-            atomic_signals.get('SCORE_RISK_LIQUIDITY_DRAIN', pd.Series(0.0, index=df.index))
-        )
-        # 3. 合成双极性行为健康总分
-        bipolar_behavioral_health = (bullish_health - bearish_health).clip(-1, 1)
-        # 4. 分裂为标准的看涨/看跌共振信号
-        bullish_resonance, bearish_resonance = bipolar_to_exclusive_unipolar(bipolar_behavioral_health)
-        states['SCORE_BEHAVIOR_BULLISH_RESONANCE'] = bullish_resonance.astype(np.float32)
-        states['SCORE_BEHAVIOR_BEARISH_RESONANCE'] = bearish_resonance.astype(np.float32)
-        # 5. 引入行为层面的看涨/看跌背离信号
-        bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(atomic_signals.get('SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE', pd.Series(0.0, index=df.index)))
-        states['SCORE_BEHAVIOR_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)
-        states['SCORE_BEHAVIOR_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
-        return states
 
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default: float = 0.0) -> pd.Series:
         """
@@ -98,7 +58,6 @@ class BehavioralIntelligence:
         elif name in df.columns:
             return df[name]
         else:
-            # 打印警告信息，便于调试
             print(f"     -> [行为情报引擎警告] 信号 '{name}' 不存在，使用默认值 {default}。")
             return pd.Series(default, index=df.index)
 
@@ -110,19 +69,13 @@ class BehavioralIntelligence:
                       新增对纯净版“行为K线质量分”的计算和发布。
         """
         atomic_signals = {}
-        # 步骤一: 计算纯粹的行为原子信号
         atomic_signals.update(self._diagnose_behavioral_axioms(df))
-        # 步骤二: 计算纯粹的行为K线质量分，并基于其EMA计算战场动能
         day_quality_score = self._calculate_behavioral_day_quality(df)
         atomic_signals['BIPOLAR_BEHAVIORAL_DAY_QUALITY'] = day_quality_score
         battlefield_momentum = day_quality_score.ewm(span=5, adjust=False).mean()
         atomic_signals['SCORE_BEHAVIORAL_BATTLEFIELD_MOMENTUM'] = battlefield_momentum.astype(np.float32)
-        # 立即发布，供后续引擎使用
         self.strategy.atomic_states.update(atomic_signals)
-        # 步骤三: 运行依赖于基础行为信号的诊断引擎
-        # 注意：这些引擎现在也必须被净化，只使用行为层信号
         atomic_signals.update(self._diagnose_upper_shadow_intent(df))
-        # ... 其他纯行为诊断引擎的调用 ...
         return atomic_signals
 
     def _calculate_signal_dynamics(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -137,8 +90,6 @@ class BehavioralIntelligence:
         momentum_span = get_param_value(p_dyn.get('momentum_span'), 5)
         potential_window = get_param_value(p_dyn.get('potential_window'), 120)
         dynamics_df = pd.DataFrame(index=df.index)
-        # 定义需要计算动态因子的本模块原子信号列表
-        # 这些信号必须是由 _diagnose_behavioral_axioms 产出的
         atomic_signals_to_enhance = [
             'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
             'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
@@ -158,21 +109,17 @@ class BehavioralIntelligence:
         for signal_name in atomic_signals_to_enhance:
             if signal_name in self.strategy.atomic_states:
                 signal_series = self.strategy.atomic_states[signal_name]
-                # 计算动量 (Momentum)
                 momentum = signal_series.diff(momentum_span).fillna(0)
                 norm_momentum = normalize_score(momentum, df.index, potential_window)
                 dynamics_df[f'MOMENTUM_{signal_name}'] = norm_momentum.astype(np.float32)
-                # 计算潜力 (Potential) - 长期变化趋势
                 potential = signal_series.rolling(window=potential_window).mean().fillna(signal_series)
                 norm_potential = normalize_score(potential, df.index, potential_window)
                 dynamics_df[f'POTENTIAL_{signal_name}'] = norm_potential.astype(np.float32)
-                # 计算推力 (Thrust) - 短期变化加速度
                 thrust = momentum.diff(1).fillna(0)
                 norm_thrust = normalize_score(thrust, df.index, potential_window)
                 dynamics_df[f'THRUST_{signal_name}'] = norm_thrust.astype(np.float32)
             else:
                 print(f"     - [警告] 信号 '{signal_name}' 在原子状态库中不存在，跳过动态因子计算。")
-        # 将新计算的动态因子合并到主DataFrame中
         final_df = pd.concat([df, dynamics_df], axis=1)
         return final_df
 
@@ -182,19 +129,15 @@ class BehavioralIntelligence:
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         """
         print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
-        # --- 支柱一: 战役结果 (The Battle's Outcome) - 阵地控制权 ---
         outcome_core = (df.get('closing_price_deviation_score_D', 0.5) * 2 - 1).clip(-1, 1)
         body_dominance = df.get('real_body_vs_range_ratio_D', 0.0)
-        shadow_dominance = df.get('shadow_dominance_D', 0.0) # 这是一个[-1, 1]的指标
+        shadow_dominance = df.get('shadow_dominance_D', 0.0)
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
-        # --- 支柱二: 战术执行 (The Tactical Execution) - 操盘效率与决心 ---
-        # 调用公共工具函数，并传入 df.index
         vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index)), df.index)
         vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', pd.Series(0.0, index=df.index)), df.index)
         trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', pd.Series(0.0, index=df.index)), df.index)
         bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
         pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
-        # --- 最终融合: 两大纯行为支柱加权 ---
         day_quality_score = (
             pillar1_outcome_score * 0.4 +
             pillar2_execution_score * 0.6
@@ -204,7 +147,7 @@ class BehavioralIntelligence:
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V2.2 · 背离公理增强版】行为公理诊断引擎
+        【V2.3 · 纯粹原子版】行为公理诊断引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
         - 【新增】引入行为公理五：价量背离。
         """
@@ -214,69 +157,31 @@ class BehavioralIntelligence:
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
         # --- 公理一: 价格行为 (Price Action) ---
-        price_upward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = price_upward_momentum.astype(np.float32)
-        price_downward_momentum = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = price_downward_momentum.astype(np.float32)
-        bias_risk = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights)
-        states['SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION'] = bias_risk.astype(np.float32)
+        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_RISK_PRICE_OVEREXTENSION'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         # --- 公理二: 量能行为 (Volume Action) ---
-        volume_burst = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_VOLUME_BURST'] = volume_burst.astype(np.float32)
-        volume_apathy = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights)
-        states['SCORE_BEHAVIOR_VOLUME_APATHY'] = volume_apathy.astype(np.float32)
+        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
         # --- 公理三: 价量关系 (Price-Volume Relation) ---
-        upward_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = upward_efficiency.astype(np.float32)
-        downward_resistance = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = downward_resistance.astype(np.float32)
+        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
         # --- 公理四: 日内形态 (Intraday Form) ---
-        intraday_bull_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = intraday_bull_control.astype(np.float32)
-        lower_shadow_absorption = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = lower_shadow_absorption.astype(np.float32)
-        upper_shadow_pressure = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights)
-        states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = upper_shadow_pressure.astype(np.float32)
+        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_RISK_UPPER_SHADOW_PRESSURE'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         # --- 公理五: 价量背离 (Price-Volume Divergence) ---
-        # 逻辑：价格变化方向与成交量变化方向的矛盾
-        # 价格上涨 (pct_change_D > 0) 但成交量萎缩 (volume_apathy 高) -> 看跌背离
-        # 价格下跌 (pct_change_D < 0) 但成交量放大 (volume_burst 高) -> 看涨背离 (恐慌盘)
-        price_change_bipolar = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
-        volume_change_bipolar = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55) # 使用成交量变化作为量能方向
-        # 看涨背离：价格下跌（负）但成交量放大（正） -> 负负得正，或价格下跌但量能变化为正
-        bullish_divergence_raw = (price_change_bipolar.clip(upper=0).abs() * volume_change_bipolar.clip(lower=0))
-        # 看跌背离：价格上涨（正）但成交量萎缩（负） -> 正负得负，或价格上涨但量能变化为负
-        bearish_divergence_raw = (price_change_bipolar.clip(lower=0) * volume_change_bipolar.clip(upper=0).abs())
-        # 融合为双极性分数
-        # 这里需要重新思考融合逻辑，直接相减可能不准确
-        # 我们可以定义一个背离分数：当价格和量能方向相反时，分数越高
-        # 例如：(价格上涨 * 量能萎缩) - (价格下跌 * 量能放大)
-        # 简化为：(价格方向 * -1 * 量能方向)
-        # 价格上涨 (正) * 量能萎缩 (负) -> 负值 (看跌背离)
-        # 价格下跌 (负) * 量能放大 (正) -> 负值 (看涨背离，因为是负负得正)
-        # 让我们使用更直观的：
-        # 看涨背离：价格下跌（负）但量能积极（正）
-        # 看跌背离：价格上涨（正）但量能消极（负）
-        # 价格趋势：normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
-        # 量能趋势：normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
         price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
         volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
-        # 当 price_trend 和 volume_trend 符号相反时，产生背离信号
-        # 如果 price_trend > 0 且 volume_trend < 0 (价涨量缩) -> 看跌背离
-        # 如果 price_trend < 0 且 volume_trend > 0 (价跌量增) -> 看涨背离
-        # 我们可以用 (volume_trend - price_trend) 来捕捉这种矛盾
-        # 价涨量缩: (负 - 正) = 负 -> 看跌背离
-        # 价跌量增: (正 - 负) = 正 -> 看涨背离
-        # 这样，正值代表看涨背离，负值代表看跌背离
         divergence_score = (volume_trend - price_trend).clip(-1, 1)
         states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
         # --- 衍生机会与风险信号 (基于纯粹的原子信号) ---
         is_rising = (df['pct_change_D'] > 0).astype(float)
         is_falling = (df['pct_change_D'] < 0).astype(float)
-        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * price_upward_momentum * volume_apathy).pow(1/3).astype(np.float32)
-        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * volume_apathy * downward_resistance).pow(1/3).astype(np.float32)
-        states['SCORE_RISK_STAGNATION'] = (is_rising * volume_burst * (1.0 - upward_efficiency)).pow(1/3).astype(np.float32)
-        states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * volume_burst * price_downward_momentum).pow(1/2).astype(np.float32)
+        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_APATHY']).pow(1/3).astype(np.float32)
+        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_APATHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32)
+        states['SCORE_RISK_STAGNATION'] = (is_rising * states['SCORE_BEHAVIOR_VOLUME_BURST'] * (1.0 - states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'])).pow(1/3).astype(np.float32)
+        states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         return states
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -284,17 +189,9 @@ class BehavioralIntelligence:
         【V1.0 · 新增】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
         - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
         """
-        # 证据1: 价格突破强度 (使用当日涨幅作为代理，或更复杂的突破信号)
-        # 假设 pct_change_D 越大，价格突破强度越高
         price_breakthrough_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=55, ascending=True)
-        # 证据2: 均线斜率 (长期均线向上倾斜，代表趋势健康)
-        # 使用 EMA_55 的5日斜率
         ma_slope_score = normalize_score(df.get('SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index)), df.index, window=55, ascending=True)
-        # 证据3: BIAS健康度 (价格不应过度偏离均线，否则可能超买)
-        # BIAS_55_D 越小越好（但不能为负太多），所以我们希望它在合理范围内
-        # 1 - normalize_score(BIAS_55_D.clip(lower=0)) 表示正向乖离越小越健康
         bias_health_score = 1 - normalize_score(df.get('BIAS_55_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, window=55, ascending=True)
-        # 融合：三者乘积的几何平均
         new_high_strength = (price_breakthrough_score * ma_slope_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
 
@@ -305,42 +202,20 @@ class BehavioralIntelligence:
         """
         states = {}
         df = self.strategy.df_indicators
-        # --- 步骤一: 评估承接质量 (Absorption Quality) ---
-        # 调用公共工具函数，并传入 df.index
         absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
         absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
-        # 证据1.3: 承接意图 (从-1,1映射到0,1)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
-        # 融合得到承接质量，体现“三位一体”
         absorption_quality_score = (absorption_efficiency * absorption_control * absorption_intent_factor).pow(1/3)
-        # --- 步骤二: 计算博弈动能 (Battlefield Momentum) ---
-        # 日度净多头力量 = 承接质量 - 原始压力
         daily_net_force = absorption_quality_score - provisional_pressure
-        # 博弈动能 = 日度净多头力量的3日EMA，捕捉力量对比的“势”
         battlefield_momentum_score = daily_net_force.ewm(span=3, adjust=False).mean().fillna(0)
-        # --- 步骤三: 裁定最终风险与机会 (能量分配) ---
-        # 1. 计算最终风险 (Unresolved Risk)
-        # 基础风险 = 原始压力中未被高质量承接的部分
         base_risk = provisional_pressure * (1.0 - absorption_quality_score)
-        # 动能放大器: 如果空头势头正盛(动能为负)，则风险加剧
-        risk_amplifier = 1.0 - battlefield_momentum_score.clip(upper=0) # 范围 [1, 2]
+        risk_amplifier = 1.0 - battlefield_momentum_score.clip(upper=0)
         final_risk_score = (base_risk * risk_amplifier).clip(0, 1)
-        # 2. 计算最终机会 (Absorption Opportunity)
-        # 基础机会 = 被高质量吸收的压力，即“被压缩的弹簧”
         base_opportunity = provisional_pressure * absorption_quality_score
-        # 动能放大器: 如果多头势头正在逆转(动能为正)，则机会巨大，弹簧开始释放
-        opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0) # 范围 [1, 2]
-        # 战略背景调节：在健康趋势中吸收压力，机会更大
+        opportunity_amplifier = 1.0 + battlefield_momentum_score.clip(lower=0)
         trend_health = self.strategy.atomic_states.get('SCORE_TREND_HEALTH', pd.Series(0.5, index=df.index))
-        context_modulator = 1.0 + trend_health * 0.5 # 范围 [1, 1.5]
+        context_modulator = 1.0 + trend_health * 0.5
         final_opportunity_score = (base_opportunity * opportunity_amplifier * context_modulator).clip(0, 1)
-        # 统一命名，更清晰地反映信号内涵
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
-
-
-
-
-
-
