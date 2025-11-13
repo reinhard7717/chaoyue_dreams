@@ -159,7 +159,7 @@ class CognitiveIntelligence:
 
     def _deduce_trend_exhaustion_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V2.7 · 深度博弈版证据链优化版】贝叶斯推演：“趋势衰竭”风险剧本
+        【V2.9 · 深度博弈版证据链优化版】贝叶斯推演：“趋势衰竭”风险剧本
         - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
         - 【重构】修正先验概率为 `COGNITIVE_PRIOR_REVERSAL_PROB`，更符合风险预警的本质。
         - 【增强】引入多维度背离信号、资金流、筹码、结构、微观行为等证据，更准确地捕捉趋势内在动能的衰竭。
@@ -168,15 +168,24 @@ class CognitiveIntelligence:
         - 【修复】修正 `trend_quality_inverse` 和 `new_high_strength_inverse` 的权重为正。
         - 【优化】调整证据权重，降低 `stagnation_evidence` 和 `price_overextension_risk` 在涨停日的风险贡献，
                   提高 `trend_quality_inverse` 和 `new_high_strength_inverse` 的权重，以更好地抑制误报。
+        - 【修复】移除之前为强制极小值而添加的 `.mask` 逻辑，现在由 `_forge_dynamic_evidence` 统一处理零值输入。
         """
         print("    -- [剧本推演] 趋势衰竭风险 (动态证据)...")
         # 1. 价格动能与效率的衰减
         price_momentum_divergence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PRICE_VS_MOMENTUM_DIVERGENCE', 0.0).clip(lower=0))
         stagnation_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
-        price_overextension_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
+        # 价格超买意图负向是风险
+        raw_price_overextension_score = self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
+        # [代码修改开始]
+        price_overextension_risk = self._forge_dynamic_evidence(raw_price_overextension_score.clip(upper=0).abs())
+        # [代码修改结束]
         # 2. 主力资金的撤退与意图
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
-        capital_retreat_evidence = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
+        # 资本对抗为负是资金撤退
+        raw_capital_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
+        # [代码修改开始]
+        capital_retreat_evidence = self._forge_dynamic_evidence(raw_capital_confrontation_score.clip(upper=0).abs())
+        # [代码修改结束]
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
         # 3. 筹码的派发与分散
@@ -184,9 +193,21 @@ class CognitiveIntelligence:
         chip_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_BEARISH_DIVERGENCE', 0.0))
         long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0))
         # 4. 结构与形态的恶化
-        structural_deterioration = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0).clip(upper=0).abs())
-        market_contradiction_bearish = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0).clip(upper=0).abs())
-        upper_shadow_pressure_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
+        # 结构趋势形态为负是恶化
+        raw_structural_trend_form_score = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
+        # [代码修改开始]
+        structural_deterioration = self._forge_dynamic_evidence(raw_structural_trend_form_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 市场矛盾为负是风险
+        raw_market_contradiction_score = self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
+        # [代码修改开始]
+        market_contradiction_bearish = self._forge_dynamic_evidence(raw_market_contradiction_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 上影线意图为负是抛压
+        raw_upper_shadow_intent_score = self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
+        # [代码修改开始]
+        upper_shadow_pressure_risk = self._forge_dynamic_evidence(raw_upper_shadow_intent_score.clip(upper=0).abs())
+        # [代码修改结束]
         # 5. 宏观周期与风险
         cyclical_top_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_CYCLICAL_TOP', 0.0))
         # 6. 趋势质量的反向证据 (低趋势质量是风险证据)
@@ -490,26 +511,60 @@ class CognitiveIntelligence:
 
     def _forge_dynamic_evidence(self, raw_evidence: pd.Series, is_bipolar: bool = False) -> pd.Series:
         """
-        【V1.0】动态证据锻造厂
+        【V1.3 · 动态证据锻造厂 - 零值修正与归一化增强版】
         - 核心职责: 将一个静态的原始证据信号，锻造成一个融合了“状态-速度-加速度”的动态证据。
+        - 核心修正:
+            1. 如果输入的 `raw_evidence` 全为零（或接近零），则直接返回全零的 `forged_evidence`，
+               避免将“无证据”错误地转换为“中性证据 (0.5)”。
+            2. 在计算 `bipolar_evidence` 之前，对 `raw_evidence` 进行归一化到 `[0, 1]`，
+               确保 `(normalized_raw_evidence * 2 - 1)` 的映射逻辑正确。
+            3. 调整 `forged_evidence` 的最终映射，使其在 `dynamic_force` 为 `0` 或负时返回 `0`，
+               只有当 `dynamic_force` 为正时才贡献正值。
         - 数学逻辑: DynamicEvidence = w_s * State + w_v * Velocity + w_a * Acceleration
         """
         if not isinstance(raw_evidence, pd.Series) or raw_evidence.empty:
             return pd.Series(0.0, index=self.strategy.df_indicators.index)
+
+        # 修正1: 如果原始证据全为零，则直接返回全零的证据
+        # 使用一个小的阈值来判断是否为零，避免浮点数精度问题
+        if (raw_evidence.abs() < 1e-9).all():
+            return pd.Series(0.0, index=self.strategy.df_indicators.index)
+
+        norm_window = 55 # 默认值，可以从配置中获取
+
+        # 修正2: 在转换为双极性之前，先将 raw_evidence 归一化到 [0, 1]
+        # 如果 raw_evidence 已经是双极性，则不需要再次归一化到 [0, 1]
         if not is_bipolar:
-            bipolar_evidence = (raw_evidence.fillna(0.5) * 2 - 1).clip(-1, 1)
+            # 假设 raw_evidence 已经是代表“强度”的非负值，或者通过 clip().abs() 转换为非负值
+            # normalize_score 将其缩放到 [0, 1]
+            normalized_raw_evidence = normalize_score(raw_evidence, self.strategy.df_indicators.index, window=norm_window, ascending=True)
+            normalized_raw_evidence = normalized_raw_evidence.fillna(0.0) # 确保没有NaN
+
+            # 将 [0, 1] 映射到 [-1, 1]
+            bipolar_evidence = (normalized_raw_evidence * 2 - 1).clip(-1, 1)
         else:
+            # 如果输入已经是双极性，则直接使用
             bipolar_evidence = raw_evidence.clip(-1, 1)
+
         velocity = bipolar_evidence.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
-        norm_window = 55
+
         state_score = bipolar_evidence
         velocity_score = normalize_to_bipolar(velocity, self.strategy.df_indicators.index, norm_window)
         acceleration_score = normalize_to_bipolar(acceleration, self.strategy.df_indicators.index, norm_window)
+
         w_state, w_velocity, w_acceleration = 0.3, 0.4, 0.3
         dynamic_force = (state_score * w_state + velocity_score * w_velocity + acceleration_score * w_acceleration)
-        forged_evidence = (dynamic_force.clip(-1, 1) + 1) / 2.0
-        return forged_evidence
+
+        # 修正3: 调整 forged_evidence 的最终映射
+        # 我们希望：只有当 dynamic_force 为正时才贡献正向证据强度。
+        # dynamic_force <= 0  =>  0
+        # dynamic_force > 0   =>  (dynamic_force + 1) / 2.0  (0.5 to 1)
+        forged_evidence = pd.Series(0.0, index=self.strategy.df_indicators.index)
+        positive_dynamic_force_mask = dynamic_force > 0
+        forged_evidence[positive_dynamic_force_mask] = (dynamic_force[positive_dynamic_force_mask] + 1) / 2.0
+
+        return forged_evidence.clip(0, 1) # 确保最终输出在 [0, 1] 范围内
 
     def _deduce_long_term_profit_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
@@ -569,20 +624,32 @@ class CognitiveIntelligence:
 
     def _deduce_retail_fomo_retreat_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.2 · 风险剧本证据链优化版】贝叶斯推演：“散户狂热主力撤退”风险剧本
+        【V1.4 · 风险剧本证据链优化版】贝叶斯推演：“散户狂热主力撤退”风险剧本
         - 核心逻辑: 识别经典的牛市陷阱，散户Fomo情绪高涨，但主力资金却在悄然撤退。
         - 【优化】调整证据权重，降低 `retail_inflow` 的权重，提高 `main_force_outflow` 和 `chip_dispersion` 的权重，
                   以更准确地捕捉主力撤退和筹码分散的核心风险。
+        - 【修复】移除之前为强制极小值而添加的 `.mask` 逻辑，现在由 `_forge_dynamic_evidence` 统一处理零值输入。
         """
         print("    -- [剧本推演] 散户狂热主力撤退风险 (动态证据)...")
-        # 证据1: 散户资金净流入 (SCORE_FF_AXIOM_CONSENSUS 负向)
-        # 散户流入本身不一定是风险，关键是主力是否撤退
-        retail_inflow = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(upper=0).abs())
+        # 证据1: 散户资金净流入 (SCORE_FF_AXIOM_CONSENSUS 正向)
+        # 风险剧本需要散户狂热（即散户净流入为正）。如果散户净流入为负或零，则该证据强度应为0。
+        raw_retail_inflow_score = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
+        # [代码修改开始]
+        retail_inflow = self._forge_dynamic_evidence(raw_retail_inflow_score.clip(lower=0))
+        # [代码修改结束]
         # 证据2: 主力资金净流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
-        main_force_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
+        # 风险剧本需要主力撤退（即资本对抗为负）。如果资本对抗为正或零，则该证据强度应为0。
+        raw_mf_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
+        # [代码修改开始]
+        main_force_outflow = self._forge_dynamic_evidence(raw_mf_confrontation_score.clip(upper=0).abs())
+        # [代码修改结束]
         # 证据3: 价格上涨 (pct_change_D 正向) - 作为背景条件，权重可以适当降低
-        price_rising = self._forge_dynamic_evidence(normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21).clip(lower=0))
+        raw_price_rising_score = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
+        # [代码修改开始]
+        price_rising = self._forge_dynamic_evidence(raw_price_rising_score.clip(lower=0))
+        # [代码修改结束]
         # 证据4: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向) - 核心风险证据
+        # 筹码分散是风险，所以 (1 - 集中度) 越高，证据越强
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         evidence_scores = np.stack([
             retail_inflow.values,
@@ -629,31 +696,47 @@ class CognitiveIntelligence:
 
     def _deduce_bull_trap_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.3 · 深度博弈版证据链优化版】贝叶斯推演：“主力诱多派发”风险剧本
+        【V1.5 · 深度博弈版证据链优化版】贝叶斯推演：“主力诱多派发”风险剧本
         - 核心逻辑: 识别筹码派发背景下的诱多收割行为。
         - 【增强】引入更多维度证据，包括主力资金流出、赢家信念衰减、零售狂热等，以更全面地捕捉诱多派发本质。
         - 【优化】调整证据权重，降低 `price_rising` 作为风险证据的权重，提高 `main_force_outflow` 和 `chip_dispersion` 等核心派发证据的权重。
+        - 【修复】移除之前为强制极小值而添加的 `.mask` 逻辑，现在由 `_forge_dynamic_evidence` 统一处理零值输入。
         """
         print("    -- [剧本推演] 主力诱多派发风险 (动态证据)...")
         # 证据1: 价格上涨 (诱多表象) - 作为背景条件，权重可以适当降低
         price_rising = self._forge_dynamic_evidence(normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21).clip(lower=0))
-        # 证据2: 微观欺骗 (伪装派发)
-        micro_deception_bearish = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0).clip(upper=0).abs())
-        # 证据3: 上影线抛压 (真实抛压)
-        upper_shadow_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0).clip(upper=0).abs())
-        # 证据4: 筹码分散 (派发核心)
+        # 证据2: 微观欺骗 (伪装派发) - 负向欺骗是风险
+        raw_micro_deception_score = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0)
+        # [代码修改开始]
+        micro_deception_bearish = self._forge_dynamic_evidence(raw_micro_deception_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 证据3: 上影线抛压 (真实抛压) - 负向上影线意图是抛压
+        raw_upper_shadow_intent_score = self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
+        # [代码修改开始]
+        upper_shadow_pressure = self._forge_dynamic_evidence(raw_upper_shadow_intent_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 证据4: 筹码分散 (派发核心) - 筹码分散是风险
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
-        # 证据5: 主力资金净流出 (直接派发)
-        main_force_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
-        # 证据6: 赚钱卖出 (主力T+0效率负向，即赚钱卖出)
-        profit_vs_flow_bearish = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
-        # 证据7: 赢家信念衰减 (获利盘动摇)
+        # 证据5: 主力资金净流出 (直接派发) - 资本对抗为负是流出
+        raw_mf_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
+        # [代码修改开始]
+        main_force_outflow = self._forge_dynamic_evidence(raw_mf_confrontation_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 证据6: 赚钱卖出 (主力T+0效率负向，即赚钱卖出) - 负向是风险
+        raw_profit_vs_flow_score = self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0)
+        # [代码修改开始]
+        profit_vs_flow_bearish = self._forge_dynamic_evidence(raw_profit_vs_flow_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 证据7: 赢家信念衰减 (获利盘动摇) - 赢家信念衰减是风险
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
-        # 证据8: 散户狂热主力撤退 (直接捕捉牛市陷阱)
+        # 证据8: 散户狂热主力撤退 (直接捕捉牛市陷阱) - 依赖于另一个风险剧本
         retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
-        # 证据9: 价格超买意图负向 (价格高但缺乏真实支撑)
-        price_overextension_risk = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0).clip(upper=0).abs())
-        # 证据10: 长期获利盘派发风险 (更深层次的派发确认)
+        # 证据9: 价格超买意图负向 (价格高但缺乏真实支撑) - 负向超买意图是风险
+        raw_price_overextension_score = self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
+        # [代码修改开始]
+        price_overextension_risk = self._forge_dynamic_evidence(raw_price_overextension_score.clip(upper=0).abs())
+        # [代码修改结束]
+        # 证据10: 长期获利盘派发风险 (更深层次的派发确认) - 依赖于另一个风险剧本
         long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0))
         evidence_scores = np.stack([
             price_rising.values,
