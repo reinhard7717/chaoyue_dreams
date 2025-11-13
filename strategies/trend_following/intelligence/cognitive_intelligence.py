@@ -143,7 +143,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -226,7 +226,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0) # 降低50%的风险权重
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -716,7 +716,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -783,7 +783,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 证据1: 市场政权处于震荡 (FUSION_BIPOLAR_MARKET_REGIME 接近0)
         regime_neutrality = self._forge_dynamic_evidence(1 - self._get_fused_score('FUSION_BIPOLAR_MARKET_REGIME', 0.0).abs())
         # 证据2: 趋势质量低下 (FUSION_BIPOLAR_TREND_QUALITY 接近0)
@@ -850,7 +850,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -929,7 +929,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -997,7 +997,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
@@ -1111,7 +1111,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 证据1: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
         capital_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
         # 证据2: 成交量冷漠 (SCORE_BEHAVIOR_VOLUME_ATROPHY)
@@ -1173,7 +1173,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 证据1: 主力T+0效率高 (PROCESS_META_PROFIT_VS_FLOW 负向)
         high_t0_efficiency = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0).clip(upper=0).abs())
         # 证据2: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
@@ -1236,7 +1236,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 证据1: 市场压力大 (FUSION_BIPOLAR_MARKET_PRESSURE 负向)
         downward_pressure = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_MARKET_PRESSURE', 0.0).clip(upper=0).abs())
         # 证据2: 结构稳定性差 (SCORE_STRUCT_AXIOM_STABILITY 负向)
@@ -1316,7 +1316,7 @@ class CognitiveIntelligence:
         positive_trend_mask = (trend_quality > 0) & (structural_trend_form > 0)
         trend_modulator[positive_trend_mask] = (1 - (trend_quality[positive_trend_mask] + structural_trend_form[positive_trend_mask]) / 2 * 0.5).clip(0.5, 1.0)
         # 涨停日后的回调特殊处理
-        is_limit_up_yesterday = self.strategy.df_indicators['is_limit_up_D'].shift(1).fillna(False)
+        is_limit_up_yesterday = self.strategy.df_indicators['IS_LIMIT_UP_D'].shift(1).fillna(False)
         # 主力持仓信念强度 (逆向证据)
         main_force_holding_strength = self._get_main_force_holding_strength()
         main_force_holding_inverse = self._forge_dynamic_evidence(1 - main_force_holding_strength) # 主力信念越强，这个证据越低
