@@ -24,9 +24,10 @@ class FusionIntelligence:
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
         """
         if column_name not in df.columns:
-            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            print(f"    -> [融合情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
             return pd.Series(default_value, index=df.index)
         return df[column_name]
+
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
