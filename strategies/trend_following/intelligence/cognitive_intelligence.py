@@ -17,6 +17,15 @@ class CognitiveIntelligence:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [CognitiveIntelligence情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def _get_fused_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.1 · 真理探针版】安全地从原子状态库中获取由融合层提供的态势分数。
