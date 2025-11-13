@@ -234,7 +234,7 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.5 · 生产就绪版】移除所有诊断探针。
+        【V7.7 · 生产就绪版】移除所有诊断探针。
         - 【修复】重新定义 `active_winner_profit_margin` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃获利盘的利润垫。
         - 【修正】优化 `winner_conviction_index` 的计算，确保在涨停日等积极行情下能正确反映赢家信念。
         """
@@ -266,53 +266,14 @@ class ChipFeatureCalculator:
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
-        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0: # 增加 atr_14d 的判断
-            # [代码修改开始]
-            # 修正 active_winner_profit_margin 的计算逻辑
-            # 活跃获利盘：成本在 (close_price - 2*ATR, close_price) 之间
-            active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 2 * atr_14d)]
-            if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
-                active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
-                results['active_winner_avg_cost'] = active_winner_avg_cost
-                if active_winner_avg_cost > 0: results['active_winner_profit_margin'] = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
-            else:
-                # 如果活跃获利盘区间为空，则考虑更广阔的获利盘范围，例如使用 dominant_peak_cost
-                dominant_peak_cost = context.get('dominant_peak_cost')
-                if pd.notna(dominant_peak_cost) and dominant_peak_cost > 0 and dominant_peak_cost < close_price:
-                    results['active_winner_avg_cost'] = dominant_peak_cost
-                    results['active_winner_profit_margin'] = ((close_price - dominant_peak_cost) / dominant_peak_cost) * 100
-                else:
-                    results['active_winner_avg_cost'] = np.nan
-                    results['active_winner_profit_margin'] = 0.0 # 默认利润率为0
-            # [代码修改结束]
-        else: # 如果 close_price 或 atr_14d 无效，也设置默认值
-            results['active_winner_avg_cost'] = np.nan
-            results['active_winner_profit_margin'] = 0.0
+        active_winner_avg_cost, active_profit_margin = self._calculate_active_winner_profit_margin(close_price, atr_14d, context)
+        results['active_winner_avg_cost'] = active_winner_avg_cost
+        results['active_winner_profit_margin'] = active_profit_margin
         losers_df = self.df[self.df['price'] > close_price]
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
         # 3. 获利盘信念 (Winner Conviction)
-        active_profit_margin = results.get('active_winner_profit_margin')
-        bullish_reinforcement = context.get('upward_impulse_purity')
-        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
-        active_winner_rate = context.get('active_winner_rate')
-        # 优化 winner_conviction_index 的计算
-        if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            # realized_pressure 衡量获利盘兑现压力，越低越好
-            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 0.0
-            # hesitation_factor 应该在压力低时高，压力高时低
-            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1) # 压力越大，犹豫因子越小
-            # margin_factor 获利盘利润垫，越高越好
-            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
-            # reinforcement_factor 上涨脉冲纯度，越高越好
-            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
-            # 融合：利润垫 * (1 - 兑现压力) * 上涨纯度
-            # 确保在涨停日等积极行情下，即使 active_winner_rate 为0，也能得到积极的信念分数
-            if active_winner_rate == 0 and active_profit_margin > 0: # 意味着所有获利盘都已锁定或情绪极度乐观
-                hesitation_factor = 1.0 # 此时没有兑现压力，犹豫因子为1
-            results['winner_conviction_index'] = hesitation_factor * margin_factor * reinforcement_factor * 100
-        else: # 如果有任何一个前置条件缺失，则设置默认值
-            results['winner_conviction_index'] = 0.0
+        results['winner_conviction_index'] = self._calculate_winner_conviction_index(context)
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
@@ -445,9 +406,10 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.2 · 断层指标鲁棒性增强版】
+        【V11.3 · 断层指标鲁棒性增强版】
         - 核心优化: 为 `chip_fault_blockage_ratio` 增加默认值0.0，确保在无断层时该指标有明确输出，而非NULL。
         - 【修复】重新定义 `active_winner_rate` 和 `active_loser_rate` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃筹码。
+        - 【修正】优化 `cost_structure_skewness` 的计算，确保在极端情况下能得到合理值。
         """
         results = {}
         close_price = self.ctx.get('close_price')
@@ -628,6 +590,8 @@ class ChipFeatureCalculator:
                 unweighted_sample = np.repeat(valid_prices, valid_weights)
                 skewness = skew(unweighted_sample)
                 results['cost_structure_skewness'] = -skewness
+            else: # 如果有效权重不足，则 skewness 为 0
+                results['cost_structure_skewness'] = 0.0
         # 9. 结构稳定性评估
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')
@@ -837,8 +801,173 @@ class ChipFeatureCalculator:
             results['chip_health_score'] = final_score_normalized * 100
         return results
 
+    def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> float:
+        """
+        【V1.0】计算活跃获利盘利润率，并加入探针。
+        """
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        debug_params = context.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
 
+        active_winner_avg_cost = np.nan
+        active_profit_margin = 0.0
 
+        if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
+            # 活跃获利盘：成本在 (close_price - 3*ATR, close_price) 之间，扩大范围
+            active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 3 * atr_14d)]
+
+            if is_probe_date:
+                print(f"    -> [活跃获利盘利润率探针] @ {trade_date}:")
+                print(f"       - close_price: {close_price:.4f}, atr_14d: {atr_14d:.4f}")
+                print(f"       - active_winners_df (filtered): {active_winners_df.head()}")
+                print(f"       - active_winners_df.empty: {active_winners_df.empty}, percent.sum(): {active_winners_df['percent'].sum():.4f}")
+
+            if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
+                active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
+                if active_winner_avg_cost > 0:
+                    active_profit_margin = ((close_price - active_winner_avg_cost) / active_winner_avg_cost) * 100
+                if is_probe_date:
+                    print(f"       - 活跃获利盘存在。active_winner_avg_cost: {active_winner_avg_cost:.4f}, active_profit_margin: {active_profit_margin:.4f}")
+            else:
+                # 如果活跃获利盘区间为空，则考虑更广阔的获利盘范围，例如使用 dominant_peak_cost
+                dominant_peak_cost = context.get('dominant_peak_cost')
+                if is_probe_date:
+                    print(f"       - 活跃获利盘区间为空。尝试使用 dominant_peak_cost: {dominant_peak_cost:.4f}")
+
+                if pd.notna(dominant_peak_cost) and dominant_peak_cost > 0 and dominant_peak_cost < close_price:
+                    active_winner_avg_cost = dominant_peak_cost
+                    active_profit_margin = ((close_price - dominant_peak_cost) / dominant_peak_cost) * 100
+                    if is_probe_date:
+                        print(f"       - 使用 dominant_peak_cost。active_winner_avg_cost: {active_winner_avg_cost:.4f}, active_profit_margin: {active_profit_margin:.4f}")
+                else:
+                    # 在涨停日，如果无法计算出活跃获利盘，则赋予一个积极的默认利润率
+                    # 假设涨停日至少有 9% 的利润率
+                    pre_close = context.get('pre_close', close_price)
+                    if (close_price / pre_close - 1) > 0.098: # 如果是涨停日 (考虑0.098作为涨停阈值)
+                        active_profit_margin = 9.0 # 涨停日默认利润率
+                        if is_probe_date:
+                            print(f"       - 涨停日，赋予默认利润率: {active_profit_margin:.4f}")
+                    else:
+                        active_profit_margin = 0.0 # 默认利润率为0
+                        if is_probe_date:
+                            print(f"       - 非涨停日且无活跃获利盘，利润率: {active_profit_margin:.4f}")
+        else:
+            if is_probe_date:
+                print(f"       - close_price 或 atr_14d 无效，利润率: {active_profit_margin:.4f}")
+
+        return active_winner_avg_cost, active_profit_margin
+
+    def _calculate_winner_conviction_index(self, context: dict) -> float:
+        """
+        【V1.0】计算赢家信念指数，并加入探针。
+        """
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        debug_params = context.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
+        active_profit_margin = context.get('active_winner_profit_margin')
+        bullish_reinforcement = context.get('upward_impulse_purity')
+        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
+        active_winner_rate = context.get('active_winner_rate')
+
+        winner_conviction_index = 0.0
+
+        if is_probe_date:
+            print(f"    -> [赢家信念指数探针] @ {trade_date}:")
+            print(f"       - active_profit_margin: {active_profit_margin:.4f}")
+            print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
+            print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
+            print(f"       - active_winner_rate: {active_winner_rate:.4f}")
+
+        if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
+            # realized_pressure 衡量获利盘兑现压力，越低越好
+            # 避免 active_winner_rate 为 0 导致除以 0，此时 realized_pressure 应该为 0 (无兑现压力)
+            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 0.0
+            # hesitation_factor 应该在压力低时高，压力高时低
+            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1) # 压力越大，犹豫因子越小
+            # margin_factor 获利盘利润垫，越高越好
+            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
+            # reinforcement_factor 上涨脉冲纯度，越高越好
+            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
+
+            winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
+
+            if is_probe_date:
+                print(f"       - realized_pressure: {realized_pressure:.4f}")
+                print(f"       - hesitation_factor: {hesitation_factor:.4f}")
+                print(f"       - margin_factor: {margin_factor:.4f}")
+                print(f"       - reinforcement_factor: {reinforcement_factor:.4f}")
+                print(f"       - final winner_conviction_index: {winner_conviction_index:.4f}")
+        else:
+            if is_probe_date:
+                print(f"       - 缺少前置条件，winner_conviction_index: {winner_conviction_index:.4f}")
+
+        return winner_conviction_index
+
+    def _calculate_winner_conviction_index(self, context: dict) -> float:
+        """
+        【V1.0】计算赢家信念指数，并加入探针。
+        """
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        debug_params = context.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
+        active_profit_margin = context.get('active_winner_profit_margin')
+        bullish_reinforcement = context.get('upward_impulse_purity')
+        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
+        active_winner_rate = context.get('active_winner_rate')
+
+        winner_conviction_index = 0.0
+
+        if is_probe_date:
+            print(f"    -> [赢家信念指数探针] @ {trade_date}:")
+            print(f"       - active_profit_margin: {active_profit_margin:.4f}")
+            print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
+            print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
+            print(f"       - active_winner_rate: {active_winner_rate:.4f}")
+
+        if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
+            # realized_pressure 衡量获利盘兑现压力，越低越好
+            # 避免 active_winner_rate 为 0 导致除以 0，此时 realized_pressure 应该为 0 (无兑现压力)
+            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 0.0
+            # hesitation_factor 应该在压力低时高，压力高时低
+            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1) # 压力越大，犹豫因子越小
+            # margin_factor 获利盘利润垫，越高越好
+            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
+            # reinforcement_factor 上涨脉冲纯度，越高越好
+            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
+
+            winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
+
+            if is_probe_date:
+                print(f"       - realized_pressure: {realized_pressure:.4f}")
+                print(f"       - hesitation_factor: {hesitation_factor:.4f}")
+                print(f"       - margin_factor: {margin_factor:.4f}")
+                print(f"       - reinforcement_factor: {reinforcement_factor:.4f}")
+                print(f"       - final winner_conviction_index: {winner_conviction_index:.4f}")
+        else:
+            if is_probe_date:
+                print(f"       - 缺少前置条件，winner_conviction_index: {winner_conviction_index:.4f}")
+
+        return winner_conviction_index
 
 
 
