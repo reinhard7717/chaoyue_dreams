@@ -290,12 +290,12 @@ class AdvancedFundFlowMetricsService:
                 results[target_col] = base_value * calibration_factor
             else:
                 results[target_col] = np.nan
-        # [代码新增开始]
-        # 调试打印校准后的主力资金流和散户资金流
-        print(f"DEBUG PROBE: [{daily_data_series.name.date()}] _calculate_daily_derived_metrics output:")
-        print(f"  main_force_net_flow_calibrated: {results.get('main_force_net_flow_calibrated', np.nan):.4f}")
-        print(f"  retail_net_flow_calibrated: {results.get('retail_net_flow_calibrated', np.nan):.4f}")
-        # [代码新增结束]
+        # # [代码新增开始]
+        # # 调试打印校准后的主力资金流和散户资金流
+        # print(f"DEBUG PROBE: [{daily_data_series.name.date()}] _calculate_daily_derived_metrics output:")
+        # print(f"  main_force_net_flow_calibrated: {results.get('main_force_net_flow_calibrated', np.nan):.4f}")
+        # print(f"  retail_net_flow_calibrated: {results.get('retail_net_flow_calibrated', np.nan):.4f}")
+        # # [代码新增结束]
         turnover_amount_yuan = pd.to_numeric(daily_data_series.get('amount'), errors='coerce') * 1000
         if pd.notna(turnover_amount_yuan) and turnover_amount_yuan > 0:
             base_flow = pd.to_numeric(daily_data_series.get('main_force_net_flow_tushare'), errors='coerce')
