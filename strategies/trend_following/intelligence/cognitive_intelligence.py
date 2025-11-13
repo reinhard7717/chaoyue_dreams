@@ -56,20 +56,17 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.5 · 剧本依赖顺序修复版】总指挥
-        - 核心升级: 优化剧本推演顺序，确保被依赖的剧本在其依赖者之前被计算。
-        - 核心修复: 每次剧本推演完成后，立即将结果更新到 `self.strategy.playbook_states`，
-                      确保 `_get_playbook_score` 能够实时获取到已计算的剧本信号。
-        - 【修复】调整剧本计算顺序，确保 `COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION` 在 `COGNITIVE_RISK_TREND_EXHAUSTION` 之前计算。
+        【V25.6 · 隐秘筑底背离版】总指挥
+        - 核心升级: 引入新的认知剧本 `COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE`。
         """
-        print("启动【V25.5 · 剧本依赖顺序修复版】认知情报分析...") # 修改行
+        print("启动【V25.6 · 隐秘筑底背离版】认知情报分析...")
         self.strategy.playbook_states = {} # 初始化剧本状态库
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
         # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
         self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 提前计算此剧本
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
         self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
         # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
@@ -79,7 +76,9 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
         self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
         self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors))
-        # self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors)) # 移除行: 已提前计算
+        # [代码修改开始]
+        self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors)) # 新增行
+        # [代码修改结束]
         self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
         self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors))
         self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors))
@@ -87,7 +86,7 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
         self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
         self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors))
-        print(f"【V25.5 · 剧本依赖顺序修复版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。") # 修改行
+        print(f"【V25.6 · 隐秘筑底背离版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
         return self.strategy.playbook_states
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
@@ -313,9 +312,10 @@ class CognitiveIntelligence:
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.2 · 指挥链修复版】融合与裁决模块
+        【V3.3 · 指挥链修复与新剧本集成版】融合与裁决模块
         - 核心修复: 将引用的信号名称从废弃的 'COGNITIVE_FORGED_...' 修正为 'COGNITIVE_PLAYBOOK_...' 和 'COGNITIVE_RISK_...'，
                       重新连接了信号融合的指挥链。
+        - 核心升级: 将新的认知剧本 `COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE` 集成到看涨剧本列表中。
         """
         states = {}
         df_index = self.strategy.df_indicators.index
@@ -327,6 +327,9 @@ class CognitiveIntelligence:
             'COGNITIVE_PLAYBOOK_LEADING_DRAGON_AWAKENING',
             'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD',
             'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION',
+            # [代码修改开始]
+            'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE', # 新增行
+            # [代码修改结束]
         ]
         bullish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bullish_playbooks]
         # 取所有看涨剧本中的最高分作为当天的看涨总分
@@ -886,3 +889,83 @@ class CognitiveIntelligence:
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE': posterior_prob.astype(np.float32)}
+
+    def _deduce_stealth_bottoming_divergence(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
+        """
+        【V1.0 · 隐秘筑底背离版】贝叶斯推演：“隐秘筑底背离”剧本
+        - 核心逻辑: 识别在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离。
+        - 证据链:
+          1. 价格下跌趋势趋缓/底部反转迹象 (行为层价格下跌动能衰减、价格加速度转正、行为底部反转过程信号)
+          2. 成交量萎缩 (行为层成交量萎缩信号)
+          3. 资金向好迹象 (资金流共识、权力转移过程信号)
+          4. 筹码向好迹象 (筹码集中度、隐秘吸筹过程信号、主力成本优势趋势、输家投降过程信号)
+        """
+        print("    -- [剧本推演] 隐秘筑底背离 (动态证据)...")
+        df_index = self.strategy.df_indicators.index
+
+        # 1. 价格下跌趋势趋缓/底部反转迹象
+        # 价格下跌动能衰减 (1 - SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM)
+        downward_momentum_decay = self._forge_dynamic_evidence(1 - self._get_atomic_score('SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM', 0.0))
+        # 价格加速度转正 (ACCEL_5_close_D 的正向部分)
+        price_accel_positive = self._forge_dynamic_evidence(self._get_atomic_score('ACCEL_5_close_D', 0.0).clip(lower=0))
+        # 行为底部反转过程信号
+        behavior_bottom_reversal = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_BEHAVIOR_BOTTOM_REVERSAL', 0.0))
+
+        # 2. 成交量萎缩
+        # 行为层成交量萎缩信号 (SCORE_BEHAVIOR_VOLUME_ATROPHY)
+        volume_atrophy_strong = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
+
+        # 3. 资金向好迹象
+        # 资金流共识 (SCORE_FF_AXIOM_CONSENSUS 的正向部分)
+        fund_flow_consensus_positive = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0).clip(lower=0))
+        # 权力转移过程信号 (PROCESS_META_POWER_TRANSFER 的正向部分)
+        power_transfer_positive = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_POWER_TRANSFER', 0.0).clip(lower=0))
+
+        # 4. 筹码向好迹象
+        # 筹码集中度 (SCORE_CHIP_AXIOM_CONCENTRATION 的正向部分)
+        chip_concentration_positive = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
+        # 隐秘吸筹过程信号 (PROCESS_META_STEALTH_ACCUMULATION)
+        stealth_accumulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_STEALTH_ACCUMULATION', 0.0))
+        # 主力成本优势趋势 (PROCESS_META_COST_ADVANTAGE_TREND 的正向部分)
+        cost_advantage_trend_positive = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_COST_ADVANTAGE_TREND', 0.0).clip(lower=0))
+        # 输家投降过程信号 (PROCESS_META_LOSER_CAPITULATION)
+        loser_capitulation_process = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_LOSER_CAPITULATION', 0.0))
+
+        evidence_scores = np.stack([
+            downward_momentum_decay.values,
+            price_accel_positive.values,
+            behavior_bottom_reversal.values,
+            volume_atrophy_strong.values,
+            fund_flow_consensus_positive.values,
+            power_transfer_positive.values,
+            chip_concentration_positive.values,
+            stealth_accumulation_process.values,
+            cost_advantage_trend_positive.values,
+            loser_capitulation_process.values
+        ], axis=0)
+
+        # 证据权重分配 (需要根据回测优化，这里给出初始示例)
+        evidence_weights = np.array([
+            0.10, # downward_momentum_decay
+            0.10, # price_accel_positive
+            0.05, # behavior_bottom_reversal
+            0.20, # volume_atrophy_strong (核心证据)
+            0.15, # fund_flow_consensus_positive
+            0.05, # power_transfer_positive
+            0.15, # chip_concentration_positive
+            0.10, # stealth_accumulation_process
+            0.05, # cost_advantage_trend_positive
+            0.05  # loser_capitulation_process
+        ])
+        evidence_weights /= evidence_weights.sum() # 归一化权重
+
+        safe_scores = np.maximum(evidence_scores, 1e-9) # 避免log(0)
+        likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
+        likelihood = pd.Series(likelihood_values, index=df_index)
+
+        # 先验概率：底部背离通常是趋势反转的一种形式
+        prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
+        posterior_prob = (likelihood * prior_prob).clip(0, 1)
+
+        return {'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE': posterior_prob.astype(np.float32)}
+

@@ -633,6 +633,13 @@
             "score": 750,
             "description": "【贝叶斯推演 V2.0】基于动态证据，推演股价波动率和成交量被压缩到极致即将爆发的“临界状态”剧本上演的后验概率。"
         },
+        "COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE": {
+            "cn_name": "【认知剧本】隐秘筑底背离",
+            "category": "认知层-剧本",
+            "type": "dynamic",
+            "score": 880,
+            "description": "【贝叶斯推演】基于动态证据，推演在股价下跌趋势趋缓、成交量萎缩的情况下，资金或筹码出现向好迹象的底部背离剧本上演的后验概率。"
+        },
         "COGNITIVE_PLAYBOOK_DIVERGENCE_REVERSAL": {
             "cn_name": "【认知剧本】背离反转",
             "category": "认知层-剧本",

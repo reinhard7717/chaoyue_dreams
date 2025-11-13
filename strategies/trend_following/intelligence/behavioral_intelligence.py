@@ -217,47 +217,76 @@ class BehavioralIntelligence:
 
     def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
         """
-        【V1.0 · 量能萎缩证据版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
-        - 核心逻辑: 融合三种量能萎缩的强力证据：
-          1. 量能一直低于ma_vol_21
-          2. ma_vol_5已经低于ma_vol_21
-          3. 当日量能 < ma_vol_5 < ma_vol_21
+        【V1.1 · 量能萎缩证据增强版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
+        - 核心逻辑: 融合三种量能萎缩的强力证据，并引入成交量均线空头排列和萎缩持续性。
+          1. 量能一直低于ma_vol_21 (持续性萎缩)
+          2. ma_vol_5已经低于ma_vol_21 (结构性萎缩)
+          3. 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
+          4. 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
         - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩越严重。
         """
         df_index = df.index
         # 获取必要的成交量均线数据
         vol = df.get('volume_D', pd.Series(0.0, index=df_index))
         vol_ma5 = df.get('VOL_MA_5_D', pd.Series(0.0, index=df_index))
+        vol_ma13 = df.get('VOL_MA_13_D', pd.Series(0.0, index=df_index)) # 新增13日均量
         vol_ma21 = df.get('VOL_MA_21_D', pd.Series(0.0, index=df_index))
+
         # 确保数据存在，否则返回默认值
-        if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma21.isnull().all():
+        if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma13.isnull().all() or vol_ma21.isnull().all():
             print("    -> [行为情报引擎警告] 缺少成交量或成交量均线数据，无法计算 SCORE_BEHAVIOR_VOLUME_ATROPHY。")
             return pd.Series(0.0, index=df_index)
-        # 证据1: 量能一直低于ma_vol_21 (持续性萎缩)
-        # 使用 normalize_score 对 (1 - volume_D / VOL_MA_21_D) 进行归一化，比值越小，分数越高
+
         # 避免除以零
+        vol_ma5_safe = vol_ma5.replace(0, 1e-9)
+        vol_ma13_safe = vol_ma13.replace(0, 1e-9)
         vol_ma21_safe = vol_ma21.replace(0, 1e-9)
-        vol_below_ma21_raw = (1 - (vol / vol_ma21_safe)).clip(0, 1) # 0到1，1代表远低于
+
+        # 证据1: 量能一直低于ma_vol_21 (持续性萎缩)
+        # 使用 (1 - volume_D / VOL_MA_21_D) 衡量萎缩程度，比值越小，分数越高
+        vol_below_ma21_raw = (1 - (vol / vol_ma21_safe)).clip(0, 1)
         vol_below_ma21_score = get_adaptive_mtf_normalized_score(vol_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
+
         # 证据2: ma_vol_5已经低于ma_vol_21 (结构性萎缩)
-        # 使用 normalize_score 对 (1 - VOL_MA_5_D / VOL_MA_21_D) 进行归一化
+        # 使用 (1 - VOL_MA_5_D / VOL_MA_21_D) 衡量萎缩程度
         vol_ma5_below_ma21_raw = (1 - (vol_ma5 / vol_ma21_safe)).clip(0, 1)
         vol_ma5_below_ma21_score = get_adaptive_mtf_normalized_score(vol_ma5_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
+
         # 证据3: 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
-        # 这是一个布尔条件，直接转换为分数
+        # 这是一个布尔条件，直接转换为分数，并可以考虑其持续性
         is_ice_point_atrophy = ((vol < vol_ma5) & (vol_ma5 < vol_ma21)).astype(float)
+        # 冰点萎缩的持续性
+        ice_point_atrophy_persistence = is_ice_point_atrophy.rolling(window=5, min_periods=1).sum() / 5
+        ice_point_atrophy_score = is_ice_point_atrophy * (0.5 + ice_point_atrophy_persistence * 0.5) # 持续越久，分数越高
+
+        # [代码修改开始]
+        # 证据4: 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
+        # 这是一个结构性萎缩的强力证据
+        is_ma_bearish_alignment = ((vol_ma5 < vol_ma13) & (vol_ma13 < vol_ma21)).astype(float)
+        # 均线空头排列的强度，可以根据均线之间的距离来衡量
+        ma_bearish_alignment_strength_raw = (vol_ma21 - vol_ma5) / vol_ma21_safe.replace(0, np.nan)
+        ma_bearish_alignment_score = get_adaptive_mtf_normalized_score(ma_bearish_alignment_strength_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
+        # 融合布尔条件和强度
+        ma_bearish_alignment_final_score = is_ma_bearish_alignment * ma_bearish_alignment_score
+        # [代码修改结束]
+
         # 融合所有证据
-        # 赋予冰点萎缩更高的权重，因为它代表了最强的萎缩信号
+        # 赋予冰点萎缩和均线空头排列更高的权重，因为它代表了最强的萎缩信号
         # 使用加权几何平均，确保所有证据都存在时分数才高
         evidence_components = [
             vol_below_ma21_score,
             vol_ma5_below_ma21_score,
-            is_ice_point_atrophy
+            ice_point_atrophy_score, # 使用增强后的冰点萎缩分数
+            ma_bearish_alignment_final_score # 新增均线空头排列分数
         ]
-        weights = np.array([0.3, 0.3, 0.4]) # 冰点萎缩权重最高
+        # 调整权重，冰点萎缩和均线空头排列权重更高
+        weights = np.array([0.2, 0.2, 0.3, 0.3]) # 调整权重
+
         aligned_evidence_components = [comp.reindex(df_index, fill_value=0.0) for comp in evidence_components]
         safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components] # 避免log(0)
+
         volume_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
+
         return volume_atrophy_score.clip(0, 1)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
