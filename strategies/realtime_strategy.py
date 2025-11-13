@@ -69,7 +69,7 @@ class RealtimeStrategy:
         self.min_data_points_30min = self.realtime_config.get('min_data_points_30min', 34)
         self.min_data_points_60min = self.realtime_config.get('min_data_points_60min', 55)
         self.playbook_params = self.realtime_config.get('playbooks', {})
-        # 新增行：加载盘中评分参数
+        # 加载盘中评分参数
         self.intraday_scoring_params = self.realtime_config.get('intraday_scoring_params', {})
         self.base_score_per_playbook = self.intraday_scoring_params.get('base_score_per_playbook', {})
         self.tiered_feature_scoring = self.intraday_scoring_params.get('tiered_feature_scoring', {}) # 修改行：加载分层特征评分配置

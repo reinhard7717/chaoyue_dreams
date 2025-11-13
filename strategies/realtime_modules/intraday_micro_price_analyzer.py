@@ -45,17 +45,17 @@ class IntradayMicroPriceAnalyzer:
             micro_features["PRICE_REJECTION_LOWER"] = 0.0
             micro_features["CLOSE_NEAR_HIGH"] = 0.0
             micro_features["CLOSE_NEAR_LOW"] = 0.0
-            micro_features["UPPER_SHADOW_RATIO"] = 0.0 # 新增行
-            micro_features["LOWER_SHADOW_RATIO"] = 0.0 # 新增行
-            micro_features["CLOSE_POSITION_IN_CANDLE_RATIO"] = 0.5 # 新增行
+            micro_features["UPPER_SHADOW_RATIO"] = 0.0
+            micro_features["LOWER_SHADOW_RATIO"] = 0.0
+            micro_features["CLOSE_POSITION_IN_CANDLE_RATIO"] = 0.5
             return micro_features
         upper_shadow = high_price - max(open_price, close_price)
         lower_shadow = min(open_price, close_price) - low_price
         # 影线长度与总K线范围的比率 (量化值)
         upper_shadow_ratio = upper_shadow / total_range
         lower_shadow_ratio = lower_shadow / total_range
-        micro_features["UPPER_SHADOW_RATIO"] = upper_shadow_ratio # 新增行
-        micro_features["LOWER_SHADOW_RATIO"] = lower_shadow_ratio # 新增行
+        micro_features["UPPER_SHADOW_RATIO"] = upper_shadow_ratio
+        micro_features["LOWER_SHADOW_RATIO"] = lower_shadow_ratio
         micro_features["SMALL_BODY_CANDLE"] = 1.0 if body_size / total_range < (1 - self.min_shadow_body_ratio) else 0.0
         micro_features["LONG_UPPER_SHADOW"] = 1.0 if upper_shadow_ratio > self.min_shadow_body_ratio else 0.0
         micro_features["LONG_LOWER_SHADOW"] = 1.0 if lower_shadow_ratio > self.min_shadow_body_ratio else 0.0
@@ -69,7 +69,7 @@ class IntradayMicroPriceAnalyzer:
         # 对于阴线：(open - close) / body_size
         # 更通用的：(close - low) / total_range
         close_position_in_candle_ratio = (close_price - low_price) / total_range
-        micro_features["CLOSE_POSITION_IN_CANDLE_RATIO"] = close_position_in_candle_ratio # 新增行
+        micro_features["CLOSE_POSITION_IN_CANDLE_RATIO"] = close_position_in_candle_ratio
         micro_features["CLOSE_NEAR_HIGH"] = 1.0 if close_position_in_candle_ratio > 0.9 else 0.0
         micro_features["CLOSE_NEAR_LOW"] = 1.0 if close_position_in_candle_ratio < 0.1 else 0.0
         return micro_features

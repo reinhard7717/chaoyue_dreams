@@ -148,7 +148,7 @@ class ChipIntelligence:
             return pd.Series(0.0, index=df.index)
         momentum_raw = df.get('winner_loser_momentum_D', pd.Series(0.0, index=df.index))
         divergence_raw = df.get('cost_divergence_normalized_D', pd.Series(0.0, index=df.index))
-        skewness_raw = df.get('cost_structure_skewness_D', pd.Series(0.0, index=df.index)) # 新增行
+        skewness_raw = df.get('cost_structure_skewness_D', pd.Series(0.0, index=df.index))
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
@@ -192,8 +192,8 @@ class ChipIntelligence:
         conviction_raw = df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index))
         pain_raw = df.get('loser_pain_index_D', pd.Series(0.0, index=df.index))
         fatigue_raw = df.get('chip_fatigue_index_D', pd.Series(0.0, index=df.index))
-        locked_profit_raw = df.get('locked_profit_rate_D', pd.Series(0.0, index=df.index)) # 新增行
-        locked_loss_raw = df.get('locked_loss_rate_D', pd.Series(0.0, index=df.index)) # 新增行
+        locked_profit_raw = df.get('locked_profit_rate_D', pd.Series(0.0, index=df.index))
+        locked_loss_raw = df.get('locked_loss_rate_D', pd.Series(0.0, index=df.index))
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 赢家信念：越高越好，正向贡献。调整敏感度，确保在涨停日能正确反映积极心态。
@@ -203,9 +203,9 @@ class ChipIntelligence:
         # 筹码疲劳：越高越差，负向贡献。降低敏感度。
         fatigue_score = utils.get_adaptive_mtf_normalized_bipolar_score(fatigue_raw, df_index, tf_weights, sensitivity=5.0)
         # 锁定利润盘：越高越好，正向贡献
-        locked_profit_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_profit_raw, df_index, tf_weights, sensitivity=20.0) # 新增行
+        locked_profit_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_profit_raw, df_index, tf_weights, sensitivity=20.0)
         # 锁定亏损盘：越高越差，负向贡献
-        locked_loss_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_loss_raw, df_index, tf_weights, sensitivity=20.0) # 新增行
+        locked_loss_score = utils.get_adaptive_mtf_normalized_bipolar_score(locked_loss_raw, df_index, tf_weights, sensitivity=20.0)
         # 调整权重并融合 locked_profit_score 和 locked_loss_score
         final_score = (
             conviction_score * 0.4 +
@@ -224,13 +224,13 @@ class ChipIntelligence:
                 print(f"       - conviction_raw: {conviction_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - pain_raw: {pain_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fatigue_raw: {fatigue_raw.loc[probe_date_for_loop]:.4f}")
-                print(f"       - locked_profit_raw: {locked_profit_raw.loc[probe_date_for_loop]:.4f}") # 新增行
-                print(f"       - locked_loss_raw: {locked_loss_raw.loc[probe_date_for_loop]:.4f}") # 新增行
+                print(f"       - locked_profit_raw: {locked_profit_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - locked_loss_raw: {locked_loss_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - conviction_score: {conviction_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - pain_score: {pain_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - fatigue_score: {fatigue_score.loc[probe_date_for_loop]:.4f}")
-                print(f"       - locked_profit_score: {locked_profit_score.loc[probe_date_for_loop]:.4f}") # 新增行
-                print(f"       - locked_loss_score: {locked_loss_score.loc[probe_date_for_loop]:.4f}") # 新增行
+                print(f"       - locked_profit_score: {locked_profit_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - locked_loss_score: {locked_loss_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - final_score: {final_score.loc[probe_date_for_loop]:.4f}")
         return final_score
 

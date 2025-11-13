@@ -39,7 +39,7 @@ class IntradayVWAPAnalyzer:
             return {}
         # VWAP乖离率
         vwap_deviation = (current_kline['close'] - current_vwap) / current_vwap
-        vwap_features["VWAP_DEVIATION_PCT"] = vwap_deviation # 新增行：返回量化值
+        vwap_features["VWAP_DEVIATION_PCT"] = vwap_deviation # 返回量化值
         vwap_features["PRICE_ABOVE_VWAP_SIGNIFICANTLY"] = 1.0 if vwap_deviation > self.vwap_deviation_threshold_pct else 0.0
         vwap_features["PRICE_BELOW_VWAP_SIGNIFICANTLY"] = 1.0 if vwap_deviation < -self.vwap_deviation_threshold_pct else 0.0
         # VWAP斜率 (使用短期MA的斜率)
@@ -49,7 +49,7 @@ class IntradayVWAPAnalyzer:
             if vwap_ma is not None and not vwap_ma.empty and len(vwap_ma) >= 2:
                 # 计算斜率的百分比变化
                 vwap_slope = (vwap_ma.iloc[-1] - vwap_ma.iloc[-2]) / vwap_ma.iloc[-2] if vwap_ma.iloc[-2] != 0 else 0
-                vwap_features["VWAP_SLOPE"] = vwap_slope # 新增行：返回量化值
+                vwap_features["VWAP_SLOPE"] = vwap_slope # 返回量化值
                 vwap_features["VWAP_SLOPE_UP"] = 1.0 if vwap_slope > 0 else 0.0
                 vwap_features["VWAP_SLOPE_DOWN"] = 1.0 if vwap_slope < 0 else 0.0
             else:

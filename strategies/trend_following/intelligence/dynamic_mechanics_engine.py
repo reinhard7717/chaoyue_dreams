@@ -29,14 +29,14 @@ class DynamicMechanicsEngine:
         axiom_inertia = self._diagnose_axiom_inertia(df, norm_window)
         axiom_stability = self._diagnose_axiom_stability(df, norm_window)
         axiom_energy = self._diagnose_axiom_energy(df, norm_window)
-        axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df, norm_window) # 新增行
+        axiom_ma_dynamics = self._diagnose_axiom_ma_dynamics(df, norm_window)
         axiom_divergence = self._diagnose_axiom_divergence(df, norm_window)
         all_dynamic_states['SCORE_DYN_AXIOM_DIVERGENCE'] = axiom_divergence
         all_dynamic_states['SCORE_DYN_AXIOM_MOMENTUM'] = axiom_momentum
         all_dynamic_states['SCORE_DYN_AXIOM_INERTIA'] = axiom_inertia
         all_dynamic_states['SCORE_DYN_AXIOM_STABILITY'] = axiom_stability
         all_dynamic_states['SCORE_DYN_AXIOM_ENERGY'] = axiom_energy
-        all_dynamic_states['SCORE_DYN_AXIOM_MA_ACCELERATION'] = axiom_ma_dynamics # 新增行
+        all_dynamic_states['SCORE_DYN_AXIOM_MA_ACCELERATION'] = axiom_ma_dynamics
         # 引入力学层面的看涨/看跌背离信号 (保持不变)
         bullish_divergence, bearish_divergence = bipolar_to_exclusive_unipolar(axiom_divergence)
         all_dynamic_states['SCORE_DYNAMIC_MECHANICS_BULLISH_DIVERGENCE'] = bullish_divergence.astype(np.float32)

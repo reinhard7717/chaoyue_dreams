@@ -39,7 +39,7 @@ class IntradayVolumeAnalyzer:
             return {}
         # 成交量与均量的比率
         volume_ratio_to_ma = current_kline['volume'] / current_kline[vol_ma_col]
-        volume_anomalies["VOLUME_RATIO_TO_MA"] = volume_ratio_to_ma # 新增行：返回量化值
+        volume_anomalies["VOLUME_RATIO_TO_MA"] = volume_ratio_to_ma # 返回量化值
         # 巨量 (布尔值，但评分会使用VOLUME_RATIO_TO_MA)
         volume_anomalies["GIANT_VOLUME"] = 1.0 if volume_ratio_to_ma > self.giant_volume_multiplier else 0.0
         # 缩量 (布尔值)

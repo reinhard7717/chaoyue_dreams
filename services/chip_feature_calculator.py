@@ -877,7 +877,6 @@ class ChipFeatureCalculator:
             print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
             print(f"       - active_winner_rate: {active_winner_rate:.4f}")
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            # [代码修改开始]
             # 优化 realized_pressure 的计算逻辑
             # 获利兑现流量占比 (profit_taking_flow_ratio) 和 活跃获利盘比例 (active_winner_rate)
             # 如果活跃获利盘比例很低，但获利兑现流量很高，则压力大

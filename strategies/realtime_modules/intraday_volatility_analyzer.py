@@ -15,8 +15,8 @@ class IntradayVolatilityAnalyzer:
         self.apply_on = config.get('apply_on', ['5min'])
         self.bbw_slope_period = config.get('bbw_slope_period', 5)
         self.intraday_range_threshold_pct = config.get('intraday_range_threshold_pct', 0.01)
-        self.bbw_lookback_window = config.get('bbw_lookback_window', 120) # 新增行：BBW分位数回溯窗口
-        self.bbw_squeeze_percentile_threshold = config.get('bbw_squeeze_percentile_threshold', 0.3) # 新增行：BBW收缩分位数阈值
+        self.bbw_lookback_window = config.get('bbw_lookback_window', 120) # BBW分位数回溯窗口
+        self.bbw_squeeze_percentile_threshold = config.get('bbw_squeeze_percentile_threshold', 0.3) # BBW收缩分位数阈值
         self.boll_period = config.get('indicators', {}).get('boll_bands_and_width', {}).get('configs', [{}])[0].get('periods', [20])[0]
         self.boll_std_dev = config.get('indicators', {}).get('boll_bands_and_width', {}).get('configs', [{}])[0].get('std_dev', 2.0)
         print("IntradayVolatilityAnalyzer initialized.")
@@ -55,7 +55,7 @@ class IntradayVolatilityAnalyzer:
                 if not pd.isna(current_bbw):
                     # 计算当前BBW在过去N根K线中的分位数 (越小越收缩，分位数越低)
                     bbw_percentile = (bbw_series.iloc[-self.bbw_lookback_window:].rank(pct=True).iloc[-1])
-                    volatility_features["BBW_PERCENTILE"] = bbw_percentile # 新增行：返回BBW分位数
+                    volatility_features["BBW_PERCENTILE"] = bbw_percentile # 返回BBW分位数
                     volatility_features["BBW_IS_SQUEEZED"] = 1.0 if bbw_percentile < self.bbw_squeeze_percentile_threshold else 0.0
                 else:
                     volatility_features["BBW_PERCENTILE"] = np.nan

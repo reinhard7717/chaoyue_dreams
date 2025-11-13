@@ -94,7 +94,7 @@ class FundFlowIntelligence:
         conviction_index_raw = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
         cost_advantage_raw = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
         t0_efficiency_raw = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
-        price_impact_raw = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index)) # 新增行
+        price_impact_raw = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index))
         # 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
         # 赢家信念和成本优势越高越好，所以归一化后应为正
         conviction_index_bipolar = normalize_to_bipolar(conviction_index_raw, df_index, window=norm_window, sensitivity=10.0) # 调整敏感度

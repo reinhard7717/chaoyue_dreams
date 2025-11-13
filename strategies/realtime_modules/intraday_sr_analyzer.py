@@ -14,8 +14,8 @@ class IntradaySRAnalyzer:
         self.enabled = config.get('enabled', False)
         self.pivot_points_enabled = config.get('pivot_points_enabled', True)
         self.prev_day_close_enabled = config.get('prev_day_close_enabled', True)
-        self.rebound_strength_min_pct = config.get('rebound_strength_min_pct', 0.005) # 新增行
-        self.rejection_strength_min_pct = config.get('rejection_strength_min_pct', 0.005) # 新增行
+        self.rebound_strength_min_pct = config.get('rebound_strength_min_pct', 0.005)
+        self.rejection_strength_min_pct = config.get('rejection_strength_min_pct', 0.005)
         self.prev_day_data: Optional[Dict] = None
         self.pivot_points: Dict = {}
         print("IntradaySRAnalyzer initialized.")
@@ -88,7 +88,7 @@ class IntradaySRAnalyzer:
                     if is_touching and current_price > current_open: # 阳线反弹
                         rebound_strength = (current_price - max(current_open, level_value)) / level_value # 反弹幅度
                         if rebound_strength > self.rebound_strength_min_pct: # 达到最小反弹强度
-                            sr_features[f"PRICE_REBOUNDING_FROM_SUPPORT"] = rebound_strength # 新增行：返回反弹强度
+                            sr_features[f"PRICE_REBOUNDING_FROM_SUPPORT"] = rebound_strength # 返回反弹强度
                             sr_features[f"PRICE_REBOUNDING_FROM_{level_name}"] = 1.0 # 布尔值
                     else:
                         sr_features[f"PRICE_REBOUNDING_FROM_{level_name}"] = 0.0
@@ -100,7 +100,7 @@ class IntradaySRAnalyzer:
                     if is_touching and current_price < current_open: # 阴线拒绝
                         rejection_strength = (min(current_open, level_value) - current_price) / level_value # 拒绝幅度
                         if rejection_strength > self.rejection_strength_min_pct: # 达到最小拒绝强度
-                            sr_features[f"PRICE_REJECTION_AT_RESISTANCE"] = rejection_strength # 新增行：返回拒绝强度
+                            sr_features[f"PRICE_REJECTION_AT_RESISTANCE"] = rejection_strength # 返回拒绝强度
                             sr_features[f"PRICE_REJECTED_AT_{level_name}"] = 1.0 # 布尔值
                     else:
                         sr_features[f"PRICE_REJECTED_AT_{level_name}"] = 0.0

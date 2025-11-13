@@ -15,7 +15,7 @@ class IntradayPatternRecognizer:
         self.enabled = config.get('enabled', False)
         self.apply_on = config.get('apply_on', ['5min'])
         self.patterns_to_check = config.get('patterns', [])
-        self.hammer_strength_params = config.get('hammer_strength_params', {}) # 新增行：加载锤头线强度参数
+        self.hammer_strength_params = config.get('hammer_strength_params', {}) # 加载锤头线强度参数
         print("IntradayPatternRecognizer initialized.")
 
     def recognize_patterns(self, df: pd.DataFrame, timeframe: str) -> Dict[str, float]: # 修改返回类型为 float
