@@ -784,8 +784,8 @@ class CognitiveIntelligence:
         print("    -- [剧本推演] 流动性陷阱风险 (动态证据)...")
         # 证据1: 资金流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
         capital_outflow = self._forge_dynamic_evidence(self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0).clip(upper=0).abs())
-        # 证据2: 成交量冷漠 (SCORE_BEHAVIOR_VOLUME_APATHY)
-        volume_apathy = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_APATHY', 0.0))
+        # 证据2: 成交量冷漠 (SCORE_BEHAVIOR_VOLUME_ATROPHY)
+        volume_apathy = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0))
         # 证据3: 波动率收缩 (1 - SCORE_FOUNDATION_AXIOM_VOLATILITY)
         volatility_contraction = self._forge_dynamic_evidence(1 - self._get_atomic_score('SCORE_FOUNDATION_AXIOM_VOLATILITY', 0.0).clip(lower=0))
         evidence_scores = np.stack([

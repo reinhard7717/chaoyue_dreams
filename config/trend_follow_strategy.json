@@ -784,7 +784,7 @@
               {"name": "SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM", "weight": 0.2},
               {"name": "SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM", "weight": -0.2},
               {"name": "SCORE_BEHAVIOR_VOLUME_BURST", "weight": 0.1},
-              {"name": "SCORE_BEHAVIOR_VOLUME_APATHY", "weight": -0.1},
+              {"name": "SCORE_BEHAVIOR_VOLUME_ATROPHY", "weight": -0.1},
               {"name": "SCORE_BEHAVIOR_UPWARD_EFFICIENCY", "weight": 0.2},
               {"name": "SCORE_BEHAVIOR_DOWNWARD_RESISTANCE", "weight": 0.2},
               {"name": "SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL", "weight": 0.1}

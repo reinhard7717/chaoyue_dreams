@@ -111,7 +111,7 @@ class BehavioralIntelligence:
             'SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM',
             'SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM',
             'SCORE_BEHAVIOR_VOLUME_BURST',
-            'SCORE_BEHAVIOR_VOLUME_APATHY',
+            'SCORE_BEHAVIOR_VOLUME_ATROPHY',
             'SCORE_BEHAVIOR_UPWARD_EFFICIENCY',
             'SCORE_BEHAVIOR_DOWNWARD_RESISTANCE',
             'SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL',
@@ -171,7 +171,7 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         # 移除 SCORE_BEHAVIOR_VOLUME_APATHY，替换为更精确的 SCORE_BEHAVIOR_VOLUME_ATROPHY
-        # states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
+        # states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)

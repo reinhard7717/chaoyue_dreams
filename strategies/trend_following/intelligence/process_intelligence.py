@@ -127,7 +127,7 @@ class ProcessIntelligence:
         Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
         Up_eff_bipolar = (Up_eff_unipolar * 2 - 1).clip(-1, 1)
-        Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_APATHY', pd.Series(0.5, index=df_index))
+        Vol_apathy_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_VOLUME_ATROPHY', pd.Series(0.5, index=df_index))
         Vol_apathy_bipolar = (Vol_apathy_unipolar * 2 - 1).clip(-1, 1)
         Q1_base = (P_change.clip(lower=0) + CA_change.clip(lower=0)) / 2
         Q1_confirm = (MF_flow.clip(lower=0) + Chip_conc.clip(lower=0) + Up_eff_bipolar.clip(lower=0)) / 3
