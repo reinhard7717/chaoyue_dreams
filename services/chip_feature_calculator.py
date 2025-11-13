@@ -234,9 +234,10 @@ class ChipFeatureCalculator:
 
     def _compute_game_theoretic_metrics(self, context: dict) -> dict:
         """
-        【V7.7 · 生产就绪版】移除所有诊断探针。
+        【V7.8 · 生产就绪版】移除所有诊断探针。
         - 【修复】重新定义 `active_winner_profit_margin` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃获利盘的利润垫。
         - 【修正】优化 `winner_conviction_index` 的计算，确保在涨停日等积极行情下能正确反映赢家信念。
+        - 【修正】将 `active_profit_margin` 作为参数直接传递给 `_calculate_winner_conviction_index`，解决 `NoneType` 错误。
         """
         import datetime
         results = {}
@@ -266,17 +267,16 @@ class ChipFeatureCalculator:
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
-        # [代码修改开始]
         active_winner_avg_cost, active_profit_margin = self._calculate_active_winner_profit_margin(close_price, atr_14d, context)
         results['active_winner_avg_cost'] = active_winner_avg_cost
         results['active_winner_profit_margin'] = active_profit_margin
-        # [代码修改结束]
         losers_df = self.df[self.df['price'] > close_price]
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
         # 3. 获利盘信念 (Winner Conviction)
         # [代码修改开始]
-        results['winner_conviction_index'] = self._calculate_winner_conviction_index(context)
+        # 将 active_profit_margin 直接传递给 _calculate_winner_conviction_index
+        results['winner_conviction_index'] = self._calculate_winner_conviction_index(context, active_profit_margin)
         # [代码修改结束]
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
@@ -852,9 +852,11 @@ class ChipFeatureCalculator:
                 print(f"       - close_price 或 atr_14d 无效，利润率: {active_profit_margin:.4f}")
         return active_winner_avg_cost, active_profit_margin
 
-    def _calculate_winner_conviction_index(self, context: dict) -> float:
+    def _calculate_winner_conviction_index(self, context: dict, active_profit_margin: float) -> float:
         """
-        【V1.0】计算赢家信念指数，并加入探针。
+        【V1.1】计算赢家信念指数，并加入探针。
+        - 【修正】将 `active_profit_margin` 作为直接参数传入，解决其在上下文未更新前为 `None` 的问题。
+        - 【修正】为其他从 `context` 获取的变量提供默认值，增强打印的健壮性。
         """
         stock_code = context.get('stock_code', 'UNKNOWN')
         trade_date = context.get('trade_date', 'UNKNOWN')
@@ -865,10 +867,12 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-        active_profit_margin = context.get('active_winner_profit_margin')
-        bullish_reinforcement = context.get('upward_impulse_purity')
-        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
-        active_winner_rate = context.get('active_winner_rate')
+        # [代码修改开始]
+        # 从 context 获取其他变量，并提供默认值以避免 NoneType 错误
+        bullish_reinforcement = context.get('upward_impulse_purity', 0.0)
+        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio', 0.0)
+        active_winner_rate = context.get('active_winner_rate', 0.0)
+        # [代码修改结束]
         winner_conviction_index = 0.0
         if is_probe_date:
             print(f"    -> [赢家信念指数探针] @ {trade_date}:")
