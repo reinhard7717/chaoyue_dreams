@@ -16,7 +16,9 @@ class FundFlowIntelligence:
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
         """
         if column_name not in df.columns:
+            # [代码修改开始]
             print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            # [代码修改结束]
             return pd.Series(default_value, index=df.index)
         return df[column_name]
 

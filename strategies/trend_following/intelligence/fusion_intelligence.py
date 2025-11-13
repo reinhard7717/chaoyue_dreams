@@ -24,10 +24,11 @@ class FusionIntelligence:
         安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
         """
         if column_name not in df.columns:
+            # [代码修改开始]
             print(f"    -> [融合情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            # [代码修改结束]
             return pd.Series(default_value, index=df.index)
         return df[column_name]
-
 
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
@@ -396,11 +397,11 @@ class FusionIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         # 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY) [-1, 1]
         micro_efficiency = (self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
-        # K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
+        # K线实体与影线 (real_body_vs_range_ratio_D, upper_shadow_selling_pressure_D)
         # 实体饱满，上影线短 -> 健康
-        body_ratio_raw = self._get_safe_series(df, 'body_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
+        body_ratio_raw = self._get_safe_series(df, 'real_body_vs_range_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
-        upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
+        upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1 # 上影线越短越好，所以反向
         # 趋势健康证据的加权和
         health_sum = (
