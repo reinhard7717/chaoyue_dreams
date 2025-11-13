@@ -397,9 +397,10 @@ class FusionIntelligence:
         structural_trend_form = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
         # 微观效率 (SCORE_MICRO_AXIOM_EFFICIENCY) [-1, 1]
         micro_efficiency = (self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
-        # K线实体与影线 (real_body_vs_range_ratio_D, upper_shadow_selling_pressure_D)
+        # K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
         # 实体饱满，上影线短 -> 健康
-        body_ratio_raw = self._get_safe_series(df, 'real_body_vs_range_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
+        # 替换 body_ratio_D 为 closing_price_deviation_score_D
+        body_ratio_raw = self._get_safe_series(df, 'closing_price_deviation_score_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
         upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_selling_pressure_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1 # 上影线越短越好，所以反向
@@ -570,7 +571,7 @@ class FusionIntelligence:
             alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0) # 敏感度调整
         # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
         slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
-        slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
+        slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score") # 修正默认值
         if slope_ema5.isnull().all() or slope_ema21.isnull().all():
             print("    -> [趋势结构分] 警告: 缺少EMA斜率数据，均线斜率分将为0。")
             slope_score = pd.Series(0.0, index=df_index)
@@ -601,7 +602,7 @@ class FusionIntelligence:
             # 简单的加权平均可以更好地捕捉这种关系。
             divergence_score = (norm_ma_bias * 0.7 + norm_ma_bias_slope * 0.3).clip(-1, 1)
         # --- Debugging output for probe date ---
-        if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+        if probe_date_for_loop is not None and probe_date_for_loop in df.index:
             print(f"    -> [趋势结构分探针] @ {probe_date_for_loop.date()}:")
             print(f"       - EMA5: {ema5.loc[probe_date_for_loop]:.4f}")
             print(f"       - EMA21: {ema21.loc[probe_date_for_loop]:.4f}")
@@ -632,4 +633,5 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states
+
 

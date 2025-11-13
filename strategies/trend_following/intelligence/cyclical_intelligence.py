@@ -63,14 +63,12 @@ class CyclicalIntelligence:
         - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         # 证据1: 主导周期强度 (DOMINANT_CYCLE_POWER)
-        # [代码修改开始]
-        dominant_power = self._get_safe_series(df, 'DOMINANT_CYCLE_POWER', 0.0, method_name="_diagnose_cyclical_top_risk")
-        # [代码修改结束]
+        # 从 fft_states 中获取，而不是从 df 中获取
+        dominant_power = fft_states.get('DOMINANT_CYCLE_POWER', pd.Series(0.0, index=df.index))
         # 证据2: 当前相位 (DOMINANT_CYCLE_PHASE)
         # 相位接近 +1 (波峰) 时风险最高
-        # [代码修改开始]
-        dominant_phase = self._get_safe_series(df, 'DOMINANT_CYCLE_PHASE', 0.0, method_name="_diagnose_cyclical_top_risk")
-        # [代码修改结束]
+        # 从 fft_states 中获取，而不是从 df 中获取
+        dominant_phase = fft_states.get('DOMINANT_CYCLE_PHASE', pd.Series(0.0, index=df.index))
         # 将相位 [-1, 1] 映射到 [0, 1]，并强调接近 1 的值
         # 例如，使用 (phase + 1) / 2 映射到 [0, 1]，然后平方或指数化以强调波峰
         phase_contribution = ((dominant_phase + 1) / 2).pow(2) # 平方强调波峰
@@ -174,9 +172,7 @@ class CyclicalIntelligence:
         states = {}
         hurst_period = get_param_value(params.get('hurst_period'), 120)
         hurst_signal_name = f'hurst_{hurst_period}d_D'
-        # [代码修改开始]
         hurst_series = self._get_safe_series(df, hurst_signal_name, 0.5, method_name="diagnose_market_memory_with_hurst").fillna(0.5)
-        # [代码修改结束]
         if hurst_series.isnull().all(): # 如果获取到的Series全是NaN，说明数据确实不存在
             print(f"Hurst指数 '{hurst_signal_name}' 不存在或全为NaN，跳过公理二诊断。")
             states['SCORE_CYCLICAL_HURST_MEMORY'] = pd.Series(0.0, index=df.index, dtype=np.float32)
