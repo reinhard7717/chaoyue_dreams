@@ -66,13 +66,14 @@ class StructuralIntelligence:
 
     def _diagnose_axiom_trend_form(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
-        【V1.7 · 结构质量增强与均线角度列名引用修复版】结构公理一：诊断“趋势形态”
+        【V1.8 · 涨停日趋势形态增强版】结构公理一：诊断“趋势形态”
         - 引入 `volume_burstiness_index_D` (成交量爆裂度指数) 和 `upward_thrust_efficacy_D` (上涨推力效能)
                    来增强对趋势形态强度和质量的判断。
         - 【新增】引入均线角度（ATAN）作为趋势形态判断的证据。
         - 【修复】修正了引用均线角度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 【修正】优化 `bull_alignment` 和 `bull_velocity` 的计算，使其在涨停日能更准确地反映积极趋势形态。
         - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
+        - 【增强】在涨停日，大幅增强 `bull_alignment` 和 `bull_velocity` 的贡献，并抑制 `bear_score`。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -80,38 +81,81 @@ class StructuralIntelligence:
         if not all(col in df.columns for col in required_cols):
             print("诊断趋势形态失败：缺少必要的EMA列。")
             return pd.Series(0.0, index=df_index)
+
+        # 判断是否为涨停日
+        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+
+        # --- 均线排列 (Alignment) ---
         bull_alignment_raw = pd.Series(0.0, index=df_index)
         bear_alignment_raw = pd.Series(0.0, index=df_index)
         weights = [0.4, 0.3, 0.3] # 5-13, 13-21, 21-55 的权重
+
+        # 基础均线交叉排列
         for i in range(len(ma_periods) - 1):
             bull_alignment_raw += (df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) * weights[i]
             bear_alignment_raw += (df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float) * weights[i]
-        bull_alignment = bull_alignment_raw / sum(weights) # 归一化到 [0, 1]
+
+        # 增强 bull_alignment: 价格在所有均线之上
+        price_above_all_ma = pd.Series(True, index=df_index)
+        for p in ma_periods:
+            price_above_all_ma &= (df['close_D'] > df[f'EMA_{p}_D'])
+        bull_alignment_raw += price_above_all_ma.astype(float) * 0.5 # 额外权重
+
+        # 价格与均线距离的积极贡献
+        price_ma_distance = pd.Series(0.0, index=df_index)
+        for p in ma_periods:
+            price_ma_distance += (df['close_D'] - df[f'EMA_{p}_D']).clip(lower=0) # 只考虑价格在均线之上
+        price_ma_distance_score = normalize_score(price_ma_distance, df_index, norm_window, ascending=True)
+        bull_alignment_raw += price_ma_distance_score * 0.5 # 额外权重
+
+        bull_alignment = bull_alignment_raw / (sum(weights) + 1.0) # 归一化到 [0, 1]
         bear_alignment = bear_alignment_raw / sum(weights) # 归一化到 [0, 1]
+
+        # --- 均线速度 (Velocity) ---
         slope_cols = [f'SLOPE_5_EMA_{p}_D' for p in ma_periods if f'SLOPE_5_EMA_{p}_D' in df.columns]
         if not slope_cols:
             return pd.Series(0.0, index=df_index)
+
         bull_velocity_raw = pd.Series(0.0, index=df_index)
         bear_velocity_raw = pd.Series(0.0, index=df_index)
+
         for col in slope_cols:
             bull_velocity_raw += df[col].clip(lower=0) # 只累加正向斜率
             bear_velocity_raw += df[col].clip(upper=0).abs() # 只累加负向斜率的绝对值
+
+        # 增强 bull_velocity: 引入 pct_change_D 的贡献
+        pct_change_score = normalize_score(df['pct_change_D'].clip(lower=0), df_index, norm_window, ascending=True)
+        bull_velocity_raw += pct_change_score * 0.5 # 额外权重
+
         # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
-        bull_velocity = normalize_score(bull_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0) # 移除 sensitivity 参数
-        bear_velocity = normalize_score(bear_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0) # 移除 sensitivity 参数
+        bull_velocity = normalize_score(bull_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0)
+        bear_velocity = normalize_score(bear_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0)
+
+        # --- 引入成交量爆裂度、上涨推力效能 ---
         volume_burstiness_raw = df.get('volume_burstiness_index_D', pd.Series(0.0, index=df_index))
         upward_thrust_efficacy_raw = df.get('upward_thrust_efficacy_D', pd.Series(0.0, index=df_index))
         downward_absorption_efficacy_raw = df.get('downward_absorption_efficacy_D', pd.Series(0.0, index=df_index))
+
         burstiness_score = normalize_score(volume_burstiness_raw, df_index, norm_window, ascending=True).fillna(0.0)
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
+
+        # --- 引入均线角度 ---
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
         ma_angle_raw = df.get(f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index))
         ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0)
+
+        # --- 融合牛熊分数 ---
         bull_score = (bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1).clip(0, 1)
         bear_score = (bear_alignment * bear_velocity * (1 + burstiness_score * 0.2) + downward_efficacy_score * 0.1 + ma_angle_score.clip(upper=0).abs() * 0.1).clip(0, 1)
+
+        # 涨停日特殊处理：大幅增强牛分，抑制熊分
+        bull_score = bull_score.mask(is_limit_up_day, bull_score + 0.5).clip(0, 1) # 涨停日额外加分
+        bear_score = bear_score.mask(is_limit_up_day, bear_score * 0.1).clip(0, 1) # 涨停日熊分大幅削弱
+
         trend_form_score = (bull_score - bear_score).clip(-1, 1)
+
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -119,21 +163,28 @@ class StructuralIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [趋势形态探针] @ {probe_date_for_loop.date()}:")
+                print(f"       - bull_alignment_raw: {bull_alignment_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - price_above_all_ma: {price_above_all_ma.loc[probe_date_for_loop]:.4f}")
+                print(f"       - price_ma_distance_score: {price_ma_distance_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_alignment: {bull_alignment.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_velocity_raw: {bull_velocity_raw.loc[probe_date_for_loop]:.4f}")
+                print(f"       - pct_change_score: {pct_change_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_velocity: {bull_velocity.loc[probe_date_for_loop]:.4f}")
                 print(f"       - burstiness_score: {burstiness_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - upward_efficacy_score: {upward_efficacy_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - ma_angle_score: {ma_angle_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bull_score: {bull_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - bear_score: {bear_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
                 print(f"       - trend_form_score: {trend_form_score.loc[probe_date_for_loop]:.4f}")
         return trend_form_score
 
     def _diagnose_axiom_mtf_cohesion(self, df: pd.DataFrame, norm_window: int, daily_trend_form_score: pd.Series) -> pd.Series:
         """
-        【V1.2 · 趋势效率增强版】结构公理二：诊断“多周期协同”
+        【V1.3 · 涨停日多周期协同增强版】结构公理二：诊断“多周期协同”
         - 引入 `trend_efficiency_ratio_D` (趋势效率比) 来增强多周期协同的质量判断。
         - 【修正】优化 `cohesion_score` 的计算，使其在积极信号时贡献正分。
+        - 【增强】在涨停日，大幅增强 `weekly_trend_form_score` 的贡献，并优化 `cohesion_score` 的融合逻辑。
         """
         df_index = df.index
         ma_periods_w = [5, 13, 21, 55]
@@ -141,7 +192,11 @@ class StructuralIntelligence:
         if not all(col in df.columns for col in required_cols_w):
             print("诊断多周期协同失败：缺少必要的周线EMA列，将仅使用日线结构。")
             return pd.Series(0.0, index=df_index)
-        # 优化 bull_alignment_w 和 bear_alignment_w 的计算
+
+        # 判断是否为涨停日
+        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+
+        # --- 周线均线排列 (Weekly Alignment) ---
         bull_alignment_w_raw = pd.Series(0.0, index=df_index)
         bear_alignment_w_raw = pd.Series(0.0, index=df_index)
         for i in range(len(ma_periods_w) - 1):
@@ -149,25 +204,42 @@ class StructuralIntelligence:
             bear_alignment_w_raw += (df[f'EMA_{ma_periods_w[i]}_W'] < df[f'EMA_{ma_periods_w[i+1]}_W']).astype(float)
         bull_alignment_w = bull_alignment_w_raw / (len(ma_periods_w) - 1)
         bear_alignment_w = bear_alignment_w_raw / (len(ma_periods_w) - 1)
+
+        # --- 周线均线速度 (Weekly Velocity) ---
         slope_cols_w = [f'SLOPE_5_EMA_{p}_W' for p in ma_periods_w if f'SLOPE_5_EMA_{p}_W' in df.columns]
         if not slope_cols_w:
             return pd.Series(0.0, index=df_index)
-        # 优化 bull_velocity_w 和 bear_velocity_w 的计算
+
         bull_velocity_w_raw = pd.Series(0.0, index=df_index)
         bear_velocity_w_raw = pd.Series(0.0, index=df_index)
         for col in slope_cols_w:
             bull_velocity_w_raw += df[col].clip(lower=0)
             bear_velocity_w_raw += df[col].clip(upper=0).abs()
+
+        # 增强 bull_velocity_w: 引入 pct_change_W 的贡献
+        pct_change_w_score = normalize_score(df.get('pct_change_W', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, norm_window, ascending=True)
+        bull_velocity_w_raw += pct_change_w_score * 0.5 # 额外权重
+
         bull_velocity_w = normalize_score(bull_velocity_w_raw, df_index, norm_window, ascending=True).fillna(0.0)
         bear_velocity_w = normalize_score(bear_velocity_w_raw, df_index, norm_window, ascending=True).fillna(0.0)
+
         weekly_trend_form_score = (pd.Series(bull_alignment_w * bull_velocity_w, index=df_index) - pd.Series(bear_alignment_w * bear_velocity_w, index=df_index)).clip(-1, 1)
+
+        # 涨停日特殊处理：如果日线趋势形态为正，则周线趋势形态也应该至少有一个积极的基础分
+        weekly_trend_form_score = weekly_trend_form_score.mask(is_limit_up_day & (daily_trend_form_score > 0), weekly_trend_form_score + 0.3).clip(-1, 1)
+
         # 获取并归一化 trend_efficiency_ratio_D
         trend_efficiency_raw = df.get('trend_efficiency_ratio_D', pd.Series(0.0, index=df_index))
         efficiency_score = normalize_score(trend_efficiency_raw, df_index, norm_window, ascending=True).fillna(0.0)
+
         # 融合效率分数。效率分数作为乘数因子，增强协同的质量。
         # 确保在积极信号时贡献正分。
+        # 优化 cohesion_score 融合逻辑，在涨停日，如果日线趋势形态为正，则协同分数更倾向于正向
         cohesion_score = (daily_trend_form_score.clip(lower=0) * weekly_trend_form_score.clip(lower=0) * (1 + efficiency_score * 0.5) -
                           daily_trend_form_score.clip(upper=0).abs() * weekly_trend_form_score.clip(upper=0).abs() * (1 + efficiency_score * 0.5)).fillna(0).clip(-1, 1)
+
+        # 涨停日进一步增强协同分数
+        cohesion_score = cohesion_score.mask(is_limit_up_day & (daily_trend_form_score > 0), cohesion_score + 0.2).clip(-1, 1)
         debug_params = get_params_block(self.strategy, 'debug_params', {})
         probe_dates_str = debug_params.get('probe_dates', [])
         if probe_dates_str:
@@ -175,9 +247,13 @@ class StructuralIntelligence:
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
             if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [多周期协同探针] @ {probe_date_for_loop.date()}:")
-                print(f"       - daily_trend_form_score: {daily_trend_form_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_alignment_w: {bull_alignment_w.loc[probe_date_for_loop]:.4f}")
+                print(f"       - bull_velocity_w: {bull_velocity_w.loc[probe_date_for_loop]:.4f}")
+                print(f"       - pct_change_w_score: {pct_change_w_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - weekly_trend_form_score: {weekly_trend_form_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - efficiency_score: {efficiency_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - daily_trend_form_score: {daily_trend_form_score.loc[probe_date_for_loop]:.4f}")
+                print(f"       - is_limit_up_day: {is_limit_up_day.loc[probe_date_for_loop]}")
                 print(f"       - cohesion_score: {cohesion_score.loc[probe_date_for_loop]:.4f}")
         return cohesion_score
 
