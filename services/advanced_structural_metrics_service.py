@@ -204,12 +204,10 @@ class AdvancedStructuralMetricsService:
                 continue
             try:
                 daily_series_for_day = daily_df.loc[date]
-                # [代码修改开始]
                 # 修复：传递所有周期的ATR
                 atr_5_for_day = atr_5.get(date)
                 atr_14_for_day = atr_14.get(date)
                 atr_50_for_day = atr_50.get(date)
-                # [代码修改结束]
             except KeyError:
                 logger.warning(f"[{stock_code}] [{date}] 无法找到对应的日线数据或ATR，跳过当天计算。")
                 continue

@@ -691,7 +691,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if raw_dates_to_process.empty:
             logger.info(f"[{stock_code}] 无需计算的日期，合并任务终止。")
             return {"status": "skipped", "reason": "No new dates to process.", "failures": []}
-        # [代码修改开始]
         # 过滤掉非交易日
         trade_dates_only = await sync_to_async(TradeCalendar.get_trade_dates_between)(
             start_date=raw_dates_to_process.min().date(),
@@ -701,7 +700,6 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         if dates_to_process.empty:
             logger.info(f"[{stock_code}] 过滤非交易日后，没有需要计算的交易日，合并任务终止。")
             return {"status": "skipped", "reason": "No trade dates to process after filtering.", "failures": []}
-        # [代码修改结束]
         context_end_date = dates_to_process.min().date()
         ff_hist_df = await fund_flow_service._load_historical_metrics(FundFlowMetricsModel, stock_info, context_end_date)
         chip_hist_df = await chip_service._load_historical_metrics(ChipMetricsModel, stock_info, context_end_date)

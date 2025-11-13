@@ -74,10 +74,8 @@ class JudgmentLayer:
                 meta = score_map.get(signal_name, {})
                 is_risk = contribution < 0
                 raw_score_source = meta.get('raw_score_source', signal_name)
-                # [代码修改开始]
                 # 从统一情报总线查找原始分
                 raw_score = all_available_signals.get(raw_score_source, pd.Series(0.0, index=df.index)).get(row.name, 0.0)
-                # [代码修改结束]
                 base_score_key = 'penalty_weight' if is_risk else 'score'
                 base_score = meta.get(base_score_key, 0)
                 signal_dict = {

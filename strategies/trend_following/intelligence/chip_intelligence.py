@@ -106,21 +106,17 @@ class ChipIntelligence:
                 concentration_trend_raw += df.get(slope_col, 0.0)
         concentration_trend_raw /= len(periods)
         peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index))
-        # [代码修改开始]
         # 新增 ZIGZAG 趋势作为辅助证据
         # 修正：直接使用 ZIG_5_5.0_D 本身，它代表了价格的ZIGZAG趋势，向上为正，向下为负
         zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index))
-        # [代码修改结束]
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
         trend_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_trend_raw, df.index, tf_weights, sensitivity=1.0)
         fusion_score = utils.get_adaptive_mtf_normalized_bipolar_score(peak_fusion_raw, df.index, tf_weights, sensitivity=50.0)
-        # [代码修改开始]
         # 归一化 ZIGZAG 趋势，向上为正，向下为负
         # 调整敏感度，避免微小波动被过度放大到极端值
         zigzag_score = utils.get_adaptive_mtf_normalized_bipolar_score(zigzag_trend_raw, df.index, tf_weights, sensitivity=0.05) # 调整敏感度
-        # [代码修改结束]
         # 融合 fusion_score 和 zigzag_score
         final_score = (level_score * 0.25 + trend_score * 0.35 + fusion_score * 0.25 + zigzag_score * 0.15).clip(-1, 1) # 调整权重
         debug_params = get_params_block(self.strategy, 'debug_params', {})
@@ -157,10 +153,8 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = utils.get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
-        # [代码修改开始]
         # 归一化偏度，正偏度为正分。调整敏感度，避免极端值。
         skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.1) # 调整敏感度
-        # [代码修改结束]
         # 融合 skewness_score
         # 融合逻辑：动量（正向）- 发散（负向）+ 偏度（正向）
         final_score = (momentum_score * 0.4 + skewness_score * 0.3 - divergence_score * 0.3).clip(-1, 1) # 调整权重
@@ -202,10 +196,8 @@ class ChipIntelligence:
         locked_loss_raw = df.get('locked_loss_rate_D', pd.Series(0.0, index=df.index)) # 新增行
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
-        # [代码修改开始]
         # 赢家信念：越高越好，正向贡献。调整敏感度，确保在涨停日能正确反映积极心态。
         conviction_score = utils.get_adaptive_mtf_normalized_bipolar_score(conviction_raw, df_index, tf_weights, sensitivity=0.5) # 调整敏感度
-        # [代码修改结束]
         # 输家痛苦：越高越差，负向贡献。降低敏感度，避免微小痛苦被放大。
         pain_score = utils.get_adaptive_mtf_normalized_bipolar_score(pain_raw, df_index, tf_weights, sensitivity=5.0)
         # 筹码疲劳：越高越差，负向贡献。降低敏感度。

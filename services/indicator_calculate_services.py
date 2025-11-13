@@ -134,10 +134,8 @@ class IndicatorCalculator:
             return None
         try:
             def _sync_bbands_calculation():
-                # [代码修改开始]
                 # 使用调用方传入的 close_col
                 bbands_df = ta.bbands(close=df[close_col], length=period, std=std_dev, append=False)
-                # [代码修改结束]
                 if bbands_df is None or bbands_df.empty:
                     return None
                 bbw_source_col = f'BBB_{period}_{std_dev:.1f}'
@@ -864,10 +862,8 @@ class IndicatorCalculator:
             processed_anchor = f"{anchor}T"
         try:
             def _sync_vwap():
-                # [代码修改开始]
                 # 使用调用方传入的列名
                 return df.ta.vwap(high=df[high_col], low=df[low_col], close=df[close_col], volume=df[volume_col], anchor=processed_anchor, append=False)
-                # [代码修改结束]
             vwap_series = await asyncio.to_thread(_sync_vwap)
             if vwap_series is None or vwap_series.empty: return None
             original_name = vwap_series.name
@@ -1040,11 +1036,9 @@ class IndicatorCalculator:
             price_range = rolling_high - rolling_low
             for level in fib_levels:
                 level_name = str(level).replace('.', '_')
-                # [代码修改开始]
                 # 在输出列名中也使用后缀
                 result_df[f'fib_{level_name}_support_{period}{suffix}'] = rolling_low + (price_range * level)
                 result_df[f'fib_{level_name}_resistance_{period}{suffix}'] = rolling_high - (price_range * level)
-                # [代码修改结束]
         return result_df
 
     async def calculate_price_volume_ma_comparison(self, df: pd.DataFrame, params: dict, suffix: str = '') -> Optional[pd.DataFrame]:
@@ -1165,9 +1159,7 @@ class IndicatorCalculator:
                     vwap_col = 'vwap_temp'
                 vwap_deviation = (df[close_col] - df[vwap_col]) / df[vwap_col].replace(0, np.nan)
                 daily_integral = vwap_deviation.resample('D').sum()
-                # [代码修改开始]
                 result_df = pd.DataFrame({'intraday_vwap_div_index_D': daily_integral})
-                # [代码修改结束]
                 return result_df.dropna()
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
@@ -1200,7 +1192,6 @@ class IndicatorCalculator:
                 df = df_minute.copy()
                 df['directional_thrust'] = (df[close_col] - df[open_col]) * df[volume_col]
                 df['total_energy'] = (df[high_col] - df[low_col]) * df[volume_col]
-                # [代码修改开始]
                 # 步骤1: 先聚合简单的求和项
                 daily_sums = df.resample('D').agg({
                     'directional_thrust': 'sum',
@@ -1215,7 +1206,6 @@ class IndicatorCalculator:
                 daily_ohlc['pct_change'] = (daily_ohlc['close'] / daily_ohlc['open'].replace(0, np.nan) - 1).fillna(0)
                 # 步骤3: 合并结果，形成最终的日级别聚合DataFrame
                 daily_agg = daily_sums.join(daily_ohlc[['pct_change']], how='inner')
-                # [代码修改结束]
                 daily_agg['conversion_efficiency'] = (daily_agg['daily_thrust'] / daily_agg['daily_energy'].replace(0, np.nan)).fillna(0)
                 efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
                 is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
@@ -1244,7 +1234,6 @@ class IndicatorCalculator:
                     'total_winner_rate', 'dominant_peak_solidity', 'VPA_EFFICIENCY'
                 ]
                 missing_cols = [col for col in required_cols if col not in df.columns]
-                # [代码修改开始]
                 # 将调试信息print替换为标准的日志警告
                 if missing_cols:
                     logger.warning(f"计算突破质量分(V2.4)失败，缺少必要列: {missing_cols}。")
@@ -1272,7 +1261,6 @@ class IndicatorCalculator:
                     score_chips * weights['chips'] +
                     score_efficiency * weights['efficiency']
                 ).clip(0, 1)
-                # [代码修改结束]
                 return pd.DataFrame({'breakout_quality_score_D': quality_score})
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:

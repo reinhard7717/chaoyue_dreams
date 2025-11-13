@@ -176,16 +176,12 @@ class CognitiveIntelligence:
         stagnation_evidence = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5)).clip(0, 1))
         # 价格超买意图负向是风险
         raw_price_overextension_score = self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
-        # [代码修改开始]
         price_overextension_risk = self._forge_dynamic_evidence(raw_price_overextension_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 2. 主力资金的撤退与意图
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
         # 资本对抗为负是资金撤退
         raw_capital_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        # [代码修改开始]
         capital_retreat_evidence = self._forge_dynamic_evidence(raw_capital_confrontation_score.clip(upper=0).abs())
-        # [代码修改结束]
         fund_flow_bearish_divergence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_FUND_FLOW_BEARISH_DIVERGENCE', 0.0))
         retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
         # 3. 筹码的派发与分散
@@ -195,19 +191,13 @@ class CognitiveIntelligence:
         # 4. 结构与形态的恶化
         # 结构趋势形态为负是恶化
         raw_structural_trend_form_score = self._get_atomic_score('SCORE_STRUCT_AXIOM_TREND_FORM', 0.0)
-        # [代码修改开始]
         structural_deterioration = self._forge_dynamic_evidence(raw_structural_trend_form_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 市场矛盾为负是风险
         raw_market_contradiction_score = self._get_fused_score('FUSION_BIPOLAR_MARKET_CONTRADICTION', 0.0)
-        # [代码修改开始]
         market_contradiction_bearish = self._forge_dynamic_evidence(raw_market_contradiction_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 上影线意图为负是抛压
         raw_upper_shadow_intent_score = self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
-        # [代码修改开始]
         upper_shadow_pressure_risk = self._forge_dynamic_evidence(raw_upper_shadow_intent_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 5. 宏观周期与风险
         cyclical_top_risk = self._forge_dynamic_evidence(self._get_atomic_score('COGNITIVE_RISK_CYCLICAL_TOP', 0.0))
         # 6. 趋势质量的反向证据 (低趋势质量是风险证据)
@@ -634,20 +624,14 @@ class CognitiveIntelligence:
         # 证据1: 散户资金净流入 (SCORE_FF_AXIOM_CONSENSUS 正向)
         # 风险剧本需要散户狂热（即散户净流入为正）。如果散户净流入为负或零，则该证据强度应为0。
         raw_retail_inflow_score = self._get_atomic_score('SCORE_FF_AXIOM_CONSENSUS', 0.0)
-        # [代码修改开始]
         retail_inflow = self._forge_dynamic_evidence(raw_retail_inflow_score.clip(lower=0))
-        # [代码修改结束]
         # 证据2: 主力资金净流出 (FUSION_BIPOLAR_CAPITAL_CONFRONTATION 负向)
         # 风险剧本需要主力撤退（即资本对抗为负）。如果资本对抗为正或零，则该证据强度应为0。
         raw_mf_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        # [代码修改开始]
         main_force_outflow = self._forge_dynamic_evidence(raw_mf_confrontation_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据3: 价格上涨 (pct_change_D 正向) - 作为背景条件，权重可以适当降低
         raw_price_rising_score = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
-        # [代码修改开始]
         price_rising = self._forge_dynamic_evidence(raw_price_rising_score.clip(lower=0))
-        # [代码修改结束]
         # 证据4: 筹码分散 (SCORE_CHIP_AXIOM_CONCENTRATION 负向) - 核心风险证据
         # 筹码分散是风险，所以 (1 - 集中度) 越高，证据越强
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
@@ -707,35 +691,25 @@ class CognitiveIntelligence:
         price_rising = self._forge_dynamic_evidence(normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21).clip(lower=0))
         # 证据2: 微观欺骗 (伪装派发) - 负向欺骗是风险
         raw_micro_deception_score = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0)
-        # [代码修改开始]
         micro_deception_bearish = self._forge_dynamic_evidence(raw_micro_deception_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据3: 上影线抛压 (真实抛压) - 负向上影线意图是抛压
         raw_upper_shadow_intent_score = self._get_fused_score('FUSION_BIPOLAR_UPPER_SHADOW_INTENT', 0.0)
-        # [代码修改开始]
         upper_shadow_pressure = self._forge_dynamic_evidence(raw_upper_shadow_intent_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据4: 筹码分散 (派发核心) - 筹码分散是风险
         chip_dispersion = self._forge_dynamic_evidence((1 - self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.5)).clip(0, 1))
         # 证据5: 主力资金净流出 (直接派发) - 资本对抗为负是流出
         raw_mf_confrontation_score = self._get_fused_score('FUSION_BIPOLAR_CAPITAL_CONFRONTATION', 0.0)
-        # [代码修改开始]
         main_force_outflow = self._forge_dynamic_evidence(raw_mf_confrontation_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据6: 赚钱卖出 (主力T+0效率负向，即赚钱卖出) - 负向是风险
         raw_profit_vs_flow_score = self._get_atomic_score('PROCESS_META_PROFIT_VS_FLOW', 0.0)
-        # [代码修改开始]
         profit_vs_flow_bearish = self._forge_dynamic_evidence(raw_profit_vs_flow_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据7: 赢家信念衰减 (获利盘动摇) - 赢家信念衰减是风险
         winner_conviction_decay = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION_DECAY', 0.0))
         # 证据8: 散户狂热主力撤退 (直接捕捉牛市陷阱) - 依赖于另一个风险剧本
         retail_fomo_retreat_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_RETAIL_FOMO_RETREAT', 0.0))
         # 证据9: 价格超买意图负向 (价格高但缺乏真实支撑) - 负向超买意图是风险
         raw_price_overextension_score = self._get_fused_score('FUSION_BIPOLAR_PRICE_OVEREXTENSION_INTENT', 0.0)
-        # [代码修改开始]
         price_overextension_risk = self._forge_dynamic_evidence(raw_price_overextension_score.clip(upper=0).abs())
-        # [代码修改结束]
         # 证据10: 长期获利盘派发风险 (更深层次的派发确认) - 依赖于另一个风险剧本
         long_term_profit_distribution_risk = self._forge_dynamic_evidence(self._get_playbook_score('COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION', 0.0))
         evidence_scores = np.stack([

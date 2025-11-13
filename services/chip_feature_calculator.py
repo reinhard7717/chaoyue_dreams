@@ -296,7 +296,6 @@ class ChipFeatureCalculator:
         bullish_reinforcement = context.get('upward_impulse_purity')
         profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
         active_winner_rate = context.get('active_winner_rate')
-        # [代码修改开始]
         # 优化 winner_conviction_index 的计算
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
             # realized_pressure 衡量获利盘兑现压力，越低越好
@@ -314,7 +313,6 @@ class ChipFeatureCalculator:
             results['winner_conviction_index'] = hesitation_factor * margin_factor * reinforcement_factor * 100
         else: # 如果有任何一个前置条件缺失，则设置默认值
             results['winner_conviction_index'] = 0.0
-        # [代码修改结束]
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):

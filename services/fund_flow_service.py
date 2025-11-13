@@ -505,7 +505,6 @@ class AdvancedFundFlowMetricsService:
         else:
             result_agg_df['main_force_t0_spread_ratio'] = np.nan
         result_agg_df['main_force_execution_alpha'] = 0.0
-        # [代码修改开始]
         # 确保传递给 np.nansum 的是 Series
         mf_buy_vol = np.nansum([
             self._get_numeric_series_with_nan(temp_df, 'buy_lg_vol'),
@@ -515,7 +514,6 @@ class AdvancedFundFlowMetricsService:
             self._get_numeric_series_with_nan(temp_df, 'sell_lg_vol'),
             self._get_numeric_series_with_nan(temp_df, 'sell_elg_vol')
         ], axis=0) * 100
-        # [代码修改结束]
         total_mf_vol = mf_buy_vol + mf_sell_vol
         if daily_vwap is not None and not daily_vwap.empty:
             safe_vwap = daily_vwap.replace(0, np.nan)
@@ -524,7 +522,6 @@ class AdvancedFundFlowMetricsService:
             weighted_alpha = (alpha_buy * mf_buy_vol + alpha_sell * mf_sell_vol)
             result_agg_df['main_force_execution_alpha'] = (weighted_alpha / np.where(total_mf_vol == 0, np.nan, total_mf_vol)) * 100
         result_agg_df['main_force_t0_efficiency'] = 0.0
-        # [代码修改开始]
         # 确保传递给 np.nansum 的是 Series
         mf_buy_amount = np.nansum([
             self._get_numeric_series_with_nan(temp_df, 'buy_lg_amount'),
@@ -534,7 +531,6 @@ class AdvancedFundFlowMetricsService:
             self._get_numeric_series_with_nan(temp_df, 'sell_lg_amount'),
             self._get_numeric_series_with_nan(temp_df, 'sell_elg_amount')
         ], axis=0)
-        # [代码修改结束]
         t0_vol = pd.min(mf_buy_vol, mf_sell_vol) if isinstance(mf_buy_vol, pd.Series) else min(mf_buy_vol, mf_sell_vol)
         if 'avg_cost_main_sell' in result_agg_df.columns and 'avg_cost_main_buy' in result_agg_df.columns:
             t0_profit = (result_agg_df['avg_cost_main_sell'] - result_agg_df['avg_cost_main_buy']) * t0_vol
