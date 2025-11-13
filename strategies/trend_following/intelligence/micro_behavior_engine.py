@@ -16,6 +16,15 @@ class MicroBehaviorEngine:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [微观行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def _get_atomic_score(self, df: pd.DataFrame, name: str, default=0.0) -> pd.Series:
         """安全地从原子状态库中获取分数。"""
         return self.strategy.atomic_states.get(name, pd.Series(default, index=df.index))
@@ -66,10 +75,11 @@ class MicroBehaviorEngine:
         - 核心逻辑: 诊断价格行为与微观订单流（如主动买卖盘）之间的背离。
           - 看涨背离：价格下跌但主动买盘增强。
           - 看跌背离：价格上涨但主动卖盘增强。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        price_trend = normalize_to_bipolar(self._get_signal(df, 'pct_change_D'), df.index, norm_window)
-        active_buy_support = self._get_signal(df, 'active_buying_support_D')
-        active_sell_pressure = self._get_signal(df, 'active_selling_pressure_D')
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, norm_window)
+        active_buy_support = self._get_safe_series(df, 'active_buying_support_D', method_name="_diagnose_axiom_divergence")
+        active_sell_pressure = self._get_safe_series(df, 'active_selling_pressure_D', method_name="_diagnose_axiom_divergence")
         active_buy_sell_diff = active_buy_support - active_sell_pressure
         order_flow_trend = normalize_to_bipolar(active_buy_sell_diff.diff(1), df.index, norm_window)
         divergence_score = (order_flow_trend - price_trend).clip(-1, 1)
@@ -78,17 +88,18 @@ class MicroBehaviorEngine:
     def _diagnose_axiom_deception(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.2 · 健壮性修复版】微观行为公理一：诊断“伪装与欺骗”
-        - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
+        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号，防止因信号缺失而崩溃。
         - 逻辑修正: 明确使用 'SLOPE_5_short_term_concentration_90pct_D' 作为筹码集中度变化的证据。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D')
+        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_deception")
         main_force_outflow = -main_force_flow_raw.clip(upper=0)
-        chip_concentration_slope = self._get_signal(df, 'SLOPE_5_short_term_concentration_90pct_D')
+        chip_concentration_slope = self._get_safe_series(df, 'SLOPE_5_short_term_concentration_90pct_D', method_name="_diagnose_axiom_deception")
         chip_concentration_increase = chip_concentration_slope.clip(lower=0)
         flow_vs_chip_deception = main_force_outflow * chip_concentration_increase
-        granularity_slope = self._get_signal(df, 'SLOPE_5_inferred_active_order_size_D')
+        granularity_slope = self._get_safe_series(df, 'SLOPE_5_inferred_active_order_size_D', method_name="_diagnose_axiom_deception")
         granularity_decrease = -granularity_slope.clip(upper=0)
-        control_leverage_slope = self._get_signal(df, 'SLOPE_5_main_force_control_leverage_D')
+        control_leverage_slope = self._get_safe_series(df, 'SLOPE_5_main_force_control_leverage_D', method_name="_diagnose_axiom_deception")
         control_increase = control_leverage_slope.clip(lower=0)
         granularity_vs_control_deception = granularity_decrease * control_increase
         raw_deception_score = flow_vs_chip_deception + granularity_vs_control_deception
@@ -98,17 +109,18 @@ class MicroBehaviorEngine:
     def _diagnose_axiom_probe(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 健壮性修复版】微观行为公理二：诊断“试探与确认”
-        - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
+        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        total_range = (self._get_signal(df, 'high_D') - self._get_signal(df, 'low_D')).replace(0, np.nan)
-        upper_shadow_ratio = ((self._get_signal(df, 'high_D') - np.maximum(self._get_signal(df, 'open_D'), self._get_signal(df, 'close_D'))) / total_range).fillna(0)
-        main_force_flow_raw = self._get_signal(df, 'main_force_net_flow_calibrated_D')
+        total_range = (self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")).replace(0, np.nan)
+        upper_shadow_ratio = ((self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe") - np.maximum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe"))) / total_range).fillna(0)
+        main_force_flow_raw = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', method_name="_diagnose_axiom_probe")
         main_force_not_outflow = main_force_flow_raw.clip(lower=0)
         probe_up_score = upper_shadow_ratio * main_force_not_outflow
-        lower_shadow_ratio = ((np.minimum(self._get_signal(df, 'open_D'), self._get_signal(df, 'close_D')) - self._get_signal(df, 'low_D')) / total_range).fillna(0)
+        lower_shadow_ratio = ((np.minimum(self._get_safe_series(df, 'open_D', method_name="_diagnose_axiom_probe"), self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe")) - self._get_safe_series(df, 'low_D', method_name="_diagnose_axiom_probe")) / total_range).fillna(0)
         main_force_inflow = main_force_flow_raw.clip(lower=0)
         probe_down_score = lower_shadow_ratio * main_force_inflow
-        breakout_high = (self._get_signal(df, 'close_D') > self._get_signal(df, 'high_D').rolling(21).max().shift(1)).astype(float)
+        breakout_high = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_probe") > self._get_safe_series(df, 'high_D', method_name="_diagnose_axiom_probe").rolling(21).max().shift(1)).astype(float)
         main_force_not_inflow = -main_force_flow_raw.clip(upper=0)
         fake_breakout_score = breakout_high * main_force_not_inflow
         raw_probe_score = probe_up_score + probe_down_score - fake_breakout_score
@@ -118,14 +130,16 @@ class MicroBehaviorEngine:
     def _diagnose_axiom_efficiency(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V1.1 · 健壮性修复版】微观行为公理三：诊断“成本与效率”
-        - 核心修复: 使用 _get_signal 方法安全获取所有依赖信号。
+        - 核心修复: 使用 _get_safe_series 方法安全获取所有依赖信号。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        amount_series = self._get_signal(df, 'amount_D')
+        amount_series = self._get_safe_series(df, 'amount_D', method_name="_diagnose_axiom_efficiency")
         amount_ma = amount_series.rolling(norm_window).mean().replace(0, np.nan)
         amount_input = (amount_series / amount_ma).fillna(1.0)
-        pct_change_series = self._get_signal(df, 'pct_change_D')
+        pct_change_series = self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_efficiency")
         price_output = pct_change_series.abs() * 100
         k = 0.1
         raw_efficiency_score = np.sign(pct_change_series) * (price_output - k * amount_input)
         efficiency_score = normalize_to_bipolar(raw_efficiency_score, df.index, window=norm_window)
         return efficiency_score.astype(np.float32)
+

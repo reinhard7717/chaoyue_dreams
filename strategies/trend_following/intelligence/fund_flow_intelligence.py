@@ -11,6 +11,15 @@ class FundFlowIntelligence:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [资金流情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def diagnose_fund_flow_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V21.5 · 纯粹原子版】资金流情报分析总指挥
@@ -44,9 +53,10 @@ class FundFlowIntelligence:
         - 核心逻辑: 诊断价格行为与资金流之间的背离。
           - 看涨背离：价格下跌但主力资金净流入。
           - 看跌背离：价格上涨但主力资金净流出。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        price_trend = normalize_to_bipolar(df.get('pct_change_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
-        main_force_flow_trend = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, norm_window)
+        main_force_flow_trend = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, norm_window)
         divergence_score = (main_force_flow_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
@@ -54,13 +64,14 @@ class FundFlowIntelligence:
         """
         【V1.1 · 博弈烈度增强版】资金流公理一：诊断“共识与分歧”
         - 引入 `mf_retail_battle_intensity` (主力散户博弈烈度) 作为判断资金流共识的重要证据。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
-        main_force_flow = df.get('net_xl_amount_calibrated_D', 0) + df.get('net_lg_amount_calibrated_D', 0)
-        retail_flow = df.get('net_md_amount_calibrated_D', 0) + df.get('net_sh_amount_calibrated_D', 0)
+        main_force_flow = self._get_safe_series(df, 'net_xl_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + self._get_safe_series(df, 'net_lg_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
+        retail_flow = self._get_safe_series(df, 'net_md_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus") + self._get_safe_series(df, 'net_sh_amount_calibrated_D', 0, method_name="_diagnose_axiom_consensus")
         raw_bipolar_series = main_force_flow - retail_flow
         # 获取主力散户博弈烈度
-        battle_intensity_raw = df.get('mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index))
+        battle_intensity_raw = self._get_safe_series(df, 'mf_retail_battle_intensity_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_consensus")
         # 归一化博弈烈度，越高越好，但作为乘数因子，需要映射到 [0, 1]
         battle_intensity_factor = normalize_score(battle_intensity_raw, df_index, window=norm_window, ascending=True).clip(0, 1)
         # 原始共识分数
@@ -73,7 +84,7 @@ class FundFlowIntelligence:
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [资金流共识探针] @ {probe_date_for_loop.date()}:")
                 print(f"       - main_force_flow: {main_force_flow.loc[probe_date_for_loop]:.4f}")
                 print(f"       - retail_flow: {retail_flow.loc[probe_date_for_loop]:.4f}")
@@ -89,12 +100,13 @@ class FundFlowIntelligence:
         - 核心升级: 增加调试探针，打印关键中间值。
         - 核心修复: 对 `conviction_index` 和 `cost_advantage` 进行归一化，避免原始值过大导致截断。
         - 引入 `main_force_price_impact_ratio` (主力价格冲击比率) 作为判断主力信念和效率的重要证据。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
-        conviction_index_raw = df.get('main_force_conviction_index_D', pd.Series(0.0, index=df_index))
-        cost_advantage_raw = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
-        t0_efficiency_raw = df.get('main_force_t0_efficiency_D', pd.Series(0.5, index=df_index))
-        price_impact_raw = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index))
+        conviction_index_raw = self._get_safe_series(df, 'main_force_conviction_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
+        cost_advantage_raw = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
+        t0_efficiency_raw = self._get_safe_series(df, 'main_force_t0_efficiency_D', pd.Series(0.5, index=df_index), method_name="_diagnose_axiom_conviction")
+        price_impact_raw = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_conviction")
         # 对 conviction_index_raw 和 cost_advantage_raw 进行归一化
         # 赢家信念和成本优势越高越好，所以归一化后应为正
         conviction_index_bipolar = normalize_to_bipolar(conviction_index_raw, df_index, window=norm_window, sensitivity=10.0) # 调整敏感度
@@ -117,7 +129,7 @@ class FundFlowIntelligence:
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [资金流信念探针] @ {probe_date_for_loop.date()}:")
                 print(f"       - conviction_index_raw: {conviction_index_raw.loc[probe_date_for_loop]:.4f}")
                 print(f"       - cost_advantage_raw: {cost_advantage_raw.loc[probe_date_for_loop]:.4f}")
@@ -132,9 +144,13 @@ class FundFlowIntelligence:
         return conviction_score.astype(np.float32)
 
     def _diagnose_axiom_increment(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】资金流公理三：诊断“存量博弈”"""
-        net_flow = df.get('net_flow_calibrated_D', pd.Series(0.0, index=df.index))
-        turnover_slope = df.get(f'SLOPE_5_turnover_rate_f_D', pd.Series(0.0, index=df.index))
-        raw_bipolar_series = net_flow - (turnover_slope.clip(lower=0) * df.get('circ_mv_D', 1e9) * 0.01)
+        """
+        【V1.0】资金流公理三：诊断“存量博弈”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
+        net_flow = self._get_safe_series(df, 'net_flow_calibrated_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_increment")
+        turnover_slope = self._get_safe_series(df, f'SLOPE_5_turnover_rate_f_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_increment")
+        raw_bipolar_series = net_flow - (turnover_slope.clip(lower=0) * self._get_safe_series(df, 'circ_mv_D', 1e9, method_name="_diagnose_axiom_increment") * 0.01)
         increment_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)
         return increment_score.astype(np.float32)
+

@@ -11,6 +11,15 @@ class DynamicMechanicsEngine:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [力学情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_dynamic_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V5.8 · 均线动态增强版】动态力学引擎总指挥
@@ -56,13 +65,17 @@ class DynamicMechanicsEngine:
         return divergence_score.astype(np.float32)
 
     def _diagnose_axiom_momentum(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】力学公理一：诊断“动量”"""
-        roc = df.get('ROC_12_D', pd.Series(0.0, index=df.index))
-        macd_h = df.get('MACDh_13_34_8_D', pd.Series(0.0, index=df.index))
+        """
+        【V1.0】力学公理一：诊断“动量”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
+        roc = self._get_safe_series(df, 'ROC_12_D', 0.0, method_name="_diagnose_axiom_momentum")
+        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_momentum")
         roc_score = normalize_to_bipolar(roc, df.index, norm_window)
         macd_h_score = normalize_to_bipolar(macd_h, df.index, norm_window)
         momentum_score = (roc_score * 0.6 + macd_h_score * 0.4).clip(-1, 1)
         return momentum_score.astype(np.float32)
+
 
     def _diagnose_axiom_inertia(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
@@ -74,22 +87,23 @@ class DynamicMechanicsEngine:
                    这从根本上解决了因单一维度疲软而导致“一票否决”的系统性风险。
         - 【新增】引入均线速度和加速度作为惯性判断的证据。
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        adx_strength = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        adx_strength = normalize_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
         hurst_col = next((col for col in df.columns if col.startswith('hurst_')), 'hurst_144d_D')
-        hurst = df.get(hurst_col, pd.Series(0.5, index=df.index)).fillna(0.5)
+        hurst = self._get_safe_series(df, hurst_col, 0.5, method_name="_diagnose_axiom_inertia").fillna(0.5)
         hurst_quality = normalize_score(hurst, df.index, norm_window, ascending=True)
         fractal_col = next((col for col in df.columns if col.startswith('FRACTAL_DIMENSION_')), None)
         if fractal_col:
-            fractal_dim = df.get(fractal_col, pd.Series(1.5, index=df.index)).fillna(1.5)
+            fractal_dim = self._get_safe_series(df, fractal_col, 1.5, method_name="_diagnose_axiom_inertia").fillna(1.5)
             fractal_smoothness = normalize_score(fractal_dim, df.index, norm_window, ascending=False)
         else:
             fractal_smoothness = pd.Series(0.5, index=df.index)
         ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
         timeframe_key = 'D' # 明确时间框架
         # 修正列名引用，确保与 merge_results 后的列名一致
-        ma_velocity = normalize_score(df.get(f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        ma_acceleration = normalize_score(df.get(f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        ma_velocity = normalize_score(self._get_safe_series(df, f'MA_VELOCITY_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
+        ma_acceleration = normalize_score(self._get_safe_series(df, f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}', 0.0, method_name="_diagnose_axiom_inertia"), df.index, norm_window, ascending=True)
         inertia_quality = (
             adx_strength * 0.3 +
             hurst_quality * 0.3 +
@@ -97,7 +111,7 @@ class DynamicMechanicsEngine:
             ma_velocity * 0.15 +
             ma_acceleration * 0.15
         ).clip(0, 1)
-        adx_direction = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float) * 2 - 1
+        adx_direction = (self._get_safe_series(df, 'PDI_14_D', 0, method_name="_diagnose_axiom_inertia") > self._get_safe_series(df, 'NDI_14_D', 0, method_name="_diagnose_axiom_inertia")).astype(float) * 2 - 1
         inertia_score = (inertia_quality * adx_direction).clip(-1, 1)
         return inertia_score.astype(np.float32)
 
@@ -107,14 +121,15 @@ class DynamicMechanicsEngine:
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 将“波动率水平”和“波动率的稳定性”视为同等重要的两个独立证据，进行加权平均，
                    而不是相乘。这避免了因单一维度暂时表现不佳而完全否定整体稳定性的问题。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        bbw = df.get('BBW_21_2.0_D', pd.Series(0.0, index=df.index))
-        atr_pct = df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / df['close_D'].replace(0, np.nan)
+        bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_stability")
+        atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_axiom_stability") / self._get_safe_series(df, 'close_D', 1e-9, method_name="_diagnose_axiom_stability").replace(0, np.nan)
         raw_volatility = (bbw + atr_pct).fillna(0)
         volatility_level_score = normalize_score(raw_volatility, df.index, norm_window, ascending=False)
         vol_instability_col = next((col for col in df.columns if col.startswith('VOLATILITY_INSTABILITY_INDEX_')), None)
         if vol_instability_col:
-            vol_of_vol = df.get(vol_instability_col, pd.Series(0.0, index=df.index))
+            vol_of_vol = self._get_safe_series(df, vol_instability_col, 0.0, method_name="_diagnose_axiom_stability")
             volatility_stability_score = normalize_score(vol_of_vol, df.index, norm_window, ascending=False)
         else:
             volatility_stability_score = pd.Series(0.5, index=df.index)
@@ -131,9 +146,10 @@ class DynamicMechanicsEngine:
         - 核心重构: 废除脆弱的乘法融合模型，改为更稳健的加权平均模型。
         - 新逻辑: 将VPA效率和CMF资金流视为两个独立的能量来源，进行加权融合。
                    当两者方向一致时，能量共振增强；方向相反时，能量相互抵消。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        vpa = df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index))
-        cmf = df.get('CMF_21_D', pd.Series(0.0, index=df.index))
+        vpa = self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_axiom_energy")
+        cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_energy")
         vpa_bipolar = (vpa * 2 - 1).clip(-1, 1)
         cmf_bipolar = normalize_to_bipolar(cmf, df.index, norm_window)
         energy_score = (
@@ -148,6 +164,7 @@ class DynamicMechanicsEngine:
         - 核心逻辑: 融合均线的速度和加速度，评估趋势的内在变化。
         - 正分代表均线加速向上，负分代表均线加速向下。
         - 【修复】修正了引用均线速度和加速度列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         ma_col_base = 'EMA_55' # 原始均线列名，不带时间框架后缀
@@ -155,14 +172,15 @@ class DynamicMechanicsEngine:
         # 修正列名引用，确保与 merge_results 后的列名一致
         velocity_col = f'MA_VELOCITY_{ma_col_base}_{timeframe_key}'
         acceleration_col = f'MA_ACCELERATION_{ma_col_base}_{timeframe_key}'
+        velocity_raw = self._get_safe_series(df, velocity_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
+        acceleration_raw = self._get_safe_series(df, acceleration_col, 0.0, method_name="_diagnose_axiom_ma_dynamics")
         if velocity_col not in df.columns or acceleration_col not in df.columns:
             print(f"    -> [均线动态探针] 警告: 缺少均线速度或加速度列 ({velocity_col}, {acceleration_col})，使用默认值0.0。")
             return pd.Series(0.0, index=df_index)
-        velocity_raw = df.get(velocity_col, pd.Series(0.0, index=df_index))
-        acceleration_raw = df.get(acceleration_col, pd.Series(0.0, index=df_index))
         # 归一化速度和加速度
         velocity_score = normalize_to_bipolar(velocity_raw, df_index, norm_window)
         acceleration_score = normalize_to_bipolar(acceleration_raw, df_index, norm_window)
         # 融合：速度和加速度都为正时，分数最高
         ma_dynamics_score = (velocity_score * 0.6 + acceleration_score * 0.4).clip(-1, 1)
         return ma_dynamics_score.astype(np.float32)
+

@@ -11,6 +11,15 @@ class FoundationIntelligence:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [基础情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_foundation_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V6.4 · 纯粹原子版】基础情报分析总指挥
@@ -49,12 +58,13 @@ class FoundationIntelligence:
         """
         【V1.0】诊断内部上下文信号：趋势确认分 (CONTEXT_TREND_CONFIRMED)
         - 核心逻辑: 融合趋势强度(ADX)、方向(PDI/NDI)和健康度(BIAS)，评估上升趋势的确认程度。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        adx_score = normalize_score(df.get('ADX_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
-        pdi_gt_ndi = (df.get('PDI_14_D', 0) > df.get('NDI_14_D', 0)).astype(float)
-        pdi_slope = normalize_score(df.get('SLOPE_5_PDI_14_D', pd.Series(0.0, index=df.index)), df.index, norm_window, ascending=True)
+        adx_score = normalize_score(self._get_safe_series(df, 'ADX_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, norm_window, ascending=True)
+        pdi_gt_ndi = (self._get_safe_series(df, 'PDI_14_D', 0, method_name="_diagnose_context_trend_confirmed") > self._get_safe_series(df, 'NDI_14_D', 0, method_name="_diagnose_context_trend_confirmed")).astype(float)
+        pdi_slope = normalize_score(self._get_safe_series(df, 'SLOPE_5_PDI_14_D', 0.0, method_name="_diagnose_context_trend_confirmed"), df.index, norm_window, ascending=True)
         direction_score = (pdi_gt_ndi * pdi_slope).pow(0.5)
-        bias_health_score = 1 - normalize_score(df.get('BIAS_55_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, norm_window, ascending=True)
+        bias_health_score = 1 - normalize_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_trend_confirmed").clip(lower=0), df.index, norm_window, ascending=True)
         trend_confirmed = (adx_score * direction_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_TREND_CONFIRMED': trend_confirmed.astype(np.float32)}
 
@@ -64,9 +74,10 @@ class FoundationIntelligence:
         - 核心逻辑: 诊断价格趋势与摆动指标（如RSI）之间的背离。
           - 看涨背离：价格创新低但RSI未创新低。
           - 看跌背离：价格创新高但RSI未创新高。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        price_trend = normalize_to_bipolar(df.get('SLOPE_13_close_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
-        oscillator_trend = normalize_to_bipolar(df.get('SLOPE_13_RSI_13_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'SLOPE_13_close_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, norm_window)
+        oscillator_trend = normalize_to_bipolar(self._get_safe_series(df, 'SLOPE_13_RSI_13_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, norm_window)
         divergence_score = (oscillator_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
 
@@ -75,19 +86,20 @@ class FoundationIntelligence:
         【V1.2 · DMA趋势增强与列名引用修复版】基础公理一：诊断“趋势”
         - 【新增】引入 DMA 指标的斜率作为趋势判断的辅助证据。
         - 【修复】修正了引用 DMA 斜率列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        macd_h = df.get('MACDh_13_34_8_D', pd.Series(0.0, index=df.index))
+        macd_h = self._get_safe_series(df, 'MACDh_13_34_8_D', 0.0, method_name="_diagnose_axiom_trend")
         macd_score = normalize_to_bipolar(macd_h, df.index, norm_window)
         fusion_weights = params.get('ma_health_fusion_weights', {'alignment': 0.5, 'slope': 0.5})
         ma_periods = [5, 13, 21, 55]
-        bull_alignment_scores = [(df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float).values for i in range(len(ma_periods) - 1)]
+        bull_alignment_scores = [(self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend") > self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend")).astype(float).values for i in range(len(ma_periods) - 1)]
         alignment_score = np.mean(bull_alignment_scores, axis=0) if bull_alignment_scores else np.full(len(df.index), 0.5)
         alignment_bipolar = (pd.Series(alignment_score, index=df.index) - 0.5) * 2
-        slope_scores = [normalize_to_bipolar(df.get(f'SLOPE_{p}_EMA_{p}_D', pd.Series(0.0, index=df.index)), df.index, norm_window).values for p in ma_periods]
+        slope_scores = [normalize_to_bipolar(self._get_safe_series(df, f'SLOPE_{p}_EMA_{p}_D', 0.0, method_name="_diagnose_axiom_trend"), df.index, norm_window).values for p in ma_periods]
         avg_slope_bipolar = pd.Series(np.mean(slope_scores, axis=0), index=df.index)
         # 新增 DMA 斜率作为趋势证据
         # 修正列名引用，确保与 merge_results 后的列名一致
-        dma_slope = df.get('SLOPE_5_DMA_D', pd.Series(0.0, index=df.index))
+        dma_slope = self._get_safe_series(df, 'SLOPE_5_DMA_D', 0.0, method_name="_diagnose_axiom_trend")
         dma_slope_score = normalize_to_bipolar(dma_slope, df.index, norm_window)
         structure_score = (
             alignment_bipolar * fusion_weights.get('alignment', 0.5) +
@@ -98,8 +110,11 @@ class FoundationIntelligence:
         return trend_score.astype(np.float32)
 
     def _diagnose_axiom_oscillator(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】基础公理二：诊断“摆动”"""
-        rsi = df.get('RSI_13_D', pd.Series(50.0, index=df.index))
+        """
+        【V1.0】基础公理二：诊断“摆动”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
+        rsi = self._get_safe_series(df, 'RSI_13_D', 50.0, method_name="_diagnose_axiom_oscillator")
         raw_bipolar_series = rsi - 50.0
         oscillator_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=10.0)
         return oscillator_score.astype(np.float32)
@@ -108,9 +123,10 @@ class FoundationIntelligence:
         """
         【V1.1 · 探针增强版】基础公理三：诊断“流体”
         - 核心升级: 增加调试探针，打印 CMF 原始值和归一化分数。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
-        cmf = df.get('CMF_21_D', pd.Series(0.0, index=df_index))
+        cmf = self._get_safe_series(df, 'CMF_21_D', 0.0, method_name="_diagnose_axiom_flow")
         # 调整 sensitivity，使其对 CMF 的波动不那么敏感，避免极端负值
         flow_score = normalize_to_bipolar(cmf, df_index, window=norm_window, sensitivity=0.5) # 提高敏感度
         # --- Debugging output for probe date ---
@@ -119,16 +135,19 @@ class FoundationIntelligence:
         if probe_dates_str:
             probe_date_naive = pd.to_datetime(probe_dates_str[0])
             probe_date_for_loop = probe_date_naive.tz_localize(df_index.tz) if df_index.tz else probe_date_naive
-            if probe_date_for_loop is not None and probe_date_for_loop in df_index:
+            if probe_date_for_loop is not None and probe_date_for_loop in df.index:
                 print(f"    -> [基础流体探针] @ {probe_date_for_loop.date()}:")
                 print(f"       - CMF_21_D: {cmf.loc[probe_date_for_loop]:.4f}")
                 print(f"       - flow_score: {flow_score.loc[probe_date_for_loop]:.4f}")
         return flow_score.astype(np.float32)
 
     def _diagnose_axiom_volatility(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
-        """【V1.0】基础公理四：诊断“波动”"""
-        bbw = df.get('BBW_21_2.0_D', pd.Series(0.0, index=df.index))
-        atr_pct = df.get('ATR_14_D', pd.Series(0.0, index=df.index)) / df['close_D']
+        """
+        【V1.0】基础公理四：诊断“波动”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
+        bbw = self._get_safe_series(df, 'BBW_21_2.0_D', 0.0, method_name="_diagnose_axiom_volatility")
+        atr_pct = self._get_safe_series(df, 'ATR_14_D', 0.0, method_name="_diagnose_axiom_volatility") / self._get_safe_series(df, 'close_D', 1e-9, method_name="_diagnose_axiom_volatility")
         raw_volatility = bbw + atr_pct
         raw_bipolar_series = -raw_volatility
         volatility_score = normalize_to_bipolar(raw_bipolar_series, df.index, window=norm_window, sensitivity=1.0)

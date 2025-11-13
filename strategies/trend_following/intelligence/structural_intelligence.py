@@ -18,6 +18,15 @@ class StructuralIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def diagnose_structural_states(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V4.3 · 纯粹原子版】结构情报分析总指挥
@@ -52,14 +61,15 @@ class StructuralIntelligence:
         - 核心逻辑: 诊断价格行为与均线结构（如均线排列）的背离。
           - 看涨背离：价格下跌但均线排列开始收敛或转好。
           - 看跌背离：价格上涨但均线排列开始发散或恶化。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         ma_periods = [5, 13, 21, 55]
         required_cols = [f'EMA_{p}_D' for p in ma_periods]
         if not all(col in df.columns for col in required_cols):
             print("诊断结构背离失败：缺少必要的EMA列。")
             return pd.Series(0.0, index=df.index)
-        price_trend = normalize_to_bipolar(df.get('pct_change_D', pd.Series(0.0, index=df.index)), df.index, norm_window)
-        ema_short_long_diff = df.get('EMA_5_D', pd.Series(0.0, index=df.index)) - df.get('EMA_55_D', pd.Series(0.0, index=df.index))
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', 0.0, method_name="_diagnose_axiom_divergence"), df.index, norm_window)
+        ema_short_long_diff = self._get_safe_series(df, 'EMA_5_D', 0.0, method_name="_diagnose_axiom_divergence") - self._get_safe_series(df, 'EMA_55_D', 0.0, method_name="_diagnose_axiom_divergence")
         ma_structure_trend = normalize_to_bipolar(ema_short_long_diff.diff(1), df.index, norm_window)
         divergence_score = (ma_structure_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)

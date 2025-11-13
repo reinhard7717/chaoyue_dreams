@@ -19,6 +19,15 @@ class BehavioralIntelligence:
         self.strategy = strategy_instance
         self.pattern_recognizer = strategy_instance.pattern_recognizer
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [行为情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_behavioral_analysis_command(self) -> Dict[str, pd.Series]:
         """
         【V5.6 · 原始信号纯粹版】行为情报模块总指挥
@@ -142,15 +151,16 @@ class BehavioralIntelligence:
         """
         【V1.1 · 工具归位版】行为K线质量分计算引擎
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("开始执行【V1.0 · 纯净版】行为K线质量分计算...")
-        outcome_core = (df.get('closing_price_deviation_score_D', 0.5) * 2 - 1).clip(-1, 1)
-        body_dominance = df.get('real_body_vs_range_ratio_D', 0.0)
-        shadow_dominance = df.get('shadow_dominance_D', 0.0)
+        outcome_core = (self._get_safe_series(df, 'closing_price_deviation_score_D', 0.5, method_name="_calculate_behavioral_day_quality") * 2 - 1).clip(-1, 1)
+        body_dominance = self._get_safe_series(df, 'real_body_vs_range_ratio_D', 0.0, method_name="_calculate_behavioral_day_quality")
+        shadow_dominance = self._get_safe_series(df, 'shadow_dominance_D', 0.0, method_name="_calculate_behavioral_day_quality")
         pillar1_outcome_score = (outcome_core * 0.7 + outcome_core * body_dominance * 0.1 + shadow_dominance * 0.2).clip(-1, 1)
-        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index)), df.index)
-        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('vwap_control_strength_D', pd.Series(0.0, index=df.index)), df.index)
-        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(df.get('intraday_trend_purity_D', pd.Series(0.0, index=df.index)), df.index)
+        vpa_eff_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
+        vwap_ctrl_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
+        trend_purity_bipolar = get_adaptive_mtf_normalized_bipolar_score(self._get_safe_series(df, 'intraday_trend_purity_D', pd.Series(0.0, index=df.index), method_name="_calculate_behavioral_day_quality"), df.index)
         bullish_execution = (((vpa_eff_bipolar + 1)/2) * ((vwap_ctrl_bipolar + 1)/2) * ((trend_purity_bipolar + 1)/2)).pow(1/3)
         pillar2_execution_score = (bullish_execution * 2 - 1).clip(-1, 1)
         day_quality_score = (
@@ -161,29 +171,36 @@ class BehavioralIntelligence:
         return day_quality_score.astype(np.float32)
 
     def _diagnose_behavioral_axioms(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        【V3.0 · 职责净化版】原子信号中心
+        - 核心升级: 遵循“三层金字塔”架构，本方法不再计算跨领域的“趋势健康度”和“绝望度”。
+                      这些高级融合逻辑已迁移至 FusionIntelligence。
+                      新增对纯净版“行为K线质量分”的计算和发布。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
         states = {}
         p_behavior = get_params_block(self.strategy, 'behavioral_dynamics_params', {})
         p_mtf = get_param_value(p_behavior.get('mtf_normalization_params'), {})
         default_weights = get_param_value(p_mtf.get('default_weights'), {'weights': {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1}})
         long_term_weights = get_param_value(p_mtf.get('long_term_weights'), {'weights': {21: 0.5, 55: 0.3, 89: 0.2}})
-        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms").clip(lower=0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms").clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'BIAS_55_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'volume_ratio_D', 1.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         # 移除 SCORE_BEHAVIOR_VOLUME_APATHY，替换为更精确的 SCORE_BEHAVIOR_VOLUME_ATROPHY
         # states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(df.get('lower_shadow_absorption_strength_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(df.get('upper_shadow_selling_pressure_D', 0.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
-        volume_trend = normalize_to_bipolar(df['volume_D'].diff(1), df.index, window=55)
+        states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', 0.5, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_LOWER_SHADOW_ABSORPTION'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'lower_shadow_absorption_strength_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        states['INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW'] = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'upper_shadow_selling_pressure_D', 0.0, method_name="_diagnose_behavioral_axioms"), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms"), df.index, window=55)
+        volume_trend = normalize_to_bipolar(self._get_safe_series(df, 'volume_D', method_name="_diagnose_behavioral_axioms").diff(1), df.index, window=55)
         divergence_score = (volume_trend - price_trend).clip(-1, 1)
         states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
-        is_rising = (df['pct_change_D'] > 0).astype(float)
-        is_falling = (df['pct_change_D'] < 0).astype(float)
+        is_rising = (self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms") > 0).astype(float)
+        is_falling = (self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_behavioral_axioms") < 0).astype(float)
         states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32) # 修改为 VOLUME_ATROPHY
         states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32) # 修改为 VOLUME_ATROPHY
         # 行为层新增中性、原子级的“滞涨证据原始分”
@@ -224,13 +241,14 @@ class BehavioralIntelligence:
           3. 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
           4. 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
         - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩越严重。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         # 获取必要的成交量均线数据
-        vol = df.get('volume_D', pd.Series(0.0, index=df_index))
-        vol_ma5 = df.get('VOL_MA_5_D', pd.Series(0.0, index=df_index))
-        vol_ma13 = df.get('VOL_MA_13_D', pd.Series(0.0, index=df_index)) # 新增13日均量
-        vol_ma21 = df.get('VOL_MA_21_D', pd.Series(0.0, index=df_index))
+        vol = self._get_safe_series(df, 'volume_D', 0.0, method_name="_calculate_volume_atrophy")
+        vol_ma5 = self._get_safe_series(df, 'VOL_MA_5_D', 0.0, method_name="_calculate_volume_atrophy")
+        vol_ma13 = self._get_safe_series(df, 'VOL_MA_13_D', 0.0, method_name="_calculate_volume_atrophy") # 新增13日均量
+        vol_ma21 = self._get_safe_series(df, 'VOL_MA_21_D', 0.0, method_name="_calculate_volume_atrophy")
         # 确保数据存在，否则返回默认值
         if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma13.isnull().all() or vol_ma21.isnull().all():
             print("    -> [行为情报引擎警告] 缺少成交量或成交量均线数据，无法计算 SCORE_BEHAVIOR_VOLUME_ATROPHY。")
@@ -253,7 +271,6 @@ class BehavioralIntelligence:
         # 冰点萎缩的持续性
         ice_point_atrophy_persistence = is_ice_point_atrophy.rolling(window=5, min_periods=1).sum() / 5
         ice_point_atrophy_score = is_ice_point_atrophy * (0.5 + ice_point_atrophy_persistence * 0.5) # 持续越久，分数越高
-        # [代码修改开始]
         # 证据4: 成交量均线空头排列 (VOL_MA_5_D < VOL_MA_13_D < VOL_MA_21_D)
         # 这是一个结构性萎缩的强力证据
         is_ma_bearish_alignment = ((vol_ma5 < vol_ma13) & (vol_ma13 < vol_ma21)).astype(float)
@@ -262,7 +279,6 @@ class BehavioralIntelligence:
         ma_bearish_alignment_score = get_adaptive_mtf_normalized_score(ma_bearish_alignment_strength_raw.clip(lower=0), df_index, ascending=True, tf_weights=tf_weights)
         # 融合布尔条件和强度
         ma_bearish_alignment_final_score = is_ma_bearish_alignment * ma_bearish_alignment_score
-        # [代码修改结束]
         # 融合所有证据
         # 赋予冰点萎缩和均线空头排列更高的权重，因为它代表了最强的萎缩信号
         # 使用加权几何平均，确保所有证据都存在时分数才高
@@ -283,10 +299,11 @@ class BehavioralIntelligence:
         """
         【V1.0】诊断内部上下文信号：新高强度 (CONTEXT_NEW_HIGH_STRENGTH)
         - 核心逻辑: 融合价格突破、均线斜率和BIAS健康度，评估新高的综合质量。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        price_breakthrough_score = normalize_score(df['pct_change_D'].clip(lower=0), df.index, window=55, ascending=True)
-        ma_slope_score = normalize_score(df.get('SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index)), df.index, window=55, ascending=True)
-        bias_health_score = 1 - normalize_score(df.get('BIAS_55_D', pd.Series(0.0, index=df.index)).clip(lower=0), df.index, window=55, ascending=True)
+        price_breakthrough_score = normalize_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, window=55, ascending=True)
+        ma_slope_score = normalize_score(self._get_safe_series(df, 'SLOPE_5_EMA_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength"), df.index, window=55, ascending=True)
+        bias_health_score = 1 - normalize_score(self._get_safe_series(df, 'BIAS_55_D', pd.Series(0.0, index=df.index), method_name="_diagnose_context_new_high_strength").clip(lower=0), df.index, window=55, ascending=True)
         new_high_strength = (price_breakthrough_score * ma_slope_score * bias_health_score).pow(1/3).fillna(0.0)
         return {'CONTEXT_NEW_HIGH_STRENGTH': new_high_strength.astype(np.float32)}
 
@@ -294,11 +311,12 @@ class BehavioralIntelligence:
         """
         【V3.1 · 工具归位版】压力-承接能量转化模型
         - 核心修改: 调用从 utils.py 导入的公共归一化工具。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         states = {}
         df = self.strategy.df_indicators
-        absorption_efficiency = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
-        absorption_control = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', pd.Series(0.5, index=df.index)), df.index, ascending=True)
+        absorption_efficiency = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'VPA_EFFICIENCY_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True)
+        absorption_control = get_adaptive_mtf_normalized_score(self._get_safe_series(df, 'vwap_control_strength_D', pd.Series(0.5, index=df.index), method_name="_resolve_pressure_absorption_dynamics"), df.index, ascending=True)
         absorption_intent_factor = (intent_diagnosis.clip(-1, 1) + 1) / 2.0
         absorption_quality_score = (absorption_efficiency * absorption_control * absorption_intent_factor).pow(1/3)
         daily_net_force = absorption_quality_score - provisional_pressure
@@ -314,3 +332,4 @@ class BehavioralIntelligence:
         states['SCORE_RISK_UNRESOLVED_PRESSURE'] = final_risk_score.astype(np.float32)
         states['SCORE_OPPORTUNITY_PRESSURE_ABSORPTION'] = final_opportunity_score.astype(np.float32)
         return states
+

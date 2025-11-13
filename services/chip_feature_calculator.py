@@ -900,7 +900,6 @@ class ChipFeatureCalculator:
             # 涨停日特殊处理：如果当天是涨停，且 active_profit_margin 为正，则至少赋予一个基础信念分
             if (close_price / pre_close - 1) > 0.098 and active_profit_margin > 0:
                 winner_conviction_index = np.maximum(winner_conviction_index, 10.0) # 涨停日至少10分
-            # [代码修改结束]
             if is_probe_date:
                 print(f"       - pressure_ratio: {pressure_ratio:.4f}")
                 print(f"       - realized_pressure: {realized_pressure:.4f}")

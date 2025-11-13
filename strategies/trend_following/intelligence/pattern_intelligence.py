@@ -11,6 +11,15 @@ class PatternIntelligence:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [形态情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_pattern_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V8.3 · 纯粹原子版】形态分析总指挥
@@ -39,9 +48,10 @@ class PatternIntelligence:
     def _diagnose_axiom_divergence(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.0 · 清洁版】形态公理一：诊断“背离”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        price_slope = df.get('SLOPE_13_close_D', pd.Series(0, index=df.index))
-        momentum_slope = df.get('SLOPE_13_intraday_vwap_div_index_D', pd.Series(0, index=df.index))
+        price_slope = self._get_safe_series(df, 'SLOPE_13_close_D', 0, method_name="_diagnose_axiom_divergence")
+        momentum_slope = self._get_safe_series(df, 'SLOPE_13_intraday_vwap_div_index_D', 0, method_name="_diagnose_axiom_divergence")
         bullish_divergence_strength = ((price_slope < 0) & (momentum_slope > 0)).astype(float)
         bearish_divergence_strength = ((price_slope > 0) & (momentum_slope < 0)).astype(float)
         raw_divergence_score = bullish_divergence_strength - bearish_divergence_strength
@@ -51,19 +61,22 @@ class PatternIntelligence:
     def _diagnose_axiom_reversal(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.0 · 清洁版】形态公理二：诊断“反转”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        raw_reversal_score = df.get('counterparty_exhaustion_index', pd.Series(0, index=df.index))
+        raw_reversal_score = self._get_safe_series(df, 'counterparty_exhaustion_index_D', 0, method_name="_diagnose_axiom_reversal")
         reversal_score = normalize_to_bipolar(raw_reversal_score, df.index, window=norm_window)
         return reversal_score.astype(np.float32)
 
     def _diagnose_axiom_breakout(self, df: pd.DataFrame, norm_window: int) -> pd.Series:
         """
         【V3.0 · 清洁版】形态公理三：诊断“突破”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
-        is_breakout_up = (df['close_D'] > df.get('dynamic_consolidation_high_D', np.inf)).astype(float)
-        is_breakout_down = (df['close_D'] < df.get('dynamic_consolidation_low_D', -np.inf)).astype(float)
+        is_breakout_up = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_breakout") > self._get_safe_series(df, 'dynamic_consolidation_high_D', np.inf, method_name="_diagnose_axiom_breakout")).astype(float)
+        is_breakout_down = (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_breakout") < self._get_safe_series(df, 'dynamic_consolidation_low_D', -np.inf, method_name="_diagnose_axiom_breakout")).astype(float)
         breakout_direction = is_breakout_up - is_breakout_down
-        breakout_quality = df.get('breakout_quality_score_D', pd.Series(0, index=df.index))
+        breakout_quality = self._get_safe_series(df, 'breakout_quality_score_D', pd.Series(0, index=df.index), method_name="_diagnose_axiom_breakout")
         raw_breakout_score = breakout_direction * breakout_quality
         breakout_score = normalize_to_bipolar(raw_breakout_score, df.index, window=norm_window)
         return breakout_score.astype(np.float32)
+

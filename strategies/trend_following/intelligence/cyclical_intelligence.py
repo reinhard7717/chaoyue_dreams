@@ -13,6 +13,15 @@ class CyclicalIntelligence:
         """
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [周期情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_cyclical_analysis_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V2.1 · 双星系统版】周期情报分析总指挥
@@ -69,13 +78,14 @@ class CyclicalIntelligence:
         """
         【V2.0 · 命名净化版】使用FFT诊断市场周期 (公理一)
         - 核心升级: 净化所有输出信号的命名，明确其来源为FFT。
+        - 核心修复: 增加对 'close_D' 数据的存在性检查。
         """
         states = {}
         # --- 1. 获取参数 ---
         fft_window = get_param_value(params.get('fft_window'), 128)
         top_n_cycles = get_param_value(params.get('top_n_cycles'), 3)
         # --- 2. 准备数据与检查 ---
-        close_prices = df['close_D']
+        close_prices = self._get_safe_series(df, 'close_D', method_name="diagnose_market_cycles_with_fft")
         if len(close_prices) < fft_window:
             print(f"日线FFT数据长度({len(close_prices)})不足窗口({fft_window})，跳过计算。")
             default_series_spec = {

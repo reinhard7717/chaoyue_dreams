@@ -14,12 +14,22 @@ class ChipIntelligence:
         self.strategy = strategy_instance
         self.dynamic_thresholds = dynamic_thresholds
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [筹码情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_chip_intelligence_command(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
         【V9.3 · 纯粹原子版】筹码情报总指挥
         - 核心升级: 废弃原子层面的“共振”和“领域健康度”信号。
         - 核心职责: 只输出筹码领域的原子公理信号、筹码背离信号和超级原子信号。
         - 移除信号: SCORE_CHIP_BULLISH_RESONANCE, SCORE_CHIP_BEARISH_RESONANCE, BIPOLAR_CHIP_DOMAIN_HEALTH, SCORE_CHIP_BOTTOM_REVERSAL, SCORE_CHIP_TOP_REVERSAL。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         all_chip_states = {}
         periods = [5, 13, 21, 55]
@@ -42,13 +52,13 @@ class ChipIntelligence:
         all_chip_states['SCORE_CHIP_BEARISH_DIVERGENCE'] = bearish_divergence.astype(np.float32)
         # 步骤二: 工程化超级原子信号
         # 信号1: 筹码干净度 (SCORE_CHIP_CLEANLINESS)
-        chip_fault = df.get('chip_fault_blockage_ratio_D', 0.5)
-        profit_pressure = df.get('imminent_profit_taking_supply_D', 0.5)
+        chip_fault = self._get_safe_series(df, 'chip_fault_blockage_ratio_D', 0.5, method_name="run_chip_intelligence_command")
+        profit_pressure = self._get_safe_series(df, 'imminent_profit_taking_supply_D', 0.5, method_name="run_chip_intelligence_command")
         cleanliness_score = ((1 - chip_fault) * (1 - profit_pressure)).pow(0.5).fillna(0.5)
         all_chip_states['SCORE_CHIP_CLEANLINESS'] = cleanliness_score.astype(np.float32)
         # 信号2: 筹码锁定度 (SCORE_CHIP_LOCKDOWN_DEGREE)
-        locked_profit = df.get('locked_profit_rate_D', 0.0)
-        locked_loss = df.get('locked_loss_rate_D', 0.0)
+        locked_profit = self._get_safe_series(df, 'locked_profit_rate_D', 0.0, method_name="run_chip_intelligence_command")
+        locked_loss = self._get_safe_series(df, 'locked_loss_rate_D', 0.0, method_name="run_chip_intelligence_command")
         lockdown_degree = (locked_profit + locked_loss).clip(0, 1).fillna(0.0)
         all_chip_states['SCORE_CHIP_LOCKDOWN_DEGREE'] = lockdown_degree.astype(np.float32)
         return all_chip_states
@@ -84,6 +94,7 @@ class ChipIntelligence:
         - 【新增】引入 ZIGZAG 趋势作为辅助证据，增强对集中度有效性的判断。
         - 【修复】修正了引用 ZIGZAG 列名时，确保其与 `IndicatorService` 中 `merge_results` 方法添加后缀后的列名一致。
         - 【修正】调整 `zigzag_score` 的计算逻辑，直接使用 `ZIG_5_5.0_D` 本身，并调整 `normalize_to_bipolar` 的敏感度，避免极端值。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         required_signals = [
             'short_term_concentration_90pct_D', 'long_term_concentration_90pct_D', 'winner_concentration_90pct_D',
@@ -95,20 +106,19 @@ class ChipIntelligence:
             print(f"    -> [筹码集中度探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
         concentration_level_raw = (
-            df.get('short_term_concentration_90pct_D', 50.0) +
-            df.get('long_term_concentration_90pct_D', 50.0) +
-            df.get('winner_concentration_90pct_D', 50.0)
+            self._get_safe_series(df, 'short_term_concentration_90pct_D', 50.0, method_name="_diagnose_axiom_concentration") +
+            self._get_safe_series(df, 'long_term_concentration_90pct_D', 50.0, method_name="_diagnose_axiom_concentration") +
+            self._get_safe_series(df, 'winner_concentration_90pct_D', 50.0, method_name="_diagnose_axiom_concentration")
         ) / 3.0 - 50.0
         concentration_trend_raw = pd.Series(0.0, index=df.index)
         for p in periods:
             slope_col = f'SLOPE_{p}_winner_concentration_90pct_D'
-            if slope_col in df.columns:
-                concentration_trend_raw += df.get(slope_col, 0.0)
+            concentration_trend_raw += self._get_safe_series(df, slope_col, 0.0, method_name="_diagnose_axiom_concentration")
         concentration_trend_raw /= len(periods)
-        peak_fusion_raw = df.get('peak_fusion_indicator_D', pd.Series(0.0, index=df.index))
+        peak_fusion_raw = self._get_safe_series(df, 'peak_fusion_indicator_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
         # 新增 ZIGZAG 趋势作为辅助证据
         # 修正：直接使用 ZIG_5_5.0_D 本身，它代表了价格的ZIGZAG趋势，向上为正，向下为负
-        zigzag_trend_raw = df.get('ZIG_5_5.0_D', pd.Series(0.0, index=df.index))
+        zigzag_trend_raw = self._get_safe_series(df, 'ZIG_5_5.0_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_concentration")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         level_score = utils.get_adaptive_mtf_normalized_bipolar_score(concentration_level_raw, df.index, tf_weights, sensitivity=10.0)
@@ -140,15 +150,16 @@ class ChipIntelligence:
                       分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
         - 引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
         - 【修正】调整 `skewness_score` 的 `normalize_to_bipolar` 敏感度，避免极端值。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         required_signals = ['winner_loser_momentum_D', 'cost_divergence_normalized_D', 'cost_structure_skewness_D'] # 增加 cost_structure_skewness_D
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             print(f"    -> [筹码成本结构探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
-        momentum_raw = df.get('winner_loser_momentum_D', pd.Series(0.0, index=df.index))
-        divergence_raw = df.get('cost_divergence_normalized_D', pd.Series(0.0, index=df.index))
-        skewness_raw = df.get('cost_structure_skewness_D', pd.Series(0.0, index=df.index))
+        momentum_raw = self._get_safe_series(df, 'winner_loser_momentum_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        divergence_raw = self._get_safe_series(df, 'cost_divergence_normalized_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
+        skewness_raw = self._get_safe_series(df, 'cost_structure_skewness_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_cost_structure")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
@@ -179,6 +190,7 @@ class ChipIntelligence:
         - 核心优化: 调整 `pain_score` 和 `fatigue_score` 的 `sensitivity`，避免在积极行情下过度惩罚。
         - 引入 `locked_profit_rate` 和 `locked_loss_rate` 作为判断持股心态的重要证据。
         - 【修正】调整 `conviction_score` 的 `normalize_to_bipolar` 敏感度，确保在涨停日能正确反映积极心态。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         required_signals = [
@@ -189,11 +201,11 @@ class ChipIntelligence:
         if missing_signals:
             print(f"    -> [持股心态探针] 警告: 缺少核心信号 {missing_signals}，使用默认值0.0。")
             return pd.Series(0.0, index=df.index)
-        conviction_raw = df.get('winner_conviction_index_D', pd.Series(0.0, index=df.index))
-        pain_raw = df.get('loser_pain_index_D', pd.Series(0.0, index=df.index))
-        fatigue_raw = df.get('chip_fatigue_index_D', pd.Series(0.0, index=df.index))
-        locked_profit_raw = df.get('locked_profit_rate_D', pd.Series(0.0, index=df.index))
-        locked_loss_raw = df.get('locked_loss_rate_D', pd.Series(0.0, index=df.index))
+        conviction_raw = self._get_safe_series(df, 'winner_conviction_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
+        pain_raw = self._get_safe_series(df, 'loser_pain_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
+        fatigue_raw = self._get_safe_series(df, 'chip_fatigue_index_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
+        locked_profit_raw = self._get_safe_series(df, 'locked_profit_rate_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
+        locked_loss_raw = self._get_safe_series(df, 'locked_loss_rate_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_holder_sentiment")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         # 赢家信念：越高越好，正向贡献。调整敏感度，确保在涨停日能正确反映积极心态。
@@ -239,13 +251,14 @@ class ChipIntelligence:
         【V2.4 · 数学重构版】筹码公理四：诊断“筹码峰形态”
         - 核心修复: 遵循“先归一，后融合”原则。将“价格与筹码峰的距离”和“筹码峰的坚实度”分别归一化，
                       然后相乘。相乘的逻辑是合理的，代表“坚实度”对“价格偏离”信号的确认或证伪。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         required_signals = ['dominant_peak_cost_D', 'dominant_peak_solidity_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        price_vs_peak_raw = df['close_D'] - df.get('dominant_peak_cost_D', df['close_D'])
-        peak_solidity_raw = df.get('dominant_peak_solidity_D', pd.Series(0.5, index=df.index))
+        price_vs_peak_raw = self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity") - self._get_safe_series(df, 'dominant_peak_cost_D', self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_peak_integrity"), method_name="_diagnose_axiom_peak_integrity")
+        peak_solidity_raw = self._get_safe_series(df, 'dominant_peak_solidity_D', pd.Series(0.5, index=df.index), method_name="_diagnose_axiom_peak_integrity")
         p_conf = get_params_block(self.strategy, 'chip_ultimate_params', {})
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         price_vs_peak_score = utils.get_adaptive_mtf_normalized_bipolar_score(price_vs_peak_raw, df.index, tf_weights, sensitivity=1.2)
@@ -259,13 +272,15 @@ class ChipIntelligence:
         - 核心逻辑: 诊断价格行为与筹码集中度之间的背离。
           - 看涨背离：价格下跌但筹码集中度上升（主力吸筹）。
           - 看跌背离：价格上涨但筹码集中度下降（主力派发）。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         required_signals = ['pct_change_D', 'SLOPE_5_short_term_concentration_90pct_D']
         missing_signals = [s for s in required_signals if s not in df.columns]
         if missing_signals:
             return pd.Series(0.0, index=df.index)
-        price_trend = normalize_to_bipolar(df['pct_change_D'], df.index, window=55)
-        concentration_trend = normalize_to_bipolar(df.get('SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index)), df.index, window=55)
+        price_trend = normalize_to_bipolar(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_divergence"), df.index, window=55)
+        concentration_trend = normalize_to_bipolar(self._get_safe_series(df, 'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df.index), method_name="_diagnose_axiom_divergence"), df.index, window=55)
         divergence_score = (concentration_trend - price_trend).clip(-1, 1)
         return divergence_score.astype(np.float32)
+
 

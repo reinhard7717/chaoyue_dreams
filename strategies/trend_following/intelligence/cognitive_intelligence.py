@@ -56,19 +56,15 @@ class CognitiveIntelligence:
 
     def synthesize_cognitive_scores(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """
-        【V25.6 · 隐秘筑底背离版】总指挥
-        - 核心升级: 引入新的认知剧本 `COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE`。
+        【V25.7 · 隐秘筑底背离与风险剧本顺序优化版】总指挥
+        - 核心升级: 引入新的认知剧本 `COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE` 和 `COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE`。
+        - 核心修复: 调整风险剧本的调用顺序，确保在所有机会剧本之后进行推演。
         """
-        print("启动【V25.6 · 隐秘筑底背离版】认知情报分析...")
+        print("启动【V25.7 · 隐秘筑底背离与风险剧本顺序优化版】认知情报分析...")
         self.strategy.playbook_states = {} # 初始化剧本状态库
         priors = self._establish_prior_beliefs()
         self.strategy.atomic_states.update(priors)
-        # 优先计算被其他剧本依赖的风险信号，并立即更新到 self.strategy.playbook_states
-        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
-        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
-        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
-        # 计算其他机会和风险剧本，并立即更新到 self.strategy.playbook_states
+        # 计算所有机会剧本，并立即更新到 self.strategy.playbook_states
         self.strategy.playbook_states.update(self._deduce_suppressive_accumulation(priors))
         self.strategy.playbook_states.update(self._deduce_chasing_accumulation(priors))
         self.strategy.playbook_states.update(self._deduce_capitulation_reversal(priors))
@@ -76,9 +72,13 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_sector_rotation_vanguard(priors))
         self.strategy.playbook_states.update(self._deduce_energy_compression_breakout(priors))
         self.strategy.playbook_states.update(self._deduce_divergence_reversal(priors))
-        # [代码修改开始]
         self.strategy.playbook_states.update(self._deduce_stealth_bottoming_divergence(priors))
         self.strategy.playbook_states.update(self._deduce_micro_absorption_divergence(priors))
+        # 优先计算所有风险信号，并立即更新到 self.strategy.playbook_states
+        self.strategy.playbook_states.update(self._deduce_distribution_at_high(priors))
+        self.strategy.playbook_states.update(self._deduce_retail_fomo_retreat_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_long_term_profit_distribution_risk(priors))
+        self.strategy.playbook_states.update(self._deduce_trend_exhaustion_risk(priors))
         self.strategy.playbook_states.update(self._deduce_market_uncertainty_risk(priors))
         self.strategy.playbook_states.update(self._deduce_harvest_confirmation_risk(priors))
         self.strategy.playbook_states.update(self._deduce_bull_trap_distribution_risk(priors))
@@ -86,8 +86,9 @@ class CognitiveIntelligence:
         self.strategy.playbook_states.update(self._deduce_t0_arbitrage_pressure_risk(priors))
         self.strategy.playbook_states.update(self._deduce_key_support_break_risk(priors))
         self.strategy.playbook_states.update(self._deduce_high_level_structural_collapse_risk(priors))
-        print(f"【V25.6 · 隐秘筑底背离版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
+        print(f"【V25.7 · 隐秘筑底背离与风险剧本顺序优化版】分析完成，生成 {len(self.strategy.playbook_states)} 个剧本信号并存入专属状态库。")
         return self.strategy.playbook_states
+
 
     def _deduce_suppressive_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
@@ -312,10 +313,8 @@ class CognitiveIntelligence:
 
     def _fuse_and_adjudicate_playbooks(self, playbook_scores: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V3.3 · 指挥链修复与新剧本集成版】融合与裁决模块
-        - 核心修复: 将引用的信号名称从废弃的 'COGNITIVE_FORGED_...' 修正为 'COGNITIVE_PLAYBOOK_...' 和 'COGNITIVE_RISK_...'，
-                      重新连接了信号融合的指挥链。
-        - 核心升级: 将新的认知剧本 `COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE` 集成到看涨剧本列表中。
+        【V3.4 · 指挥链修复与新剧本集成版】融合与裁决模块
+        - 核心升级: 将新的认知剧本 `COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE` 集成到看涨剧本列表中。
         """
         states = {}
         df_index = self.strategy.df_indicators.index
@@ -328,7 +327,7 @@ class CognitiveIntelligence:
             'COGNITIVE_PLAYBOOK_SECTOR_ROTATION_VANGUARD',
             'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION',
             'COGNITIVE_PLAYBOOK_STEALTH_BOTTOMING_DIVERGENCE',
-            'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE',
+            'COGNITIVE_PLAYBOOK_MICRO_ABSORPTION_DIVERGENCE', # 新增行
         ]
         bullish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bullish_playbooks]
         # 取所有看涨剧本中的最高分作为当天的看涨总分
@@ -338,12 +337,22 @@ class CognitiveIntelligence:
         bearish_playbooks = [
             'COGNITIVE_RISK_DISTRIBUTION_AT_HIGH',
             'COGNITIVE_RISK_TREND_EXHAUSTION',
+            'COGNITIVE_RISK_MARKET_UNCERTAINTY',
+            'COGNITIVE_RISK_RETAIL_FOMO_RETREAT',
+            'COGNITIVE_RISK_HARVEST_CONFIRMATION',
+            'COGNITIVE_RISK_BULL_TRAP_DISTRIBUTION',
+            'COGNITIVE_RISK_LIQUIDITY_TRAP',
+            'COGNITIVE_RISK_T0_ARBITRAGE_PRESSURE',
+            'COGNITIVE_RISK_KEY_SUPPORT_BREAK',
+            'COGNITIVE_RISK_HIGH_LEVEL_STRUCTURAL_COLLAPSE',
+            'COGNITIVE_RISK_LONG_TERM_PROFIT_DISTRIBUTION'
         ]
         bearish_scores = [playbook_scores.get(name, pd.Series(0.0, index=df_index)) for name in bearish_playbooks]
         # 取所有看跌剧本中的最高分作为当天的看跌总分
         cognitive_bearish_score = np.maximum.reduce([s.values for s in bearish_scores])
         states['COGNITIVE_BEARISH_SCORE'] = pd.Series(cognitive_bearish_score, index=df_index, dtype=np.float32)
         return states
+
 
     def _deduce_chasing_accumulation(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
