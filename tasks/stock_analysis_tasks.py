@@ -546,10 +546,11 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
 
 async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dates_in_chunk: pd.DatetimeIndex):
     """
-    【V1.6 · 弹药补给版】
+    【V1.7 · 弹药补给与筹码数据审计增强版】
     - 核心修复: 在 all_daily_fields 中增加 'pct_change' 字段，为下游的 flow_efficiency_index 计算提供必要的“弹药”。
+    - 【新增】增强 `cyq_chips` 数据加载的审计日志，当数据缺失时打印出查询的股票代码和日期列表，以便精确诊断。
     """
-    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code
+    from utils.model_helpers import get_fund_flow_model_by_code, get_fund_flow_ths_model_by_code, get_fund_flow_dc_model_by_code, get_cyq_chips_model_by_code
     # 核心修正: 内部函数 get_data_async 的查询方式从范围查询(gte/lte)升级为列表查询(in)。
     @sync_to_async(thread_sensitive=True)
     def get_data_async(model, stock_info_obj, fields: tuple = None, date_field='trade_time', dates_list: list = None):
@@ -590,7 +591,11 @@ async def _load_all_sources_unified(stock_info: StockInfo, daily_data_model, dat
                 # logger.warning(f"[{stock_info.stock_code}] [统一加载] 可选数据源 '{name}' 为空。")
                 data_dfs[name] = pd.DataFrame()
                 continue
-            logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
+            # 增强审计日志
+            if name == "cyq_chips":
+                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！查询日期列表: {chunk_dates_list}")
+            else:
+                logger.error(f"[{stock_info.stock_code}] [审计失败] 核心数据源 '{name}' 在日期列表查询中为空！")
             data_dfs[name] = pd.DataFrame()
     return data_dfs
 

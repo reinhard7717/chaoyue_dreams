@@ -111,27 +111,27 @@ def get_advanced_chip_metrics_model_by_code(stock_code: str):
         print(f"未识别的股票代码: {stock_code}，默认使用SZ主板表")
         return AdvancedChipMetrics_SZ  # 默认返回深市主板
 
-def get_daily_basic_data_model_by_code(stock_code: str):
-    """
-    【公共辅助函数】
-    根据股票代码返回对应的日线数据分表Model。
-    Args:
-        stock_code (str): 股票代码，例如 '600519.SH'。
-    Returns:
-        Model Class: 对应的Django模型类。
-    """
-    if stock_code.startswith('3') and stock_code.endswith('.SZ'):
-        return StockDailyBasic_CY
-    elif stock_code.endswith('.SZ'):
-        return StockDailyBasic_SZ
-    elif stock_code.startswith('68') and stock_code.endswith('.SH'):
-        return StockDailyBasic_KC
-    elif stock_code.endswith('.SH'):
-        return StockDailyBasic_SH
-    elif stock_code.endswith('.BJ'):
-        return StockDailyBasic_BJ
-    # 提供一个默认返回值，以防有未覆盖到的情况
-    return StockDailyBasic_SZ
+# def get_daily_basic_data_model_by_code(stock_code: str):
+#     """
+#     【公共辅助函数】
+#     根据股票代码返回对应的日线数据分表Model。
+#     Args:
+#         stock_code (str): 股票代码，例如 '600519.SH'。
+#     Returns:
+#         Model Class: 对应的Django模型类。
+#     """
+#     if stock_code.startswith('3') and stock_code.endswith('.SZ'):
+#         return StockDailyBasic_CY
+#     elif stock_code.endswith('.SZ'):
+#         return StockDailyBasic_SZ
+#     elif stock_code.startswith('68') and stock_code.endswith('.SH'):
+#         return StockDailyBasic_KC
+#     elif stock_code.endswith('.SH'):
+#         return StockDailyBasic_SH
+#     elif stock_code.endswith('.BJ'):
+#         return StockDailyBasic_BJ
+#     # 提供一个默认返回值，以防有未覆盖到的情况
+#     return StockDailyBasic_SZ
 
 def get_fund_flow_dc_model_by_code(stock_code: str):
     """
