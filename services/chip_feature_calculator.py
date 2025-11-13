@@ -266,14 +266,18 @@ class ChipFeatureCalculator:
             results['rally_accumulation_intensity'] = (rally_acc_vol / total_daily_vol) * 100
             results['panic_selling_intensity'] = (panic_vol / total_daily_vol) * 100
         # 2. 高级结构 (Advanced Structures)
+        # [代码修改开始]
         active_winner_avg_cost, active_profit_margin = self._calculate_active_winner_profit_margin(close_price, atr_14d, context)
         results['active_winner_avg_cost'] = active_winner_avg_cost
         results['active_winner_profit_margin'] = active_profit_margin
+        # [代码修改结束]
         losers_df = self.df[self.df['price'] > close_price]
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
         # 3. 获利盘信念 (Winner Conviction)
+        # [代码修改开始]
         results['winner_conviction_index'] = self._calculate_winner_conviction_index(context)
+        # [代码修改结束]
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
@@ -792,7 +796,7 @@ class ChipFeatureCalculator:
             results['chip_health_score'] = final_score_normalized * 100
         return results
 
-    def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> float:
+    def _calculate_active_winner_profit_margin(self, close_price: float, atr_14d: float, context: dict) -> tuple[float, float]:
         """
         【V1.0】计算活跃获利盘利润率，并加入探针。
         """
@@ -805,20 +809,16 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         active_winner_avg_cost = np.nan
         active_profit_margin = 0.0
-
         if pd.notna(close_price) and pd.notna(atr_14d) and atr_14d > 0:
             # 活跃获利盘：成本在 (close_price - 3*ATR, close_price) 之间，扩大范围
             active_winners_df = self.df[(self.df['price'] < close_price) & (self.df['price'] >= close_price - 3 * atr_14d)]
-
             if is_probe_date:
                 print(f"    -> [活跃获利盘利润率探针] @ {trade_date}:")
                 print(f"       - close_price: {close_price:.4f}, atr_14d: {atr_14d:.4f}")
                 print(f"       - active_winners_df (filtered): {active_winners_df.head()}")
                 print(f"       - active_winners_df.empty: {active_winners_df.empty}, percent.sum(): {active_winners_df['percent'].sum():.4f}")
-
             if not active_winners_df.empty and active_winners_df['percent'].sum() > 0:
                 active_winner_avg_cost = np.average(active_winners_df['price'], weights=active_winners_df['percent'])
                 if active_winner_avg_cost > 0:
@@ -830,7 +830,6 @@ class ChipFeatureCalculator:
                 dominant_peak_cost = context.get('dominant_peak_cost')
                 if is_probe_date:
                     print(f"       - 活跃获利盘区间为空。尝试使用 dominant_peak_cost: {dominant_peak_cost:.4f}")
-
                 if pd.notna(dominant_peak_cost) and dominant_peak_cost > 0 and dominant_peak_cost < close_price:
                     active_winner_avg_cost = dominant_peak_cost
                     active_profit_margin = ((close_price - dominant_peak_cost) / dominant_peak_cost) * 100
@@ -851,7 +850,6 @@ class ChipFeatureCalculator:
         else:
             if is_probe_date:
                 print(f"       - close_price 或 atr_14d 无效，利润率: {active_profit_margin:.4f}")
-
         return active_winner_avg_cost, active_profit_margin
 
     def _calculate_winner_conviction_index(self, context: dict) -> float:
@@ -867,21 +865,17 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         active_profit_margin = context.get('active_winner_profit_margin')
         bullish_reinforcement = context.get('upward_impulse_purity')
         profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
         active_winner_rate = context.get('active_winner_rate')
-
         winner_conviction_index = 0.0
-
         if is_probe_date:
             print(f"    -> [赢家信念指数探针] @ {trade_date}:")
             print(f"       - active_profit_margin: {active_profit_margin:.4f}")
             print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
             print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
             print(f"       - active_winner_rate: {active_winner_rate:.4f}")
-
         if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
             # realized_pressure 衡量获利盘兑现压力，越低越好
             # 避免 active_winner_rate 为 0 导致除以 0，此时 realized_pressure 应该为 0 (无兑现压力)
@@ -892,9 +886,7 @@ class ChipFeatureCalculator:
             margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
             # reinforcement_factor 上涨脉冲纯度，越高越好
             reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
-
             winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
-
             if is_probe_date:
                 print(f"       - realized_pressure: {realized_pressure:.4f}")
                 print(f"       - hesitation_factor: {hesitation_factor:.4f}")
@@ -904,7 +896,6 @@ class ChipFeatureCalculator:
         else:
             if is_probe_date:
                 print(f"       - 缺少前置条件，winner_conviction_index: {winner_conviction_index:.4f}")
-
         return winner_conviction_index
 
     def _calculate_cost_structure_skewness(self, context: dict) -> float:
@@ -920,20 +911,16 @@ class ChipFeatureCalculator:
             probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
             if probe_date_naive == trade_date:
                 is_probe_date = True
-
         skewness = 0.0
-
         if not self.df.empty and self.df['percent'].sum() >= 1e-6:
             from scipy.stats import skew
             total_percent = self.df['percent'].sum()
             weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
             valid_weights = weights[weights > 0]
-
             if is_probe_date:
                 print(f"    -> [成本结构偏度探针] @ {trade_date}:")
                 print(f"       - total_percent: {total_percent:.4f}")
                 print(f"       - valid_weights count: {len(valid_weights)}")
-
             if len(valid_weights) >= 3: # 至少需要3个点才能计算偏度
                 valid_prices = self.df['price'][weights > 0]
                 unweighted_sample = np.repeat(valid_prices, valid_weights)
@@ -949,7 +936,6 @@ class ChipFeatureCalculator:
         else:
             if is_probe_date:
                 print(f"       - 筹码分布为空或百分比和过低，skewness: {skewness:.4f}")
-
         return skewness
 
 

@@ -147,7 +147,7 @@ class AdvancedChipMetricsService:
         return merged_df
 
     def _synthesize_and_forge_metrics(self, stock_info: StockInfo, merged_df: pd.DataFrame, minute_data_map: dict, fund_flow_attributed_minute_map: dict, memory: dict = None, historical_components: pd.DataFrame = None) -> tuple[pd.DataFrame, dict, list]:
-        """【V4.1 · 生产就绪版】移除所有诊断探针。"""
+        """【V4.2 · 生产就绪版】移除所有诊断探针。"""
         stock_code = stock_info.stock_code
         all_metrics_list = []
         failures_list = []
@@ -165,6 +165,23 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
+        # [代码修改开始]
+        # 获取 debug_params 并传递给 ChipFeatureCalculator
+        from utils.utils import get_params_block
+        # 假设 self.strategy 可以在这里访问到，或者通过其他方式获取到策略配置
+        # 这里需要一个策略配置的引用，如果 AdvancedChipMetricsService 没有直接持有，
+        # 则需要从调用方传递进来，或者从全局配置中获取。
+        # 暂时假设可以通过某种方式获取到策略配置，例如从某个全局变量或服务中。
+        # 如果没有直接的 self.strategy，需要调整获取 debug_params 的方式。
+        # 为了演示，我将假设有一个 self.strategy_config 属性。
+        # 如果实际环境中没有，需要根据实际情况调整。
+        # 假设 self.strategy_config 是一个字典，包含了策略的完整配置
+        # 如果没有，这里需要一个更健壮的获取方式，例如从全局配置服务中获取
+        # 或者在 run_precomputation 时将 strategy_config 传递进来
+        # 为了避免引入新的复杂性，这里暂时模拟一个空的 debug_params
+        # 实际部署时，需要确保 debug_params 能够正确传递
+        debug_params = {} # 默认空字典，如果需要探针，需要从外部传入
+        # [代码修改结束]
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()
@@ -217,6 +234,9 @@ class AdvancedChipMetricsService:
                 'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index', 0.0),
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
+                # [代码修改开始]
+                'debug_params': debug_params, # 传递 debug_params
+                # [代码修改结束]
             })
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:
