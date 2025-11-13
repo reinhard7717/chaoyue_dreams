@@ -907,6 +907,50 @@ class ChipFeatureCalculator:
 
         return winner_conviction_index
 
+    def _calculate_cost_structure_skewness(self, context: dict) -> float:
+        """
+        【V1.0】计算成本结构偏度，并加入探针。
+        """
+        stock_code = context.get('stock_code', 'UNKNOWN')
+        trade_date = context.get('trade_date', 'UNKNOWN')
+        debug_params = context.get('debug_params', {})
+        probe_dates_str = debug_params.get('probe_dates', [])
+        is_probe_date = False
+        if probe_dates_str:
+            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
+            if probe_date_naive == trade_date:
+                is_probe_date = True
+
+        skewness = 0.0
+
+        if not self.df.empty and self.df['percent'].sum() >= 1e-6:
+            from scipy.stats import skew
+            total_percent = self.df['percent'].sum()
+            weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
+            valid_weights = weights[weights > 0]
+
+            if is_probe_date:
+                print(f"    -> [成本结构偏度探针] @ {trade_date}:")
+                print(f"       - total_percent: {total_percent:.4f}")
+                print(f"       - valid_weights count: {len(valid_weights)}")
+
+            if len(valid_weights) >= 3: # 至少需要3个点才能计算偏度
+                valid_prices = self.df['price'][weights > 0]
+                unweighted_sample = np.repeat(valid_prices, valid_weights)
+                skewness = skew(unweighted_sample)
+                # 负偏度（左偏）通常意味着筹码集中在低价区，是积极信号，所以取负
+                skewness = -skewness
+                if is_probe_date:
+                    print(f"       - unweighted_sample min/max: {np.min(unweighted_sample):.4f}/{np.max(unweighted_sample):.4f}")
+                    print(f"       - raw skewness: {-skewness:.4f}, final cost_structure_skewness: {skewness:.4f}")
+            else:
+                if is_probe_date:
+                    print(f"       - 有效权重不足3个，无法计算偏度。skewness: {skewness:.4f}")
+        else:
+            if is_probe_date:
+                print(f"       - 筹码分布为空或百分比和过低，skewness: {skewness:.4f}")
+
+        return skewness
 
 
 
