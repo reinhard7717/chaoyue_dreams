@@ -19,6 +19,15 @@ class IntradayBehaviorEngine:
         self.calculator = strategy_instance.orchestrator.indicator_service.calculator
         self.params = get_params_block(self.strategy, 'intraday_behavior_engine_params', {})
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     async def _prepare_intraday_indicators(self, df_minute: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         【V2.0 · 公理化精简版】
@@ -72,15 +81,18 @@ class IntradayBehaviorEngine:
         return final_scores
 
     async def _diagnose_axiom_attack(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0】日内行为公理一：诊断“攻击强度”"""
+        """
+        【V1.0】日内行为公理一：诊断“攻击强度”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
         # 攻击强度 = K线实体方向与大小 * 成交额变化
         # 1. K线实体强度 (归一化到 [-1, 1])
-        body = df_minute['close'] - df_minute['open']
-        body_range = df_minute['high'] - df_minute['low']
+        body = self._get_safe_series(df_minute, 'close', method_name="_diagnose_axiom_attack") - self._get_safe_series(df_minute, 'open', method_name="_diagnose_axiom_attack")
+        body_range = self._get_safe_series(df_minute, 'high', method_name="_diagnose_axiom_attack") - self._get_safe_series(df_minute, 'low', method_name="_diagnose_axiom_attack")
         body_strength = (body / body_range.replace(0, np.nan)).fillna(0)
         # 2. 成交额强度 (相比近期均值的倍数，归一化到 [0, N])
-        amount_ma = df_minute['amount'].rolling(window=21, min_periods=1).mean()
-        amount_strength = (df_minute['amount'] / amount_ma.replace(0, np.nan)).fillna(1.0)
+        amount_ma = self._get_safe_series(df_minute, 'amount', method_name="_diagnose_axiom_attack").rolling(window=21, min_periods=1).mean()
+        amount_strength = (self._get_safe_series(df_minute, 'amount', method_name="_diagnose_axiom_attack") / amount_ma.replace(0, np.nan)).fillna(1.0)
         # 3. 融合：实体强度 * 成交额强度
         raw_attack_score = body_strength * amount_strength
         # 4. 使用双极归一化，得到最终的攻击强度分
@@ -88,31 +100,39 @@ class IntradayBehaviorEngine:
         return {"SCORE_INTRADAY_AXIOM_ATTACK": final_score}
 
     async def _diagnose_axiom_control(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0】日内行为公理二：诊断“控制能力”"""
+        """
+        【V1.0】日内行为公理二：诊断“控制能力”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
         if 'vwap' not in df_minute.columns:
+            print(f"    -> [日内行为情报警告] 方法 '_diagnose_axiom_control' 缺少数据 'vwap'，使用默认值 0.0。")
             return {"SCORE_INTRADAY_AXIOM_CONTROL": 0.0}
         # 控制能力 = (收盘价 - VWAP) / VWAP
         # 正值代表多头控盘，负值代表空头控盘
-        raw_control_score = (df_minute['close'] - df_minute['vwap']) / df_minute['vwap']
+        raw_control_score = (self._get_safe_series(df_minute, 'close', method_name="_diagnose_axiom_control") - self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")) / self._get_safe_series(df_minute, 'vwap', method_name="_diagnose_axiom_control")
         # 使用双极归一化，得到最终的控制能力分
         final_score = normalize_to_bipolar(raw_control_score, df_minute.index, window=len(df_minute), sensitivity=2.0).iloc[-1]
         return {"SCORE_INTRADAY_AXIOM_CONTROL": final_score}
 
     async def _diagnose_axiom_turning(self, df_minute: pd.DataFrame) -> Dict[str, float]:
-        """【V1.0】日内行为公理三：诊断“博弈转折”"""
+        """
+        【V1.0】日内行为公理三：诊断“博弈转折”
+        - 核心修复: 增加对所有依赖数据的存在性检查。
+        """
         kdj_params = self.params.get('kdj_params', {})
         k_col = f"K_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         d_col = f"D_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         j_col = f"J_{kdj_params.get('period', 13)}_{kdj_params.get('signal_period', 5)}_{kdj_params.get('smooth_k_period', 3)}"
         if not all(c in df_minute.columns for c in [k_col, d_col, j_col]):
+            print(f"    -> [日内行为情报警告] 方法 '_diagnose_axiom_turning' 缺少KDJ相关数据 '{k_col}', '{d_col}', '{j_col}'，使用默认值 0.0。")
             return {"SCORE_INTRADAY_AXIOM_TURNING": 0.0}
         # 1. 看涨转折信号：KDJ在超卖区金叉
-        is_oversold = (df_minute[j_col] < 20)
-        is_golden_cross = (df_minute[k_col] > df_minute[d_col]) & (df_minute[k_col].shift(1) <= df_minute[d_col].shift(1))
+        is_oversold = (self._get_safe_series(df_minute, j_col, method_name="_diagnose_axiom_turning") < 20)
+        is_golden_cross = (self._get_safe_series(df_minute, k_col, method_name="_diagnose_axiom_turning") > self._get_safe_series(df_minute, d_col, method_name="_diagnose_axiom_turning")) & (self._get_safe_series(df_minute, k_col, method_name="_diagnose_axiom_turning").shift(1) <= self._get_safe_series(df_minute, d_col, method_name="_diagnose_axiom_turning").shift(1))
         bullish_turn_signal = (is_oversold & is_golden_cross).astype(float)
         # 2. 看跌转折信号：KDJ在超买区死叉
-        is_overbought = (df_minute[j_col] > 80)
-        is_dead_cross = (df_minute[k_col] < df_minute[d_col]) & (df_minute[k_col].shift(1) >= df_minute[d_col].shift(1))
+        is_overbought = (self._get_safe_series(df_minute, j_col, method_name="_diagnose_axiom_turning") > 80)
+        is_dead_cross = (self._get_safe_series(df_minute, k_col, method_name="_diagnose_axiom_turning") < self._get_safe_series(df_minute, d_col, method_name="_diagnose_axiom_turning")) & (self._get_safe_series(df_minute, k_col, method_name="_diagnose_axiom_turning").shift(1) >= self._get_safe_series(df_minute, d_col, method_name="_diagnose_axiom_turning").shift(1))
         bearish_turn_signal = (is_overbought & is_dead_cross).astype(float)
         # 3. 融合为双极性分数
         # 只取最后一次信号
@@ -122,4 +142,5 @@ class IntradayBehaviorEngine:
         elif bearish_turn_signal.iloc[-1] > 0:
             final_score = -1.0
         return {"SCORE_INTRADAY_AXIOM_TURNING": final_score}
+
 

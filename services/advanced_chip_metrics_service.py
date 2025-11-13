@@ -223,9 +223,7 @@ class AdvancedChipMetricsService:
                 'prev_chip_fatigue_index': prev_metrics.get('chip_fatigue_index', 0.0),
                 'recent_10d_closes': recent_closes_list,
                 'prev_atr_14d': prev_metrics.get('atr_14d'),
-                # [代码修改开始]
                 'debug_params': debug_params, # 传递 debug_params
-                # [代码修改结束]
             })
             historical_data_for_day = {k: v for k, v in hist_comp_dict.items() if k < trade_date}
             if historical_data_for_day:

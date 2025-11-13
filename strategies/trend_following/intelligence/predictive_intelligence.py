@@ -14,6 +14,15 @@ class PredictiveIntelligence:
         self.strategy = strategy_context
         self.params = get_params_block(self.strategy, 'predictive_intelligence_params', {})
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_predictive_diagnostics(self) -> Dict[str, pd.Series]:
         """
         【V2.0 · 德尔菲神谕版】运行所有预测性诊断模型

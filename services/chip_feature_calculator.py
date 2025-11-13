@@ -940,10 +940,8 @@ class ChipFeatureCalculator:
                 valid_prices = self.df['price'][weights > 0]
                 unweighted_sample = np.repeat(valid_prices, valid_weights)
                 skewness = skew(unweighted_sample)
-                # [代码修改开始]
                 # 移除负号操作，使正偏度（筹码集中在高价区）对应正值
                 # skewness = -skewness
-                # [代码修改结束]
                 if is_probe_date:
                     print(f"       - unweighted_sample min/max: {np.min(unweighted_sample):.4f}/{np.max(unweighted_sample):.4f}")
                     print(f"       - raw skewness: {skewness:.4f}, final cost_structure_skewness: {skewness:.4f}")

@@ -1159,10 +1159,8 @@ class IndicatorCalculator:
                     vwap_col = 'vwap_temp'
                 vwap_deviation = (df[close_col] - df[vwap_col]) / df[vwap_col].replace(0, np.nan)
                 daily_integral = vwap_deviation.resample('D').sum()
-                # [代码修改开始]
                 # 返回不带 '_D' 后缀的列名
                 result_df = pd.DataFrame({'intraday_vwap_div_index': daily_integral})
-                # [代码修改结束]
                 return result_df.dropna()
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
@@ -1210,11 +1208,9 @@ class IndicatorCalculator:
                 efficiency_zscore = (daily_agg['conversion_efficiency'] - daily_agg['conversion_efficiency'].rolling(efficiency_window).mean()) / (daily_agg['conversion_efficiency'].rolling(efficiency_window).std() + 1e-9)
                 is_buying_exhaustion = (daily_agg['pct_change'] > 0) & (efficiency_zscore < -0.5)
                 is_selling_exhaustion = (daily_agg['pct_change'] < 0) & (efficiency_zscore > 0.5)
-                # [代码修改开始]
                 # 返回不带 '_D' 后缀的列名
                 exhaustion_index = (is_selling_exhaustion.astype(int) - is_buying_exhaustion.astype(int)).astype(float)
                 return pd.DataFrame({'counterparty_exhaustion_index': exhaustion_index})
-                # [代码修改结束]
             return await asyncio.to_thread(_sync_calc)
         except Exception as e:
             logger.error(f"计算对手盘衰竭指数(V2.3)时发生错误: {e}", exc_info=True)

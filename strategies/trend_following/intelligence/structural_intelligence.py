@@ -84,6 +84,7 @@ class StructuralIntelligence:
         - 【修正】优化 `bull_alignment` 和 `bull_velocity` 的计算，使其在涨停日能更准确地反映积极趋势形态。
         - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
         - 【增强】在涨停日，大幅增强 `bull_alignment` 和 `bull_velocity` 的贡献，并抑制 `bear_score`。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         ma_periods = [5, 13, 21, 55]
@@ -99,17 +100,17 @@ class StructuralIntelligence:
         weights = [0.4, 0.3, 0.3] # 5-13, 13-21, 21-55 的权重
         # 基础均线交叉排列
         for i in range(len(ma_periods) - 1):
-            bull_alignment_raw += (df[f'EMA_{ma_periods[i]}_D'] > df[f'EMA_{ma_periods[i+1]}_D']).astype(float) * weights[i]
-            bear_alignment_raw += (df[f'EMA_{ma_periods[i]}_D'] < df[f'EMA_{ma_periods[i+1]}_D']).astype(float) * weights[i]
+            bull_alignment_raw += (self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form") > self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")).astype(float) * weights[i]
+            bear_alignment_raw += (self._get_safe_series(df, f'EMA_{ma_periods[i]}_D', method_name="_diagnose_axiom_trend_form") < self._get_safe_series(df, f'EMA_{ma_periods[i+1]}_D', method_name="_diagnose_axiom_trend_form")).astype(float) * weights[i]
         # 增强 bull_alignment: 价格在所有均线之上
         price_above_all_ma = pd.Series(True, index=df_index)
         for p in ma_periods:
-            price_above_all_ma &= (df['close_D'] > df[f'EMA_{p}_D'])
+            price_above_all_ma &= (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form") > self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form"))
         bull_alignment_raw += price_above_all_ma.astype(float) * 0.5 # 额外权重
         # 价格与均线距离的积极贡献
         price_ma_distance = pd.Series(0.0, index=df_index)
         for p in ma_periods:
-            price_ma_distance += (df['close_D'] - df[f'EMA_{p}_D']).clip(lower=0) # 只考虑价格在均线之上
+            price_ma_distance += (self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_trend_form") - self._get_safe_series(df, f'EMA_{p}_D', method_name="_diagnose_axiom_trend_form")).clip(lower=0) # 只考虑价格在均线之上
         price_ma_distance_score = normalize_score(price_ma_distance, df_index, norm_window, ascending=True)
         bull_alignment_raw += price_ma_distance_score * 0.5 # 额外权重
         bull_alignment = bull_alignment_raw / (sum(weights) + 1.0) # 归一化到 [0, 1]
@@ -121,25 +122,25 @@ class StructuralIntelligence:
         bull_velocity_raw = pd.Series(0.0, index=df_index)
         bear_velocity_raw = pd.Series(0.0, index=df_index)
         for col in slope_cols:
-            bull_velocity_raw += df[col].clip(lower=0) # 只累加正向斜率
-            bear_velocity_raw += df[col].clip(upper=0).abs() # 只累加负向斜率的绝对值
+            bull_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(lower=0) # 只累加正向斜率
+            bear_velocity_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_trend_form").clip(upper=0).abs() # 只累加负向斜率的绝对值
         # 增强 bull_velocity: 引入 pct_change_D 的贡献
-        pct_change_score = normalize_score(df['pct_change_D'].clip(lower=0), df_index, norm_window, ascending=True)
+        pct_change_score = normalize_score(self._get_safe_series(df, 'pct_change_D', method_name="_diagnose_axiom_trend_form").clip(lower=0), df_index, norm_window, ascending=True)
         bull_velocity_raw += pct_change_score * 0.5 # 额外权重
         # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
         bull_velocity = normalize_score(bull_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0)
         bear_velocity = normalize_score(bear_velocity_raw, df_index, norm_window, ascending=True).fillna(0.0)
         # --- 引入成交量爆裂度、上涨推力效能 ---
-        volume_burstiness_raw = df.get('volume_burstiness_index_D', pd.Series(0.0, index=df_index))
-        upward_thrust_efficacy_raw = df.get('upward_thrust_efficacy_D', pd.Series(0.0, index=df_index))
-        downward_absorption_efficacy_raw = df.get('downward_absorption_efficacy_D', pd.Series(0.0, index=df_index))
+        volume_burstiness_raw = self._get_safe_series(df, 'volume_burstiness_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        upward_thrust_efficacy_raw = self._get_safe_series(df, 'upward_thrust_efficacy_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
+        downward_absorption_efficacy_raw = self._get_safe_series(df, 'downward_absorption_efficacy_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         burstiness_score = normalize_score(volume_burstiness_raw, df_index, norm_window, ascending=True).fillna(0.0)
         upward_efficacy_score = normalize_score(upward_thrust_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         downward_efficacy_score = normalize_score(downward_absorption_efficacy_raw, df_index, norm_window, ascending=True).fillna(0.0)
         # --- 引入均线角度 ---
         ma_col_base = 'EMA_55'
         timeframe_key = 'D'
-        ma_angle_raw = df.get(f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index))
+        ma_angle_raw = self._get_safe_series(df, f'ATAN_ANGLE_{ma_col_base}_{timeframe_key}', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_trend_form")
         ma_angle_score = normalize_to_bipolar(ma_angle_raw, df_index, norm_window, sensitivity=10.0)
         # --- 融合牛熊分数 ---
         bull_score = (bull_alignment * bull_velocity * (1 + burstiness_score * 0.2) + upward_efficacy_score * 0.1 + ma_angle_score.clip(lower=0) * 0.1).clip(0, 1)
@@ -177,6 +178,7 @@ class StructuralIntelligence:
         - 引入 `trend_efficiency_ratio_D` (趋势效率比) 来增强多周期协同的质量判断。
         - 【修正】优化 `cohesion_score` 的计算，使其在积极信号时贡献正分。
         - 【增强】在涨停日，大幅增强 `weekly_trend_form_score` 的贡献，并优化 `cohesion_score` 的融合逻辑。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         ma_periods_w = [5, 13, 21, 55]
@@ -190,8 +192,8 @@ class StructuralIntelligence:
         bull_alignment_w_raw = pd.Series(0.0, index=df_index)
         bear_alignment_w_raw = pd.Series(0.0, index=df_index)
         for i in range(len(ma_periods_w) - 1):
-            bull_alignment_w_raw += (df[f'EMA_{ma_periods_w[i]}_W'] > df[f'EMA_{ma_periods_w[i+1]}_W']).astype(float)
-            bear_alignment_w_raw += (df[f'EMA_{ma_periods_w[i]}_W'] < df[f'EMA_{ma_periods_w[i+1]}_W']).astype(float)
+            bull_alignment_w_raw += (self._get_safe_series(df, f'EMA_{ma_periods_w[i]}_W', method_name="_diagnose_axiom_mtf_cohesion") > self._get_safe_series(df, f'EMA_{ma_periods_w[i+1]}_W', method_name="_diagnose_axiom_mtf_cohesion")).astype(float)
+            bear_alignment_w_raw += (self._get_safe_series(df, f'EMA_{ma_periods_w[i]}_W', method_name="_diagnose_axiom_mtf_cohesion") < self._get_safe_series(df, f'EMA_{ma_periods_w[i+1]}_W', method_name="_diagnose_axiom_mtf_cohesion")).astype(float)
         bull_alignment_w = bull_alignment_w_raw / (len(ma_periods_w) - 1)
         bear_alignment_w = bear_alignment_w_raw / (len(ma_periods_w) - 1)
         # --- 周线均线速度 (Weekly Velocity) ---
@@ -201,10 +203,10 @@ class StructuralIntelligence:
         bull_velocity_w_raw = pd.Series(0.0, index=df_index)
         bear_velocity_w_raw = pd.Series(0.0, index=df_index)
         for col in slope_cols_w:
-            bull_velocity_w_raw += df[col].clip(lower=0)
-            bear_velocity_w_raw += df[col].clip(upper=0).abs()
+            bull_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0)
+            bear_velocity_w_raw += self._get_safe_series(df, col, method_name="_diagnose_axiom_mtf_cohesion").clip(upper=0).abs()
         # 增强 bull_velocity_w: 引入 pct_change_W 的贡献
-        pct_change_w_score = normalize_score(df.get('pct_change_W', pd.Series(0.0, index=df_index)).clip(lower=0), df_index, norm_window, ascending=True)
+        pct_change_w_score = normalize_score(self._get_safe_series(df, 'pct_change_W', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion").clip(lower=0), df_index, norm_window, ascending=True)
         bull_velocity_w_raw += pct_change_w_score * 0.5 # 额外权重
         bull_velocity_w = normalize_score(bull_velocity_w_raw, df_index, norm_window, ascending=True).fillna(0.0)
         bear_velocity_w = normalize_score(bear_velocity_w_raw, df_index, norm_window, ascending=True).fillna(0.0)
@@ -212,7 +214,7 @@ class StructuralIntelligence:
         # 涨停日特殊处理：如果日线趋势形态为正，则周线趋势形态也应该至少有一个积极的基础分
         weekly_trend_form_score = weekly_trend_form_score.mask(is_limit_up_day & (daily_trend_form_score > 0), weekly_trend_form_score + 0.3).clip(-1, 1)
         # 获取并归一化 trend_efficiency_ratio_D
-        trend_efficiency_raw = df.get('trend_efficiency_ratio_D', pd.Series(0.0, index=df_index))
+        trend_efficiency_raw = self._get_safe_series(df, 'trend_efficiency_ratio_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_mtf_cohesion")
         efficiency_score = normalize_score(trend_efficiency_raw, df_index, norm_window, ascending=True).fillna(0.0)
         # 融合效率分数。效率分数作为乘数因子，增强协同的质量。
         # 确保在积极信号时贡献正分。
@@ -252,22 +254,23 @@ class StructuralIntelligence:
                    来增强对结构稳定性的判断。
         - 【修正】优化 `foundation_support_score` 和 `long_term_trend_health_score` 的计算，使其在涨停日能正确反映积极稳定性。
         - 【修复】移除 `normalize_score` 函数调用中的 `sensitivity` 参数，因为该函数不接受此参数。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         df_index = df.index
         bbw_col = 'BBW_21_2.0_D'
         if bbw_col not in df.columns:
-            print(f"诊断结构稳定性失败：缺少核心列 '{bbw_col}'。")
+            print(f"    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少核心列 '{bbw_col}'。")
             return pd.Series(0.0, index=df_index)
-        energy_accumulation_score = 1 - normalize_score(df[bbw_col], df_index, norm_window, ascending=True)
+        energy_accumulation_score = 1 - normalize_score(self._get_safe_series(df, bbw_col, method_name="_diagnose_axiom_stability"), df_index, norm_window, ascending=True)
         energy_accumulation_score = energy_accumulation_score.fillna(0.5)
         long_term_ma_periods = [55, 144]
         required_ma_cols = [f'MA_{p}_D' for p in long_term_ma_periods]
         required_slope_cols = [f'SLOPE_5_MA_{p}_D' for p in long_term_ma_periods] # 默认使用5日斜率
         # 获取并归一化 vpoc_consensus_strength_D
-        vpoc_consensus_raw = df.get('vpoc_consensus_strength_D', pd.Series(0.0, index=df_index))
+        vpoc_consensus_raw = self._get_safe_series(df, 'vpoc_consensus_strength_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         vpoc_consensus_score = normalize_score(vpoc_consensus_raw, df_index, norm_window, ascending=True).fillna(0.0)
         if not all(col in df.columns for col in required_ma_cols + required_slope_cols):
-            print("诊断结构稳定性失败：缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
+            print("    -> [结构情报警告] 方法 '_diagnose_axiom_stability' 缺少必要的长期MA或其斜率列，长期结构评估将跳过。")
             foundation_health_score = pd.Series(0.5, index=df_index)
             foundation_support_score = pd.Series(0.5, index=df_index)
             long_term_trend_health_score = pd.Series(0.5, index=df_index)
@@ -277,7 +280,7 @@ class StructuralIntelligence:
                 # 价格高于MA越多，支撑越强，分数越高
                 # 优化 support_score 的计算，使其更直接地反映价格在MA之上的强度
                 # 调整 normalize_score 的敏感度，使其在涨停日能得到更高的分数
-                support_score = normalize_score((df['close_D'] - df[f'MA_{p}_D']).clip(lower=0), df_index, norm_window, ascending=True).clip(0, 1) # 移除 sensitivity 参数
+                support_score = normalize_score((self._get_safe_series(df, 'close_D', method_name="_diagnose_axiom_stability") - self._get_safe_series(df, f'MA_{p}_D', method_name="_diagnose_axiom_stability")).clip(lower=0), df_index, norm_window, ascending=True).clip(0, 1) # 移除 sensitivity 参数
                 support_scores.append(support_score)
             foundation_support_score = pd.Series(np.mean(support_scores, axis=0), index=df_index)
             health_scores = []
@@ -288,7 +291,7 @@ class StructuralIntelligence:
                 slope_col_name = f'SLOPE_21_MA_{p}_D' # 使用21日斜率
                 if slope_col_name not in df.columns:
                     slope_col_name = f'SLOPE_5_MA_{p}_D' # 回退到5日斜率
-                health_score = normalize_score(df.get(slope_col_name, pd.Series(0.0, index=df_index)).clip(lower=0), df_index, norm_window, ascending=True).clip(0, 1) # 移除 sensitivity 参数
+                health_score = normalize_score(self._get_safe_series(df, slope_col_name, pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability").clip(lower=0), df_index, norm_window, ascending=True).clip(0, 1) # 移除 sensitivity 参数
                 health_scores.append(health_score)
             long_term_trend_health_score = pd.Series(np.mean(health_scores, axis=0), index=df_index)
             # 融合 vpoc_consensus_strength_D 到 foundation_health_score
@@ -296,7 +299,7 @@ class StructuralIntelligence:
         # 将 raw_stability_score 的计算从乘法改为加权平均
         raw_stability_score = (energy_accumulation_score * 0.3 + foundation_health_score * 0.7).fillna(0.5) # 赋予基石支撑更高权重
         # 获取并归一化 volatility_skew_index_D
-        volatility_skew_raw = df.get('volatility_skew_index_D', pd.Series(0.0, index=df_index))
+        volatility_skew_raw = self._get_safe_series(df, 'volatility_skew_index_D', pd.Series(0.0, index=df_index), method_name="_diagnose_axiom_stability")
         volatility_skew_score = normalize_to_bipolar(volatility_skew_raw, df_index, norm_window, sensitivity=0.5).fillna(0.0) # 归一化到 [-1, 1]
         # 融合 volatility_skew_score 到最终的 stability_score
         stability_score = (raw_stability_score * 0.8 + volatility_skew_score.clip(lower=0) * 0.2 - volatility_skew_score.clip(upper=0).abs() * 0.2).clip(-1, 1)
@@ -317,3 +320,4 @@ class StructuralIntelligence:
                 print(f"       - volatility_skew_score: {volatility_skew_score.loc[probe_date_for_loop]:.4f}")
                 print(f"       - stability_score: {stability_score.loc[probe_date_for_loop]:.4f}")
         return stability_score
+

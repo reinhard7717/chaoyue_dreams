@@ -19,6 +19,15 @@ class FusionIntelligence:
     def __init__(self, strategy_instance):
         self.strategy = strategy_instance
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def _get_atomic_score(self, name: str, default: float = 0.0) -> pd.Series:
         """
         【V1.1 · 默认值修复版】安全地从原子状态库中获取分数，处理缺失情况。
@@ -95,6 +104,7 @@ class FusionIntelligence:
                       改为直接使用它们的原始双极性分数进行加权平均，得到一个更柔性的 `trend_evidence`。
                       这避免了在趋势酝酿期，因单一公理暂时为负而导致整体趋势证据归零的问题。
         - 探针植入: 新增探针，打印 `hurst_memory`, `inertia`, `stability` 的原始值，以及计算出的 `trend_evidence` 和 `reversion_evidence`。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“市场政权”...")
         df = self.strategy.df_indicators
@@ -122,6 +132,7 @@ class FusionIntelligence:
         - 引入 `main_force_on_peak_flow` (主力在主峰区的净流入) 作为趋势质量的重要证据。
         - 【新增】引入均线动态（速度和加速度）作为趋势质量的组成部分。
         - 【修正】调整 `main_force_on_peak_flow` 的权重，避免其在融合时贡献过大。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“趋势质量”...")
         states = {}
@@ -212,6 +223,7 @@ class FusionIntelligence:
         【V1.1 · 纯粹原子版】冶炼“市场压力” (Market Pressure)
         - 核心思想: 衡量市场中“向上反转”与“向下回调”两股力量的净压力。
         - 证据链: 融合所有原子情报层和过程情报层的“底部反转”和“顶部反转”信号。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“市场压力”...")
         states = {}
@@ -255,6 +267,7 @@ class FusionIntelligence:
           7. 趋势确认度下降 (CONTEXT_TREND_CONFIRMED 的反向)
           8. 市场情绪亢奋 (retail_fomo_premium_index_D)
         - 输出: [0, 1] 的风险分数，0表示无风险，1表示最大风险。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“滞涨风险”...")
         states = {}
@@ -270,13 +283,13 @@ class FusionIntelligence:
         # 5. 筹码集中度下降 (来自筹码层，负向集中度代表风险)
         chip_dispersion_risk = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(upper=0).abs()
         # 6. 获利盘供给压力 (来自筹码高级指标，需要归一化)
-        profit_taking_supply_risk = normalize_score(self.strategy.df_indicators.get('imminent_profit_taking_supply_D', 0.0), df_index, window=55, ascending=True).clip(0, 1)
+        profit_taking_supply_risk = normalize_score(self._get_safe_series(self.strategy.df_indicators, 'imminent_profit_taking_supply_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         # 7. 趋势确认度下降 (来自基础层上下文，反向代表风险)
         trend_confirmation_risk = (1 - self._get_atomic_score('CONTEXT_TREND_CONFIRMED', 0.0)).clip(0, 1)
         # 8. 市场情绪亢奋 (来自资金流高级指标，需要归一化)
-        retail_fomo_risk = normalize_score(self.strategy.df_indicators.get('retail_fomo_premium_index_D', 0.0), df_index, window=55, ascending=True).clip(0, 1)
+        retail_fomo_risk = normalize_score(self._get_safe_series(self.strategy.df_indicators, 'retail_fomo_premium_index_D', 0.0, method_name="_synthesize_stagnation_risk"), df_index, window=55, ascending=True).clip(0, 1)
         # 9. 价格上涨或横盘的前提条件 (滞涨风险的前提)
-        is_price_stagnant_or_rising = (self.strategy.df_indicators['pct_change_D'] >= -0.005).astype(float)
+        is_price_stagnant_or_rising = (self._get_safe_series(self.strategy.df_indicators, 'pct_change_D', method_name="_synthesize_stagnation_risk") >= -0.005).astype(float)
         # 融合所有风险证据 (加权几何平均)
         # 权重分配需要根据回测结果进行优化，这里给出示例权重
         risk_components = [
@@ -310,6 +323,7 @@ class FusionIntelligence:
           1. 资金流对抗 (FundFlow): 主力与散户的资金流方向是否相反。
           2. 筹码转移 (Chip): 筹码是在集中还是在发散。
           3. 微观欺骗 (MicroBehavior): 是否存在“伪装成散户吸筹”等欺骗行为。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“资本对抗”...")
         states = {}
@@ -337,6 +351,7 @@ class FusionIntelligence:
           1. 核心超买证据: 行为层原始超买、乖离率、RSI、获利盘比例。
           2. 趋势健康证据: 资金流共识、筹码集中度、结构趋势形态、微观效率、K线实体与影线。
         - 输出: [-1, 1] 的双极性分数，正分代表超买风险，负分代表健康上涨（抢筹）。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“价格超买意图”...")
         states = {}
@@ -356,13 +371,13 @@ class FusionIntelligence:
         # 行为层价格超买原始分 (0到1，越高越超买) 转换为双极性
         overextension_raw_bipolar = (self._get_atomic_score('INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW', 0.5) * 2 - 1).clip(-1, 1)
         # 乖离率 (BIAS_21_D) 越高，超买程度越高
-        bias_raw = df.get('BIAS_21_D', pd.Series(0.0, index=df_index))
+        bias_raw = self._get_safe_series(df, 'BIAS_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         bias_score = normalize_to_bipolar(bias_raw, df_index, window=norm_window, sensitivity=0.05)
         # 获利盘比例 (total_winner_rate_D) 越高，超买风险越高
-        winner_rate_raw = df.get('total_winner_rate_D', pd.Series(0.0, index=df_index))
+        winner_rate_raw = self._get_safe_series(df, 'total_winner_rate_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         winner_rate_score = normalize_to_bipolar(winner_rate_raw, df_index, window=norm_window, sensitivity=0.1, default_value=-1.0)
         # RSI (RSI_13_D) 越高，超买程度越高
-        rsi_raw = df.get('RSI_13_D', pd.Series(50.0, index=df_index))
+        rsi_raw = self._get_safe_series(df, 'RSI_13_D', pd.Series(50.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         rsi_score = normalize_to_bipolar(rsi_raw, df_index, window=norm_window, sensitivity=10.0)
         # 核心超买证据的加权和
         core_overextension_sum = (
@@ -382,9 +397,9 @@ class FusionIntelligence:
         micro_efficiency = (self._get_atomic_score('SCORE_MICRO_AXIOM_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1)
         # K线实体与影线 (body_ratio_D, upper_shadow_ratio_D)
         # 实体饱满，上影线短 -> 健康
-        body_ratio_raw = df.get('body_ratio_D', pd.Series(0.0, index=df_index))
+        body_ratio_raw = self._get_safe_series(df, 'body_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         body_score = normalize_to_bipolar(body_ratio_raw, df_index, window=norm_window, sensitivity=0.2)
-        upper_shadow_ratio_raw = df.get('upper_shadow_ratio_D', pd.Series(0.0, index=df_index))
+        upper_shadow_ratio_raw = self._get_safe_series(df, 'upper_shadow_ratio_D', pd.Series(0.0, index=df_index), method_name="_synthesize_price_overextension_intent")
         upper_shadow_score = normalize_to_bipolar(upper_shadow_ratio_raw, df_index, window=norm_window, sensitivity=0.2) * -1 # 上影线越短越好，所以反向
         # 趋势健康证据的加权和
         health_sum = (
@@ -432,6 +447,7 @@ class FusionIntelligence:
           7. 结构趋势形态 (SCORE_STRUCT_AXIOM_TREND_FORM)
           8. 成交量爆发 (SCORE_BEHAVIOR_VOLUME_BURST)
         - 输出: [-1, 1] 的双极性分数，负分代表真抛压风险，正分代表偏向多头意图（如洗盘、试探）。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“上影线意图” (深度博弈版)...")
         states = {}
@@ -441,8 +457,8 @@ class FusionIntelligence:
         # 1. 获取行为层上影线原始分 (0到1，越高上影线越强)
         upper_shadow_normalized = self._get_atomic_score('INTERNAL_BEHAVIOR_UPPER_SHADOW_RAW', 0.0)
         # 2. 获取其他维度的支持/抑制信号 (转换为 [-1, 1] 双极性或 [0, 1] 单极性)
-        pct_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
-        main_force_flow = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index)), df_index, norm_window)
+        pct_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent")
+        main_force_flow = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_synthesize_upper_shadow_intent"), df_index, norm_window)
         chip_concentration = self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0) # [-1, 1]
         micro_deception = self._get_atomic_score('SCORE_MICRO_AXIOM_DECEPTION', 0.0) # [-1, 1]
         upward_efficiency = (self._get_atomic_score('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', 0.5) * 2 - 1).clip(-1, 1) # 转换为双极性
@@ -520,6 +536,7 @@ class FusionIntelligence:
           2. 修正最终融合方式，从加权几何平均改为加权算术平均，减少单个极端负值对整体分数的“一票否决”效应。
           3. 增加调试探针，输出关键中间计算结果。
           4. 调整 `alignment_score` 的 `normalize_to_bipolar` 敏感度，避免微小均线交叉被过度放大。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("  -- [融合层] 正在冶炼“趋势结构分”...")
         states = {}
@@ -537,8 +554,8 @@ class FusionIntelligence:
             if probe_date_for_loop not in df_index:
                 probe_date_for_loop = None # Reset if not in index
         # 1. 均线排列分 (EMA5 vs EMA21)
-        ema5 = df.get('EMA_5_D', pd.Series(0.0, index=df_index))
-        ema21 = df.get('EMA_21_D', pd.Series(0.0, index=df_index))
+        ema5 = self._get_safe_series(df, 'EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
+        ema21 = self._get_safe_series(df, 'EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         # 确保EMA数据存在且有效
         if ema5.isnull().all() or ema21.isnull().all():
             print("    -> [趋势结构分] 警告: 缺少EMA5或EMA21数据，均线排列分将为0。")
@@ -550,8 +567,8 @@ class FusionIntelligence:
             # 增加 normalize_to_bipolar 的 sensitivity 参数
             alignment_score = normalize_to_bipolar(raw_alignment, df_index, window=norm_window, sensitivity=5.0) # 敏感度调整
         # 2. 均线斜率分 (SLOPE_5_EMA_5_D 和 SLOPE_5_EMA_21_D)
-        slope_ema5 = df.get('SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index))
-        slope_ema21 = df.get('SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index))
+        slope_ema5 = self._get_safe_series(df, 'SLOPE_5_EMA_5_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
+        slope_ema21 = self._get_safe_series(df, 'SLOPE_5_EMA_21_D', pd.Series(0.0, index=df_index), method_name="_synthesize_trend_structure_score")
         if slope_ema5.isnull().all() or slope_ema21.isnull().all():
             print("    -> [趋势结构分] 警告: 缺少EMA斜率数据，均线斜率分将为0。")
             slope_score = pd.Series(0.0, index=df_index)
@@ -613,3 +630,4 @@ class FusionIntelligence:
         states['FUSION_BIPOLAR_TREND_STRUCTURE_SCORE'] = final_trend_structure_score.astype(np.float32)
         print(f"  -- [融合层] “趋势结构分”冶炼完成，最新分值: {final_trend_structure_score.iloc[-1]:.4f}")
         return states
+

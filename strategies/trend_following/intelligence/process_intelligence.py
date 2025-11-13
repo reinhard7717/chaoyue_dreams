@@ -33,6 +33,15 @@ class ProcessIntelligence:
         self.meta_score_weights = get_param_value(self.params.get('meta_score_weights'), [0.6, 0.4])
         self.diagnostics_config = get_param_value(self.params.get('diagnostics'), [])
 
+    def _get_safe_series(self, df: pd.DataFrame, column_name: str, default_value: Any = 0.0, method_name: str = "未知方法") -> pd.Series:
+        """
+        安全地从DataFrame获取Series，如果不存在则打印警告并返回默认Series。
+        """
+        if column_name not in df.columns:
+            print(f"    -> [结构情报警告] 方法 '{method_name}' 缺少数据 '{column_name}'，使用默认值 {default_value}。")
+            return pd.Series(default_value, index=df.index)
+        return df[column_name]
+
     def run_process_diagnostics(self, task_type_filter: Optional[str] = None) -> Dict[str, pd.Series]:
         """
         【V3.2.0 · 衰减与反转分析版】运行所有在配置中定义的元分析诊断任务。
@@ -87,7 +96,7 @@ class ProcessIntelligence:
             if source_type == 'atomic_states':
                 series = self.strategy.atomic_states.get(signal_name)
             else:
-                series = df.get(signal_name)
+                series = self._get_safe_series(df, signal_name, method_name="_calculate_instantaneous_relationship")
             if series is None:
                 print(f"        -> [过程层警告] 依赖信号 '{signal_name}' (来源: {source_type}) 不存在，无法计算关系。")
             return series
@@ -118,11 +127,11 @@ class ProcessIntelligence:
         df_index = df.index
         std_window = self.std_window
         bipolar_sensitivity = self.bipolar_sensitivity
-        price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
-        main_force_cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
+        price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
+        main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship")
         P_change = normalize_to_bipolar(price_change, df_index, std_window, bipolar_sensitivity)
         CA_change = normalize_to_bipolar(main_force_cost_advantage.diff(1).fillna(0), df_index, std_window, bipolar_sensitivity)
-        MF_flow = normalize_to_bipolar(df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index)), df_index, std_window, bipolar_sensitivity)
+        MF_flow = normalize_to_bipolar(self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_cost_advantage_trend_relationship"), df_index, std_window, bipolar_sensitivity)
         Chip_conc = self.strategy.atomic_states.get('SCORE_CHIP_AXIOM_CONCENTRATION', pd.Series(0.0, index=df_index))
         Micro_decep = self.strategy.atomic_states.get('SCORE_MICRO_AXIOM_DECEPTION', pd.Series(0.0, index=df_index))
         Up_eff_unipolar = self.strategy.atomic_states.get('SCORE_BEHAVIOR_UPWARD_EFFICIENCY', pd.Series(0.5, index=df_index))
@@ -175,6 +184,7 @@ class ProcessIntelligence:
         - 输出: [-1, 1] 的双极性分数，正分代表主力拉升意图强，负分代表主力不积极或存在派发。
         - 【修正】调整 `final_urgency_score` 的计算逻辑，使其在价格上涨且主力资金流入时能更准确地反映拉升意图。
         - 【增强】在涨停日，引入 `pct_change_D` 的强度作为 `initial_urgency_score` 的组成部分，并对 `final_urgency_score` 进行额外加成。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_RALLY_INTENT (主力拉升意图)...") # 修改信号名称
         df_index = df.index
@@ -183,15 +193,15 @@ class ProcessIntelligence:
         # 判断是否为涨停日
         is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
         # 1. 获取核心信号
-        price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
-        main_force_cost_change_raw = df.get(f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
-        main_force_cost_accel_raw = df.get(f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
-        main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
-        chip_concentration_change = df.get(f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index))
+        price_change = self._get_safe_series(df, 'pct_change_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_cost_change_raw = self._get_safe_series(df, f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_cost_accel_raw = self._get_safe_series(df, f'ACCEL_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        chip_concentration_change = self._get_safe_series(df, f'SLOPE_5_short_term_concentration_90pct_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         # 新增主力控盘和成本优势相关信号
-        main_force_control_leverage = df.get('main_force_control_leverage_D', pd.Series(0.0, index=df_index))
-        main_force_cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
-        main_force_price_impact_ratio = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index))
+        main_force_control_leverage = self._get_safe_series(df, 'main_force_control_leverage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_cost_advantage = self._get_safe_series(df, 'main_force_cost_advantage_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
+        main_force_price_impact_ratio = self._get_safe_series(df, 'main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_urgency_relationship")
         # 2. 归一化为双极性分数
         price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
@@ -263,13 +273,14 @@ class ProcessIntelligence:
           2. 控盘趋势 (控盘>REF(控盘,1) AND 控盘>0)
           3. 主力资金净流入 (main_force_net_flow_calibrated_D)
         - 输出: [-1, 1] 的双极性分数，正分代表主力控盘强且趋势向上，负分代表控盘弱或趋势向下。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         print("    -> [过程层] 正在计算 PROCESS_META_MAIN_FORCE_CONTROL (主力控盘)...")
         df_index = df.index
         std_window = self.std_window
         bipolar_sensitivity = self.bipolar_sensitivity
         # 1. 计算 VARN1 (EMA(EMA(CLOSE,13),13))
-        ema13 = ta.ema(close=df['close_D'], length=13, append=False)
+        ema13 = ta.ema(close=self._get_safe_series(df, 'close_D', method_name="_calculate_main_force_control_relationship"), length=13, append=False)
         varn1 = ta.ema(close=ema13, length=13, append=False)
         # 2. 计算控盘 (VARN1-REF(VARN1,1))/REF(VARN1,1)*1000
         # 避免除以零
@@ -278,7 +289,7 @@ class ProcessIntelligence:
         # 3. 计算有庄控盘 (控盘>REF(控盘,1) AND 控盘>0)
         youzhuang_kongpan = (kongpan_raw > kongpan_raw.shift(1)) & (kongpan_raw > 0)
         # 4. 主力资金净流入作为确认
-        main_force_net_flow = df.get('main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index))
+        main_force_net_flow = self._get_safe_series(df, 'main_force_net_flow_calibrated_D', pd.Series(0.0, index=df_index), method_name="_calculate_main_force_control_relationship")
         # 5. 归一化为双极性分数
         kongpan_score = normalize_to_bipolar(kongpan_raw, df_index, std_window, bipolar_sensitivity)
         main_force_flow_score = normalize_to_bipolar(main_force_net_flow, df_index, std_window, bipolar_sensitivity)
@@ -407,13 +418,14 @@ class ProcessIntelligence:
         """
         【V1.1 · 真理探针植入版】“赢家信念”专属关系计算引擎
         - 新增功能: 植入“真理探针”，打印计算过程中的所有中间变量。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         signal_a_name = config.get('signal_A')
         signal_b_name = config.get('signal_B')
         antidote_signal_name = config.get('antidote_signal')
         df_index = df.index
         def get_signal_series(signal_name: str) -> Optional[pd.Series]:
-            return df.get(signal_name)
+            return self._get_safe_series(df, signal_name, method_name="_calculate_winner_conviction_relationship")
         def get_change_series(series: pd.Series, change_type: str) -> pd.Series:
             if series is None: return pd.Series(dtype=np.float32)
             if change_type == 'diff':
@@ -440,6 +452,7 @@ class ProcessIntelligence:
         - 核心职责: 专门用于计算单个信号的负向变化（衰减）强度。
         - 数学逻辑: 1. 计算信号的一阶差分。 2. 只保留负值（代表衰减）。 3. 取绝对值。 4. 归一化。
         - 收益: 提供了计算“衰减”的正确且健壮的数学模型，取代了错误的关系诊断模型。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         signal_name = config.get('name')
         source_signal_name = config.get('source_signal')
@@ -452,7 +465,7 @@ class ProcessIntelligence:
         if source_type == 'atomic_states':
             source_series = self.strategy.atomic_states.get(source_signal_name)
         else:
-            source_series = df.get(source_signal_name)
+            source_series = self._get_safe_series(df, source_signal_name, method_name="_diagnose_signal_decay")
         if source_series is None:
             print(f"        -> [衰减分析] 警告: 缺少源信号 '{source_signal_name}'。")
             return {}
@@ -467,6 +480,7 @@ class ProcessIntelligence:
         - 核心职责: 接收一个原子情报领域的公理信号列表和权重，计算该领域的双极性健康度，
                       然后从健康度的变化中派生底部反转和顶部反转信号。
         - 命名规范: 输出信号为 PROCESS_META_DOMAIN_BOTTOM_REVERSAL 和 PROCESS_META_DOMAIN_TOP_REVERSAL。
+        - 核心修复: 增加对所有依赖数据的存在性检查。
         """
         domain_name = config.get('domain_name')
         axiom_configs = config.get('axioms', [])
@@ -500,3 +514,4 @@ class ProcessIntelligence:
             output_bottom_name: bottom_reversal_score.astype(np.float32),
             output_top_name: top_reversal_score.astype(np.float32)
         }
+

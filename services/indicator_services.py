@@ -718,10 +718,8 @@ class IndicatorService:
                 result_data = result_data.to_frame()
             if isinstance(result_data, pd.DataFrame):
                 suffix = f"_{timeframe_key}"
-                # [代码修改开始]
                 # 只有当列名不以当前时间框架后缀结尾时，才添加后缀
                 rename_dict = {col: f"{col}{suffix}" for col in result_data.columns if not col.endswith(suffix)}
-                # [代码修改结束]
                 result_data.rename(columns=rename_dict, inplace=True)
                 for col in result_data.columns:
                     target_df[col] = result_data[col]
