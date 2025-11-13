@@ -274,10 +274,8 @@ class ChipFeatureCalculator:
         if not losers_df.empty and losers_df['percent'].sum() > 0:
             results['loser_avg_cost'] = np.average(losers_df['price'], weights=losers_df['percent'])
         # 3. 获利盘信念 (Winner Conviction)
-        # [代码修改开始]
         # 将 active_profit_margin 直接传递给 _calculate_winner_conviction_index
         results['winner_conviction_index'] = self._calculate_winner_conviction_index(context, active_profit_margin)
-        # [代码修改结束]
         # 4. 统一意图信号
         required_cols_4_1 = ['minute_vwap', 'main_force_buy_vol', 'main_force_sell_vol', 'retail_buy_vol', 'retail_sell_vol']
         if minute_df is not None and not minute_df.empty and all(c in minute_df.columns for c in required_cols_4_1):
@@ -584,9 +582,7 @@ class ChipFeatureCalculator:
                 loser_concentration = (cost_95pct_loser - cost_5pct_loser) / loser_avg_cost_quality if loser_avg_cost_quality > 0 else 0
                 results['loser_pain_index'] = avg_loss_margin * (1 - np.clip(loser_concentration, 0, 1))
         # 8. 成本分布形态分析
-        # [代码修改开始]
         results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
-        # [代码修改结束]
         # 9. 结构稳定性评估
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')

@@ -55,11 +55,9 @@ class AdvancedChipMetricsService:
         merged_df = self._preprocess_and_merge_data(stock_code, data_dfs)
         minute_data_map = await self._load_minute_data_for_range(stock_info, dates_to_process.min(), dates_to_process.max())
         # 核心指标锻造
-        # [代码修改开始]
         base_metrics_df, _, _ = self._synthesize_and_forge_metrics(
             stock_info, merged_df, minute_data_map, fund_flow_attributed_minute_map, debug_params=debug_params
         )
-        # [代码修改结束]
         if base_metrics_df.empty:
             logger.info(f"[{stock_code}] [筹码服务] 未能计算出任何新的基础指标。")
             return 0
@@ -171,10 +169,8 @@ class AdvancedChipMetricsService:
         grouped_data = merged_df.groupby('trade_time')
         required_daily_chip_cols = ['close_qfq', 'vol', 'float_share', 'circ_mv', 'weight_avg', 'winner_rate', 'pre_close_qfq']
         is_first_day_in_batch = True
-        # [代码修改开始]
         # 确保 debug_params 默认为空字典，以防未传递
         debug_params = debug_params if debug_params is not None else {}
-        # [代码修改结束]
         for i, (trade_date, daily_full_df) in enumerate(grouped_data):
             context_data = daily_full_df.iloc[0].to_dict()
             chip_data_for_calc = daily_full_df[['price', 'percent']].dropna()

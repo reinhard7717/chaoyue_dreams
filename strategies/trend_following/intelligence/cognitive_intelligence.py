@@ -354,12 +354,10 @@ class CognitiveIntelligence:
         price_change_bipolar = normalize_to_bipolar(self._get_atomic_score('pct_change_D'), self.strategy.df_indicators.index, 21)
         price_rising_evidence = self._forge_dynamic_evidence(price_change_bipolar.clip(lower=0))
         efficiency_evidence = self._forge_dynamic_evidence(normalize_score(self._get_atomic_score('VPA_EFFICIENCY_D'), self.strategy.df_indicators.index, 55))
-        # [代码修改开始]
         # 更新信号名称
         rally_intent_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_MAIN_FORCE_RALLY_INTENT', 0.0).clip(lower=0))
         conviction_evidence = self._forge_dynamic_evidence(self._get_atomic_score('PROCESS_META_WINNER_CONVICTION', 0.0).clip(lower=0))
         process_evidence = (rally_intent_evidence * conviction_evidence).pow(0.5) # 使用新的拉升意图信号
-        # [代码修改结束]
         chip_evidence = self._forge_dynamic_evidence(self._get_atomic_score('SCORE_CHIP_AXIOM_CONCENTRATION', 0.0).clip(lower=0))
         evidence_scores = np.stack([
             capital_confrontation.values, price_rising_evidence.values, efficiency_evidence.values,
@@ -481,50 +479,52 @@ class CognitiveIntelligence:
 
     def _deduce_energy_compression_breakout(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """
-        【V1.4 · 动态证据版】贝叶斯推演：“能量压缩爆发”剧本
-        - 核心升级: 不再直接使用原始证据，而是先通过 `_forge_dynamic_evidence` 进行动态锻造。
+        【V1.6 · 能量压缩爆发增强版 - 量能萎缩信号升级】贝叶斯推演：“能量压缩爆发”剧本
+        - 核心升级: 将 `volume_atrophy` 证据替换为更精确的 `SCORE_BEHAVIOR_VOLUME_ATROPHY` 信号。
         - 【增强】引入价格变化率和成交量爆发作为“爆发”的直接证据，并调整证据权重，使其在爆发当天能更积极地反映剧本。
+        - 【修正】在涨停日，对“压缩”证据（波动率压缩、成交量萎缩）更侧重其“状态”而非“动态”，并对最终似然度进行额外加成。
         """
         print("    -- [剧本推演] 能量压缩爆发 (动态证据)...")
+        df_index = self.strategy.df_indicators.index
+        is_limit_up_day = self.strategy.df_indicators.apply(lambda row: utils.is_limit_up(row), axis=1)
         # 证据1: 波动率压缩 (BBW收缩)
         bbw = self._get_atomic_score('BBW_21_2.0_D', 0.1)
-        volatility_compression = self._forge_dynamic_evidence(1 - normalize_score(bbw, self.strategy.df_indicators.index, 144))
-
-        # 证据2: 成交量萎缩 (成交量低于均值)
-        volume_atrophy = self._forge_dynamic_evidence(1 - normalize_score(self._get_atomic_score('volume_D'), self.strategy.df_indicators.index, 144))
-
+        volatility_compression_raw_score = normalize_score(1 - bbw, df_index, 144, ascending=True) # 1-BBW，越高越压缩
+        volatility_compression = self._forge_dynamic_evidence(1 - normalize_score(bbw, df_index, 144))
+        # 证据2: 成交量萎缩 (使用新的 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号)
+        volume_atrophy_raw_score = self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_ATROPHY', 0.0) # 直接获取新的萎缩信号
+        volume_atrophy = self._forge_dynamic_evidence(volume_atrophy_raw_score) # 对新的萎缩信号进行动态锻造
         # 证据3: 有序性 (熵值低)
         entropy_col = next((col for col in self.strategy.df_indicators.columns if col.startswith('SAMPLE_ENTROPY_')), None)
         if entropy_col:
             entropy = self._get_atomic_score(entropy_col, 1.0)
-            orderliness_score = self._forge_dynamic_evidence(1 - normalize_score(entropy, self.strategy.df_indicators.index, 144))
+            orderliness_score = self._forge_dynamic_evidence(1 - normalize_score(entropy, df_index, 144))
         else:
-            orderliness_score = pd.Series(0.5, index=self.strategy.df_indicators.index)
-
-        # [代码修改开始]
+            orderliness_score = pd.Series(0.5, index=df_index)
         # 证据4: 价格变化率 (直接爆发证据)
         pct_change_raw = self._get_atomic_score('pct_change_D', 0.0)
         price_burst_evidence = self._forge_dynamic_evidence(pct_change_raw.clip(lower=0), is_bipolar=False) # 只关注上涨爆发
-
         # 证据5: 成交量爆发 (直接爆发证据)
         volume_burst_raw = self._get_atomic_score('SCORE_BEHAVIOR_VOLUME_BURST', 0.0)
         volume_burst_evidence = self._forge_dynamic_evidence(volume_burst_raw, is_bipolar=False)
-
+        # 涨停日特殊处理：如果当天是涨停，则压缩证据直接取其“状态”分，并给予高权重
+        volatility_compression_final = volatility_compression.mask(is_limit_up_day, volatility_compression_raw_score)
+        volume_atrophy_final = volume_atrophy.mask(is_limit_up_day, volume_atrophy_raw_score) # 对新的萎缩信号也进行涨停日特殊处理
         evidence_scores = np.stack([
-            volatility_compression.values,
-            volume_atrophy.values,
+            volatility_compression_final.values, # 使用处理后的压缩证据
+            volume_atrophy_final.values,         # 使用处理后的萎缩证据
             orderliness_score.values,
-            price_burst_evidence.values, # 新增
-            volume_burst_evidence.values # 新增
+            price_burst_evidence.values,
+            volume_burst_evidence.values
         ], axis=0)
-
-        # 调整权重，增加爆发证据的权重
-        evidence_weights = np.array([0.2, 0.2, 0.2, 0.2, 0.2]) # 调整权重
-        # [代码修改结束]
-
+        # 调整权重，增加爆发证据的权重，并略微降低压缩证据的权重，但确保其基础贡献
+        evidence_weights = np.array([0.15, 0.15, 0.15, 0.3, 0.25]) # 调整权重
         evidence_weights /= evidence_weights.sum()
         safe_scores = np.maximum(evidence_scores, 1e-9)
-        likelihood = pd.Series(np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0)), index=self.strategy.df_indicators.index)
+        likelihood_values = np.exp(np.sum(np.log(safe_scores) * evidence_weights[:, np.newaxis], axis=0))
+        likelihood = pd.Series(likelihood_values, index=df_index)
+        # 涨停日额外加成：在涨停日，能量压缩爆发的似然度应该更高
+        likelihood = likelihood.mask(is_limit_up_day, likelihood + 0.3).clip(0, 1) # 涨停日额外加分
         prior_prob = priors.get('COGNITIVE_PRIOR_REVERSAL_PROB', pd.Series(0.0, index=likelihood.index))
         posterior_prob = (likelihood * prior_prob).clip(0, 1)
         return {'COGNITIVE_PLAYBOOK_ENERGY_COMPRESSION': posterior_prob.astype(np.float32)}
@@ -546,14 +546,11 @@ class CognitiveIntelligence:
         """
         if not isinstance(raw_evidence, pd.Series) or raw_evidence.empty:
             return pd.Series(0.0, index=self.strategy.df_indicators.index)
-
         # 修正1: 如果原始证据全为零，则直接返回全零的证据
         # 使用一个小的阈值来判断是否为零，避免浮点数精度问题
         if (raw_evidence.abs() < 1e-9).all():
             return pd.Series(0.0, index=self.strategy.df_indicators.index)
-
         norm_window = 55 # 默认值，可以从配置中获取
-
         # 修正2: 在转换为双极性之前，先将 raw_evidence 归一化到 [0, 1]
         # 如果 raw_evidence 已经是双极性，则不需要再次归一化到 [0, 1]
         if not is_bipolar:
@@ -561,44 +558,34 @@ class CognitiveIntelligence:
             # normalize_score 将其缩放到 [0, 1]
             normalized_raw_evidence = normalize_score(raw_evidence, self.strategy.df_indicators.index, window=norm_window, ascending=True)
             normalized_raw_evidence = normalized_raw_evidence.fillna(0.0) # 确保没有NaN
-
             # 将 [0, 1] 映射到 [-1, 1]
             bipolar_evidence = (normalized_raw_evidence * 2 - 1).clip(-1, 1)
         else:
             # 如果输入已经是双极性，则直接使用
             bipolar_evidence = raw_evidence.clip(-1, 1)
-
         velocity = bipolar_evidence.diff(1).fillna(0)
         acceleration = velocity.diff(1).fillna(0)
-
         state_score = bipolar_evidence
         velocity_score = normalize_to_bipolar(velocity, self.strategy.df_indicators.index, norm_window)
         acceleration_score = normalize_to_bipolar(acceleration, self.strategy.df_indicators.index, norm_window)
-
         w_state, w_velocity, w_acceleration = 0.3, 0.4, 0.3
         dynamic_force = (state_score * w_state + velocity_score * w_velocity + acceleration_score * w_acceleration)
-
-        # [代码修改开始]
         # 修正3: 调整 forged_evidence 的最终映射
         # 我们希望：
         # 1. dynamic_force > 0 时，贡献正向证据强度。
         # 2. dynamic_force <= 0 但 state_score > 0 时，仍能保留 state_score 的一部分贡献，避免过度惩罚。
         # 3. dynamic_force <= 0 且 state_score <= 0 时，贡献为 0。
         forged_evidence = pd.Series(0.0, index=self.strategy.df_indicators.index)
-
         # 情况1: dynamic_force > 0，直接使用 (dynamic_force + 1) / 2.0 映射到 [0.5, 1]
         positive_dynamic_force_mask = dynamic_force > 0
         forged_evidence[positive_dynamic_force_mask] = (dynamic_force[positive_dynamic_force_mask] + 1) / 2.0
-
         # 情况2: dynamic_force <= 0 但 state_score > 0，保留 state_score 的一部分贡献
         # 映射 state_score 从 [-1, 1] 到 [0, 1]，并乘以一个衰减因子 (例如 0.3)
         # 这样即使动态力为负，只要状态本身是积极的，也能有基础分
         negative_dynamic_force_positive_state_mask = (dynamic_force <= 0) & (state_score > 0)
         forged_evidence[negative_dynamic_force_positive_state_mask] = (state_score[negative_dynamic_force_positive_state_mask] + 1) / 2.0 * 0.3
-
         # 确保最终输出在 [0, 1] 范围内
         return forged_evidence.clip(0, 1)
-        # [代码修改结束]
 
     def _deduce_long_term_profit_distribution_risk(self, priors: Dict[str, pd.Series]) -> Dict[str, pd.Series]:
         """

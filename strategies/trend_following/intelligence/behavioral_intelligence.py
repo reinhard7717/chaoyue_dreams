@@ -170,7 +170,9 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM'] = get_adaptive_mtf_normalized_score(df['pct_change_D'].clip(upper=0).abs(), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['INTERNAL_BEHAVIOR_PRICE_OVEREXTENSION_RAW'] = get_adaptive_mtf_normalized_score(df.get('BIAS_55_D', 0.0), df.index, ascending=True, tf_weights=long_term_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_VOLUME_BURST'] = get_adaptive_mtf_normalized_score(df.get('volume_ratio_D', 1.0), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
-        states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
+        # 移除 SCORE_BEHAVIOR_VOLUME_APATHY，替换为更精确的 SCORE_BEHAVIOR_VOLUME_ATROPHY
+        # states['SCORE_BEHAVIOR_VOLUME_APATHY'] = get_adaptive_mtf_normalized_score(df.get('turnover_rate_f_D', 10.0), df.index, ascending=False, tf_weights=long_term_weights).astype(np.float32)
+        states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] = self._calculate_volume_atrophy(df, default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_UPWARD_EFFICIENCY'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE'] = get_adaptive_mtf_normalized_score(df.get('VPA_EFFICIENCY_D', 0.5), df.index, ascending=False, tf_weights=default_weights).astype(np.float32)
         states['SCORE_BEHAVIOR_INTRADAY_BULL_CONTROL'] = get_adaptive_mtf_normalized_score(df.get('vwap_control_strength_D', 0.5), df.index, ascending=True, tf_weights=default_weights).astype(np.float32)
@@ -182,8 +184,8 @@ class BehavioralIntelligence:
         states['SCORE_BEHAVIOR_PRICE_VS_VOLUME_DIVERGENCE'] = divergence_score.astype(np.float32)
         is_rising = (df['pct_change_D'] > 0).astype(float)
         is_falling = (df['pct_change_D'] < 0).astype(float)
-        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_APATHY']).pow(1/3).astype(np.float32)
-        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_APATHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32)
+        states['SCORE_OPPORTUNITY_LOCKUP_RALLY'] = (is_rising * states['SCORE_BEHAVIOR_PRICE_UPWARD_MOMENTUM'] * states['SCORE_BEHAVIOR_VOLUME_ATROPHY']).pow(1/3).astype(np.float32) # 修改为 VOLUME_ATROPHY
+        states['SCORE_OPPORTUNITY_SELLING_EXHAUSTION'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_ATROPHY'] * states['SCORE_BEHAVIOR_DOWNWARD_RESISTANCE']).pow(1/3).astype(np.float32) # 修改为 VOLUME_ATROPHY
         # 行为层新增中性、原子级的“滞涨证据原始分”
         # 滞涨证据原始分：量化价格上涨但效率低下的行为特征，不直接给出风险判断。
         # 融合价格上涨动能、上涨效率、成交量爆发和日内多头控制力等行为层原子信号。
@@ -212,6 +214,51 @@ class BehavioralIntelligence:
         states['INTERNAL_BEHAVIOR_STAGNATION_EVIDENCE_RAW'] = (stagnation_evidence_raw_score * is_rising).clip(0, 1).astype(np.float32) # 仅在价格上涨时才计算滞涨证据
         states['SCORE_RISK_LIQUIDITY_DRAIN'] = (is_falling * states['SCORE_BEHAVIOR_VOLUME_BURST'] * states['SCORE_BEHAVIOR_PRICE_DOWNWARD_MOMENTUM']).pow(1/2).astype(np.float32)
         return states
+
+    def _calculate_volume_atrophy(self, df: pd.DataFrame, tf_weights: Dict) -> pd.Series:
+        """
+        【V1.0 · 量能萎缩证据版】计算 SCORE_BEHAVIOR_VOLUME_ATROPHY 信号。
+        - 核心逻辑: 融合三种量能萎缩的强力证据：
+          1. 量能一直低于ma_vol_21
+          2. ma_vol_5已经低于ma_vol_21
+          3. 当日量能 < ma_vol_5 < ma_vol_21
+        - 输出: [0, 1] 的单极性分数，分数越高代表量能萎缩越严重。
+        """
+        df_index = df.index
+        # 获取必要的成交量均线数据
+        vol = df.get('volume_D', pd.Series(0.0, index=df_index))
+        vol_ma5 = df.get('VOL_MA_5_D', pd.Series(0.0, index=df_index))
+        vol_ma21 = df.get('VOL_MA_21_D', pd.Series(0.0, index=df_index))
+        # 确保数据存在，否则返回默认值
+        if vol.isnull().all() or vol_ma5.isnull().all() or vol_ma21.isnull().all():
+            print("    -> [行为情报引擎警告] 缺少成交量或成交量均线数据，无法计算 SCORE_BEHAVIOR_VOLUME_ATROPHY。")
+            return pd.Series(0.0, index=df_index)
+        # 证据1: 量能一直低于ma_vol_21 (持续性萎缩)
+        # 使用 normalize_score 对 (1 - volume_D / VOL_MA_21_D) 进行归一化，比值越小，分数越高
+        # 避免除以零
+        vol_ma21_safe = vol_ma21.replace(0, 1e-9)
+        vol_below_ma21_raw = (1 - (vol / vol_ma21_safe)).clip(0, 1) # 0到1，1代表远低于
+        vol_below_ma21_score = get_adaptive_mtf_normalized_score(vol_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 证据2: ma_vol_5已经低于ma_vol_21 (结构性萎缩)
+        # 使用 normalize_score 对 (1 - VOL_MA_5_D / VOL_MA_21_D) 进行归一化
+        vol_ma5_below_ma21_raw = (1 - (vol_ma5 / vol_ma21_safe)).clip(0, 1)
+        vol_ma5_below_ma21_score = get_adaptive_mtf_normalized_score(vol_ma5_below_ma21_raw, df_index, ascending=True, tf_weights=tf_weights)
+        # 证据3: 当日量能 < ma_vol_5 < ma_vol_21 (冰点萎缩)
+        # 这是一个布尔条件，直接转换为分数
+        is_ice_point_atrophy = ((vol < vol_ma5) & (vol_ma5 < vol_ma21)).astype(float)
+        # 融合所有证据
+        # 赋予冰点萎缩更高的权重，因为它代表了最强的萎缩信号
+        # 使用加权几何平均，确保所有证据都存在时分数才高
+        evidence_components = [
+            vol_below_ma21_score,
+            vol_ma5_below_ma21_score,
+            is_ice_point_atrophy
+        ]
+        weights = np.array([0.3, 0.3, 0.4]) # 冰点萎缩权重最高
+        aligned_evidence_components = [comp.reindex(df_index, fill_value=0.0) for comp in evidence_components]
+        safe_evidence_components = [comp + 1e-9 for comp in aligned_evidence_components] # 避免log(0)
+        volume_atrophy_score = pd.Series(np.prod([comp.values ** w for comp, w in zip(safe_evidence_components, weights)], axis=0), index=df_index)
+        return volume_atrophy_score.clip(0, 1)
 
     def _diagnose_context_new_high_strength(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """

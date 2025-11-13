@@ -201,11 +201,11 @@
             "type": "context",
             "description": "【行为公理二】基于量比，衡量市场活跃度的爆发程度。"
         },
-        "SCORE_BEHAVIOR_VOLUME_APATHY": {
-            "cn_name": "【行为】成交量冷漠",
+        "SCORE_BEHAVIOR_VOLUME_ATROPHY": {
+            "cn_name": "【行为】成交量萎缩",
             "category": "行为层-原子",
             "type": "context",
-            "description": "【行为公理二】基于换手率，衡量市场情绪的冷漠程度和流动性的收缩状态。"
+            "description": "【行为公理二】融合量能持续低于21日均量、5日均量低于21日均量、当日量能低于5日均量等证据，精确衡量量能萎缩的程度。"
         },
         "SCORE_BEHAVIOR_UPWARD_EFFICIENCY": {
             "cn_name": "【行为】上涨效率",

@@ -180,10 +180,8 @@ class ProcessIntelligence:
         df_index = df.index
         norm_window = self.norm_window
         std_window = self.std_window
-
         # 判断是否为涨停日
         is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
-
         # 1. 获取核心信号
         price_change = df.get('pct_change_D', pd.Series(0.0, index=df_index))
         main_force_cost_change_raw = df.get(f'SLOPE_5_active_winner_avg_cost_D', pd.Series(0.0, index=df_index))
@@ -194,7 +192,6 @@ class ProcessIntelligence:
         main_force_control_leverage = df.get('main_force_control_leverage_D', pd.Series(0.0, index=df_index))
         main_force_cost_advantage = df.get('main_force_cost_advantage_D', pd.Series(0.0, index=df_index))
         main_force_price_impact_ratio = df.get('main_force_price_impact_ratio_D', pd.Series(0.0, index=df_index))
-
         # 2. 归一化为双极性分数
         price_change_bipolar = normalize_to_bipolar(price_change, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_change_bipolar = normalize_to_bipolar(main_force_cost_change_raw, df_index, std_window, self.bipolar_sensitivity)
@@ -204,13 +201,11 @@ class ProcessIntelligence:
         main_force_control_leverage_bipolar = normalize_to_bipolar(main_force_control_leverage, df_index, std_window, self.bipolar_sensitivity)
         main_force_cost_advantage_bipolar = normalize_to_bipolar(main_force_cost_advantage, df_index, std_window, self.bipolar_sensitivity)
         main_force_price_impact_ratio_bipolar = normalize_to_bipolar(main_force_price_impact_ratio, df_index, std_window, self.bipolar_sensitivity)
-
         # 3. 核心逻辑：区分“控盘拉升”和“抢筹拉升”
         # relative_urgency_speed: 主力成本抬升速度 - 价格上涨速度
         # > 0 表示抢筹 (成本抬升快于价格)
         # < 0 表示控盘 (成本抬升慢于价格)
         relative_urgency_speed = (main_force_cost_change_bipolar - price_change_bipolar).clip(-1, 1)
-
         # 4. 共同的积极拉升证据 (必须为正)
         # 价格上涨、主力资金流入、筹码集中度上升
         common_bullish_evidence = (
@@ -218,7 +213,6 @@ class ProcessIntelligence:
             main_force_net_flow_bipolar.clip(lower=0) * 0.4 +
             chip_concentration_change_bipolar.clip(lower=0) * 0.3
         ).clip(0, 1)
-
         # 5. 控盘拉升意图 (relative_urgency_speed < 0)
         # 价格上涨，主力资金流入，筹码集中，主力成本抬升慢于价格上涨
         # 额外证据：主力控盘杠杆高，主力成本优势大
@@ -229,7 +223,6 @@ class ProcessIntelligence:
             main_force_control_leverage_bipolar.loc[control_rally_mask].clip(lower=0) * 0.3 +
             main_force_cost_advantage_bipolar.loc[control_rally_mask].clip(lower=0) * 0.2
         ).clip(0, 1)
-
         # 6. 抢筹拉升意图 (relative_urgency_speed > 0)
         # 价格上涨，主力资金流入，筹码集中，主力成本抬升快于价格上涨
         # 额外证据：主力成本抬升加速度，主力价格冲击比率高
@@ -240,21 +233,17 @@ class ProcessIntelligence:
             main_force_cost_accel_bipolar.loc[chasing_rally_mask].clip(lower=0) * 0.3 +
             main_force_price_impact_ratio_bipolar.loc[chasing_rally_mask].clip(lower=0) * 0.2
         ).clip(0, 1)
-
         # 7. 融合两种积极意图，并考虑负向情况
         # 如果价格下跌，或者主力资金流出，则为负分
         final_rally_intent = pd.Series(0.0, index=df_index)
         final_rally_intent = final_rally_intent.mask(control_rally_intent > 0, control_rally_intent)
         final_rally_intent = final_rally_intent.mask(chasing_rally_intent > 0, chasing_rally_intent)
-
         # 如果价格下跌或主力资金流出，则为负分
         bearish_mask = (price_change_bipolar < 0) | (main_force_net_flow_bipolar < 0)
         bearish_score = (price_change_bipolar.clip(upper=0).abs() * 0.5 + main_force_net_flow_bipolar.clip(upper=0).abs() * 0.5).clip(0, 1) * -1
         final_rally_intent = final_rally_intent.mask(bearish_mask, bearish_score)
-
         # 8. 涨停日额外加成：在涨停日，主力拉升意图应该更高
         final_rally_intent = final_rally_intent.mask(is_limit_up_day, final_rally_intent + 0.3).clip(-1, 1)
-
         self.strategy.atomic_states[f"_DEBUG_price_change_bipolar"] = price_change_bipolar
         self.strategy.atomic_states[f"_DEBUG_main_force_net_flow_bipolar"] = main_force_net_flow_bipolar
         self.strategy.atomic_states[f"_DEBUG_chip_concentration_change_bipolar"] = chip_concentration_change_bipolar
@@ -314,21 +303,28 @@ class ProcessIntelligence:
 
     def _diagnose_meta_relationship(self, df: pd.DataFrame, config: Dict) -> Dict[str, pd.Series]:
         """
-        【V4.0.0 · 希格斯场分析法】对“关系分”进行元分析，输出分数。
-        - 核心革命: 废除基于线性回归(linreg)的“趋势/加速度”模型，引入全新的“关系位移/关系动量”模型。
-                      这使得引擎能更灵敏地捕捉关系的非线性变化和“势”的拐点，更符合A股特性。
-        - 核心修复: 再次强调并修正“加速度”计算的致命逻辑错误。加速度是速度(trend)的一阶导数，
-                      必须使用 relationship_trend.diff(1) 进行计算。
+        【V4.0.2 · 希格斯场分析法 - 信号存储修复版】对“关系分”进行元分析，输出分数。
+        - 核心修复: 确保 `PROCESS_META_MAIN_FORCE_RALLY_INTENT` 及其他定制化计算的信号能够正确地被存储到 `atomic_states` 中。
         """
         signal_name = config.get('name')
         df_index = df.index
-        if signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
+        # 根据信号名称调用不同的计算方法
+        if signal_name == 'PROCESS_META_MAIN_FORCE_RALLY_INTENT':
+            relationship_score = self._calculate_main_force_urgency_relationship(df, config)
+        elif signal_name == 'PROCESS_META_WINNER_CONVICTION' and 'antidote_signal' in config:
             relationship_score = self._calculate_winner_conviction_relationship(df, config)
+        elif signal_name == 'PROCESS_META_COST_ADVANTAGE_TREND':
+            relationship_score = self._calculate_cost_advantage_trend_relationship(df, config)
+        elif signal_name == 'PROCESS_META_MAIN_FORCE_CONTROL':
+            relationship_score = self._calculate_main_force_control_relationship(df, config)
         else:
             relationship_score = self._calculate_instantaneous_relationship(df, config)
         if relationship_score.empty:
             return {}
-        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{config.get('signal_A')}_VS_{config.get('signal_B')}"
+        # 存储原始的关系分数到 atomic_states，使用其原始的 signal_name
+        self.strategy.atomic_states[signal_name] = relationship_score.astype(np.float32)
+        # 存储中间信号，确保名称正确
+        intermediate_signal_name = f"PROCESS_ATOMIC_REL_SCORE_{signal_name}"
         self.strategy.atomic_states[intermediate_signal_name] = relationship_score.astype(np.float32)
         diagnosis_mode = config.get('diagnosis_mode', 'meta_analysis')
         if diagnosis_mode == 'direct_confirmation':
