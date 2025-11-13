@@ -135,7 +135,7 @@ class ChipIntelligence:
 
     def _diagnose_axiom_cost_structure(self, df: pd.DataFrame, periods: list) -> pd.Series:
         """
-        【V2.6 · 数学重构与偏度增强版】筹码公理二：诊断“成本结构”动态
+        【V2.7 · 数学重构与偏度增强版】筹码公理二：诊断“成本结构”动态
         - 核心修复: 遵循“先归一，后融合”原则。将尺度差异巨大的 'winner_loser_momentum_D' 和 'cost_divergence_normalized_D'
                       分别进行自适应双极性归一化，然后再进行相减，避免了信号被单一指标主导的问题。
         - 引入 `cost_structure_skewness` (成本结构偏度) 作为判断成本结构健康度的重要证据。
@@ -153,8 +153,10 @@ class ChipIntelligence:
         tf_weights = get_param_value(p_conf.get('tf_fusion_weights'), {5: 0.4, 13: 0.3, 21: 0.2, 55: 0.1})
         momentum_score = utils.get_adaptive_mtf_normalized_bipolar_score(momentum_raw, df.index, tf_weights, sensitivity=1.0)
         divergence_score = utils.get_adaptive_mtf_normalized_bipolar_score(divergence_raw, df.index, tf_weights, sensitivity=1.0)
+        # [代码修改开始]
         # 归一化偏度，正偏度为正分。调整敏感度，避免极端值。
-        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.1) # 调整敏感度
+        skewness_score = utils.get_adaptive_mtf_normalized_bipolar_score(skewness_raw, df.index, tf_weights, sensitivity=0.5) # 调整敏感度从0.1到0.5
+        # [代码修改结束]
         # 融合 skewness_score
         # 融合逻辑：动量（正向）- 发散（负向）+ 偏度（正向）
         final_score = (momentum_score * 0.4 + skewness_score * 0.3 - divergence_score * 0.3).clip(-1, 1) # 调整权重

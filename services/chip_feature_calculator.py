@@ -406,7 +406,7 @@ class ChipFeatureCalculator:
 
     def _compute_static_structure_metrics(self) -> dict:
         """
-        【V11.3 · 断层指标鲁棒性增强版】
+        【V11.4 · 断层指标鲁棒性增强版】
         - 核心优化: 为 `chip_fault_blockage_ratio` 增加默认值0.0，确保在无断层时该指标有明确输出，而非NULL。
         - 【修复】重新定义 `active_winner_rate` 和 `active_loser_rate` 的计算逻辑，使其在价格突破近期高点时仍能有效捕捉活跃筹码。
         - 【修正】优化 `cost_structure_skewness` 的计算，确保在极端情况下能得到合理值。
@@ -580,18 +580,9 @@ class ChipFeatureCalculator:
                 loser_concentration = (cost_95pct_loser - cost_5pct_loser) / loser_avg_cost_quality if loser_avg_cost_quality > 0 else 0
                 results['loser_pain_index'] = avg_loss_margin * (1 - np.clip(loser_concentration, 0, 1))
         # 8. 成本分布形态分析
-        if not self.df.empty and self.df['percent'].sum() >= 1e-6:
-            from scipy.stats import skew
-            total_percent = self.df['percent'].sum()
-            weights = np.round((self.df['percent'] / total_percent) * 10000).astype(int)
-            valid_weights = weights[weights > 0]
-            if len(valid_weights) >= 3:
-                valid_prices = self.df['price'][weights > 0]
-                unweighted_sample = np.repeat(valid_prices, valid_weights)
-                skewness = skew(unweighted_sample)
-                results['cost_structure_skewness'] = -skewness
-            else: # 如果有效权重不足，则 skewness 为 0
-                results['cost_structure_skewness'] = 0.0
+        # [代码修改开始]
+        results['cost_structure_skewness'] = self._calculate_cost_structure_skewness(self.ctx)
+        # [代码修改结束]
         # 9. 结构稳定性评估
         concentration_70pct = self.ctx.get('concentration_70pct')
         total_winner_rate_stability = results.get('total_winner_rate')
@@ -916,58 +907,6 @@ class ChipFeatureCalculator:
 
         return winner_conviction_index
 
-    def _calculate_winner_conviction_index(self, context: dict) -> float:
-        """
-        【V1.0】计算赢家信念指数，并加入探针。
-        """
-        stock_code = context.get('stock_code', 'UNKNOWN')
-        trade_date = context.get('trade_date', 'UNKNOWN')
-        debug_params = context.get('debug_params', {})
-        probe_dates_str = debug_params.get('probe_dates', [])
-        is_probe_date = False
-        if probe_dates_str:
-            probe_date_naive = pd.to_datetime(probe_dates_str[0]).date()
-            if probe_date_naive == trade_date:
-                is_probe_date = True
-
-        active_profit_margin = context.get('active_winner_profit_margin')
-        bullish_reinforcement = context.get('upward_impulse_purity')
-        profit_taking_flow_ratio = context.get('profit_taking_flow_ratio')
-        active_winner_rate = context.get('active_winner_rate')
-
-        winner_conviction_index = 0.0
-
-        if is_probe_date:
-            print(f"    -> [赢家信念指数探针] @ {trade_date}:")
-            print(f"       - active_profit_margin: {active_profit_margin:.4f}")
-            print(f"       - bullish_reinforcement: {bullish_reinforcement:.4f}")
-            print(f"       - profit_taking_flow_ratio: {profit_taking_flow_ratio:.4f}")
-            print(f"       - active_winner_rate: {active_winner_rate:.4f}")
-
-        if all(pd.notna(v) for v in [active_profit_margin, bullish_reinforcement, profit_taking_flow_ratio, active_winner_rate]):
-            # realized_pressure 衡量获利盘兑现压力，越低越好
-            # 避免 active_winner_rate 为 0 导致除以 0，此时 realized_pressure 应该为 0 (无兑现压力)
-            realized_pressure = (profit_taking_flow_ratio / 100.0) / (active_winner_rate / 100.0) if active_winner_rate > 0 else 0.0
-            # hesitation_factor 应该在压力低时高，压力高时低
-            hesitation_factor = 1.0 - np.clip(realized_pressure, 0, 1) # 压力越大，犹豫因子越小
-            # margin_factor 获利盘利润垫，越高越好
-            margin_factor = np.log1p(np.clip(active_profit_margin / 100.0, 0, None)) if active_profit_margin > 0 else 0.0
-            # reinforcement_factor 上涨脉冲纯度，越高越好
-            reinforcement_factor = 1.0 + (bullish_reinforcement / 100.0) if bullish_reinforcement > 0 else 1.0
-
-            winner_conviction_index = hesitation_factor * margin_factor * reinforcement_factor * 100
-
-            if is_probe_date:
-                print(f"       - realized_pressure: {realized_pressure:.4f}")
-                print(f"       - hesitation_factor: {hesitation_factor:.4f}")
-                print(f"       - margin_factor: {margin_factor:.4f}")
-                print(f"       - reinforcement_factor: {reinforcement_factor:.4f}")
-                print(f"       - final winner_conviction_index: {winner_conviction_index:.4f}")
-        else:
-            if is_probe_date:
-                print(f"       - 缺少前置条件，winner_conviction_index: {winner_conviction_index:.4f}")
-
-        return winner_conviction_index
 
 
 
