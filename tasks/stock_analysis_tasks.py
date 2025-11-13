@@ -486,7 +486,6 @@ async def _initialize_task_context_unified(stock_code: str, is_incremental: bool
     from services.fund_flow_service import AdvancedFundFlowMetricsService
     from services.advanced_chip_metrics_service import AdvancedChipMetricsService
     from datetime import datetime, timedelta
-    from stock_models.index import TradeCalendar
     stock_info = await sync_to_async(StockInfo.objects.get)(stock_code=stock_code)
     ChipMetricsModel = get_advanced_chip_metrics_model_by_code(stock_code)
     FundFlowMetricsModel = get_advanced_fund_flow_metrics_model_by_code(stock_code)
@@ -676,6 +675,21 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
         from services.advanced_chip_metrics_service import AdvancedChipMetricsService
         import pandas_ta as ta
         from stock_models.index import TradeCalendar
+        import json
+        import os
+        from django.conf import settings # 假设 Django settings 可用
+        # 加载策略配置以获取 debug_params
+        config_path = os.path.join(settings.BASE_DIR, 'config', 'trend_follow_strategy.json')
+        strategy_config = {}
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                strategy_config = json.load(f)
+        except FileNotFoundError:
+            logger.error(f"策略配置文件未找到: {config_path}")
+        except json.JSONDecodeError:
+            logger.error(f"解码策略配置文件 JSON 失败: {config_path}")
+        # 从加载的配置中提取 debug_params
+        debug_params = strategy_config.get('strategy_params', {}).get('trend_follow', {}).get('debug_params', {})
         fund_flow_service = AdvancedFundFlowMetricsService()
         chip_service = AdvancedChipMetricsService()
         stock_info, ChipMetricsModel, FundFlowMetricsModel, is_incremental_final, lookback_start_date, process_start_date, save_start_date = await _initialize_task_context_unified(
@@ -786,8 +800,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
                     high_20d_map_global, low_20d_map_global, high_5d_map_global, low_5d_map_global, turnover_vol_5d_map_global
                 )
                 seed_minute_map = await chip_service._load_minute_data_for_range(stock_info, seed_chunk_dates.min(), seed_chunk_dates.max())
-                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df)
-                all_failures.extend(seed_failures)
+                _, cross_chunk_memory, seed_failures = chip_service._synthesize_and_forge_metrics(stock_info, seed_chip_raw_df, seed_minute_map, seed_ff_minute_map, memory={}, historical_components=historical_components_df, debug_params=debug_params)
             else:
                 logger.warning(f"[{stock_code}] [上下文播种] 播种日 {seed_date} 核心数据缺失，无法生成初始记忆。")
         for i in range(0, len(dates_to_process), CHUNK_SIZE):
@@ -839,7 +852,7 @@ def precompute_advanced_chips_for_stock(self, stock_code: str, is_incremental: b
             )
             minute_data_map = await chip_service._load_minute_data_for_range(stock_info, chunk_dates.min(), chunk_dates.max())
             chip_metrics_df, cross_chunk_memory, chunk_failures = chip_service._synthesize_and_forge_metrics(
-                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df
+                stock_info, chip_raw_df, minute_data_map, fund_flow_attributed_minute_map, memory=cross_chunk_memory, historical_components=historical_components_df, debug_params=debug_params
             )
             all_failures.extend(chunk_failures)
             chunk_core_metrics_df = fund_flow_metrics_df.join(chip_metrics_df, how='outer')
