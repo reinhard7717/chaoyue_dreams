@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple
-from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar
+from strategies.trend_following.utils import get_params_block, get_param_value, normalize_score, normalize_to_bipolar, bipolar_to_exclusive_unipolar, is_limit_up
 
 class StructuralIntelligence:
     """
@@ -83,7 +83,7 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df_index)
 
         # 判断是否为涨停日
-        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
 
         # --- 均线排列 (Alignment) ---
         bull_alignment_raw = pd.Series(0.0, index=df_index)
@@ -194,7 +194,7 @@ class StructuralIntelligence:
             return pd.Series(0.0, index=df_index)
 
         # 判断是否为涨停日
-        is_limit_up_day = df.apply(lambda row: utils.is_limit_up(row), axis=1)
+        is_limit_up_day = df.apply(lambda row: is_limit_up(row), axis=1)
 
         # --- 周线均线排列 (Weekly Alignment) ---
         bull_alignment_w_raw = pd.Series(0.0, index=df_index)
